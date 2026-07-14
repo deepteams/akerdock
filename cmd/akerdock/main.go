@@ -228,6 +228,7 @@ func run(args []string) int {
 		apiHandler = handlers.NewRouter(&handlers.API{
 			Sessions: sessions,
 			Passkeys: passkeys,
+			MFA:      &session.TOTP{Store: q, Sessions: sessions, Keyring: keyring},
 			Store:    q,
 			Pool:     pool,
 			Settings: settings,

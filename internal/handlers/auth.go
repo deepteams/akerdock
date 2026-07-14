@@ -43,6 +43,15 @@ func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 
 	sess, token, err := a.Sessions.Login(r.Context(), r, body.Email, body.Password)
 	switch {
+	case errors.Is(err, session.ErrMFARequired):
+		// The password was right; the session does not exist yet. The token
+		// here is the CHALLENGE the client echoes to /auth/mfa/verify with
+		// its TOTP code — it names nobody and opens nothing on its own.
+		httpapi.WriteJSON(w, http.StatusOK, map[string]any{
+			"mfa_required": true,
+			"challenge":    token,
+		})
+		return
 	case errors.Is(err, session.ErrAccountLocked):
 		// Told plainly: a locked-out user needs to know why they cannot get in,
 		// and an attacker learns nothing they could not measure anyway.

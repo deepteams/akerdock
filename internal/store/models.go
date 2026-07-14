@@ -2500,6 +2500,14 @@ type Job struct {
 	ResumeCount       int32
 }
 
+type MfaChallenge struct {
+	ID        int64
+	TokenHash string
+	UserID    int64
+	CreatedAt pgtype.Timestamptz
+	ExpiresAt pgtype.Timestamptz
+}
+
 type MfaFactor struct {
 	ID                 int64
 	Uuid               pgtype.UUID

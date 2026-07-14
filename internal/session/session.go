@@ -88,7 +88,10 @@ type Session struct {
 	Role      store.TeamRole
 }
 
-// Login verifies the credentials and opens a session.
+// Login verifies the credentials and opens a session — unless the account
+// has 2FA, in which case it returns ErrMFARequired and the returned string is
+// a CHALLENGE token, not a session token: the login finishes in
+// TOTP.VerifyLogin, and no session exists until it does.
 //
 // Every failure path takes the same visible shape (ErrInvalidCredentials), and
 // the password is verified even when the user does not exist — otherwise the
@@ -121,6 +124,23 @@ func (m *Manager) Login(ctx context.Context, r *http.Request, email, plaintext s
 			return nil, "", err
 		}
 		return nil, "", ErrInvalidCredentials
+	}
+
+	// A confirmed TOTP factor turns this into step one of two: the password
+	// buys a short-lived challenge, never a session (PRD §10.2). An
+	// unconfirmed factor guards nothing and changes nothing.
+	//
+	// The failed-login counter is deliberately NOT cleared here: failed TOTP
+	// attempts count into it, and clearing it on the password step would let
+	// whoever holds the password reset their code-guessing budget by simply
+	// logging in again. The counter clears when the login COMPLETES —
+	// TOTP.VerifyLogin does it after a valid code.
+	if factor, err := m.Store.GetMfaFactorForUser(ctx, user.ID); err == nil && factor.ConfirmedAt.Valid {
+		challenge, err := m.CreateChallenge(ctx, user.ID)
+		if err != nil {
+			return nil, "", err
+		}
+		return nil, challenge, ErrMFARequired
 	}
 
 	// A successful login clears the counter: the lockout must punish an attack,

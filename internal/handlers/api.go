@@ -33,6 +33,10 @@ type API struct {
 	// login. Nil when sessions are nil, or when no relying party could be
 	// configured.
 	Passkeys *session.Passkeys
+	// MFA is the TOTP engine behind /auth/mfa/* (PRD §10.2). Nil when
+	// sessions are nil or no keyring is available: 2FA guards the dashboard
+	// login, and without sessions there is no dashboard login to guard.
+	MFA *session.TOTP
 	api.Unimplemented
 
 	Store    *store.Queries
@@ -133,6 +137,17 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 		// still holds its passkey before a sensitive action.
 		r.Post("/auth/passkey/stepup/begin", a.BeginPasskeyStepUp)
 		r.Post("/auth/passkey/stepup/finish", a.FinishPasskeyStepUp)
+
+		// TOTP 2FA (PRD §10.2). /auth/mfa/verify is step two of the login and
+		// belongs behind this limiter as much as /auth/login does: it is the
+		// other endpoint that turns a guess into an answer. The rest manages
+		// the factor under session + CSRF.
+		r.Post("/auth/mfa/verify", a.VerifyMFALogin)
+		r.Get("/auth/mfa", a.MFAStatus)
+		r.Post("/auth/mfa/totp/setup", a.SetupMFATOTP)
+		r.Post("/auth/mfa/totp/confirm", a.ConfirmMFATOTP)
+		r.Delete("/auth/mfa/totp", a.DisableMFATOTP)
+		r.Post("/auth/mfa/recovery-codes", a.RegenerateMFARecoveryCodes)
 
 		// The terminal WebSocket (§24.4, ADR-024) — outside the contract like
 		// /auth: authenticated by its single-use attach token, minted by the

@@ -38,6 +38,16 @@ type Querier interface {
 	// state so the callback cannot be replayed.
 	CompleteGithubAppConversion(ctx context.Context, arg CompleteGithubAppConversionParams) (GithubApp, error)
 	CompleteIdempotencyKey(ctx context.Context, arg CompleteIdempotencyKeyParams) error
+	// The first valid code turns the factor on and seeds the recovery codes.
+	// last_used_at is set to the matched TOTP step so that very first code is
+	// already replay-protected.
+	ConfirmMfaFactor(ctx context.Context, arg ConfirmMfaFactorParams) (MfaFactor, error)
+	// DELETE ... RETURNING on success only: two concurrent verifications of the
+	// same challenge cannot both mint a session.
+	ConsumeMfaChallenge(ctx context.Context, tokenHash string) (MfaChallenge, error)
+	// Single-use by construction: the matched hash is removed in the same
+	// statement that accepts it.
+	ConsumeMfaRecoveryCode(ctx context.Context, arg ConsumeMfaRecoveryCodeParams) (int64, error)
 	// DELETE ... RETURNING makes the ceremony single-use by construction: two
 	// concurrent finishes cannot both win, whatever the caller does.
 	ConsumePasskeyCeremony(ctx context.Context, arg ConsumePasskeyCeremonyParams) (PasskeyCeremony, error)
@@ -133,6 +143,7 @@ type Querier interface {
 	// ON CONFLICT: the operator may already have a server named "localhost" in
 	// that team — theirs wins, the seed backs off silently.
 	CreateLocalhostServerIfAbsent(ctx context.Context, arg CreateLocalhostServerIfAbsentParams) (int64, error)
+	CreateMfaChallenge(ctx context.Context, arg CreateMfaChallengeParams) error
 	CreateNotificationChannel(ctx context.Context, arg CreateNotificationChannelParams) (NotificationChannel, error)
 	// ON CONFLICT DO NOTHING: re-reading an outbox event must never notify twice.
 	CreateNotificationDelivery(ctx context.Context, arg CreateNotificationDeliveryParams) (NotificationDelivery, error)
@@ -188,6 +199,7 @@ type Querier interface {
 	DeleteEnvVar(ctx context.Context, id int64) (int64, error)
 	DeleteEnvVarsNotInKeys(ctx context.Context, arg DeleteEnvVarsNotInKeysParams) error
 	DeleteGithubApp(ctx context.Context, id int64) (int64, error)
+	DeleteMfaFactorForUser(ctx context.Context, userID int64) (int64, error)
 	DeleteNotificationChannel(ctx context.Context, id int64) (int64, error)
 	DeleteNotificationRule(ctx context.Context, id int64) (int64, error)
 	// Scoped by user: a session must never be able to delete someone else's key.
@@ -281,6 +293,13 @@ type Querier interface {
 	GetJobUUIDByID(ctx context.Context, id int64) (pgtype.UUID, error)
 	GetLastAppliedProxyRevision(ctx context.Context, arg GetLastAppliedProxyRevisionParams) (ProxyConfigRevision, error)
 	GetLatestSuccessfulBackupExecution(ctx context.Context, backupPlanID int64) (BackupExecution, error)
+	// Read without consuming: a mistyped code must not send the user back to the
+	// password form — the account lockout is what bounds the guesses.
+	GetMfaChallenge(ctx context.Context, tokenHash string) (MfaChallenge, error)
+	// 2FA TOTP (PRD §10.2, §23.3): one factor per user, envelope-encrypted
+	// secret, hashed recovery codes, and the short-lived login challenges of a
+	// two-step login.
+	GetMfaFactorForUser(ctx context.Context, userID int64) (MfaFactor, error)
 	GetNotificationChannelByID(ctx context.Context, id int64) (NotificationChannel, error)
 	GetNotificationChannelByUUID(ctx context.Context, arg GetNotificationChannelByUUIDParams) (NotificationChannel, error)
 	// --- dispatcher --------------------------------------------------------------
@@ -522,6 +541,7 @@ type Querier interface {
 	// must fail the connection, not silently re-pin itself.
 	PinServerHostKey(ctx context.Context, arg PinServerHostKeyParams) error
 	PromoteWaitingJobs(ctx context.Context) (int64, error)
+	PurgeExpiredMfaChallenges(ctx context.Context) (int64, error)
 	PurgeExpiredPasskeyCeremonies(ctx context.Context) (int64, error)
 	PurgeExpiredSessions(ctx context.Context) (int64, error)
 	PurgeIdempotencyKeys(ctx context.Context) error
@@ -555,6 +575,7 @@ type Querier interface {
 	RecordUptimeResult(ctx context.Context, arg RecordUptimeResultParams) error
 	// Deliberate re-pin, on an explicit re-validation of a rebuilt server.
 	RepinServerHostKey(ctx context.Context, arg RepinServerHostKeyParams) error
+	ReplaceMfaRecoveryCodes(ctx context.Context, arg ReplaceMfaRecoveryCodesParams) (int64, error)
 	// Cooperative cancellation (§2.6): the worker checks the flag at each
 	// checkpoint between steps, before the switching barrier (§21.1).
 	RequestDeploymentJobCancel(ctx context.Context, deploymentID int64) (int64, error)
@@ -649,6 +670,11 @@ type Querier interface {
 	SweepTerminalSessions(ctx context.Context, maxDurationSeconds int32) (int64, error)
 	TagResource(ctx context.Context, arg TagResourceParams) error
 	TouchApiTokenLastUsed(ctx context.Context, id int64) error
+	// The anti-replay gate (data-dictionary §4.3): last_used_at holds the start
+	// of the last accepted TOTP step, and only a strictly later step may pass.
+	// Enforced in SQL so two concurrent verifications of the same code cannot
+	// both win, whatever the callers do.
+	TouchMfaFactorUsed(ctx context.Context, arg TouchMfaFactorUsedParams) (int64, error)
 	TouchSession(ctx context.Context, id int64) error
 	UpdateApplicationPreviewSettings(ctx context.Context, arg UpdateApplicationPreviewSettingsParams) error
 	UpdateBackupPlan(ctx context.Context, arg UpdateBackupPlanParams) (int64, error)
@@ -691,6 +717,13 @@ type Querier interface {
 	UpsertServiceComponent(ctx context.Context, arg UpsertServiceComponentParams) (ServiceComponent, error)
 	// Tags (§5.4): used by the deploy webhook (?tag=).
 	UpsertTag(ctx context.Context, arg UpsertTagParams) (Tag, error)
+	// Setup creates the factor, or replaces one that was never confirmed (the
+	// user scanned a QR code, closed the tab, started over). A CONFIRMED factor
+	// is never replaced this way — the WHERE arms the conflict update only for
+	// unconfirmed rows, so setup over an active factor returns no row and the
+	// caller answers 409. The uuid is generated by the caller: the envelope AAD
+	// binds the ciphertext to it before the insert.
+	UpsertUnconfirmedMfaFactor(ctx context.Context, arg UpsertUnconfirmedMfaFactorParams) (MfaFactor, error)
 }
 
 var _ Querier = (*Queries)(nil)

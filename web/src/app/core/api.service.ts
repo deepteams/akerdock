@@ -29,6 +29,24 @@ export interface Passkey {
   last_used_at: string | null;
 }
 
+/** Outcome of the password step: either a session, or "now the code". */
+export interface SignInResult {
+  mfaRequired: boolean;
+  /** Echoed to verifyMfa with the TOTP code. Present when mfaRequired. */
+  challenge?: string;
+}
+
+export interface MfaStatus {
+  enabled: boolean;
+  recovery_codes_remaining: number;
+  confirmed_at?: string;
+}
+
+export interface TotpSetup {
+  secret: string;
+  otpauth_uri: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly user = signal<CurrentUser | null>(null);
@@ -75,7 +93,7 @@ export class ApiService {
     }
   }
 
-  async signIn(email: string, password: string): Promise<void> {
+  async signIn(email: string, password: string): Promise<SignInResult> {
     const res = await fetch('/auth/login', {
       method: 'POST',
       credentials: 'same-origin',
@@ -86,9 +104,72 @@ export class ApiService {
       const body = (await res.json().catch(() => ({}))) as { message?: string };
       throw new Error(body.message ?? 'Sign-in failed');
     }
-    const body = (await res.json()) as { csrf_token: string };
+    const body = (await res.json()) as {
+      csrf_token?: string;
+      mfa_required?: boolean;
+      challenge?: string;
+    };
+    if (body.mfa_required) {
+      // The password was right but no session exists yet: the caller must
+      // come back through verifyMfa with the code from the authenticator.
+      return { mfaRequired: true, challenge: body.challenge };
+    }
+    this.csrf.set(body.csrf_token ?? null);
+    await this.restore();
+    return { mfaRequired: false };
+  }
+
+  /** Step two of a two-step sign-in: the challenge from signIn plus a TOTP
+   *  code — or a recovery code, when the authenticator is gone. */
+  async verifyMfa(challenge: string, code: string, recoveryCode = ''): Promise<void> {
+    const body = await this.authPost<{ csrf_token: string }>('/auth/mfa/verify', {
+      challenge,
+      code,
+      recovery_code: recoveryCode,
+    });
     this.csrf.set(body.csrf_token);
     await this.restore();
+  }
+
+  async mfaStatus(): Promise<MfaStatus> {
+    const res = await fetch('/auth/mfa', { credentials: 'same-origin' });
+    if (!res.ok) throw await this.authError(res);
+    return (await res.json()) as MfaStatus;
+  }
+
+  /** Starts TOTP enrolment: the secret for the authenticator app. Nothing is
+   *  enforced until confirmTotp proves the app actually holds it. */
+  async setupTotp(): Promise<TotpSetup> {
+    return this.authPost<TotpSetup>('/auth/mfa/totp/setup', {});
+  }
+
+  /** Confirms enrolment with a first code; returns the recovery codes —
+   *  shown ONCE, stored hashed, never retrievable again. */
+  async confirmTotp(code: string): Promise<string[]> {
+    const body = await this.authPost<{ recovery_codes: string[] }>('/auth/mfa/totp/confirm', {
+      code,
+    });
+    return body.recovery_codes;
+  }
+
+  /** Disabling 2FA requires proving it: a valid code or a recovery code. */
+  async disableTotp(code: string, recoveryCode = ''): Promise<void> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.csrf()) headers['X-CSRF-Token'] = this.csrf()!;
+    const res = await fetch('/auth/mfa/totp', {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      headers,
+      body: JSON.stringify({ code, recovery_code: recoveryCode }),
+    });
+    if (!res.ok && res.status !== 204) throw await this.authError(res);
+  }
+
+  async regenerateRecoveryCodes(code: string): Promise<string[]> {
+    const body = await this.authPost<{ recovery_codes: string[] }>('/auth/mfa/recovery-codes', {
+      code,
+    });
+    return body.recovery_codes;
   }
 
   /** Whether this browser can do WebAuthn at all. */
