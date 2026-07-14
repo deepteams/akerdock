@@ -101,7 +101,6 @@ Extensions PostgreSQL requises : `citext` (emails), `pgcrypto` (`gen_random_uuid
 | `actor_kind` | `user`, `token`, `system` | §24.2 |
 | `audit_result` | `success`, `failure`, `denied` | §23.4 |
 | `job_status` | `scheduled`, `queued`, `leased`, `running`, `retry_wait`, `succeeded`, `cancelled`, `dead_letter` | §21.3 |
-| `cloud_provider` | `hetzner` | §3.2 |
 | `shared_variable_scope` | `team`, `project`, `environment`, `server` | §5.4 |
 | `log_drain_kind` | `none`, `axiom`, `new_relic`, `fluentbit` | §13 |
 
@@ -442,22 +441,21 @@ Clé SSH privée, chiffrée au repos (§3.1, §23.2) ; fichiers distants `0600`/
 
 ### 6.4 `cloud_credentials`
 
-Identifiant de fournisseur cloud, scopé par team (§3.2 — Hetzner en v1). Suppression : autorisée ; les serveurs provisionnés gardent leur provenance en `SET NULL` (le credential n'est qu'un historique de création, le serveur vit sa propre vie — §3.2).
+Credential **DNS-01** d'une team (proxy-contract §7.2, PRD §4.3, amendement n°21) : le jeu de variables d'environnement attendu par Lego pour un provider DNS (`CF_DNS_API_TOKEN`, `AWS_ACCESS_KEY_ID`, …), chiffré enveloppe, matérialisé sur le serveur en `acme.env` (0600) et injecté par `--env-file` — jamais dans un fichier de config généré, jamais en argv (INV-003/INV-012). Historique : la table décrivait initialement les tokens de **provisioning cloud**, retiré du périmètre (ADR-027) — cette entrée documente la table telle que la migration 00035 l'a réellement créée. Suppression : tombstone ; **RESTRICT** tant que référencée par un serveur (`servers.dns_credential_id`) ou un certificat.
 
 | Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
 |---|---|---|---|---|---|---|
 | `id` | `bigint` | non | identity | PK | non | — |
 | `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
 | `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE RESTRICT, index | non | — |
-| `provider` | `cloud_provider` | non | — | — | non | `hetzner` (extensible par `ALTER TYPE`). |
-| `name` | `text` | non | — | UNIQUE `(team_id, name)` | non | Renommable (§3.2). |
-| `token_enc` | `bytea` | non | — | — | **oui** | Token API du fournisseur, chiffré enveloppe. |
-| `is_valid` | `boolean` | oui | — | — | non | Résultat de la dernière validation (§3.2) ; NULL = jamais validé. |
-| `last_validated_at` | `timestamptz` | oui | — | — | non | — |
+| `name` | `text` | non | — | UNIQUE `(team_id, name)` | non | — |
+| `provider` | `text` | non | — | grammaire fermée (INV-012) | non | Identifiant **Lego** (`cloudflare`, `route53`, `ovh`, `hetzner`, …) ; devient le nom du resolver `dns01-<provider>`, donc atteint un fichier de config. |
+| `config_enc` | `bytea` | non | — | — | **oui** | Variables d'environnement Lego, chiffrées enveloppe. |
 | `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
 | `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
 | `created_at` | `timestamptz` | non | `now()` | — | non | — |
 | `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `deleted_at` | `timestamptz` | oui | — | — | non | Tombstone. |
 | `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
 
 ### 6.5 `registry_credentials`
@@ -522,7 +520,7 @@ Stockage objet compatible S3 pour les backups (§7.4). Vérification `ListObject
 | `status` | `certificate_status` | non | `'pending'` | — | non | `pending` = émission en cours (fallback self-signed servi) ; `failed` = échec d'émission/renouvellement (§7.5 proxy-contract). |
 | `last_error` | `text` | oui | — | — | non | Dernière erreur d'émission/renouvellement (cause extraite des logs proxy : challenge, rate limit, CAA…) ; jamais de secret (INV-003). |
 | `dns_provider` | `text` | oui | — | — | non | Identifiant provider **Lego** (`cloudflare`, `route53`…) pour `acme_dns01` (proxy-contract §7.2). |
-| `dns_credential_id` | `bigint` | oui | — | FK `cloud_credentials(id)` ON DELETE RESTRICT | non | Credential DNS-01 (même team, INV-002). Le secret vit dans `cloud_credentials.token_enc` — **aucune colonne secrète ici** ; `cloud_provider` est étendu par `ALTER TYPE … ADD VALUE` pour les providers DNS. Matérialisé en `/data/akerdock/proxy/acme.env` (0600) à la génération. |
+| `dns_credential_id` | `bigint` | oui | — | FK `cloud_credentials(id)` ON DELETE RESTRICT | non | Credential DNS-01 (même team, INV-002). Le secret vit dans `cloud_credentials.config_enc` (§6.4) — **aucune colonne secrète ici**. Matérialisé en `/data/akerdock/proxy/acme.env` (0600) à la génération. |
 | `cert_path` | `text` | oui | — | — | non | Chemin distant du certificat sur le serveur (`/data/akerdock/proxy/certs/…` pour `custom`) ; NULL pour ACME (matériel dans `acme.json`). |
 | `key_path` | `text` | oui | — | — | non | Chemin distant de la clé privée (0600, `custom`) ; le matériel n'est **jamais** rapatrié en base. |
 | `observed_at` | `timestamptz` | oui | — | — | non | Fraîcheur du reflet (§19.2) ; au-delà d'un seuil, l'UI affiche « stale », jamais un faux `issued`. |
@@ -1308,7 +1306,7 @@ Réglages d'instance (§14.2) — **ajout au §19.1**, impliqué par les feature
 
 ### 11.8 `jobs`
 
-Queue durable PostgreSQL (décision §27.2), machine à états §21.3 : lease avec expiration, heartbeat, retry borné, dead-letter (INV-013). Consommation par `SELECT … FOR UPDATE SKIP LOCKED`. Files/priorités séparées par `queue` (backups, cleanup, patching, tâches utilisateur — §24.3). Suppression : **purge** des jobs terminés par rétention ; les `dead_letter` sont conservés jusqu'à intervention (retry/forget).
+Queue durable PostgreSQL (décision §27.2), machine à états §21.3 : lease avec expiration, heartbeat, retry borné, dead-letter (INV-013). Consommation par `SELECT … FOR UPDATE SKIP LOCKED`. Files/priorités séparées par `queue` (backups, cleanup, tâches utilisateur — §24.3). Suppression : **purge** des jobs terminés par rétention ; les `dead_letter` sont conservés jusqu'à intervention (retry/forget).
 
 | Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
 |---|---|---|---|---|---|---|

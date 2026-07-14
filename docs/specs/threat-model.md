@@ -30,7 +30,7 @@ flowchart TB
 
     subgraph ext_git["Fournisseurs externes (semi-fiables)"]
         GIT["Providers Git<br/>GitHub / GitLab / Bitbucket / Gitea"]
-        CLOUD["Providers cloud<br/>(Hetzner…)"]
+        CLOUD["Providers DNS/S3<br/>(Cloudflare, Hetzner…)"]
         S3["Object storage S3<br/>(AWS / R2 / MinIO…)"]
         REG["Container registry"]
     end
@@ -102,7 +102,7 @@ flowchart TB
 | TB-1 | Client Internet → Control plane | entrant | requêtes API, SSE, WS terminal, webhooks | Auth (session/token/HMAC), policy RBAC, rate limit, validation (§23.3) |
 | TB-2 | Control plane → Transport distant | sortant | commandes de déploiement/lifecycle | commandes typées/échappées (INV-012), clé SSH par serveur (§23.1) |
 | TB-3 | Transport → Serveur cible | bidirectionnel | exec Docker, flux logs/PTY, métriques | serveur cible = confiance limitée à son périmètre (§16.3, §23.1) |
-| TB-4 | Serveur cible → Fournisseurs Git/cloud/S3/registry | sortant | clone, push, upload, provisioning | credentials minimaux, allow/deny SSRF (§23.3), rotation (§16.3) |
+| TB-4 | Serveur cible → Fournisseurs Git/DNS/S3/registry | sortant | clone, push, upload, challenge DNS-01 | credentials minimaux, allow/deny SSRF (§23.3), rotation (§16.3) |
 | TB-5 | Builder → reste du serveur/control plane | interne au serveur | exécution de code non fiable | builder rootless isolé, sans credentials control plane (ADR-005, §23.1) |
 | TB-6 | Serveur cible → End-user (trafic applicatif) | sortant du serveur | requêtes HTTP applicatives | hors control plane (INV-007) ; ne remonte jamais au control plane |
 
@@ -119,7 +119,7 @@ flowchart TB
 | Clé maître de chiffrement | Fichier root-only / env du control plane | Critique | Déchiffrement de tous les secrets | ADR-003, root-only, versionnée, rotation (§23.2) |
 | Clés SSH privées serveurs | `private_keys.private_key_enc` (AEAD) | Critique | Contrôle root de tous les serveurs | Chiffré enveloppe, fichiers `0600`, séparation par team (§23.1/§23.2) |
 | Secrets applicatifs / env vars | `environment_variables` (enveloppe) | Élevée | Fuite credentials clients | INV-003, `read:sensitive` requis, jamais dans logs |
-| Credentials cloud / S3 / registry | `cloud_credentials`, `s3_storages`, `registry_credentials` | Élevée | Provisioning malveillant, vol de backups | Secret store commun (§23.2), SSRF policy (§23.3) |
+| Credentials DNS-01 / S3 / registry | `cloud_credentials`, `s3_storages`, `registry_credentials` | Élevée | Détournement DNS et émission de certificats frauduleux, vol de backups | Secret store commun (§23.2), SSRF policy (§23.3) |
 | CA de bases managées (clé privée) | Secret store | Élevée | MITM connexions DB | Régénération UI, rotation double-contrôle (§6.3, §23.4) |
 | Code source client (repos) | Cloné éphémèrement sur builder | Élevée | Fuite propriété intellectuelle | Clone isolé, cleanup, builder rootless (ADR-005) |
 | Images / artifacts de build | Registry ou local serveur | Moyenne | Supply chain, rollback empoisonné | Digest OCI, images signées releases (ADR-006, §23.5) |

@@ -55,12 +55,9 @@ Resource ⟶ déployée sur → Server + Destination (réseau Docker cible)
 - Serveur **localhost** pré-enregistré (la machine hébergeant l'instance), utilisable mais déconseillé pour la production.
 - Variables d'environnement **partagées au niveau serveur**, héritables par les ressources qui y sont déployées.
 
-### 3.2 Maintenance système et provisioning cloud
+### 3.2 Maintenance système et provisioning cloud (retiré — ADR-027)
 
-- **Server Patching** depuis le dashboard : détection et installation de mises à jour de paquets via APT, DNF ou Zypper, serveur par serveur ou en lot ; notification hebdomadaire des correctifs disponibles.
-- **Cloud Provider Tokens** : stockage chiffré, validation, renommage et suppression des identifiants de fournisseur cloud, scopés par team.
-- **Provisioning Hetzner Cloud** : interrogation des localisations, types de serveurs, images et clés SSH, création du VPS chez Hetzner puis enregistrement/validation comme `Server` AkerDock.
-- Le provisioning cloud est un raccourci : une fois créé, le serveur suit le même cycle de vie qu'un serveur ajouté manuellement. La suppression d'un objet `Server` ne doit jamais détruire implicitement le VPS fournisseur sans action distincte et confirmation explicite.
+Le server patching (APT/DNF/Zypper depuis le dashboard), les cloud provider tokens et le provisioning Hetzner sont **retirés du périmètre produit** (ADR-027, réévaluable sur demande avérée). La numérotation de section est conservée pour la stabilité des renvois. Sans rapport et toujours au périmètre : Hetzner/Cloudflare comme providers **DNS-01** (§4.3) et Hetzner comme provider **S3** (§7.2).
 
 ### 3.3 Multi-serveurs
 - Chaque serveur est indépendant avec son propre proxy ; le trafic applicatif va directement au serveur cible (jamais via l'instance de contrôle). L'instance ne fait que UI + déploiements SSH + health monitoring.
@@ -74,8 +71,8 @@ Resource ⟶ déployée sur → Server + Destination (réseau Docker cible)
 ### 3.5 Docker Swarm (expérimental, déprécié)
 - Swarm Manager (obligatoire) + workers ; registry externe obligatoire ; minimum recommandé 3 nœuds ; stockage persistant multi-nœuds non résolu. Non production-ready et annoncé comme déprécié pour la génération suivante.
 
-### 3.6 Cloudflare Tunnels
-- Exposition de serveurs/apps sans IP publique ni port ouvert. 4 modes : All Resources, Single Resource, Server SSH Access (gestion d'un serveur sans IP publique), Full HTTPS/TLS. Attention : les tunnels bypassent le firewall.
+### 3.6 Cloudflare Tunnels (retiré — ADR-027)
+Retiré du périmètre produit (ADR-027, réévaluable sur demande avérée). La numérotation de section est conservée pour la stabilité des renvois. Cloudflare comme provider **DNS-01** (§4.3) n'est pas concerné.
 
 ### 3.7 Nettoyage disque automatisé
 - « Automated Docker Cleanup » par serveur : déclenchement par **seuil d'usage disque** (%) et/ou **cron planifié** ; options opt-in pour purger volumes et réseaux inutilisés.
@@ -292,7 +289,7 @@ Environnement éphémère déployé automatiquement **pour chaque pull request**
 
 ## 12. API, CLI et automatisation
 
-- **REST API** `/api/v1` (OpenAPI 3.1, Bearer) : CRUD applications, databases (+ backups), services, servers (+ validation, domaines et ressources), projects/environments, teams, GitHub Apps, private keys, cloud provider tokens, variables d'env (dont bulk), deployments (trigger/liste/logs/cancel), deploy par UUID/tag, provisioning Hetzner ; liste transverse des ressources ; endpoints système (healthcheck non authentifié, version, enable/disable de l'API).
+- **REST API** `/api/v1` (OpenAPI 3.1, Bearer) : CRUD applications, databases (+ backups), services, servers (+ validation, domaines et ressources), projects/environments, teams, GitHub Apps, private keys, variables d'env (dont bulk), deployments (trigger/liste/logs/cancel), deploy par UUID/tag ; liste transverse des ressources ; endpoints système (healthcheck non authentifié, version, enable/disable de l'API).
 - **Webhooks entrants** : endpoints dédiés GitHub/GitLab/Bitbucket/Gitea (signature vérifiée, auto-deploy, previews) + deploy webhook générique par ressource pour CI custom.
 - **CLI officielle** (Go) : multi-instances, gestion servers/projects/resources/deployments (streaming des logs), domaines, clés, databases et backups.
 - **Serveur MCP intégré** : activation au niveau instance, transport Streamable HTTP sur `/mcp`, authentification par token API, scoping par team et 10 outils read-only (`overview`, list/get servers, projects, applications, databases et services), pagination 50 par défaut/100 maximum. Les opérations d'écriture ne font pas partie de v4.1.2.
@@ -438,7 +435,7 @@ Serveurs cibles : Docker/BuildKit + Proxy + Sentinel
 ```
 
 - **API/control plane** : HTTP, UI, auth, validation, politiques, persistance, OpenAPI et MCP.
-- **Workers** : déploiements, validation serveur, backups, tâches planifiées, cleanup, notifications, synchronisation Git/cloud et maintenance.
+- **Workers** : déploiements, validation serveur, backups, tâches planifiées, cleanup, notifications, synchronisation Git et maintenance.
 - **Realtime hub** : progression des jobs, logs de build/runtime et terminal. Il ne constitue pas la source de vérité.
 - **PostgreSQL** : configuration, états désirés/observés, historique, audits, leases et outbox.
 - **Queue** : queue durable en PostgreSQL (décision §27.2). L'interface reste abstraite dans le code, mais aucun bus externe n'est planifié.
@@ -671,7 +668,7 @@ Ces nombres sont des objectifs de test, pas des limites de licence. Ils doivent 
 
 - Parcours clavier, focus visible, labels de formulaires, contraste WCAG 2.1 AA et annonces live pour progression/erreurs.
 - Toute action longue devient un job visible avec étapes, durée, logs, annulation possible et remédiation.
-- Confirmation renforcée pour suppression de données, restore, rotation de CA, terminal root et opérations cloud destructives.
+- Confirmation renforcée pour suppression de données, restore, rotation de CA et terminal root.
 - Les valeurs générées (UUID, domaine, URLs, credentials affichables) ont une action de copie et un contexte clair.
 
 ## 23. Sécurité et modèle de menace
@@ -690,7 +687,7 @@ Ces nombres sont des objectifs de test, pas des limites de licence. Ils doivent 
 - Mots de passe hashés avec Argon2id ; tokens API stockés sous forme de hash irréversible avec préfixe d'identification.
 - Secrets masqués dans UI/API/logs/audit ; révélation explicite seulement si le produit l'autorise et si `read:sensitive` est présent.
 - Clés SSH sans passphrase acceptées pour compatibilité, mais fichiers `0600`, répertoire `0700`, sélection par team et rotation assistée.
-- Webhook secrets, OAuth client secrets, cloud tokens, registry/S3 credentials et CA privées suivent le même secret store.
+- Webhook secrets, OAuth client secrets, credentials DNS-01, registry/S3 credentials et CA privées suivent le même secret store.
 
 ### 23.3 Contrôles applicatifs
 
@@ -705,7 +702,7 @@ Ces nombres sont des objectifs de test, pas des limites de licence. Ils doivent 
 
 ### 23.4 Audit minimal
 
-Journaliser : login/logout/échecs, MFA, membres/rôles, création/révocation de tokens, accès sensible, mutation de secret, terminal, changements serveur/proxy, déploiement/rollback, backup/restore, suppression, settings instance, cloud provisioning et appels webhook/API mutateurs.
+Journaliser : login/logout/échecs, MFA, membres/rôles, création/révocation de tokens, accès sensible, mutation de secret, terminal, changements serveur/proxy, déploiement/rollback, backup/restore, suppression, settings instance et appels webhook/API mutateurs.
 
 Chaque événement contient `event_id`, date UTC, acteur/type/token, team, action, ressource/type/UUID, résultat, IP, user-agent, request/correlation ID et diff redacted. L'audit est append-only, paginé, filtrable, exportable et soumis à rétention.
 
@@ -725,7 +722,7 @@ Chaque événement contient `event_id`, date UTC, acteur/type/token, team, actio
 - OpenAPI est un artifact versionné et testé en CI ; l'API est sous `/api/v1`.
 - Erreurs au format stable : `code`, `message` générique, `details` validés, `request_id`; aucune stack ni commande sensible.
 - Pagination par curseur recommandée pour historiques/logs ; pagination page/per-page acceptée pour compatibilité MCP.
-- `Idempotency-Key` supporté sur créations, deploy, backup, restore et opérations cloud.
+- `Idempotency-Key` supporté sur créations, deploy, backup et restore.
 - ETag/version optimiste sur PATCH sensibles ; réponse `409` avec version courante en cas de conflit.
 - Les actions longues répondent `202` avec `job_uuid` et URL de suivi.
 - Les permissions sont évaluées à l'action, pas seulement au groupe de routes : `read`, `read:sensitive`, `write`, `deploy`, `root`.
@@ -756,7 +753,7 @@ Envelope minimal :
 - Cron interprété dans un timezone explicite, avec prochaine exécution prévisualisée.
 - Politique de chevauchement par tâche : `forbid` par défaut, `allow` ou `replace` optionnel.
 - Politique de missed run après indisponibilité : `skip` par défaut ou `catch_up_one`; jamais une rafale illimitée.
-- Backups, cleanup, patching et tâches utilisateur utilisent le même scheduler mais des files/priorités séparées.
+- Backups, cleanup et tâches utilisateur utilisent le même scheduler mais des files/priorités séparées.
 
 ### 24.4 Realtime et terminal
 
@@ -786,7 +783,7 @@ Envelope minimal :
 | Création ressource | Sélecteur Project/Environment/Destination, source/build pack, résumé avant création, validation inline et valeurs par défaut sûres |
 | Détail application | État désiré/observé, domaine, source/SHA, config, env, storage, health, déploiements, logs, terminal, tâches et actions lifecycle |
 | Déploiement | Timeline des étapes, log stream, config diff, auteur/déclencheur, SHA/digest, durée, cancel/retry/rollback selon état |
-| Serveur | Reachability, Docker/proxy/Sentinel, ressources, destinations, disque/CPU/RAM, cleanup, patching, logs et terminal |
+| Serveur | Reachability, Docker/proxy/Sentinel, ressources, destinations, disque/CPU/RAM, cleanup, logs et terminal |
 | Base | URLs interne/externe, credentials masqués, SSL, config, volumes, health, backups/restores et avertissements de données |
 | Service Compose | Éditeur validé, diff, liste des composants, domaines/env/storage/health/logs par composant |
 | Sécurité | Membres/rôles, invitations, tokens, sessions, MFA/SSO, clés/credentials et audit |
@@ -819,7 +816,7 @@ Les formulaires distinguent systématiquement : valeur enregistrée, valeur hér
 - **P0 — Fondation** : auth/team, projets/environnements, serveurs SSH, Docker standalone, applications Dockerfile/image, variables, volumes, Traefik/HTTPS, queue, logs et lifecycle.
 - **P1 — PaaS utilisable** : GitHub/GitLab/webhooks, Nixpacks/Railpack, zero-downtime, rollback, databases, backups S3, notifications, scheduled tasks et API publique.
 - **P2 — Périmètre large** : Compose/services, catalogue one-click, previews, build servers, Caddy, Sentinel, log drains, terminal, OAuth/OIDC, shared vars et cleanup.
-- **P3 — Périphérie/expérimental** : multi-server d'une app, Cloudflare tunnels, cloud provisioning, patching, MCP, DNS-01 avancé et Swarm déprécié derrière feature flag.
+- **P3 — Périphérie/expérimental** : multi-server d'une app, MCP, DNS-01 avancé et Swarm déprécié derrière feature flag. (Cloudflare tunnels, cloud provisioning et patching : retirés — ADR-027.)
 
 Chaque phase est utilisable seule. Une feature ne passe pas à « complète » sans documentation, migrations, métriques, audit, tests d'autorisation et scénario de reprise.
 
@@ -839,7 +836,7 @@ La colonne « Sections » renvoie aux exigences de ce document qui définissent 
 | Previews PR enrichies (compose, données éphémères, TTL/caps, protection, checks, forks approuvés) | §5.6, §20.4, §27.11 | P2 | À faire | E2E multi-providers + tests sécurité fork/accès |
 | Backups volumes + Redis/ClickHouse + restore drills | §20.5, §27.14 | P1 | À faire | E2E backup/restore + drill automatisé |
 | Config as code + Terraform officiel | §24.5, §27.12 | P2 | À faire | Round-trip export→apply + tests provider |
-| Adoption de ressources existantes | §20.7, §27.13 | P2 | Fait | E2E adoption compose multi-services sans perte |
+| Adoption de ressources existantes | §20.7, §27.13 | P2 | Conforme | E2E adoption compose multi-services sans perte (shard `platform`) |
 | Déploiement coordonné + auto-rollback | §20.8, §27.16 | P2 | À faire | E2E graphe + hook migration + rollback sur health |
 | Fiabilité compose (zero-downtime, limits) | §27.15 | P2 | À faire | E2E rolling update stack compose + vérif cgroups |
 | Uptime monitoring intégré | §27.17 | P2 | À faire | Checks + alerting E2E |
@@ -847,6 +844,7 @@ La colonne « Sections » renvoie aux exigences de ce document qui définissent 
 | Notifications : routage/agrégation | §11, §27.19 | P2 | À faire | Tests flapping/débounce + heures calmes |
 | Observabilité/terminal | §3.8, §5.7, §13 | P2 | À faire | Charge + auth + reconnect |
 | Multi-serveurs HA d'une même app | §3.3, §27.4 | P3 | À faire | Spike + E2E (Swarm non réimplémenté, ADR-004) |
+| Tunnels Cloudflare / provisioning cloud / server patching | §3.2, §3.6 | — | Abandonné | ADR-027 (réévaluable sur demande avérée) |
 
 Le statut autorisé est `À faire | En cours | Partiel | Conforme | Divergence documentée | Abandonné`. Une preuve renvoie vers tests, captures, benchmark ou ADR.
 

@@ -7,7 +7,7 @@ PaaS self-hosted en Go : déploiement d'applications, bases et stacks compose su
 ## Sources de vérité
 
 - `docs/PRD.md` — spécification produit. Les sections 1–14 décrivent le périmètre fonctionnel ; les sections 16+ sont les exigences vérifiables (mots normatifs DOIT / NE DOIT PAS / DEVRAIT / PEUT).
-- `docs/adr/` — 26 ADRs acceptés. **Un ADR accepté est immuable** : toute révision de la DÉCISION passe par un nouvel ADR qui supersede l'ancien. (La formulation, elle, peut être corrigée en place — reformuler n'est pas décider.) Toute décision structurante exige un ADR + une entrée dans la grille de suivi (PRD §26).
+- `docs/adr/` — 27 ADRs acceptés. **Un ADR accepté est immuable** : toute révision de la DÉCISION passe par un nouvel ADR qui supersede l'ancien. (La formulation, elle, peut être corrigée en place — reformuler n'est pas décider.) Toute décision structurante exige un ADR + une entrée dans la grille de suivi (PRD §26).
 - `docs/specs/openapi-v1.yaml` — contrat d'API. **Spec-first** : handlers Go et client TypeScript sont générés depuis ce fichier (oapi-codegen), jamais écrits à la main puis documentés après coup. La spec reste en **OpenAPI 3.0.3** (oapi-codegen ne supporte pas 3.1). Après toute modification : `make generate` et commiter le code généré (la CI vérifie la synchronisation).
 
 ## Stack imposée (ADR-025, ADR-021)

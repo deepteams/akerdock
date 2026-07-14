@@ -42,7 +42,7 @@ Familles de domaines :
 | `keys` | Clés SSH privées |
 | `sources` | Sources Git / GitHub Apps / webhooks |
 | `registries` | Credentials de registry |
-| `cloud` | Credentials et provisioning cloud |
+| `cloud` | Credentials DNS-01 des certificats wildcard (§4.3 ; le provisioning cloud est retiré — ADR-027) |
 | `storages` | S3 storages |
 | `backups` | Plans de backup, exécutions, restore |
 | `deployments` | Historique, logs, annulation |
@@ -135,7 +135,7 @@ Familles de domaines :
 |---|---|---|---|
 | 37 | `servers:read` | Lister/voir serveurs, ressources, domaines | `read` |
 | 38 | `servers:manage` | Créer/éditer/retirer un serveur, validation/install | `write` |
-| 39 | `servers:maintain` | Patching, cleanup, cycle de vie du proxy | `write` |
+| 39 | `servers:maintain` | Cleanup, cycle de vie du proxy | `write` |
 | 40 | `servers:proxy` | Éditer la config proxy, régénérer labels, rotation CA | `write` |
 | 41 | `keys:read` | Lister les clés SSH (métadonnées) | `read` |
 | 42 | `keys:reveal` | Révéler le matériel de clé privée (`read:sensitive`) | `read:sensitive` |
@@ -151,7 +151,7 @@ Familles de domaines :
 | 45 | `sources:manage` | Configurer sources Git, GitHub Apps, webhooks | `write` |
 | 46 | `registries:manage` | Gérer les credentials de registry | `write` |
 | 47 | `cloud:read` | Voir les cloud provider tokens (métadonnées) | `read` |
-| 48 | `cloud:manage` | Gérer les cloud tokens, provisionner un VPS (§3.2) | `write` |
+| 48 | `cloud:manage` | Gérer les credentials DNS-01 (§4.3, proxy-contract §7.2) | `write` |
 | 49 | `storages:manage` | Gérer les S3 storages (CRUD, vérification) | `write` |
 
 #### Backups
@@ -408,7 +408,6 @@ perms_effectives(token) = perms_token(token)  ∩  perms_RBAC(créateur, rééva
 | **Restore sur une base non vide** | `backups:restore` | Confirmation renforcée explicite + test de format préalable + journal complet | §20.5, §22.5 |
 | Suppression **avec volumes/données** | `applications:delete` / `databases:delete` / `services:manage` | Prévisualisation des objets affectés + question distincte « conserver les volumes ? » + confirmation | §20.6, §22.5, INV-008 |
 | **Rotation de CA** de bases | `servers:proxy` | Confirmation renforcée + audit | §6.3, §22.5, §23.4 |
-| Cloud provisioning **destructif** (suppression VPS) | `cloud:manage` | Action distincte et confirmation explicite (jamais de cascade implicite) | §3.2, §22.5 |
 | Suppression d'une team / cascade projet-environnement | `team:manage` / `projects:manage` | Prévisualisation cascade + confirmation ; RESTRICT tant que dépendances | §19.2, §10.1, INV-008 |
 | Création d'un token `root`/`deploy` élevé | `tokens:create` | Garde anti-élévation (§4.3) + audit création/révocation | §10.3, §23.4 |
 | **Rotation forcée de la clé maître** (re-chiffrement actif) | `instance:encryption` | Confirmation renforcée + `Idempotency-Key` + audit ; réservé au root d'instance | §23.2, ADR-003 |
@@ -538,5 +537,5 @@ redacted (§23.4).
 - Tokens API = **intersection** (perms token ∩ perms RBAC du créateur réévaluées à l'usage) ;
   création via `tokens:create` (admin+) avec **garde anti-élévation obligatoire** ; **révocation
   automatique sur perte de droits (défaut proposé)**.
-- Actions sensibles (terminal root, restore base non vide, suppression avec volumes, rotation CA,
-  provisioning destructif) = permission + confirmation renforcée + audit.
+- Actions sensibles (terminal root, restore base non vide, suppression avec volumes, rotation CA)
+  = permission + confirmation renforcée + audit.

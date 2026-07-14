@@ -20,7 +20,7 @@ Rappel du format (data dictionary §2.7) : chaque colonne `*_enc` est `key_versi
 
 ```sql
 -- exemple sur private_keys ; répéter sur chaque colonne chiffrée (liste §12 du data dictionary) :
--- private_keys.private_key_enc, mfa_factors.secret_enc, cloud_credentials.token_enc,
+-- private_keys.private_key_enc, mfa_factors.secret_enc, cloud_credentials.config_enc,
 -- registry_credentials.password_enc, s3_storages.access_key_enc + secret_key_enc,
 -- github_apps.client_secret_enc + webhook_secret_enc + app_private_key_enc,
 -- webhook_endpoints.secret_enc, environment_variables.value_enc, shared_variables.value_enc,
@@ -62,7 +62,7 @@ GROUP BY 1,2 ORDER BY 3 DESC;
    Suivre l'avancement avec `GET /system/encryption` (compteurs de lignes par version de clé et par colonne) ; l'histogramme SQL du Diagnostic reste le fallback, colonne par colonne.
 5. Quand **plus aucune ligne** ne porte l'ancienne version (`GET /system/encryption` : la version 2 est la seule référencée — ou histogramme SQL = version 2 uniquement, sur les 16 colonnes de la liste §12) : retirer la ligne `1:` de `master.key`, recharger, re-sauvegarder hors machine.
 
-⚠️ **Cas fuite avérée de la clé maître** : la rotation ne suffit pas si l'attaquant a aussi un dump de la base (il lit tout ce qui était chiffré avec l'ancienne version). Traiter alors chaque secret comme compromis : rotation **à la source** (mots de passe DB, tokens cloud/registry/S3, webhook secrets, clés SSH — voir sections B/C/D), pas seulement re-chiffrement.
+⚠️ **Cas fuite avérée de la clé maître** : la rotation ne suffit pas si l'attaquant a aussi un dump de la base (il lit tout ce qui était chiffré avec l'ancienne version). Traiter alors chaque secret comme compromis : rotation **à la source** (mots de passe DB, tokens DNS/registry/S3, webhook secrets, clés SSH — voir sections B/C/D), pas seulement re-chiffrement.
 
 ### B. Rotation d'une clé SSH de serveur
 

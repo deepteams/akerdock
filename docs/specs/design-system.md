@@ -489,7 +489,7 @@ Pour toute valeur générée : UUID, domaine, URLs interne/externe, credentials 
 
 ### 4.2 Actions longues = job visible (§22.5)
 
-Toute action > ~2 s (deploy, backup, restore, validation serveur, patching, cleanup, provisioning cloud) devient un **job** :
+Toute action > ~2 s (deploy, backup, restore, validation serveur, cleanup) devient un **job** :
 
 - Le déclencheur passe en loading (§3.1) puis l'UI bascule vers la représentation du job : toast « Deployment queued » avec lien, ou navigation directe vers la page du job.
 - La page/panneau de job affiche : `akd-status-badge` (états §21.3), **étapes** (`akd-deployment-timeline` ou liste d'étapes équivalente), durée écoulée, logs (`akd-log-viewer`), **bouton Cancel** (si l'état le permet — désactivé avec explication sinon), retry/rollback selon l'état, et remédiation en cas d'échec (message d'erreur classifié + action suggérée).

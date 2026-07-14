@@ -13,7 +13,7 @@
 # Volontairement HORS de cette v1 (P2/P3 ou hors scope API) :
 #   - Services one-click et stacks Docker Compose (§9, P2)
 #   - Preview deployments (§5.6, §20.4, P2)
-#   - Cloud provisioning (Hetzner) et cloud provider tokens (§3.2, P3)
+#   - Cloud provisioning et cloud provider tokens : retirés du périmètre (ADR-027)
 #   - GitHub Apps (P1 tardif) — les webhooks Git signés par endpoint sont, eux,
 #     dans cette v1 (/applications/{uuid}/webhook-endpoint)
 #   - Destinations (réseaux Docker) en tant que ressource API dédiée

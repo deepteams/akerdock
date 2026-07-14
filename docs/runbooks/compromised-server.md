@@ -93,5 +93,5 @@ Une fois les ressources re-déployées ailleurs ou sur le serveur réinstallé :
 - **Une clé SSH par serveur**, jamais partagée (rend ce runbook local au lieu de global).
 - Secrets distribués au strict besoin (§23.1) : ne pas mettre des variables « de confort » globales dans les ressources ; utiliser les build secrets BuildKit (hors image, spec §5.2).
 - Builders isolés pour le code non fiable (ADR-005) ; previews de forks sans secrets (INV-010).
-- Firewall provider restrictif (SSH depuis l'IP de l'instance uniquement si possible) ; patching serveur régulier (§3.2).
+- Firewall provider restrictif (SSH depuis l'IP de l'instance uniquement si possible) ; patching serveur régulier — à la charge de l'opérateur, hors périmètre produit (ADR-027).
 - Backups avec checksums et rétention suffisante pour disposer d'un point **antérieur** à une intrusion découverte tardivement.

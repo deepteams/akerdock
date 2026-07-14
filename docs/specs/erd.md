@@ -124,7 +124,7 @@ erDiagram
     private_keys ||--o{ servers : "acces SSH (RESTRICT)"
     servers ||--o{ destinations : "reseaux Docker"
     servers ||--o{ certificates : "reflet observe (18.3)"
-    cloud_credentials |o--o{ servers : "provenance (SET NULL)"
+    cloud_credentials |o--o{ servers : "credential DNS-01 (RESTRICT)"
     cloud_credentials |o--o{ certificates : "credential DNS-01 (RESTRICT)"
 
     servers {

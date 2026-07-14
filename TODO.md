@@ -207,7 +207,6 @@ auth/team → serveur SSH → déploiement (image, Dockerfile, Git) → domaine 
 ## P3 — Périphérie
 
 - [ ] Multi-serveurs HA d'une même app (§3.3) — registry externe obligatoire
-- [ ] Cloudflare tunnels ; provisioning cloud (Hetzner) ; server patching
 - [x] Rotation de clé maître forcée (`GET /system/encryption`, `POST /system/encryption/rotate`) : réécriture par lots, sérialisée par `lock_key`, convergence prouvée E2E (v1 → v2, histogramme à zéro sur l'ancienne version)
 - [ ] Serveur MCP (§16)
 
