@@ -1,11 +1,11 @@
 # TODO — feuille de route AkerDock
 
-État au 11 juillet 2026. Ce fichier est le suivi opérationnel du reste à faire ;
+État au 14 juillet 2026. Ce fichier est le suivi opérationnel du reste à faire ;
 la référence fonctionnelle reste le [PRD](docs/PRD.md) (matrice de parité §26.2)
 et les [ADRs](docs/adr/README.md).
 
-**Avancement** : **les 102 opérations** de [`openapi-v1.yaml`](docs/specs/openapi-v1.yaml)
-sont implémentées, 30 migrations, 40+ vérifications E2E automatisées
+**Avancement** : **les 158 opérations** de [`openapi-v1.yaml`](docs/specs/openapi-v1.yaml)
+sont implémentées, 42 migrations, 50+ vérifications E2E automatisées
 ([`scripts/e2e.sh`](scripts/e2e.sh) — ADR-026 ; shard `smoke` à chaque commit,
 catalogue complet en nightly, conformément à la pyramide du plan de tests §2).
 La surface du contrat v1 est donc complète : ce qui reste ci-dessous est de la
@@ -185,7 +185,13 @@ auth/team → serveur SSH → déploiement (image, Dockerfile, Git) → domaine 
   - [x] Plafond de sessions par team (le manque signalé par le threat model §3.3 D) ; les tokens encore réclamables comptent, sinon une rafale de créations passerait sous le plafond
   - [x] UI : composant `akd-terminal` (xterm.js, bundlé — aucune CDN, la CSP n'autorise aucune origine externe), onglet Terminal sur l'application, section sur le serveur (confirmation nommant le rayon d'explosion) et sur la base (psql à portée) ; protocole en fonctions pures testées (schéma `wss:` sur page HTTPS — un `ws://` y serait bloqué en mixed content, avec pour seule trace une ligne de console)
   - [x] **E2E** (shard `platform`, 6 checks) : le suite parle curl, et curl ne parle pas WebSocket — d'où `scripts/e2e/wsprobe`, qui tape vraiment dans le PTY. Prouvé : `tty` répond `/dev/pts/…` et la commande s'exécute dans le container ; ouverture **et** fermeture auditées avec la raison, **aucune frappe dans l'audit** ; token rejoué et token forgé refusés en `401` ; session inactive fermée par le serveur (`idle_timeout`) ; connexion **arrachée** ⇒ session close côté serveur (le pty ne survit jamais à son socket) ; 404 inter-team, 403 en lecture seule, 403 sur le shell serveur sans `root` ; shell serveur réel (docker répond sur l'hôte)
-- [ ] **Adoption de ressources existantes** (§20.7, ADR-013/023) — reprise des containers et stacks Docker déjà déployés, sans redéploiement : c'est le chemin de migration entrant
+- [x] **Adoption de ressources existantes** (§20.7, ADR-013/023) — le chemin de migration entrant, livré de bout en bout (amendement de spec n°25 : 6 opérations)
+  - [x] **Scan** (`POST /servers/{uuid}/adoption-scans`, 202 + job) : inventaire SSH des containers et stacks compose **non gérés** — « géré » = ligne vivante en base, pas seulement un label (INV-015 raffiné : une ressource désadoptée garde ses labels et redevient adoptable). Mapping proposé par candidat : type (application/service), variables (**noms seulement** — INV-003, les valeurs sont capturées et chiffrées à l'adoption), ports, volumes, réseaux, **domaines lus dans les labels Traefik/Caddy**, labels publics (c'est ce qui permet à un outil tiers de reconnaître « ses » workloads sans schéma interne — ADR-023). Non-adoptable ⇒ **motifs nommés** (privileged, devices, cap_add, network_mode container:, fichier compose introuvable) — jamais d'adoption partielle silencieuse
+  - [x] **Adoption sans redéploiement** : les objets AkerDock sont créés en pointant sur les containers existants (`resources.adoption` = pointeur vers les noms d'origine) — prouvé E2E par `StartedAt` inchangé. Lifecycle, terminal et moteur ciblent le nom d'origine tant que la ressource n'est pas normalisée ; l'env adopté est le **diff contre l'image** (adopter `PATH` figerait les défauts d'image pour toujours)
+  - [x] **Normalisation au premier redéploiement** : l'ancien container (ou le projet compose entier) est retiré, le nouveau prend le nom AkerDock, et les **volumes sont remontés sous leur nom d'origine** (`persistent_storages.external_name` ; côté compose, volumes réécrits `external: true` + `name:` au scan) — les renommer remonterait des volumes vides, ce qui est précisément la perte de données que §20.7 interdit. Jamais montés dans une preview (INV-010)
+  - [x] **Désadoption** (`POST .../disown`, applications et services) : routage retiré puis la ligne est rendue — containers, volumes et fichiers restent **exactement** en l'état, et un nouveau scan les propose à nouveau
+  - [x] E2E (shard `platform`, 8 checks) : container étranger scanné → adopté sans restart → piloté (stop/start sous son nom d'origine) → normalisé (données du volume intactes, domaine routé) → désadopté (workload intact, ré-adoptable) ; **critère d'acceptation §20.7** : stack compose deux services + volume, adopté puis redéployé **sans perte de données**, puis rendu
+  - [x] **Script de migration Coolify** (`scripts/migrate/coolify.sh`) — outil de commodité **au-dessus de l'API publique**, conforme ADR-023 (aucune lecture de la base ou de l'API Coolify) : scan, tri par labels `coolify.*`, exclusion de l'infra Coolify elle-même, dry-run par défaut, `--apply` pour créer le projet et tout adopter sans redémarrage ; le rapport nomme les ignorés et les motifs des non-adoptables
 - [ ] **Uptime monitoring** (ADR-017) : checks HTTP/TCP hors workload, historique, alerting
 - [ ] **Config as code** (§24.5, ADR-012) : export YAML, apply idempotent avec dry-run, provider Terraform
 - [ ] **CLI `akerdock up`** (ADR-018) : déploiement d'un contexte local
@@ -280,7 +286,9 @@ Douze incohérences trouvées entre les artefacts pendant l'implémentation, cor
 11. Les notifications étaient « hors v1 » alors qu'ADR-019 les exige et que rien ne permettait de les configurer → 7 opérations `/notification-channels` ajoutées ; table `notification_deliveries` ajoutée au dictionnaire (le débounce et l'idempotence ne sont dérivables d'aucune des deux tables prévues)
 12. Les webhooks Git signés étaient spécifiés (`git-webhook-protocols.md`, INV-009) mais aucun endpoint ne permettait de créer l'endpoint de réception → `POST/DELETE /applications/{uuid}/webhook-endpoint` ajoutés (le secret n'est renvoyé qu'une fois)
 
-Les amendements n°13 à n°24, faits au fil des lots, sont documentés à l'endroit où ils ont été
-tranchés (ci-dessus) plutôt que redits ici. Le dernier en date :
+Les amendements n°13 à n°25, faits au fil des lots, sont documentés à l'endroit où ils ont été
+tranchés (ci-dessus) plutôt que redits ici. Les derniers en date :
 
 24. Le terminal était « hors v1 » **en entier**, au motif qu'un WebSocket ne se décrit pas en OpenAPI 3.0. Or seul le *flux* est indescriptible : l'**ouverture de session**, elle, est une opération REST ordinaire — et la laisser hors contrat l'aurait sortie de la matrice RBAC générée depuis `x-required-permission` (donc jamais testée) et rendue non scriptable, en contradiction avec §25.2 (« toute capacité visible dans l'UI est scriptable »). → 3 opérations `POST .../terminal-sessions` ajoutées (application, base, serveur) ; le WebSocket reste hors contrat, comme `/auth`. La table `terminal_sessions` du dictionnaire a gagné `token_hash`/`token_expires_at`/`claimed_at` : l'usage unique du token d'attache n'était dérivable d'aucune colonne prévue
+
+25. L'adoption (§20.7) était spécifiée mais **aucun endpoint** ne la portait — le « chemin de migration entrant » (ADR-023) n'était joignable ni par l'UI ni par un script, en contradiction avec §25.2. → 6 opérations ajoutées : `POST/GET /servers/{uuid}/adoption-scans`, `GET /adoption-scans/{uuid}`, `POST /adoption-scans/{uuid}/adopt`, `POST /applications/{uuid}/disown`, `POST /services/{uuid}/disown`. Le dictionnaire gagne `adoption_scans` (§6.8), `resources.adopted_at`/`adoption` et `persistent_storages.external_name` : « quel container sert cette ressource avant normalisation » et « quel volume garde son nom d'origine » n'étaient dérivables d'aucune colonne prévue

@@ -29,7 +29,11 @@ type Querier interface {
 	ClearFailedLogins(ctx context.Context, id int64) error
 	// installation deleted/suspended (§2.4): the source is degraded, not removed.
 	ClearGithubAppInstallation(ctx context.Context, id int64) (int64, error)
+	// The normalizing deployment converged the remote objects onto the
+	// uuid-derived names (§20.7): the pointer is obsolete, the history stays.
+	ClearResourceAdoption(ctx context.Context, id int64) error
 	ClearResourceTags(ctx context.Context, resourceID int64) error
+	CompleteAdoptionScan(ctx context.Context, arg CompleteAdoptionScanParams) error
 	// Conversion (protocols §2.1 step 5): persist what GitHub returned, clear the
 	// state so the callback cannot be replayed.
 	CompleteGithubAppConversion(ctx context.Context, arg CompleteGithubAppConversionParams) (GithubApp, error)
@@ -69,6 +73,11 @@ type Querier interface {
 	CountSuppressedSince(ctx context.Context, arg CountSuppressedSinceParams) (int64, error)
 	// Queries used by the startup sequence (instance-config §6).
 	CountUsers(ctx context.Context) (int64, error)
+	// Adoption (§20.7): external_name keeps the original Docker volume name so
+	// the normalizing redeployment remounts the SAME data (INV-008).
+	CreateAdoptedStorage(ctx context.Context, arg CreateAdoptedStorageParams) (PersistentStorage, error)
+	// Adoption scans (PRD §20.7, ADR-013/ADR-023).
+	CreateAdoptionScan(ctx context.Context, arg CreateAdoptionScanParams) (AdoptionScan, error)
 	CreateApiToken(ctx context.Context, arg CreateApiTokenParams) (ApiToken, error)
 	CreateApplicationRow(ctx context.Context, arg CreateApplicationRowParams) error
 	CreateBackupExecution(ctx context.Context, arg CreateBackupExecutionParams) (BackupExecution, error)
@@ -193,6 +202,7 @@ type Querier interface {
 	// on the partial index of eligible jobs; lock_key exclusivity is enforced
 	// both here (NOT EXISTS) and by the partial unique index as the net.
 	EnqueueJob(ctx context.Context, arg EnqueueJobParams) (Job, error)
+	FailAdoptionScan(ctx context.Context, arg FailAdoptionScanParams) error
 	FailJob(ctx context.Context, arg FailJobParams) (int64, error)
 	FinishBackupExecution(ctx context.Context, arg FinishBackupExecutionParams) error
 	FinishDeploymentStep(ctx context.Context, arg FinishDeploymentStepParams) error
@@ -204,6 +214,8 @@ type Querier interface {
 	// Bearer token authentication (§10.3, ERD §12: prefix pre-filter then
 	// constant-time hash comparison in the application).
 	GetActiveApiTokensByPrefix(ctx context.Context, tokenPrefix string) ([]GetActiveApiTokensByPrefixRow, error)
+	GetAdoptionScanByID(ctx context.Context, id int64) (AdoptionScan, error)
+	GetAdoptionScanByUUIDForTeam(ctx context.Context, arg GetAdoptionScanByUUIDForTeamParams) (GetAdoptionScanByUUIDForTeamRow, error)
 	GetApplicationByID(ctx context.Context, id int64) (GetApplicationByIDRow, error)
 	GetApplicationByUUID(ctx context.Context, arg GetApplicationByUUIDParams) (GetApplicationByUUIDRow, error)
 	GetArtifactByDigest(ctx context.Context, arg GetArtifactByDigestParams) (DeploymentArtifact, error)
@@ -230,6 +242,9 @@ type Querier interface {
 	GetEnvVarByUUID(ctx context.Context, arg GetEnvVarByUUIDParams) (EnvironmentVariable, error)
 	GetEnvironmentByID(ctx context.Context, id int64) (Environment, error)
 	GetEnvironmentByUUID(ctx context.Context, arg GetEnvironmentByUUIDParams) (Environment, error)
+	// Adoption targets an environment across projects: team isolation only
+	// (INV-002).
+	GetEnvironmentByUUIDForTeam(ctx context.Context, arg GetEnvironmentByUUIDForTeamParams) (Environment, error)
 	GetGitSourceByID(ctx context.Context, id int64) (GitSource, error)
 	GetGitSourceForGithubApp(ctx context.Context, githubAppID *int64) (GitSource, error)
 	// Webhook routing: X-GitHub-Hook-Installation-Target-ID names the app_id
@@ -318,6 +333,7 @@ type Querier interface {
 	InsertOutboxEvent(ctx context.Context, arg InsertOutboxEventParams) error
 	IsJobCancelRequested(ctx context.Context, id int64) (bool, error)
 	LastSentDelivery(ctx context.Context, ruleID int64) (pgtype.Timestamptz, error)
+	ListAdoptionScansForServer(ctx context.Context, arg ListAdoptionScansForServerParams) ([]AdoptionScan, error)
 	// API token management (§10.3). Token values are never stored nor
 	// returned: only the SHA-256 hash and the identification prefix.
 	ListApiTokensPage(ctx context.Context, arg ListApiTokensPageParams) ([]ApiToken, error)
@@ -371,6 +387,9 @@ type Querier interface {
 	ListGithubAppsPage(ctx context.Context, arg ListGithubAppsPageParams) ([]GithubApp, error)
 	ListInvitationsPage(ctx context.Context, arg ListInvitationsPageParams) ([]Invitation, error)
 	ListJobsPage(ctx context.Context, arg ListJobsPageParams) ([]Job, error)
+	// Scan exclusion (INV-015): "managed" means tracked by a live row, not just
+	// labelled — a disowned resource keeps its labels but is adoptable again.
+	ListLiveResourceUUIDs(ctx context.Context, uuids []pgtype.UUID) ([]pgtype.UUID, error)
 	// Notifications (§11, ADR-019).
 	ListNotificationChannelsPage(ctx context.Context, arg ListNotificationChannelsPageParams) ([]NotificationChannel, error)
 	ListNotificationChannelsToRotate(ctx context.Context, arg ListNotificationChannelsToRotateParams) ([]ListNotificationChannelsToRotateRow, error)
@@ -515,6 +534,7 @@ type Querier interface {
 	// Seeds the ACME contact on an instance that predates the setting. The database
 	// stays authoritative: an existing value is never overwritten by the variable.
 	SetAcmeEmailIfAbsent(ctx context.Context, acmeEmail *string) (int64, error)
+	SetAdoptionScanRunning(ctx context.Context, id int64) error
 	// Instance settings mutations (§14.2).
 	SetApiEnabled(ctx context.Context, apiEnabled bool) (InstanceSetting, error)
 	// Restore drills (ADR-014). A backup that has never been restored is a file,
@@ -543,6 +563,9 @@ type Querier interface {
 	// drift reconciliation — a proxy someone deliberately stopped is not drift.
 	SetProxyDesiredState(ctx context.Context, arg SetProxyDesiredStateParams) error
 	SetProxyObservedStatus(ctx context.Context, arg SetProxyObservedStatusParams) error
+	// Marks a resource as adopted and not yet normalized: the JSONB points at
+	// the real remote objects (container name, compose project).
+	SetResourceAdoption(ctx context.Context, arg SetResourceAdoptionParams) error
 	SetResourceDesiredStatus(ctx context.Context, arg SetResourceDesiredStatusParams) error
 	SetResourceObservedStatus(ctx context.Context, arg SetResourceObservedStatusParams) error
 	// What a failed deletion left behind on the server (§20.6.4). Recorded so the

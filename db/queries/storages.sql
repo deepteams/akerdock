@@ -5,6 +5,13 @@ INSERT INTO persistent_storages (uuid, resource_id, kind, name, host_path, mount
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
+-- name: CreateAdoptedStorage :one
+-- Adoption (§20.7): external_name keeps the original Docker volume name so
+-- the normalizing redeployment remounts the SAME data (INV-008).
+INSERT INTO persistent_storages (uuid, resource_id, kind, name, host_path, mount_path, external_name)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING *;
+
 -- name: ListStoragesForResource :many
 SELECT * FROM persistent_storages WHERE resource_id = $1 ORDER BY mount_path;
 

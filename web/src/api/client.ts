@@ -607,6 +607,44 @@ export class AkerDockClient {
     return this.request<Response>('POST', `/servers/${serverUuid}/terminal-sessions`);
   }
 
+  // --- adoption of existing resources (§20.7, ADR-013/023) ---------------------------
+
+  createAdoptionScan(serverUuid: string) {
+    type Response =
+      paths['/servers/{server_uuid}/adoption-scans']['post']['responses']['202']['content']['application/json'];
+    return this.request<Response>('POST', `/servers/${serverUuid}/adoption-scans`);
+  }
+
+  listAdoptionScans(serverUuid: string, query?: { cursor?: string; limit?: number }) {
+    type Response =
+      paths['/servers/{server_uuid}/adoption-scans']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/servers/${serverUuid}/adoption-scans`, { query });
+  }
+
+  getAdoptionScan(scanUuid: string) {
+    type Response =
+      paths['/adoption-scans/{adoption_scan_uuid}']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/adoption-scans/${scanUuid}`);
+  }
+
+  adoptResources(scanUuid: string, body: components['schemas']['AdoptRequest']) {
+    type Response =
+      paths['/adoption-scans/{adoption_scan_uuid}/adopt']['post']['responses']['202']['content']['application/json'];
+    return this.request<Response>('POST', `/adoption-scans/${scanUuid}/adopt`, { body });
+  }
+
+  disownApplication(applicationUuid: string) {
+    type Response =
+      paths['/applications/{application_uuid}/disown']['post']['responses']['202']['content']['application/json'];
+    return this.request<Response>('POST', `/applications/${applicationUuid}/disown`);
+  }
+
+  disownService(serviceUuid: string) {
+    type Response =
+      paths['/services/{service_uuid}/disown']['post']['responses']['202']['content']['application/json'];
+    return this.request<Response>('POST', `/services/${serviceUuid}/disown`);
+  }
+
   // --- notification channels (+ rules) ----------------------------------------------
 
   listNotificationChannels(query?: { cursor?: string; limit?: number }) {

@@ -15,6 +15,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/deepteams/akerdock/internal/adoption"
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/auth"
@@ -295,11 +296,13 @@ func (a *API) terminalConnect(ctx context.Context, row store.TerminalSession) (*
 			return nil, "", "the target resource no longer exists"
 		}
 		// bash when the image has it, sh otherwise; the fallback chain is a
-		// fixed literal, and the container name is a UUID — nothing here is
-		// user-controlled (INV-012).
+		// fixed literal, and the container name is a UUID — or, for an
+		// adopted resource awaiting normalization (§20.7), the original
+		// Docker name recorded by our own adopt job from `docker inspect`
+		// (Docker's name charset has no shell metacharacters) (INV-012).
 		command = fmt.Sprintf(
 			"docker exec -it -e TERM=xterm-256color %s sh -c 'command -v bash >/dev/null 2>&1 && exec bash || exec sh'",
-			uuidString(res.Uuid))
+			adoption.ContainerName(res.Adoption, uuidString(res.Uuid)))
 	}
 
 	key, err := a.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)

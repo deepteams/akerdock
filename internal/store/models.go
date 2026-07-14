@@ -55,6 +55,50 @@ func (ns NullActorKind) Value() (driver.Value, error) {
 	return string(ns.ActorKind), nil
 }
 
+type AdoptionScanStatus string
+
+const (
+	AdoptionScanStatusPending   AdoptionScanStatus = "pending"
+	AdoptionScanStatusRunning   AdoptionScanStatus = "running"
+	AdoptionScanStatusCompleted AdoptionScanStatus = "completed"
+	AdoptionScanStatusFailed    AdoptionScanStatus = "failed"
+)
+
+func (e *AdoptionScanStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AdoptionScanStatus(s)
+	case string:
+		*e = AdoptionScanStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AdoptionScanStatus: %T", src)
+	}
+	return nil
+}
+
+type NullAdoptionScanStatus struct {
+	AdoptionScanStatus AdoptionScanStatus
+	Valid              bool // Valid is true if AdoptionScanStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAdoptionScanStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.AdoptionScanStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AdoptionScanStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAdoptionScanStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AdoptionScanStatus), nil
+}
+
 type ArtifactKind string
 
 const (
@@ -1833,6 +1877,19 @@ func (ns NullWebhookProvider) Value() (driver.Value, error) {
 	return string(ns.WebhookProvider), nil
 }
 
+type AdoptionScan struct {
+	ID          int64
+	Uuid        pgtype.UUID
+	TeamID      int64
+	ServerID    int64
+	Status      AdoptionScanStatus
+	Error       *string
+	Candidates  []byte
+	CreatedBy   *int64
+	CreatedAt   pgtype.Timestamptz
+	CompletedAt pgtype.Timestamptz
+}
+
 type ApiToken struct {
 	ID          int64
 	Uuid        pgtype.UUID
@@ -2419,22 +2476,23 @@ type PasskeyCredential struct {
 }
 
 type PersistentStorage struct {
-	ID          int64
-	Uuid        pgtype.UUID
-	ResourceID  int64
-	Kind        StorageKind
-	Name        *string
-	HostPath    *string
-	MountPath   string
-	Content     *string
-	IsDirectory bool
-	FileMode    *string
-	OwnerUid    *int32
-	GroupGid    *int32
-	CreatedBy   *int64
-	UpdatedBy   *int64
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
+	ID           int64
+	Uuid         pgtype.UUID
+	ResourceID   int64
+	Kind         StorageKind
+	Name         *string
+	HostPath     *string
+	MountPath    string
+	Content      *string
+	IsDirectory  bool
+	FileMode     *string
+	OwnerUid     *int32
+	GroupGid     *int32
+	CreatedBy    *int64
+	UpdatedBy    *int64
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+	ExternalName *string
 }
 
 type Preview struct {
@@ -2553,6 +2611,8 @@ type Resource struct {
 	UpdatedAt      pgtype.Timestamptz
 	DeletedAt      pgtype.Timestamptz
 	Version        int32
+	AdoptedAt      pgtype.Timestamptz
+	Adoption       []byte
 }
 
 type ResourceTag struct {

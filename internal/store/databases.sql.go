@@ -89,7 +89,7 @@ func (q *Queries) CreateDatabaseRow(ctx context.Context, arg CreateDatabaseRowPa
 }
 
 const getDatabaseByID = `-- name: GetDatabaseByID :one
-SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, d.id, d.engine, d.image, d.image_tag, d.custom_config, d.initdb_args, d.server_id, d.is_public, d.public_access_mode, d.public_port, d.tcp_proxy_timeout_seconds, d.ssl_enabled, d.ssl_mode, d.created_at, d.updated_at, c.id, c.uuid, c.database_id, c.username, c.password_enc, c.db_name, c.created_at, c.updated_at
+SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, d.id, d.engine, d.image, d.image_tag, d.custom_config, d.initdb_args, d.server_id, d.is_public, d.public_access_mode, d.public_port, d.tcp_proxy_timeout_seconds, d.ssl_enabled, d.ssl_mode, d.created_at, d.updated_at, c.id, c.uuid, c.database_id, c.username, c.password_enc, c.db_name, c.created_at, c.updated_at
 FROM resources r
 JOIN databases d ON d.id = r.id
 JOIN database_credentials c ON c.database_id = d.id
@@ -125,6 +125,8 @@ func (q *Queries) GetDatabaseByID(ctx context.Context, id int64) (GetDatabaseByI
 		&i.Resource.UpdatedAt,
 		&i.Resource.DeletedAt,
 		&i.Resource.Version,
+		&i.Resource.AdoptedAt,
+		&i.Resource.Adoption,
 		&i.Database.ID,
 		&i.Database.Engine,
 		&i.Database.Image,
@@ -153,7 +155,7 @@ func (q *Queries) GetDatabaseByID(ctx context.Context, id int64) (GetDatabaseByI
 }
 
 const getDatabaseByUUID = `-- name: GetDatabaseByUUID :one
-SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, d.id, d.engine, d.image, d.image_tag, d.custom_config, d.initdb_args, d.server_id, d.is_public, d.public_access_mode, d.public_port, d.tcp_proxy_timeout_seconds, d.ssl_enabled, d.ssl_mode, d.created_at, d.updated_at, c.id, c.uuid, c.database_id, c.username, c.password_enc, c.db_name, c.created_at, c.updated_at,
+SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, d.id, d.engine, d.image, d.image_tag, d.custom_config, d.initdb_args, d.server_id, d.is_public, d.public_access_mode, d.public_port, d.tcp_proxy_timeout_seconds, d.ssl_enabled, d.ssl_mode, d.created_at, d.updated_at, c.id, c.uuid, c.database_id, c.username, c.password_enc, c.db_name, c.created_at, c.updated_at,
        e.uuid AS environment_uuid, p.uuid AS project_uuid, srv.uuid AS server_uuid,
        srv.host AS server_host
 FROM resources r
@@ -203,6 +205,8 @@ func (q *Queries) GetDatabaseByUUID(ctx context.Context, arg GetDatabaseByUUIDPa
 		&i.Resource.UpdatedAt,
 		&i.Resource.DeletedAt,
 		&i.Resource.Version,
+		&i.Resource.AdoptedAt,
+		&i.Resource.Adoption,
 		&i.Database.ID,
 		&i.Database.Engine,
 		&i.Database.Image,
@@ -235,7 +239,7 @@ func (q *Queries) GetDatabaseByUUID(ctx context.Context, arg GetDatabaseByUUIDPa
 }
 
 const listDatabasesPage = `-- name: ListDatabasesPage :many
-SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, d.id, d.engine, d.image, d.image_tag, d.custom_config, d.initdb_args, d.server_id, d.is_public, d.public_access_mode, d.public_port, d.tcp_proxy_timeout_seconds, d.ssl_enabled, d.ssl_mode, d.created_at, d.updated_at, c.id, c.uuid, c.database_id, c.username, c.password_enc, c.db_name, c.created_at, c.updated_at,
+SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, d.id, d.engine, d.image, d.image_tag, d.custom_config, d.initdb_args, d.server_id, d.is_public, d.public_access_mode, d.public_port, d.tcp_proxy_timeout_seconds, d.ssl_enabled, d.ssl_mode, d.created_at, d.updated_at, c.id, c.uuid, c.database_id, c.username, c.password_enc, c.db_name, c.created_at, c.updated_at,
        e.uuid AS environment_uuid, p.uuid AS project_uuid, srv.uuid AS server_uuid,
        srv.host AS server_host
 FROM resources r
@@ -295,6 +299,8 @@ func (q *Queries) ListDatabasesPage(ctx context.Context, arg ListDatabasesPagePa
 			&i.Resource.UpdatedAt,
 			&i.Resource.DeletedAt,
 			&i.Resource.Version,
+			&i.Resource.AdoptedAt,
+			&i.Resource.Adoption,
 			&i.Database.ID,
 			&i.Database.Engine,
 			&i.Database.Image,

@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/deepteams/akerdock/internal/adoption"
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/githubapp"
@@ -356,6 +357,13 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 		previewLabel = " --label akerdock.preview_uuid=" + appUUID
 	}
 	candidate := appUUID + "-next"
+	// The container currently serving: the uuid-derived name, except for an
+	// adopted resource awaiting normalization (§20.7) — there it is whatever
+	// the original platform named it. This deployment IS the normalization.
+	oldName := appUUID
+	if r.preview == nil {
+		oldName = adoption.ContainerName(r.app.Resource.Adoption, appUUID)
+	}
 	labels := fmt.Sprintf("--label akerdock.managed=true --label akerdock.resource_uuid=%s --label akerdock.type=%s --label akerdock.team_uuid=%s --label akerdock.deployment_uuid=%s",
 		resourceUUID, resourceType, r.teamUUID, pguuid.String(r.d.Uuid)) + previewLabel
 
@@ -401,7 +409,7 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	// A deployment that is already past `queued` when its job is re-run is a
 	// RESUME: the previous worker died mid-flight (its lease expired). It must
 	// never be replayed blindly — §2.5.
-	if resumed, err := r.resume(ctx, appUUID, candidate); err != nil || resumed {
+	if resumed, err := r.resume(ctx, appUUID, oldName, candidate); err != nil || resumed {
 		return err
 	}
 
@@ -423,7 +431,7 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	// preparing — before anything is built (§10). A failure here fails the
 	// deployment while nothing has been mutated yet: the running application is
 	// untouched.
-	if err := r.runHook(ctx, "pre_deployment", r.app.RuntimeConfig.PreDeploymentCommand, appUUID); err != nil {
+	if err := r.runHook(ctx, "pre_deployment", r.app.RuntimeConfig.PreDeploymentCommand, oldName); err != nil {
 		return err
 	}
 
@@ -558,7 +566,7 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	if !r.rolling {
 		target = appUUID
 		stopOld = fmt.Sprintf("docker stop -t %d %s >/dev/null 2>&1 && docker rm %s >/dev/null 2>&1; ",
-			r.app.RuntimeConfig.StopGracePeriodSeconds, appUUID, appUUID)
+			r.app.RuntimeConfig.StopGracePeriodSeconds, oldName, oldName)
 	}
 	r.target = target
 	if err := r.step(ctx, "start_candidate", func() (*sshexec.Result, error) {
@@ -648,7 +656,7 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 		if err := r.step(ctx, "switch", func() (*sshexec.Result, error) {
 			return r.client.Run(ctx, fmt.Sprintf(
 				"(docker stop -t %d %s >/dev/null 2>&1 && docker rm %s >/dev/null 2>&1) || true; docker rename %s %s",
-				grace, appUUID, appUUID, candidate, appUUID))
+				grace, oldName, oldName, candidate, appUUID))
 		}); err != nil {
 			return err
 		}
@@ -1142,6 +1150,17 @@ func (r *deploymentRun) renderStorages(ctx context.Context, appUUID string) (mou
 				continue
 			}
 			vol := DockerVolumeName(appUUID, *s.Name)
+			if s.ExternalName != nil && *s.ExternalName != "" {
+				if r.preview != nil {
+					// An adopted volume is production data: a preview must
+					// never mount it (INV-010) — same rule as bind mounts.
+					r.h.Logger.Warn("preview skips adopted volume", "volume", *s.ExternalName)
+					continue
+				}
+				// Adopted volume (§20.7): mounted under its ORIGINAL name —
+				// prefixing it would remount an empty volume (INV-008).
+				vol = *s.ExternalName
+			}
 			prep = append(prep, fmt.Sprintf(
 				"docker volume inspect %s >/dev/null 2>&1 || docker volume create --label akerdock.managed=true --label akerdock.resource_uuid=%s --label akerdock.team_uuid=%s %s >/dev/null",
 				vol, appUUID, r.teamUUID, vol))
@@ -1515,7 +1534,7 @@ func (r *deploymentRun) runHook(ctx context.Context, name string, command *strin
 // switch twice: stop a container that is already the live one, or repoint the
 // proxy at a candidate that no longer exists. Hence: inspect first, never
 // switch without knowing the outcome of the previous attempt (INV-004/005).
-func (r *deploymentRun) resume(ctx context.Context, appUUID, candidate string) (bool, error) {
+func (r *deploymentRun) resume(ctx context.Context, appUUID, oldName, candidate string) (bool, error) {
 	switch r.d.Status {
 	case store.DeploymentStatusQueued:
 		return false, nil // never started: nothing to recover
@@ -1536,7 +1555,7 @@ func (r *deploymentRun) resume(ctx context.Context, appUUID, candidate string) (
 	res, err := r.client.Run(ctx, fmt.Sprintf(
 		"echo old=$(docker inspect --format '{{.State.Status}}' %s 2>/dev/null || echo absent); "+
 			"echo next=$(docker inspect --format '{{.State.Status}}' %s 2>/dev/null || echo absent)",
-		appUUID, candidate))
+		oldName, candidate))
 	if err != nil {
 		return false, err
 	}
@@ -1591,7 +1610,7 @@ func (r *deploymentRun) resume(ctx context.Context, appUUID, candidate string) (
 		if err := r.step(ctx, "switch", func() (*sshexec.Result, error) {
 			return r.client.Run(ctx, fmt.Sprintf(
 				"(docker stop -t %d %s >/dev/null 2>&1 && docker rm %s >/dev/null 2>&1) || true; docker rename %s %s",
-				grace, appUUID, appUUID, candidate, appUUID))
+				grace, oldName, oldName, candidate, appUUID))
 		}); err != nil {
 			return true, err
 		}
@@ -1620,6 +1639,11 @@ func (r *deploymentRun) finish(ctx context.Context, appUUID string) error {
 	_ = r.h.Store.SetResourceObservedStatus(ctx, store.SetResourceObservedStatusParams{
 		ID: r.app.Resource.ID, ObservedStatus: store.ResourceObservedStatusHealthy,
 	})
+	// An adopted resource is now fully normalized (§20.7 step 4): the remote
+	// objects converged onto the uuid-derived names, the pointer is obsolete.
+	if r.preview == nil && adoption.ParsePointer(r.app.Resource.Adoption) != nil {
+		_ = r.h.Store.ClearResourceAdoption(ctx, r.app.Resource.ID)
+	}
 	r.recordArtifact(ctx)
 	if r.preview != nil {
 		_ = r.h.Store.SetPreviewDeployed(ctx, r.preview.ID)

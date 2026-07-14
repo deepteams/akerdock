@@ -57,8 +57,8 @@ func (a *API) resolveServiceStack(w http.ResponseWriter, r *http.Request, id *au
 // validateComposeContent runs the control-plane validation of compose-spec
 // §1–5 and translates the findings into 422 details. Inline stacks have no
 // source to build from, so `build:` is refused here, not at deploy time.
-func validateComposeContent(ctx context.Context, content, stackUUID string) []api.ErrorDetail {
-	res, err := compose.Load(ctx, compose.Input{Content: content, StackUUID: stackUUID, Variables: map[string]string{}})
+func validateComposeContent(ctx context.Context, content, stackUUID string, policy compose.Policy) []api.ErrorDetail {
+	res, err := compose.Load(ctx, compose.Input{Content: content, StackUUID: stackUUID, Variables: map[string]string{}, Policy: policy})
 	if err != nil {
 		return []api.ErrorDetail{{Field: ptr("compose_content"), Code: ptr("compose_parse_error"), Message: err.Error()}}
 	}
@@ -168,7 +168,7 @@ func (a *API) CreateService(w http.ResponseWriter, r *http.Request, params api.C
 	}
 	// The file is validated against the plan it would produce (§11): every
 	// blocking finding is named, with its stable code, before anything exists.
-	if details := validateComposeContent(r.Context(), body.ComposeContent, pguuid.String(u)); len(details) > 0 {
+	if details := validateComposeContent(r.Context(), body.ComposeContent, pguuid.String(u), compose.Policy{}); len(details) > 0 {
 		httpapi.WriteValidationError(w, r, details)
 		return
 	}
@@ -275,7 +275,11 @@ func (a *API) UpdateService(w http.ResponseWriter, r *http.Request, serviceUuid 
 	content := row.Service.ComposeContent
 	if body.ComposeContent != nil {
 		content = *body.ComposeContent
-		if details := validateComposeContent(r.Context(), content, uuidString(row.Resource.Uuid)); len(details) > 0 {
+		// An adopted stack legitimately declares its volumes external — that
+		// is how its data survived the migration (§20.7); everything else
+		// keeps the strict default policy.
+		policy := compose.Policy{AllowExternalObjects: row.Resource.AdoptedAt.Valid}
+		if details := validateComposeContent(r.Context(), content, uuidString(row.Resource.Uuid), policy); len(details) > 0 {
 			httpapi.WriteValidationError(w, r, details)
 			return
 		}

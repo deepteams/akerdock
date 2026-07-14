@@ -7,7 +7,8 @@
 # (+ logs SSE), deploy webhook générique, databases PostgreSQL (+ backups),
 # certificats (inventaire par serveur, renouvellement forcé), chiffrement au
 # repos (état et rotation de clé maître — ADR-003), jobs (suivi, dead-letter
-# retry/forget — spec deployment-engine §2.4).
+# retry/forget — spec deployment-engine §2.4), adoption de ressources Docker
+# existantes (§20.7, ADR-013/023 — scan, adopt, disown).
 #
 # Volontairement HORS de cette v1 (P2/P3 ou hors scope API) :
 #   - Services one-click et stacks Docker Compose (§9, P2)
@@ -2110,6 +2111,157 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /servers/{server_uuid}/adoption-scans:
+    parameters:
+      - $ref: "#/components/parameters/ServerUuid"
+    post:
+      tags: [Servers]
+      operationId: createAdoptionScan
+      summary: Scanner les ressources Docker non gérées d'un serveur
+      description: >-
+        Inventorie les containers et stacks compose du serveur qui ne sont PAS
+        gérés par AkerDock (aucun label `akerdock.*` — INV-015) et propose un
+        mapping vers le modèle AkerDock (§20.7, ADR-013) : application ou
+        service, volumes, variables (noms seulement — INV-003), ports, réseaux
+        et domaines détectés par inspection et labels. C'est le chemin de
+        migration entrant depuis n'importe quelle plateforme (ADR-023).
+        Opération longue — répond `202` avec un job de suivi et l'UUID du scan
+        à interroger. `409` (`operation_in_progress`) si un scan de ce serveur
+        est déjà en cours.
+      x-required-permission: write
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Scan accepté — suivre le job puis lire le scan.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdoptionScanAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    get:
+      tags: [Servers]
+      operationId: listAdoptionScans
+      summary: Lister les scans d'adoption d'un serveur
+      description: >-
+        Historique des scans d'adoption du serveur (§20.7), du plus récent au
+        plus ancien.
+      x-required-permission: read
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page de scans.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AdoptionScan"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /adoption-scans/{adoption_scan_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/AdoptionScanUuid"
+    get:
+      tags: [Servers]
+      operationId: getAdoptionScan
+      summary: Lire un scan d'adoption et ses candidats
+      description: >-
+        Le résultat du scan (§20.7) : candidats adoptables avec leur mapping
+        proposé et ce qui sera modifié, candidats non adoptables avec le
+        motif — jamais d'adoption partielle silencieuse. Les valeurs des
+        variables d'environnement ne figurent JAMAIS dans le scan (INV-003) :
+        seuls les noms sont listés ; les valeurs sont capturées et chiffrées
+        au moment de l'adoption.
+      x-required-permission: read
+      responses:
+        "200":
+          description: Le scan.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdoptionScan"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /adoption-scans/{adoption_scan_uuid}/adopt:
+    parameters:
+      - $ref: "#/components/parameters/AdoptionScanUuid"
+    post:
+      tags: [Servers]
+      operationId: adoptResources
+      summary: Adopter des candidats d'un scan, sans redéploiement
+      description: >-
+        Prend le contrôle des candidats sélectionnés SANS redémarrer les
+        workloads (§20.7, ADR-013) : les objets AkerDock (application ou
+        service, variables chiffrées, volumes, domaines) sont créés en
+        pointant sur les containers existants. Le premier redéploiement
+        normalise complètement la ressource (labels, noms, réseau) en
+        conservant les données (volumes repris sous leur nom d'origine).
+        Opération longue — répond `202` avec un job ; le résultat du job
+        liste les ressources créées. `409` (`invalid_state`) si le scan n'est
+        pas terminé ; `422` si un candidat est inconnu ou non adoptable.
+      x-required-permission: write
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdoptRequest"
+      responses:
+        "202":
+          description: Adoption acceptée — suivre le job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /servers/{server_uuid}/domains:
     parameters:
       - $ref: "#/components/parameters/ServerUuid"
@@ -2843,6 +2995,40 @@ paths:
       responses:
         "202":
           description: Redémarrage accepté — suivre le job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /applications/{application_uuid}/disown:
+    parameters:
+      - $ref: "#/components/parameters/ApplicationUuid"
+    post:
+      tags: [Applications]
+      operationId: disownApplication
+      summary: Désadopter une application — rendue non gérée, jamais détruite
+      description: >-
+        Inverse de l'adoption (§20.7, ADR-013) : AkerDock retire son routage
+        éventuel puis oublie la ressource — les containers, volumes et
+        fichiers distants restent EXACTEMENT en l'état. Fonctionne sur toute
+        application, adoptée ou non : c'est le chemin de sortie sans
+        destruction. Opération longue — répond `202` avec un job.
+      x-required-permission: write
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Désadoption acceptée — suivre le job.
           content:
             application/json:
               schema:
@@ -3807,6 +3993,39 @@ paths:
       responses:
         "202":
           description: Suppression acceptée — suivre le job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /services/{service_uuid}/disown:
+    parameters:
+      - $ref: "#/components/parameters/ServiceUuid"
+    post:
+      tags: [Services]
+      operationId: disownService
+      summary: Désadopter un stack — rendu non géré, jamais détruit
+      description: >-
+        Inverse de l'adoption (§20.7, ADR-013) : AkerDock retire son routage
+        éventuel puis oublie le stack — containers, réseaux, volumes et
+        fichiers distants restent EXACTEMENT en l'état. Opération longue —
+        répond `202` avec un job.
+      x-required-permission: write
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Désadoption acceptée — suivre le job.
           content:
             application/json:
               schema:
@@ -5442,6 +5661,13 @@ components:
       description: UUID du serveur.
       schema:
         type: string
+    AdoptionScanUuid:
+      name: adoption_scan_uuid
+      in: path
+      required: true
+      description: UUID du scan d'adoption (§20.7).
+      schema:
+        type: string
     RegistryCredentialUuid:
       name: registry_credential_uuid
       in: path
@@ -6301,6 +6527,192 @@ components:
         max_duration_seconds:
           type: integer
           description: Durée maximum d'une session, quelle que soit l'activité.
+
+    AdoptionScanAccepted:
+      allOf:
+        - $ref: "#/components/schemas/JobAccepted"
+        - type: object
+          required: [adoption_scan_uuid]
+          properties:
+            adoption_scan_uuid:
+              type: string
+              description: UUID du scan créé, à lire une fois le job terminé.
+      description: Réponse d'un scan d'adoption — job de suivi + scan créé.
+
+    AdoptionScan:
+      type: object
+      description: >-
+        Un scan d'adoption (§20.7, ADR-013) : inventaire des ressources Docker
+        non gérées d'un serveur et mapping proposé vers le modèle AkerDock.
+      required: [uuid, server_uuid, status, created_at]
+      properties:
+        uuid:
+          type: string
+        server_uuid:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        error:
+          type: string
+          nullable: true
+          description: Cause de l'échec quand `status = failed`.
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        candidates:
+          type: array
+          description: >-
+            Présent quand `status = completed`. Contient TOUS les candidats,
+            adoptables ou non — un candidat non adoptable porte ses motifs
+            (`reasons`), jamais d'omission silencieuse.
+          items:
+            $ref: "#/components/schemas/AdoptionCandidate"
+
+    AdoptionCandidate:
+      type: object
+      description: >-
+        Un container isolé ou un stack compose non géré, avec le mapping
+        proposé (§20.7). `modifications` liste ce que l'adoption puis la
+        première normalisation changeront — l'adoption elle-même ne redémarre
+        jamais le workload.
+      required: [id, kind, proposed_name, adoptable, containers]
+      properties:
+        id:
+          type: string
+          description: >-
+            Identifiant stable du candidat dans ce scan : ID court du
+            container, ou `compose:<projet>` pour un stack.
+        kind:
+          type: string
+          enum: [container, compose_stack]
+        proposed_name:
+          type: string
+          description: Nom de ressource proposé (modifiable à l'adoption).
+        proposed_resource_type:
+          type: string
+          enum: [application, service]
+          nullable: true
+          description: application (container isolé) ou service (stack compose).
+        compose_project:
+          type: string
+          nullable: true
+          description: Nom du projet compose (`com.docker.compose.project`).
+        adoptable:
+          type: boolean
+        reasons:
+          type: array
+          description: Motifs de non-adoptabilité quand `adoptable = false`.
+          items:
+            type: string
+        modifications:
+          type: array
+          description: >-
+            Ce qui sera modifié — à l'adoption (rien sur le workload) et à la
+            première normalisation (labels, nom, réseau).
+          items:
+            type: string
+        containers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdoptionCandidateContainer"
+
+    AdoptionCandidateContainer:
+      type: object
+      required: [container_id, container_name, image, state]
+      properties:
+        container_id:
+          type: string
+          description: ID court du container.
+        container_name:
+          type: string
+        image:
+          type: string
+        state:
+          type: string
+          description: État Docker observé (`running`, `exited`, …).
+        compose_service:
+          type: string
+          nullable: true
+          description: Nom du service compose, pour un membre de stack.
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: >-
+            Labels Docker du container (hors namespace `akerdock.*`) — c'est
+            ce qui permet à un outil de migration de reconnaître les workloads
+            d'une plateforme donnée (ex. `coolify.*`) sans rien connaître de
+            son schéma interne (ADR-023).
+        env_keys:
+          type: array
+          description: >-
+            NOMS des variables d'environnement — jamais les valeurs
+            (INV-003) ; elles sont capturées et chiffrées à l'adoption.
+          items:
+            type: string
+        ports:
+          type: array
+          items:
+            type: object
+            required: [container_port, protocol]
+            properties:
+              container_port:
+                type: integer
+              host_port:
+                type: integer
+                nullable: true
+              protocol:
+                type: string
+        mounts:
+          type: array
+          items:
+            type: object
+            required: [kind, source, destination]
+            properties:
+              kind:
+                type: string
+                description: '`volume` ou `bind`.'
+              source:
+                type: string
+                description: Nom du volume ou chemin hôte.
+              destination:
+                type: string
+        networks:
+          type: array
+          items:
+            type: string
+        domains:
+          type: array
+          description: FQDN détectés dans les labels de reverse proxy (Traefik).
+          items:
+            type: string
+
+    AdoptRequest:
+      type: object
+      description: Sélection de candidats d'un scan à adopter (§20.7).
+      required: [environment_uuid, items]
+      properties:
+        environment_uuid:
+          type: string
+          description: Environnement cible des ressources créées.
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [candidate_id]
+            properties:
+              candidate_id:
+                type: string
+                description: '`id` du candidat dans le scan.'
+              name:
+                type: string
+                description: Nom de ressource, à défaut `proposed_name`.
 
     NotificationChannel:
       type: object

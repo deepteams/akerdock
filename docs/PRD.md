@@ -839,7 +839,7 @@ La colonne « Sections » renvoie aux exigences de ce document qui définissent 
 | Previews PR enrichies (compose, données éphémères, TTL/caps, protection, checks, forks approuvés) | §5.6, §20.4, §27.11 | P2 | À faire | E2E multi-providers + tests sécurité fork/accès |
 | Backups volumes + Redis/ClickHouse + restore drills | §20.5, §27.14 | P1 | À faire | E2E backup/restore + drill automatisé |
 | Config as code + Terraform officiel | §24.5, §27.12 | P2 | À faire | Round-trip export→apply + tests provider |
-| Adoption de ressources existantes | §20.7, §27.13 | P2 | À faire | E2E adoption compose multi-services sans perte |
+| Adoption de ressources existantes | §20.7, §27.13 | P2 | Fait | E2E adoption compose multi-services sans perte |
 | Déploiement coordonné + auto-rollback | §20.8, §27.16 | P2 | À faire | E2E graphe + hook migration + rollback sur health |
 | Fiabilité compose (zero-downtime, limits) | §27.15 | P2 | À faire | E2E rolling update stack compose + vérif cgroups |
 | Uptime monitoring intégré | §27.17 | P2 | À faire | Checks + alerting E2E |

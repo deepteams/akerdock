@@ -94,6 +94,7 @@ Extensions PostgreSQL requises : `citext` (emails), `pgcrypto` (`gen_random_uuid
 | `missed_run_policy` | `skip`, `catch_up_one` | §24.3 |
 | `task_execution_status` | `running`, `succeeded`, `failed`, `skipped` | §5.7 |
 | `terminal_target` | `server`, `container` | §5.7 |
+| `adoption_scan_status` | `pending`, `running`, `completed`, `failed` | §20.7 |
 | `terminal_end_reason` | `user_close`, `idle_timeout`, `max_duration`, `disconnect`, `revoked` | §24.4 |
 | `notification_channel_kind` | `smtp`, `resend`, `discord`, `telegram`, `slack`, `pushover`, `webhook` | §11 |
 | `notification_severity` | `info`, `warning`, `critical` | §27.19 |
@@ -310,6 +311,8 @@ Table de base de l'union logique `Application | Database | Service` (§19.1) : p
 | `observed_at` | `timestamptz` | oui | — | — | non | Fraîcheur de l'observation ; au-delà d'un seuil, l'UI affiche « stale » (§19.2). |
 | `last_online_at` | `timestamptz` | oui | — | — | non | Dernière observation `healthy`/`running` (§6.2). |
 | `remnants` | `jsonb` | oui | — | — | non | Restes distants après échec de suppression, pour retry/forget (§20.6.4). |
+| `adopted_at` | `timestamptz` | oui | — | — | non | Ressource entrée par adoption (§20.7, ADR-013) ; conservé après normalisation (historique, et politique compose `AllowExternalObjects`). |
+| `adoption` | `jsonb` | oui | — | — | non | Pointeur vers les objets distants d'origine (`container_name`, `compose_project`, `scan_uuid`) **tant que la ressource n'est pas normalisée** ; le premier déploiement réussi l'efface. Lifecycle, logs, terminal et moteur ciblent ces noms tant qu'il est présent. |
 | `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
 | `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
 | `created_at` | `timestamptz` | non | `now()` | — | non | — |
@@ -525,6 +528,23 @@ Stockage objet compatible S3 pour les backups (§7.4). Vérification `ListObject
 | `observed_at` | `timestamptz` | oui | — | — | non | Fraîcheur du reflet (§19.2) ; au-delà d'un seuil, l'UI affiche « stale », jamais un faux `issued`. |
 | `created_at` | `timestamptz` | non | `now()` | — | non | — |
 | `updated_at` | `timestamptz` | non | `now()` | — | non | Dernière synchronisation. |
+
+### 6.8 `adoption_scans`
+
+Un scan d'adoption (§20.7, ADR-013/ADR-023) : inventaire des containers et stacks compose **non gérés** d'un serveur, avec le mapping proposé vers le modèle AkerDock. `candidates` porte les candidats tels que servis par l'API (adoptables et non adoptables, avec motifs), **plus** deux champs internes au scan (`compose_content` réécrit, `compose_working_dir`) que le handler ne réémet jamais. Les **noms** de variables d'environnement y figurent, **jamais les valeurs** (INV-003) : celles-ci sont capturées et chiffrées enveloppe au moment de l'adoption. Suppression : **CASCADE** avec le serveur — un scan est un instantané, pas une ressource.
+
+| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+|---|---|---|---|---|---|---|
+| `id` | `bigint` | non | identity | PK | non | — |
+| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
+| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE CASCADE, index `(team_id, id DESC)` | non | Isolation team (INV-002). |
+| `server_id` | `bigint` | non | — | FK `servers(id)` ON DELETE CASCADE, index `(server_id, id DESC)` | non | Serveur scanné. |
+| `status` | `adoption_scan_status` | non | `'pending'` | enum `pending/running/completed/failed` | non | — |
+| `error` | `text` | oui | — | — | non | Cause quand `failed`. |
+| `candidates` | `jsonb` | oui | — | — | non | Candidats au format API + champs internes (voir ci-dessus). Rempli quand `completed`. |
+| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
+| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `completed_at` | `timestamptz` | oui | — | — | non | — |
 
 ---
 
@@ -807,6 +827,7 @@ Stockage persistant d'une ressource : volume nommé, bind mount ou file mount à
 | `resource_id` | `bigint` | non | — | FK `resources(id)` ON DELETE CASCADE ; UNIQUE `(resource_id, mount_path)` | non | — |
 | `kind` | `storage_kind` | non | — | CHECK cohérence : `volume` ⇒ `name` non NULL ; `bind`/`file` ⇒ `host_path` non NULL | non | volume / bind / file (§8). |
 | `name` | `text` | oui | — | — | non | Nom du volume, préfixé par l'UUID de la ressource (anti-collision, §8, INV-011). |
+| `external_name` | `text` | oui | — | — | non | Volume **adopté** (§20.7) : nom Docker d'origine, monté tel quel — le préfixer remonterait un volume vide (INV-008). Jamais monté dans une preview (INV-010). |
 | `host_path` | `text` | oui | — | CHECK anti path traversal (§23.3) | non | Chemin hôte (bind/file). |
 | `mount_path` | `text` | non | — | — | non | Chemin dans le container. |
 | `content` | `text` | oui | — | CHECK `length(content) <= 5*1024*1024` | non | Contenu du file mount, éditable en UI (≤ 5 MiB, §23.3) ; rechargement depuis le serveur (§8). |

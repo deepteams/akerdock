@@ -22,6 +22,66 @@ const (
 	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
 )
 
+// Defines values for AdoptionCandidateKind.
+const (
+	AdoptionCandidateKindComposeStack AdoptionCandidateKind = "compose_stack"
+	AdoptionCandidateKindContainer    AdoptionCandidateKind = "container"
+)
+
+// Valid indicates whether the value is a known member of the AdoptionCandidateKind enum.
+func (e AdoptionCandidateKind) Valid() bool {
+	switch e {
+	case AdoptionCandidateKindComposeStack:
+		return true
+	case AdoptionCandidateKindContainer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AdoptionCandidateProposedResourceType.
+const (
+	AdoptionCandidateProposedResourceTypeApplication AdoptionCandidateProposedResourceType = "application"
+	AdoptionCandidateProposedResourceTypeService     AdoptionCandidateProposedResourceType = "service"
+)
+
+// Valid indicates whether the value is a known member of the AdoptionCandidateProposedResourceType enum.
+func (e AdoptionCandidateProposedResourceType) Valid() bool {
+	switch e {
+	case AdoptionCandidateProposedResourceTypeApplication:
+		return true
+	case AdoptionCandidateProposedResourceTypeService:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AdoptionScanStatus.
+const (
+	AdoptionScanStatusCompleted AdoptionScanStatus = "completed"
+	AdoptionScanStatusFailed    AdoptionScanStatus = "failed"
+	AdoptionScanStatusPending   AdoptionScanStatus = "pending"
+	AdoptionScanStatusRunning   AdoptionScanStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the AdoptionScanStatus enum.
+func (e AdoptionScanStatus) Valid() bool {
+	switch e {
+	case AdoptionScanStatusCompleted:
+		return true
+	case AdoptionScanStatusFailed:
+		return true
+	case AdoptionScanStatusPending:
+		return true
+	case AdoptionScanStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ApiTokenPermission.
 const (
 	Deploy        ApiTokenPermission = "deploy"
@@ -1113,28 +1173,28 @@ func (e ServerProxyType) Valid() bool {
 
 // Defines values for ServerStatus.
 const (
-	ServerStatusDeleting    ServerStatus = "deleting"
-	ServerStatusMaintenance ServerStatus = "maintenance"
-	ServerStatusPending     ServerStatus = "pending"
-	ServerStatusReady       ServerStatus = "ready"
-	ServerStatusUnreachable ServerStatus = "unreachable"
-	ServerStatusValidating  ServerStatus = "validating"
+	Deleting    ServerStatus = "deleting"
+	Maintenance ServerStatus = "maintenance"
+	Pending     ServerStatus = "pending"
+	Ready       ServerStatus = "ready"
+	Unreachable ServerStatus = "unreachable"
+	Validating  ServerStatus = "validating"
 )
 
 // Valid indicates whether the value is a known member of the ServerStatus enum.
 func (e ServerStatus) Valid() bool {
 	switch e {
-	case ServerStatusDeleting:
+	case Deleting:
 		return true
-	case ServerStatusMaintenance:
+	case Maintenance:
 		return true
-	case ServerStatusPending:
+	case Pending:
 		return true
-	case ServerStatusReady:
+	case Ready:
 		return true
-	case ServerStatusUnreachable:
+	case Unreachable:
 		return true
-	case ServerStatusValidating:
+	case Validating:
 		return true
 	default:
 		return false
@@ -1395,16 +1455,16 @@ func (e TransactionalEmailKind) Valid() bool {
 
 // Defines values for TransactionalEmailSetKind.
 const (
-	TransactionalEmailSetKindResend TransactionalEmailSetKind = "resend"
-	TransactionalEmailSetKindSmtp   TransactionalEmailSetKind = "smtp"
+	Resend TransactionalEmailSetKind = "resend"
+	Smtp   TransactionalEmailSetKind = "smtp"
 )
 
 // Valid indicates whether the value is a known member of the TransactionalEmailSetKind enum.
 func (e TransactionalEmailSetKind) Valid() bool {
 	switch e {
-	case TransactionalEmailSetKindResend:
+	case Resend:
 		return true
-	case TransactionalEmailSetKindSmtp:
+	case Smtp:
 		return true
 	default:
 		return false
@@ -1472,6 +1532,117 @@ func (e DeleteWebhookEndpointParamsProvider) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// AdoptRequest Sélection de candidats d'un scan à adopter (§20.7).
+type AdoptRequest struct {
+	// EnvironmentUuid Environnement cible des ressources créées.
+	EnvironmentUuid string `json:"environment_uuid"`
+	Items           []struct {
+		// CandidateId `id` du candidat dans le scan.
+		CandidateId string `json:"candidate_id"`
+
+		// Name Nom de ressource, à défaut `proposed_name`.
+		Name *string `json:"name,omitempty"`
+	} `json:"items"`
+}
+
+// AdoptionCandidate Un container isolé ou un stack compose non géré, avec le mapping proposé (§20.7). `modifications` liste ce que l'adoption puis la première normalisation changeront — l'adoption elle-même ne redémarre jamais le workload.
+type AdoptionCandidate struct {
+	Adoptable bool `json:"adoptable"`
+
+	// ComposeProject Nom du projet compose (`com.docker.compose.project`).
+	ComposeProject *string                      `json:"compose_project,omitempty"`
+	Containers     []AdoptionCandidateContainer `json:"containers"`
+
+	// Id Identifiant stable du candidat dans ce scan : ID court du container, ou `compose:<projet>` pour un stack.
+	Id   string                `json:"id"`
+	Kind AdoptionCandidateKind `json:"kind"`
+
+	// Modifications Ce qui sera modifié — à l'adoption (rien sur le workload) et à la première normalisation (labels, nom, réseau).
+	Modifications *[]string `json:"modifications,omitempty"`
+
+	// ProposedName Nom de ressource proposé (modifiable à l'adoption).
+	ProposedName string `json:"proposed_name"`
+
+	// ProposedResourceType application (container isolé) ou service (stack compose).
+	ProposedResourceType *AdoptionCandidateProposedResourceType `json:"proposed_resource_type,omitempty"`
+
+	// Reasons Motifs de non-adoptabilité quand `adoptable = false`.
+	Reasons *[]string `json:"reasons,omitempty"`
+}
+
+// AdoptionCandidateKind defines model for AdoptionCandidate.Kind.
+type AdoptionCandidateKind string
+
+// AdoptionCandidateProposedResourceType application (container isolé) ou service (stack compose).
+type AdoptionCandidateProposedResourceType string
+
+// AdoptionCandidateContainer defines model for AdoptionCandidateContainer.
+type AdoptionCandidateContainer struct {
+	// ComposeService Nom du service compose, pour un membre de stack.
+	ComposeService *string `json:"compose_service,omitempty"`
+
+	// ContainerId ID court du container.
+	ContainerId   string `json:"container_id"`
+	ContainerName string `json:"container_name"`
+
+	// Domains FQDN détectés dans les labels de reverse proxy (Traefik).
+	Domains *[]string `json:"domains,omitempty"`
+
+	// EnvKeys NOMS des variables d'environnement — jamais les valeurs (INV-003) ; elles sont capturées et chiffrées à l'adoption.
+	EnvKeys *[]string `json:"env_keys,omitempty"`
+	Image   string    `json:"image"`
+
+	// Labels Labels Docker du container (hors namespace `akerdock.*`) — c'est ce qui permet à un outil de migration de reconnaître les workloads d'une plateforme donnée (ex. `coolify.*`) sans rien connaître de son schéma interne (ADR-023).
+	Labels *map[string]string `json:"labels,omitempty"`
+	Mounts *[]struct {
+		Destination string `json:"destination"`
+
+		// Kind `volume` ou `bind`.
+		Kind string `json:"kind"`
+
+		// Source Nom du volume ou chemin hôte.
+		Source string `json:"source"`
+	} `json:"mounts,omitempty"`
+	Networks *[]string `json:"networks,omitempty"`
+	Ports    *[]struct {
+		ContainerPort int    `json:"container_port"`
+		HostPort      *int   `json:"host_port,omitempty"`
+		Protocol      string `json:"protocol"`
+	} `json:"ports,omitempty"`
+
+	// State État Docker observé (`running`, `exited`, …).
+	State string `json:"state"`
+}
+
+// AdoptionScan Un scan d'adoption (§20.7, ADR-013) : inventaire des ressources Docker non gérées d'un serveur et mapping proposé vers le modèle AkerDock.
+type AdoptionScan struct {
+	// Candidates Présent quand `status = completed`. Contient TOUS les candidats, adoptables ou non — un candidat non adoptable porte ses motifs (`reasons`), jamais d'omission silencieuse.
+	Candidates  *[]AdoptionCandidate `json:"candidates,omitempty"`
+	CompletedAt *time.Time           `json:"completed_at,omitempty"`
+	CreatedAt   time.Time            `json:"created_at"`
+
+	// Error Cause de l'échec quand `status = failed`.
+	Error      *string            `json:"error,omitempty"`
+	ServerUuid string             `json:"server_uuid"`
+	Status     AdoptionScanStatus `json:"status"`
+	Uuid       string             `json:"uuid"`
+}
+
+// AdoptionScanStatus defines model for AdoptionScan.Status.
+type AdoptionScanStatus string
+
+// AdoptionScanAccepted defines model for AdoptionScanAccepted.
+type AdoptionScanAccepted struct {
+	// AdoptionScanUuid UUID du scan créé, à lire une fois le job terminé.
+	AdoptionScanUuid string `json:"adoption_scan_uuid"`
+
+	// JobUuid UUID du job créé.
+	JobUuid string `json:"job_uuid"`
+
+	// StatusUrl URL de suivi du job (relative à /api/v1).
+	StatusUrl string `json:"status_url"`
 }
 
 // ApiState defines model for ApiState.
@@ -3558,6 +3729,9 @@ type WebhookEndpointCreate struct {
 // WebhookEndpointCreateProvider defines model for WebhookEndpointCreate.Provider.
 type WebhookEndpointCreateProvider string
 
+// AdoptionScanUuid defines model for AdoptionScanUuid.
+type AdoptionScanUuid = string
+
 // ApplicationUuid defines model for ApplicationUuid.
 type ApplicationUuid = string
 
@@ -3675,6 +3849,12 @@ type VersionConflict = Error
 // bearerAuthContextKey is the context key for bearerAuth security scheme
 type bearerAuthContextKey string
 
+// AdoptResourcesParams defines parameters for AdoptResources.
+type AdoptResourcesParams struct {
+	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // ListApplicationsParams defines parameters for ListApplications.
 type ListApplicationsParams struct {
 	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
@@ -3733,6 +3913,12 @@ type ListApplicationDeploymentsParams struct {
 
 	// Status Filtrer par statut de déploiement.
 	Status *DeploymentStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// DisownApplicationParams defines parameters for DisownApplication.
+type DisownApplicationParams struct {
+	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListApplicationEnvsParams defines parameters for ListApplicationEnvs.
@@ -4158,6 +4344,21 @@ type UpdateServerParams struct {
 	IfMatch IfMatch `json:"If-Match"`
 }
 
+// ListAdoptionScansParams defines parameters for ListAdoptionScans.
+type ListAdoptionScansParams struct {
+	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Nombre maximal d'éléments par page (1 à 100).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// CreateAdoptionScanParams defines parameters for CreateAdoptionScan.
+type CreateAdoptionScanParams struct {
+	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // ListServerCertificatesParams defines parameters for ListServerCertificates.
 type ListServerCertificatesParams struct {
 	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
@@ -4235,6 +4436,12 @@ type ListServiceDeploymentsParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// DisownServiceParams defines parameters for DisownService.
+type DisownServiceParams struct {
+	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // ListServiceEnvsParams defines parameters for ListServiceEnvs.
 type ListServiceEnvsParams struct {
 	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
@@ -4297,6 +4504,9 @@ type CreateApiTokenParams struct {
 	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
+
+// AdoptResourcesJSONRequestBody defines body for AdoptResources for application/json ContentType.
+type AdoptResourcesJSONRequestBody = AdoptRequest
 
 // CreateApplicationJSONRequestBody defines body for CreateApplication for application/json ContentType.
 type CreateApplicationJSONRequestBody = ApplicationCreateRequest
@@ -4542,6 +4752,12 @@ func (t *ApplicationCreateRequest) UnmarshalJSON(b []byte) error {
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// Lire un scan d'adoption et ses candidats
+	// (GET /adoption-scans/{adoption_scan_uuid})
+	GetAdoptionScan(w http.ResponseWriter, r *http.Request, adoptionScanUuid AdoptionScanUuid)
+	// Adopter des candidats d'un scan, sans redéploiement
+	// (POST /adoption-scans/{adoption_scan_uuid}/adopt)
+	AdoptResources(w http.ResponseWriter, r *http.Request, adoptionScanUuid AdoptionScanUuid, params AdoptResourcesParams)
 	// Lister les applications
 	// (GET /applications)
 	ListApplications(w http.ResponseWriter, r *http.Request, params ListApplicationsParams)
@@ -4566,6 +4782,9 @@ type ServerInterface interface {
 	// Historique des déploiements d'une application
 	// (GET /applications/{application_uuid}/deployments)
 	ListApplicationDeployments(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params ListApplicationDeploymentsParams)
+	// Désadopter une application — rendue non gérée, jamais détruite
+	// (POST /applications/{application_uuid}/disown)
+	DisownApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params DisownApplicationParams)
 	// Lister les variables d'environnement
 	// (GET /applications/{application_uuid}/envs)
 	ListApplicationEnvs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params ListApplicationEnvsParams)
@@ -4881,6 +5100,12 @@ type ServerInterface interface {
 	// Modifier un serveur
 	// (PATCH /servers/{server_uuid})
 	UpdateServer(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params UpdateServerParams)
+	// Lister les scans d'adoption d'un serveur
+	// (GET /servers/{server_uuid}/adoption-scans)
+	ListAdoptionScans(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ListAdoptionScansParams)
+	// Scanner les ressources Docker non gérées d'un serveur
+	// (POST /servers/{server_uuid}/adoption-scans)
+	CreateAdoptionScan(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params CreateAdoptionScanParams)
 	// Certificat de la CA du serveur (SSL des bases)
 	// (GET /servers/{server_uuid}/ca)
 	GetServerCA(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid)
@@ -4929,6 +5154,9 @@ type ServerInterface interface {
 	// Déploiements d'un stack
 	// (GET /services/{service_uuid}/deployments)
 	ListServiceDeployments(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params ListServiceDeploymentsParams)
+	// Désadopter un stack — rendu non géré, jamais détruit
+	// (POST /services/{service_uuid}/disown)
+	DisownService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params DisownServiceParams)
 	// Variables d'environnement d'un stack
 	// (GET /services/{service_uuid}/envs)
 	ListServiceEnvs(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params ListServiceEnvsParams)
@@ -5004,6 +5232,18 @@ type ServerInterface interface {
 
 type Unimplemented struct{}
 
+// Lire un scan d'adoption et ses candidats
+// (GET /adoption-scans/{adoption_scan_uuid})
+func (_ Unimplemented) GetAdoptionScan(w http.ResponseWriter, r *http.Request, adoptionScanUuid AdoptionScanUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Adopter des candidats d'un scan, sans redéploiement
+// (POST /adoption-scans/{adoption_scan_uuid}/adopt)
+func (_ Unimplemented) AdoptResources(w http.ResponseWriter, r *http.Request, adoptionScanUuid AdoptionScanUuid, params AdoptResourcesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Lister les applications
 // (GET /applications)
 func (_ Unimplemented) ListApplications(w http.ResponseWriter, r *http.Request, params ListApplicationsParams) {
@@ -5049,6 +5289,12 @@ func (_ Unimplemented) DeployApplication(w http.ResponseWriter, r *http.Request,
 // Historique des déploiements d'une application
 // (GET /applications/{application_uuid}/deployments)
 func (_ Unimplemented) ListApplicationDeployments(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params ListApplicationDeploymentsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Désadopter une application — rendue non gérée, jamais détruite
+// (POST /applications/{application_uuid}/disown)
+func (_ Unimplemented) DisownApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params DisownApplicationParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5682,6 +5928,18 @@ func (_ Unimplemented) UpdateServer(w http.ResponseWriter, r *http.Request, serv
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Lister les scans d'adoption d'un serveur
+// (GET /servers/{server_uuid}/adoption-scans)
+func (_ Unimplemented) ListAdoptionScans(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ListAdoptionScansParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Scanner les ressources Docker non gérées d'un serveur
+// (POST /servers/{server_uuid}/adoption-scans)
+func (_ Unimplemented) CreateAdoptionScan(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params CreateAdoptionScanParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Certificat de la CA du serveur (SSL des bases)
 // (GET /servers/{server_uuid}/ca)
 func (_ Unimplemented) GetServerCA(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
@@ -5775,6 +6033,12 @@ func (_ Unimplemented) DeployService(w http.ResponseWriter, r *http.Request, ser
 // Déploiements d'un stack
 // (GET /services/{service_uuid}/deployments)
 func (_ Unimplemented) ListServiceDeployments(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params ListServiceDeploymentsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Désadopter un stack — rendu non géré, jamais détruit
+// (POST /services/{service_uuid}/disown)
+func (_ Unimplemented) DisownService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params DisownServiceParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5924,6 +6188,94 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// GetAdoptionScan operation middleware
+func (siw *ServerInterfaceWrapper) GetAdoptionScan(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "adoption_scan_uuid" -------------
+	var adoptionScanUuid AdoptionScanUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "adoption_scan_uuid", chi.URLParam(r, "adoption_scan_uuid"), &adoptionScanUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "adoption_scan_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAdoptionScan(w, r, adoptionScanUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AdoptResources operation middleware
+func (siw *ServerInterfaceWrapper) AdoptResources(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "adoption_scan_uuid" -------------
+	var adoptionScanUuid AdoptionScanUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "adoption_scan_uuid", chi.URLParam(r, "adoption_scan_uuid"), &adoptionScanUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "adoption_scan_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AdoptResourcesParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdoptResources(w, r, adoptionScanUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListApplications operation middleware
 func (siw *ServerInterfaceWrapper) ListApplications(w http.ResponseWriter, r *http.Request) {
@@ -6356,6 +6708,62 @@ func (siw *ServerInterfaceWrapper) ListApplicationDeployments(w http.ResponseWri
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListApplicationDeployments(w, r, applicationUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DisownApplication operation middleware
+func (siw *ServerInterfaceWrapper) DisownApplication(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "application_uuid" -------------
+	var applicationUuid ApplicationUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_uuid", chi.URLParam(r, "application_uuid"), &applicationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DisownApplicationParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DisownApplication(w, r, applicationUuid, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11177,6 +11585,123 @@ func (siw *ServerInterfaceWrapper) UpdateServer(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListAdoptionScans operation middleware
+func (siw *ServerInterfaceWrapper) ListAdoptionScans(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "server_uuid" -------------
+	var serverUuid ServerUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "server_uuid", chi.URLParam(r, "server_uuid"), &serverUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "server_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAdoptionScansParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAdoptionScans(w, r, serverUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateAdoptionScan operation middleware
+func (siw *ServerInterfaceWrapper) CreateAdoptionScan(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "server_uuid" -------------
+	var serverUuid ServerUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "server_uuid", chi.URLParam(r, "server_uuid"), &serverUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "server_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateAdoptionScanParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateAdoptionScan(w, r, serverUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetServerCA operation middleware
 func (siw *ServerInterfaceWrapper) GetServerCA(w http.ResponseWriter, r *http.Request) {
 
@@ -11945,6 +12470,62 @@ func (siw *ServerInterfaceWrapper) ListServiceDeployments(w http.ResponseWriter,
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListServiceDeployments(w, r, serviceUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DisownService operation middleware
+func (siw *ServerInterfaceWrapper) DisownService(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "service_uuid" -------------
+	var serviceUuid ServiceUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "service_uuid", chi.URLParam(r, "service_uuid"), &serviceUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DisownServiceParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DisownService(w, r, serviceUuid, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -12967,6 +13548,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/adoption-scans/{adoption_scan_uuid}", wrapper.GetAdoptionScan)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/adoption-scans/{adoption_scan_uuid}/adopt", wrapper.AdoptResources)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/applications", wrapper.ListApplications)
 	})
 	r.Group(func(r chi.Router) {
@@ -12989,6 +13576,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/applications/{application_uuid}/deployments", wrapper.ListApplicationDeployments)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/applications/{application_uuid}/disown", wrapper.DisownApplication)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/applications/{application_uuid}/envs", wrapper.ListApplicationEnvs)
@@ -13306,6 +13896,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/servers/{server_uuid}", wrapper.UpdateServer)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/servers/{server_uuid}/adoption-scans", wrapper.ListAdoptionScans)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/servers/{server_uuid}/adoption-scans", wrapper.CreateAdoptionScan)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/servers/{server_uuid}/ca", wrapper.GetServerCA)
 	})
 	r.Group(func(r chi.Router) {
@@ -13352,6 +13948,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/services/{service_uuid}/deployments", wrapper.ListServiceDeployments)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/services/{service_uuid}/disown", wrapper.DisownService)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/services/{service_uuid}/envs", wrapper.ListServiceEnvs)
@@ -13448,6 +14047,200 @@ type UnauthorizedJSONResponse Error
 type UnprocessableEntityJSONResponse Error
 
 type VersionConflictJSONResponse Error
+
+type GetAdoptionScanRequestObject struct {
+	AdoptionScanUuid AdoptionScanUuid `json:"adoption_scan_uuid"`
+}
+
+type GetAdoptionScanResponseObject interface {
+	VisitGetAdoptionScanResponse(w http.ResponseWriter) error
+}
+
+type GetAdoptionScan200JSONResponse AdoptionScan
+
+func (response GetAdoptionScan200JSONResponse) VisitGetAdoptionScanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAdoptionScan401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetAdoptionScan401JSONResponse) VisitGetAdoptionScanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAdoptionScan403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetAdoptionScan403JSONResponse) VisitGetAdoptionScanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAdoptionScan404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetAdoptionScan404JSONResponse) VisitGetAdoptionScanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAdoptionScan429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetAdoptionScan429JSONResponse) VisitGetAdoptionScanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdoptResourcesRequestObject struct {
+	AdoptionScanUuid AdoptionScanUuid `json:"adoption_scan_uuid"`
+	Params           AdoptResourcesParams
+	Body             *AdoptResourcesJSONRequestBody
+}
+
+type AdoptResourcesResponseObject interface {
+	VisitAdoptResourcesResponse(w http.ResponseWriter) error
+}
+
+type AdoptResources202JSONResponse JobAccepted
+
+func (response AdoptResources202JSONResponse) VisitAdoptResourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdoptResources401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AdoptResources401JSONResponse) VisitAdoptResourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdoptResources403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AdoptResources403JSONResponse) VisitAdoptResourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdoptResources404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response AdoptResources404JSONResponse) VisitAdoptResourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdoptResources409JSONResponse struct{ ConflictJSONResponse }
+
+func (response AdoptResources409JSONResponse) VisitAdoptResourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdoptResources422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response AdoptResources422JSONResponse) VisitAdoptResourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdoptResources429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response AdoptResources429JSONResponse) VisitAdoptResourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type ListApplicationsRequestObject struct {
 	Params ListApplicationsParams
@@ -14248,6 +15041,102 @@ func (response ListApplicationDeployments404JSONResponse) VisitListApplicationDe
 type ListApplicationDeployments429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response ListApplicationDeployments429JSONResponse) VisitListApplicationDeploymentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisownApplicationRequestObject struct {
+	ApplicationUuid ApplicationUuid `json:"application_uuid"`
+	Params          DisownApplicationParams
+}
+
+type DisownApplicationResponseObject interface {
+	VisitDisownApplicationResponse(w http.ResponseWriter) error
+}
+
+type DisownApplication202JSONResponse JobAccepted
+
+func (response DisownApplication202JSONResponse) VisitDisownApplicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisownApplication401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DisownApplication401JSONResponse) VisitDisownApplicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisownApplication403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DisownApplication403JSONResponse) VisitDisownApplicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisownApplication404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DisownApplication404JSONResponse) VisitDisownApplicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisownApplication409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DisownApplication409JSONResponse) VisitDisownApplicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisownApplication429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response DisownApplication429JSONResponse) VisitDisownApplicationResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -24465,6 +25354,203 @@ func (response UpdateServer429JSONResponse) VisitUpdateServerResponse(w http.Res
 	return err
 }
 
+type ListAdoptionScansRequestObject struct {
+	ServerUuid ServerUuid `json:"server_uuid"`
+	Params     ListAdoptionScansParams
+}
+
+type ListAdoptionScansResponseObject interface {
+	VisitListAdoptionScansResponse(w http.ResponseWriter) error
+}
+
+type ListAdoptionScans200JSONResponse struct {
+	Data []AdoptionScan `json:"data"`
+
+	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListAdoptionScans200JSONResponse) VisitListAdoptionScansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAdoptionScans400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListAdoptionScans400JSONResponse) VisitListAdoptionScansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAdoptionScans401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListAdoptionScans401JSONResponse) VisitListAdoptionScansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAdoptionScans403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListAdoptionScans403JSONResponse) VisitListAdoptionScansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAdoptionScans404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListAdoptionScans404JSONResponse) VisitListAdoptionScansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAdoptionScans429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListAdoptionScans429JSONResponse) VisitListAdoptionScansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAdoptionScanRequestObject struct {
+	ServerUuid ServerUuid `json:"server_uuid"`
+	Params     CreateAdoptionScanParams
+}
+
+type CreateAdoptionScanResponseObject interface {
+	VisitCreateAdoptionScanResponse(w http.ResponseWriter) error
+}
+
+type CreateAdoptionScan202JSONResponse AdoptionScanAccepted
+
+func (response CreateAdoptionScan202JSONResponse) VisitCreateAdoptionScanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAdoptionScan401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateAdoptionScan401JSONResponse) VisitCreateAdoptionScanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAdoptionScan403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateAdoptionScan403JSONResponse) VisitCreateAdoptionScanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAdoptionScan404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateAdoptionScan404JSONResponse) VisitCreateAdoptionScanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAdoptionScan409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateAdoptionScan409JSONResponse) VisitCreateAdoptionScanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateAdoptionScan429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateAdoptionScan429JSONResponse) VisitCreateAdoptionScanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetServerCARequestObject struct {
 	ServerUuid ServerUuid `json:"server_uuid"`
 }
@@ -25961,6 +27047,102 @@ func (response ListServiceDeployments404JSONResponse) VisitListServiceDeployment
 type ListServiceDeployments429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response ListServiceDeployments429JSONResponse) VisitListServiceDeploymentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisownServiceRequestObject struct {
+	ServiceUuid ServiceUuid `json:"service_uuid"`
+	Params      DisownServiceParams
+}
+
+type DisownServiceResponseObject interface {
+	VisitDisownServiceResponse(w http.ResponseWriter) error
+}
+
+type DisownService202JSONResponse JobAccepted
+
+func (response DisownService202JSONResponse) VisitDisownServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisownService401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DisownService401JSONResponse) VisitDisownServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisownService403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DisownService403JSONResponse) VisitDisownServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisownService404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DisownService404JSONResponse) VisitDisownServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisownService409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DisownService409JSONResponse) VisitDisownServiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisownService429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response DisownService429JSONResponse) VisitDisownServiceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -27934,6 +29116,12 @@ func (response GetVersion429JSONResponse) VisitGetVersionResponse(w http.Respons
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// Lire un scan d'adoption et ses candidats
+	// (GET /adoption-scans/{adoption_scan_uuid})
+	GetAdoptionScan(ctx context.Context, request GetAdoptionScanRequestObject) (GetAdoptionScanResponseObject, error)
+	// Adopter des candidats d'un scan, sans redéploiement
+	// (POST /adoption-scans/{adoption_scan_uuid}/adopt)
+	AdoptResources(ctx context.Context, request AdoptResourcesRequestObject) (AdoptResourcesResponseObject, error)
 	// Lister les applications
 	// (GET /applications)
 	ListApplications(ctx context.Context, request ListApplicationsRequestObject) (ListApplicationsResponseObject, error)
@@ -27958,6 +29146,9 @@ type StrictServerInterface interface {
 	// Historique des déploiements d'une application
 	// (GET /applications/{application_uuid}/deployments)
 	ListApplicationDeployments(ctx context.Context, request ListApplicationDeploymentsRequestObject) (ListApplicationDeploymentsResponseObject, error)
+	// Désadopter une application — rendue non gérée, jamais détruite
+	// (POST /applications/{application_uuid}/disown)
+	DisownApplication(ctx context.Context, request DisownApplicationRequestObject) (DisownApplicationResponseObject, error)
 	// Lister les variables d'environnement
 	// (GET /applications/{application_uuid}/envs)
 	ListApplicationEnvs(ctx context.Context, request ListApplicationEnvsRequestObject) (ListApplicationEnvsResponseObject, error)
@@ -28273,6 +29464,12 @@ type StrictServerInterface interface {
 	// Modifier un serveur
 	// (PATCH /servers/{server_uuid})
 	UpdateServer(ctx context.Context, request UpdateServerRequestObject) (UpdateServerResponseObject, error)
+	// Lister les scans d'adoption d'un serveur
+	// (GET /servers/{server_uuid}/adoption-scans)
+	ListAdoptionScans(ctx context.Context, request ListAdoptionScansRequestObject) (ListAdoptionScansResponseObject, error)
+	// Scanner les ressources Docker non gérées d'un serveur
+	// (POST /servers/{server_uuid}/adoption-scans)
+	CreateAdoptionScan(ctx context.Context, request CreateAdoptionScanRequestObject) (CreateAdoptionScanResponseObject, error)
 	// Certificat de la CA du serveur (SSL des bases)
 	// (GET /servers/{server_uuid}/ca)
 	GetServerCA(ctx context.Context, request GetServerCARequestObject) (GetServerCAResponseObject, error)
@@ -28321,6 +29518,9 @@ type StrictServerInterface interface {
 	// Déploiements d'un stack
 	// (GET /services/{service_uuid}/deployments)
 	ListServiceDeployments(ctx context.Context, request ListServiceDeploymentsRequestObject) (ListServiceDeploymentsResponseObject, error)
+	// Désadopter un stack — rendu non géré, jamais détruit
+	// (POST /services/{service_uuid}/disown)
+	DisownService(ctx context.Context, request DisownServiceRequestObject) (DisownServiceResponseObject, error)
 	// Variables d'environnement d'un stack
 	// (GET /services/{service_uuid}/envs)
 	ListServiceEnvs(ctx context.Context, request ListServiceEnvsRequestObject) (ListServiceEnvsResponseObject, error)
@@ -28419,6 +29619,66 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// GetAdoptionScan operation middleware
+func (sh *strictHandler) GetAdoptionScan(w http.ResponseWriter, r *http.Request, adoptionScanUuid AdoptionScanUuid) {
+	var request GetAdoptionScanRequestObject
+
+	request.AdoptionScanUuid = adoptionScanUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAdoptionScan(ctx, request.(GetAdoptionScanRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAdoptionScan")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAdoptionScanResponseObject); ok {
+		if err := validResponse.VisitGetAdoptionScanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AdoptResources operation middleware
+func (sh *strictHandler) AdoptResources(w http.ResponseWriter, r *http.Request, adoptionScanUuid AdoptionScanUuid, params AdoptResourcesParams) {
+	var request AdoptResourcesRequestObject
+
+	request.AdoptionScanUuid = adoptionScanUuid
+	request.Params = params
+
+	var body AdoptResourcesJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AdoptResources(ctx, request.(AdoptResourcesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AdoptResources")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AdoptResourcesResponseObject); ok {
+		if err := validResponse.VisitAdoptResourcesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // ListApplications operation middleware
@@ -28650,6 +29910,33 @@ func (sh *strictHandler) ListApplicationDeployments(w http.ResponseWriter, r *ht
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListApplicationDeploymentsResponseObject); ok {
 		if err := validResponse.VisitListApplicationDeploymentsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DisownApplication operation middleware
+func (sh *strictHandler) DisownApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params DisownApplicationParams) {
+	var request DisownApplicationRequestObject
+
+	request.ApplicationUuid = applicationUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DisownApplication(ctx, request.(DisownApplicationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DisownApplication")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DisownApplicationResponseObject); ok {
+		if err := validResponse.VisitDisownApplicationResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -31655,6 +32942,60 @@ func (sh *strictHandler) UpdateServer(w http.ResponseWriter, r *http.Request, se
 	}
 }
 
+// ListAdoptionScans operation middleware
+func (sh *strictHandler) ListAdoptionScans(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ListAdoptionScansParams) {
+	var request ListAdoptionScansRequestObject
+
+	request.ServerUuid = serverUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAdoptionScans(ctx, request.(ListAdoptionScansRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAdoptionScans")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAdoptionScansResponseObject); ok {
+		if err := validResponse.VisitListAdoptionScansResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateAdoptionScan operation middleware
+func (sh *strictHandler) CreateAdoptionScan(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params CreateAdoptionScanParams) {
+	var request CreateAdoptionScanRequestObject
+
+	request.ServerUuid = serverUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateAdoptionScan(ctx, request.(CreateAdoptionScanRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateAdoptionScan")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateAdoptionScanResponseObject); ok {
+		if err := validResponse.VisitCreateAdoptionScanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetServerCA operation middleware
 func (sh *strictHandler) GetServerCA(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
 	var request GetServerCARequestObject
@@ -32087,6 +33428,33 @@ func (sh *strictHandler) ListServiceDeployments(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListServiceDeploymentsResponseObject); ok {
 		if err := validResponse.VisitListServiceDeploymentsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DisownService operation middleware
+func (sh *strictHandler) DisownService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params DisownServiceParams) {
+	var request DisownServiceRequestObject
+
+	request.ServiceUuid = serviceUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DisownService(ctx, request.(DisownServiceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DisownService")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DisownServiceResponseObject); ok {
+		if err := validResponse.VisitDisownServiceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -173,6 +173,10 @@ func run(args []string) int {
 		worker.Register(jobs.TypeApplicationStart, lifecycle.Execute)
 		worker.Register(jobs.TypeApplicationStop, lifecycle.Execute)
 		worker.Register(jobs.TypeApplicationRestart, lifecycle.Execute)
+		adoptionJobs := &jobs.Adoption{Store: q, Pool: pool, Keyring: keyring, Logger: logger}
+		worker.Register(jobs.TypeAdoptionScan, adoptionJobs.ExecuteScan)
+		worker.Register(jobs.TypeAdoptionAdopt, adoptionJobs.ExecuteAdopt)
+		worker.Register(jobs.TypeResourceDisown, adoptionJobs.ExecuteDisown)
 		go worker.Run(ctx)
 	}
 

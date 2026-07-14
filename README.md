@@ -36,6 +36,10 @@ cd akerdock
 
 Le script construit l'image depuis le Dockerfile local (aucune image AkerDock publiée n'est requise), génère la clé maître (`keys/master.key` — **à sauvegarder hors machine immédiatement**) et la configuration (`.env`), puis démarre la stack de référence (ADR-021) et affiche les identifiants du premier root user. Pour mettre à jour une instance existante : `git pull && ./install.sh` — le script reconstruit l'image et redéploie, les migrations s'appliquent au démarrage et l'état persiste dans les volumes. Le port et le premier utilisateur se personnalisent au premier lancement via `AKERDOCK_PORT`, `AKERDOCK_ROOT_EMAIL`, etc. (voir l'en-tête du script) ; l'installation manuelle détaillée reste documentée dans [docs/runbooks/install.md](docs/runbooks/install.md).
 
+### Migrer depuis une autre plateforme
+
+AkerDock **adopte** les containers et stacks compose déjà déployés, sans les redémarrer (PRD §20.7, ADR-013/023) : scan du serveur, prévisualisation du mapping, adoption, puis normalisation au premier redéploiement — volumes et domaines conservés, désadoption possible à tout moment. Pour un serveur Coolify, [`scripts/migrate/coolify.sh`](scripts/migrate/coolify.sh) orchestre toute la migration au-dessus de l'API publique (dry-run par défaut).
+
 ## Développement
 
 Prérequis : Go ≥ 1.26 et [golangci-lint](https://golangci-lint.run) v2 (les autres outils — sqlc, oapi-codegen, goose — sont épinglés dans `go.mod` et invoqués via `go tool`).

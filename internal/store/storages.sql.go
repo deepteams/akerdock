@@ -11,11 +11,62 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createAdoptedStorage = `-- name: CreateAdoptedStorage :one
+INSERT INTO persistent_storages (uuid, resource_id, kind, name, host_path, mount_path, external_name)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, uuid, resource_id, kind, name, host_path, mount_path, content, is_directory, file_mode, owner_uid, group_gid, created_by, updated_by, created_at, updated_at, external_name
+`
+
+type CreateAdoptedStorageParams struct {
+	Uuid         pgtype.UUID
+	ResourceID   int64
+	Kind         StorageKind
+	Name         *string
+	HostPath     *string
+	MountPath    string
+	ExternalName *string
+}
+
+// Adoption (§20.7): external_name keeps the original Docker volume name so
+// the normalizing redeployment remounts the SAME data (INV-008).
+func (q *Queries) CreateAdoptedStorage(ctx context.Context, arg CreateAdoptedStorageParams) (PersistentStorage, error) {
+	row := q.db.QueryRow(ctx, createAdoptedStorage,
+		arg.Uuid,
+		arg.ResourceID,
+		arg.Kind,
+		arg.Name,
+		arg.HostPath,
+		arg.MountPath,
+		arg.ExternalName,
+	)
+	var i PersistentStorage
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.ResourceID,
+		&i.Kind,
+		&i.Name,
+		&i.HostPath,
+		&i.MountPath,
+		&i.Content,
+		&i.IsDirectory,
+		&i.FileMode,
+		&i.OwnerUid,
+		&i.GroupGid,
+		&i.CreatedBy,
+		&i.UpdatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ExternalName,
+	)
+	return i, err
+}
+
 const createStorage = `-- name: CreateStorage :one
 
 INSERT INTO persistent_storages (uuid, resource_id, kind, name, host_path, mount_path)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, uuid, resource_id, kind, name, host_path, mount_path, content, is_directory, file_mode, owner_uid, group_gid, created_by, updated_by, created_at, updated_at
+RETURNING id, uuid, resource_id, kind, name, host_path, mount_path, content, is_directory, file_mode, owner_uid, group_gid, created_by, updated_by, created_at, updated_at, external_name
 `
 
 type CreateStorageParams struct {
@@ -55,6 +106,7 @@ func (q *Queries) CreateStorage(ctx context.Context, arg CreateStorageParams) (P
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExternalName,
 	)
 	return i, err
 }
@@ -72,7 +124,7 @@ func (q *Queries) DeleteStorage(ctx context.Context, id int64) (int64, error) {
 }
 
 const getStorageByUUID = `-- name: GetStorageByUUID :one
-SELECT id, uuid, resource_id, kind, name, host_path, mount_path, content, is_directory, file_mode, owner_uid, group_gid, created_by, updated_by, created_at, updated_at FROM persistent_storages WHERE uuid = $1 AND resource_id = $2
+SELECT id, uuid, resource_id, kind, name, host_path, mount_path, content, is_directory, file_mode, owner_uid, group_gid, created_by, updated_by, created_at, updated_at, external_name FROM persistent_storages WHERE uuid = $1 AND resource_id = $2
 `
 
 type GetStorageByUUIDParams struct {
@@ -100,12 +152,13 @@ func (q *Queries) GetStorageByUUID(ctx context.Context, arg GetStorageByUUIDPara
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExternalName,
 	)
 	return i, err
 }
 
 const listStoragesForResource = `-- name: ListStoragesForResource :many
-SELECT id, uuid, resource_id, kind, name, host_path, mount_path, content, is_directory, file_mode, owner_uid, group_gid, created_by, updated_by, created_at, updated_at FROM persistent_storages WHERE resource_id = $1 ORDER BY mount_path
+SELECT id, uuid, resource_id, kind, name, host_path, mount_path, content, is_directory, file_mode, owner_uid, group_gid, created_by, updated_by, created_at, updated_at, external_name FROM persistent_storages WHERE resource_id = $1 ORDER BY mount_path
 `
 
 func (q *Queries) ListStoragesForResource(ctx context.Context, resourceID int64) ([]PersistentStorage, error) {
@@ -134,6 +187,7 @@ func (q *Queries) ListStoragesForResource(ctx context.Context, resourceID int64)
 			&i.UpdatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ExternalName,
 		); err != nil {
 			return nil, err
 		}

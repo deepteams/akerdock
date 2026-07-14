@@ -552,6 +552,136 @@ STILL=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: applica
 docker exec "$PG_CTR" psql -U postgres -d akerdock -q -c "UPDATE users SET failed_login_count = 0, locked_until = NULL"
 ok "session login, HttpOnly cookie, double-submit CSRF, server-side logout and account lockout"
 
+# --- adoption of existing resources (§20.7, ADR-013/ADR-023) -------------------------
+# E2E-ADOPT-01..07. The inbound migration path: a container deployed by SOME
+# OTHER platform — no akerdock labels, its own name, a named volume with real
+# data — is scanned, adopted WITHOUT a restart, driven (stop/start), then
+# normalized by a redeployment that keeps the data, and finally disowned.
+say "adopting a foreign container without a restart, then normalizing it without data loss"
+docker exec "$DIND_CTR" docker volume create legacy_data >/dev/null
+docker exec "$DIND_CTR" docker run -d --name legacy-web \
+  -e LEGACY_MARKER=migrated-secret-value -v legacy_data:/data \
+  --label 'traefik.http.routers.legacy.rule=Host(`legacy.e2e.test`)' \
+  nginx:alpine >/dev/null
+docker exec "$DIND_CTR" docker exec legacy-web sh -c 'echo precious > /data/keep.txt'
+
+SCAN=$(api POST "/servers/$S/adoption-scans")
+SCU=$(echo "$SCAN" | jsonq "d['adoption_scan_uuid']")
+[ "$(wait_job "$(echo "$SCAN" | jsonq "d['job_uuid']")" 120)" = "succeeded" ] || die "adoption scan failed"
+SC=$(api GET "/adoption-scans/$SCU")
+CAND_ID=$(echo "$SC" | jsonq "[c['id'] for c in d['candidates'] if c['proposed_name']=='legacy-web'][0]")
+[ -n "$CAND_ID" ] || die "the foreign container is not a candidate"
+echo "$SC" | jsonq "[c['adoptable'] for c in d['candidates'] if c['id']=='$CAND_ID'][0]" | grep -q True || die "the foreign container is not adoptable"
+# The managed containers of this very suite are NOT candidates (INV-015).
+echo "$SC" | jsonq "len([c for c in d['candidates'] if '$AU' in json.dumps(c)])" | grep -qx 0 || die "a managed container was offered for adoption"
+# Variable NAMES only — the value must never appear in a scan (INV-003).
+echo "$SC" | grep -q "migrated-secret-value" && die "an env value leaked into the scan (INV-003)"
+echo "$SC" | grep -q "LEGACY_MARKER" || die "the env variable name was not detected"
+ok "scan: foreign container proposed with its mapping, managed ones excluded, no value leaked"
+
+STARTED_AT=$(docker exec "$DIND_CTR" docker inspect --format '{{.State.StartedAt}}' legacy-web)
+JU=$(api POST "/adoption-scans/$SCU/adopt" "{\"environment_uuid\":\"$EU\",\"items\":[{\"candidate_id\":\"$CAND_ID\"}]}" | jsonq "d['job_uuid']")
+[ "$(wait_job "$JU" 120)" = "succeeded" ] || die "adoption failed"
+[ "$(docker exec "$DIND_CTR" docker inspect --format '{{.State.StartedAt}}' legacy-web)" = "$STARTED_AT" ] \
+  || die "the adoption restarted the workload — §20.7 forbids exactly that"
+LWU=$(api GET /applications | jsonq "[a['uuid'] for a in d['data'] if a['name']=='legacy-web'][0]")
+[ -n "$LWU" ] || die "the adopted application is not listed"
+api GET "/applications/$LWU/envs" | grep -q "LEGACY_MARKER" || die "the adopted variable is missing"
+ok "adopted without a restart: application created, variables captured and encrypted"
+
+# Control is real: lifecycle drives the ORIGINAL container until normalization.
+[ "$(wait_job "$(api POST "/applications/$LWU/stop" | jsonq "d['job_uuid']")")" = "succeeded" ] || die "stop of the adopted container failed"
+[ "$(docker exec "$DIND_CTR" docker inspect --format '{{.State.Status}}' legacy-web)" = "exited" ] || die "the adopted container was not stopped"
+[ "$(wait_job "$(api POST "/applications/$LWU/start" | jsonq "d['job_uuid']")")" = "succeeded" ] || die "start of the adopted container failed"
+[ "$(docker exec "$DIND_CTR" docker inspect --format '{{.State.Status}}' legacy-web)" = "running" ] || die "the adopted container was not restarted"
+ok "lifecycle drives the adopted container under its original name"
+
+# First redeployment: full normalization — akerdock name and labels, original
+# container retired, volume remounted under its ORIGINAL name, domain routed.
+DU=$(api POST "/applications/$LWU/deploy" | jsonq "d['deployment_uuid']")
+[ "$(wait_deployment "$DU" 180)" = "succeeded" ] || die_deployment "$DU" "the normalizing deployment failed"
+docker exec "$DIND_CTR" docker inspect legacy-web >/dev/null 2>&1 && die "the original container survived normalization"
+[ "$(docker exec "$DIND_CTR" docker inspect --format '{{.State.Status}}' "$LWU")" = "running" ] || die "the normalized container is not running"
+docker exec "$DIND_CTR" docker exec "$LWU" cat /data/keep.txt | grep -qx precious \
+  || die "the volume data did not survive normalization (INV-008)"
+# 301 = routed: force_https (default) redirects plain HTTP, like every other
+# routed-domain check of the suite.
+wait_route legacy.e2e.test 301
+ok "normalized: same data, same domain, akerdock-managed container"
+
+# Disown: the reverse — AkerDock forgets, the workload stays exactly as is.
+JU=$(api POST "/applications/$LWU/disown" | jsonq "d['job_uuid']")
+[ "$(wait_job "$JU" 120)" = "succeeded" ] || die "disown failed"
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ROOT_TOKEN" "$B/applications/$LWU")
+[ "$CODE" = "404" ] || die "a disowned application is still served ($CODE)"
+[ "$(docker exec "$DIND_CTR" docker inspect --format '{{.State.Status}}' "$LWU")" = "running" ] \
+  || die "disown touched the workload — it must never destroy anything"
+# And a NEW scan offers it again: labelled but no live row = adoptable (INV-015).
+SCAN2=$(api POST "/servers/$S/adoption-scans")
+[ "$(wait_job "$(echo "$SCAN2" | jsonq "d['job_uuid']")" 120)" = "succeeded" ] || die "re-scan failed"
+api GET "/adoption-scans/$(echo "$SCAN2" | jsonq "d['adoption_scan_uuid']")" \
+  | jsonq "len([c for c in d['candidates'] if c['id'].startswith('$(docker exec "$DIND_CTR" docker inspect --format '{{.Id}}' "$LWU" | cut -c1-12)')])" \
+  | grep -qx 1 || die "a disowned resource must be adoptable again"
+docker exec "$DIND_CTR" docker rm -f "$LWU" >/dev/null 2>&1 || true
+docker exec "$DIND_CTR" docker volume rm legacy_data >/dev/null 2>&1 || true
+ok "disowned: released untouched, and adoptable again on the next scan"
+
+# E2E-ADOPT-08. The §20.7 acceptance: a multi-service compose stack with a
+# volume, adopted then REDEPLOYED without data loss. The stack is laid out
+# exactly as `docker compose up` leaves it — standard labels, a compose file
+# on disk — because that is all the scan is allowed to understand (ADR-023).
+say "adopting a foreign compose stack, then redeploying it without data loss"
+docker exec "$DIND_CTR" mkdir -p /opt/legacy-shop
+docker exec "$DIND_CTR" sh -c 'cat > /opt/legacy-shop/docker-compose.yml <<EOF
+services:
+  web:
+    image: nginx:alpine
+  store:
+    image: nginx:alpine
+    volumes:
+      - shopdata:/data
+volumes:
+  shopdata:
+EOF'
+docker exec "$DIND_CTR" docker volume create legacyshop_shopdata >/dev/null
+docker exec "$DIND_CTR" docker network create legacyshop_default >/dev/null
+COMPOSE_LABELS="--label com.docker.compose.project=legacyshop \
+  --label com.docker.compose.project.working_dir=/opt/legacy-shop \
+  --label com.docker.compose.project.config_files=/opt/legacy-shop/docker-compose.yml"
+docker exec "$DIND_CTR" sh -c "docker run -d --name legacyshop-web-1 --network legacyshop_default \
+  $COMPOSE_LABELS --label com.docker.compose.service=web nginx:alpine" >/dev/null
+docker exec "$DIND_CTR" sh -c "docker run -d --name legacyshop-store-1 --network legacyshop_default \
+  $COMPOSE_LABELS --label com.docker.compose.service=store -v legacyshop_shopdata:/data nginx:alpine" >/dev/null
+docker exec "$DIND_CTR" docker exec legacyshop-store-1 sh -c 'echo stock > /data/keep.txt'
+
+SCAN3=$(api POST "/servers/$S/adoption-scans")
+SCU3=$(echo "$SCAN3" | jsonq "d['adoption_scan_uuid']")
+[ "$(wait_job "$(echo "$SCAN3" | jsonq "d['job_uuid']")" 120)" = "succeeded" ] || die "stack scan failed"
+SC3=$(api GET "/adoption-scans/$SCU3")
+echo "$SC3" | jsonq "[c['adoptable'] for c in d['candidates'] if c['id']=='compose:legacyshop'][0]" | grep -q True \
+  || die "the compose stack is not adoptable: $(echo "$SC3" | jsonq "[c.get('reasons') for c in d['candidates'] if c['id']=='compose:legacyshop']")"
+echo "$SC3" | jsonq "sorted(c['compose_service'] for c in [x for x in d['candidates'] if x['id']=='compose:legacyshop'][0]['containers'])" \
+  | grep -q "\['store', 'web'\]" || die "the stack members were not grouped"
+JU=$(api POST "/adoption-scans/$SCU3/adopt" "{\"environment_uuid\":\"$EU\",\"items\":[{\"candidate_id\":\"compose:legacyshop\"}]}" | jsonq "d['job_uuid']")
+[ "$(wait_job "$JU" 120)" = "succeeded" ] || die "stack adoption failed"
+SVU=$(api GET /services | jsonq "[s['uuid'] for s in d['data'] if s['name']=='legacyshop'][0]")
+[ -n "$SVU" ] || die "the adopted stack is not listed as a service"
+# The stored compose pins the volume to its CURRENT docker name.
+api GET "/services/$SVU" | grep -q "legacyshop_shopdata" || die "the adopted compose does not pin the volume name"
+[ "$(api GET "/services/$SVU/components" | jsonq "len(d['data'])")" = "2" ] || die "expected 2 components"
+
+DU=$(api POST "/services/$SVU/deploy" | jsonq "d['deployment_uuid']")
+[ "$(wait_deployment "$DU" 240)" = "succeeded" ] || die_deployment "$DU" "the normalizing stack deployment failed"
+docker exec "$DIND_CTR" docker inspect legacyshop-web-1 >/dev/null 2>&1 && die "the original stack survived normalization"
+docker exec "$DIND_CTR" docker exec "$SVU-store" cat /data/keep.txt | grep -qx stock \
+  || die "the stack volume data did not survive normalization (§20.7 acceptance)"
+JU=$(api POST "/services/$SVU/disown" | jsonq "d['job_uuid']")
+[ "$(wait_job "$JU" 120)" = "succeeded" ] || die "stack disown failed"
+docker exec "$DIND_CTR" docker exec "$SVU-store" cat /data/keep.txt >/dev/null || die "disown touched the stack"
+docker exec "$DIND_CTR" sh -c "docker ps -aq --filter label=akerdock.resource_uuid=$SVU | xargs -r docker rm -f" >/dev/null 2>&1 || true
+docker exec "$DIND_CTR" docker volume rm legacyshop_shopdata >/dev/null 2>&1 || true
+ok "compose stack adopted, redeployed with its data intact, then released untouched (§20.7 acceptance)"
+
 # --- rolling upgrade N-1 / N (§18.2, ADR-021) ----------------------------------------
 say "the schema of version N still serves the binary of version N-1"
 # An upgrade is a tag change: the new binary migrates, while the OLD one may

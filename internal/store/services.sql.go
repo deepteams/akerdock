@@ -112,7 +112,7 @@ func (q *Queries) GetServiceComponentByUUID(ctx context.Context, arg GetServiceC
 }
 
 const getServiceStackByUUID = `-- name: GetServiceStackByUUID :one
-SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, s.id, s.compose_content, s.template_slug, s.template_version, s.template_repository, s.connect_to_predefined_network, s.created_at, s.updated_at,
+SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, s.id, s.compose_content, s.template_slug, s.template_version, s.template_repository, s.connect_to_predefined_network, s.created_at, s.updated_at,
        e.uuid AS environment_uuid, p.uuid AS project_uuid,
        dst.uuid AS destination_uuid, srv.uuid AS server_uuid, srv.id AS server_row_id
 FROM resources r
@@ -164,6 +164,8 @@ func (q *Queries) GetServiceStackByUUID(ctx context.Context, arg GetServiceStack
 		&i.Resource.UpdatedAt,
 		&i.Resource.DeletedAt,
 		&i.Resource.Version,
+		&i.Resource.AdoptedAt,
+		&i.Resource.Adoption,
 		&i.Service.ID,
 		&i.Service.ComposeContent,
 		&i.Service.TemplateSlug,
@@ -258,7 +260,7 @@ func (q *Queries) ListServiceComponents(ctx context.Context, resourceID int64) (
 }
 
 const listServiceStacksPage = `-- name: ListServiceStacksPage :many
-SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, s.id, s.compose_content, s.template_slug, s.template_version, s.template_repository, s.connect_to_predefined_network, s.created_at, s.updated_at,
+SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, s.id, s.compose_content, s.template_slug, s.template_version, s.template_repository, s.connect_to_predefined_network, s.created_at, s.updated_at,
        e.uuid AS environment_uuid, p.uuid AS project_uuid,
        dst.uuid AS destination_uuid, srv.uuid AS server_uuid
 FROM resources r
@@ -317,6 +319,8 @@ func (q *Queries) ListServiceStacksPage(ctx context.Context, arg ListServiceStac
 			&i.Resource.UpdatedAt,
 			&i.Resource.DeletedAt,
 			&i.Resource.Version,
+			&i.Resource.AdoptedAt,
+			&i.Resource.Adoption,
 			&i.Service.ID,
 			&i.Service.ComposeContent,
 			&i.Service.TemplateSlug,

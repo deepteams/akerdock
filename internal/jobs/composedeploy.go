@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deepteams/akerdock/internal/adoption"
 	"github.com/deepteams/akerdock/internal/compose"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/sshexec"
@@ -93,9 +94,13 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 	}
 	// First pass discovers the service names; magic variables may still be
 	// undefined here, which only produces warnings.
+	// An adopted stack pins its volumes as external objects (§20.7): the
+	// adoption itself is the policy decision, taken explicitly by the
+	// operator — everything else keeps the strict default.
+	policy := compose.Policy{AllowExternalObjects: r.app.Resource.AdoptedAt.Valid}
 	first, err := compose.Load(ctx, compose.Input{
 		Content: content, StackUUID: appUUID, Variables: vars,
-		Raw: r.app.BuildConfig.RawCompose,
+		Raw: r.app.BuildConfig.RawCompose, Policy: policy,
 	})
 	if err != nil {
 		return err
@@ -123,7 +128,7 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 
 	result, err := compose.Load(ctx, compose.Input{
 		Content: content, StackUUID: appUUID, Variables: vars,
-		Raw: r.app.BuildConfig.RawCompose,
+		Raw: r.app.BuildConfig.RawCompose, Policy: policy,
 	})
 	if err != nil {
 		return err
@@ -202,6 +207,26 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 			return fmt.Errorf("service %s: %w", sp.Name, err)
 		}
 		images[sp.Name] = img
+	}
+
+	// An adopted stack awaiting normalization (§20.7): the containers of the
+	// original compose project are retired NOW — after every image is pulled,
+	// before anything is created. They hold the host ports and the volume
+	// locks the new stack needs; the volumes themselves survive (they are
+	// declared external under their original names). Brief interruption,
+	// announced at adoption time — data loss is what §20.7 forbids, not a
+	// restart during the normalizing redeployment.
+	if p := adoption.ParsePointer(r.app.Resource.Adoption); p != nil && p.ComposeProject != "" {
+		// AkerDock containers never carry the compose-CLI labels, so the
+		// project filter only matches the original stack.
+		if err := r.step(ctx, "retire_adopted_stack", func() (*sshexec.Result, error) {
+			return r.client.Run(ctx, fmt.Sprintf(
+				`ids=$(docker ps -aq --filter label=com.docker.compose.project=%s); `+
+					`[ -n "$ids" ] && { docker stop -t 30 $ids >/dev/null 2>&1; docker rm $ids >/dev/null 2>&1; } || true; echo retired`,
+				shellQuote(p.ComposeProject)))
+		}); err != nil {
+			return err
+		}
 	}
 
 	// --- per-service replacement, in topological order (§8.2) --------------

@@ -536,3 +536,50 @@ services:
 		t.Fatalf("a service-level key must not exclude the service from health")
 	}
 }
+
+func TestExternalVolumesMountedVerbatim(t *testing.T) {
+	// Adoption (§20.7): an external volume — the form the adoption rewrite
+	// produces — is mounted under its REAL docker name and never created or
+	// prefixed. Prefixing it would silently remount an empty volume. The
+	// policy gate stays: without AllowExternalObjects this file is refused.
+	allow := func(in *Input) { in.Policy.AllowExternalObjects = true }
+	res := load(t, `
+services:
+  db:
+    image: postgres:16
+    volumes:
+      - pinned:/var/lib/postgresql/data
+      - plain:/plain
+volumes:
+  pinned:
+    external: true
+    name: legacy_pgdata
+  plain:
+`, allow)
+	plan := mustPlan(t, res)
+	if _, created := plan.Volumes["pinned"]; created {
+		t.Fatalf("an external volume must not be scheduled for creation: %v", plan.Volumes)
+	}
+	if got := plan.ExternalVolumes["pinned"]; got != "legacy_pgdata" {
+		t.Fatalf("external volume docker name = %q, want legacy_pgdata", got)
+	}
+	if got := plan.Volumes["plain"]; got != stackUUID+"_plain" {
+		t.Fatalf("a plain volume keeps the uuid prefix, got %q", got)
+	}
+	db := servicePlan(t, plan, "db")
+	var pinned, plain string
+	for _, m := range db.Mounts {
+		switch m.Target {
+		case "/var/lib/postgresql/data":
+			pinned = m.Source
+		case "/plain":
+			plain = m.Source
+		}
+	}
+	if pinned != "legacy_pgdata" {
+		t.Fatalf("external mount source = %q, want legacy_pgdata", pinned)
+	}
+	if plain != stackUUID+"_plain" {
+		t.Fatalf("plain mount source = %q", plain)
+	}
+}

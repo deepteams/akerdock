@@ -896,6 +896,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/servers/{server_uuid}/adoption-scans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID du serveur. */
+                server_uuid: components["parameters"]["ServerUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Lister les scans d'adoption d'un serveur
+         * @description Historique des scans d'adoption du serveur (§20.7), du plus récent au plus ancien.
+         */
+        get: operations["listAdoptionScans"];
+        put?: never;
+        /**
+         * Scanner les ressources Docker non gérées d'un serveur
+         * @description Inventorie les containers et stacks compose du serveur qui ne sont PAS gérés par AkerDock (aucun label `akerdock.*` — INV-015) et propose un mapping vers le modèle AkerDock (§20.7, ADR-013) : application ou service, volumes, variables (noms seulement — INV-003), ports, réseaux et domaines détectés par inspection et labels. C'est le chemin de migration entrant depuis n'importe quelle plateforme (ADR-023). Opération longue — répond `202` avec un job de suivi et l'UUID du scan à interroger. `409` (`operation_in_progress`) si un scan de ce serveur est déjà en cours.
+         */
+        post: operations["createAdoptionScan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/adoption-scans/{adoption_scan_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID du scan d'adoption (§20.7). */
+                adoption_scan_uuid: components["parameters"]["AdoptionScanUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Lire un scan d'adoption et ses candidats
+         * @description Le résultat du scan (§20.7) : candidats adoptables avec leur mapping proposé et ce qui sera modifié, candidats non adoptables avec le motif — jamais d'adoption partielle silencieuse. Les valeurs des variables d'environnement ne figurent JAMAIS dans le scan (INV-003) : seuls les noms sont listés ; les valeurs sont capturées et chiffrées au moment de l'adoption.
+         */
+        get: operations["getAdoptionScan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/adoption-scans/{adoption_scan_uuid}/adopt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID du scan d'adoption (§20.7). */
+                adoption_scan_uuid: components["parameters"]["AdoptionScanUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Adopter des candidats d'un scan, sans redéploiement
+         * @description Prend le contrôle des candidats sélectionnés SANS redémarrer les workloads (§20.7, ADR-013) : les objets AkerDock (application ou service, variables chiffrées, volumes, domaines) sont créés en pointant sur les containers existants. Le premier redéploiement normalise complètement la ressource (labels, noms, réseau) en conservant les données (volumes repris sous leur nom d'origine). Opération longue — répond `202` avec un job ; le résultat du job liste les ressources créées. `409` (`invalid_state`) si le scan n'est pas terminé ; `422` si un candidat est inconnu ou non adoptable.
+         */
+        post: operations["adoptResources"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/servers/{server_uuid}/domains": {
         parameters: {
             query?: never;
@@ -1209,6 +1282,29 @@ export interface paths {
          * @description Redémarre les containers sans rebuild. `202` + job.
          */
         post: operations["restartApplication"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_uuid}/disown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Désadopter une application — rendue non gérée, jamais détruite
+         * @description Inverse de l'adoption (§20.7, ADR-013) : AkerDock retire son routage éventuel puis oublie la ressource — les containers, volumes et fichiers distants restent EXACTEMENT en l'état. Fonctionne sur toute application, adoptée ou non : c'est le chemin de sortie sans destruction. Opération longue — répond `202` avec un job.
+         */
+        post: operations["disownApplication"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1614,6 +1710,29 @@ export interface paths {
          * @description PATCH sensible — `If-Match` obligatoire (§24.1). Un nouveau `compose_content` est validé comme à la création (422 + findings) ; il prend effet au prochain déploiement.
          */
         patch: operations["updateService"];
+        trace?: never;
+    };
+    "/services/{service_uuid}/disown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID du stack compose. */
+                service_uuid: components["parameters"]["ServiceUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Désadopter un stack — rendu non géré, jamais détruit
+         * @description Inverse de l'adoption (§20.7, ADR-013) : AkerDock retire son routage éventuel puis oublie le stack — containers, réseaux, volumes et fichiers distants restent EXACTEMENT en l'état. Opération longue — répond `202` avec un job.
+         */
+        post: operations["disownService"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/services/{service_uuid}/components": {
@@ -2707,6 +2826,90 @@ export interface components {
             idle_timeout_seconds: number;
             /** @description Durée maximum d'une session, quelle que soit l'activité. */
             max_duration_seconds: number;
+        };
+        /** @description Réponse d'un scan d'adoption — job de suivi + scan créé. */
+        AdoptionScanAccepted: components["schemas"]["JobAccepted"] & {
+            /** @description UUID du scan créé, à lire une fois le job terminé. */
+            adoption_scan_uuid: string;
+        };
+        /** @description Un scan d'adoption (§20.7, ADR-013) : inventaire des ressources Docker non gérées d'un serveur et mapping proposé vers le modèle AkerDock. */
+        AdoptionScan: {
+            uuid: string;
+            server_uuid: string;
+            /** @enum {string} */
+            status: "pending" | "running" | "completed" | "failed";
+            /** @description Cause de l'échec quand `status = failed`. */
+            error?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /** @description Présent quand `status = completed`. Contient TOUS les candidats, adoptables ou non — un candidat non adoptable porte ses motifs (`reasons`), jamais d'omission silencieuse. */
+            candidates?: components["schemas"]["AdoptionCandidate"][];
+        };
+        /** @description Un container isolé ou un stack compose non géré, avec le mapping proposé (§20.7). `modifications` liste ce que l'adoption puis la première normalisation changeront — l'adoption elle-même ne redémarre jamais le workload. */
+        AdoptionCandidate: {
+            /** @description Identifiant stable du candidat dans ce scan : ID court du container, ou `compose:<projet>` pour un stack. */
+            id: string;
+            /** @enum {string} */
+            kind: "container" | "compose_stack";
+            /** @description Nom de ressource proposé (modifiable à l'adoption). */
+            proposed_name: string;
+            /**
+             * @description application (container isolé) ou service (stack compose).
+             * @enum {string|null}
+             */
+            proposed_resource_type?: "application" | "service" | null;
+            /** @description Nom du projet compose (`com.docker.compose.project`). */
+            compose_project?: string | null;
+            adoptable: boolean;
+            /** @description Motifs de non-adoptabilité quand `adoptable = false`. */
+            reasons?: string[];
+            /** @description Ce qui sera modifié — à l'adoption (rien sur le workload) et à la première normalisation (labels, nom, réseau). */
+            modifications?: string[];
+            containers: components["schemas"]["AdoptionCandidateContainer"][];
+        };
+        AdoptionCandidateContainer: {
+            /** @description ID court du container. */
+            container_id: string;
+            container_name: string;
+            image: string;
+            /** @description État Docker observé (`running`, `exited`, …). */
+            state: string;
+            /** @description Nom du service compose, pour un membre de stack. */
+            compose_service?: string | null;
+            /** @description Labels Docker du container (hors namespace `akerdock.*`) — c'est ce qui permet à un outil de migration de reconnaître les workloads d'une plateforme donnée (ex. `coolify.*`) sans rien connaître de son schéma interne (ADR-023). */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description NOMS des variables d'environnement — jamais les valeurs (INV-003) ; elles sont capturées et chiffrées à l'adoption. */
+            env_keys?: string[];
+            ports?: {
+                container_port: number;
+                host_port?: number | null;
+                protocol: string;
+            }[];
+            mounts?: {
+                /** @description `volume` ou `bind`. */
+                kind: string;
+                /** @description Nom du volume ou chemin hôte. */
+                source: string;
+                destination: string;
+            }[];
+            networks?: string[];
+            /** @description FQDN détectés dans les labels de reverse proxy (Traefik). */
+            domains?: string[];
+        };
+        /** @description Sélection de candidats d'un scan à adopter (§20.7). */
+        AdoptRequest: {
+            /** @description Environnement cible des ressources créées. */
+            environment_uuid: string;
+            items: {
+                /** @description `id` du candidat dans le scan. */
+                candidate_id: string;
+                /** @description Nom de ressource, à défaut `proposed_name`. */
+                name?: string;
+            }[];
         };
         NotificationChannel: {
             uuid: string;
@@ -4369,6 +4572,8 @@ export interface components {
         S3StorageUuid: string;
         /** @description UUID du serveur. */
         ServerUuid: string;
+        /** @description UUID du scan d'adoption (§20.7). */
+        AdoptionScanUuid: string;
         /** @description UUID du credential de registry. */
         RegistryCredentialUuid: string;
         /** @description UUID de la tâche planifiée. */
@@ -6255,6 +6460,136 @@ export interface operations {
             429: components["responses"]["TooManyRequests"];
         };
     };
+    listAdoptionScans: {
+        parameters: {
+            query?: {
+                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description UUID du serveur. */
+                server_uuid: components["parameters"]["ServerUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page de scans. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AdoptionScan"][];
+                        next_cursor?: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createAdoptionScan: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description UUID du serveur. */
+                server_uuid: components["parameters"]["ServerUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scan accepté — suivre le job puis lire le scan. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdoptionScanAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getAdoptionScan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID du scan d'adoption (§20.7). */
+                adoption_scan_uuid: components["parameters"]["AdoptionScanUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Le scan. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdoptionScan"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    adoptResources: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description UUID du scan d'adoption (§20.7). */
+                adoption_scan_uuid: components["parameters"]["AdoptionScanUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdoptRequest"];
+            };
+        };
+        responses: {
+            /** @description Adoption acceptée — suivre le job. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
     listServerDomains: {
         parameters: {
             query?: never;
@@ -6888,6 +7223,37 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Redémarrage accepté — suivre le job. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    disownApplication: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Désadoption acceptée — suivre le job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -7785,6 +8151,37 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["VersionConflict"];
             422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    disownService: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description UUID du stack compose. */
+                service_uuid: components["parameters"]["ServiceUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Désadoption acceptée — suivre le job. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             429: components["responses"]["TooManyRequests"];
         };
     };

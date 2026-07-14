@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deepteams/akerdock/internal/adoption"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
@@ -87,24 +88,31 @@ func (h *ApplicationLifecycle) Execute(ctx context.Context, job store.Job, rec *
 	if stack && grace == 0 {
 		grace = 30
 	}
+	// An adopted resource awaiting normalization (§20.7) still lives under
+	// the names its original platform gave it — lifecycle targets those.
+	target := adoption.ContainerName(app.Resource.Adoption, appUUID)
 	var cmd string
 	var desired store.ResourceDesiredStatus
 	switch payload.Action {
 	case "start":
-		cmd = "docker start " + appUUID
+		cmd = "docker start " + target
 		desired = store.ResourceDesiredStatusRunning
 	case "stop":
-		cmd = fmt.Sprintf("docker stop -t %d %s", grace, appUUID)
+		cmd = fmt.Sprintf("docker stop -t %d %s", grace, target)
 		desired = store.ResourceDesiredStatusStopped
 	case "restart":
-		cmd = fmt.Sprintf("docker restart -t %d %s", grace, appUUID)
+		cmd = fmt.Sprintf("docker restart -t %d %s", grace, target)
 		desired = store.ResourceDesiredStatusRunning
 	default:
 		rec.Fail(ctx, "unknown action")
 		return nil, fmt.Errorf("unknown lifecycle action %q", payload.Action)
 	}
 	if stack {
-		cmd = stackLifecycleCommand(payload.Action, appUUID, grace)
+		byLabel := "--filter label=akerdock.managed=true --filter label=akerdock.resource_uuid=" + appUUID
+		if p := adoption.ParsePointer(app.Resource.Adoption); p != nil && p.ComposeProject != "" {
+			byLabel = "--filter label=com.docker.compose.project=" + shellQuote(p.ComposeProject)
+		}
+		cmd = stackLifecycleCommand(payload.Action, byLabel, grace)
 	}
 
 	res, err := client.Run(ctx, cmd)
@@ -131,12 +139,12 @@ func (h *ApplicationLifecycle) Execute(ctx context.Context, job store.Job, rec *
 	return map[string]any{"action": payload.Action, "app_uuid": appUUID}, nil
 }
 
-// stackLifecycleCommand drives every container of a compose stack by its
-// management labels (§2.3). One-shot jobs (akerdock.oneshot) are never
-// started or restarted by a lifecycle action: re-running a migration behind
-// the operator's back is not a "start".
-func stackLifecycleCommand(action, stackUUID string, grace int32) string {
-	byLabel := "--filter label=akerdock.managed=true --filter label=akerdock.resource_uuid=" + stackUUID
+// stackLifecycleCommand drives every container of a compose stack by label
+// (§2.3): the management labels normally, the original compose-project label
+// for an adopted stack awaiting normalization (§20.7). One-shot jobs
+// (akerdock.oneshot) are never started or restarted by a lifecycle action:
+// re-running a migration behind the operator's back is not a "start".
+func stackLifecycleCommand(action, byLabel string, grace int32) string {
 	switch action {
 	case "stop":
 		// Only running containers: exited one-shots stay exited.

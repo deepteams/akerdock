@@ -21,6 +21,11 @@ type Plan struct {
 	ExtraNetworks map[string]string
 	// Volumes maps declared named volumes to their docker names (§2.4).
 	Volumes map[string]string
+	// ExternalVolumes maps `external: true` volumes to their real docker
+	// names: mounted verbatim, never created, never prefixed. This is how an
+	// adopted stack keeps its data across the normalizing redeployment
+	// (§20.7, INV-008).
+	ExternalVolumes map[string]string
 	// Services in topological start order (§2.6).
 	Services []ServicePlan
 	// Canonical is the transformed compose, traced in deployment logs (§2).
@@ -109,10 +114,11 @@ type ServicePlan struct {
 // buildPlan turns a validated project into the execution plan (§2).
 func buildPlan(project *types.Project, in Input, fs *findings) (*Plan, error) {
 	plan := &Plan{
-		StackUUID:     in.StackUUID,
-		NetworkName:   in.StackUUID,
-		ExtraNetworks: map[string]string{},
-		Volumes:       map[string]string{},
+		StackUUID:       in.StackUUID,
+		NetworkName:     in.StackUUID,
+		ExtraNetworks:   map[string]string{},
+		Volumes:         map[string]string{},
+		ExternalVolumes: map[string]string{},
 	}
 
 	for name, network := range project.Networks {
@@ -127,6 +133,13 @@ func buildPlan(project *types.Project, in Input, fs *findings) (*Plan, error) {
 	}
 	for name, volume := range project.Volumes {
 		if bool(volume.External) {
+			// External = pre-existing: mounted under its real name (the
+			// explicit `name:` or the key), never created or prefixed.
+			dockerName := volume.Name
+			if dockerName == "" {
+				dockerName = name
+			}
+			plan.ExternalVolumes[name] = dockerName
 			continue
 		}
 		dockerName := in.StackUUID + "_" + name
@@ -210,6 +223,8 @@ func buildServicePlan(name string, svc types.ServiceConfig, project *types.Proje
 		mount := MountPlan{Type: vol.Type, Source: vol.Source, Target: vol.Target, ReadOnly: vol.ReadOnly}
 		if vol.Type == types.VolumeTypeVolume && vol.Source != "" {
 			if dockerName, ok := plan.Volumes[vol.Source]; ok {
+				mount.Source = dockerName
+			} else if dockerName, ok := plan.ExternalVolumes[vol.Source]; ok {
 				mount.Source = dockerName
 			}
 		}
