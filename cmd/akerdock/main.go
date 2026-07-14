@@ -177,6 +177,7 @@ func run(args []string) int {
 		worker.Register(jobs.TypeAdoptionScan, adoptionJobs.ExecuteScan)
 		worker.Register(jobs.TypeAdoptionAdopt, adoptionJobs.ExecuteAdopt)
 		worker.Register(jobs.TypeResourceDisown, adoptionJobs.ExecuteDisown)
+		worker.Register(jobs.TypeServerCleanup, (&jobs.ServerCleanup{Store: q, Keyring: keyring, Audit: recorder, Logger: logger}).Execute)
 		go worker.Run(ctx)
 	}
 

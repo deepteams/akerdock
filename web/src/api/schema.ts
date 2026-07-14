@@ -896,6 +896,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/servers/{server_uuid}/cleanup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID du serveur. */
+                server_uuid: components["parameters"]["ServerUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lancer un nettoyage disque immédiat
+         * @description Déclenche le nettoyage Docker du serveur (§3.7), hors planification. Le job ne cible que des objets gérés et sûrs — cache de build, images dangling, candidats de déploiement morts, `/data/akerdock/tmp`, plus les purges opt-in du serveur (volumes anonymes, réseaux gérés) — et **jamais** un objet non géré ou persistant (INV-015), ni les images de rollback (ADR-006). Il est reporté si un déploiement est en cours sur le serveur. `409` (`operation_in_progress`) si un nettoyage tourne déjà.
+         */
+        post: operations["runServerCleanup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/servers/{server_uuid}/adoption-scans": {
         parameters: {
             query?: never;
@@ -2407,6 +2430,184 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/service-components/{service_component_uuid}/backups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+            };
+            cookie?: never;
+        };
+        /** Lister les plans de backup d'un composant de stack */
+        get: operations["listComponentBackupPlans"];
+        put?: never;
+        /**
+         * Créer un plan de backup sur une base interne d'un stack
+         * @description Le composant doit être classé base de données par la détection d'image (compose-spec §10) et son moteur supporté (PostgreSQL en v1) — sinon `422`. Le dump s'exécute dans le container du composant, credentials lus dans son environnement, jamais journalisés (INV-003). Mêmes destinations, rétention et drills que les bases managées.
+         */
+        post: operations["createComponentBackupPlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service-components/{service_component_uuid}/backups/{backup_plan_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+                /** @description UUID du plan de backup. */
+                backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
+            };
+            cookie?: never;
+        };
+        /** Détail d'un plan de backup de composant */
+        get: operations["getComponentBackupPlan"];
+        put?: never;
+        post?: never;
+        /**
+         * Supprimer un plan de backup de composant
+         * @description Supprime le plan et sa planification. Les exécutions passées et leurs fichiers de backup sont conservés selon la rétention — jamais supprimés implicitement (INV-008).
+         */
+        delete: operations["deleteComponentBackupPlan"];
+        options?: never;
+        head?: never;
+        /**
+         * Modifier un plan de backup de composant
+         * @description PATCH sensible — `If-Match` obligatoire.
+         */
+        patch: operations["updateComponentBackupPlan"];
+        trace?: never;
+    };
+    "/service-components/{service_component_uuid}/backups/{backup_plan_uuid}/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+                /** @description UUID du plan de backup. */
+                backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lancer un backup immédiat d'une base interne
+         * @description Exécute le plan immédiatement, hors planification (§7.1). Une seule exécution simultanée par plan (verrou §20.5) → `409` si une exécution est déjà en cours.
+         */
+        post: operations["executeComponentBackupPlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+                /** @description UUID du plan de backup. */
+                backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lancer immédiatement un restore drill sur une base interne
+         * @description Restaure le dernier backup réussi dans une base **jetable** sur le même serveur, recompte ce qui est revenu, puis détruit la base. Même chemin que le drill périodique. `409` si le plan n'a aucun backup réussi à restaurer.
+         */
+        post: operations["runComponentRestoreDrill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+                /** @description UUID du plan de backup. */
+                backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
+            };
+            cookie?: never;
+        };
+        /** Historique des restore drills d'un plan de composant */
+        get: operations["listComponentRestoreDrills"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+                /** @description UUID du plan de backup. */
+                backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Lister les exécutions d'un plan de backup de composant
+         * @description Historique des exécutions (statut, fichier, taille, upload S3, §7.3), du plus récent au plus ancien. Un succès local avec échec S3 apparaît en statut `partial`, jamais en succès global (§20.5).
+         */
+        get: operations["listComponentBackupExecutions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+                /** @description UUID du plan de backup. */
+                backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
+                /** @description UUID de l'exécution de backup. */
+                execution_uuid: components["parameters"]["ExecutionUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restaurer une base interne depuis une exécution de backup
+         * @description Opération destructive et confirmée (§20.5) — le corps DOIT porter `confirm=true`, sinon `422`. Le format du backup est testé avant exécution ; un restore vers une base non vide exige en plus `allow_non_empty=true`. Journal complet dans le job. `409` si un restore ou un backup est déjà en cours sur le composant.
+         */
+        post: operations["restoreComponentBackupExecution"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs": {
         parameters: {
             query?: never;
@@ -3160,6 +3361,16 @@ export interface components {
             proxy_type?: "traefik" | "none";
             proxy_http_port?: number;
             proxy_https_port?: number;
+            /** @description Nettoyage disque automatisé (§3.7) — opt-in. Ne cible que les objets gérés et sûrs (cache de build, images dangling, candidats morts, `/data/akerdock/tmp`) ; jamais un objet non géré ou persistant (INV-015), jamais pendant un déploiement. */
+            cleanup_enabled?: boolean;
+            /** @description Planification cron du nettoyage (§3.7) ; NULL = pas de cron. */
+            cleanup_cron?: string | null;
+            /** @description Seuil d'usage disque (%) qui déclenche un nettoyage entre deux crons (§3.7) ; NULL = pas de déclenchement par seuil. */
+            cleanup_disk_threshold_pct?: number | null;
+            /** @description Opt-in destructeur — purge des volumes **anonymes** inutilisés uniquement : un volume nommé (données, volumes adoptés §20.7) n'est JAMAIS purgé (INV-015). */
+            cleanup_prune_volumes?: boolean;
+            /** @description Opt-in — purge des réseaux **gérés** inutilisés (label `akerdock.managed`) ; jamais un réseau non géré (INV-015). */
+            cleanup_prune_networks?: boolean;
         };
         /** @description Serveur cible SSH (§3) — états du cycle de vie §21.2. */
         Server: {
@@ -3186,6 +3397,17 @@ export interface components {
              * @enum {string}
              */
             readonly proxy_desired_state?: "running" | "stopped";
+            /** @description Nettoyage disque automatisé (§3.7) — opt-in. */
+            cleanup_enabled?: boolean;
+            cleanup_cron?: string | null;
+            cleanup_disk_threshold_pct?: number | null;
+            cleanup_prune_volumes?: boolean;
+            cleanup_prune_networks?: boolean;
+            /**
+             * Format: date-time
+             * @description Dernier nettoyage déclenché (cron, seuil ou manuel).
+             */
+            readonly cleanup_last_run_at?: string | null;
             proxy_observed_status?: components["schemas"]["ObservedStatus"];
             /**
              * @description Cycle de vie du serveur (§21.2).
@@ -4208,10 +4430,12 @@ export interface components {
             drill_enabled?: boolean;
             drill_interval_days?: number;
         };
-        /** @description Plan de backup planifié d'une base (§7). */
+        /** @description Plan de backup planifié (§7) — cible une base managée (`database_uuid`) OU une base interne d'un stack compose (`service_component_uuid`, compose-spec §10) : exactement l'un des deux est renseigné. */
         BackupPlan: {
             readonly uuid: string;
-            readonly database_uuid: string;
+            readonly database_uuid?: string | null;
+            /** @description Composant de stack ciblé (compose-spec §10). */
+            readonly service_component_uuid?: string | null;
             frequency: string;
             timezone?: string;
             enabled: boolean;
@@ -4574,6 +4798,8 @@ export interface components {
         ServerUuid: string;
         /** @description UUID du scan d'adoption (§20.7). */
         AdoptionScanUuid: string;
+        /** @description UUID d'un composant de stack compose. */
+        ServiceComponentUuid: string;
         /** @description UUID du credential de registry. */
         RegistryCredentialUuid: string;
         /** @description UUID de la tâche planifiée. */
@@ -6451,6 +6677,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TerminalSession"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    runServerCleanup: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description UUID du serveur. */
+                server_uuid: components["parameters"]["ServerUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Nettoyage accepté — suivre le job. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -9404,6 +9661,358 @@ export interface operations {
             path: {
                 /** @description UUID de la base de données. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
+                /** @description UUID du plan de backup. */
+                backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
+                /** @description UUID de l'exécution de backup. */
+                execution_uuid: components["parameters"]["ExecutionUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreRequest"];
+            };
+        };
+        responses: {
+            /** @description Restore accepté — suivre le job. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listComponentBackupPlans: {
+        parameters: {
+            query?: {
+                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page de plans. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BackupPlan"][];
+                        next_cursor?: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createComponentBackupPlan: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackupPlanCreate"];
+            };
+        };
+        responses: {
+            /** @description Plan créé. */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupPlan"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getComponentBackupPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+                /** @description UUID du plan de backup. */
+                backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Le plan. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupPlan"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    deleteComponentBackupPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+                /** @description UUID du plan de backup. */
+                backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plan supprimé. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    updateComponentBackupPlan: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+                /** @description UUID du plan de backup. */
+                backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackupPlanUpdate"];
+            };
+        };
+        responses: {
+            /** @description Plan mis à jour. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupPlan"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["VersionConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    executeComponentBackupPlan: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+                /** @description UUID du plan de backup. */
+                backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Backup accepté — suivre le job et l'exécution créée. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupExecutionAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    runComponentRestoreDrill: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+                /** @description UUID du plan de backup. */
+                backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Drill accepté. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listComponentRestoreDrills: {
+        parameters: {
+            query?: {
+                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+                /** @description UUID du plan de backup. */
+                backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page de drills. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RestoreDrill"][];
+                        next_cursor?: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listComponentBackupExecutions: {
+        parameters: {
+            query?: {
+                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
+                /** @description UUID du plan de backup. */
+                backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page d'exécutions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BackupExecution"][];
+                        next_cursor?: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    restoreComponentBackupExecution: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description UUID d'un composant de stack compose. */
+                service_component_uuid: components["parameters"]["ServiceComponentUuid"];
                 /** @description UUID du plan de backup. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
                 /** @description UUID de l'exécution de backup. */

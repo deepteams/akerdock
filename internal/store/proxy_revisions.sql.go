@@ -127,7 +127,7 @@ func (q *Queries) ListAppliedProxyRevisions(ctx context.Context, serverID int64)
 }
 
 const listServersWithProxy = `-- name: ListServersWithProxy :many
-SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id FROM servers
+SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at FROM servers
 WHERE deleted_at IS NULL AND status = 'ready' AND proxy_type <> 'none'
   AND proxy_desired_state = 'running'
 `
@@ -196,6 +196,8 @@ func (q *Queries) ListServersWithProxy(ctx context.Context) ([]Server, error) {
 			&i.Version,
 			&i.HostKeyFingerprint,
 			&i.DnsCredentialID,
+			&i.CleanupNextRunAt,
+			&i.CleanupLastRunAt,
 		); err != nil {
 			return nil, err
 		}

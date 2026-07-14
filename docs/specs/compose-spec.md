@@ -253,6 +253,8 @@ Namespace propre `x-akerdock` **(défaut proposé)**, conforme au mécanisme d'e
 | `content: \|` (entrée de volume) | `x-akerdock.content: \|` | Entrée de `volumes` (forme longue, `type: bind` fichier) | Création du fichier hôte avec **interpolation des variables** (§3) ; contenu éditable en UI (≤ 5 MiB, §23.3 PRD) ; `mode`/`uid`/`gid` optionnels via `x-akerdock.file_mode`, `x-akerdock.owner_uid`, `x-akerdock.group_gid` |
 | `exclude_from_hc: true` (service) | `x-akerdock.exclude_from_hc: true` | `services.<name>` | Exclusion du health check agrégé du stack (§7.3, `service_components.exclude_from_hc`) |
 | Stack ne tolérant pas deux instances simultanées | `x-akerdock.zero_downtime: false` | `services.<name>` | Désactive le remplacement à deux instances pour ce service (ADR-015) |
+| Hook pré-déploiement | `x-akerdock.pre_deployment_command: <cmd>` | `services.<name>` | Exécuté dans le container **existant** du service, avant tout build et toute mutation (deployment-engine §10) ; sauté si aucun container ne tourne |
+| Hook post-déploiement | `x-akerdock.post_deployment_command: <cmd>` | `services.<name>` | Exécuté dans le **candidat** sain du service, avant sa bascule — un échec supprime le candidat et l'ancien reste routé (C2, INV-005). Exige un service routé et éligible zero-downtime : refusé au déploiement **avant toute mutation** sinon ; refusé à la validation sur un one-shot (`compose_hook_on_one_shot`), averti sans healthcheck déclaré (`compose_hook_without_healthcheck`) |
 | Métadonnées de template en commentaires | `x-akerdock.template` (top-level) | Top-level | §12 |
 
 Exemple :
@@ -346,6 +348,8 @@ Même queue, verrous, slots et machine à états que le moteur (deployment-engin
 
 **Échec en cours de plan** : le service en échec suit la compensation C2 (candidat supprimé, ancien intact et routé — INV-005/006) ; les services **déjà basculés restent en place** (pas de dé-bascule implicite, C3) ; le déploiement est `failed` avec le détail par composant — état partiel explicite, reprise possible (§20.8 PRD).
 
+**Reprise après crash** (deployment-engine §2.5, appliqué **par service**) : un job repris au-delà de `preparing` inspecte chaque service avant d'agir — un service au bon `akerdock.config_hash` et `running` est reconnu terminé ; un **candidat sain survivant** signifie un crash en pleine bascule : sa promotion est **terminée**, jamais rejouée (INV-004/005, step `resume_<svc>`) ; un candidat mort ou malade est supprimé et le service refait à neuf (C2). Jamais de rejeu aveugle.
+
 ### 8.3 Coexistence temporaire
 
 Pendant la bascule d'un service web, deux instances coexistent sur le réseau du stack ; l'alias DNS court `<service>` pointe l'ancien container jusqu'au rename **(défaut proposé)** — les autres services ne voient jamais le candidat avant promotion. Les stacks ne tolérant aucune coexistence désactivent le mécanisme par service : `x-akerdock.zero_downtime: false` (§5.1, risque accepté ADR-015).
@@ -404,7 +408,7 @@ Mode avancé opt-in par ressource (§5.2 PRD) : le fichier est appliqué au plus
 ## 10. Backups des bases internes (§7.1 PRD)
 
 - À chaque synchronisation du compose, chaque service est classé par **détection d'image** : le nom d'image (basename, registre et namespace ignorés) est comparé à `postgres`/`postgresql`, `mysql`, `mariadb`, `mongo`/`mongodb`, y compris les variantes courantes `bitnami/postgresql`, `pgvector/pgvector`, `supabase/postgres`, `percona`, `mongodb/mongodb-community-server` **(défaut proposé, liste maintenue avec le catalogue)**.
-- Résultat porté par `service_components.is_database` + `database_engine` (data dictionary §9.2) : le composant devient cible valide d'un `database_backup_plan` (`service_component_id`, §9.5) avec les mêmes moteurs/outils que les bases managées (`pg_dump`, `mysqldump`, `mariadb-dump`, `mongodump --gzip`).
+- Résultat porté par `service_components.is_database` + `database_engine` (data dictionary §9.2) : le composant devient cible valide d'un `database_backup_plan` (`service_component_id`, §9.5) avec les mêmes moteurs/outils que les bases managées (`pg_dump`, `mysqldump`, `mariadb-dump`, `mongodump --gzip`). **Périmètre v1 : PostgreSQL seul**, aligné sur la décision « PostgreSQL seul » des bases managées — un composant d'un autre moteur est refusé en `422` (`engine_not_supported`) à la création du plan, jamais accepté puis en échec au premier backup. Contrat : opérations `/service-components/{uuid}/backups[...]`, miroir exact des opérations database (exécution, restore confirmé, drills planifiés compris).
 - Les credentials sont lus depuis les variables résolues du composant (dont magic variables `SERVICE_USER_*`/`SERVICE_PASSWORD_*`) **(défaut proposé)** ; jamais loggés (INV-003).
 - Une image non reconnue reste backupable via les mécanismes hors périmètre (volumes, §27.14).
 
@@ -445,6 +449,8 @@ Codes stables consommables par l'API dans `details[]` (§24.1 PRD : `code`, `mes
 | `compose_domain_conflict` | error | Violation `UNIQUE (fqdn, path)` globale (data dictionary §8.4) |
 | `compose_oneshot_without_exclude` | warning | `restart: no` sans `exclude_from_hc` (§7.3) |
 | `compose_zero_downtime_ineligible` | warning | Service web traité en recreate, motif inclus (§8.4) |
+| `compose_hook_on_one_shot` | error | `post_deployment_command` sur un service `restart: no` — aucun candidat où l'exécuter (§10 deployment-engine) |
+| `compose_hook_without_healthcheck` | warning | `post_deployment_command` sans healthcheck déclaré — refusé au déploiement si l'image n'en fournit pas non plus |
 | `compose_file_content_too_large` | error | `x-akerdock.content` > 5 MiB (§23.3 PRD) |
 
 Chaque entrée `details[]` porte : `code`, `severity`, `service` (nom du service concerné, si applicable), `path` (chemin YAML, ex. `services.app.deploy.replicas`), `message` (générique, jamais de secret — INV-003).

@@ -2753,6 +2753,8 @@ type Server struct {
 	Version                      int32
 	HostKeyFingerprint           *string
 	DnsCredentialID              *int64
+	CleanupNextRunAt             pgtype.Timestamptz
+	CleanupLastRunAt             pgtype.Timestamptz
 }
 
 type Service struct {

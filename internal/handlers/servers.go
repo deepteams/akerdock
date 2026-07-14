@@ -41,15 +41,20 @@ func serverToAPI(s store.Server, privateKeyUUID string, dnsCredentialUUID *strin
 		ProxyDesiredState: ptr(api.ServerProxyDesiredState(s.ProxyDesiredState)),
 		// Intent and observation, side by side and never merged: a desired
 		// "running" says nothing about what is actually up (§19.2).
-		ProxyObservedStatus: ptr(api.ObservedStatus(s.ProxyObservedStatus)),
-		Status:            ptr(api.ServerStatus(s.Status)),
-		IsReachable:       ptr(s.Status == store.ServerStatusReady),
-		ObservedAt:        timePtr(s.ObservedAt),
-		Architecture:      arch,
-		DockerVersion:     s.DockerVersion,
-		Version:           ptr(int(s.Version)),
-		CreatedAt:         timePtr(s.CreatedAt),
-		UpdatedAt:         timePtr(s.UpdatedAt),
+		ProxyObservedStatus:  ptr(api.ObservedStatus(s.ProxyObservedStatus)),
+		Status:               ptr(api.ServerStatus(s.Status)),
+		IsReachable:          ptr(s.Status == store.ServerStatusReady),
+		ObservedAt:           timePtr(s.ObservedAt),
+		Architecture:         arch,
+		DockerVersion:        s.DockerVersion,
+		CleanupEnabled:       ptr(s.CleanupEnabled),
+		CleanupCron:          s.CleanupCron,
+		CleanupPruneVolumes:  ptr(s.CleanupPruneVolumes),
+		CleanupPruneNetworks: ptr(s.CleanupPruneNetworks),
+		CleanupLastRunAt:     timePtr(s.CleanupLastRunAt),
+		Version:              ptr(int(s.Version)),
+		CreatedAt:            timePtr(s.CreatedAt),
+		UpdatedAt:            timePtr(s.UpdatedAt),
 	}
 }
 
@@ -354,6 +359,47 @@ func (a *API) UpdateServer(w http.ResponseWriter, r *http.Request, serverUuid ap
 		return
 	}
 
+	// Automated cleanup settings (§3.7). The cron is validated with the SAME
+	// parser the scheduler runs: an expression the scheduler cannot fire is
+	// refused now, never accepted and then silently never run.
+	if body.CleanupEnabled != nil {
+		next.CleanupEnabled = *body.CleanupEnabled
+	}
+	if patch.Has("cleanup_cron") {
+		if body.CleanupCron != nil && *body.CleanupCron != "" {
+			normalized, valid := normalizeCron(*body.CleanupCron)
+			if !valid {
+				httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+					Field: ptr("cleanup_cron"), Code: ptr("invalid"),
+					Message: "cleanup_cron must be a 5-field cron expression or one of: every_minute, hourly, daily, weekly, monthly, yearly",
+				}})
+				return
+			}
+			next.CleanupCron = &normalized
+		} else {
+			next.CleanupCron = nil
+		}
+	}
+	if patch.Has("cleanup_disk_threshold_pct") {
+		if body.CleanupDiskThresholdPct != nil && (*body.CleanupDiskThresholdPct < 1 || *body.CleanupDiskThresholdPct > 100) {
+			httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+				Field: ptr("cleanup_disk_threshold_pct"), Code: ptr("out_of_range"),
+				Message: "cleanup_disk_threshold_pct must be between 1 and 100",
+			}})
+			return
+		}
+		next.CleanupDiskThresholdPct = nil
+		if body.CleanupDiskThresholdPct != nil {
+			next.CleanupDiskThresholdPct = ptr(int32(*body.CleanupDiskThresholdPct))
+		}
+	}
+	if body.CleanupPruneVolumes != nil {
+		next.CleanupPruneVolumes = *body.CleanupPruneVolumes
+	}
+	if body.CleanupPruneNetworks != nil {
+		next.CleanupPruneNetworks = *body.CleanupPruneNetworks
+	}
+
 	rows, err := a.Store.UpdateServer(r.Context(), store.UpdateServerParams{
 		ID: server.ID, Name: next.Name, Description: next.Description,
 		Host: next.Host, Port: next.Port, SshUser: next.SshUser,
@@ -362,7 +408,12 @@ func (a *API) UpdateServer(w http.ResponseWriter, r *http.Request, serverUuid ap
 		DnsCredentialID: next.DnsCredentialID,
 		ProxyType:       next.ProxyType, ProxyHttpPort: next.ProxyHttpPort,
 		ProxyHttpsPort: next.ProxyHttpsPort, Status: status,
-		ExpectedVersion: int32(expected),
+		CleanupEnabled:          next.CleanupEnabled,
+		CleanupCron:             next.CleanupCron,
+		CleanupDiskThresholdPct: next.CleanupDiskThresholdPct,
+		CleanupPruneVolumes:     next.CleanupPruneVolumes,
+		CleanupPruneNetworks:    next.CleanupPruneNetworks,
+		ExpectedVersion:         int32(expected),
 	})
 	if err != nil {
 		if isUniqueViolation(err) {

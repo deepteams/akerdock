@@ -682,6 +682,39 @@ docker exec "$DIND_CTR" sh -c "docker ps -aq --filter label=akerdock.resource_uu
 docker exec "$DIND_CTR" docker volume rm legacyshop_shopdata >/dev/null 2>&1 || true
 ok "compose stack adopted, redeployed with its data intact, then released untouched (§20.7 acceptance)"
 
+# --- automated docker cleanup (§3.7, INV-015) -----------------------------------------
+# E2E-CLEANUP-01. The cleanup removes MANAGED garbage — dangling images, dead
+# deployment candidates, tmp files, anonymous volumes (opt-in) — and never
+# touches an unmanaged or persistent object: a named volume, a foreign
+# container, a tagged (rollback) image all survive.
+say "docker cleanup: managed garbage pruned, unmanaged and persistent objects untouched"
+docker exec "$DIND_CTR" sh -c '
+  printf "FROM nginx:alpine\nRUN echo garbage > /g\n" | docker build -q - >/dev/null
+  docker run --name deadbeef-next --label akerdock.managed=true nginx:alpine true >/dev/null
+  mkdir -p /data/akerdock/tmp && echo junk > /data/akerdock/tmp/junk
+  docker create -v /anon --name anonholder nginx:alpine >/dev/null && docker rm anonholder >/dev/null
+  docker volume create keepme-named >/dev/null
+  docker run --name innocent-bystander nginx:alpine true >/dev/null
+' || die "could not stage the cleanup garbage"
+
+SV=$(api GET "/servers/$S" | jsonq "d['version']")
+curl -sf -X PATCH -H "Authorization: Bearer $ROOT_TOKEN" -H "If-Match: \"$SV\"" -H 'Content-Type: application/json' \
+  -d '{"cleanup_enabled":true,"cleanup_prune_volumes":true,"cleanup_prune_networks":true}' \
+  "$B/servers/$S" >/dev/null || die "could not enable the cleanup settings"
+[ "$(wait_job "$(api POST "/servers/$S/cleanup" | jsonq "d['job_uuid']")" 120)" = "succeeded" ] || die "the manual cleanup failed"
+
+# Pruned: managed garbage only.
+[ "$(docker exec "$DIND_CTR" docker images -qf dangling=true | wc -l | tr -d ' ')" = "0" ] || die "dangling images survived the cleanup"
+docker exec "$DIND_CTR" docker inspect deadbeef-next >/dev/null 2>&1 && die "the dead candidate survived the cleanup"
+docker exec "$DIND_CTR" test -e /data/akerdock/tmp/junk && die "the tmp directory was not purged"
+# Untouched: everything the cleanup must never claim (INV-015).
+docker exec "$DIND_CTR" docker volume inspect keepme-named >/dev/null 2>&1 || die "a NAMED volume was pruned — INV-015 violated"
+docker exec "$DIND_CTR" docker inspect innocent-bystander >/dev/null 2>&1 || die "an unmanaged container was pruned — INV-015 violated"
+docker exec "$DIND_CTR" docker image inspect nginx:alpine >/dev/null 2>&1 || die "a tagged image was pruned — rollback artifacts are not safe (ADR-006)"
+docker exec "$DIND_CTR" docker rm -f innocent-bystander >/dev/null 2>&1 || true
+docker exec "$DIND_CTR" docker volume rm keepme-named >/dev/null 2>&1 || true
+ok "cleanup pruned the managed garbage and spared named volumes, foreign containers and tagged images (§3.7, INV-015)"
+
 # --- rolling upgrade N-1 / N (§18.2, ADR-021) ----------------------------------------
 say "the schema of version N still serves the binary of version N-1"
 # An upgrade is a tag change: the new binary migrates, while the OLD one may

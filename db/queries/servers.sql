@@ -24,8 +24,36 @@ UPDATE servers SET
     ssh_timeout_seconds = $7, private_key_id = $8, is_build_server = $9,
     wildcard_domain = $10, proxy_type = $11, proxy_http_port = $12,
     proxy_https_port = $13, status = $14, dns_credential_id = sqlc.narg(dns_credential_id),
+    cleanup_enabled = sqlc.arg(cleanup_enabled),
+    cleanup_cron = sqlc.narg(cleanup_cron),
+    cleanup_disk_threshold_pct = sqlc.narg(cleanup_disk_threshold_pct),
+    cleanup_prune_volumes = sqlc.arg(cleanup_prune_volumes),
+    cleanup_prune_networks = sqlc.arg(cleanup_prune_networks),
+    -- The schedule may have changed: the scheduler recomputes the window.
+    cleanup_next_run_at = NULL,
     updated_at = now(), version = version + 1
 WHERE id = $1 AND version = sqlc.arg(expected_version) AND deleted_at IS NULL;
+
+-- name: ListCleanupSchedulableServers :many
+-- Cleanup-enabled, ready servers (§3.7). The scheduler owns the cron window
+-- (cleanup_next_run_at) exactly like the backup plans.
+SELECT * FROM servers
+WHERE cleanup_enabled AND deleted_at IS NULL AND status = 'ready'
+ORDER BY id;
+
+-- name: SetServerCleanupSchedule :exec
+-- Scheduler-owned: never bumps `version` (not a user edit).
+UPDATE servers
+SET cleanup_next_run_at = sqlc.narg(next_run_at),
+    cleanup_last_run_at = coalesce(sqlc.narg(last_run_at), cleanup_last_run_at)
+WHERE id = $1;
+
+-- name: CountActiveDeploymentsOnServer :one
+-- The §3.7 guard: the cleanup never runs while a deployment is mutating the
+-- server. `queued` does not block — the deployment lock does the serializing.
+SELECT count(*) FROM deployments
+WHERE server_id = $1
+  AND status NOT IN ('queued', 'succeeded', 'failed', 'cancelled', 'superseded');
 
 -- name: SoftDeleteServer :execrows
 UPDATE servers SET deleted_at = now(), status = 'deleting', updated_at = now()

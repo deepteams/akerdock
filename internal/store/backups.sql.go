@@ -62,14 +62,13 @@ func (q *Queries) CreateBackupExecution(ctx context.Context, arg CreateBackupExe
 
 const createBackupPlan = `-- name: CreateBackupPlan :one
 
-INSERT INTO database_backup_plans (uuid, database_id, cron_expression, timezone, enabled, dump_all, included_databases, timeout_seconds, s3_storage_id, s3_only, save_local, retention_local_max_count, retention_local_max_days, retention_s3_max_count, retention_s3_max_days, drill_enabled, drill_interval_days)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+INSERT INTO database_backup_plans (uuid, database_id, service_component_id, cron_expression, timezone, enabled, dump_all, included_databases, timeout_seconds, s3_storage_id, s3_only, save_local, retention_local_max_count, retention_local_max_days, retention_s3_max_count, retention_s3_max_days, drill_enabled, drill_interval_days)
+VALUES ($1, $17, $18, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING id, uuid, database_id, service_component_id, is_instance_backup, enabled, cron_expression, timezone, dump_all, included_databases, excluded_collections, timeout_seconds, s3_storage_id, s3_only, save_local, retention_local_max_count, retention_local_max_days, retention_s3_max_count, retention_s3_max_days, created_by, created_at, updated_at, deleted_at, version, next_run_at, last_run_at, drill_enabled, drill_interval_days, last_drill_at, last_drill_status
 `
 
 type CreateBackupPlanParams struct {
 	Uuid                   pgtype.UUID
-	DatabaseID             *int64
 	CronExpression         string
 	Timezone               string
 	Enabled                bool
@@ -85,13 +84,16 @@ type CreateBackupPlanParams struct {
 	RetentionS3MaxDays     int32
 	DrillEnabled           bool
 	DrillIntervalDays      int32
+	DatabaseID             *int64
+	ServiceComponentID     *int64
 }
 
 // Backups (§7, ADR-014).
+// Target: a managed database OR an internal database of a compose stack
+// (compose-spec §10) — the table CHECK enforces exactly one.
 func (q *Queries) CreateBackupPlan(ctx context.Context, arg CreateBackupPlanParams) (DatabaseBackupPlan, error) {
 	row := q.db.QueryRow(ctx, createBackupPlan,
 		arg.Uuid,
-		arg.DatabaseID,
 		arg.CronExpression,
 		arg.Timezone,
 		arg.Enabled,
@@ -107,6 +109,8 @@ func (q *Queries) CreateBackupPlan(ctx context.Context, arg CreateBackupPlanPara
 		arg.RetentionS3MaxDays,
 		arg.DrillEnabled,
 		arg.DrillIntervalDays,
+		arg.DatabaseID,
+		arg.ServiceComponentID,
 	)
 	var i DatabaseBackupPlan
 	err := row.Scan(
@@ -395,6 +399,99 @@ func (q *Queries) GetBackupPlanByUUID(ctx context.Context, arg GetBackupPlanByUU
 	return i, err
 }
 
+const getBackupPlanByUUIDForComponent = `-- name: GetBackupPlanByUUIDForComponent :one
+SELECT p.id, p.uuid, p.database_id, p.service_component_id, p.is_instance_backup, p.enabled, p.cron_expression, p.timezone, p.dump_all, p.included_databases, p.excluded_collections, p.timeout_seconds, p.s3_storage_id, p.s3_only, p.save_local, p.retention_local_max_count, p.retention_local_max_days, p.retention_s3_max_count, p.retention_s3_max_days, p.created_by, p.created_at, p.updated_at, p.deleted_at, p.version, p.next_run_at, p.last_run_at, p.drill_enabled, p.drill_interval_days, p.last_drill_at, p.last_drill_status FROM database_backup_plans p
+WHERE p.uuid = $1 AND p.service_component_id = $2 AND p.deleted_at IS NULL
+`
+
+type GetBackupPlanByUUIDForComponentParams struct {
+	Uuid               pgtype.UUID
+	ServiceComponentID *int64
+}
+
+func (q *Queries) GetBackupPlanByUUIDForComponent(ctx context.Context, arg GetBackupPlanByUUIDForComponentParams) (DatabaseBackupPlan, error) {
+	row := q.db.QueryRow(ctx, getBackupPlanByUUIDForComponent, arg.Uuid, arg.ServiceComponentID)
+	var i DatabaseBackupPlan
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.DatabaseID,
+		&i.ServiceComponentID,
+		&i.IsInstanceBackup,
+		&i.Enabled,
+		&i.CronExpression,
+		&i.Timezone,
+		&i.DumpAll,
+		&i.IncludedDatabases,
+		&i.ExcludedCollections,
+		&i.TimeoutSeconds,
+		&i.S3StorageID,
+		&i.S3Only,
+		&i.SaveLocal,
+		&i.RetentionLocalMaxCount,
+		&i.RetentionLocalMaxDays,
+		&i.RetentionS3MaxCount,
+		&i.RetentionS3MaxDays,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.Version,
+		&i.NextRunAt,
+		&i.LastRunAt,
+		&i.DrillEnabled,
+		&i.DrillIntervalDays,
+		&i.LastDrillAt,
+		&i.LastDrillStatus,
+	)
+	return i, err
+}
+
+const getComponentBackupTarget = `-- name: GetComponentBackupTarget :one
+SELECT sc.id, sc.uuid, sc.resource_id, sc.name, sc.image, sc.is_database, sc.database_engine, sc.exclude_from_hc, sc.default_route_port, sc.observed_status, sc.observed_at, sc.created_at, sc.updated_at, r.uuid AS stack_uuid, r.id AS stack_resource_id,
+       r.team_id, d.server_id
+FROM service_components sc
+JOIN resources r ON r.id = sc.resource_id
+JOIN destinations d ON d.id = r.destination_id
+WHERE sc.id = $1 AND r.deleted_at IS NULL
+`
+
+type GetComponentBackupTargetRow struct {
+	ServiceComponent ServiceComponent
+	StackUuid        pgtype.UUID
+	StackResourceID  int64
+	TeamID           int64
+	ServerID         int64
+}
+
+// Everything the backup job needs about a component plan's target: the
+// component, its stack resource (container names derive from its uuid) and
+// the server behind the stack's destination.
+func (q *Queries) GetComponentBackupTarget(ctx context.Context, id int64) (GetComponentBackupTargetRow, error) {
+	row := q.db.QueryRow(ctx, getComponentBackupTarget, id)
+	var i GetComponentBackupTargetRow
+	err := row.Scan(
+		&i.ServiceComponent.ID,
+		&i.ServiceComponent.Uuid,
+		&i.ServiceComponent.ResourceID,
+		&i.ServiceComponent.Name,
+		&i.ServiceComponent.Image,
+		&i.ServiceComponent.IsDatabase,
+		&i.ServiceComponent.DatabaseEngine,
+		&i.ServiceComponent.ExcludeFromHc,
+		&i.ServiceComponent.DefaultRoutePort,
+		&i.ServiceComponent.ObservedStatus,
+		&i.ServiceComponent.ObservedAt,
+		&i.ServiceComponent.CreatedAt,
+		&i.ServiceComponent.UpdatedAt,
+		&i.StackUuid,
+		&i.StackResourceID,
+		&i.TeamID,
+		&i.ServerID,
+	)
+	return i, err
+}
+
 const getLatestSuccessfulBackupExecution = `-- name: GetLatestSuccessfulBackupExecution :one
 SELECT id, uuid, backup_plan_id, job_id, status, filename, size_bytes, checksum_sha256, engine_version, uploaded_to_s3, s3_upload_error, local_deleted_at, error_message, started_at, finished_at, created_at, s3_key, s3_deleted_at, table_count FROM backup_executions
 WHERE backup_plan_id = $1 AND status IN ('succeeded', 'partial') AND filename IS NOT NULL
@@ -483,6 +580,63 @@ func (q *Queries) ListBackupExecutionsPage(ctx context.Context, arg ListBackupEx
 	return items, nil
 }
 
+const listBackupPlansForComponent = `-- name: ListBackupPlansForComponent :many
+SELECT id, uuid, database_id, service_component_id, is_instance_backup, enabled, cron_expression, timezone, dump_all, included_databases, excluded_collections, timeout_seconds, s3_storage_id, s3_only, save_local, retention_local_max_count, retention_local_max_days, retention_s3_max_count, retention_s3_max_days, created_by, created_at, updated_at, deleted_at, version, next_run_at, last_run_at, drill_enabled, drill_interval_days, last_drill_at, last_drill_status FROM database_backup_plans
+WHERE service_component_id = $1 AND deleted_at IS NULL
+ORDER BY id DESC
+`
+
+func (q *Queries) ListBackupPlansForComponent(ctx context.Context, serviceComponentID *int64) ([]DatabaseBackupPlan, error) {
+	rows, err := q.db.Query(ctx, listBackupPlansForComponent, serviceComponentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DatabaseBackupPlan
+	for rows.Next() {
+		var i DatabaseBackupPlan
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.DatabaseID,
+			&i.ServiceComponentID,
+			&i.IsInstanceBackup,
+			&i.Enabled,
+			&i.CronExpression,
+			&i.Timezone,
+			&i.DumpAll,
+			&i.IncludedDatabases,
+			&i.ExcludedCollections,
+			&i.TimeoutSeconds,
+			&i.S3StorageID,
+			&i.S3Only,
+			&i.SaveLocal,
+			&i.RetentionLocalMaxCount,
+			&i.RetentionLocalMaxDays,
+			&i.RetentionS3MaxCount,
+			&i.RetentionS3MaxDays,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.Version,
+			&i.NextRunAt,
+			&i.LastRunAt,
+			&i.DrillEnabled,
+			&i.DrillIntervalDays,
+			&i.LastDrillAt,
+			&i.LastDrillStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBackupPlansForDatabase = `-- name: ListBackupPlansForDatabase :many
 SELECT id, uuid, database_id, service_component_id, is_instance_backup, enabled, cron_expression, timezone, dump_all, included_databases, excluded_collections, timeout_seconds, s3_storage_id, s3_only, save_local, retention_local_max_count, retention_local_max_days, retention_s3_max_count, retention_s3_max_days, created_by, created_at, updated_at, deleted_at, version, next_run_at, last_run_at, drill_enabled, drill_interval_days, last_drill_at, last_drill_status FROM database_backup_plans
 WHERE database_id = $1 AND deleted_at IS NULL
@@ -541,22 +695,28 @@ func (q *Queries) ListBackupPlansForDatabase(ctx context.Context, databaseID *in
 }
 
 const listDrillablePlans = `-- name: ListDrillablePlans :many
-SELECT p.id, p.uuid, p.database_id, p.service_component_id, p.is_instance_backup, p.enabled, p.cron_expression, p.timezone, p.dump_all, p.included_databases, p.excluded_collections, p.timeout_seconds, p.s3_storage_id, p.s3_only, p.save_local, p.retention_local_max_count, p.retention_local_max_days, p.retention_s3_max_count, p.retention_s3_max_days, p.created_by, p.created_at, p.updated_at, p.deleted_at, p.version, p.next_run_at, p.last_run_at, p.drill_enabled, p.drill_interval_days, p.last_drill_at, p.last_drill_status, d.team_id
+SELECT p.id, p.uuid, p.database_id, p.service_component_id, p.is_instance_backup, p.enabled, p.cron_expression, p.timezone, p.dump_all, p.included_databases, p.excluded_collections, p.timeout_seconds, p.s3_storage_id, p.s3_only, p.save_local, p.retention_local_max_count, p.retention_local_max_days, p.retention_s3_max_count, p.retention_s3_max_days, p.created_by, p.created_at, p.updated_at, p.deleted_at, p.version, p.next_run_at, p.last_run_at, p.drill_enabled, p.drill_interval_days, p.last_drill_at, p.last_drill_status, coalesce(d.team_id, rs.team_id) AS team_id,
+       coalesce(p.database_id, sc.resource_id) AS target_resource_id
 FROM database_backup_plans p
-JOIN databases db ON db.id = p.database_id
-JOIN resources d ON d.id = db.id
-WHERE p.enabled AND p.drill_enabled AND p.deleted_at IS NULL AND d.deleted_at IS NULL
+LEFT JOIN resources d ON d.id = p.database_id
+LEFT JOIN service_components sc ON sc.id = p.service_component_id
+LEFT JOIN resources rs ON rs.id = sc.resource_id
+WHERE p.enabled AND p.drill_enabled AND p.deleted_at IS NULL
+  AND ((p.database_id IS NOT NULL AND d.deleted_at IS NULL)
+    OR (p.service_component_id IS NOT NULL AND rs.deleted_at IS NULL))
   AND (p.last_drill_at IS NULL OR p.last_drill_at < now() - make_interval(days => p.drill_interval_days))
 `
 
 type ListDrillablePlansRow struct {
 	DatabaseBackupPlan DatabaseBackupPlan
 	TeamID             int64
+	TargetResourceID   int64
 }
 
-// Enabled plans whose drill window has elapsed. A plan that has never been
-// drilled (last_drill_at IS NULL) is due immediately: the first drill is the
-// one that tells you whether the backups were ever any good.
+// Enabled plans whose drill window has elapsed — managed databases AND stack
+// components. A plan that has never been drilled (last_drill_at IS NULL) is
+// due immediately: the first drill is the one that tells you whether the
+// backups were ever any good.
 func (q *Queries) ListDrillablePlans(ctx context.Context) ([]ListDrillablePlansRow, error) {
 	rows, err := q.db.Query(ctx, listDrillablePlans)
 	if err != nil {
@@ -598,6 +758,7 @@ func (q *Queries) ListDrillablePlans(ctx context.Context) ([]ListDrillablePlansR
 			&i.DatabaseBackupPlan.LastDrillAt,
 			&i.DatabaseBackupPlan.LastDrillStatus,
 			&i.TeamID,
+			&i.TargetResourceID,
 		); err != nil {
 			return nil, err
 		}
@@ -836,9 +997,15 @@ func (q *Queries) ListRestoreDrillsPage(ctx context.Context, arg ListRestoreDril
 }
 
 const listSchedulableBackupPlans = `-- name: ListSchedulableBackupPlans :many
-SELECT p.id, p.uuid, p.database_id, p.service_component_id, p.is_instance_backup, p.enabled, p.cron_expression, p.timezone, p.dump_all, p.included_databases, p.excluded_collections, p.timeout_seconds, p.s3_storage_id, p.s3_only, p.save_local, p.retention_local_max_count, p.retention_local_max_days, p.retention_s3_max_count, p.retention_s3_max_days, p.created_by, p.created_at, p.updated_at, p.deleted_at, p.version, p.next_run_at, p.last_run_at, p.drill_enabled, p.drill_interval_days, p.last_drill_at, p.last_drill_status, r.team_id FROM database_backup_plans p
-JOIN resources r ON r.id = p.database_id
-WHERE p.enabled AND p.deleted_at IS NULL AND r.deleted_at IS NULL
+SELECT p.id, p.uuid, p.database_id, p.service_component_id, p.is_instance_backup, p.enabled, p.cron_expression, p.timezone, p.dump_all, p.included_databases, p.excluded_collections, p.timeout_seconds, p.s3_storage_id, p.s3_only, p.save_local, p.retention_local_max_count, p.retention_local_max_days, p.retention_s3_max_count, p.retention_s3_max_days, p.created_by, p.created_at, p.updated_at, p.deleted_at, p.version, p.next_run_at, p.last_run_at, p.drill_enabled, p.drill_interval_days, p.last_drill_at, p.last_drill_status, coalesce(r.team_id, rs.team_id) AS team_id,
+       coalesce(p.database_id, sc.resource_id) AS target_resource_id
+FROM database_backup_plans p
+LEFT JOIN resources r ON r.id = p.database_id
+LEFT JOIN service_components sc ON sc.id = p.service_component_id
+LEFT JOIN resources rs ON rs.id = sc.resource_id
+WHERE p.enabled AND p.deleted_at IS NULL
+  AND ((p.database_id IS NOT NULL AND r.deleted_at IS NULL)
+    OR (p.service_component_id IS NOT NULL AND rs.deleted_at IS NULL))
 ORDER BY p.id
 `
 
@@ -874,10 +1041,14 @@ type ListSchedulableBackupPlansRow struct {
 	LastDrillAt            pgtype.Timestamptz
 	LastDrillStatus        *RestoreDrillStatus
 	TeamID                 int64
+	TargetResourceID       int64
 }
 
-// Enabled plans of non-deleted databases. The scheduler owns the cron: it
-// seeds next_run_at when it is NULL and fires the plans that are due.
+// Enabled plans of non-deleted targets — managed databases AND stack
+// components (compose-spec §10). The scheduler owns the cron: it seeds
+// next_run_at when it is NULL and fires the plans that are due.
+// target_resource_id is the stack resource for a component plan: it is what
+// jobs and events hang off.
 func (q *Queries) ListSchedulableBackupPlans(ctx context.Context) ([]ListSchedulableBackupPlansRow, error) {
 	rows, err := q.db.Query(ctx, listSchedulableBackupPlans)
 	if err != nil {
@@ -919,6 +1090,7 @@ func (q *Queries) ListSchedulableBackupPlans(ctx context.Context) ([]ListSchedul
 			&i.LastDrillAt,
 			&i.LastDrillStatus,
 			&i.TeamID,
+			&i.TargetResourceID,
 		); err != nil {
 			return nil, err
 		}

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/pguuid"
@@ -44,6 +46,29 @@ type BackupRun struct {
 // backupDir is the remote backup root (deployment-engine §5.1).
 const backupDir = "/data/akerdock/backups"
 
+// backupTarget abstracts what the job dumps: the container of a managed
+// database, or the database container of a compose stack component
+// (compose-spec §10). Everything downstream — dump, restore, drill,
+// retention — speaks in terms of this target.
+type backupTarget struct {
+	// container is the Docker name the dump execs into.
+	container string
+	// key names the backup directory and the S3 prefix: the database resource
+	// uuid, or the component uuid — stable across redeployments.
+	key      string
+	serverID int64
+	teamID   int64
+	// resourceUUID is the event subject: the database resource, or the stack.
+	resourceUUID pgtype.UUID
+	// login is known for a managed database (credential row). nil for a
+	// component: its credentials live in ITS container environment only, and
+	// the role/database names are read from there when needed — the password
+	// never leaves the container (INV-003).
+	login *dbLogin
+	// image boots the drill's disposable instance ("" = engine default).
+	image string
+}
+
 // Execute runs one backup or restore attempt.
 func (h *BackupRun) Execute(ctx context.Context, job store.Job, rec *queue.StepRecorder) (any, error) {
 	var payload BackupPayload
@@ -54,16 +79,12 @@ func (h *BackupRun) Execute(ctx context.Context, job store.Job, rec *queue.StepR
 	if err != nil {
 		return nil, fmt.Errorf("backup plan not found: %w", err)
 	}
-	if plan.DatabaseID == nil {
-		return nil, fmt.Errorf("only managed-database backups are supported for now")
-	}
-	row, err := h.Store.GetDatabaseByID(ctx, *plan.DatabaseID)
+	target, err := h.resolveTarget(ctx, plan)
 	if err != nil {
-		return nil, fmt.Errorf("database not found: %w", err)
+		return nil, err
 	}
-	dbUUID := pguuid.String(row.Resource.Uuid)
 
-	client, err := h.connect(ctx, row)
+	client, err := h.connect(ctx, target.serverID)
 	if err != nil {
 		rec.Fail(ctx, "SSH connection failed")
 		return nil, err
@@ -72,15 +93,60 @@ func (h *BackupRun) Execute(ctx context.Context, job store.Job, rec *queue.StepR
 
 	switch job.JobType {
 	case TypeBackupRestore:
-		return h.restore(ctx, rec, client, plan, payload.ExecutionID, dbUUID)
+		return h.restore(ctx, rec, client, plan, payload.ExecutionID, target)
 	case TypeBackupDrill:
-		return h.drill(ctx, rec, client, plan, row)
+		return h.drill(ctx, rec, client, plan, target)
 	}
-	return h.backup(ctx, rec, client, plan, row, dbUUID)
+	return h.backup(ctx, rec, client, plan, target)
 }
 
-func (h *BackupRun) connect(ctx context.Context, row store.GetDatabaseByIDRow) (*sshexec.Client, error) {
-	server, err := h.Store.GetServerByID(ctx, row.Database.ServerID)
+// resolveTarget maps the plan onto its dump target. The three-way CHECK of
+// database_backup_plans guarantees exactly one branch.
+func (h *BackupRun) resolveTarget(ctx context.Context, plan store.DatabaseBackupPlan) (backupTarget, error) {
+	switch {
+	case plan.DatabaseID != nil:
+		row, err := h.Store.GetDatabaseByID(ctx, *plan.DatabaseID)
+		if err != nil {
+			return backupTarget{}, fmt.Errorf("database not found: %w", err)
+		}
+		login := credentialsOf(row)
+		t := backupTarget{
+			container: pguuid.String(row.Resource.Uuid), key: pguuid.String(row.Resource.Uuid),
+			serverID: row.Database.ServerID, teamID: row.Resource.TeamID,
+			resourceUUID: row.Resource.Uuid, login: &login,
+		}
+		if row.Database.Image != nil {
+			t.image = *row.Database.Image
+		}
+		return t, nil
+	case plan.ServiceComponentID != nil:
+		row, err := h.Store.GetComponentBackupTarget(ctx, *plan.ServiceComponentID)
+		if err != nil {
+			return backupTarget{}, fmt.Errorf("stack component not found: %w", err)
+		}
+		sc := row.ServiceComponent
+		// Validated at plan creation and re-checked here: a compose edit can
+		// swap the image under an existing plan (compose-spec §10).
+		if !sc.IsDatabase || sc.DatabaseEngine == nil || *sc.DatabaseEngine != store.DbEnginePostgresql {
+			return backupTarget{}, fmt.Errorf("component %q is not a supported database (postgresql only in v1, compose-spec §10)", sc.Name)
+		}
+		t := backupTarget{
+			// The component container name derives from the stack (§2.2).
+			container: pguuid.String(row.StackUuid) + "-" + sc.Name,
+			key:       pguuid.String(sc.Uuid),
+			serverID:  row.ServerID, teamID: row.TeamID,
+			resourceUUID: row.StackUuid,
+		}
+		if sc.Image != nil {
+			t.image = *sc.Image
+		}
+		return t, nil
+	}
+	return backupTarget{}, fmt.Errorf("this plan has no dump target")
+}
+
+func (h *BackupRun) connect(ctx context.Context, serverID int64) (*sshexec.Client, error) {
+	server, err := h.Store.GetServerByID(ctx, serverID)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +166,7 @@ func (h *BackupRun) connect(ctx context.Context, row store.GetDatabaseByIDRow) (
 // applies the local retention. An S3 upload failure yields the explicit
 // `partial` status — never a silent success (§20.5).
 func (h *BackupRun) backup(ctx context.Context, rec *queue.StepRecorder, client *sshexec.Client,
-	plan store.DatabaseBackupPlan, row store.GetDatabaseByIDRow, dbUUID string,
+	plan store.DatabaseBackupPlan, target backupTarget,
 ) (any, error) {
 	u, err := pguuid.New()
 	if err != nil {
@@ -122,19 +188,22 @@ func (h *BackupRun) backup(ctx context.Context, rec *queue.StepRecorder, client 
 	}
 
 	rec.Start(ctx, "dump")
-	dir := backupDir + "/" + dbUUID
+	dir := backupDir + "/" + target.key
 	stamp := time.Now().UTC().Format("20060102-150405")
-	file := fmt.Sprintf("%s/%s-%s.sql.gz", dir, dbUUID, stamp)
+	file := fmt.Sprintf("%s/%s-%s.sql.gz", dir, target.key, stamp)
 
-	dumpCmd := "pg_dump -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""
+	// The `${VAR:-default}` forms mirror the official postgres image: a
+	// compose component often relies on those defaults instead of setting the
+	// variables explicitly, and a managed container always sets them.
+	dumpCmd := "pg_dump -U \"${POSTGRES_USER:-postgres}\" -d \"${POSTGRES_DB:-${POSTGRES_USER:-postgres}}\""
 	if plan.DumpAll {
-		dumpCmd = "pg_dumpall -U \"$POSTGRES_USER\""
+		dumpCmd = "pg_dumpall -U \"${POSTGRES_USER:-postgres}\""
 	}
 	// The dump runs inside the container: the credential stays in its
 	// environment and never reaches argv (INV-003).
 	res, err := client.Run(ctx, fmt.Sprintf(
 		"mkdir -p %s && chmod 700 %s && umask 077 && docker exec %s sh -c '%s' | gzip > %s && test -s %s",
-		dir, dir, dbUUID, dumpCmd, file, file))
+		dir, dir, target.container, dumpCmd, file, file))
 	if err != nil {
 		return fail("dump", err)
 	}
@@ -145,8 +214,8 @@ func (h *BackupRun) backup(ctx context.Context, rec *queue.StepRecorder, client 
 	// Size, checksum and engine version: the integrity metadata verified at
 	// restore and during the drills (§20.5).
 	meta, err := client.Run(ctx, fmt.Sprintf(
-		"stat -c %%s %s; sha256sum %s | cut -d' ' -f1; docker exec %s psql -U \"$POSTGRES_USER\" -tAc 'SHOW server_version' 2>/dev/null || true",
-		file, file, dbUUID))
+		"stat -c %%s %s; sha256sum %s | cut -d' ' -f1; docker exec %s sh -c 'psql -U \"${POSTGRES_USER:-postgres}\" -tAc \"SHOW server_version\"' 2>/dev/null || true",
+		file, file, target.container))
 	if err != nil || meta.ExitCode != 0 {
 		return fail("checksum", fmt.Errorf("could not read the dump metadata"))
 	}
@@ -170,7 +239,7 @@ func (h *BackupRun) backup(ctx context.Context, rec *queue.StepRecorder, client 
 	// restore without an error and contain nothing — an empty psql restore
 	// exits 0. Without a number to compare, a drill can only prove that
 	// nothing crashed.
-	if count, err := h.countTables(ctx, client, dbUUID, credentialsOf(row)); err == nil {
+	if count, err := h.countTables(ctx, client, target.container, target.login); err == nil {
 		if err := h.Store.SetBackupExecutionTableCount(ctx, store.SetBackupExecutionTableCountParams{
 			ID: exec.ID, TableCount: &count,
 		}); err != nil {
@@ -187,7 +256,7 @@ func (h *BackupRun) backup(ctx context.Context, rec *queue.StepRecorder, client 
 	uploaded := false
 	if plan.S3StorageID != nil {
 		rec.Start(ctx, "upload_s3")
-		key, err := h.uploadToS3(ctx, client, plan, dbUUID, file, size)
+		key, err := h.uploadToS3(ctx, client, plan, target.key, file, size)
 		switch {
 		case err != nil:
 			msg := firstLine(err.Error())
@@ -221,7 +290,7 @@ func (h *BackupRun) backup(ctx context.Context, rec *queue.StepRecorder, client 
 	}
 
 	h.applyRetention(ctx, client, plan)
-	h.Logger.Info("backup completed", "db_uuid", dbUUID, "status", status, "file", file)
+	h.Logger.Info("backup completed", "target", target.container, "status", status, "file", file)
 	return map[string]any{
 		"execution_uuid": pguuid.String(exec.Uuid),
 		"status":         string(status),
@@ -246,14 +315,27 @@ func credentialsOf(row store.GetDatabaseByIDRow) dbLogin {
 // countTables counts the user tables of a running PostgreSQL container. The
 // system schemas are excluded: they exist in every database and would make an
 // empty restore look populated.
-func (h *BackupRun) countTables(ctx context.Context, client *sshexec.Client, container string, c dbLogin) (int32, error) {
+//
+// With a known login (managed database, drill scratch) the role and database
+// are passed explicitly. With none (stack component, compose-spec §10) the
+// query travels on STDIN and psql resolves its login from the container's
+// own environment — nothing is read out of the container.
+func (h *BackupRun) countTables(ctx context.Context, client *sshexec.Client, container string, c *dbLogin) (int32, error) {
 	const q = "SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema')"
-	// No `sh -c` wrapper here: the query itself contains single quotes, and
-	// nesting them inside a single-quoted shell string silently mangles the
-	// command. The role and database come from the credential row, so nothing
-	// needs to be read from the container's environment.
-	res, err := client.Run(ctx, fmt.Sprintf("docker exec %s psql -U %s -d %s -tAc %s",
-		container, shellQuote(c.User), shellQuote(c.DB), shellQuote(q)))
+	var res *sshexec.Result
+	var err error
+	if c != nil {
+		// No `sh -c` wrapper here: the query itself contains single quotes, and
+		// nesting them inside a single-quoted shell string silently mangles the
+		// command. The role and database come from the credential row, so nothing
+		// needs to be read from the container's environment.
+		res, err = client.Run(ctx, fmt.Sprintf("docker exec %s psql -U %s -d %s -tAc %s",
+			container, shellQuote(c.User), shellQuote(c.DB), shellQuote(q)))
+	} else {
+		res, err = client.RunInput(ctx, fmt.Sprintf(
+			"docker exec -i %s sh -c 'psql -U \"${POSTGRES_USER:-postgres}\" -d \"${POSTGRES_DB:-${POSTGRES_USER:-postgres}}\" -tA -f -'",
+			container), q)
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -342,7 +424,7 @@ func (h *BackupRun) applyS3Retention(ctx context.Context, plan store.DatabaseBac
 // The integrity check comes first: a corrupted dump is never restored
 // (§20.5).
 func (h *BackupRun) restore(ctx context.Context, rec *queue.StepRecorder, client *sshexec.Client,
-	plan store.DatabaseBackupPlan, executionID int64, dbUUID string,
+	plan store.DatabaseBackupPlan, executionID int64, target backupTarget,
 ) (any, error) {
 	exec, err := h.Store.GetBackupExecutionByID(ctx, executionID)
 	if err != nil {
@@ -381,8 +463,8 @@ func (h *BackupRun) restore(ctx context.Context, rec *queue.StepRecorder, client
 
 	rec.Start(ctx, "restore")
 	res, err := client.Run(ctx, fmt.Sprintf(
-		"gunzip -c %s | docker exec -i %s sh -c 'psql -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -v ON_ERROR_STOP=1'",
-		*exec.Filename, dbUUID))
+		"gunzip -c %s | docker exec -i %s sh -c 'psql -U \"${POSTGRES_USER:-postgres}\" -d \"${POSTGRES_DB:-${POSTGRES_USER:-postgres}}\" -v ON_ERROR_STOP=1'",
+		*exec.Filename, target.container))
 	if err != nil {
 		rec.Fail(ctx, err.Error())
 		return nil, err
@@ -392,7 +474,7 @@ func (h *BackupRun) restore(ctx context.Context, rec *queue.StepRecorder, client
 		return nil, fmt.Errorf("restore failed with code %d: %s", res.ExitCode, firstLine(res.Stderr))
 	}
 	rec.Succeed(ctx, "database restored")
-	h.Logger.Info("backup restored", "db_uuid", dbUUID, "execution_uuid", pguuid.String(exec.Uuid))
+	h.Logger.Info("backup restored", "target", target.container, "execution_uuid", pguuid.String(exec.Uuid))
 	return map[string]any{"restored_from": pguuid.String(exec.Uuid)}, nil
 }
 

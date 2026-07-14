@@ -583,3 +583,48 @@ volumes:
 		t.Fatalf("plain mount source = %q", plain)
 	}
 }
+
+func TestServiceHooks(t *testing.T) {
+	// x-akerdock hooks (§10 semantics per service): parsed into the plan,
+	// refused on a one-shot (no candidate to run in), warned without a
+	// declared healthcheck (the deployment enforces at run time).
+	res := load(t, `
+services:
+  web:
+    image: nginx
+    healthcheck:
+      test: ["CMD", "true"]
+    x-akerdock:
+      pre_deployment_command: ./prepare.sh
+      post_deployment_command: ./smoke.sh
+`)
+	plan := mustPlan(t, res)
+	web := servicePlan(t, plan, "web")
+	if web.PreCommand != "./prepare.sh" || web.PostCommand != "./smoke.sh" {
+		t.Fatalf("hooks not carried into the plan: %+v", web)
+	}
+
+	res = load(t, `
+services:
+  migrate:
+    image: alpine
+    restart: "no"
+    x-akerdock:
+      exclude_from_hc: true
+      post_deployment_command: ./never.sh
+`)
+	if !hasFinding(res, CodeHookOnOneShot, Error) {
+		t.Fatalf("a post hook on a one-shot must be refused: %v", res.Findings)
+	}
+
+	res = load(t, `
+services:
+  web:
+    image: nginx
+    x-akerdock:
+      post_deployment_command: ./smoke.sh
+`)
+	if !hasFinding(res, CodeHookWithoutHealthcheck, Warning) {
+		t.Fatalf("a post hook without a declared healthcheck must be warned: %v", res.Findings)
+	}
+}

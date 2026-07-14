@@ -158,10 +158,10 @@ func (r *deploymentRun) close() {
 }
 
 type deploymentRun struct {
-	h        *DeploymentRun
-	jobID    int64
-	d        store.Deployment
-	app      store.GetApplicationByIDRow
+	h     *DeploymentRun
+	jobID int64
+	d     store.Deployment
+	app   store.GetApplicationByIDRow
 	// service is set when the resource is an inline compose stack
 	// (resource_type = service): app then carries only the Resource part.
 	service *store.Service
@@ -172,9 +172,9 @@ type deploymentRun struct {
 	// previewAuth caches the bcrypt htpasswd line of the preview protection.
 	previewAuth string
 	server      store.Server
-	dest     store.Destination
-	teamUUID string
-	client   *sshexec.Client
+	dest        store.Destination
+	teamUUID    string
+	client      *sshexec.Client
 	// builder is the machine the image is BUILT on. It is the target server
 	// unless the application asked for a build server (§3.4) — in which case
 	// what ships is not the image on that machine, but the one it pushed to a
@@ -1505,7 +1505,10 @@ func (r *deploymentRun) runHook(ctx context.Context, name string, command *strin
 		r.skipStep(ctx, name, "no command configured")
 		return nil
 	}
-	if name == "pre_deployment" {
+	// Prefix, not equality: the compose hooks are per service
+	// ("pre_deployment_<svc>") and share the same §10 rule — no existing
+	// container means nothing to run in, not a failure.
+	if strings.HasPrefix(name, "pre_deployment") {
 		res, err := r.client.Run(ctx, "docker inspect --format '{{.State.Running}}' "+container+" 2>/dev/null || true")
 		if err != nil {
 			return err

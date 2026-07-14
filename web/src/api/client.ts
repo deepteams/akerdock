@@ -1160,6 +1160,114 @@ export class AkerDockClient {
     );
   }
 
+  // --- backups of a stack's internal databases (compose-spec §10) --------------------------------
+
+  listComponentBackupPlans(componentUuid: string, query?: { cursor?: string; limit?: number }) {
+    type Response =
+      paths['/service-components/{service_component_uuid}/backups']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/service-components/${componentUuid}/backups`, { query });
+  }
+
+  createComponentBackupPlan(componentUuid: string, body: components['schemas']['BackupPlanCreate']) {
+    type Response =
+      paths['/service-components/{service_component_uuid}/backups']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', `/service-components/${componentUuid}/backups`, { body });
+  }
+
+  getComponentBackupPlan(componentUuid: string, backupPlanUuid: string) {
+    type Response =
+      paths['/service-components/{service_component_uuid}/backups/{backup_plan_uuid}']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/service-components/${componentUuid}/backups/${backupPlanUuid}`);
+  }
+
+  updateComponentBackupPlan(
+    componentUuid: string,
+    backupPlanUuid: string,
+    version: number,
+    body: components['schemas']['BackupPlanUpdate'],
+  ) {
+    type Response =
+      paths['/service-components/{service_component_uuid}/backups/{backup_plan_uuid}']['patch']['responses']['200']['content']['application/json'];
+    return this.request<Response>(
+      'PATCH',
+      `/service-components/${componentUuid}/backups/${backupPlanUuid}`,
+      { ifMatch: version, body },
+    );
+  }
+
+  deleteComponentBackupPlan(componentUuid: string, backupPlanUuid: string) {
+    return this.request<void>('DELETE', `/service-components/${componentUuid}/backups/${backupPlanUuid}`);
+  }
+
+  executeComponentBackupPlan(componentUuid: string, backupPlanUuid: string) {
+    type Response =
+      paths['/service-components/{service_component_uuid}/backups/{backup_plan_uuid}/execute']['post']['responses']['202']['content']['application/json'];
+    return this.request<Response>(
+      'POST',
+      `/service-components/${componentUuid}/backups/${backupPlanUuid}/execute`,
+    );
+  }
+
+  runComponentRestoreDrill(componentUuid: string, backupPlanUuid: string) {
+    type Response =
+      paths['/service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drill']['post']['responses']['202']['content']['application/json'];
+    return this.request<Response>(
+      'POST',
+      `/service-components/${componentUuid}/backups/${backupPlanUuid}/drill`,
+    );
+  }
+
+  listComponentRestoreDrills(
+    componentUuid: string,
+    backupPlanUuid: string,
+    query?: { cursor?: string; limit?: number },
+  ) {
+    type Response =
+      paths['/service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drills']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>(
+      'GET',
+      `/service-components/${componentUuid}/backups/${backupPlanUuid}/drills`,
+      { query },
+    );
+  }
+
+  listComponentBackupExecutions(
+    componentUuid: string,
+    backupPlanUuid: string,
+    query?: { cursor?: string; limit?: number },
+  ) {
+    type Response =
+      paths['/service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>(
+      'GET',
+      `/service-components/${componentUuid}/backups/${backupPlanUuid}/executions`,
+      { query },
+    );
+  }
+
+  restoreComponentBackupExecution(
+    componentUuid: string,
+    backupPlanUuid: string,
+    executionUuid: string,
+    body: components['schemas']['RestoreRequest'],
+  ) {
+    type Response =
+      paths['/service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore']['post']['responses']['202']['content']['application/json'];
+    return this.request<Response>(
+      'POST',
+      `/service-components/${componentUuid}/backups/${backupPlanUuid}/executions/${executionUuid}/restore`,
+      { body },
+    );
+  }
+
+  // --- automated docker cleanup (§3.7) ------------------------------------------------------------
+
+  runServerCleanup(serverUuid: string) {
+    type Response =
+      paths['/servers/{server_uuid}/cleanup']['post']['responses']['202']['content']['application/json'];
+    return this.request<Response>('POST', `/servers/${serverUuid}/cleanup`);
+  }
+
   // --- jobs (retry, forget) ---------------------------------------------------------------------
 
   listJobs(query?: {

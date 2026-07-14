@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -34,7 +35,7 @@ const drillBoot = 90 * time.Second
 // to catch is precisely the one nobody looks for: backups that ran green for
 // months and restore into nothing.
 func (h *BackupRun) drill(ctx context.Context, rec *queue.StepRecorder, client *sshexec.Client,
-	plan store.DatabaseBackupPlan, row store.GetDatabaseByIDRow,
+	plan store.DatabaseBackupPlan, target backupTarget,
 ) (any, error) {
 	exec, err := h.Store.GetLatestSuccessfulBackupExecution(ctx, plan.ID)
 	if err != nil {
@@ -59,14 +60,13 @@ func (h *BackupRun) drill(ctx context.Context, rec *queue.StepRecorder, client *
 		_ = h.Store.SetPlanDrillResult(ctx, store.SetPlanDrillResultParams{
 			ID: plan.ID, LastDrillStatus: ptrOf(store.RestoreDrillStatusFailed),
 		})
-		h.publishDrill(ctx, row, plan, "backup.drill_failed.v1", map[string]any{
+		h.publishDrill(ctx, target, plan, "backup.drill_failed.v1", map[string]any{
 			"reason": msg, "step": step,
 		})
 		rec.Fail(ctx, step+": "+msg)
 		return map[string]any{"status": "failed", "reason": msg}
 	}
 
-	dbUUID := pguuid.String(row.Resource.Uuid)
 	scratch := "akerdock-drill-" + pguuid.String(drill.Uuid)[:12]
 	// Destroyed whatever happens — including on a failure, where the temptation
 	// to "leave it for inspection" would leave a stray database with production
@@ -120,10 +120,13 @@ func (h *BackupRun) drill(ctx context.Context, rec *queue.StepRecorder, client *
 		return fail("boot_scratch", err), nil
 	}
 	image := "postgres:16-alpine"
-	if row.Database.Image != nil && *row.Database.Image != "" {
-		image = *row.Database.Image
+	if target.image != "" {
+		image = target.image
 	}
-	login := credentialsOf(row)
+	login, err := h.drillLogin(ctx, client, target)
+	if err != nil {
+		return fail("boot_scratch", err), nil
+	}
 	res, err := client.Run(ctx, fmt.Sprintf(
 		"docker run -d --rm --name %s -e POSTGRES_PASSWORD=%s -e POSTGRES_USER=%s -e POSTGRES_DB=%s %s",
 		scratch, shellQuote(password), shellQuote(login.User), shellQuote(login.DB), shellQuote(image)))
@@ -153,7 +156,7 @@ func (h *BackupRun) drill(ctx context.Context, rec *queue.StepRecorder, client *
 	rec.Succeed(ctx, "dump restored into the disposable database")
 
 	rec.Start(ctx, "verify_content")
-	restored, err := h.countTables(ctx, client, scratch, login)
+	restored, err := h.countTables(ctx, client, scratch, &login)
 	if err != nil {
 		return fail("verify_content", err), nil
 	}
@@ -180,7 +183,7 @@ func (h *BackupRun) drill(ctx context.Context, rec *queue.StepRecorder, client *
 		return nil, err
 	}
 	rec.Succeed(ctx, fmt.Sprintf("%d tables restored and verified", restored))
-	h.Logger.Info("restore drill succeeded", "db_uuid", dbUUID, "tables", restored)
+	h.Logger.Info("restore drill succeeded", "target", target.container, "tables", restored)
 	return map[string]any{
 		"status": "succeeded", "tables_restored": restored,
 		"drill_uuid": pguuid.String(drill.Uuid),
@@ -203,6 +206,34 @@ func drillPassword() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
+// drillLogin resolves the role and database the scratch instance must be
+// born with. A dump carries `ALTER … OWNER TO <role>` and GRANTs: restored
+// under any other role, every one of those statements errors out and a
+// perfectly good backup reads as corrupted.
+//
+// Managed databases know their login from the credential row. A stack
+// component (compose-spec §10) does not: the role and database NAMES are read
+// from its container environment — names only, never the password (INV-003).
+func (h *BackupRun) drillLogin(ctx context.Context, client *sshexec.Client, target backupTarget) (dbLogin, error) {
+	if target.login != nil {
+		return *target.login, nil
+	}
+	res, err := client.Run(ctx, fmt.Sprintf(
+		`docker exec %s sh -c 'printf "%%s\n%%s\n" "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}"'`,
+		target.container))
+	if err != nil {
+		return dbLogin{}, err
+	}
+	if res.ExitCode != 0 {
+		return dbLogin{}, fmt.Errorf("cannot read the component's role and database names: %s", firstLine(res.Stderr))
+	}
+	lines := strings.Split(strings.TrimSpace(res.Stdout), "\n")
+	if len(lines) < 2 || strings.TrimSpace(lines[0]) == "" {
+		return dbLogin{}, fmt.Errorf("the component did not expose its role and database names")
+	}
+	return dbLogin{User: strings.TrimSpace(lines[0]), DB: strings.TrimSpace(lines[1])}, nil
+}
+
 // waitReady polls the disposable instance until it accepts connections.
 func (h *BackupRun) waitReady(ctx context.Context, client *sshexec.Client, container, user string) error {
 	deadline := time.Now().Add(drillBoot)
@@ -223,16 +254,16 @@ func (h *BackupRun) waitReady(ctx context.Context, client *sshexec.Client, conta
 	return fmt.Errorf("the disposable database never became ready within %s", drillBoot)
 }
 
-func (h *BackupRun) publishDrill(ctx context.Context, row store.GetDatabaseByIDRow, plan store.DatabaseBackupPlan, event string, payload map[string]any) {
+func (h *BackupRun) publishDrill(ctx context.Context, target backupTarget, plan store.DatabaseBackupPlan, event string, payload map[string]any) {
 	if h.Audit == nil {
 		return
 	}
 	var teamUUID pgtype.UUID
-	if team, err := h.Store.GetTeamByID(ctx, row.Resource.TeamID); err == nil {
+	if team, err := h.Store.GetTeamByID(ctx, target.teamID); err == nil {
 		teamUUID = team.Uuid
 	}
 	payload["plan_uuid"] = pguuid.String(plan.Uuid)
-	payload["database_uuid"] = pguuid.String(row.Resource.Uuid)
-	h.Audit.Outbox(ctx, h.Store, event, teamUUID, row.Resource.Uuid,
+	payload["database_uuid"] = pguuid.String(target.resourceUUID)
+	h.Audit.Outbox(ctx, h.Store, event, teamUUID, target.resourceUUID,
 		"backup_plan:"+pguuid.String(plan.Uuid), payload)
 }

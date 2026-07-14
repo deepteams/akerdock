@@ -382,7 +382,9 @@ Machine Linux pilotée en SSH (§3), machine à états §21.2. Suppression : **R
 | `cleanup_disk_threshold_pct` | `integer` | oui | — | CHECK `1..100` | non | Seuil d'usage disque déclencheur. |
 | `cleanup_cron` | `text` | oui | — | — | non | Planification cron du cleanup. |
 | `cleanup_prune_volumes` | `boolean` | non | `false` | — | non | Opt-in volumes inutilisés (§3.7). |
-| `cleanup_prune_networks` | `boolean` | non | `false` | — | non | Opt-in réseaux inutilisés (§3.7). |
+| `cleanup_prune_networks` | `boolean` | non | `false` | — | non | Opt-in réseaux **gérés** inutilisés (§3.7, INV-015). |
+| `cleanup_next_run_at` | `timestamptz` | oui | — | — | non | Fenêtre cron du cleanup (§3.7), possédée par le scheduler — mêmes règles que `database_backup_plans.next_run_at`. |
+| `cleanup_last_run_at` | `timestamptz` | oui | — | — | non | Dernier cleanup effectivement exécuté (cron, seuil ou manuel). |
 | `sentinel_enabled` | `boolean` | non | `false` | — | non | Agent de métriques (§3.8, OTLP §27.8). |
 | `sentinel_token_hash` | `text` | oui | — | — | non (hash SHA-256) | Token push de l'agent ; vérifié par hash, jamais restitué. |
 | `sentinel_push_interval_seconds` | `integer` | non | `10` | CHECK `> 0` | non | Fréquence configurable (§3.8). |
@@ -972,7 +974,7 @@ Plan de backup planifié (§7.1–7.2) : cible une base managée, une base inter
 | `id` | `bigint` | non | identity | PK | non | — |
 | `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
 | `database_id` | `bigint` | oui | — | FK `databases(id)` ON DELETE CASCADE ; CHECK exactement une cible : `database_id` ⊕ `service_component_id` ⊕ `is_instance_backup` | non | Base managée. |
-| `service_component_id` | `bigint` | oui | — | FK `service_components(id)` ON DELETE CASCADE | non | Base interne d'un service one-click (§7.1). |
+| `service_component_id` | `bigint` | oui | — | FK `service_components(id)` ON DELETE CASCADE | non | Base interne d'un stack compose (§7.1, compose-spec §10) — PostgreSQL seul en v1, refusé en `422` sinon. |
 | `is_instance_backup` | `boolean` | non | `false` | — | non | Backup de la base PostgreSQL de AkerDock lui-même (§7.1, §7.5). |
 | `enabled` | `boolean` | non | `true` | — | non | — |
 | `cron_expression` | `text` | non | — | CHECK validation cron (§23.3) | non | Expression cron ou alias `daily`/`hourly`/… (§7.1). |

@@ -73,12 +73,14 @@ func (s *Scheduler) scheduleBackupPlan(ctx context.Context, plan store.ListSched
 	}
 
 	job, err := queue.Enqueue(ctx, s.Store, queue.EnqueueOptions{
-		Queue:      "backup",
-		Type:       jobs.TypeBackupExecute,
-		Payload:    jobs.BackupPayload{PlanID: plan.ID},
-		LockKey:    &lockKey,
-		TeamID:     &plan.TeamID,
-		ResourceID: plan.DatabaseID,
+		Queue:   "backup",
+		Type:    jobs.TypeBackupExecute,
+		Payload: jobs.BackupPayload{PlanID: plan.ID},
+		LockKey: &lockKey,
+		TeamID:  &plan.TeamID,
+		// The stack resource for a component plan (compose-spec §10), the
+		// database resource otherwise.
+		ResourceID: &plan.TargetResourceID,
 	})
 	if err != nil {
 		return err

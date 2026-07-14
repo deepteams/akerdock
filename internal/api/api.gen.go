@@ -2163,7 +2163,7 @@ type BackupExecutionAccepted struct {
 	StatusUrl string `json:"status_url"`
 }
 
-// BackupPlan Plan de backup planifié d'une base (§7).
+// BackupPlan Plan de backup planifié (§7) — cible une base managée (`database_uuid`) OU une base interne d'un stack compose (`service_component_uuid`, compose-spec §10) : exactement l'un des deux est renseigné.
 type BackupPlan struct {
 	CreatedAt          *time.Time `json:"created_at,omitempty"`
 	DatabaseUuid       *string    `json:"database_uuid,omitempty"`
@@ -2188,15 +2188,18 @@ type BackupPlan struct {
 	S3Only    *bool      `json:"s3_only,omitempty"`
 
 	// S3Retention Règles de rétention cumulatives (§7.2) — 0 = illimité.
-	S3Retention    *RetentionPolicy `json:"s3_retention,omitempty"`
-	S3StorageUuid  *string          `json:"s3_storage_uuid,omitempty"`
-	SaveLocal      *bool            `json:"save_local,omitempty"`
-	SaveS3         *bool            `json:"save_s3,omitempty"`
-	TimeoutSeconds *int             `json:"timeout_seconds,omitempty"`
-	Timezone       *string          `json:"timezone,omitempty"`
-	UpdatedAt      *time.Time       `json:"updated_at,omitempty"`
-	Uuid           *string          `json:"uuid,omitempty"`
-	Version        *int             `json:"version,omitempty"`
+	S3Retention   *RetentionPolicy `json:"s3_retention,omitempty"`
+	S3StorageUuid *string          `json:"s3_storage_uuid,omitempty"`
+	SaveLocal     *bool            `json:"save_local,omitempty"`
+	SaveS3        *bool            `json:"save_s3,omitempty"`
+
+	// ServiceComponentUuid Composant de stack ciblé (compose-spec §10).
+	ServiceComponentUuid *string    `json:"service_component_uuid,omitempty"`
+	TimeoutSeconds       *int       `json:"timeout_seconds,omitempty"`
+	Timezone             *string    `json:"timezone,omitempty"`
+	UpdatedAt            *time.Time `json:"updated_at,omitempty"`
+	Uuid                 *string    `json:"uuid,omitempty"`
+	Version              *int       `json:"version,omitempty"`
 }
 
 // BackupPlanLastDrillStatus defines model for BackupPlan.LastDrillStatus.
@@ -3332,9 +3335,19 @@ type ScheduledTaskUpdate struct {
 // Server Serveur cible SSH (§3) — états du cycle de vie §21.2.
 type Server struct {
 	// Architecture Architecture détectée à la validation.
-	Architecture *ServerArchitecture `json:"architecture,omitempty"`
-	CreatedAt    *time.Time          `json:"created_at,omitempty"`
-	Description  *string             `json:"description,omitempty"`
+	Architecture            *ServerArchitecture `json:"architecture,omitempty"`
+	CleanupCron             *string             `json:"cleanup_cron,omitempty"`
+	CleanupDiskThresholdPct *int                `json:"cleanup_disk_threshold_pct,omitempty"`
+
+	// CleanupEnabled Nettoyage disque automatisé (§3.7) — opt-in.
+	CleanupEnabled *bool `json:"cleanup_enabled,omitempty"`
+
+	// CleanupLastRunAt Dernier nettoyage déclenché (cron, seuil ou manuel).
+	CleanupLastRunAt     *time.Time `json:"cleanup_last_run_at,omitempty"`
+	CleanupPruneNetworks *bool      `json:"cleanup_prune_networks,omitempty"`
+	CleanupPruneVolumes  *bool      `json:"cleanup_prune_volumes,omitempty"`
+	CreatedAt            *time.Time `json:"created_at,omitempty"`
+	Description          *string    `json:"description,omitempty"`
 
 	// DnsCredentialUuid Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). **Requis** dès qu'un `wildcard_domain` est défini : un wildcard ne peut pas être émis en HTTP-01, la CA n'ayant aucun hôte unique à interroger.
 	DnsCredentialUuid *string `json:"dns_credential_uuid,omitempty"`
@@ -3455,7 +3468,21 @@ type ServerResourceType string
 
 // ServerUpdate Mise à jour partielle. Modifier `host`, `port`, `user` ou `private_key_uuid` repasse le serveur en `pending` (revalidation requise).
 type ServerUpdate struct {
-	Description *string `json:"description,omitempty"`
+	// CleanupCron Planification cron du nettoyage (§3.7) ; NULL = pas de cron.
+	CleanupCron *string `json:"cleanup_cron,omitempty"`
+
+	// CleanupDiskThresholdPct Seuil d'usage disque (%) qui déclenche un nettoyage entre deux crons (§3.7) ; NULL = pas de déclenchement par seuil.
+	CleanupDiskThresholdPct *int `json:"cleanup_disk_threshold_pct,omitempty"`
+
+	// CleanupEnabled Nettoyage disque automatisé (§3.7) — opt-in. Ne cible que les objets gérés et sûrs (cache de build, images dangling, candidats morts, `/data/akerdock/tmp`) ; jamais un objet non géré ou persistant (INV-015), jamais pendant un déploiement.
+	CleanupEnabled *bool `json:"cleanup_enabled,omitempty"`
+
+	// CleanupPruneNetworks Opt-in — purge des réseaux **gérés** inutilisés (label `akerdock.managed`) ; jamais un réseau non géré (INV-015).
+	CleanupPruneNetworks *bool `json:"cleanup_prune_networks,omitempty"`
+
+	// CleanupPruneVolumes Opt-in destructeur — purge des volumes **anonymes** inutilisés uniquement : un volume nommé (données, volumes adoptés §20.7) n'est JAMAIS purgé (INV-015).
+	CleanupPruneVolumes *bool   `json:"cleanup_prune_volumes,omitempty"`
+	Description         *string `json:"description,omitempty"`
 
 	// DnsCredentialUuid Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). **Requis** dès qu'un `wildcard_domain` est défini : un wildcard ne peut pas être émis en HTTP-01, la CA n'ayant aucun hôte unique à interroger.
 	DnsCredentialUuid *string                `json:"dns_credential_uuid,omitempty"`
@@ -3797,6 +3824,9 @@ type S3StorageUuid = string
 
 // ServerUuid defines model for ServerUuid.
 type ServerUuid = string
+
+// ServiceComponentUuid defines model for ServiceComponentUuid.
+type ServiceComponentUuid = string
 
 // ServiceUuid defines model for ServiceUuid.
 type ServiceUuid = string
@@ -4374,6 +4404,12 @@ type ListServerCertificatesParams struct {
 	Status *CertificateStatus `form:"status,omitempty" json:"status,omitempty"`
 }
 
+// RunServerCleanupParams defines parameters for RunServerCleanup.
+type RunServerCleanupParams struct {
+	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // GetProxyLogsParams defines parameters for GetProxyLogs.
 type GetProxyLogsParams struct {
 	// Lines Nombre de lignes de queue (défaut 200, max 2000).
@@ -4391,6 +4427,63 @@ type ListServerResourcesParams struct {
 
 // ValidateServerParams defines parameters for ValidateServer.
 type ValidateServerParams struct {
+	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ListComponentBackupPlansParams defines parameters for ListComponentBackupPlans.
+type ListComponentBackupPlansParams struct {
+	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Nombre maximal d'éléments par page (1 à 100).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// CreateComponentBackupPlanParams defines parameters for CreateComponentBackupPlan.
+type CreateComponentBackupPlanParams struct {
+	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// UpdateComponentBackupPlanParams defines parameters for UpdateComponentBackupPlan.
+type UpdateComponentBackupPlanParams struct {
+	// IfMatch Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`.
+	IfMatch IfMatch `json:"If-Match"`
+}
+
+// RunComponentRestoreDrillParams defines parameters for RunComponentRestoreDrill.
+type RunComponentRestoreDrillParams struct {
+	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ListComponentRestoreDrillsParams defines parameters for ListComponentRestoreDrills.
+type ListComponentRestoreDrillsParams struct {
+	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Nombre maximal d'éléments par page (1 à 100).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ExecuteComponentBackupPlanParams defines parameters for ExecuteComponentBackupPlan.
+type ExecuteComponentBackupPlanParams struct {
+	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ListComponentBackupExecutionsParams defines parameters for ListComponentBackupExecutions.
+type ListComponentBackupExecutionsParams struct {
+	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Nombre maximal d'éléments par page (1 à 100).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// RestoreComponentBackupExecutionParams defines parameters for RestoreComponentBackupExecution.
+type RestoreComponentBackupExecutionParams struct {
 	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
@@ -4609,6 +4702,15 @@ type CreateServerJSONRequestBody = ServerCreate
 
 // UpdateServerJSONRequestBody defines body for UpdateServer for application/json ContentType.
 type UpdateServerJSONRequestBody = ServerUpdate
+
+// CreateComponentBackupPlanJSONRequestBody defines body for CreateComponentBackupPlan for application/json ContentType.
+type CreateComponentBackupPlanJSONRequestBody = BackupPlanCreate
+
+// UpdateComponentBackupPlanJSONRequestBody defines body for UpdateComponentBackupPlan for application/json ContentType.
+type UpdateComponentBackupPlanJSONRequestBody = BackupPlanUpdate
+
+// RestoreComponentBackupExecutionJSONRequestBody defines body for RestoreComponentBackupExecution for application/json ContentType.
+type RestoreComponentBackupExecutionJSONRequestBody = RestoreRequest
 
 // CreateServiceJSONRequestBody defines body for CreateService for application/json ContentType.
 type CreateServiceJSONRequestBody = ServiceCreateRequest
@@ -5112,6 +5214,9 @@ type ServerInterface interface {
 	// Lister les certificats d'un serveur
 	// (GET /servers/{server_uuid}/certificates)
 	ListServerCertificates(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ListServerCertificatesParams)
+	// Lancer un nettoyage disque immédiat
+	// (POST /servers/{server_uuid}/cleanup)
+	RunServerCleanup(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params RunServerCleanupParams)
 	// Lister les domaines servis par un serveur
 	// (GET /servers/{server_uuid}/domains)
 	ListServerDomains(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid)
@@ -5130,6 +5235,36 @@ type ServerInterface interface {
 	// Valider un serveur et installer les prérequis
 	// (POST /servers/{server_uuid}/validate)
 	ValidateServer(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ValidateServerParams)
+	// Lister les plans de backup d'un composant de stack
+	// (GET /service-components/{service_component_uuid}/backups)
+	ListComponentBackupPlans(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, params ListComponentBackupPlansParams)
+	// Créer un plan de backup sur une base interne d'un stack
+	// (POST /service-components/{service_component_uuid}/backups)
+	CreateComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, params CreateComponentBackupPlanParams)
+	// Supprimer un plan de backup de composant
+	// (DELETE /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
+	DeleteComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid)
+	// Détail d'un plan de backup de composant
+	// (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
+	GetComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid)
+	// Modifier un plan de backup de composant
+	// (PATCH /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
+	UpdateComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params UpdateComponentBackupPlanParams)
+	// Lancer immédiatement un restore drill sur une base interne
+	// (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drill)
+	RunComponentRestoreDrill(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params RunComponentRestoreDrillParams)
+	// Historique des restore drills d'un plan de composant
+	// (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drills)
+	ListComponentRestoreDrills(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params ListComponentRestoreDrillsParams)
+	// Lancer un backup immédiat d'une base interne
+	// (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/execute)
+	ExecuteComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params ExecuteComponentBackupPlanParams)
+	// Lister les exécutions d'un plan de backup de composant
+	// (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions)
+	ListComponentBackupExecutions(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params ListComponentBackupExecutionsParams)
+	// Restaurer une base interne depuis une exécution de backup
+	// (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore)
+	RestoreComponentBackupExecution(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, executionUuid ExecutionUuid, params RestoreComponentBackupExecutionParams)
 	// Lister les stacks compose
 	// (GET /services)
 	ListServices(w http.ResponseWriter, r *http.Request, params ListServicesParams)
@@ -5952,6 +6087,12 @@ func (_ Unimplemented) ListServerCertificates(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Lancer un nettoyage disque immédiat
+// (POST /servers/{server_uuid}/cleanup)
+func (_ Unimplemented) RunServerCleanup(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params RunServerCleanupParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Lister les domaines servis par un serveur
 // (GET /servers/{server_uuid}/domains)
 func (_ Unimplemented) ListServerDomains(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
@@ -5985,6 +6126,66 @@ func (_ Unimplemented) CreateServerTerminalSession(w http.ResponseWriter, r *htt
 // Valider un serveur et installer les prérequis
 // (POST /servers/{server_uuid}/validate)
 func (_ Unimplemented) ValidateServer(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ValidateServerParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Lister les plans de backup d'un composant de stack
+// (GET /service-components/{service_component_uuid}/backups)
+func (_ Unimplemented) ListComponentBackupPlans(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, params ListComponentBackupPlansParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Créer un plan de backup sur une base interne d'un stack
+// (POST /service-components/{service_component_uuid}/backups)
+func (_ Unimplemented) CreateComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, params CreateComponentBackupPlanParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Supprimer un plan de backup de composant
+// (DELETE /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
+func (_ Unimplemented) DeleteComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Détail d'un plan de backup de composant
+// (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
+func (_ Unimplemented) GetComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Modifier un plan de backup de composant
+// (PATCH /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
+func (_ Unimplemented) UpdateComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params UpdateComponentBackupPlanParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Lancer immédiatement un restore drill sur une base interne
+// (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drill)
+func (_ Unimplemented) RunComponentRestoreDrill(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params RunComponentRestoreDrillParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Historique des restore drills d'un plan de composant
+// (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drills)
+func (_ Unimplemented) ListComponentRestoreDrills(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params ListComponentRestoreDrillsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Lancer un backup immédiat d'une base interne
+// (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/execute)
+func (_ Unimplemented) ExecuteComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params ExecuteComponentBackupPlanParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Lister les exécutions d'un plan de backup de composant
+// (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions)
+func (_ Unimplemented) ListComponentBackupExecutions(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params ListComponentBackupExecutionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Restaurer une base interne depuis une exécution de backup
+// (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore)
+func (_ Unimplemented) RestoreComponentBackupExecution(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, executionUuid ExecutionUuid, params RestoreComponentBackupExecutionParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -11821,6 +12022,62 @@ func (siw *ServerInterfaceWrapper) ListServerCertificates(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
+// RunServerCleanup operation middleware
+func (siw *ServerInterfaceWrapper) RunServerCleanup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "server_uuid" -------------
+	var serverUuid ServerUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "server_uuid", chi.URLParam(r, "server_uuid"), &serverUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "server_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RunServerCleanupParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RunServerCleanup(w, r, serverUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListServerDomains operation middleware
 func (siw *ServerInterfaceWrapper) ListServerDomains(w http.ResponseWriter, r *http.Request) {
 
@@ -12082,6 +12339,618 @@ func (siw *ServerInterfaceWrapper) ValidateServer(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ValidateServer(w, r, serverUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListComponentBackupPlans operation middleware
+func (siw *ServerInterfaceWrapper) ListComponentBackupPlans(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "service_component_uuid" -------------
+	var serviceComponentUuid ServiceComponentUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "service_component_uuid", chi.URLParam(r, "service_component_uuid"), &serviceComponentUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service_component_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListComponentBackupPlansParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListComponentBackupPlans(w, r, serviceComponentUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateComponentBackupPlan operation middleware
+func (siw *ServerInterfaceWrapper) CreateComponentBackupPlan(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "service_component_uuid" -------------
+	var serviceComponentUuid ServiceComponentUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "service_component_uuid", chi.URLParam(r, "service_component_uuid"), &serviceComponentUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service_component_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateComponentBackupPlanParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateComponentBackupPlan(w, r, serviceComponentUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteComponentBackupPlan operation middleware
+func (siw *ServerInterfaceWrapper) DeleteComponentBackupPlan(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "service_component_uuid" -------------
+	var serviceComponentUuid ServiceComponentUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "service_component_uuid", chi.URLParam(r, "service_component_uuid"), &serviceComponentUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service_component_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "backup_plan_uuid" -------------
+	var backupPlanUuid BackupPlanUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "backup_plan_uuid", chi.URLParam(r, "backup_plan_uuid"), &backupPlanUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "backup_plan_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteComponentBackupPlan(w, r, serviceComponentUuid, backupPlanUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetComponentBackupPlan operation middleware
+func (siw *ServerInterfaceWrapper) GetComponentBackupPlan(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "service_component_uuid" -------------
+	var serviceComponentUuid ServiceComponentUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "service_component_uuid", chi.URLParam(r, "service_component_uuid"), &serviceComponentUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service_component_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "backup_plan_uuid" -------------
+	var backupPlanUuid BackupPlanUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "backup_plan_uuid", chi.URLParam(r, "backup_plan_uuid"), &backupPlanUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "backup_plan_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetComponentBackupPlan(w, r, serviceComponentUuid, backupPlanUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateComponentBackupPlan operation middleware
+func (siw *ServerInterfaceWrapper) UpdateComponentBackupPlan(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "service_component_uuid" -------------
+	var serviceComponentUuid ServiceComponentUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "service_component_uuid", chi.URLParam(r, "service_component_uuid"), &serviceComponentUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service_component_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "backup_plan_uuid" -------------
+	var backupPlanUuid BackupPlanUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "backup_plan_uuid", chi.URLParam(r, "backup_plan_uuid"), &backupPlanUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "backup_plan_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateComponentBackupPlanParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = IfMatch
+
+	} else {
+		err := fmt.Errorf("Header parameter If-Match is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "If-Match", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateComponentBackupPlan(w, r, serviceComponentUuid, backupPlanUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RunComponentRestoreDrill operation middleware
+func (siw *ServerInterfaceWrapper) RunComponentRestoreDrill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "service_component_uuid" -------------
+	var serviceComponentUuid ServiceComponentUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "service_component_uuid", chi.URLParam(r, "service_component_uuid"), &serviceComponentUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service_component_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "backup_plan_uuid" -------------
+	var backupPlanUuid BackupPlanUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "backup_plan_uuid", chi.URLParam(r, "backup_plan_uuid"), &backupPlanUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "backup_plan_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RunComponentRestoreDrillParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RunComponentRestoreDrill(w, r, serviceComponentUuid, backupPlanUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListComponentRestoreDrills operation middleware
+func (siw *ServerInterfaceWrapper) ListComponentRestoreDrills(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "service_component_uuid" -------------
+	var serviceComponentUuid ServiceComponentUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "service_component_uuid", chi.URLParam(r, "service_component_uuid"), &serviceComponentUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service_component_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "backup_plan_uuid" -------------
+	var backupPlanUuid BackupPlanUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "backup_plan_uuid", chi.URLParam(r, "backup_plan_uuid"), &backupPlanUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "backup_plan_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListComponentRestoreDrillsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListComponentRestoreDrills(w, r, serviceComponentUuid, backupPlanUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ExecuteComponentBackupPlan operation middleware
+func (siw *ServerInterfaceWrapper) ExecuteComponentBackupPlan(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "service_component_uuid" -------------
+	var serviceComponentUuid ServiceComponentUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "service_component_uuid", chi.URLParam(r, "service_component_uuid"), &serviceComponentUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service_component_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "backup_plan_uuid" -------------
+	var backupPlanUuid BackupPlanUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "backup_plan_uuid", chi.URLParam(r, "backup_plan_uuid"), &backupPlanUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "backup_plan_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ExecuteComponentBackupPlanParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExecuteComponentBackupPlan(w, r, serviceComponentUuid, backupPlanUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListComponentBackupExecutions operation middleware
+func (siw *ServerInterfaceWrapper) ListComponentBackupExecutions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "service_component_uuid" -------------
+	var serviceComponentUuid ServiceComponentUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "service_component_uuid", chi.URLParam(r, "service_component_uuid"), &serviceComponentUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service_component_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "backup_plan_uuid" -------------
+	var backupPlanUuid BackupPlanUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "backup_plan_uuid", chi.URLParam(r, "backup_plan_uuid"), &backupPlanUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "backup_plan_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListComponentBackupExecutionsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListComponentBackupExecutions(w, r, serviceComponentUuid, backupPlanUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestoreComponentBackupExecution operation middleware
+func (siw *ServerInterfaceWrapper) RestoreComponentBackupExecution(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "service_component_uuid" -------------
+	var serviceComponentUuid ServiceComponentUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "service_component_uuid", chi.URLParam(r, "service_component_uuid"), &serviceComponentUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service_component_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "backup_plan_uuid" -------------
+	var backupPlanUuid BackupPlanUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "backup_plan_uuid", chi.URLParam(r, "backup_plan_uuid"), &backupPlanUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "backup_plan_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "execution_uuid" -------------
+	var executionUuid ExecutionUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "execution_uuid", chi.URLParam(r, "execution_uuid"), &executionUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "execution_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RestoreComponentBackupExecutionParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestoreComponentBackupExecution(w, r, serviceComponentUuid, backupPlanUuid, executionUuid, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -13908,6 +14777,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/servers/{server_uuid}/certificates", wrapper.ListServerCertificates)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/servers/{server_uuid}/cleanup", wrapper.RunServerCleanup)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/servers/{server_uuid}/domains", wrapper.ListServerDomains)
 	})
 	r.Group(func(r chi.Router) {
@@ -13924,6 +14796,36 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/servers/{server_uuid}/validate", wrapper.ValidateServer)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/service-components/{service_component_uuid}/backups", wrapper.ListComponentBackupPlans)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/service-components/{service_component_uuid}/backups", wrapper.CreateComponentBackupPlan)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/service-components/{service_component_uuid}/backups/{backup_plan_uuid}", wrapper.DeleteComponentBackupPlan)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/service-components/{service_component_uuid}/backups/{backup_plan_uuid}", wrapper.GetComponentBackupPlan)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/service-components/{service_component_uuid}/backups/{backup_plan_uuid}", wrapper.UpdateComponentBackupPlan)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drill", wrapper.RunComponentRestoreDrill)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drills", wrapper.ListComponentRestoreDrills)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/service-components/{service_component_uuid}/backups/{backup_plan_uuid}/execute", wrapper.ExecuteComponentBackupPlan)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions", wrapper.ListComponentBackupExecutions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore", wrapper.RestoreComponentBackupExecution)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/services", wrapper.ListServices)
@@ -25722,6 +26624,102 @@ func (response ListServerCertificates429JSONResponse) VisitListServerCertificate
 	return err
 }
 
+type RunServerCleanupRequestObject struct {
+	ServerUuid ServerUuid `json:"server_uuid"`
+	Params     RunServerCleanupParams
+}
+
+type RunServerCleanupResponseObject interface {
+	VisitRunServerCleanupResponse(w http.ResponseWriter) error
+}
+
+type RunServerCleanup202JSONResponse JobAccepted
+
+func (response RunServerCleanup202JSONResponse) VisitRunServerCleanupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunServerCleanup401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RunServerCleanup401JSONResponse) VisitRunServerCleanupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunServerCleanup403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RunServerCleanup403JSONResponse) VisitRunServerCleanupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunServerCleanup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RunServerCleanup404JSONResponse) VisitRunServerCleanupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunServerCleanup409JSONResponse struct{ ConflictJSONResponse }
+
+func (response RunServerCleanup409JSONResponse) VisitRunServerCleanupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunServerCleanup429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response RunServerCleanup429JSONResponse) VisitRunServerCleanupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListServerDomainsRequestObject struct {
 	ServerUuid ServerUuid `json:"server_uuid"`
 }
@@ -26263,6 +27261,1049 @@ func (response ValidateServer409JSONResponse) VisitValidateServerResponse(w http
 type ValidateServer429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response ValidateServer429JSONResponse) VisitValidateServerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListComponentBackupPlansRequestObject struct {
+	ServiceComponentUuid ServiceComponentUuid `json:"service_component_uuid"`
+	Params               ListComponentBackupPlansParams
+}
+
+type ListComponentBackupPlansResponseObject interface {
+	VisitListComponentBackupPlansResponse(w http.ResponseWriter) error
+}
+
+type ListComponentBackupPlans200JSONResponse struct {
+	Data []BackupPlan `json:"data"`
+
+	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListComponentBackupPlans200JSONResponse) VisitListComponentBackupPlansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListComponentBackupPlans401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListComponentBackupPlans401JSONResponse) VisitListComponentBackupPlansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListComponentBackupPlans403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListComponentBackupPlans403JSONResponse) VisitListComponentBackupPlansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListComponentBackupPlans404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListComponentBackupPlans404JSONResponse) VisitListComponentBackupPlansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListComponentBackupPlans429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListComponentBackupPlans429JSONResponse) VisitListComponentBackupPlansResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateComponentBackupPlanRequestObject struct {
+	ServiceComponentUuid ServiceComponentUuid `json:"service_component_uuid"`
+	Params               CreateComponentBackupPlanParams
+	Body                 *CreateComponentBackupPlanJSONRequestBody
+}
+
+type CreateComponentBackupPlanResponseObject interface {
+	VisitCreateComponentBackupPlanResponse(w http.ResponseWriter) error
+}
+
+type CreateComponentBackupPlan201ResponseHeaders struct {
+	ETag *string
+}
+
+type CreateComponentBackupPlan201JSONResponse struct {
+	Body    BackupPlan
+	Headers CreateComponentBackupPlan201ResponseHeaders
+}
+
+func (response CreateComponentBackupPlan201JSONResponse) VisitCreateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateComponentBackupPlan400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateComponentBackupPlan400JSONResponse) VisitCreateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateComponentBackupPlan401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateComponentBackupPlan401JSONResponse) VisitCreateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateComponentBackupPlan403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateComponentBackupPlan403JSONResponse) VisitCreateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateComponentBackupPlan404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateComponentBackupPlan404JSONResponse) VisitCreateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateComponentBackupPlan409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateComponentBackupPlan409JSONResponse) VisitCreateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateComponentBackupPlan422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response CreateComponentBackupPlan422JSONResponse) VisitCreateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateComponentBackupPlan429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateComponentBackupPlan429JSONResponse) VisitCreateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteComponentBackupPlanRequestObject struct {
+	ServiceComponentUuid ServiceComponentUuid `json:"service_component_uuid"`
+	BackupPlanUuid       BackupPlanUuid       `json:"backup_plan_uuid"`
+}
+
+type DeleteComponentBackupPlanResponseObject interface {
+	VisitDeleteComponentBackupPlanResponse(w http.ResponseWriter) error
+}
+
+type DeleteComponentBackupPlan204Response struct {
+}
+
+func (response DeleteComponentBackupPlan204Response) VisitDeleteComponentBackupPlanResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteComponentBackupPlan401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteComponentBackupPlan401JSONResponse) VisitDeleteComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteComponentBackupPlan403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteComponentBackupPlan403JSONResponse) VisitDeleteComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteComponentBackupPlan404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteComponentBackupPlan404JSONResponse) VisitDeleteComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteComponentBackupPlan409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DeleteComponentBackupPlan409JSONResponse) VisitDeleteComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteComponentBackupPlan429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response DeleteComponentBackupPlan429JSONResponse) VisitDeleteComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetComponentBackupPlanRequestObject struct {
+	ServiceComponentUuid ServiceComponentUuid `json:"service_component_uuid"`
+	BackupPlanUuid       BackupPlanUuid       `json:"backup_plan_uuid"`
+}
+
+type GetComponentBackupPlanResponseObject interface {
+	VisitGetComponentBackupPlanResponse(w http.ResponseWriter) error
+}
+
+type GetComponentBackupPlan200ResponseHeaders struct {
+	ETag *string
+}
+
+type GetComponentBackupPlan200JSONResponse struct {
+	Body    BackupPlan
+	Headers GetComponentBackupPlan200ResponseHeaders
+}
+
+func (response GetComponentBackupPlan200JSONResponse) VisitGetComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetComponentBackupPlan401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetComponentBackupPlan401JSONResponse) VisitGetComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetComponentBackupPlan403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetComponentBackupPlan403JSONResponse) VisitGetComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetComponentBackupPlan404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetComponentBackupPlan404JSONResponse) VisitGetComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetComponentBackupPlan429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetComponentBackupPlan429JSONResponse) VisitGetComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateComponentBackupPlanRequestObject struct {
+	ServiceComponentUuid ServiceComponentUuid `json:"service_component_uuid"`
+	BackupPlanUuid       BackupPlanUuid       `json:"backup_plan_uuid"`
+	Params               UpdateComponentBackupPlanParams
+	Body                 *UpdateComponentBackupPlanJSONRequestBody
+}
+
+type UpdateComponentBackupPlanResponseObject interface {
+	VisitUpdateComponentBackupPlanResponse(w http.ResponseWriter) error
+}
+
+type UpdateComponentBackupPlan200ResponseHeaders struct {
+	ETag *string
+}
+
+type UpdateComponentBackupPlan200JSONResponse struct {
+	Body    BackupPlan
+	Headers UpdateComponentBackupPlan200ResponseHeaders
+}
+
+func (response UpdateComponentBackupPlan200JSONResponse) VisitUpdateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateComponentBackupPlan400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateComponentBackupPlan400JSONResponse) VisitUpdateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateComponentBackupPlan401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateComponentBackupPlan401JSONResponse) VisitUpdateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateComponentBackupPlan403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateComponentBackupPlan403JSONResponse) VisitUpdateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateComponentBackupPlan404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateComponentBackupPlan404JSONResponse) VisitUpdateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateComponentBackupPlan409JSONResponse struct{ VersionConflictJSONResponse }
+
+func (response UpdateComponentBackupPlan409JSONResponse) VisitUpdateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateComponentBackupPlan422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response UpdateComponentBackupPlan422JSONResponse) VisitUpdateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateComponentBackupPlan429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response UpdateComponentBackupPlan429JSONResponse) VisitUpdateComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunComponentRestoreDrillRequestObject struct {
+	ServiceComponentUuid ServiceComponentUuid `json:"service_component_uuid"`
+	BackupPlanUuid       BackupPlanUuid       `json:"backup_plan_uuid"`
+	Params               RunComponentRestoreDrillParams
+}
+
+type RunComponentRestoreDrillResponseObject interface {
+	VisitRunComponentRestoreDrillResponse(w http.ResponseWriter) error
+}
+
+type RunComponentRestoreDrill202JSONResponse JobAccepted
+
+func (response RunComponentRestoreDrill202JSONResponse) VisitRunComponentRestoreDrillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunComponentRestoreDrill401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RunComponentRestoreDrill401JSONResponse) VisitRunComponentRestoreDrillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunComponentRestoreDrill403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RunComponentRestoreDrill403JSONResponse) VisitRunComponentRestoreDrillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunComponentRestoreDrill404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RunComponentRestoreDrill404JSONResponse) VisitRunComponentRestoreDrillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunComponentRestoreDrill409JSONResponse struct{ ConflictJSONResponse }
+
+func (response RunComponentRestoreDrill409JSONResponse) VisitRunComponentRestoreDrillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunComponentRestoreDrill429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response RunComponentRestoreDrill429JSONResponse) VisitRunComponentRestoreDrillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListComponentRestoreDrillsRequestObject struct {
+	ServiceComponentUuid ServiceComponentUuid `json:"service_component_uuid"`
+	BackupPlanUuid       BackupPlanUuid       `json:"backup_plan_uuid"`
+	Params               ListComponentRestoreDrillsParams
+}
+
+type ListComponentRestoreDrillsResponseObject interface {
+	VisitListComponentRestoreDrillsResponse(w http.ResponseWriter) error
+}
+
+type ListComponentRestoreDrills200JSONResponse struct {
+	Data []RestoreDrill `json:"data"`
+
+	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListComponentRestoreDrills200JSONResponse) VisitListComponentRestoreDrillsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListComponentRestoreDrills401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListComponentRestoreDrills401JSONResponse) VisitListComponentRestoreDrillsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListComponentRestoreDrills403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListComponentRestoreDrills403JSONResponse) VisitListComponentRestoreDrillsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListComponentRestoreDrills404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListComponentRestoreDrills404JSONResponse) VisitListComponentRestoreDrillsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListComponentRestoreDrills429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListComponentRestoreDrills429JSONResponse) VisitListComponentRestoreDrillsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExecuteComponentBackupPlanRequestObject struct {
+	ServiceComponentUuid ServiceComponentUuid `json:"service_component_uuid"`
+	BackupPlanUuid       BackupPlanUuid       `json:"backup_plan_uuid"`
+	Params               ExecuteComponentBackupPlanParams
+}
+
+type ExecuteComponentBackupPlanResponseObject interface {
+	VisitExecuteComponentBackupPlanResponse(w http.ResponseWriter) error
+}
+
+type ExecuteComponentBackupPlan202JSONResponse BackupExecutionAccepted
+
+func (response ExecuteComponentBackupPlan202JSONResponse) VisitExecuteComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExecuteComponentBackupPlan401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ExecuteComponentBackupPlan401JSONResponse) VisitExecuteComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExecuteComponentBackupPlan403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ExecuteComponentBackupPlan403JSONResponse) VisitExecuteComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExecuteComponentBackupPlan404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ExecuteComponentBackupPlan404JSONResponse) VisitExecuteComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExecuteComponentBackupPlan409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ExecuteComponentBackupPlan409JSONResponse) VisitExecuteComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExecuteComponentBackupPlan429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ExecuteComponentBackupPlan429JSONResponse) VisitExecuteComponentBackupPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListComponentBackupExecutionsRequestObject struct {
+	ServiceComponentUuid ServiceComponentUuid `json:"service_component_uuid"`
+	BackupPlanUuid       BackupPlanUuid       `json:"backup_plan_uuid"`
+	Params               ListComponentBackupExecutionsParams
+}
+
+type ListComponentBackupExecutionsResponseObject interface {
+	VisitListComponentBackupExecutionsResponse(w http.ResponseWriter) error
+}
+
+type ListComponentBackupExecutions200JSONResponse struct {
+	Data []BackupExecution `json:"data"`
+
+	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListComponentBackupExecutions200JSONResponse) VisitListComponentBackupExecutionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListComponentBackupExecutions401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListComponentBackupExecutions401JSONResponse) VisitListComponentBackupExecutionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListComponentBackupExecutions403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListComponentBackupExecutions403JSONResponse) VisitListComponentBackupExecutionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListComponentBackupExecutions404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListComponentBackupExecutions404JSONResponse) VisitListComponentBackupExecutionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListComponentBackupExecutions429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListComponentBackupExecutions429JSONResponse) VisitListComponentBackupExecutionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreComponentBackupExecutionRequestObject struct {
+	ServiceComponentUuid ServiceComponentUuid `json:"service_component_uuid"`
+	BackupPlanUuid       BackupPlanUuid       `json:"backup_plan_uuid"`
+	ExecutionUuid        ExecutionUuid        `json:"execution_uuid"`
+	Params               RestoreComponentBackupExecutionParams
+	Body                 *RestoreComponentBackupExecutionJSONRequestBody
+}
+
+type RestoreComponentBackupExecutionResponseObject interface {
+	VisitRestoreComponentBackupExecutionResponse(w http.ResponseWriter) error
+}
+
+type RestoreComponentBackupExecution202JSONResponse JobAccepted
+
+func (response RestoreComponentBackupExecution202JSONResponse) VisitRestoreComponentBackupExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreComponentBackupExecution400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RestoreComponentBackupExecution400JSONResponse) VisitRestoreComponentBackupExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreComponentBackupExecution401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RestoreComponentBackupExecution401JSONResponse) VisitRestoreComponentBackupExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreComponentBackupExecution403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RestoreComponentBackupExecution403JSONResponse) VisitRestoreComponentBackupExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreComponentBackupExecution404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RestoreComponentBackupExecution404JSONResponse) VisitRestoreComponentBackupExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreComponentBackupExecution409JSONResponse struct{ ConflictJSONResponse }
+
+func (response RestoreComponentBackupExecution409JSONResponse) VisitRestoreComponentBackupExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreComponentBackupExecution422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response RestoreComponentBackupExecution422JSONResponse) VisitRestoreComponentBackupExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreComponentBackupExecution429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response RestoreComponentBackupExecution429JSONResponse) VisitRestoreComponentBackupExecutionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -29476,6 +31517,9 @@ type StrictServerInterface interface {
 	// Lister les certificats d'un serveur
 	// (GET /servers/{server_uuid}/certificates)
 	ListServerCertificates(ctx context.Context, request ListServerCertificatesRequestObject) (ListServerCertificatesResponseObject, error)
+	// Lancer un nettoyage disque immédiat
+	// (POST /servers/{server_uuid}/cleanup)
+	RunServerCleanup(ctx context.Context, request RunServerCleanupRequestObject) (RunServerCleanupResponseObject, error)
 	// Lister les domaines servis par un serveur
 	// (GET /servers/{server_uuid}/domains)
 	ListServerDomains(ctx context.Context, request ListServerDomainsRequestObject) (ListServerDomainsResponseObject, error)
@@ -29494,6 +31538,36 @@ type StrictServerInterface interface {
 	// Valider un serveur et installer les prérequis
 	// (POST /servers/{server_uuid}/validate)
 	ValidateServer(ctx context.Context, request ValidateServerRequestObject) (ValidateServerResponseObject, error)
+	// Lister les plans de backup d'un composant de stack
+	// (GET /service-components/{service_component_uuid}/backups)
+	ListComponentBackupPlans(ctx context.Context, request ListComponentBackupPlansRequestObject) (ListComponentBackupPlansResponseObject, error)
+	// Créer un plan de backup sur une base interne d'un stack
+	// (POST /service-components/{service_component_uuid}/backups)
+	CreateComponentBackupPlan(ctx context.Context, request CreateComponentBackupPlanRequestObject) (CreateComponentBackupPlanResponseObject, error)
+	// Supprimer un plan de backup de composant
+	// (DELETE /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
+	DeleteComponentBackupPlan(ctx context.Context, request DeleteComponentBackupPlanRequestObject) (DeleteComponentBackupPlanResponseObject, error)
+	// Détail d'un plan de backup de composant
+	// (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
+	GetComponentBackupPlan(ctx context.Context, request GetComponentBackupPlanRequestObject) (GetComponentBackupPlanResponseObject, error)
+	// Modifier un plan de backup de composant
+	// (PATCH /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
+	UpdateComponentBackupPlan(ctx context.Context, request UpdateComponentBackupPlanRequestObject) (UpdateComponentBackupPlanResponseObject, error)
+	// Lancer immédiatement un restore drill sur une base interne
+	// (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drill)
+	RunComponentRestoreDrill(ctx context.Context, request RunComponentRestoreDrillRequestObject) (RunComponentRestoreDrillResponseObject, error)
+	// Historique des restore drills d'un plan de composant
+	// (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drills)
+	ListComponentRestoreDrills(ctx context.Context, request ListComponentRestoreDrillsRequestObject) (ListComponentRestoreDrillsResponseObject, error)
+	// Lancer un backup immédiat d'une base interne
+	// (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/execute)
+	ExecuteComponentBackupPlan(ctx context.Context, request ExecuteComponentBackupPlanRequestObject) (ExecuteComponentBackupPlanResponseObject, error)
+	// Lister les exécutions d'un plan de backup de composant
+	// (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions)
+	ListComponentBackupExecutions(ctx context.Context, request ListComponentBackupExecutionsRequestObject) (ListComponentBackupExecutionsResponseObject, error)
+	// Restaurer une base interne depuis une exécution de backup
+	// (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore)
+	RestoreComponentBackupExecution(ctx context.Context, request RestoreComponentBackupExecutionRequestObject) (RestoreComponentBackupExecutionResponseObject, error)
 	// Lister les stacks compose
 	// (GET /services)
 	ListServices(ctx context.Context, request ListServicesRequestObject) (ListServicesResponseObject, error)
@@ -33049,6 +35123,33 @@ func (sh *strictHandler) ListServerCertificates(w http.ResponseWriter, r *http.R
 	}
 }
 
+// RunServerCleanup operation middleware
+func (sh *strictHandler) RunServerCleanup(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params RunServerCleanupParams) {
+	var request RunServerCleanupRequestObject
+
+	request.ServerUuid = serverUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RunServerCleanup(ctx, request.(RunServerCleanupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RunServerCleanup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RunServerCleanupResponseObject); ok {
+		if err := validResponse.VisitRunServerCleanupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListServerDomains operation middleware
 func (sh *strictHandler) ListServerDomains(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
 	var request ListServerDomainsRequestObject
@@ -33202,6 +35303,304 @@ func (sh *strictHandler) ValidateServer(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ValidateServerResponseObject); ok {
 		if err := validResponse.VisitValidateServerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListComponentBackupPlans operation middleware
+func (sh *strictHandler) ListComponentBackupPlans(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, params ListComponentBackupPlansParams) {
+	var request ListComponentBackupPlansRequestObject
+
+	request.ServiceComponentUuid = serviceComponentUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListComponentBackupPlans(ctx, request.(ListComponentBackupPlansRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListComponentBackupPlans")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListComponentBackupPlansResponseObject); ok {
+		if err := validResponse.VisitListComponentBackupPlansResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateComponentBackupPlan operation middleware
+func (sh *strictHandler) CreateComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, params CreateComponentBackupPlanParams) {
+	var request CreateComponentBackupPlanRequestObject
+
+	request.ServiceComponentUuid = serviceComponentUuid
+	request.Params = params
+
+	var body CreateComponentBackupPlanJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateComponentBackupPlan(ctx, request.(CreateComponentBackupPlanRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateComponentBackupPlan")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateComponentBackupPlanResponseObject); ok {
+		if err := validResponse.VisitCreateComponentBackupPlanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteComponentBackupPlan operation middleware
+func (sh *strictHandler) DeleteComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid) {
+	var request DeleteComponentBackupPlanRequestObject
+
+	request.ServiceComponentUuid = serviceComponentUuid
+	request.BackupPlanUuid = backupPlanUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteComponentBackupPlan(ctx, request.(DeleteComponentBackupPlanRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteComponentBackupPlan")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteComponentBackupPlanResponseObject); ok {
+		if err := validResponse.VisitDeleteComponentBackupPlanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetComponentBackupPlan operation middleware
+func (sh *strictHandler) GetComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid) {
+	var request GetComponentBackupPlanRequestObject
+
+	request.ServiceComponentUuid = serviceComponentUuid
+	request.BackupPlanUuid = backupPlanUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetComponentBackupPlan(ctx, request.(GetComponentBackupPlanRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetComponentBackupPlan")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetComponentBackupPlanResponseObject); ok {
+		if err := validResponse.VisitGetComponentBackupPlanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateComponentBackupPlan operation middleware
+func (sh *strictHandler) UpdateComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params UpdateComponentBackupPlanParams) {
+	var request UpdateComponentBackupPlanRequestObject
+
+	request.ServiceComponentUuid = serviceComponentUuid
+	request.BackupPlanUuid = backupPlanUuid
+	request.Params = params
+
+	var body UpdateComponentBackupPlanJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateComponentBackupPlan(ctx, request.(UpdateComponentBackupPlanRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateComponentBackupPlan")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateComponentBackupPlanResponseObject); ok {
+		if err := validResponse.VisitUpdateComponentBackupPlanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RunComponentRestoreDrill operation middleware
+func (sh *strictHandler) RunComponentRestoreDrill(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params RunComponentRestoreDrillParams) {
+	var request RunComponentRestoreDrillRequestObject
+
+	request.ServiceComponentUuid = serviceComponentUuid
+	request.BackupPlanUuid = backupPlanUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RunComponentRestoreDrill(ctx, request.(RunComponentRestoreDrillRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RunComponentRestoreDrill")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RunComponentRestoreDrillResponseObject); ok {
+		if err := validResponse.VisitRunComponentRestoreDrillResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListComponentRestoreDrills operation middleware
+func (sh *strictHandler) ListComponentRestoreDrills(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params ListComponentRestoreDrillsParams) {
+	var request ListComponentRestoreDrillsRequestObject
+
+	request.ServiceComponentUuid = serviceComponentUuid
+	request.BackupPlanUuid = backupPlanUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListComponentRestoreDrills(ctx, request.(ListComponentRestoreDrillsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListComponentRestoreDrills")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListComponentRestoreDrillsResponseObject); ok {
+		if err := validResponse.VisitListComponentRestoreDrillsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ExecuteComponentBackupPlan operation middleware
+func (sh *strictHandler) ExecuteComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params ExecuteComponentBackupPlanParams) {
+	var request ExecuteComponentBackupPlanRequestObject
+
+	request.ServiceComponentUuid = serviceComponentUuid
+	request.BackupPlanUuid = backupPlanUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ExecuteComponentBackupPlan(ctx, request.(ExecuteComponentBackupPlanRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ExecuteComponentBackupPlan")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ExecuteComponentBackupPlanResponseObject); ok {
+		if err := validResponse.VisitExecuteComponentBackupPlanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListComponentBackupExecutions operation middleware
+func (sh *strictHandler) ListComponentBackupExecutions(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params ListComponentBackupExecutionsParams) {
+	var request ListComponentBackupExecutionsRequestObject
+
+	request.ServiceComponentUuid = serviceComponentUuid
+	request.BackupPlanUuid = backupPlanUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListComponentBackupExecutions(ctx, request.(ListComponentBackupExecutionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListComponentBackupExecutions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListComponentBackupExecutionsResponseObject); ok {
+		if err := validResponse.VisitListComponentBackupExecutionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestoreComponentBackupExecution operation middleware
+func (sh *strictHandler) RestoreComponentBackupExecution(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, executionUuid ExecutionUuid, params RestoreComponentBackupExecutionParams) {
+	var request RestoreComponentBackupExecutionRequestObject
+
+	request.ServiceComponentUuid = serviceComponentUuid
+	request.BackupPlanUuid = backupPlanUuid
+	request.ExecutionUuid = executionUuid
+	request.Params = params
+
+	var body RestoreComponentBackupExecutionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestoreComponentBackupExecution(ctx, request.(RestoreComponentBackupExecutionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestoreComponentBackupExecution")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestoreComponentBackupExecutionResponseObject); ok {
+		if err := validResponse.VisitRestoreComponentBackupExecutionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -44,7 +44,7 @@ func (s *Scheduler) runDueDrills(ctx context.Context) {
 			Payload:    jobs.BackupPayload{PlanID: plan.ID},
 			LockKey:    &lockKey,
 			TeamID:     &p.TeamID,
-			ResourceID: plan.DatabaseID,
+			ResourceID: &p.TargetResourceID,
 		}); err != nil {
 			s.Logger.Warn("cannot enqueue the restore drill", "plan_id", plan.ID, "error", err)
 			continue

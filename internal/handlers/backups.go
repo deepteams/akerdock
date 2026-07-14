@@ -288,7 +288,13 @@ func (a *API) UpdateBackupPlan(w http.ResponseWriter, r *http.Request, databaseU
 	if _, ok := decodePatch(w, r, &body); !ok {
 		return
 	}
+	a.applyBackupPlanUpdate(w, r, id, plan, body, int32(expected))
+}
 
+// applyBackupPlanUpdate is the shared PATCH tail of the database and
+// component plan handlers: same fields, same rules, same optimistic locking.
+func (a *API) applyBackupPlanUpdate(w http.ResponseWriter, r *http.Request, id *auth.Identity, plan store.DatabaseBackupPlan, body api.BackupPlanUpdate, expected int32) {
+	ok := true
 	cron := plan.CronExpression
 	if body.Frequency != nil {
 		normalized, valid := normalizeCron(*body.Frequency)
@@ -464,6 +470,11 @@ func (a *API) RestoreBackupExecution(w http.ResponseWriter, r *http.Request, dat
 	if !ok {
 		return
 	}
+	// The contract requires confirm=true (§20.5). The check used to be
+	// missing: the promise existed in the spec and nowhere else.
+	if !a.confirmRestoreBody(w, r) {
+		return
+	}
 	var u pgtype.UUID
 	if err := u.Scan(executionUuid); err != nil {
 		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "backup execution not found")
@@ -503,6 +514,25 @@ func (a *API) RestoreBackupExecution(w http.ResponseWriter, r *http.Request, dat
 		JobUuid:   uuidString(job.Uuid),
 		StatusUrl: "/jobs/" + uuidString(job.Uuid),
 	})
+}
+
+// confirmRestoreBody enforces the §20.5 contract: a restore body MUST carry
+// confirm=true, anything else is 422. The confirmation is the API-level
+// guard against a scripted restore fired by accident.
+func (a *API) confirmRestoreBody(w http.ResponseWriter, r *http.Request) bool {
+	var body api.RestoreRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "invalid JSON body")
+		return false
+	}
+	if !body.Confirm {
+		httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+			Field: ptr("confirm"), Code: ptr("required"),
+			Message: "a restore overwrites data: the body must carry confirm=true (§20.5)",
+		}})
+		return false
+	}
+	return true
 }
 
 // retentionCount and retentionDays read the cumulative retention policy of

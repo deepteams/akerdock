@@ -148,6 +148,120 @@ echo "$STEPS" | grep -q "switch_web:succeeded" || die "web switch step missing: 
 echo "$STEPS" | grep -q "start_db:skipped" || die "unchanged db was not skipped: $STEPS"
 ok "db untouched, web replaced zero-downtime behind the proxy"
 
+# --- backups of a stack's internal database (compose-spec §10) -------------------
+# E2E-COMPOSE-BK-01..04. The db component was classified postgresql by image
+# detection: it is a valid backup-plan target. The dump runs inside ITS
+# container, credentials from its environment, never in a log (INV-003).
+say "backing up the stack's internal database, then restoring lost data into it"
+DBCOMP=$(echo "$COMPS" | jsonq "[c['uuid'] for c in d['data'] if c['name']=='db'][0]")
+WEBCOMP=$(echo "$COMPS" | jsonq "[c['uuid'] for c in d['data'] if c['name']=='web'][0]")
+# A non-database component is refused with the reason — never accepted and
+# then failing at the first backup.
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $ROOT_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"frequency":"daily"}' "$B/service-components/$WEBCOMP/backups")
+[ "$CODE" = "422" ] || die "a plan on a non-database component must be refused (got $CODE)"
+
+# Seed real data inside the component, through its own container.
+docker exec "$DIND_CTR" docker exec "$CU-db" \
+  psql -U postgres -c "CREATE TABLE stock (v text); INSERT INTO stock VALUES ('precious')" >/dev/null || die "could not seed the internal database"
+
+CPLAN=$(api POST "/service-components/$DBCOMP/backups" '{"frequency":"daily","drill_enabled":true}' | jsonq "d['uuid']")
+CEJ=$(api POST "/service-components/$DBCOMP/backups/$CPLAN/execute")
+[ "$(wait_job "$(echo "$CEJ" | jsonq "d['job_uuid']")" 180)" = "succeeded" ] || die "component backup failed"
+CEXEC=$(api GET "/service-components/$DBCOMP/backups/$CPLAN/executions" | jsonq "json.dumps(d['data'][0])")
+echo "$CEXEC" | jsonq "d['status']" | grep -q succeeded || die "component backup not succeeded: $CEXEC"
+CEXEC_UUID=$(echo "$CEXEC" | jsonq "d['uuid']")
+
+# Destroy the data, then restore it — into the SAME component container.
+docker exec "$DIND_CTR" docker exec "$CU-db" psql -U postgres -c "DROP TABLE stock" >/dev/null || die "could not drop the table"
+[ "$(wait_job "$(api POST "/service-components/$DBCOMP/backups/$CPLAN/executions/$CEXEC_UUID/restore" '{"confirm":true}' | jsonq "d['job_uuid']")" 180)" = "succeeded" ] || die "component restore failed"
+docker exec "$DIND_CTR" docker exec "$CU-db" psql -U postgres -tAc "SELECT v FROM stock" | grep -q precious \
+  || die "the component restore did not bring the data back"
+
+# The drill fires from the SCHEDULER (drill_enabled + never drilled = due
+# immediately): waiting for it proves component plans are drillable without
+# any human — the same guarantee the managed databases have (ADR-014). It
+# restores into a disposable instance with the component's role, recounts,
+# and destroys it; production is never touched.
+CDRILL="{}"
+for _ in $(seq 1 180); do
+  CDRILL=$(api GET "/service-components/$DBCOMP/backups/$CPLAN/drills" \
+    | jsonq "json.dumps(d['data'][0]) if d['data'] else '{}'")
+  case "$CDRILL" in *'"succeeded"'*|*'"failed"'*) break;; esac
+  sleep 1
+done
+echo "$CDRILL" | jsonq "d['status']" | grep -q succeeded || die "the scheduled component drill did not succeed: $CDRILL"
+[ "$(echo "$CDRILL" | jsonq "d['tables_restored']")" -ge 1 ] || die "component drill restored nothing"
+docker exec "$DIND_CTR" docker ps -a --format '{{.Names}}' | grep -q akerdock-drill && die "the drill container was left behind"
+ok "internal database backed up, restored in place, and drilled by the scheduler in a disposable copy (§10, ADR-014)"
+
+# --- stack hooks (§10, x-akerdock) ----------------------------------------------
+# E2E-COMPOSE-HK-01/02. pre runs in the EXISTING container before anything is
+# mutated; post runs in the HEALTHY CANDIDATE before its switch. Order is
+# proven by the step sequence, the guarantee by the failing-post case below.
+say "stack hooks: pre before any mutation, post in the candidate before the switch"
+docker exec "$DIND_CTR" sh -c '
+  cd /srv/crepo && sed -i s/compose-v2/compose-v3/ web/Dockerfile
+  sed -i "s|^    build: ./web\$|    build: ./web\n    x-akerdock:\n      pre_deployment_command: \"echo pre-ok\"\n      post_deployment_command: \"wget -q -O /dev/null http://127.0.0.1/\"|" docker-compose.yml
+  grep -q x-akerdock docker-compose.yml || exit 1
+  git add -A && git commit -q -m v3-hooks
+' || die "hook fixture update failed"
+CDU3=$(api POST "/applications/$CU/deploy" | jsonq "d['deployment_uuid']")
+[ "$(wait_deployment "$CDU3" 300)" = "succeeded" ] || die_deployment "$CDU3" "the hooked deployment failed"
+HSTEPS=$(docker exec "$PG_CTR" psql -U postgres -d akerdock -tAc \
+  "SELECT string_agg(ds.name || ':' || ds.status, ' ' ORDER BY ds.seq) FROM deployment_steps ds JOIN deployments dep ON dep.id = ds.deployment_id WHERE dep.uuid = '$CDU3'")
+echo "$HSTEPS" | grep -q "pre_deployment_web:succeeded" || die "pre hook did not run: $HSTEPS"
+echo "$HSTEPS" | grep -q "post_deployment_web:succeeded" || die "post hook did not run: $HSTEPS"
+# pre before the candidate exists; post after the candidate, before the switch.
+echo "$HSTEPS" | grep -qE "pre_deployment_web:succeeded.*start_candidate_web:succeeded.*post_deployment_web:succeeded.*switch_web:succeeded" \
+  || die "hook ordering violated (§10): $HSTEPS"
+
+# --- crash resume by per-service inspection (§2.5, compose-spec §8.2) ------------
+# E2E-COMPOSE-CR-01. Reproduce the aftermath of a worker dying mid-switch of
+# the web service: the candidate exists and is healthy, the stable name is
+# gone, the promotion never happened. The resume must FINISH it — never
+# replay the whole switch, never fail the deployment (INV-004/005).
+say "a compose deployment that crashed mid-switch is resumed by per-service inspection"
+docker exec "$DIND_CTR" docker rename "$CU-web" "$CU-web-next" || die "could not stage the compose crash scenario"
+CR3=$(docker exec "$PG_CTR" psql -U postgres -d akerdock -tAc \
+  "SELECT uuid FROM deployments WHERE resource_id = (SELECT id FROM resources WHERE uuid = '$CU') ORDER BY id DESC LIMIT 1" | tr -d ' ')
+docker exec "$PG_CTR" psql -U postgres -d akerdock -q \
+  -c "UPDATE deployments SET status = 'starting' WHERE uuid = '$CR3'" \
+  -c "UPDATE jobs SET status = 'leased', attempt = 1, lease_expires_at = now() - interval '5 minutes',
+      leased_by = 'dead-worker'
+      WHERE job_type = 'deployment.run' AND payload->>'deployment_id' =
+        (SELECT id::text FROM deployments WHERE uuid = '$CR3')"
+for _ in $(seq 90); do
+  ST=$(api GET "/deployments/$CR3" | jsonq "d['status']")
+  [ "$ST" = "succeeded" ] && break
+  [ "$ST" = "failed" ] && die "the compose resume failed instead of finishing the switch: $(api GET "/deployments/$CR3/logs?limit=100" | tr -d '\n' | tail -c 400)"
+  sleep 2
+done
+[ "$ST" = "succeeded" ] || die "the crashed compose deployment was not resumed (status: $ST)"
+CR3STEPS=$(docker exec "$PG_CTR" psql -U postgres -d akerdock -tAc \
+  "SELECT string_agg(ds.name || ':' || ds.status, ' ' ORDER BY ds.seq) FROM deployment_steps ds JOIN deployments dep ON dep.id = ds.deployment_id WHERE dep.uuid = '$CR3'")
+echo "$CR3STEPS" | grep -q "resume_web" || die "the resume did not record its per-service inspection: $CR3STEPS"
+[ "$(docker exec "$DIND_CTR" docker ps -q --filter "name=^${CU}-web$" | wc -l | tr -d ' ')" = "1" ] || die "the promoted web container is missing after the resume"
+docker exec "$DIND_CTR" docker inspect "$CU-web-next" >/dev/null 2>&1 && die "a candidate survived the compose resume"
+docker exec "$DIND_CTR" curl -sk --resolve "$WEBFQDN:443:127.0.0.1" "https://$WEBFQDN/" | grep -q 'compose-v3' || die "web not serving after the resume"
+ok "crashed compose switch inspected per service and finished, no double switch (INV-004)"
+
+# --- failing post hook: the old container keeps serving (§10, INV-005) -----------
+# E2E-COMPOSE-HK-03. The whole reason the post hook exists: its failure must
+# leave the OLD container routed and remove the candidate — never a switch.
+say "a failing post hook fails the deployment without switching the service"
+docker exec "$DIND_CTR" sh -c '
+  cd /srv/crepo && sed -i s/compose-v3/compose-v4/ web/Dockerfile
+  sed -i "s|wget -q -O /dev/null http://127.0.0.1/|false|" docker-compose.yml
+  git add -A && git commit -q -m v4-failing-post
+' || die "failing-post fixture update failed"
+CDU4=$(api POST "/applications/$CU/deploy" | jsonq "d['deployment_uuid']")
+[ "$(wait_deployment "$CDU4" 300)" = "failed" ] || die "a failing post hook must fail the deployment"
+docker exec "$DIND_CTR" curl -sk --resolve "$WEBFQDN:443:127.0.0.1" "https://$WEBFQDN/" | grep -q 'compose-v3' \
+  || die "the old container is not serving after the failed post hook (INV-005)"
+docker exec "$DIND_CTR" docker inspect "$CU-web-next" >/dev/null 2>&1 && die "the failed candidate was not removed (C2)"
+ok "failing post hook: deployment failed, candidate removed, old container still routed (§10)"
+
 # --- inline stacks: /services (phase B) -----------------------------------------
 say "inline stack: refused at save when invalid, deployed, cycled, deleted"
 # A file breaking the subset is refused where it is written, with its stable

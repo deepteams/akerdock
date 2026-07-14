@@ -2111,6 +2111,43 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /servers/{server_uuid}/cleanup:
+    parameters:
+      - $ref: "#/components/parameters/ServerUuid"
+    post:
+      tags: [Servers]
+      operationId: runServerCleanup
+      summary: Lancer un nettoyage disque immédiat
+      description: >-
+        Déclenche le nettoyage Docker du serveur (§3.7), hors planification.
+        Le job ne cible que des objets gérés et sûrs — cache de build, images
+        dangling, candidats de déploiement morts, `/data/akerdock/tmp`, plus
+        les purges opt-in du serveur (volumes anonymes, réseaux gérés) — et
+        **jamais** un objet non géré ou persistant (INV-015), ni les images
+        de rollback (ADR-006). Il est reporté si un déploiement est en cours
+        sur le serveur. `409` (`operation_in_progress`) si un nettoyage
+        tourne déjà.
+      x-required-permission: write
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Nettoyage accepté — suivre le job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /servers/{server_uuid}/adoption-scans:
     parameters:
       - $ref: "#/components/parameters/ServerUuid"
@@ -5332,6 +5369,368 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
 
   # ---------------------------------------------------------------------------
+  # Backups des bases internes des stacks compose (compose-spec §10)
+  # Miroir exact des opérations database : la cible est un service_component
+  # classé base par la détection d'image. PostgreSQL seul en v1 — un moteur
+  # non supporté est refusé en 422 à la création, jamais accepté puis en
+  # échec au premier backup.
+  # ---------------------------------------------------------------------------
+  /service-components/{service_component_uuid}/backups:
+    parameters:
+      - $ref: "#/components/parameters/ServiceComponentUuid"
+    get:
+      tags: [Backups]
+      operationId: listComponentBackupPlans
+      summary: Lister les plans de backup d'un composant de stack
+      x-required-permission: read
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page de plans.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BackupPlan"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      tags: [Backups]
+      operationId: createComponentBackupPlan
+      summary: Créer un plan de backup sur une base interne d'un stack
+      description: >-
+        Le composant doit être classé base de données par la détection
+        d'image (compose-spec §10) et son moteur supporté (PostgreSQL en
+        v1) — sinon `422`. Le dump s'exécute dans le container du composant,
+        credentials lus dans son environnement, jamais journalisés (INV-003).
+        Mêmes destinations, rétention et drills que les bases managées.
+      x-required-permission: write
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BackupPlanCreate"
+      responses:
+        "201":
+          description: Plan créé.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /service-components/{service_component_uuid}/backups/{backup_plan_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/ServiceComponentUuid"
+      - $ref: "#/components/parameters/BackupPlanUuid"
+    get:
+      tags: [Backups]
+      operationId: getComponentBackupPlan
+      summary: Détail d'un plan de backup de composant
+      x-required-permission: read
+      responses:
+        "200":
+          description: Le plan.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupPlan"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      tags: [Backups]
+      operationId: updateComponentBackupPlan
+      summary: Modifier un plan de backup de composant
+      description: PATCH sensible — `If-Match` obligatoire.
+      x-required-permission: write
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BackupPlanUpdate"
+      responses:
+        "200":
+          description: Plan mis à jour.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/VersionConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    delete:
+      tags: [Backups]
+      operationId: deleteComponentBackupPlan
+      summary: Supprimer un plan de backup de composant
+      description: >-
+        Supprime le plan et sa planification. Les exécutions passées et
+        leurs fichiers de backup sont conservés selon la rétention — jamais
+        supprimés implicitement (INV-008).
+      x-required-permission: write
+      responses:
+        "204":
+          description: Plan supprimé.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/execute:
+    parameters:
+      - $ref: "#/components/parameters/ServiceComponentUuid"
+      - $ref: "#/components/parameters/BackupPlanUuid"
+    post:
+      tags: [Backups]
+      operationId: executeComponentBackupPlan
+      summary: Lancer un backup immédiat d'une base interne
+      description: >-
+        Exécute le plan immédiatement, hors planification (§7.1). Une seule
+        exécution simultanée par plan (verrou §20.5) → `409` si une
+        exécution est déjà en cours.
+      x-required-permission: write
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Backup accepté — suivre le job et l'exécution créée.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupExecutionAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drill:
+    parameters:
+      - $ref: "#/components/parameters/ServiceComponentUuid"
+      - $ref: "#/components/parameters/BackupPlanUuid"
+    post:
+      tags: [Backups]
+      operationId: runComponentRestoreDrill
+      summary: Lancer immédiatement un restore drill sur une base interne
+      description: >-
+        Restaure le dernier backup réussi dans une base **jetable** sur le
+        même serveur, recompte ce qui est revenu, puis détruit la base. Même
+        chemin que le drill périodique. `409` si le plan n'a aucun backup
+        réussi à restaurer.
+      x-required-permission: write
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Drill accepté.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drills:
+    parameters:
+      - $ref: "#/components/parameters/ServiceComponentUuid"
+      - $ref: "#/components/parameters/BackupPlanUuid"
+    get:
+      tags: [Backups]
+      operationId: listComponentRestoreDrills
+      summary: Historique des restore drills d'un plan de composant
+      x-required-permission: read
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page de drills.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RestoreDrill"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions:
+    parameters:
+      - $ref: "#/components/parameters/ServiceComponentUuid"
+      - $ref: "#/components/parameters/BackupPlanUuid"
+    get:
+      tags: [Backups]
+      operationId: listComponentBackupExecutions
+      summary: Lister les exécutions d'un plan de backup de composant
+      description: >-
+        Historique des exécutions (statut, fichier, taille, upload S3, §7.3),
+        du plus récent au plus ancien. Un succès local avec échec S3 apparaît
+        en statut `partial`, jamais en succès global (§20.5).
+      x-required-permission: read
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page d'exécutions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BackupExecution"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore:
+    parameters:
+      - $ref: "#/components/parameters/ServiceComponentUuid"
+      - $ref: "#/components/parameters/BackupPlanUuid"
+      - $ref: "#/components/parameters/ExecutionUuid"
+    post:
+      tags: [Backups]
+      operationId: restoreComponentBackupExecution
+      summary: Restaurer une base interne depuis une exécution de backup
+      description: >-
+        Opération destructive et confirmée (§20.5) — le corps DOIT porter
+        `confirm=true`, sinon `422`. Le format du backup est testé avant
+        exécution ; un restore vers une base non vide exige en plus
+        `allow_non_empty=true`. Journal complet dans le job. `409` si un
+        restore ou un backup est déjà en cours sur le composant.
+      x-required-permission: write
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestoreRequest"
+      responses:
+        "202":
+          description: Restore accepté — suivre le job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
   # Jobs
   # ---------------------------------------------------------------------------
   /jobs:
@@ -5666,6 +6065,13 @@ components:
       in: path
       required: true
       description: UUID du scan d'adoption (§20.7).
+      schema:
+        type: string
+    ServiceComponentUuid:
+      name: service_component_uuid
+      in: path
+      required: true
+      description: UUID d'un composant de stack compose.
       schema:
         type: string
     RegistryCredentialUuid:
@@ -7227,6 +7633,36 @@ components:
           type: integer
           minimum: 1
           maximum: 65535
+        cleanup_enabled:
+          type: boolean
+          description: >-
+            Nettoyage disque automatisé (§3.7) — opt-in. Ne cible que les
+            objets gérés et sûrs (cache de build, images dangling, candidats
+            morts, `/data/akerdock/tmp`) ; jamais un objet non géré ou
+            persistant (INV-015), jamais pendant un déploiement.
+        cleanup_cron:
+          type: string
+          nullable: true
+          description: Planification cron du nettoyage (§3.7) ; NULL = pas de cron.
+        cleanup_disk_threshold_pct:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 100
+          description: >-
+            Seuil d'usage disque (%) qui déclenche un nettoyage entre deux
+            crons (§3.7) ; NULL = pas de déclenchement par seuil.
+        cleanup_prune_volumes:
+          type: boolean
+          description: >-
+            Opt-in destructeur — purge des volumes **anonymes** inutilisés
+            uniquement : un volume nommé (données, volumes adoptés §20.7)
+            n'est JAMAIS purgé (INV-015).
+        cleanup_prune_networks:
+          type: boolean
+          description: >-
+            Opt-in — purge des réseaux **gérés** inutilisés (label
+            `akerdock.managed`) ; jamais un réseau non géré (INV-015).
 
     Server:
       type: object
@@ -7284,6 +7720,25 @@ components:
           description: >-
             Intention de l'opérateur sur le proxy (§3). Un `stopped` explicite
             n'est pas « réparé » par la réconciliation.
+          readOnly: true
+        cleanup_enabled:
+          type: boolean
+          description: Nettoyage disque automatisé (§3.7) — opt-in.
+        cleanup_cron:
+          type: string
+          nullable: true
+        cleanup_disk_threshold_pct:
+          type: integer
+          nullable: true
+        cleanup_prune_volumes:
+          type: boolean
+        cleanup_prune_networks:
+          type: boolean
+        cleanup_last_run_at:
+          type: string
+          nullable: true
+          format: date-time
+          description: Dernier nettoyage déclenché (cron, seuil ou manuel).
           readOnly: true
         proxy_observed_status:
           $ref: "#/components/schemas/ObservedStatus"
@@ -9291,15 +9746,25 @@ components:
 
     BackupPlan:
       type: object
-      description: Plan de backup planifié d'une base (§7).
-      required: [uuid, database_uuid, frequency, enabled, created_at, version]
+      description: >-
+        Plan de backup planifié (§7) — cible une base managée
+        (`database_uuid`) OU une base interne d'un stack compose
+        (`service_component_uuid`, compose-spec §10) : exactement l'un des
+        deux est renseigné.
+      required: [uuid, frequency, enabled, created_at, version]
       properties:
         uuid:
           type: string
           readOnly: true
         database_uuid:
           type: string
+          nullable: true
           readOnly: true
+        service_component_uuid:
+          type: string
+          nullable: true
+          readOnly: true
+          description: Composant de stack ciblé (compose-spec §10).
         frequency:
           type: string
         timezone:

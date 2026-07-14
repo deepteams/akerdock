@@ -171,7 +171,12 @@ FILE=$(echo "$EXEC" | jsonq "d['filename']")
 # destroy the data, then restore it from the backup
 docker exec "$DIND_CTR" docker run --rm --network "$NET" -e PGPASSWORD="$DBPASS" postgres:16-alpine \
   psql -h "$DBU" -U app -d appdb -c "DROP TABLE t" >/dev/null || die "could not drop the table"
-[ "$(wait_job "$(api POST "/databases/$DBU/backups/$PLAN/executions/$EXEC_UUID/restore" | jsonq "d['job_uuid']")" 180)" = "succeeded" ] || die "restore failed"
+# The contract (§20.5) requires confirm=true — a bodyless restore is a 422.
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $ROOT_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"confirm":false}' \
+  "$B/databases/$DBU/backups/$PLAN/executions/$EXEC_UUID/restore")
+[ "$CODE" = "422" ] || die "a restore without confirm=true must be refused (got $CODE)"
+[ "$(wait_job "$(api POST "/databases/$DBU/backups/$PLAN/executions/$EXEC_UUID/restore" '{"confirm":true}' | jsonq "d['job_uuid']")" 180)" = "succeeded" ] || die "restore failed"
 docker exec "$DIND_CTR" docker run --rm --network "$NET" -e PGPASSWORD="$DBPASS" postgres:16-alpine \
   psql -h "$DBU" -U app -d appdb -tAc "SELECT v FROM t" | grep -q persisted || die "the restore did not bring the data back"
 
@@ -192,7 +197,7 @@ api GET "/databases/$DBU/backups/$PLAN" | jsonq "d['last_drill_status']" | grep 
 
 # a corrupted dump is never restored (§20.5)
 docker exec "$DIND_CTR" sh -c "echo corruption >> $FILE"
-RJ=$(api POST "/databases/$DBU/backups/$PLAN/executions/$EXEC_UUID/restore" | jsonq "d['job_uuid']")
+RJ=$(api POST "/databases/$DBU/backups/$PLAN/executions/$EXEC_UUID/restore" '{"confirm":true}' | jsonq "d['job_uuid']")
 [ "$(wait_job "$RJ" 120)" = "dead_letter" ] || die "a corrupted dump must not be restored"
 api GET "/jobs/$RJ" | jsonq "str(d['steps'])" | grep -qi checksum || die "the failure must name the checksum mismatch"
 
@@ -287,7 +292,7 @@ docker exec "$DIND_CTR" docker run --rm --network host --entrypoint sh minio/mc:
 # Restoring pulls the object back down, verifies its checksum, and replays it.
 docker exec "$DIND_CTR" docker run --rm --network "$NET" -e PGPASSWORD="$DBPASS" postgres:16-alpine \
   psql -h "$DBU" -U app -d appdb -c "DROP TABLE t" >/dev/null || die "could not drop the table"
-[ "$(wait_job "$(api POST "/databases/$DBU/backups/$S3PLAN/executions/$S3EXEC_UUID/restore" | jsonq "d['job_uuid']")" 180)" = "succeeded" ] || die "the restore from S3 failed"
+[ "$(wait_job "$(api POST "/databases/$DBU/backups/$S3PLAN/executions/$S3EXEC_UUID/restore" '{"confirm":true}' | jsonq "d['job_uuid']")" 180)" = "succeeded" ] || die "the restore from S3 failed"
 docker exec "$DIND_CTR" docker run --rm --network "$NET" -e PGPASSWORD="$DBPASS" postgres:16-alpine \
   psql -h "$DBU" -U app -d appdb -tAc "SELECT v FROM t" | grep -q persisted || die "the S3 restore did not bring the data back"
 

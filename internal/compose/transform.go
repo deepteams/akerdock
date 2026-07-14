@@ -95,7 +95,12 @@ type ServicePlan struct {
 	Restart    string
 	// OneShot marks restart:no jobs (§7.3) — run at their topological
 	// position, success required.
-	OneShot            bool
+	OneShot bool
+	// Pre/PostCommand are the per-service hooks (x-akerdock, §10 semantics):
+	// pre in the existing container before any mutation, post in the healthy
+	// candidate before its switch.
+	PreCommand         string
+	PostCommand        string
 	ExcludeFromHC      bool
 	ZeroDowntimeOptOut bool
 	// HasHostPorts makes the service ineligible to zero-downtime (§8.4):
@@ -183,6 +188,8 @@ func buildServicePlan(name string, svc types.ServiceConfig, project *types.Proje
 		Aliases:       []string{name, in.StackUUID + "-" + name},
 		Image:         svc.Image,
 		ExcludeFromHC: ext.ExcludeFromHC,
+		PreCommand:    ext.PreDeploymentCommand,
+		PostCommand:   ext.PostDeploymentCommand,
 		Service:       svc,
 	}
 	if ext.ZeroDowntime != nil && !*ext.ZeroDowntime {

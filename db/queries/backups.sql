@@ -1,13 +1,19 @@
 -- Backups (§7, ADR-014).
 
 -- name: CreateBackupPlan :one
-INSERT INTO database_backup_plans (uuid, database_id, cron_expression, timezone, enabled, dump_all, included_databases, timeout_seconds, s3_storage_id, s3_only, save_local, retention_local_max_count, retention_local_max_days, retention_s3_max_count, retention_s3_max_days, drill_enabled, drill_interval_days)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+-- Target: a managed database OR an internal database of a compose stack
+-- (compose-spec §10) — the table CHECK enforces exactly one.
+INSERT INTO database_backup_plans (uuid, database_id, service_component_id, cron_expression, timezone, enabled, dump_all, included_databases, timeout_seconds, s3_storage_id, s3_only, save_local, retention_local_max_count, retention_local_max_days, retention_s3_max_count, retention_s3_max_days, drill_enabled, drill_interval_days)
+VALUES ($1, sqlc.narg(database_id), sqlc.narg(service_component_id), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING *;
 
 -- name: GetBackupPlanByUUID :one
 SELECT p.* FROM database_backup_plans p
 WHERE p.uuid = $1 AND p.database_id = $2 AND p.deleted_at IS NULL;
+
+-- name: GetBackupPlanByUUIDForComponent :one
+SELECT p.* FROM database_backup_plans p
+WHERE p.uuid = $1 AND p.service_component_id = $2 AND p.deleted_at IS NULL;
 
 -- name: GetBackupPlanByID :one
 SELECT * FROM database_backup_plans WHERE id = $1 AND deleted_at IS NULL;
@@ -17,12 +23,37 @@ SELECT * FROM database_backup_plans
 WHERE database_id = $1 AND deleted_at IS NULL
 ORDER BY id DESC;
 
+-- name: ListBackupPlansForComponent :many
+SELECT * FROM database_backup_plans
+WHERE service_component_id = $1 AND deleted_at IS NULL
+ORDER BY id DESC;
+
+-- name: GetComponentBackupTarget :one
+-- Everything the backup job needs about a component plan's target: the
+-- component, its stack resource (container names derive from its uuid) and
+-- the server behind the stack's destination.
+SELECT sqlc.embed(sc), r.uuid AS stack_uuid, r.id AS stack_resource_id,
+       r.team_id, d.server_id
+FROM service_components sc
+JOIN resources r ON r.id = sc.resource_id
+JOIN destinations d ON d.id = r.destination_id
+WHERE sc.id = $1 AND r.deleted_at IS NULL;
+
 -- name: ListSchedulableBackupPlans :many
--- Enabled plans of non-deleted databases. The scheduler owns the cron: it
--- seeds next_run_at when it is NULL and fires the plans that are due.
-SELECT p.*, r.team_id FROM database_backup_plans p
-JOIN resources r ON r.id = p.database_id
-WHERE p.enabled AND p.deleted_at IS NULL AND r.deleted_at IS NULL
+-- Enabled plans of non-deleted targets — managed databases AND stack
+-- components (compose-spec §10). The scheduler owns the cron: it seeds
+-- next_run_at when it is NULL and fires the plans that are due.
+-- target_resource_id is the stack resource for a component plan: it is what
+-- jobs and events hang off.
+SELECT p.*, coalesce(r.team_id, rs.team_id) AS team_id,
+       coalesce(p.database_id, sc.resource_id) AS target_resource_id
+FROM database_backup_plans p
+LEFT JOIN resources r ON r.id = p.database_id
+LEFT JOIN service_components sc ON sc.id = p.service_component_id
+LEFT JOIN resources rs ON rs.id = sc.resource_id
+WHERE p.enabled AND p.deleted_at IS NULL
+  AND ((p.database_id IS NOT NULL AND r.deleted_at IS NULL)
+    OR (p.service_component_id IS NOT NULL AND rs.deleted_at IS NULL))
 ORDER BY p.id;
 
 -- name: SetBackupPlanSchedule :exec
@@ -135,14 +166,19 @@ ORDER BY id DESC
 LIMIT 1;
 
 -- name: ListDrillablePlans :many
--- Enabled plans whose drill window has elapsed. A plan that has never been
--- drilled (last_drill_at IS NULL) is due immediately: the first drill is the
--- one that tells you whether the backups were ever any good.
-SELECT sqlc.embed(p), d.team_id
+-- Enabled plans whose drill window has elapsed — managed databases AND stack
+-- components. A plan that has never been drilled (last_drill_at IS NULL) is
+-- due immediately: the first drill is the one that tells you whether the
+-- backups were ever any good.
+SELECT sqlc.embed(p), coalesce(d.team_id, rs.team_id) AS team_id,
+       coalesce(p.database_id, sc.resource_id) AS target_resource_id
 FROM database_backup_plans p
-JOIN databases db ON db.id = p.database_id
-JOIN resources d ON d.id = db.id
-WHERE p.enabled AND p.drill_enabled AND p.deleted_at IS NULL AND d.deleted_at IS NULL
+LEFT JOIN resources d ON d.id = p.database_id
+LEFT JOIN service_components sc ON sc.id = p.service_component_id
+LEFT JOIN resources rs ON rs.id = sc.resource_id
+WHERE p.enabled AND p.drill_enabled AND p.deleted_at IS NULL
+  AND ((p.database_id IS NOT NULL AND d.deleted_at IS NULL)
+    OR (p.service_component_id IS NOT NULL AND rs.deleted_at IS NULL))
   AND (p.last_drill_at IS NULL OR p.last_drill_at < now() - make_interval(days => p.drill_interval_days));
 
 -- name: CreateRestoreDrill :one

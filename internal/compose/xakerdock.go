@@ -16,6 +16,12 @@ type ServiceExtensions struct {
 	// ZeroDowntime is nil when unset (default: eligible), false when the
 	// stack cannot tolerate two simultaneous instances (ADR-015).
 	ZeroDowntime *bool
+	// Pre/PostDeploymentCommand are the stack-level hooks (deployment-engine
+	// §10, applied per service): pre runs in the EXISTING container of this
+	// service before any build or mutation; post runs in its CANDIDATE once
+	// healthy, before its switch — a failing post never switches this service.
+	PreDeploymentCommand  string
+	PostDeploymentCommand string
 }
 
 // VolumeExtensions are the x-akerdock keys of one volumes[] entry (§5.1):
@@ -42,6 +48,27 @@ func serviceExtensions(name, p string, svc types.ServiceConfig, fs *findings) Se
 	}
 	if v, ok := raw["zero_downtime"].(bool); ok {
 		out.ZeroDowntime = &v
+	}
+	if v, ok := raw["pre_deployment_command"].(string); ok {
+		out.PreDeploymentCommand = v
+	}
+	if v, ok := raw["post_deployment_command"].(string); ok {
+		out.PostDeploymentCommand = v
+	}
+
+	// The §10 guarantees need somewhere to stand. A post hook on a one-shot
+	// has no candidate to run in — refused. A post hook on a service with no
+	// compose-declared healthcheck may still work (the image can carry one),
+	// but the deployment will refuse it before mutating anything if none
+	// resolves — warned here, where the author can still fix the file.
+	if out.PostDeploymentCommand != "" {
+		if svc.Restart == types.RestartPolicyNo {
+			fs.errf(CodeHookOnOneShot, name, p+".post_deployment_command",
+				"a post-deployment command needs a candidate container: a one-shot service (restart: no) never has one (§10)")
+		} else if svc.HealthCheck == nil || svc.HealthCheck.Disable {
+			fs.warnf(CodeHookWithoutHealthcheck, name, p+".post_deployment_command",
+				"a post-deployment command requires a resolvable health check (§10, INV-005): none is declared here — the deployment will fail before mutating anything if the image provides none")
+		}
 	}
 	return out
 }

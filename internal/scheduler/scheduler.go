@@ -40,6 +40,9 @@ type Scheduler struct {
 	Audit      *audit.Recorder
 	Dispatcher *notify.Dispatcher
 	Logger     *slog.Logger
+	// thresholdProbes throttles the §3.7 disk probes (leader-local state:
+	// only the elected leader schedules).
+	thresholdProbes map[int64]time.Time
 	// TerminalMaxDuration bounds the crash-net sweep of terminal sessions
 	// (§24.4): a session row still open past this ceiling can only be a
 	// control-plane restart — sessions live in-process. Zero falls back to
@@ -131,6 +134,7 @@ func (s *Scheduler) runCronTasks(ctx context.Context) {
 	s.runDueBackups(ctx)
 	s.runDueScheduledTasks(ctx)
 	s.runDueDrills(ctx)
+	s.runDueCleanups(ctx)
 	s.alertExpiringCertificates(ctx)
 	s.Dispatcher.Dispatch(ctx)
 	s.Dispatcher.FlushDigests(ctx)

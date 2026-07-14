@@ -29,12 +29,17 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 	if r.service == nil && r.app.Application.GitRepositoryUrl == nil {
 		return fmt.Errorf("the compose build pack requires a git source")
 	}
-	// No blind replay (§2.5): the fine-grained resume-by-inspection of the
-	// single-container path is not implemented for stacks yet, so a crashed
-	// compose deployment fails explicitly — redeploying is always safe, every
-	// mutation below is idempotent per service.
-	if r.d.Status != store.DeploymentStatusQueued && r.d.Status != store.DeploymentStatusPreparing {
-		return fmt.Errorf("this compose deployment was interrupted at %q and cannot resume — trigger a new deployment", r.d.Status)
+	// No blind replay (§2.5): a compose deployment recovered past `preparing`
+	// resumes by PER-SERVICE inspection (compose-spec §8.2 — "reprise
+	// possible"). Everything up to the per-service replacement is idempotent
+	// (validation, component sync, image pulls); each service is then either
+	// hash-skipped (already done), completed from a surviving healthy
+	// candidate (the promotion is finished, never replayed), or redone from
+	// scratch after the stale candidate is discarded.
+	resumed := r.d.Status != store.DeploymentStatusQueued && r.d.Status != store.DeploymentStatusPreparing
+	if resumed {
+		r.h.Logger.Warn("resuming a crashed compose deployment by per-service inspection",
+			"deployment_uuid", pguuid.String(r.d.Uuid), "state", string(r.d.Status))
 	}
 
 	if err := r.step(ctx, "prepare", func() (*sshexec.Result, error) {
@@ -197,6 +202,19 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 		return err
 	}
 
+	// Pre-deployment hooks (§10, x-akerdock): in the EXISTING container of
+	// each service that declares one, before any build or mutation — a
+	// failure here fails the deployment while the running stack is untouched.
+	for _, sp := range plan.Services {
+		if sp.PreCommand == "" {
+			continue
+		}
+		cmd := sp.PreCommand
+		if err := r.runHook(ctx, "pre_deployment_"+sp.Name, &cmd, sp.ContainerName); err != nil {
+			return err
+		}
+	}
+
 	// --- images first (§8.2 step 2): build/pull EVERYTHING before any
 	// mutation — a stack must never be half-replaced because an image of a
 	// later service turned out to be unpullable.
@@ -207,6 +225,22 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 			return fmt.Errorf("service %s: %w", sp.Name, err)
 		}
 		images[sp.Name] = img
+	}
+
+	// The §10 guarantee of a post hook — "a failure never switches" — only
+	// holds for a service that actually switches: routed, zero-downtime
+	// eligible, with a resolvable health check. Refused NOW, before anything
+	// is mutated: a guarantee that silently degrades is worse than none.
+	for _, sp := range plan.Services {
+		if sp.PostCommand == "" {
+			continue
+		}
+		if !routed[sp.Name] {
+			return fmt.Errorf("service %s: a post-deployment command requires a routed service — without a switch there is no candidate to run it in (§10, INV-005)", sp.Name)
+		}
+		if eligible, reason := zeroDowntimeEligibility(sp, r.app.BuildConfig.RawCompose, images[sp.Name].HasHealthcheck); !eligible {
+			return fmt.Errorf("service %s: a post-deployment command requires the zero-downtime switch, and this service is ineligible: %s (§10, INV-005)", sp.Name, reason)
+		}
 	}
 
 	// An adopted stack awaiting normalization (§20.7): the containers of the
@@ -236,6 +270,18 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 	for _, sp := range plan.Services {
 		if err := r.checkpoint(ctx); err != nil {
 			return err
+		}
+		if resumed {
+			// §4 switching, per service: what exists on the server decides.
+			// A surviving healthy candidate means the crash hit mid-switch —
+			// the promotion is FINISHED, never replayed (INV-004/005).
+			done, err := r.resumeComposeService(ctx, plan, sp, appUUID, componentIDs)
+			if err != nil {
+				return fmt.Errorf("service %s: %w", sp.Name, err)
+			}
+			if done {
+				continue
+			}
 		}
 		if err := r.replaceComposeService(ctx, plan, sp, appDir, appUUID, labels, stackKeys, routed[sp.Name], images[sp.Name]); err != nil {
 			_ = r.h.Store.SetServiceComponentObserved(ctx, store.SetServiceComponentObservedParams{
@@ -744,12 +790,37 @@ func (r *deploymentRun) zeroDowntimeReplace(ctx context.Context, plan *compose.P
 		return err
 	}
 
+	// The post-deployment hook (§10, x-akerdock) runs in the HEALTHY
+	// candidate, before its switch: a failure removes the candidate and the
+	// old container keeps serving (C2) — exactly the §10 guarantee.
+	if sp.PostCommand != "" {
+		cmd := sp.PostCommand
+		if err := r.runHook(ctx, "post_deployment_"+sp.Name, &cmd, candidate); err != nil {
+			discard()
+			return err
+		}
+	}
+
 	// Cancellation barrier (§8.2): past this point this component's switch
 	// runs to its end.
 	if err := r.checkpoint(ctx); err != nil {
 		discard()
 		return err
 	}
+	if err := r.promoteComposeCandidate(ctx, plan, sp, appUUID); err != nil {
+		discard()
+		return err
+	}
+	return nil
+}
+
+// promoteComposeCandidate is the switch tail of one service (§8.2 step 4):
+// route this component to the candidate's IP, stop the old container, take
+// its name and short alias, then stabilize the routing on the name. It is
+// exactly what a resume-by-inspection replays when a crash interrupted it —
+// every step is idempotent.
+func (r *deploymentRun) promoteComposeCandidate(ctx context.Context, plan *compose.Plan, sp compose.ServicePlan, appUUID string) error {
+	candidate := sp.CandidateName
 
 	// Route THIS component to the candidate's IP: the old container keeps
 	// serving until the proxy really exposes the new endpoint (INV-005).
@@ -765,11 +836,9 @@ func (r *deploymentRun) zeroDowntimeReplace(ctx context.Context, plan *compose.P
 		}
 		return res, err
 	}); err != nil {
-		discard()
 		return err
 	}
 	if err := r.switchComponentRouting(ctx, appUUID, sp.Name, candidateIP); err != nil {
-		discard()
 		return err
 	}
 
@@ -795,6 +864,52 @@ func (r *deploymentRun) zeroDowntimeReplace(ctx context.Context, plan *compose.P
 	// Stabilize the routing on the container NAME: the candidate IP dies with
 	// the next replacement, the name does not.
 	return r.switchComponentRouting(ctx, appUUID, sp.Name, "")
+}
+
+// resumeComposeService inspects what a crashed deployment left behind for ONE
+// service (§4 switching, per service — compose-spec §8.2 "reprise possible").
+// Returns true when the service needs nothing more from the normal path.
+//
+//   - a healthy surviving candidate: the crash hit mid-switch — FINISH the
+//     promotion, never replay it (INV-004/005);
+//   - a dead or unhealthy candidate: discard it, let the normal path redo
+//     the replacement from scratch (C2 semantics);
+//   - no candidate: nothing to decide — the config-hash check of the normal
+//     path recognizes the services that were already completed.
+func (r *deploymentRun) resumeComposeService(ctx context.Context, plan *compose.Plan, sp compose.ServicePlan, appUUID string, componentIDs map[string]int64) (bool, error) {
+	res, err := r.client.Run(ctx, fmt.Sprintf(
+		"docker inspect --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' %s 2>/dev/null || echo absent",
+		sp.CandidateName))
+	if err != nil {
+		return false, err
+	}
+	state := firstLine(res.Stdout)
+	if state == "absent" || state == "" {
+		return false, nil
+	}
+	status, health, _ := strings.Cut(state, " ")
+	if status != "running" || health == "unhealthy" {
+		r.skipStep(ctx, "resume_"+sp.Name, "stale candidate ("+state+") discarded; the service is redone from scratch")
+		_, _ = r.client.Run(ctx, "docker rm -f "+sp.CandidateName+" >/dev/null 2>&1 || true")
+		return false, nil
+	}
+
+	// The candidate survived the crash. Wait for its health verdict (it may
+	// still be starting), then finish what the dead worker was about to do.
+	r.skipStep(ctx, "resume_"+sp.Name, "healthy candidate found after the crash; finishing its interrupted switch")
+	if err := r.waitComposeHealthy(ctx, sp, sp.CandidateName); err != nil {
+		_, _ = r.client.Run(ctx, "docker rm -f "+sp.CandidateName+" >/dev/null 2>&1 || true")
+		return false, nil // unhealthy after all: redo from scratch
+	}
+	if err := r.promoteComposeCandidate(ctx, plan, sp, appUUID); err != nil {
+		return true, err
+	}
+	if id, ok := componentIDs[sp.Name]; ok {
+		_ = r.h.Store.SetServiceComponentObserved(ctx, store.SetServiceComponentObservedParams{
+			ID: id, ObservedStatus: store.ResourceObservedStatusHealthy,
+		})
+	}
+	return true, nil
 }
 
 // waitComposeHealthy waits for a container's health (compose or image
@@ -827,7 +942,7 @@ func (r *deploymentRun) composeHealthBudget(sp compose.ServicePlan) int {
 		return 90
 	}
 	budget := int(sp.Health.StartPeriod.Seconds()) +
-		int((sp.Health.Interval + sp.Health.Timeout).Seconds())*int(sp.Health.Retries) + 30
+		int((sp.Health.Interval+sp.Health.Timeout).Seconds())*int(sp.Health.Retries) + 30
 	if budget < 60 {
 		budget = 60
 	}

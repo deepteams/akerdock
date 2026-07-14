@@ -42,6 +42,9 @@ type Querier interface {
 	// concurrent finishes cannot both win, whatever the caller does.
 	ConsumePasskeyCeremony(ctx context.Context, arg ConsumePasskeyCeremonyParams) (PasskeyCeremony, error)
 	CountActiveDeploymentsForServer(ctx context.Context, serverID int64) (int64, error)
+	// The §3.7 guard: the cleanup never runs while a deployment is mutating the
+	// server. `queued` does not block — the deployment lock does the serializing.
+	CountActiveDeploymentsOnServer(ctx context.Context, serverID int64) (int64, error)
 	CountActiveJobsByLockKey(ctx context.Context, lockKey *string) (int64, error)
 	// Applications cloning through a deploy key backed by this key. A key still
 	// in use is not deletable (§19.2) — reported as a conflict, not as a foreign
@@ -82,6 +85,8 @@ type Querier interface {
 	CreateApplicationRow(ctx context.Context, arg CreateApplicationRowParams) error
 	CreateBackupExecution(ctx context.Context, arg CreateBackupExecutionParams) (BackupExecution, error)
 	// Backups (§7, ADR-014).
+	// Target: a managed database OR an internal database of a compose stack
+	// (compose-spec §10) — the table CHECK enforces exactly one.
 	CreateBackupPlan(ctx context.Context, arg CreateBackupPlanParams) (DatabaseBackupPlan, error)
 	CreateBuildConfig(ctx context.Context, arg CreateBuildConfigParams) error
 	// Generated domain of a compose component (compose-spec §6): referencing
@@ -224,8 +229,13 @@ type Querier interface {
 	GetBackupExecutionByUUID(ctx context.Context, arg GetBackupExecutionByUUIDParams) (BackupExecution, error)
 	GetBackupPlanByID(ctx context.Context, id int64) (DatabaseBackupPlan, error)
 	GetBackupPlanByUUID(ctx context.Context, arg GetBackupPlanByUUIDParams) (DatabaseBackupPlan, error)
+	GetBackupPlanByUUIDForComponent(ctx context.Context, arg GetBackupPlanByUUIDForComponentParams) (DatabaseBackupPlan, error)
 	GetCertificateByID(ctx context.Context, id int64) (Certificate, error)
 	GetCertificateByUUIDForTeam(ctx context.Context, arg GetCertificateByUUIDForTeamParams) (GetCertificateByUUIDForTeamRow, error)
+	// Everything the backup job needs about a component plan's target: the
+	// component, its stack resource (container names derive from its uuid) and
+	// the server behind the stack's destination.
+	GetComponentBackupTarget(ctx context.Context, id int64) (GetComponentBackupTargetRow, error)
 	GetDNSCredentialByID(ctx context.Context, id int64) (CloudCredential, error)
 	GetDNSCredentialByUUID(ctx context.Context, arg GetDNSCredentialByUUIDParams) (CloudCredential, error)
 	GetDatabaseByID(ctx context.Context, id int64) (GetDatabaseByIDRow, error)
@@ -347,12 +357,16 @@ type Querier interface {
 	// revision (drift reconciliation, §6.2.4).
 	ListAppliedProxyRevisions(ctx context.Context, serverID int64) ([]ProxyConfigRevision, error)
 	ListBackupExecutionsPage(ctx context.Context, arg ListBackupExecutionsPageParams) ([]BackupExecution, error)
+	ListBackupPlansForComponent(ctx context.Context, serviceComponentID *int64) ([]DatabaseBackupPlan, error)
 	ListBackupPlansForDatabase(ctx context.Context, databaseID *int64) ([]DatabaseBackupPlan, error)
 	ListCertificatesForServer(ctx context.Context, arg ListCertificatesForServerParams) ([]Certificate, error)
 	// Certificates entering a threshold they have not been announced for yet
 	// (§4.3). A certificate already alerted at J-30 stays silent until it crosses
 	// J-7 — the alert fires on the transition, not on every pass.
 	ListCertificatesToAlert(ctx context.Context, thresholdDays int32) ([]ListCertificatesToAlertRow, error)
+	// Cleanup-enabled, ready servers (§3.7). The scheduler owns the cron window
+	// (cleanup_next_run_at) exactly like the backup plans.
+	ListCleanupSchedulableServers(ctx context.Context) ([]Server, error)
 	ListDNSCredentialsPage(ctx context.Context, arg ListDNSCredentialsPageParams) ([]CloudCredential, error)
 	ListDatabaseCredentialsToRotate(ctx context.Context, arg ListDatabaseCredentialsToRotateParams) ([]ListDatabaseCredentialsToRotateRow, error)
 	ListDatabasesPage(ctx context.Context, arg ListDatabasesPageParams) ([]ListDatabasesPageRow, error)
@@ -363,9 +377,10 @@ type Querier interface {
 	// with nothing pending is not woken up: an empty digest is noise.
 	ListDigestRulesDue(ctx context.Context) ([]ListDigestRulesDueRow, error)
 	ListDomainsForApplication(ctx context.Context, applicationID *int64) ([]Domain, error)
-	// Enabled plans whose drill window has elapsed. A plan that has never been
-	// drilled (last_drill_at IS NULL) is due immediately: the first drill is the
-	// one that tells you whether the backups were ever any good.
+	// Enabled plans whose drill window has elapsed — managed databases AND stack
+	// components. A plan that has never been drilled (last_drill_at IS NULL) is
+	// due immediately: the first drill is the one that tells you whether the
+	// backups were ever any good.
 	ListDrillablePlans(ctx context.Context) ([]ListDrillablePlansRow, error)
 	ListEnvVarsForDeploy(ctx context.Context, resourceID int64) ([]EnvironmentVariable, error)
 	// The production set by default; the dedicated preview set on demand (§5.6):
@@ -426,8 +441,11 @@ type Querier interface {
 	// Rows still encrypted with an older master key version (ADR-003, §23.2). The
 	// key version is the first 4 bytes of the ciphertext.
 	ListS3StoragesToRotate(ctx context.Context, arg ListS3StoragesToRotateParams) ([]ListS3StoragesToRotateRow, error)
-	// Enabled plans of non-deleted databases. The scheduler owns the cron: it
-	// seeds next_run_at when it is NULL and fires the plans that are due.
+	// Enabled plans of non-deleted targets — managed databases AND stack
+	// components (compose-spec §10). The scheduler owns the cron: it seeds
+	// next_run_at when it is NULL and fires the plans that are due.
+	// target_resource_id is the stack resource for a component plan: it is what
+	// jobs and events hang off.
 	ListSchedulableBackupPlans(ctx context.Context) ([]ListSchedulableBackupPlansRow, error)
 	// Every enabled task of a live resource. The scheduler decides what is due:
 	// a task whose next_run_at is NULL has never been scheduled and must be
@@ -576,6 +594,8 @@ type Querier interface {
 	SetS3StorageCheck(ctx context.Context, arg SetS3StorageCheckParams) error
 	SetScheduledTaskSchedule(ctx context.Context, arg SetScheduledTaskScheduleParams) error
 	SetServerCA(ctx context.Context, arg SetServerCAParams) error
+	// Scheduler-owned: never bumps `version` (not a user edit).
+	SetServerCleanupSchedule(ctx context.Context, arg SetServerCleanupScheduleParams) error
 	SetServerStatus(ctx context.Context, arg SetServerStatusParams) error
 	SetServiceComponentObserved(ctx context.Context, arg SetServiceComponentObservedParams) error
 	// Passkey step-up (rbac-matrix §5): stamps the browser session; freshness is
