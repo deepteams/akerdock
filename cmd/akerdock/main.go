@@ -38,6 +38,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/scheduler"
+	"github.com/deepteams/akerdock/internal/oidc"
 	"github.com/deepteams/akerdock/internal/session"
 	"github.com/deepteams/akerdock/internal/store"
 	"github.com/deepteams/akerdock/internal/telemetry"
@@ -225,10 +226,23 @@ func run(args []string) int {
 			logger.Warn("passkeys disabled", "error", err)
 		}
 
+		// OAuth/OIDC login (§10.2): the callback URL is pinned to the instance
+		// FQDN for the same reason the passkey RP is — anything answering
+		// under another name must not be able to finish a login. Same
+		// localhost fallback for TLS-less dev instances.
+		baseURL := "https://" + fqdn
+		if fqdn == "" {
+			baseURL = fmt.Sprintf("http://localhost:%d", cfg.Port)
+		}
+
 		apiHandler = handlers.NewRouter(&handlers.API{
 			Sessions: sessions,
 			Passkeys: passkeys,
 			MFA:      &session.TOTP{Store: q, Sessions: sessions, Keyring: keyring},
+			OAuth: &session.OAuth{
+				Store: q, Sessions: sessions, Keyring: keyring,
+				Settings: settings, Client: oidc.New(), BaseURL: baseURL,
+			},
 			Store:    q,
 			Pool:     pool,
 			Settings: settings,

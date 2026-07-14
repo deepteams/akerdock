@@ -52,3 +52,10 @@ panne.
   `hmac` + `base32decode`, SHA-1, 6 chiffres, pas de 30 s) — prouve
   l'interopérabilité avec les vraies apps. L'anti-rejeu brûle le pas courant :
   pour un second code immédiat, prendre le pas suivant (+1).
+- **OAuth/OIDC** : IdP factice en Go stdlib sur `http://localhost:9091`
+  (discovery + JWKS + authorize auto-approuvé + token signant un vrai JWT
+  RS256, PKCE **vérifié** côté IdP, `POST /control` pour changer sub/email
+  entre scénarios) — `ValidateIssuer` tolère http sur localhost uniquement.
+  Configurer via `PUT /api/v1/system/oauth-providers/oidc` (session root +
+  `X-CSRF-Token`). `registration_enabled` est `false` par défaut : l'activer
+  en SQL et attendre ~4 s (TTL du cache de settings).

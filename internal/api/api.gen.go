@@ -976,6 +976,36 @@ func (e NotificationRuleCreateMinSeverity) Valid() bool {
 	}
 }
 
+// Defines values for OauthProviderConfigProvider.
+const (
+	OauthProviderConfigProviderAzure     OauthProviderConfigProvider = "azure"
+	OauthProviderConfigProviderBitbucket OauthProviderConfigProvider = "bitbucket"
+	OauthProviderConfigProviderGithub    OauthProviderConfigProvider = "github"
+	OauthProviderConfigProviderGitlab    OauthProviderConfigProvider = "gitlab"
+	OauthProviderConfigProviderGoogle    OauthProviderConfigProvider = "google"
+	OauthProviderConfigProviderOidc      OauthProviderConfigProvider = "oidc"
+)
+
+// Valid indicates whether the value is a known member of the OauthProviderConfigProvider enum.
+func (e OauthProviderConfigProvider) Valid() bool {
+	switch e {
+	case OauthProviderConfigProviderAzure:
+		return true
+	case OauthProviderConfigProviderBitbucket:
+		return true
+	case OauthProviderConfigProviderGithub:
+		return true
+	case OauthProviderConfigProviderGitlab:
+		return true
+	case OauthProviderConfigProviderGoogle:
+		return true
+	case OauthProviderConfigProviderOidc:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ObservedStatus.
 const (
 	ObservedStatusExited    ObservedStatus = "exited"
@@ -1618,21 +1648,51 @@ func (e WebhookEndpointCreateProvider) Valid() bool {
 	}
 }
 
+// Defines values for OauthProviderName.
+const (
+	OauthProviderNameAzure     OauthProviderName = "azure"
+	OauthProviderNameBitbucket OauthProviderName = "bitbucket"
+	OauthProviderNameGithub    OauthProviderName = "github"
+	OauthProviderNameGitlab    OauthProviderName = "gitlab"
+	OauthProviderNameGoogle    OauthProviderName = "google"
+	OauthProviderNameOidc      OauthProviderName = "oidc"
+)
+
+// Valid indicates whether the value is a known member of the OauthProviderName enum.
+func (e OauthProviderName) Valid() bool {
+	switch e {
+	case OauthProviderNameAzure:
+		return true
+	case OauthProviderNameBitbucket:
+		return true
+	case OauthProviderNameGithub:
+		return true
+	case OauthProviderNameGitlab:
+		return true
+	case OauthProviderNameGoogle:
+		return true
+	case OauthProviderNameOidc:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeleteWebhookEndpointParamsProvider.
 const (
-	Gitea  DeleteWebhookEndpointParamsProvider = "gitea"
-	Github DeleteWebhookEndpointParamsProvider = "github"
-	Gitlab DeleteWebhookEndpointParamsProvider = "gitlab"
+	DeleteWebhookEndpointParamsProviderGitea  DeleteWebhookEndpointParamsProvider = "gitea"
+	DeleteWebhookEndpointParamsProviderGithub DeleteWebhookEndpointParamsProvider = "github"
+	DeleteWebhookEndpointParamsProviderGitlab DeleteWebhookEndpointParamsProvider = "gitlab"
 )
 
 // Valid indicates whether the value is a known member of the DeleteWebhookEndpointParamsProvider enum.
 func (e DeleteWebhookEndpointParamsProvider) Valid() bool {
 	switch e {
-	case Gitea:
+	case DeleteWebhookEndpointParamsProviderGitea:
 		return true
-	case Github:
+	case DeleteWebhookEndpointParamsProviderGithub:
 		return true
-	case Gitlab:
+	case DeleteWebhookEndpointParamsProviderGitlab:
 		return true
 	default:
 		return false
@@ -1657,6 +1717,66 @@ func (e ListSharedVariablesParamsScope) Valid() bool {
 	case ListSharedVariablesParamsScopeServer:
 		return true
 	case ListSharedVariablesParamsScopeTeam:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeleteOauthProviderParamsOauthProvider.
+const (
+	DeleteOauthProviderParamsOauthProviderAzure     DeleteOauthProviderParamsOauthProvider = "azure"
+	DeleteOauthProviderParamsOauthProviderBitbucket DeleteOauthProviderParamsOauthProvider = "bitbucket"
+	DeleteOauthProviderParamsOauthProviderGithub    DeleteOauthProviderParamsOauthProvider = "github"
+	DeleteOauthProviderParamsOauthProviderGitlab    DeleteOauthProviderParamsOauthProvider = "gitlab"
+	DeleteOauthProviderParamsOauthProviderGoogle    DeleteOauthProviderParamsOauthProvider = "google"
+	DeleteOauthProviderParamsOauthProviderOidc      DeleteOauthProviderParamsOauthProvider = "oidc"
+)
+
+// Valid indicates whether the value is a known member of the DeleteOauthProviderParamsOauthProvider enum.
+func (e DeleteOauthProviderParamsOauthProvider) Valid() bool {
+	switch e {
+	case DeleteOauthProviderParamsOauthProviderAzure:
+		return true
+	case DeleteOauthProviderParamsOauthProviderBitbucket:
+		return true
+	case DeleteOauthProviderParamsOauthProviderGithub:
+		return true
+	case DeleteOauthProviderParamsOauthProviderGitlab:
+		return true
+	case DeleteOauthProviderParamsOauthProviderGoogle:
+		return true
+	case DeleteOauthProviderParamsOauthProviderOidc:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SetOauthProviderParamsOauthProvider.
+const (
+	Azure     SetOauthProviderParamsOauthProvider = "azure"
+	Bitbucket SetOauthProviderParamsOauthProvider = "bitbucket"
+	Github    SetOauthProviderParamsOauthProvider = "github"
+	Gitlab    SetOauthProviderParamsOauthProvider = "gitlab"
+	Google    SetOauthProviderParamsOauthProvider = "google"
+	Oidc      SetOauthProviderParamsOauthProvider = "oidc"
+)
+
+// Valid indicates whether the value is a known member of the SetOauthProviderParamsOauthProvider enum.
+func (e SetOauthProviderParamsOauthProvider) Valid() bool {
+	switch e {
+	case Azure:
+		return true
+	case Bitbucket:
+		return true
+	case Github:
+		return true
+	case Gitlab:
+		return true
+	case Google:
+		return true
+	case Oidc:
 		return true
 	default:
 		return false
@@ -3115,6 +3235,34 @@ type NotificationRuleCreate struct {
 // NotificationRuleCreateMinSeverity defines model for NotificationRuleCreate.MinSeverity.
 type NotificationRuleCreateMinSeverity string
 
+// OauthProviderConfig Fournisseur OAuth/OIDC du login dashboard (§10.2, amendement n°30). Le client secret n'apparaît jamais ici (INV-003).
+type OauthProviderConfig struct {
+	ClientId string `json:"client_id"`
+
+	// DisplayName Libellé du bouton de login (utile surtout pour `oidc`, ex. « Okta »).
+	DisplayName *string `json:"display_name,omitempty"`
+	Enabled     bool    `json:"enabled"`
+
+	// IssuerUrl Base de découverte OpenID Connect (`oidc` et `azure` uniquement).
+	IssuerUrl *string                     `json:"issuer_url,omitempty"`
+	Provider  OauthProviderConfigProvider `json:"provider"`
+	UpdatedAt *time.Time                  `json:"updated_at,omitempty"`
+}
+
+// OauthProviderConfigProvider defines model for OauthProviderConfig.Provider.
+type OauthProviderConfigProvider string
+
+// OauthProviderSet Remplacement complet de la configuration du fournisseur. Le secret est requis à chaque écriture : il est chiffré au repos et jamais relu par l'API, il n'y a donc rien à « conserver » silencieusement.
+type OauthProviderSet struct {
+	ClientId     string  `json:"client_id"`
+	ClientSecret string  `json:"client_secret"`
+	DisplayName  *string `json:"display_name,omitempty"`
+	Enabled      *bool   `json:"enabled,omitempty"`
+
+	// IssuerUrl Obligatoire pour `oidc` et `azure` (ex. `https://login.microsoftonline.com/{tenant}/v2.0`), refusé pour les fournisseurs à endpoints fixes.
+	IssuerUrl *string `json:"issuer_url,omitempty"`
+}
+
 // ObservedStatus État observé d'une ressource (§21.2) — `unknown` si l'observation est trop ancienne (stale).
 type ObservedStatus string
 
@@ -4055,6 +4203,9 @@ type LastEventId = string
 // Limit defines model for Limit.
 type Limit = int
 
+// OauthProviderName defines model for OauthProviderName.
+type OauthProviderName string
+
 // PrivateKeyUuid defines model for PrivateKeyUuid.
 type PrivateKeyUuid = string
 
@@ -4820,6 +4971,12 @@ type RotateEncryptionParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// DeleteOauthProviderParamsOauthProvider defines parameters for DeleteOauthProvider.
+type DeleteOauthProviderParamsOauthProvider string
+
+// SetOauthProviderParamsOauthProvider defines parameters for SetOauthProvider.
+type SetOauthProviderParamsOauthProvider string
+
 // ListTeamsParams defines parameters for ListTeams.
 type ListTeamsParams struct {
 	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
@@ -5032,6 +5189,9 @@ type UpdateSharedVariableJSONRequestBody = SharedVariableUpdate
 
 // SetTransactionalEmailJSONRequestBody defines body for SetTransactionalEmail for application/json ContentType.
 type SetTransactionalEmailJSONRequestBody = TransactionalEmailSet
+
+// SetOauthProviderJSONRequestBody defines body for SetOauthProvider for application/json ContentType.
+type SetOauthProviderJSONRequestBody = OauthProviderSet
 
 // CreateTeamInvitationJSONRequestBody defines body for CreateTeamInvitation for application/json ContentType.
 type CreateTeamInvitationJSONRequestBody = InvitationCreate
@@ -5655,6 +5815,15 @@ type ServerInterface interface {
 	// Forcer le re-chiffrement vers la version de clé active
 	// (POST /system/encryption/rotate)
 	RotateEncryption(w http.ResponseWriter, r *http.Request, params RotateEncryptionParams)
+	// Fournisseurs OAuth/OIDC configurés pour le login du dashboard
+	// (GET /system/oauth-providers)
+	ListOauthProviders(w http.ResponseWriter, r *http.Request)
+	// Retirer un fournisseur OAuth/OIDC
+	// (DELETE /system/oauth-providers/{oauth_provider})
+	DeleteOauthProvider(w http.ResponseWriter, r *http.Request, oauthProvider DeleteOauthProviderParamsOauthProvider)
+	// Configurer un fournisseur OAuth/OIDC
+	// (PUT /system/oauth-providers/{oauth_provider})
+	SetOauthProvider(w http.ResponseWriter, r *http.Request, oauthProvider SetOauthProviderParamsOauthProvider)
 	// Lister les teams accessibles
 	// (GET /teams)
 	ListTeams(w http.ResponseWriter, r *http.Request, params ListTeamsParams)
@@ -6684,6 +6853,24 @@ func (_ Unimplemented) GetEncryptionStatus(w http.ResponseWriter, r *http.Reques
 // Forcer le re-chiffrement vers la version de clé active
 // (POST /system/encryption/rotate)
 func (_ Unimplemented) RotateEncryption(w http.ResponseWriter, r *http.Request, params RotateEncryptionParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Fournisseurs OAuth/OIDC configurés pour le login du dashboard
+// (GET /system/oauth-providers)
+func (_ Unimplemented) ListOauthProviders(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Retirer un fournisseur OAuth/OIDC
+// (DELETE /system/oauth-providers/{oauth_provider})
+func (_ Unimplemented) DeleteOauthProvider(w http.ResponseWriter, r *http.Request, oauthProvider DeleteOauthProviderParamsOauthProvider) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Configurer un fournisseur OAuth/OIDC
+// (PUT /system/oauth-providers/{oauth_provider})
+func (_ Unimplemented) SetOauthProvider(w http.ResponseWriter, r *http.Request, oauthProvider SetOauthProviderParamsOauthProvider) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -14400,6 +14587,90 @@ func (siw *ServerInterfaceWrapper) RotateEncryption(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// ListOauthProviders operation middleware
+func (siw *ServerInterfaceWrapper) ListOauthProviders(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOauthProviders(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteOauthProvider operation middleware
+func (siw *ServerInterfaceWrapper) DeleteOauthProvider(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "oauth_provider" -------------
+	var oauthProvider DeleteOauthProviderParamsOauthProvider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "oauth_provider", chi.URLParam(r, "oauth_provider"), &oauthProvider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "oauth_provider", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteOauthProvider(w, r, oauthProvider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetOauthProvider operation middleware
+func (siw *ServerInterfaceWrapper) SetOauthProvider(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "oauth_provider" -------------
+	var oauthProvider SetOauthProviderParamsOauthProvider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "oauth_provider", chi.URLParam(r, "oauth_provider"), &oauthProvider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "oauth_provider", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetOauthProvider(w, r, oauthProvider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTeams operation middleware
 func (siw *ServerInterfaceWrapper) ListTeams(w http.ResponseWriter, r *http.Request) {
 
@@ -15766,6 +16037,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/system/encryption/rotate", wrapper.RotateEncryption)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/system/oauth-providers", wrapper.ListOauthProviders)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/system/oauth-providers/{oauth_provider}", wrapper.DeleteOauthProvider)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/system/oauth-providers/{oauth_provider}", wrapper.SetOauthProvider)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams", wrapper.ListTeams)
@@ -31530,6 +31810,247 @@ func (response RotateEncryption429JSONResponse) VisitRotateEncryptionResponse(w 
 	return err
 }
 
+type ListOauthProvidersRequestObject struct {
+}
+
+type ListOauthProvidersResponseObject interface {
+	VisitListOauthProvidersResponse(w http.ResponseWriter) error
+}
+
+type ListOauthProviders200JSONResponse struct {
+	Data []OauthProviderConfig `json:"data"`
+}
+
+func (response ListOauthProviders200JSONResponse) VisitListOauthProvidersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOauthProviders401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListOauthProviders401JSONResponse) VisitListOauthProvidersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOauthProviders403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListOauthProviders403JSONResponse) VisitListOauthProvidersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListOauthProviders429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListOauthProviders429JSONResponse) VisitListOauthProvidersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteOauthProviderRequestObject struct {
+	OauthProvider DeleteOauthProviderParamsOauthProvider `json:"oauth_provider"`
+}
+
+type DeleteOauthProviderResponseObject interface {
+	VisitDeleteOauthProviderResponse(w http.ResponseWriter) error
+}
+
+type DeleteOauthProvider204Response struct {
+}
+
+func (response DeleteOauthProvider204Response) VisitDeleteOauthProviderResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteOauthProvider401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteOauthProvider401JSONResponse) VisitDeleteOauthProviderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteOauthProvider403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteOauthProvider403JSONResponse) VisitDeleteOauthProviderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteOauthProvider404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteOauthProvider404JSONResponse) VisitDeleteOauthProviderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteOauthProvider429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response DeleteOauthProvider429JSONResponse) VisitDeleteOauthProviderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetOauthProviderRequestObject struct {
+	OauthProvider SetOauthProviderParamsOauthProvider `json:"oauth_provider"`
+	Body          *SetOauthProviderJSONRequestBody
+}
+
+type SetOauthProviderResponseObject interface {
+	VisitSetOauthProviderResponse(w http.ResponseWriter) error
+}
+
+type SetOauthProvider200JSONResponse OauthProviderConfig
+
+func (response SetOauthProvider200JSONResponse) VisitSetOauthProviderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetOauthProvider400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetOauthProvider400JSONResponse) VisitSetOauthProviderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetOauthProvider401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SetOauthProvider401JSONResponse) VisitSetOauthProviderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetOauthProvider403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SetOauthProvider403JSONResponse) VisitSetOauthProviderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetOauthProvider422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response SetOauthProvider422JSONResponse) VisitSetOauthProviderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetOauthProvider429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response SetOauthProvider429JSONResponse) VisitSetOauthProviderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTeamsRequestObject struct {
 	Params ListTeamsParams
 }
@@ -33505,6 +34026,15 @@ type StrictServerInterface interface {
 	// Forcer le re-chiffrement vers la version de clé active
 	// (POST /system/encryption/rotate)
 	RotateEncryption(ctx context.Context, request RotateEncryptionRequestObject) (RotateEncryptionResponseObject, error)
+	// Fournisseurs OAuth/OIDC configurés pour le login du dashboard
+	// (GET /system/oauth-providers)
+	ListOauthProviders(ctx context.Context, request ListOauthProvidersRequestObject) (ListOauthProvidersResponseObject, error)
+	// Retirer un fournisseur OAuth/OIDC
+	// (DELETE /system/oauth-providers/{oauth_provider})
+	DeleteOauthProvider(ctx context.Context, request DeleteOauthProviderRequestObject) (DeleteOauthProviderResponseObject, error)
+	// Configurer un fournisseur OAuth/OIDC
+	// (PUT /system/oauth-providers/{oauth_provider})
+	SetOauthProvider(ctx context.Context, request SetOauthProviderRequestObject) (SetOauthProviderResponseObject, error)
 	// Lister les teams accessibles
 	// (GET /teams)
 	ListTeams(ctx context.Context, request ListTeamsRequestObject) (ListTeamsResponseObject, error)
@@ -38213,6 +38743,89 @@ func (sh *strictHandler) RotateEncryption(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RotateEncryptionResponseObject); ok {
 		if err := validResponse.VisitRotateEncryptionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListOauthProviders operation middleware
+func (sh *strictHandler) ListOauthProviders(w http.ResponseWriter, r *http.Request) {
+	var request ListOauthProvidersRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListOauthProviders(ctx, request.(ListOauthProvidersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListOauthProviders")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListOauthProvidersResponseObject); ok {
+		if err := validResponse.VisitListOauthProvidersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteOauthProvider operation middleware
+func (sh *strictHandler) DeleteOauthProvider(w http.ResponseWriter, r *http.Request, oauthProvider DeleteOauthProviderParamsOauthProvider) {
+	var request DeleteOauthProviderRequestObject
+
+	request.OauthProvider = oauthProvider
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteOauthProvider(ctx, request.(DeleteOauthProviderRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteOauthProvider")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteOauthProviderResponseObject); ok {
+		if err := validResponse.VisitDeleteOauthProviderResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetOauthProvider operation middleware
+func (sh *strictHandler) SetOauthProvider(w http.ResponseWriter, r *http.Request, oauthProvider SetOauthProviderParamsOauthProvider) {
+	var request SetOauthProviderRequestObject
+
+	request.OauthProvider = oauthProvider
+
+	var body SetOauthProviderJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetOauthProvider(ctx, request.(SetOauthProviderRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetOauthProvider")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetOauthProviderResponseObject); ok {
+		if err := validResponse.VisitSetOauthProviderResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

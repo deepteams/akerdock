@@ -48,6 +48,11 @@ type Querier interface {
 	// Single-use by construction: the matched hash is removed in the same
 	// statement that accepts it.
 	ConsumeMfaRecoveryCode(ctx context.Context, arg ConsumeMfaRecoveryCodeParams) (int64, error)
+	// DELETE ... RETURNING: the state is single-use by construction — a replayed
+	// callback finds nothing, whatever the caller does. Provider and purpose are
+	// part of the lookup, not hints: a GitHub login state must not complete a
+	// Google callback, nor a login state a link.
+	ConsumeOauthLoginState(ctx context.Context, arg ConsumeOauthLoginStateParams) (OauthLoginState, error)
 	// DELETE ... RETURNING makes the ceremony single-use by construction: two
 	// concurrent finishes cannot both win, whatever the caller does.
 	ConsumePasskeyCeremony(ctx context.Context, arg ConsumePasskeyCeremonyParams) (PasskeyCeremony, error)
@@ -62,6 +67,10 @@ type Querier interface {
 	CountApplicationsUsingPrivateKey(ctx context.Context, privateKeyID *int64) (int64, error)
 	CountAuditEvents(ctx context.Context) (int64, error)
 	CountBackupPlansUsingS3Storage(ctx context.Context, s3StorageID *int64) (int64, error)
+	// How many ways this user can still sign in: a password, federated
+	// identities, passkeys. Unlinking the LAST one would lock the account out
+	// silently — the caller refuses when this reaches one.
+	CountCredentialsForUser(ctx context.Context, id int64) (int32, error)
 	CountDNSCredentialUsage(ctx context.Context, dnsCredentialID *int64) (int64, error)
 	// The concurrency cap (§20.4.3) counts everything that consumes the server.
 	CountLivePreviewsForApplication(ctx context.Context, applicationID int64) (int64, error)
@@ -137,6 +146,7 @@ type Querier interface {
 	CreateGitSource(ctx context.Context, arg CreateGitSourceParams) (GitSource, error)
 	// One git source per converted app: what applications reference (INV-002).
 	CreateGithubAppSource(ctx context.Context, arg CreateGithubAppSourceParams) (GitSource, error)
+	CreateIdentity(ctx context.Context, arg CreateIdentityParams) (Identity, error)
 	// Invitations (§10.1). The link token is hashed like any credential; the
 	// clear value is returned only once, at creation.
 	CreateInvitation(ctx context.Context, arg CreateInvitationParams) (Invitation, error)
@@ -148,6 +158,7 @@ type Querier interface {
 	// ON CONFLICT DO NOTHING: re-reading an outbox event must never notify twice.
 	CreateNotificationDelivery(ctx context.Context, arg CreateNotificationDeliveryParams) (NotificationDelivery, error)
 	CreateNotificationRule(ctx context.Context, arg CreateNotificationRuleParams) (NotificationRule, error)
+	CreateOauthLoginState(ctx context.Context, arg CreateOauthLoginStateParams) error
 	CreatePasskeyCeremony(ctx context.Context, arg CreatePasskeyCeremonyParams) error
 	// Passkeys (WebAuthn) for the dashboard login.
 	CreatePasskeyCredential(ctx context.Context, arg CreatePasskeyCredentialParams) (PasskeyCredential, error)
@@ -199,9 +210,12 @@ type Querier interface {
 	DeleteEnvVar(ctx context.Context, id int64) (int64, error)
 	DeleteEnvVarsNotInKeys(ctx context.Context, arg DeleteEnvVarsNotInKeysParams) error
 	DeleteGithubApp(ctx context.Context, id int64) (int64, error)
+	// Scoped by user: a session must never unlink someone else's identity.
+	DeleteIdentityForUser(ctx context.Context, arg DeleteIdentityForUserParams) (int64, error)
 	DeleteMfaFactorForUser(ctx context.Context, userID int64) (int64, error)
 	DeleteNotificationChannel(ctx context.Context, id int64) (int64, error)
 	DeleteNotificationRule(ctx context.Context, id int64) (int64, error)
+	DeleteOauthProviderConfig(ctx context.Context, provider OauthProvider) (int64, error)
 	// Scoped by user: a session must never be able to delete someone else's key.
 	DeletePasskeyForUser(ctx context.Context, arg DeletePasskeyForUserParams) (int64, error)
 	DeletePrivateKey(ctx context.Context, id int64) (int64, error)
@@ -286,6 +300,7 @@ type Querier interface {
 	// uuid alone resolves the app; the state/signature proves the caller.
 	GetGithubAppByUUIDAny(ctx context.Context, uuid pgtype.UUID) (GithubApp, error)
 	GetHealthCheck(ctx context.Context, resourceID int64) (HealthCheck, error)
+	GetIdentity(ctx context.Context, arg GetIdentityParams) (Identity, error)
 	GetInstancePrivateKey(ctx context.Context) (PrivateKey, error)
 	GetInstanceSettings(ctx context.Context) (InstanceSetting, error)
 	GetJobByIdempotencyKey(ctx context.Context, idempotencyKey *string) (Job, error)
@@ -305,6 +320,7 @@ type Querier interface {
 	// --- dispatcher --------------------------------------------------------------
 	GetNotificationCursor(ctx context.Context) (int64, error)
 	GetNotificationRuleByUUID(ctx context.Context, arg GetNotificationRuleByUUIDParams) (NotificationRule, error)
+	GetOauthProviderConfig(ctx context.Context, provider OauthProvider) (OauthProviderConfig, error)
 	// The localhost server lands in the first team of the instance — the root
 	// user's, by construction (§6.2).
 	GetOldestTeamID(ctx context.Context) (int64, error)
@@ -357,6 +373,10 @@ type Querier interface {
 	GetUptimeCheckByUUID(ctx context.Context, arg GetUptimeCheckByUUIDParams) (UptimeCheck, error)
 	// Browser sessions (PRD §698).
 	GetUserByEmail(ctx context.Context, email string) (User, error)
+	// The collision check of §23.3 must also see soft-deleted accounts: a
+	// tombstoned email must not be resurrectable by whoever registers it at an
+	// identity provider.
+	GetUserByEmailIncludingDeleted(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id int64) (User, error)
 	GetWebhookDeliveryByID(ctx context.Context, id int64) (WebhookDelivery, error)
 	// Resolution at reception: the endpoint carries everything needed to verify
@@ -413,6 +433,8 @@ type Querier interface {
 	// The prober's work list: enabled checks whose window has passed (or was
 	// never seeded). Owned by the scheduler leader — no extra locking needed.
 	ListDueUptimeChecks(ctx context.Context) ([]UptimeCheck, error)
+	// What the sign-in page shows: enabled providers only, and nothing secret.
+	ListEnabledOauthProviderConfigs(ctx context.Context) ([]ListEnabledOauthProviderConfigsRow, error)
 	ListEnvVarsForDeploy(ctx context.Context, resourceID int64) ([]EnvironmentVariable, error)
 	// The production set by default; the dedicated preview set on demand (§5.6):
 	// the platform-generated preview credentials live there, and an operator who
@@ -431,6 +453,7 @@ type Querier interface {
 	// local copy in S3, or the reverse — the two retentions are independent.
 	ListExpiredS3Backups(ctx context.Context, arg ListExpiredS3BackupsParams) ([]ListExpiredS3BackupsRow, error)
 	ListGithubAppsPage(ctx context.Context, arg ListGithubAppsPageParams) ([]GithubApp, error)
+	ListIdentitiesForUser(ctx context.Context, userID int64) ([]Identity, error)
 	ListInvitationsPage(ctx context.Context, arg ListInvitationsPageParams) ([]Invitation, error)
 	ListJobsPage(ctx context.Context, arg ListJobsPageParams) ([]Job, error)
 	// Scan exclusion (INV-015): "managed" means tracked by a live row, not just
@@ -440,6 +463,9 @@ type Querier interface {
 	ListNotificationChannelsPage(ctx context.Context, arg ListNotificationChannelsPageParams) ([]NotificationChannel, error)
 	ListNotificationChannelsToRotate(ctx context.Context, arg ListNotificationChannelsToRotateParams) ([]ListNotificationChannelsToRotateRow, error)
 	ListNotificationRules(ctx context.Context, channelID int64) ([]NotificationRule, error)
+	// OAuth/OIDC dashboard login (PRD §10.2, §23.3): provider credentials,
+	// in-flight login states, and the identities an account is linked to.
+	ListOauthProviderConfigs(ctx context.Context) ([]OauthProviderConfig, error)
 	// Every event, whatever its team: the rules decide who hears about it.
 	ListOutboxEventsAfter(ctx context.Context, arg ListOutboxEventsAfterParams) ([]OutboxEvent, error)
 	ListOutboxEventsForTeamAfter(ctx context.Context, arg ListOutboxEventsForTeamAfterParams) ([]OutboxEvent, error)
@@ -542,6 +568,7 @@ type Querier interface {
 	PinServerHostKey(ctx context.Context, arg PinServerHostKeyParams) error
 	PromoteWaitingJobs(ctx context.Context) (int64, error)
 	PurgeExpiredMfaChallenges(ctx context.Context) (int64, error)
+	PurgeExpiredOauthLoginStates(ctx context.Context) (int64, error)
 	PurgeExpiredPasskeyCeremonies(ctx context.Context) (int64, error)
 	PurgeExpiredSessions(ctx context.Context) (int64, error)
 	PurgeIdempotencyKeys(ctx context.Context) error
@@ -703,6 +730,9 @@ type Querier interface {
 	UpsertCertificate(ctx context.Context, arg UpsertCertificateParams) error
 	// Health checks (§8.8): one row per resource, gate the rolling update.
 	UpsertHealthCheck(ctx context.Context, arg UpsertHealthCheckParams) (HealthCheck, error)
+	// Full replacement, secret included: the API never reads the secret back, so
+	// there is nothing to "keep" on update — the caller re-provides it.
+	UpsertOauthProviderConfig(ctx context.Context, arg UpsertOauthProviderConfigParams) (OauthProviderConfig, error)
 	// PR previews (data-dictionary §8.9, §20.4).
 	// New commit on the same PR reuses the identity — the instance redeploys,
 	// it is never duplicated (§20.4). A destroyed preview row is revived when

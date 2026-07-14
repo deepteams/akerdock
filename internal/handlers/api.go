@@ -37,6 +37,9 @@ type API struct {
 	// sessions are nil or no keyring is available: 2FA guards the dashboard
 	// login, and without sessions there is no dashboard login to guard.
 	MFA *session.TOTP
+	// OAuth is the federated login engine behind /auth/oauth/* (§10.2).
+	// Nil in API-only deployments, like Sessions.
+	OAuth *session.OAuth
 	api.Unimplemented
 
 	Store    *store.Queries
@@ -148,6 +151,16 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 		r.Post("/auth/mfa/totp/confirm", a.ConfirmMFATOTP)
 		r.Delete("/auth/mfa/totp", a.DisableMFATOTP)
 		r.Post("/auth/mfa/recovery-codes", a.RegenerateMFARecoveryCodes)
+
+		// OAuth/OIDC login (§10.2). The start and the callback are the two
+		// endpoints that answer without a credential — behind this limiter
+		// with the rest. The callback is a top-level browser navigation from
+		// the identity provider, hence a GET answering redirects.
+		r.Get("/auth/oauth/providers", a.OauthProviders)
+		r.Post("/auth/oauth/{oauth_provider}/start", a.StartOauth)
+		r.Get("/auth/oauth/{oauth_provider}/callback", a.OauthCallback)
+		r.Get("/auth/identities", a.ListIdentities)
+		r.Delete("/auth/identities/{identity_uuid}", a.DeleteIdentity)
 
 		// The terminal WebSocket (§24.4, ADR-024) — outside the contract like
 		// /auth: authenticated by its single-use attach token, minted by the

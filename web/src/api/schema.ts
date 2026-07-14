@@ -174,6 +174,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/system/oauth-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fournisseurs OAuth/OIDC configurés pour le login du dashboard
+         * @description Fournisseurs d'identité du login dashboard (§10.2, amendement n°30) : OAuth Azure/Bitbucket/GitHub/GitLab/Google et SSO OIDC générique. Le client secret n'est **jamais** renvoyé (INV-003) — seulement le fait qu'un fournisseur est configuré et activé. Le flux de login lui-même vit hors de ce contrat (`/auth/oauth/*`, UI uniquement — §10.2).
+         */
+        get: operations["listOauthProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/system/oauth-providers/{oauth_provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Configurer un fournisseur OAuth/OIDC
+         * @description Remplace la configuration du fournisseur (upsert idempotent). Le client secret suit le secret store (chiffré enveloppe, §23.2) et n'est jamais restitué. `issuer_url` est obligatoire pour `oidc` et `azure` (découverte OpenID Connect) et refusé pour les fournisseurs à endpoints fixes. Validation stricte du flux côté login : issuer, audience, nonce et PKCE (§23.3). Action auditée (§23.4).
+         */
+        put: operations["setOauthProvider"];
+        post?: never;
+        /**
+         * Retirer un fournisseur OAuth/OIDC
+         * @description Retire la configuration : le bouton disparaît de la page de login. Les identités déjà liées sont conservées — elles redeviennent utilisables si le fournisseur est reconfiguré ; les comptes concernés gardent leurs autres credentials (mot de passe, passkey). Audité.
+         */
+        delete: operations["deleteOauthProvider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams": {
         parameters: {
             query?: never;
@@ -3345,6 +3389,29 @@ export interface components {
             updated_at?: string;
             version: number;
         };
+        /** @description Fournisseur OAuth/OIDC du login dashboard (§10.2, amendement n°30). Le client secret n'apparaît jamais ici (INV-003). */
+        OauthProviderConfig: {
+            /** @enum {string} */
+            provider: "github" | "gitlab" | "google" | "azure" | "bitbucket" | "oidc";
+            enabled: boolean;
+            /** @description Libellé du bouton de login (utile surtout pour `oidc`, ex. « Okta »). */
+            display_name?: string | null;
+            client_id: string;
+            /** @description Base de découverte OpenID Connect (`oidc` et `azure` uniquement). */
+            issuer_url?: string | null;
+            /** Format: date-time */
+            readonly updated_at?: string;
+        };
+        /** @description Remplacement complet de la configuration du fournisseur. Le secret est requis à chaque écriture : il est chiffré au repos et jamais relu par l'API, il n'y a donc rien à « conserver » silencieusement. */
+        OauthProviderSet: {
+            /** @default true */
+            enabled: boolean;
+            display_name?: string;
+            client_id: string;
+            client_secret: string;
+            /** @description Obligatoire pour `oidc` et `azure` (ex. `https://login.microsoftonline.com/{tenant}/v2.0`), refusé pour les fournisseurs à endpoints fixes. */
+            issuer_url?: string;
+        };
         TransactionalEmail: {
             readonly configured: boolean;
             /** @enum {string|null} */
@@ -4987,6 +5054,8 @@ export interface components {
         Cursor: string;
         /** @description Nombre maximal d'éléments par page (1 à 100). */
         Limit: number;
+        /** @description Fournisseur d'identité du login dashboard (§10.2). */
+        OauthProviderName: "github" | "gitlab" | "google" | "azure" | "bitbucket" | "oidc";
         /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
         IdempotencyKey: string;
         /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
@@ -5276,6 +5345,88 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listOauthProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Les fournisseurs configurés. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OauthProviderConfig"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    setOauthProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Fournisseur d'identité du login dashboard (§10.2). */
+                oauth_provider: components["parameters"]["OauthProviderName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OauthProviderSet"];
+            };
+        };
+        responses: {
+            /** @description Configuration enregistrée. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OauthProviderConfig"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    deleteOauthProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Fournisseur d'identité du login dashboard (§10.2). */
+                oauth_provider: components["parameters"]["OauthProviderName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fournisseur retiré. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["TooManyRequests"];
         };
     };

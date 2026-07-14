@@ -1,7 +1,15 @@
 import { SlicePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ApiService, MfaStatus, Passkey, TotpSetup } from '../core/api.service';
+import { ActivatedRoute } from '@angular/router';
+import {
+  ApiService,
+  LinkedIdentity,
+  MfaStatus,
+  OauthProviderButton,
+  Passkey,
+  TotpSetup,
+} from '../core/api.service';
 
 /**
  * Account security: passkey enrolment and revocation, and TOTP two-factor
@@ -99,6 +107,60 @@ import { ApiService, MfaStatus, Passkey, TotpSetup } from '../core/api.service';
               }
             </tbody>
           </table>
+        }
+      </section>
+
+      <section class="akd-card">
+        <header class="akd-bar" style="margin-bottom: 0">
+          <h2>Linked accounts</h2>
+        </header>
+        <p class="akd-muted">
+          Sign in with an identity provider instead of the password. Linking is explicit and done
+          from here, signed in — a provider account merely sharing your email never attaches
+          itself.
+        </p>
+
+        @if (identities().length > 0) {
+          <table class="akd-table">
+            <caption class="sr-only">Linked identities</caption>
+            <thead>
+              <tr>
+                <th scope="col">Provider</th>
+                <th scope="col">Email at the provider</th>
+                <th scope="col"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (identity of identities(); track identity.uuid) {
+                <tr>
+                  <td>{{ identity.provider }}</td>
+                  <td class="akd-muted">{{ identity.email ?? '—' }}</td>
+                  <td class="right">
+                    <button
+                      class="akd-btn-danger"
+                      type="button"
+                      [disabled]="busy()"
+                      (click)="unlink(identity)"
+                    >
+                      Unlink
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+
+        @if (linkableProviders().length > 0) {
+          <div class="link-row">
+            @for (p of linkableProviders(); track p.provider) {
+              <button class="akd-btn" type="button" [disabled]="busy()" (click)="link(p.provider)">
+                Link {{ p.name }}
+              </button>
+            }
+          </div>
+        } @else if (identities().length === 0) {
+          <p class="akd-muted">No identity provider is configured on this instance.</p>
         }
       </section>
 
@@ -246,14 +308,22 @@ import { ApiService, MfaStatus, Passkey, TotpSetup } from '../core/api.service';
         gap: var(--akd-space-2);
         font-size: var(--akd-text-sm);
       }
+      .link-row {
+        display: flex;
+        gap: var(--akd-space-2);
+        flex-wrap: wrap;
+      }
     `,
   ],
 })
 export class SecurityComponent {
   private readonly api = inject(ApiService);
+  private readonly route = inject(ActivatedRoute);
 
   protected readonly supported = this.api.passkeysSupported();
   protected readonly passkeys = signal<Passkey[]>([]);
+  protected readonly identities = signal<LinkedIdentity[]>([]);
+  protected readonly oauthButtons = signal<OauthProviderButton[]>([]);
   protected readonly loading = signal(true);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
@@ -270,17 +340,71 @@ export class SecurityComponent {
 
   constructor() {
     void this.load();
+    // The link callback bounces back here with a code: name what happened.
+    const params = this.route.snapshot.queryParamMap;
+    if (params.get('linked')) {
+      // Nothing to do — the reload below already shows the new identity.
+    } else if (params.get('error') === 'identity_taken') {
+      this.error.set('This provider account is already linked to another user.');
+    } else if (params.get('error')) {
+      this.error.set('Linking through the identity provider failed — try again.');
+    }
   }
 
   private async load(): Promise<void> {
     try {
-      const [passkeys, mfa] = await Promise.all([this.api.listPasskeys(), this.api.mfaStatus()]);
+      const [passkeys, mfa, identities, providers] = await Promise.all([
+        this.api.listPasskeys(),
+        this.api.mfaStatus(),
+        this.api.listIdentities(),
+        this.api.oauthProviders(),
+      ]);
       this.passkeys.set(passkeys);
       this.mfa.set(mfa);
+      this.identities.set(identities);
+      this.oauthButtons.set(providers);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  /** Enabled providers the account is NOT yet linked to. */
+  protected linkableProviders(): OauthProviderButton[] {
+    const linked = new Set(this.identities().map((i) => i.provider));
+    return this.oauthButtons().filter((p) => !linked.has(p.provider));
+  }
+
+  protected async link(provider: string): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.startOauth(provider, 'link'); // navigates away on success
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+      this.busy.set(false);
+    }
+  }
+
+  protected async unlink(identity: LinkedIdentity): Promise<void> {
+    if (
+      !confirm(
+        `Unlink ${identity.provider}? Signing in through it will no longer reach this account.`,
+      )
+    ) {
+      return;
+    }
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.deleteIdentity(identity.uuid);
+      this.identities.set(await this.api.listIdentities());
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
     }
   }
 

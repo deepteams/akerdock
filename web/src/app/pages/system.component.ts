@@ -7,6 +7,17 @@ import type { components } from '../../api/schema';
 type TransactionalEmail = components['schemas']['TransactionalEmail'];
 type TransactionalEmailSet = components['schemas']['TransactionalEmailSet'];
 type EncryptionStatus = components['schemas']['EncryptionStatus'];
+type OauthProviderConfig = components['schemas']['OauthProviderConfig'];
+
+/** The six providers of §10.2, in display order. oidc/azure need an issuer. */
+const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = [
+  { key: 'github', label: 'GitHub', needsIssuer: false },
+  { key: 'gitlab', label: 'GitLab', needsIssuer: false },
+  { key: 'google', label: 'Google', needsIssuer: false },
+  { key: 'azure', label: 'Microsoft (Azure AD)', needsIssuer: true },
+  { key: 'bitbucket', label: 'Bitbucket', needsIssuer: false },
+  { key: 'oidc', label: 'Generic OIDC (Okta, Keycloak…)', needsIssuer: true },
+];
 
 @Component({
   selector: 'app-system',
@@ -179,6 +190,106 @@ type EncryptionStatus = components['schemas']['EncryptionStatus'];
       </section>
 
       <section class="akd-card">
+        <h2>Sign-in providers (OAuth/OIDC)</h2>
+        <p class="akd-muted">
+          Let the dashboard sign in through an identity provider. The client secret is write-only:
+          encrypted at rest, never returned. The provider's redirect URL is
+          <code>{{ callbackHint() }}</code
+          >.
+        </p>
+
+        <table class="akd-table">
+          <caption class="sr-only">Configured sign-in providers</caption>
+          <thead>
+            <tr>
+              <th scope="col">Provider</th>
+              <th scope="col">Status</th>
+              <th scope="col">Client ID</th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (p of oauthCatalog; track p.key) {
+              <tr>
+                <td>{{ p.label }}</td>
+                <td class="akd-muted">
+                  @if (oauthConfigOf(p.key); as cfg) {
+                    {{ cfg.enabled ? 'enabled' : 'configured, disabled' }}
+                  } @else {
+                    not configured
+                  }
+                </td>
+                <td class="akd-mono akd-muted">{{ oauthConfigOf(p.key)?.client_id ?? '—' }}</td>
+                <td class="right">
+                  <button class="akd-btn-ghost" type="button" [disabled]="busy()" (click)="editOauth(p.key)">
+                    {{ oauthConfigOf(p.key) ? 'Edit' : 'Configure' }}
+                  </button>
+                  @if (oauthConfigOf(p.key)) {
+                    <button class="akd-btn-danger" type="button" [disabled]="busy()" (click)="removeOauth(p.key)">
+                      Remove
+                    </button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+
+        @if (oauthEditing(); as key) {
+          <form class="form" (ngSubmit)="saveOauth()">
+            <h3>{{ oauthLabel(key) }}</h3>
+            <div class="row">
+              <div class="akd-field">
+                <label for="oa-client-id">Client ID</label>
+                <input id="oa-client-id" name="client_id" class="akd-input" [(ngModel)]="oauthClientId" required />
+              </div>
+              <div class="akd-field">
+                <label for="oa-client-secret">Client secret</label>
+                <input
+                  id="oa-client-secret"
+                  name="client_secret"
+                  type="password"
+                  class="akd-input"
+                  autocomplete="new-password"
+                  [(ngModel)]="oauthClientSecret"
+                  required
+                />
+              </div>
+            </div>
+            @if (oauthNeedsIssuer(key)) {
+              <div class="row">
+                <div class="akd-field">
+                  <label for="oa-issuer">OpenID Connect issuer URL</label>
+                  <input
+                    id="oa-issuer"
+                    name="issuer_url"
+                    class="akd-input"
+                    placeholder="https://your-idp.example.com"
+                    [(ngModel)]="oauthIssuer"
+                    required
+                  />
+                </div>
+                <div class="akd-field">
+                  <label for="oa-name">Button label (optional)</label>
+                  <input id="oa-name" name="display_name" class="akd-input" placeholder="e.g. Okta" [(ngModel)]="oauthDisplayName" />
+                </div>
+              </div>
+            }
+            <label class="akd-muted enabled-toggle">
+              <input type="checkbox" name="enabled" [(ngModel)]="oauthEnabled" />
+              Show on the sign-in page
+            </label>
+            <div class="actions">
+              <button class="akd-btn" type="submit" [disabled]="busy()">Save provider</button>
+              <button class="akd-btn-ghost" type="button" [disabled]="busy()" (click)="oauthEditing.set(null)">
+                Cancel
+              </button>
+            </div>
+          </form>
+        }
+      </section>
+
+      <section class="akd-card">
         <h2>API access</h2>
         @if (apiEnabled(); as state) {
           <p class="akd-muted" role="status">
@@ -229,6 +340,15 @@ type EncryptionStatus = components['schemas']['EncryptionStatus'];
         display: flex;
         gap: var(--akd-space-2);
       }
+      .enabled-toggle {
+        display: flex;
+        align-items: center;
+        gap: var(--akd-space-2);
+        font-size: var(--akd-text-sm);
+      }
+      .right {
+        text-align: right;
+      }
       .col {
         display: block;
       }
@@ -243,6 +363,15 @@ export class SystemComponent {
   protected readonly apiEnabled = signal<'enabled' | 'disabled' | null>(null);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
+
+  protected readonly oauthCatalog = OAUTH_PROVIDERS;
+  protected readonly oauthConfigs = signal<OauthProviderConfig[]>([]);
+  protected readonly oauthEditing = signal<string | null>(null);
+  protected oauthClientId = '';
+  protected oauthClientSecret = '';
+  protected oauthIssuer = '';
+  protected oauthDisplayName = '';
+  protected oauthEnabled = true;
 
   protected emailKind: 'smtp' | 'resend' = 'smtp';
   protected emailFrom = '';
@@ -261,12 +390,14 @@ export class SystemComponent {
   private async load(): Promise<void> {
     const client = this.api.client();
     try {
-      const [email, encryption] = await Promise.all([
+      const [email, encryption, oauth] = await Promise.all([
         client.getTransactionalEmail(),
         client.getEncryptionStatus(),
+        client.listOauthProviders(),
       ]);
       this.email.set(email);
       this.encryption.set(encryption);
+      this.oauthConfigs.set(oauth.data);
       if (email.kind) this.emailKind = email.kind;
       if (email.from) this.emailFrom = email.from;
     } catch (err) {
@@ -342,6 +473,82 @@ export class SystemComponent {
     } finally {
       this.busy.set(false);
     }
+  }
+
+  // --- OAuth/OIDC providers ---------------------------------------------------
+
+  protected oauthConfigOf(key: string): OauthProviderConfig | undefined {
+    return this.oauthConfigs().find((c) => c.provider === key);
+  }
+
+  protected oauthLabel(key: string): string {
+    return OAUTH_PROVIDERS.find((p) => p.key === key)?.label ?? key;
+  }
+
+  protected oauthNeedsIssuer(key: string): boolean {
+    return OAUTH_PROVIDERS.find((p) => p.key === key)?.needsIssuer ?? false;
+  }
+
+  protected callbackHint(): string {
+    return `${window.location.origin}/auth/oauth/{provider}/callback`;
+  }
+
+  protected editOauth(key: string): void {
+    const existing = this.oauthConfigOf(key);
+    this.oauthClientId = existing?.client_id ?? '';
+    this.oauthClientSecret = ''; // write-only: always re-entered
+    this.oauthIssuer = existing?.issuer_url ?? '';
+    this.oauthDisplayName = existing?.display_name ?? '';
+    this.oauthEnabled = existing?.enabled ?? true;
+    this.oauthEditing.set(key);
+  }
+
+  protected async saveOauth(): Promise<void> {
+    const key = this.oauthEditing();
+    if (!key || !this.oauthClientId.trim() || !this.oauthClientSecret) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.client().setOauthProvider(key, {
+        client_id: this.oauthClientId.trim(),
+        client_secret: this.oauthClientSecret,
+        issuer_url: this.oauthNeedsIssuer(key) ? this.oauthIssuer.trim() : undefined,
+        display_name: this.oauthDisplayName.trim() || undefined,
+        enabled: this.oauthEnabled,
+      });
+      this.oauthEditing.set(null);
+      this.oauthClientSecret = '';
+      await this.loadOauth();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async removeOauth(key: string): Promise<void> {
+    if (
+      !confirm(
+        `Remove the ${this.oauthLabel(key)} sign-in? Linked accounts keep their other credentials.`,
+      )
+    ) {
+      return;
+    }
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.client().deleteOauthProvider(key);
+      await this.loadOauth();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  private async loadOauth(): Promise<void> {
+    const res = await this.api.client().listOauthProviders();
+    this.oauthConfigs.set(res.data);
   }
 
   protected async enableApi(): Promise<void> {

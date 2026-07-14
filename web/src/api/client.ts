@@ -402,6 +402,22 @@ export class AkerDockClient {
     return this.request<Response>('PUT', '/system/email', { body });
   }
 
+  listOauthProviders() {
+    type Response =
+      paths['/system/oauth-providers']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', '/system/oauth-providers');
+  }
+
+  setOauthProvider(provider: string, body: components['schemas']['OauthProviderSet']) {
+    type Response =
+      paths['/system/oauth-providers/{oauth_provider}']['put']['responses']['200']['content']['application/json'];
+    return this.request<Response>('PUT', `/system/oauth-providers/${provider}`, { body });
+  }
+
+  deleteOauthProvider(provider: string) {
+    return this.request<void>('DELETE', `/system/oauth-providers/${provider}`);
+  }
+
   getEncryptionStatus() {
     type Response =
       paths['/system/encryption']['get']['responses']['200']['content']['application/json'];

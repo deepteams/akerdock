@@ -1,7 +1,19 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
-import { ApiService } from '../core/api.service';
+import { ActivatedRoute, Router } from '@angular/router';
+import { ApiService, OauthProviderButton } from '../core/api.service';
+
+/** Machine error codes the OAuth callback redirects back with, translated
+ *  for humans. Raw provider output never reaches this page. */
+const OAUTH_ERRORS: Record<string, string> = {
+  provider_refused: 'The identity provider cancelled or refused the sign-in.',
+  state_invalid: 'The sign-in attempt expired — try again.',
+  account_exists:
+    'An account with this email already exists. Sign in with it, then link this provider from the Security page.',
+  registration_disabled: 'Registration is disabled on this instance.',
+  email_unverified: 'The identity provider reported no verified email for this account.',
+  oauth_failed: 'Sign-in through the identity provider failed.',
+};
 
 @Component({
   selector: 'app-sign-in',
@@ -85,10 +97,17 @@ import { ApiService } from '../core/api.service';
             {{ busy() ? 'Signing in…' : 'Sign in' }}
           </button>
 
-          @if (passkeysAvailable) {
+          @if (passkeysAvailable || providers().length > 0) {
             <div class="divider" aria-hidden="true"><span>or</span></div>
+          }
+          @if (passkeysAvailable) {
             <button type="button" class="passkey" [disabled]="busy()" (click)="passkey()">
               Sign in with a passkey
+            </button>
+          }
+          @for (p of providers(); track p.provider) {
+            <button type="button" class="passkey" [disabled]="busy()" (click)="oauth(p.provider)">
+              Continue with {{ p.name }}
             </button>
           }
 
@@ -232,6 +251,7 @@ import { ApiService } from '../core/api.service';
 export class SignInComponent {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   protected email = '';
   protected password = '';
@@ -243,9 +263,29 @@ export class SignInComponent {
   protected readonly challenge = signal<string | null>(null);
   protected readonly useRecovery = signal(false);
   protected readonly passkeysAvailable = this.apiSupportsPasskeys();
+  protected readonly providers = signal<OauthProviderButton[]>([]);
+
+  constructor() {
+    void this.api.oauthProviders().then((p) => this.providers.set(p));
+    // An OAuth callback that could not sign in lands back here with a code.
+    const err = this.route.snapshot.queryParamMap.get('error');
+    if (err) this.error.set(OAUTH_ERRORS[err] ?? OAUTH_ERRORS['oauth_failed']);
+  }
 
   private apiSupportsPasskeys(): boolean {
     return this.api.passkeysSupported();
+  }
+
+  protected async oauth(provider: string): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.startOauth(provider); // navigates away on success
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+      this.busy.set(false);
+    }
   }
 
   protected async passkey(): Promise<void> {

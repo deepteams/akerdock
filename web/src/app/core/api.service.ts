@@ -47,6 +47,20 @@ export interface TotpSetup {
   otpauth_uri: string;
 }
 
+/** One sign-in button: the provider key and its display label. */
+export interface OauthProviderButton {
+  provider: string;
+  name: string;
+}
+
+/** A federated identity linked to the account (security page). */
+export interface LinkedIdentity {
+  uuid: string;
+  provider: string;
+  email: string | null;
+  created_at?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly user = signal<CurrentUser | null>(null);
@@ -248,6 +262,44 @@ export class ApiService {
 
   async deletePasskey(uuid: string): Promise<void> {
     const res = await fetch(`/auth/passkeys/${encodeURIComponent(uuid)}`, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      headers: this.csrf() ? { 'X-CSRF-Token': this.csrf()! } : {},
+    });
+    if (!res.ok && res.status !== 204) throw await this.authError(res);
+  }
+
+  /** The OAuth/OIDC providers the sign-in page can offer. Anonymous. */
+  async oauthProviders(): Promise<OauthProviderButton[]> {
+    const res = await fetch('/auth/oauth/providers', { credentials: 'same-origin' });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { data: OauthProviderButton[] };
+    return body.data;
+  }
+
+  /**
+   * Starts an OAuth round-trip and NAVIGATES AWAY: the server mints the
+   * state and answers the provider's authorize URL; the browser leaves for
+   * the IdP and comes back on /auth/oauth/{provider}/callback — signed in,
+   * or on /sign-in with an error code.
+   */
+  async startOauth(provider: string, purpose: 'login' | 'link' = 'login'): Promise<void> {
+    const path =
+      `/auth/oauth/${encodeURIComponent(provider)}/start` +
+      (purpose === 'link' ? '?purpose=link' : '');
+    const body = await this.authPost<{ url: string }>(path, {});
+    window.location.href = body.url;
+  }
+
+  async listIdentities(): Promise<LinkedIdentity[]> {
+    const res = await fetch('/auth/identities', { credentials: 'same-origin' });
+    if (!res.ok) throw await this.authError(res);
+    const body = (await res.json()) as { data: LinkedIdentity[] };
+    return body.data;
+  }
+
+  async deleteIdentity(uuid: string): Promise<void> {
+    const res = await fetch(`/auth/identities/${encodeURIComponent(uuid)}`, {
       method: 'DELETE',
       credentials: 'same-origin',
       headers: this.csrf() ? { 'X-CSRF-Token': this.csrf()! } : {},

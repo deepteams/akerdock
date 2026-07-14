@@ -385,6 +385,100 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /system/oauth-providers:
+    get:
+      tags: [System]
+      operationId: listOauthProviders
+      summary: Fournisseurs OAuth/OIDC configurés pour le login du dashboard
+      description: >-
+        Fournisseurs d'identité du login dashboard (§10.2, amendement n°30) :
+        OAuth Azure/Bitbucket/GitHub/GitLab/Google et SSO OIDC générique. Le
+        client secret n'est **jamais** renvoyé (INV-003) — seulement le fait
+        qu'un fournisseur est configuré et activé. Le flux de login lui-même
+        vit hors de ce contrat (`/auth/oauth/*`, UI uniquement — §10.2).
+      x-required-permission: root
+      responses:
+        "200":
+          description: Les fournisseurs configurés.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/OauthProviderConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /system/oauth-providers/{oauth_provider}:
+    put:
+      tags: [System]
+      operationId: setOauthProvider
+      summary: Configurer un fournisseur OAuth/OIDC
+      description: >-
+        Remplace la configuration du fournisseur (upsert idempotent). Le
+        client secret suit le secret store (chiffré enveloppe, §23.2) et
+        n'est jamais restitué. `issuer_url` est obligatoire pour `oidc` et
+        `azure` (découverte OpenID Connect) et refusé pour les fournisseurs
+        à endpoints fixes. Validation stricte du flux côté login : issuer,
+        audience, nonce et PKCE (§23.3). Action auditée (§23.4).
+      x-required-permission: root
+      parameters:
+        - $ref: "#/components/parameters/OauthProviderName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OauthProviderSet"
+      responses:
+        "200":
+          description: Configuration enregistrée.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OauthProviderConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    delete:
+      tags: [System]
+      operationId: deleteOauthProvider
+      summary: Retirer un fournisseur OAuth/OIDC
+      description: >-
+        Retire la configuration : le bouton disparaît de la page de login.
+        Les identités déjà liées sont conservées — elles redeviennent
+        utilisables si le fournisseur est reconfiguré ; les comptes concernés
+        gardent leurs autres credentials (mot de passe, passkey). Audité.
+      x-required-permission: root
+      parameters:
+        - $ref: "#/components/parameters/OauthProviderName"
+      responses:
+        "204":
+          description: Fournisseur retiré.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   # ---------------------------------------------------------------------------
   # Teams
   # ---------------------------------------------------------------------------
@@ -6271,6 +6365,14 @@ components:
         minimum: 1
         maximum: 100
         default: 25
+    OauthProviderName:
+      name: oauth_provider
+      in: path
+      required: true
+      description: Fournisseur d'identité du login dashboard (§10.2).
+      schema:
+        type: string
+        enum: [github, gitlab, google, azure, bitbucket, oidc]
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -7716,6 +7818,58 @@ components:
         version:
           type: integer
 
+    OauthProviderConfig:
+      type: object
+      description: >-
+        Fournisseur OAuth/OIDC du login dashboard (§10.2, amendement n°30).
+        Le client secret n'apparaît jamais ici (INV-003).
+      required: [provider, enabled, client_id]
+      properties:
+        provider:
+          type: string
+          enum: [github, gitlab, google, azure, bitbucket, oidc]
+        enabled:
+          type: boolean
+        display_name:
+          type: string
+          nullable: true
+          description: Libellé du bouton de login (utile surtout pour `oidc`, ex. « Okta »).
+        client_id:
+          type: string
+        issuer_url:
+          type: string
+          nullable: true
+          description: Base de découverte OpenID Connect (`oidc` et `azure` uniquement).
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    OauthProviderSet:
+      type: object
+      description: >-
+        Remplacement complet de la configuration du fournisseur. Le secret
+        est requis à chaque écriture : il est chiffré au repos et jamais
+        relu par l'API, il n'y a donc rien à « conserver » silencieusement.
+      required: [client_id, client_secret]
+      properties:
+        enabled:
+          type: boolean
+          default: true
+        display_name:
+          type: string
+          maxLength: 64
+        client_id:
+          type: string
+          minLength: 1
+        client_secret:
+          type: string
+          minLength: 1
+        issuer_url:
+          type: string
+          description: >-
+            Obligatoire pour `oidc` et `azure` (ex.
+            `https://login.microsoftonline.com/{tenant}/v2.0`), refusé pour
+            les fournisseurs à endpoints fixes.
     TransactionalEmail:
       type: object
       required: [configured]

@@ -2575,6 +2575,31 @@ type NotificationRule struct {
 	LastDigestAt          pgtype.Timestamptz
 }
 
+type OauthLoginState struct {
+	ID           int64
+	StateHash    string
+	Provider     OauthProvider
+	Purpose      string
+	UserID       *int64
+	PkceVerifier string
+	Nonce        string
+	CreatedAt    pgtype.Timestamptz
+	ExpiresAt    pgtype.Timestamptz
+}
+
+type OauthProviderConfig struct {
+	ID              int64
+	Uuid            pgtype.UUID
+	Provider        OauthProvider
+	DisplayName     *string
+	ClientID        string
+	ClientSecretEnc []byte
+	IssuerUrl       *string
+	Enabled         bool
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
 type OutboxEvent struct {
 	ID              int64
 	Uuid            pgtype.UUID
