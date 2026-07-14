@@ -181,6 +181,8 @@ start_akerdock() { # start_akerdock — boots the instance with the full environ
   AKERDOCK_ACME_EMAIL="ops@akerdock.test" \
   AKERDOCK_SCHEDULER_TICK=2s \
   AKERDOCK_RETRY_BASE=1s \
+  AKERDOCK_TERMINAL_IDLE_TIMEOUT=8s \
+  AKERDOCK_TERMINAL_MAX_DURATION=2m \
   OTEL_EXPORTER_OTLP_ENDPOINT="http://127.0.0.1:${OTLP_PORT}" \
   OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
   OTEL_SERVICE_NAME=akerdock-e2e \

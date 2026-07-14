@@ -6,6 +6,7 @@ package handlers
 import (
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -42,6 +43,11 @@ type API struct {
 	Events   *events.Broker
 	Version  string
 	Logger   *slog.Logger
+
+	// Terminal session bounds (§24.4) — AKERDOCK_TERMINAL_IDLE_TIMEOUT and
+	// AKERDOCK_TERMINAL_MAX_DURATION; zero falls back to the defaults.
+	TerminalIdleTimeout time.Duration
+	TerminalMaxDuration time.Duration
 }
 
 // recordAudit appends to the audit trail (§23.4); failures are logged by
@@ -122,6 +128,17 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 		r.Delete("/auth/passkeys/{passkey_uuid}", a.DeletePasskey)
 		r.Post("/auth/passkey/login/begin", a.BeginPasskeyLogin)
 		r.Post("/auth/passkey/login/finish", a.FinishPasskeyLogin)
+
+		// Step-up re-authentication (rbac-matrix §5): a session proving it
+		// still holds its passkey before a sensitive action.
+		r.Post("/auth/passkey/stepup/begin", a.BeginPasskeyStepUp)
+		r.Post("/auth/passkey/stepup/finish", a.FinishPasskeyStepUp)
+
+		// The terminal WebSocket (§24.4, ADR-024) — outside the contract like
+		// /auth: authenticated by its single-use attach token, minted by the
+		// POST .../terminal-sessions operations. Behind the same per-IP
+		// limiter: this endpoint too answers without a bearer credential.
+		r.Get("/terminal/ws", a.TerminalWebSocket)
 	})
 
 	return api.HandlerWithOptions(a, api.ChiServerOptions{

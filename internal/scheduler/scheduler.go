@@ -20,6 +20,7 @@ import (
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
+	"github.com/deepteams/akerdock/internal/terminal"
 )
 
 // lockID identifies the scheduler election lock among advisory locks.
@@ -39,6 +40,11 @@ type Scheduler struct {
 	Audit      *audit.Recorder
 	Dispatcher *notify.Dispatcher
 	Logger     *slog.Logger
+	// TerminalMaxDuration bounds the crash-net sweep of terminal sessions
+	// (§24.4): a session row still open past this ceiling can only be a
+	// control-plane restart — sessions live in-process. Zero falls back to
+	// the default.
+	TerminalMaxDuration time.Duration
 }
 
 // Run elects a leader and runs the maintenance loop until ctx is cancelled.
@@ -160,6 +166,22 @@ func (s *Scheduler) purgeRetention(ctx context.Context) {
 		s.Logger.Warn("webhook delivery purge failed", "error", err)
 	} else if n > 0 {
 		s.Logger.Info("purged webhook deliveries", "count", n)
+	}
+	// Terminal sessions: sweep rows orphaned by a control-plane crash (the
+	// sessions themselves live in-process), then purge the ended history.
+	maxDuration := s.TerminalMaxDuration
+	if maxDuration <= 0 {
+		maxDuration = terminal.DefaultMaxDuration
+	}
+	if n, err := s.Store.SweepTerminalSessions(ctx, int32(maxDuration.Seconds())); err != nil {
+		s.Logger.Warn("terminal session sweep failed", "error", err)
+	} else if n > 0 {
+		s.Logger.Info("swept orphaned terminal sessions", "count", n)
+	}
+	if n, err := s.Store.PurgeTerminalSessions(ctx, jobRetentionDays); err != nil {
+		s.Logger.Warn("terminal session purge failed", "error", err)
+	} else if n > 0 {
+		s.Logger.Info("purged terminal sessions", "count", n)
 	}
 }
 

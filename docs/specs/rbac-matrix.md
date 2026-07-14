@@ -404,7 +404,7 @@ perms_effectives(token) = perms_token(token)  ∩  perms_RBAC(créateur, rééva
 
 | Action | Permission requise | Contrôle supplémentaire | Réf. |
 |---|---|---|---|
-| Ouvrir un terminal **root** | `terminal:root` | Step-up (re-auth/MFA) + audit ouverture/fermeture + idle/kill | §24.4, §23.4, §10.4 |
+| Ouvrir un terminal **root** (shell serveur) | `terminal:root` | Step-up : **ré-authentification par passkey** récente pour une session navigateur (`403 stepup_required` sinon), permission `root` pour un token API — un token ne peut pas se ré-authentifier. Plus audit ouverture/fermeture + idle/kill | §24.4, §23.4, §10.4 |
 | **Restore sur une base non vide** | `backups:restore` | Confirmation renforcée explicite + test de format préalable + journal complet | §20.5, §22.5 |
 | Suppression **avec volumes/données** | `applications:delete` / `databases:delete` / `services:manage` | Prévisualisation des objets affectés + question distincte « conserver les volumes ? » + confirmation | §20.6, §22.5, INV-008 |
 | **Rotation de CA** de bases | `servers:proxy` | Confirmation renforcée + audit | §6.3, §22.5, §23.4 |

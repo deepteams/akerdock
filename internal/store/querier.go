@@ -19,6 +19,11 @@ type Querier interface {
 	// Inserts the key, or returns the existing row when the key was already
 	// used: the caller compares the request hash and replays the response.
 	ClaimIdempotencyKey(ctx context.Context, arg ClaimIdempotencyKeyParams) (ClaimIdempotencyKeyRow, error)
+	// Single-use attach: the WHERE consumes the token atomically — a replayed
+	// token matches zero rows, whatever the race. started_at is reset at claim
+	// time so idle/max-duration windows measure the live session, not the gap
+	// between issuance and attach.
+	ClaimTerminalSession(ctx context.Context, tokenHash string) (TerminalSession, error)
 	// Outbox publisher (§18.2, §24.2): events are published in commit order.
 	ClaimUnpublishedOutboxEvents(ctx context.Context, limit int32) ([]OutboxEvent, error)
 	ClearFailedLogins(ctx context.Context, id int64) error
@@ -43,6 +48,9 @@ type Querier interface {
 	CountDNSCredentialUsage(ctx context.Context, dnsCredentialID *int64) (int64, error)
 	// The concurrency cap (§20.4.3) counts everything that consumes the server.
 	CountLivePreviewsForApplication(ctx context.Context, applicationID int64) (int64, error)
+	// Live sessions plus still-claimable tokens: both hold a slot of the per-team
+	// cap, otherwise issuing tokens in a burst would bypass it.
+	CountOpenTerminalSessions(ctx context.Context, teamID int64) (int64, error)
 	// A credential still referenced by a build config or by a rollback artifact
 	// cannot be deleted: the deployment that depends on it would stop being able
 	// to pull its own image (§19.2).
@@ -150,6 +158,8 @@ type Querier interface {
 	// Persistent storages (§8).
 	CreateStorage(ctx context.Context, arg CreateStorageParams) (PersistentStorage, error)
 	CreateTaskExecution(ctx context.Context, arg CreateTaskExecutionParams) (TaskExecution, error)
+	// Web terminal sessions (PRD §5.7/§24.4, ADR-024, data-dictionary §10.6).
+	CreateTerminalSession(ctx context.Context, arg CreateTerminalSessionParams) (TerminalSession, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	// ON CONFLICT DO NOTHING: a redelivery keeps the provider's delivery id, so the
 	// unique constraint absorbs it — no second row, no second deployment.
@@ -176,6 +186,9 @@ type Querier interface {
 	// Envelope-encryption inventory (ADR-003, data-dictionary §12). The first
 	// 4 bytes of every *_enc column carry the key version that encrypted it.
 	EncryptionKeyVersionHistogram(ctx context.Context) ([]EncryptionKeyVersionHistogramRow, error)
+	// Idempotent: only the first close wins, so end_reason keeps the true cause
+	// when the WS teardown and a timeout race each other.
+	EndTerminalSession(ctx context.Context, arg EndTerminalSessionParams) (int64, error)
 	// Durable job queue (ADR-002, §21.3). Dequeue uses FOR UPDATE SKIP LOCKED
 	// on the partial index of eligible jobs; lock_key exclusivity is enforced
 	// both here (NOT EXISTS) and by the partial unique index as the net.
@@ -463,6 +476,7 @@ type Querier interface {
 	// Retention (§19.2, §22.2): terminal jobs are purged; dead_letter rows are
 	// kept until an operator retries or forgets them.
 	PurgeTerminalJobs(ctx context.Context, retentionDays int32) (int64, error)
+	PurgeTerminalSessions(ctx context.Context, retentionDays int32) (int64, error)
 	// Retention bounds the dedup window: purging too aggressively would reopen the
 	// replay window (INV-009), hence 30 days minimum.
 	PurgeWebhookDeliveries(ctx context.Context) (int64, error)
@@ -541,6 +555,9 @@ type Querier interface {
 	SetServerCA(ctx context.Context, arg SetServerCAParams) error
 	SetServerStatus(ctx context.Context, arg SetServerStatusParams) error
 	SetServiceComponentObserved(ctx context.Context, arg SetServiceComponentObservedParams) error
+	// Passkey step-up (rbac-matrix §5): stamps the browser session; freshness is
+	// judged by the caller against the step-up window.
+	SetSessionMfaVerified(ctx context.Context, id int64) error
 	SetTransactionalEmailConfig(ctx context.Context, transactionalEmailConfigEnc []byte) error
 	SoftDeleteBackupPlan(ctx context.Context, id int64) (int64, error)
 	SoftDeleteDNSCredential(ctx context.Context, id int64) (int64, error)
@@ -556,6 +573,10 @@ type Querier interface {
 	// is superseded by a newer one; an already leased/running deployment is
 	// never coalesced.
 	SupersedeQueuedDeployments(ctx context.Context, arg SupersedeQueuedDeploymentsParams) ([]int64, error)
+	// Crash net: sessions live in-process, so a row left open past any possible
+	// lifetime is a control-plane restart, not a session. Unclaimed expired
+	// tokens are closed as revoked.
+	SweepTerminalSessions(ctx context.Context, maxDurationSeconds int32) (int64, error)
 	TagResource(ctx context.Context, arg TagResourceParams) error
 	TouchApiTokenLastUsed(ctx context.Context, id int64) error
 	TouchSession(ctx context.Context, id int64) error

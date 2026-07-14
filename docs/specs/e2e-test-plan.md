@@ -260,8 +260,8 @@ Couvre chaque cas d'erreur d'acceptation du §20.1 (chacun « une erreur distinc
 
 | ID | Préconditions | Étapes | Assertions | INV |
 |---|---|---|---|---|
-| **E2E-TERM-01** (session terminal auditée) | Container en cours, rôle autorisé | Ouvrir terminal WS → commande → fermer | PTY via WS→SSH ; resize/heartbeat ; idle timeout et durée max appliqués ; kill garanti à la déconnexion ; ouverture/fermeture auditées ; frappes non enregistrées | INV-002 |
-| **E2E-TERM-02** (borné à la team active) | Container de team A | Utilisateur de B tente le terminal | Refusé | INV-002 |
+| **E2E-TERM-01** (session terminal auditée) | Container en cours, rôle autorisé | Ouvrir terminal WS → commande → fermer | PTY via WS→SSH (`tty` répond `/dev/pts/…`) ; resize/heartbeat ; idle timeout et durée max appliqués ; kill garanti à la déconnexion (socket arraché ⇒ session close côté serveur) ; token d'attache **mono-usage** (rejeu et token forgé → `401`) ; ouverture/fermeture auditées avec la raison ; frappes non enregistrées | INV-002 |
+| **E2E-TERM-02** (borné à la team active) | Container de team A | Utilisateur de B tente le terminal | Refusé en `404` (jamais `403` : l'existence ne fuit pas) ; token `read` → `403` ; shell **serveur** sans `root` → `403` (terminal root, rbac §5) | INV-002 |
 | **E2E-NOTIF-01** (débounce/flapping) | Serveur qui « flappe » (reachable/unreachable en rafale) | Provoquer 20 transitions | Agrégation/débounce : pas 20 alertes ; résumé différé ; heures calmes respectées | — |
 | **E2E-NOTIF-02** (routage par sévérité) | Règles par projet/env/sévérité | Émettre événements | Routage vers les bons canaux (Discord/Slack/email via mock SMTP) | — |
 | **E2E-CMP-01** (zero-downtime service compose) | Stack compose avec service web | Redéployer | Bascule par service derrière le proxy sans perte (sonde) ; réseau isolé par UUID | INV-005 |

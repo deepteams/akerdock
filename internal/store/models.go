@@ -1656,6 +1656,93 @@ func (ns NullTeamRole) Value() (driver.Value, error) {
 	return string(ns.TeamRole), nil
 }
 
+type TerminalEndReason string
+
+const (
+	TerminalEndReasonUserClose   TerminalEndReason = "user_close"
+	TerminalEndReasonIdleTimeout TerminalEndReason = "idle_timeout"
+	TerminalEndReasonMaxDuration TerminalEndReason = "max_duration"
+	TerminalEndReasonDisconnect  TerminalEndReason = "disconnect"
+	TerminalEndReasonRevoked     TerminalEndReason = "revoked"
+)
+
+func (e *TerminalEndReason) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TerminalEndReason(s)
+	case string:
+		*e = TerminalEndReason(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TerminalEndReason: %T", src)
+	}
+	return nil
+}
+
+type NullTerminalEndReason struct {
+	TerminalEndReason TerminalEndReason
+	Valid             bool // Valid is true if TerminalEndReason is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTerminalEndReason) Scan(value interface{}) error {
+	if value == nil {
+		ns.TerminalEndReason, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TerminalEndReason.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTerminalEndReason) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TerminalEndReason), nil
+}
+
+type TerminalTarget string
+
+const (
+	TerminalTargetServer    TerminalTarget = "server"
+	TerminalTargetContainer TerminalTarget = "container"
+)
+
+func (e *TerminalTarget) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TerminalTarget(s)
+	case string:
+		*e = TerminalTarget(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TerminalTarget: %T", src)
+	}
+	return nil
+}
+
+type NullTerminalTarget struct {
+	TerminalTarget TerminalTarget
+	Valid          bool // Valid is true if TerminalTarget is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTerminalTarget) Scan(value interface{}) error {
+	if value == nil {
+		ns.TerminalTarget, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TerminalTarget.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTerminalTarget) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TerminalTarget), nil
+}
+
 type WebhookDeliveryStatus string
 
 const (
@@ -2694,6 +2781,25 @@ type TeamMembership struct {
 	Role      TeamRole
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
+}
+
+type TerminalSession struct {
+	ID             int64
+	Uuid           pgtype.UUID
+	TeamID         int64
+	UserID         *int64
+	TargetKind     TerminalTarget
+	ServerID       *int64
+	ResourceID     *int64
+	TargetName     string
+	ClientIp       *netip.Addr
+	TokenHash      string
+	TokenExpiresAt pgtype.Timestamptz
+	ClaimedAt      pgtype.Timestamptz
+	StartedAt      pgtype.Timestamptz
+	EndedAt        pgtype.Timestamptz
+	EndReason      *TerminalEndReason
+	CreatedAt      pgtype.Timestamptz
 }
 
 type User struct {

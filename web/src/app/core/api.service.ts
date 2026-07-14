@@ -119,6 +119,27 @@ export class ApiService {
     await this.restore();
   }
 
+  /**
+   * Passkey step-up (rbac-matrix §5): proves the signed-in user still holds
+   * their passkey before a sensitive action — today, opening a server
+   * terminal. Stamps the session server-side for a few minutes.
+   */
+  async stepUpWithPasskey(): Promise<void> {
+    const begin = await this.authPost<{ ceremony: string; options: never }>(
+      '/auth/passkey/stepup/begin',
+      {},
+    );
+    const credential = (await navigator.credentials.get(
+      toRequestOptions(begin.options),
+    )) as PublicKeyCredential | null;
+    if (!credential) throw new Error('Passkey step-up was cancelled');
+
+    await this.authPost('/auth/passkey/stepup/finish', {
+      ceremony: begin.ceremony,
+      credential: credentialToJSON(credential),
+    });
+  }
+
   /** Enrols a new passkey for the signed-in user. */
   async registerPasskey(name: string): Promise<Passkey> {
     const begin = await this.authPost<{ ceremony: string; options: never }>(

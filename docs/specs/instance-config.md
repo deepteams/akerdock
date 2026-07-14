@@ -55,6 +55,8 @@ Tout le reste a un défaut sûr et documenté. Corollaires : aucun défaut ne pe
 | `AKERDOCK_DATA_DIR` | non | `/data/akerdock` | Répertoire de données du processus (§5.2). Dans la distribution compose : volume nommé `akerdock_data`. Créé au démarrage s'il n'existe pas ; non inscriptible = erreur fatale. | non |
 | `AKERDOCK_WORKER_CONCURRENCY` | non | `10` | Nombre maximal de jobs exécutés en parallèle **par processus** en mode `worker` ou `all-in-one` (entier ≥ 1). Défaut calibré sur le gabarit minimal 2 vCPU / 2 GB (§14.1 PRD) ; les plafonds par serveur et par team (§22.2 PRD) s'appliquent en plus, côté queue. | non |
 | `AKERDOCK_SHUTDOWN_TIMEOUT` | non | `30s` | Délai de drain à l'arrêt gracieux (§6.5) : durée Go (`30s`, `2m`). Doit rester inférieur au `stop_grace_period` du compose (40 s, §4) et à l'expiration de lease des jobs (90 s, deployment-engine §2.5). | non |
+| `AKERDOCK_TERMINAL_IDLE_TIMEOUT` | non | `15m` | Inactivité (aucune frappe) au-delà de laquelle une session terminal web est fermée (§24.4 PRD, ADR-024) : durée Go. La sortie du terminal ne compte pas comme activité — un spinner ne maintient pas un shell root oublié. | non |
+| `AKERDOCK_TERMINAL_MAX_DURATION` | non | `4h` | Durée maximum d'une session terminal web, quelle que soit l'activité (§24.4 PRD) : durée Go. La fermeture est garantie (kill du PTY distant) et journalisée avec sa raison. | non |
 | `AKERDOCK_CONFIG_FILE` | non | — | Chemin d'un fichier de configuration YAML optionnel (§1.1). Fichier illisible ou invalide = erreur fatale. | non |
 
 ¹ Exactement une des deux sources de clé maître doit être fournie. Les deux à la fois = erreur fatale (ambigu) ; aucune = erreur fatale (§6.4).

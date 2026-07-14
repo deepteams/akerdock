@@ -10,6 +10,8 @@ import {
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
+import { TerminalComponent } from '../../ui/terminal/terminal.component';
+import type { TerminalSessionInfo } from '../../ui/terminal/protocol';
 import { ApiService } from '../core/api.service';
 import { ApiError } from '../../api/client';
 import type { components } from '../../api/schema';
@@ -23,7 +25,7 @@ type LogLine = components['schemas']['LogLine'];
 @Component({
   selector: 'app-server-detail',
   standalone: true,
-  imports: [FormsModule, RouterLink, StatusBadgeComponent],
+  imports: [FormsModule, RouterLink, StatusBadgeComponent, TerminalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
@@ -249,6 +251,14 @@ type LogLine = components['schemas']['LogLine'];
               </button>
             </div>
           }
+        </section>
+
+        <section class="akd-card section">
+          <akd-terminal
+            title="Server shell"
+            hint="Opens a root shell on this server over SSH — the blast radius is the whole machine, every application and every database on it. Re-authentication with a passkey is required, and the session is audited."
+            [open]="openTerminal"
+          />
         </section>
 
         <section class="akd-card section">
@@ -501,6 +511,27 @@ export class ServerDetailComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly notice = signal<string | null>(null);
   protected readonly busy = signal(false);
+
+  /**
+   * Opens a server shell — a root terminal, so the server demands a fresh
+   * passkey re-authentication (rbac-matrix §5). Rather than asking for it up
+   * front, we let the API say when it is needed (`stepup_required`), do the
+   * ceremony, and retry once: the step-up is then never demanded when the
+   * session is already fresh enough.
+   */
+  protected readonly openTerminal = async (): Promise<TerminalSessionInfo> => {
+    try {
+      return (await this.api
+        .client()
+        .createServerTerminalSession(this.uuid())) as unknown as TerminalSessionInfo;
+    } catch (err) {
+      if (!(err instanceof ApiError) || err.code !== 'stepup_required') throw err;
+      await this.api.stepUpWithPasskey();
+      return (await this.api
+        .client()
+        .createServerTerminalSession(this.uuid())) as unknown as TerminalSessionInfo;
+    }
+  };
 
   protected name = '';
   protected description = '';

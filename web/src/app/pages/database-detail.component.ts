@@ -10,6 +10,8 @@ import {
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
+import { TerminalComponent } from '../../ui/terminal/terminal.component';
+import type { TerminalSessionInfo } from '../../ui/terminal/protocol';
 import { ApiService } from '../core/api.service';
 import { ApiError } from '../../api/client';
 import type { components } from '../../api/schema';
@@ -23,7 +25,7 @@ type S3Storage = components['schemas']['S3Storage'];
 @Component({
   selector: 'app-database-detail',
   standalone: true,
-  imports: [FormsModule, RouterLink, StatusBadgeComponent],
+  imports: [FormsModule, RouterLink, StatusBadgeComponent, TerminalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
@@ -393,6 +395,14 @@ type S3Storage = components['schemas']['S3Storage'];
           }
         </section>
 
+        <section class="akd-card section">
+          <akd-terminal
+            title="Database shell"
+            hint="Opens a shell in the database container — psql is available there. Commands you run touch live data."
+            [open]="openTerminal"
+          />
+        </section>
+
         <section class="akd-card section danger-zone">
           <header class="akd-bar" style="margin-bottom: 0">
             <h2>Delete this database</h2>
@@ -484,6 +494,12 @@ export class DatabaseDetailComponent {
 
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+
+  /** Shell in the database container (§5.7) — psql lives there. */
+  protected readonly openTerminal = async (): Promise<TerminalSessionInfo> =>
+    (await this.api
+      .client()
+      .createDatabaseTerminalSession(this.uuid())) as unknown as TerminalSessionInfo;
 
   protected readonly database = signal<Database | null>(null);
   protected readonly plans = signal<BackupPlan[]>([]);

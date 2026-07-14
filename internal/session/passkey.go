@@ -47,6 +47,9 @@ const CeremonyLifetime = 5 * time.Minute
 const (
 	purposeRegistration = "registration"
 	purposeLogin        = "login"
+	// purposeStepUp is the re-authentication ceremony of rbac-matrix §5: a
+	// separate purpose so a login ceremony can never be redeemed as a step-up.
+	purposeStepUp = "stepup"
 )
 
 var (
@@ -244,10 +247,57 @@ func (p *Passkeys) FinishLogin(ctx context.Context, r *http.Request, ceremonyTok
 	if err != nil {
 		return nil, "", err
 	}
-
-	parsed, err := protocol.ParseCredentialRequestResponseBytes(response)
+	owner, err := p.verifyAssertion(ctx, sess, response)
+	if err != nil {
+		return nil, "", err
+	}
+	user, err := p.Store.GetUserByID(ctx, owner.UserID)
 	if err != nil {
 		return nil, "", ErrPasskeyRejected
+	}
+	return p.Sessions.Open(ctx, r, user)
+}
+
+// BeginStepUp starts a re-authentication ceremony (rbac-matrix §5) for an
+// already-authenticated user: same discoverable assertion as a login, stored
+// under its own purpose.
+func (p *Passkeys) BeginStepUp(ctx context.Context) (*protocol.CredentialAssertion, string, error) {
+	assertion, sess, err := p.WA.BeginDiscoverableLogin(
+		webauthn.WithUserVerification(protocol.VerificationRequired),
+	)
+	if err != nil {
+		return nil, "", err
+	}
+	token, err := p.storeCeremony(ctx, purposeStepUp, nil, sess)
+	if err != nil {
+		return nil, "", err
+	}
+	return assertion, token, nil
+}
+
+// FinishStepUp verifies the assertion and returns the id of the user who
+// owns the credential — it mints nothing. The caller compares that id to the
+// session's user: a valid passkey belonging to someone else proves nothing.
+func (p *Passkeys) FinishStepUp(ctx context.Context, ceremonyToken string, response []byte) (int64, error) {
+	sess, _, err := p.consumeCeremony(ctx, purposeStepUp, ceremonyToken)
+	if err != nil {
+		return 0, err
+	}
+	owner, err := p.verifyAssertion(ctx, sess, response)
+	if err != nil {
+		return 0, err
+	}
+	return owner.UserID, nil
+}
+
+// verifyAssertion validates an authenticator assertion against the stored
+// credential and persists the moved signature counter. Shared by login and
+// step-up: the crypto is identical, only what happens afterwards differs.
+func (p *Passkeys) verifyAssertion(ctx context.Context, sess *webauthn.SessionData, response []byte) (store.GetPasskeyByCredentialIDRow, error) {
+	var zero store.GetPasskeyByCredentialIDRow
+	parsed, err := protocol.ParseCredentialRequestResponseBytes(response)
+	if err != nil {
+		return zero, ErrPasskeyRejected
 	}
 
 	// The handler resolves "which user is this credential" for the library.
@@ -278,29 +328,24 @@ func (p *Passkeys) FinishLogin(ctx context.Context, r *http.Request, ceremonyTok
 
 	_, cred, err := p.WA.ValidatePasskeyLogin(handler, *sess, parsed)
 	if err != nil {
-		return nil, "", ErrPasskeyRejected
+		return zero, ErrPasskeyRejected
 	}
 	if cred.Authenticator.CloneWarning {
-		return nil, "", ErrPasskeyClone
+		return zero, ErrPasskeyClone
 	}
 
 	// Persist the moved signature counter BEFORE opening the session: the
 	// clone detection above is only as good as the last stored counter.
 	raw, err := json.Marshal(cred)
 	if err != nil {
-		return nil, "", err
+		return zero, err
 	}
 	if err := p.Store.UpdatePasskeyCredential(ctx, store.UpdatePasskeyCredentialParams{
 		ID: owner.ID, Credential: raw,
 	}); err != nil {
-		return nil, "", err
+		return zero, err
 	}
-
-	user, err := p.Store.GetUserByID(ctx, owner.UserID)
-	if err != nil {
-		return nil, "", ErrPasskeyRejected
-	}
-	return p.Sessions.Open(ctx, r, user)
+	return owner, nil
 }
 
 // --- ceremony persistence -----------------------------------------------

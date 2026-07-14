@@ -233,6 +233,81 @@ func (a *API) FinishPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// BeginPasskeyStepUp implements POST /auth/passkey/stepup/begin: the start
+// of the re-authentication required by sensitive actions (rbac-matrix §5 —
+// today, opening a server terminal). Unlike the login pair it REQUIRES an
+// authenticated session: a step-up strengthens a session, it does not
+// replace one.
+func (a *API) BeginPasskeyStepUp(w http.ResponseWriter, r *http.Request) {
+	if a.Passkeys == nil {
+		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "not found")
+		return
+	}
+	if _, ok := a.sessionUser(w, r); !ok {
+		return
+	}
+	options, ceremony, err := a.Passkeys.BeginStepUp(r.Context())
+	if err != nil {
+		a.internalError(w, r, "passkey step-up begin", err)
+		return
+	}
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"ceremony": ceremony, "options": options})
+}
+
+// FinishPasskeyStepUp implements POST /auth/passkey/stepup/finish. The
+// asserted credential must belong to the session's user: someone else's
+// valid passkey elevates nothing.
+func (a *API) FinishPasskeyStepUp(w http.ResponseWriter, r *http.Request) {
+	if a.Passkeys == nil {
+		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "not found")
+		return
+	}
+	sess, ok := a.sessionUser(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Ceremony   string          `json:"ceremony"`
+		Credential json.RawMessage `json:"credential"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "invalid JSON body")
+		return
+	}
+
+	userID, err := a.Passkeys.FinishStepUp(r.Context(), body.Ceremony, body.Credential)
+	switch {
+	case errors.Is(err, session.ErrCeremonyExpired):
+		httpapi.WriteError(w, r, http.StatusBadRequest, "ceremony_expired", err.Error())
+		return
+	case errors.Is(err, session.ErrPasskeyClone):
+		a.Logger.Error("passkey clone detected during step-up", "user", sess.Email, "ip", r.RemoteAddr)
+		httpapi.WriteError(w, r, http.StatusUnauthorized, "passkey_clone_detected", err.Error())
+		return
+	case errors.Is(err, session.ErrPasskeyRejected):
+		a.Logger.Warn("failed passkey step-up attempt", "user", sess.Email, "ip", r.RemoteAddr)
+		httpapi.WriteError(w, r, http.StatusUnauthorized, httpapi.CodeUnauthorized, "passkey verification failed")
+		return
+	case err != nil:
+		a.internalError(w, r, "passkey step-up finish", err)
+		return
+	}
+	if userID != sess.UserID {
+		a.Logger.Warn("step-up with another user's passkey", "user", sess.Email, "ip", r.RemoteAddr)
+		httpapi.WriteError(w, r, http.StatusForbidden, httpapi.CodeForbidden, "this passkey belongs to another account")
+		return
+	}
+
+	if err := a.Store.SetSessionMfaVerified(r.Context(), sess.ID); err != nil {
+		a.internalError(w, r, "passkey step-up finish", err)
+		return
+	}
+	a.Logger.Info("passkey step-up verified", "user", sess.Email)
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
+		"verified_at": time.Now().UTC(),
+	})
+}
+
 // passkeyJSON is the credential as the dashboard sees it: the label and the
 // timestamps, never the key material — the UI manages passkeys, it does not
 // transport them.

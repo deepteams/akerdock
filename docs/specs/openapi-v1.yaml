@@ -17,8 +17,10 @@
 #     dans cette v1 (/applications/{uuid}/webhook-endpoint)
 #   - Destinations (réseaux Docker) en tant que ressource API dédiée
 #   - Moteurs de bases autres que PostgreSQL (MySQL, MariaDB, MongoDB, Redis…)
-#   - Terminal WebSocket (§24.4 — WebSocket hors OpenAPI), MCP, config-as-code
-#     (export/apply §24.5), scheduled tasks, log drains, Sentinel
+#   - Le flux WebSocket du terminal (§24.4 — WebSocket hors OpenAPI ; la
+#     création de session terminal, elle, est dans cette v1 :
+#     POST .../terminal-sessions), MCP, config-as-code (export/apply §24.5),
+#     log drains, Sentinel
 #   - Gestion des sessions/login (UI uniquement, §10.2)
 #
 # Décisions structurantes appliquées (§27) :
@@ -2069,6 +2071,45 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /servers/{server_uuid}/terminal-sessions:
+    parameters:
+      - $ref: "#/components/parameters/ServerUuid"
+    post:
+      tags: [Servers]
+      operationId: createServerTerminalSession
+      summary: Ouvrir une session terminal shell sur le serveur
+      description: >-
+        Crée une session terminal (§5.7, §24.4) ouvrant un shell SSH sur le
+        serveur avec l'utilisateur configuré (`ssh_user`) — de fait un
+        **terminal root** au sens de la matrice RBAC (§10.4), soumis au
+        double contrôle : une session navigateur doit avoir été ré-authentifiée
+        par **passkey** récemment (step-up — sinon `403` avec le code
+        `stepup_required`), et un token API doit porter la permission `root`.
+        Renvoie un **token court à usage unique** à présenter sur le WebSocket
+        `websocket_path` (hors OpenAPI, §27.24). Session bornée à la team,
+        auditée à l'ouverture et à la fermeture, idle timeout, durée maximum,
+        kill garanti (§24.4). `409` si la team a atteint son plafond de
+        sessions simultanées (`terminal_session_limit`).
+      x-required-permission: write
+      responses:
+        "201":
+          description: >-
+            Session créée — le token n'est visible que dans cette réponse.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /servers/{server_uuid}/domains:
     parameters:
       - $ref: "#/components/parameters/ServerUuid"
@@ -2806,6 +2847,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JobAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /applications/{application_uuid}/terminal-sessions:
+    parameters:
+      - $ref: "#/components/parameters/ApplicationUuid"
+    post:
+      tags: [Applications]
+      operationId: createApplicationTerminalSession
+      summary: Ouvrir une session terminal dans le container de l'application
+      description: >-
+        Crée une session terminal (§5.7, §24.4) vers le container courant de
+        l'application et renvoie un **token court à usage unique** à présenter
+        sur le WebSocket `websocket_path` (hors OpenAPI, §27.24). Le token
+        n'est renvoyé qu'une seule fois et expire en quelques dizaines de
+        secondes ; la session est bornée à la team, auditée à l'ouverture et
+        à la fermeture, soumise à un idle timeout et à une durée maximum,
+        avec kill garanti à la déconnexion (§24.4). Les frappes ne sont pas
+        enregistrées. `409` si la team a atteint son plafond de sessions
+        simultanées (`terminal_session_limit`).
+      x-required-permission: write
+      responses:
+        "201":
+          description: >-
+            Session créée — le token n'est visible que dans cette réponse.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalSession"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -4643,6 +4721,42 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /databases/{database_uuid}/terminal-sessions:
+    parameters:
+      - $ref: "#/components/parameters/DatabaseUuid"
+    post:
+      tags: [Databases]
+      operationId: createDatabaseTerminalSession
+      summary: Ouvrir une session terminal dans le container de la base
+      description: >-
+        Crée une session terminal (§5.7, §24.4) vers le container de la base
+        managée (shell du container — `psql` y est disponible) et renvoie un
+        **token court à usage unique** à présenter sur le WebSocket
+        `websocket_path` (hors OpenAPI, §27.24). Mêmes garanties que le
+        terminal d'application : token une seule fois, session bornée à la
+        team, auditée, idle timeout, durée maximum, kill garanti (§24.4).
+        `409` si la team a atteint son plafond de sessions simultanées
+        (`terminal_session_limit`).
+      x-required-permission: write
+      responses:
+        "201":
+          description: >-
+            Session créée — le token n'est visible que dans cette réponse.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   # ---------------------------------------------------------------------------
   # Backups
   # ---------------------------------------------------------------------------
@@ -6136,6 +6250,57 @@ components:
         provider:
           type: string
           enum: [github, gitlab, gitea]
+
+    TerminalSession:
+      type: object
+      required:
+        [
+          uuid,
+          target_kind,
+          target_name,
+          websocket_path,
+          token,
+          token_expires_at,
+          idle_timeout_seconds,
+          max_duration_seconds,
+        ]
+      properties:
+        uuid:
+          type: string
+        target_kind:
+          type: string
+          enum: [server, container]
+          description: Serveur (shell SSH) ou container (`docker exec`) — §5.7.
+        target_name:
+          type: string
+          description: >-
+            Libellé de la cible, snapshot au moment de l'ouverture (survit à
+            la suppression de la cible).
+        websocket_path:
+          type: string
+          description: >-
+            Chemin du WebSocket à ouvrir sur la **même origine** que l'API
+            (`ws://` ou `wss://` selon le schéma de la page), avec le token
+            en query string (`?token=…`). Le protocole du flux est hors
+            OpenAPI (§27.24).
+        token:
+          type: string
+          description: >-
+            Token d'attache **à usage unique**, renvoyé uniquement à la
+            création, jamais relu (§23.2, §24.4) — seul son hash est stocké.
+        token_expires_at:
+          type: string
+          format: date-time
+          description: >-
+            Expiration du token d'attache (courte) — pas de la session : une
+            fois le WebSocket ouvert, ce sont l'idle timeout et la durée
+            maximum qui bornent la session.
+        idle_timeout_seconds:
+          type: integer
+          description: Inactivité (aucune frappe) au-delà de laquelle la session est fermée.
+        max_duration_seconds:
+          type: integer
+          description: Durée maximum d'une session, quelle que soit l'activité.
 
     NotificationChannel:
       type: object

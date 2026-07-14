@@ -584,6 +584,29 @@ export class AkerDockClient {
     });
   }
 
+  // --- terminal sessions (§24.4, ADR-024) --------------------------------------------
+  // The response carries a ONE-TIME attach token, shown exactly once: it is
+  // redeemed on the /terminal/ws WebSocket, which lives outside the contract
+  // (§27.24) — same origin, `?token=…` in the query string.
+
+  createApplicationTerminalSession(applicationUuid: string) {
+    type Response =
+      paths['/applications/{application_uuid}/terminal-sessions']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', `/applications/${applicationUuid}/terminal-sessions`);
+  }
+
+  createDatabaseTerminalSession(databaseUuid: string) {
+    type Response =
+      paths['/databases/{database_uuid}/terminal-sessions']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', `/databases/${databaseUuid}/terminal-sessions`);
+  }
+
+  createServerTerminalSession(serverUuid: string) {
+    type Response =
+      paths['/servers/{server_uuid}/terminal-sessions']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', `/servers/${serverUuid}/terminal-sessions`);
+  }
+
   // --- notification channels (+ rules) ----------------------------------------------
 
   listNotificationChannels(query?: { cursor?: string; limit?: number }) {

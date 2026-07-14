@@ -209,6 +209,137 @@ say "lifecycle stop/start"
 [ "$(docker exec "$DIND_CTR" docker inspect --format '{{.State.Status}}' "$AU")" = "running" ] || die "container not restarted"
 ok "stop/start converge desired and remote state"
 
+# --- web terminal (§5.7, §24.4, ADR-024) ---------------------------------------------
+# E2E-TERM-01/02. The suite speaks curl, and curl does not speak WebSocket —
+# and no shell can assert on a PTY. wsprobe (scripts/e2e/wsprobe) is the
+# client: it types, reads what the terminal printed, and reports how the
+# server said the session ended.
+say "terminal: a PTY in the container, bounded, audited, and killed with the socket"
+WS_BASE="ws://127.0.0.1:${API_PORT}"
+# Built once (like akerdock itself, and from the same working directory): `go
+# run` on every call would pay the compile on each assertion.
+go build -o "$WORKDIR/wsprobe" ./scripts/e2e/wsprobe || die "the terminal probe does not build"
+wsprobe() { "$WORKDIR/wsprobe" "$@"; }
+
+# The token is single-use and short-lived: it is minted by an authenticated,
+# team-scoped operation and redeemed once on the socket.
+TS=$(api POST "/applications/$AU/terminal-sessions")
+TS_TOKEN=$(echo "$TS" | jsonq "d['token']")
+TS_UUID=$(echo "$TS" | jsonq "d['uuid']")
+[ "$(echo "$TS" | jsonq "d['target_kind']")" = "container" ] || die "the application terminal must target a container"
+[ "$(echo "$TS" | jsonq "d['websocket_path']")" = "/terminal/ws" ] || die "unexpected websocket_path"
+
+# A real PTY, not a pipe: `test -t 0` is a shell builtin, so it answers in
+# busybox as in bash — and it answers the only question that matters here.
+# nginx:alpine has no bash: the server falls back to sh, which is the point.
+#
+# The markers are SPLIT in the typed command (PTY"_"YES) but whole in the
+# output: a pty echoes what you type, so a marker typed verbatim would match
+# its own echo and the assertion would pass without the command ever running.
+# That is exactly what happened the first time this test was written.
+OUT=$(wsprobe -url "$WS_BASE/terminal/ws?token=$TS_TOKEN&cols=120&rows=40" \
+  -send 'test -t 0 && echo PTY"_"YES || echo PTY"_"NO; echo TERMINAL"_"OK' \
+  -expect 'TERMINAL_OK' -timeout 30s) \
+  || die "the terminal session did not produce output"
+grep -q 'PTY_YES' <<<"$OUT" || die "the remote side is not a pty (stdin is not a terminal): $OUT"
+grep -q 'end: user_close' <<<"$OUT" || die "the server did not announce a clean close: $OUT"
+
+# The row is closed with its reason, and BOTH open and close are audited
+# (§23.4) — the keystrokes are not (§24.4).
+for _ in $(seq 1 10); do
+  TS_ROW=$(docker exec "$PG_CTR" psql -U postgres -d akerdock -tAc \
+    "SELECT coalesce(end_reason::text,'') FROM terminal_sessions WHERE uuid = '$TS_UUID'")
+  [ -n "$TS_ROW" ] && break
+  sleep 1
+done
+[ "$TS_ROW" = "user_close" ] || die "the terminal session row was not closed with its reason (got '$TS_ROW')"
+docker exec "$PG_CTR" psql -U postgres -d akerdock -tAc \
+  "SELECT count(*) FROM audit_events WHERE action = 'terminal.open' AND target_uuid = '$TS_UUID'" | grep -q '^1$' \
+  || die "the terminal opening was not audited"
+docker exec "$PG_CTR" psql -U postgres -d akerdock -tAc \
+  "SELECT count(*) FROM audit_events WHERE action = 'terminal.close' AND target_uuid = '$TS_UUID'" | grep -q '^1$' \
+  || die "the terminal closing was not audited"
+docker exec "$PG_CTR" psql -U postgres -d akerdock -tAc \
+  "SELECT count(*) FROM audit_events WHERE coalesce(diff_redacted::text,'') LIKE '%TERMINAL_OK%'" | grep -q '^0$' \
+  || die "keystrokes leaked into the audit trail (§24.4: they are never recorded)"
+ok "PTY in the container, command executed, clean close audited with its reason"
+
+# A token is single-use: replaying it authenticates nothing (§24.4).
+REPLAY=$(curl -s -o /dev/null -w '%{http_code}' \
+  -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
+  -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+  "http://127.0.0.1:${API_PORT}/terminal/ws?token=$TS_TOKEN")
+[ "$REPLAY" = "401" ] || die "a replayed terminal token must be refused (got $REPLAY)"
+NOTOKEN=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${API_PORT}/terminal/ws?token=akdt_nope")
+[ "$NOTOKEN" = "401" ] || die "an unknown terminal token must be refused (got $NOTOKEN)"
+ok "the attach token is single-use: a replay and a forged token are both refused"
+
+# Idle timeout (AKERDOCK_TERMINAL_IDLE_TIMEOUT=8s here): a session nobody types
+# in is closed by the SERVER, and the pty dies with it.
+TS2_TOKEN=$(api POST "/applications/$AU/terminal-sessions" | jsonq "d['token']")
+IDLE_OUT=$(wsprobe -url "$WS_BASE/terminal/ws?token=$TS2_TOKEN" -idle -timeout 30s) \
+  || die "the idle session never ended on its own"
+grep -q 'end: idle_timeout' <<<"$IDLE_OUT" || die "the idle session did not end with idle_timeout: $IDLE_OUT"
+ok "an idle session is closed by the server (idle timeout), not left open"
+
+# Guaranteed kill: the socket is yanked without a goodbye. The server must
+# notice and reap the row — a session that survives its socket is a shell
+# nobody is watching.
+TS3=$(api POST "/applications/$AU/terminal-sessions")
+TS3_TOKEN=$(echo "$TS3" | jsonq "d['token']")
+TS3_UUID=$(echo "$TS3" | jsonq "d['uuid']")
+wsprobe -url "$WS_BASE/terminal/ws?token=$TS3_TOKEN" -send 'echo DROP"_"ME' -expect 'DROP_ME' -close drop -timeout 30s >/dev/null \
+  || die "the session to be dropped never opened"
+for _ in $(seq 1 15); do
+  TS3_END=$(docker exec "$PG_CTR" psql -U postgres -d akerdock -tAc \
+    "SELECT coalesce(end_reason::text,'') FROM terminal_sessions WHERE uuid = '$TS3_UUID'")
+  [ -n "$TS3_END" ] && break
+  sleep 1
+done
+[ -n "$TS3_END" ] || die "a dropped connection left the session open forever"
+ok "a dropped connection ends the session on the server ($TS3_END) — the pty never outlives its socket"
+
+# E2E-TERM-02 — bounded to the active team (INV-002): another team's token sees
+# a 404, exactly like a missing application. A read-only token cannot open one
+# at all, and a server terminal is a ROOT terminal (rbac-matrix §5).
+OTHER_TEAM_TOKEN="akd_$(openssl rand -hex 24)"
+docker exec "$PG_CTR" psql -U postgres -d akerdock -c \
+  "INSERT INTO teams (name) VALUES ('other-team')" >/dev/null
+docker exec "$PG_CTR" psql -U postgres -d akerdock -c \
+  "INSERT INTO api_tokens (team_id, name, token_prefix, token_hash, permissions) SELECT id, 'other', left('$OTHER_TEAM_TOKEN',10), encode(digest('$OTHER_TEAM_TOKEN','sha256'),'hex'), '{write}' FROM teams WHERE name = 'other-team'" >/dev/null
+XTEAM=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $OTHER_TEAM_TOKEN" \
+  "$B/applications/$AU/terminal-sessions")
+[ "$XTEAM" = "404" ] || die "another team must get 404 on a terminal session, never 403 (got $XTEAM)"
+
+RO_TOKEN="akd_$(openssl rand -hex 24)"
+docker exec "$PG_CTR" psql -U postgres -d akerdock -c \
+  "INSERT INTO api_tokens (team_id, name, token_prefix, token_hash, permissions) SELECT id, 'ro-term', left('$RO_TOKEN',10), encode(digest('$RO_TOKEN','sha256'),'hex'), '{read}' FROM teams WHERE name <> 'other-team' LIMIT 1" >/dev/null
+RO=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $RO_TOKEN" \
+  "$B/applications/$AU/terminal-sessions")
+[ "$RO" = "403" ] || die "a read-only token must not open a terminal (got $RO)"
+
+WRITE_TOKEN="akd_$(openssl rand -hex 24)"
+docker exec "$PG_CTR" psql -U postgres -d akerdock -c \
+  "INSERT INTO api_tokens (team_id, name, token_prefix, token_hash, permissions) SELECT id, 'w-term', left('$WRITE_TOKEN',10), encode(digest('$WRITE_TOKEN','sha256'),'hex'), '{write}' FROM teams WHERE name <> 'other-team' LIMIT 1" >/dev/null
+SRV_TERM=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $WRITE_TOKEN" \
+  "$B/servers/$S/terminal-sessions")
+[ "$SRV_TERM" = "403" ] || die "a server terminal is a root terminal: a write token must be refused (got $SRV_TERM)"
+ok "terminal bounded to the team (404), refused read-only (403), server shell gated on root (403)"
+
+# The server shell itself: a root token passes the double control, and the
+# session lands on the SERVER, not in a container.
+SRV_TS=$(api POST "/servers/$S/terminal-sessions")
+SRV_TOKEN=$(echo "$SRV_TS" | jsonq "d['token']")
+[ "$(echo "$SRV_TS" | jsonq "d['target_kind']")" = "server" ] || die "the server terminal must target the server"
+# It really is the docker HOST: the application's container is visible from
+# there — which no application container could say of itself.
+SRV_OUT=$(wsprobe -url "$WS_BASE/terminal/ws?token=$SRV_TOKEN" \
+  -send "docker ps --format '{{.Names}}' | grep -q $AU && echo HOST\"_\"YES || echo HOST\"_\"NO" \
+  -expect 'HOST_YES' -timeout 30s) \
+  || die "the server shell did not see the application container — is it really on the host?"
+grep -q 'end: user_close' <<<"$SRV_OUT" || die "the server shell did not close cleanly: $SRV_OUT"
+ok "the server shell runs on the host (root terminal, double control satisfied)"
+
 # --- pre/post-deployment commands (§10) ----------------------------------------------
 say "pre/post-deployment hooks run in the right container, and a failing post never switches"
 HOOK_BODY=$(python3 - "$PU" "$EU" "$S" <<'PYEOF'

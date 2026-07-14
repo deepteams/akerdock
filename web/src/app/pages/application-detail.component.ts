@@ -21,6 +21,7 @@ import { ApplicationDeploymentsTabComponent } from './application/deployments-ta
 import { ApplicationWebhookTabComponent } from './application/webhook-tab.component';
 import { ApplicationDangerTabComponent } from './application/danger-tab.component';
 import { ApplicationPreviewsTabComponent } from './application/previews-tab.component';
+import { ApplicationTerminalTabComponent } from './application/terminal-tab.component';
 
 type Application = components['schemas']['Application'];
 type Deployment = components['schemas']['Deployment'];
@@ -35,6 +36,7 @@ type TabId =
   | 'tasks'
   | 'deployments'
   | 'previews'
+  | 'terminal'
   | 'webhook'
   | 'danger';
 
@@ -61,6 +63,7 @@ const isGap = (row: Row): row is GapMarker => 'gap' in row;
     ApplicationWebhookTabComponent,
     ApplicationDangerTabComponent,
     ApplicationPreviewsTabComponent,
+    ApplicationTerminalTabComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -223,6 +226,9 @@ const isGap = (row: Row): row is GapMarker => 'gap' in row;
       }
       @case ('previews') {
         <app-application-previews-tab [uuid]="uuid()" />
+      }
+      @case ('terminal') {
+        <app-application-terminal-tab [uuid]="uuid()" />
       }
       @case ('webhook') {
         <app-application-webhook-tab [uuid]="uuid()" />
@@ -455,6 +461,7 @@ export class ApplicationDetailComponent {
     { id: 'tasks', label: 'Scheduled tasks' },
     { id: 'deployments', label: 'Deployments' },
     { id: 'previews', label: 'Previews' },
+    { id: 'terminal', label: 'Terminal' },
     { id: 'webhook', label: 'Webhook' },
     { id: 'danger', label: 'Danger' },
   ];

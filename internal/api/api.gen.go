@@ -1354,6 +1354,24 @@ func (e TeamMemberRole) Valid() bool {
 	}
 }
 
+// Defines values for TerminalSessionTargetKind.
+const (
+	TerminalSessionTargetKindContainer TerminalSessionTargetKind = "container"
+	TerminalSessionTargetKindServer    TerminalSessionTargetKind = "server"
+)
+
+// Valid indicates whether the value is a known member of the TerminalSessionTargetKind enum.
+func (e TerminalSessionTargetKind) Valid() bool {
+	switch e {
+	case TerminalSessionTargetKindContainer:
+		return true
+	case TerminalSessionTargetKindServer:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TransactionalEmailKind.
 const (
 	TransactionalEmailKindLessThannil TransactionalEmailKind = "<nil>"
@@ -3437,6 +3455,34 @@ type TelegramConfig struct {
 	TopicId  *string `json:"topic_id,omitempty"`
 }
 
+// TerminalSession defines model for TerminalSession.
+type TerminalSession struct {
+	// IdleTimeoutSeconds Inactivité (aucune frappe) au-delà de laquelle la session est fermée.
+	IdleTimeoutSeconds int `json:"idle_timeout_seconds"`
+
+	// MaxDurationSeconds Durée maximum d'une session, quelle que soit l'activité.
+	MaxDurationSeconds int `json:"max_duration_seconds"`
+
+	// TargetKind Serveur (shell SSH) ou container (`docker exec`) — §5.7.
+	TargetKind TerminalSessionTargetKind `json:"target_kind"`
+
+	// TargetName Libellé de la cible, snapshot au moment de l'ouverture (survit à la suppression de la cible).
+	TargetName string `json:"target_name"`
+
+	// Token Token d'attache **à usage unique**, renvoyé uniquement à la création, jamais relu (§23.2, §24.4) — seul son hash est stocké.
+	Token string `json:"token"`
+
+	// TokenExpiresAt Expiration du token d'attache (courte) — pas de la session : une fois le WebSocket ouvert, ce sont l'idle timeout et la durée maximum qui bornent la session.
+	TokenExpiresAt time.Time `json:"token_expires_at"`
+	Uuid           string    `json:"uuid"`
+
+	// WebsocketPath Chemin du WebSocket à ouvrir sur la **même origine** que l'API (`ws://` ou `wss://` selon le schéma de la page), avec le token en query string (`?token=…`). Le protocole du flux est hors OpenAPI (§27.24).
+	WebsocketPath string `json:"websocket_path"`
+}
+
+// TerminalSessionTargetKind Serveur (shell SSH) ou container (`docker exec`) — §5.7.
+type TerminalSessionTargetKind string
+
 // TransactionalEmail defines model for TransactionalEmail.
 type TransactionalEmail struct {
 	Configured *bool                   `json:"configured,omitempty"`
@@ -4568,6 +4614,9 @@ type ServerInterface interface {
 	// Retirer un stockage persistant
 	// (DELETE /applications/{application_uuid}/storages/{storage_uuid})
 	DeleteApplicationStorage(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, storageUuid StorageUuid)
+	// Ouvrir une session terminal dans le container de l'application
+	// (POST /applications/{application_uuid}/terminal-sessions)
+	CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
 	// Supprimer l'endpoint de webhook Git
 	// (DELETE /applications/{application_uuid}/webhook-endpoint)
 	DeleteWebhookEndpoint(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params DeleteWebhookEndpointParams)
@@ -4634,6 +4683,9 @@ type ServerInterface interface {
 	// Arrêter une base
 	// (POST /databases/{database_uuid}/stop)
 	StopDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid)
+	// Ouvrir une session terminal dans le container de la base
+	// (POST /databases/{database_uuid}/terminal-sessions)
+	CreateDatabaseTerminalSession(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid)
 	// Déclencher des déploiements par UUID ou tag (webhook CI)
 	// (GET /deploy)
 	WebhookDeploy(w http.ResponseWriter, r *http.Request, params WebhookDeployParams)
@@ -4847,6 +4899,9 @@ type ServerInterface interface {
 	// Lister les ressources d'un serveur
 	// (GET /servers/{server_uuid}/resources)
 	ListServerResources(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ListServerResourcesParams)
+	// Ouvrir une session terminal shell sur le serveur
+	// (POST /servers/{server_uuid}/terminal-sessions)
+	CreateServerTerminalSession(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid)
 	// Valider un serveur et installer les prérequis
 	// (POST /servers/{server_uuid}/validate)
 	ValidateServer(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ValidateServerParams)
@@ -5093,6 +5148,12 @@ func (_ Unimplemented) DeleteApplicationStorage(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Ouvrir une session terminal dans le container de l'application
+// (POST /applications/{application_uuid}/terminal-sessions)
+func (_ Unimplemented) CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Supprimer l'endpoint de webhook Git
 // (DELETE /applications/{application_uuid}/webhook-endpoint)
 func (_ Unimplemented) DeleteWebhookEndpoint(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params DeleteWebhookEndpointParams) {
@@ -5222,6 +5283,12 @@ func (_ Unimplemented) StartDatabase(w http.ResponseWriter, r *http.Request, dat
 // Arrêter une base
 // (POST /databases/{database_uuid}/stop)
 func (_ Unimplemented) StopDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Ouvrir une session terminal dans le container de la base
+// (POST /databases/{database_uuid}/terminal-sessions)
+func (_ Unimplemented) CreateDatabaseTerminalSession(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5648,6 +5715,12 @@ func (_ Unimplemented) ProxyLifecycle(w http.ResponseWriter, r *http.Request, se
 // Lister les ressources d'un serveur
 // (GET /servers/{server_uuid}/resources)
 func (_ Unimplemented) ListServerResources(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ListServerResourcesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Ouvrir une session terminal shell sur le serveur
+// (POST /servers/{server_uuid}/terminal-sessions)
+func (_ Unimplemented) CreateServerTerminalSession(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -7007,6 +7080,38 @@ func (siw *ServerInterfaceWrapper) DeleteApplicationStorage(w http.ResponseWrite
 	handler.ServeHTTP(w, r)
 }
 
+// CreateApplicationTerminalSession operation middleware
+func (siw *ServerInterfaceWrapper) CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "application_uuid" -------------
+	var applicationUuid ApplicationUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_uuid", chi.URLParam(r, "application_uuid"), &applicationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateApplicationTerminalSession(w, r, applicationUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteWebhookEndpoint operation middleware
 func (siw *ServerInterfaceWrapper) DeleteWebhookEndpoint(w http.ResponseWriter, r *http.Request) {
 
@@ -8139,6 +8244,38 @@ func (siw *ServerInterfaceWrapper) StopDatabase(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.StopDatabase(w, r, databaseUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateDatabaseTerminalSession operation middleware
+func (siw *ServerInterfaceWrapper) CreateDatabaseTerminalSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "database_uuid" -------------
+	var databaseUuid DatabaseUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "database_uuid", chi.URLParam(r, "database_uuid"), &databaseUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "database_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateDatabaseTerminalSession(w, r, databaseUuid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11341,6 +11478,38 @@ func (siw *ServerInterfaceWrapper) ListServerResources(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// CreateServerTerminalSession operation middleware
+func (siw *ServerInterfaceWrapper) CreateServerTerminalSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "server_uuid" -------------
+	var serverUuid ServerUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "server_uuid", chi.URLParam(r, "server_uuid"), &serverUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "server_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateServerTerminalSession(w, r, serverUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ValidateServer operation middleware
 func (siw *ServerInterfaceWrapper) ValidateServer(w http.ResponseWriter, r *http.Request) {
 
@@ -12870,6 +13039,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Delete(options.BaseURL+"/applications/{application_uuid}/storages/{storage_uuid}", wrapper.DeleteApplicationStorage)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/applications/{application_uuid}/terminal-sessions", wrapper.CreateApplicationTerminalSession)
+	})
+	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/applications/{application_uuid}/webhook-endpoint", wrapper.DeleteWebhookEndpoint)
 	})
 	r.Group(func(r chi.Router) {
@@ -12934,6 +13106,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/databases/{database_uuid}/stop", wrapper.StopDatabase)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/databases/{database_uuid}/terminal-sessions", wrapper.CreateDatabaseTerminalSession)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deploy", wrapper.WebhookDeploy)
@@ -13147,6 +13322,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/servers/{server_uuid}/resources", wrapper.ListServerResources)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/servers/{server_uuid}/terminal-sessions", wrapper.CreateServerTerminalSession)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/servers/{server_uuid}/validate", wrapper.ValidateServer)
@@ -15700,6 +15878,101 @@ func (response DeleteApplicationStorage429JSONResponse) VisitDeleteApplicationSt
 	return err
 }
 
+type CreateApplicationTerminalSessionRequestObject struct {
+	ApplicationUuid ApplicationUuid `json:"application_uuid"`
+}
+
+type CreateApplicationTerminalSessionResponseObject interface {
+	VisitCreateApplicationTerminalSessionResponse(w http.ResponseWriter) error
+}
+
+type CreateApplicationTerminalSession201JSONResponse TerminalSession
+
+func (response CreateApplicationTerminalSession201JSONResponse) VisitCreateApplicationTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApplicationTerminalSession401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateApplicationTerminalSession401JSONResponse) VisitCreateApplicationTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApplicationTerminalSession403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateApplicationTerminalSession403JSONResponse) VisitCreateApplicationTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApplicationTerminalSession404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateApplicationTerminalSession404JSONResponse) VisitCreateApplicationTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApplicationTerminalSession409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateApplicationTerminalSession409JSONResponse) VisitCreateApplicationTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApplicationTerminalSession429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateApplicationTerminalSession429JSONResponse) VisitCreateApplicationTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteWebhookEndpointRequestObject struct {
 	ApplicationUuid ApplicationUuid `json:"application_uuid"`
 	Params          DeleteWebhookEndpointParams
@@ -17941,6 +18214,101 @@ func (response StopDatabase409JSONResponse) VisitStopDatabaseResponse(w http.Res
 type StopDatabase429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response StopDatabase429JSONResponse) VisitStopDatabaseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDatabaseTerminalSessionRequestObject struct {
+	DatabaseUuid DatabaseUuid `json:"database_uuid"`
+}
+
+type CreateDatabaseTerminalSessionResponseObject interface {
+	VisitCreateDatabaseTerminalSessionResponse(w http.ResponseWriter) error
+}
+
+type CreateDatabaseTerminalSession201JSONResponse TerminalSession
+
+func (response CreateDatabaseTerminalSession201JSONResponse) VisitCreateDatabaseTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDatabaseTerminalSession401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateDatabaseTerminalSession401JSONResponse) VisitCreateDatabaseTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDatabaseTerminalSession403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateDatabaseTerminalSession403JSONResponse) VisitCreateDatabaseTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDatabaseTerminalSession404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateDatabaseTerminalSession404JSONResponse) VisitCreateDatabaseTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDatabaseTerminalSession409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateDatabaseTerminalSession409JSONResponse) VisitCreateDatabaseTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDatabaseTerminalSession429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateDatabaseTerminalSession429JSONResponse) VisitCreateDatabaseTerminalSessionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -24632,6 +25000,101 @@ func (response ListServerResources429JSONResponse) VisitListServerResourcesRespo
 	return err
 }
 
+type CreateServerTerminalSessionRequestObject struct {
+	ServerUuid ServerUuid `json:"server_uuid"`
+}
+
+type CreateServerTerminalSessionResponseObject interface {
+	VisitCreateServerTerminalSessionResponse(w http.ResponseWriter) error
+}
+
+type CreateServerTerminalSession201JSONResponse TerminalSession
+
+func (response CreateServerTerminalSession201JSONResponse) VisitCreateServerTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateServerTerminalSession401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateServerTerminalSession401JSONResponse) VisitCreateServerTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateServerTerminalSession403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateServerTerminalSession403JSONResponse) VisitCreateServerTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateServerTerminalSession404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateServerTerminalSession404JSONResponse) VisitCreateServerTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateServerTerminalSession409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateServerTerminalSession409JSONResponse) VisitCreateServerTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateServerTerminalSession429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateServerTerminalSession429JSONResponse) VisitCreateServerTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ValidateServerRequestObject struct {
 	ServerUuid ServerUuid `json:"server_uuid"`
 	Params     ValidateServerParams
@@ -27543,6 +28006,9 @@ type StrictServerInterface interface {
 	// Retirer un stockage persistant
 	// (DELETE /applications/{application_uuid}/storages/{storage_uuid})
 	DeleteApplicationStorage(ctx context.Context, request DeleteApplicationStorageRequestObject) (DeleteApplicationStorageResponseObject, error)
+	// Ouvrir une session terminal dans le container de l'application
+	// (POST /applications/{application_uuid}/terminal-sessions)
+	CreateApplicationTerminalSession(ctx context.Context, request CreateApplicationTerminalSessionRequestObject) (CreateApplicationTerminalSessionResponseObject, error)
 	// Supprimer l'endpoint de webhook Git
 	// (DELETE /applications/{application_uuid}/webhook-endpoint)
 	DeleteWebhookEndpoint(ctx context.Context, request DeleteWebhookEndpointRequestObject) (DeleteWebhookEndpointResponseObject, error)
@@ -27609,6 +28075,9 @@ type StrictServerInterface interface {
 	// Arrêter une base
 	// (POST /databases/{database_uuid}/stop)
 	StopDatabase(ctx context.Context, request StopDatabaseRequestObject) (StopDatabaseResponseObject, error)
+	// Ouvrir une session terminal dans le container de la base
+	// (POST /databases/{database_uuid}/terminal-sessions)
+	CreateDatabaseTerminalSession(ctx context.Context, request CreateDatabaseTerminalSessionRequestObject) (CreateDatabaseTerminalSessionResponseObject, error)
 	// Déclencher des déploiements par UUID ou tag (webhook CI)
 	// (GET /deploy)
 	WebhookDeploy(ctx context.Context, request WebhookDeployRequestObject) (WebhookDeployResponseObject, error)
@@ -27822,6 +28291,9 @@ type StrictServerInterface interface {
 	// Lister les ressources d'un serveur
 	// (GET /servers/{server_uuid}/resources)
 	ListServerResources(ctx context.Context, request ListServerResourcesRequestObject) (ListServerResourcesResponseObject, error)
+	// Ouvrir une session terminal shell sur le serveur
+	// (POST /servers/{server_uuid}/terminal-sessions)
+	CreateServerTerminalSession(ctx context.Context, request CreateServerTerminalSessionRequestObject) (CreateServerTerminalSessionResponseObject, error)
 	// Valider un serveur et installer les prérequis
 	// (POST /servers/{server_uuid}/validate)
 	ValidateServer(ctx context.Context, request ValidateServerRequestObject) (ValidateServerResponseObject, error)
@@ -28656,6 +29128,32 @@ func (sh *strictHandler) DeleteApplicationStorage(w http.ResponseWriter, r *http
 	}
 }
 
+// CreateApplicationTerminalSession operation middleware
+func (sh *strictHandler) CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
+	var request CreateApplicationTerminalSessionRequestObject
+
+	request.ApplicationUuid = applicationUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateApplicationTerminalSession(ctx, request.(CreateApplicationTerminalSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateApplicationTerminalSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateApplicationTerminalSessionResponseObject); ok {
+		if err := validResponse.VisitCreateApplicationTerminalSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // DeleteWebhookEndpoint operation middleware
 func (sh *strictHandler) DeleteWebhookEndpoint(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params DeleteWebhookEndpointParams) {
 	var request DeleteWebhookEndpointRequestObject
@@ -29284,6 +29782,32 @@ func (sh *strictHandler) StopDatabase(w http.ResponseWriter, r *http.Request, da
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(StopDatabaseResponseObject); ok {
 		if err := validResponse.VisitStopDatabaseResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateDatabaseTerminalSession operation middleware
+func (sh *strictHandler) CreateDatabaseTerminalSession(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid) {
+	var request CreateDatabaseTerminalSessionRequestObject
+
+	request.DatabaseUuid = databaseUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateDatabaseTerminalSession(ctx, request.(CreateDatabaseTerminalSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateDatabaseTerminalSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateDatabaseTerminalSessionResponseObject); ok {
+		if err := validResponse.VisitCreateDatabaseTerminalSessionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -31284,6 +31808,32 @@ func (sh *strictHandler) ListServerResources(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListServerResourcesResponseObject); ok {
 		if err := validResponse.VisitListServerResourcesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateServerTerminalSession operation middleware
+func (sh *strictHandler) CreateServerTerminalSession(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
+	var request CreateServerTerminalSessionRequestObject
+
+	request.ServerUuid = serverUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateServerTerminalSession(ctx, request.(CreateServerTerminalSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateServerTerminalSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateServerTerminalSessionResponseObject); ok {
+		if err := validResponse.VisitCreateServerTerminalSessionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

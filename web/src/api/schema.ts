@@ -873,6 +873,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/servers/{server_uuid}/terminal-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID du serveur. */
+                server_uuid: components["parameters"]["ServerUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ouvrir une session terminal shell sur le serveur
+         * @description Crée une session terminal (§5.7, §24.4) ouvrant un shell SSH sur le serveur avec l'utilisateur configuré (`ssh_user`) — de fait un **terminal root** au sens de la matrice RBAC (§10.4), soumis au double contrôle : une session navigateur doit avoir été ré-authentifiée par **passkey** récemment (step-up — sinon `403` avec le code `stepup_required`), et un token API doit porter la permission `root`. Renvoie un **token court à usage unique** à présenter sur le WebSocket `websocket_path` (hors OpenAPI, §27.24). Session bornée à la team, auditée à l'ouverture et à la fermeture, idle timeout, durée maximum, kill garanti (§24.4). `409` si la team a atteint son plafond de sessions simultanées (`terminal_session_limit`).
+         */
+        post: operations["createServerTerminalSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/servers/{server_uuid}/domains": {
         parameters: {
             query?: never;
@@ -1186,6 +1209,29 @@ export interface paths {
          * @description Redémarre les containers sans rebuild. `202` + job.
          */
         post: operations["restartApplication"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_uuid}/terminal-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ouvrir une session terminal dans le container de l'application
+         * @description Crée une session terminal (§5.7, §24.4) vers le container courant de l'application et renvoie un **token court à usage unique** à présenter sur le WebSocket `websocket_path` (hors OpenAPI, §27.24). Le token n'est renvoyé qu'une seule fois et expire en quelques dizaines de secondes ; la session est bornée à la team, auditée à l'ouverture et à la fermeture, soumise à un idle timeout et à une durée maximum, avec kill garanti à la déconnexion (§24.4). Les frappes ne sont pas enregistrées. `409` si la team a atteint son plafond de sessions simultanées (`terminal_session_limit`).
+         */
+        post: operations["createApplicationTerminalSession"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2041,6 +2087,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/databases/{database_uuid}/terminal-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la base de données. */
+                database_uuid: components["parameters"]["DatabaseUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ouvrir une session terminal dans le container de la base
+         * @description Crée une session terminal (§5.7, §24.4) vers le container de la base managée (shell du container — `psql` y est disponible) et renvoie un **token court à usage unique** à présenter sur le WebSocket `websocket_path` (hors OpenAPI, §27.24). Mêmes garanties que le terminal d'application : token une seule fois, session bornée à la team, auditée, idle timeout, durée maximum, kill garanti (§24.4). `409` si la team a atteint son plafond de sessions simultanées (`terminal_session_limit`).
+         */
+        post: operations["createDatabaseTerminalSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/databases/{database_uuid}/backups": {
         parameters: {
             query?: never;
@@ -2615,6 +2684,29 @@ export interface components {
         WebhookEndpointCreate: {
             /** @enum {string} */
             provider: "github" | "gitlab" | "gitea";
+        };
+        TerminalSession: {
+            uuid: string;
+            /**
+             * @description Serveur (shell SSH) ou container (`docker exec`) — §5.7.
+             * @enum {string}
+             */
+            target_kind: "server" | "container";
+            /** @description Libellé de la cible, snapshot au moment de l'ouverture (survit à la suppression de la cible). */
+            target_name: string;
+            /** @description Chemin du WebSocket à ouvrir sur la **même origine** que l'API (`ws://` ou `wss://` selon le schéma de la page), avec le token en query string (`?token=…`). Le protocole du flux est hors OpenAPI (§27.24). */
+            websocket_path: string;
+            /** @description Token d'attache **à usage unique**, renvoyé uniquement à la création, jamais relu (§23.2, §24.4) — seul son hash est stocké. */
+            token: string;
+            /**
+             * Format: date-time
+             * @description Expiration du token d'attache (courte) — pas de la session : une fois le WebSocket ouvert, ce sont l'idle timeout et la durée maximum qui bornent la session.
+             */
+            token_expires_at: string;
+            /** @description Inactivité (aucune frappe) au-delà de laquelle la session est fermée. */
+            idle_timeout_seconds: number;
+            /** @description Durée maximum d'une session, quelle que soit l'activité. */
+            max_duration_seconds: number;
         };
         NotificationChannel: {
             uuid: string;
@@ -6135,6 +6227,34 @@ export interface operations {
             429: components["responses"]["TooManyRequests"];
         };
     };
+    createServerTerminalSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID du serveur. */
+                server_uuid: components["parameters"]["ServerUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session créée — le token n'est visible que dans cette réponse. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerminalSession"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
     listServerDomains: {
         parameters: {
             query?: never;
@@ -6774,6 +6894,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createApplicationTerminalSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session créée — le token n'est visible que dans cette réponse. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerminalSession"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -8501,6 +8649,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createDatabaseTerminalSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la base de données. */
+                database_uuid: components["parameters"]["DatabaseUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session créée — le token n'est visible que dans cette réponse. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerminalSession"];
                 };
             };
             401: components["responses"]["Unauthorized"];

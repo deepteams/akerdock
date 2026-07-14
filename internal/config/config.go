@@ -48,6 +48,12 @@ const (
 	// deliberately fails jobs from waiting on arithmetic.
 	DefaultRetryBase       = 5 * time.Second
 	DefaultShutdownTimeout = 30 * time.Second
+	// DefaultTerminalIdleTimeout / DefaultTerminalMaxDuration bound web
+	// terminal sessions (§24.4): idle means no keystroke, the max duration
+	// applies regardless of activity. Both configurable — a forgotten root
+	// shell is the failure mode these exist for.
+	DefaultTerminalIdleTimeout = 15 * time.Minute
+	DefaultTerminalMaxDuration = 4 * time.Hour
 	// DefaultLocalhostHost is where the pre-registered localhost server points
 	// (§6.2): the compose distribution resolves it to the host gateway via
 	// extra_hosts, and Docker Desktop resolves it natively.
@@ -82,6 +88,9 @@ type Config struct {
 	DataDir           string
 	WorkerConcurrency int
 	ShutdownTimeout   time.Duration
+	// Terminal session bounds (§24.4, ADR-024).
+	TerminalIdleTimeout time.Duration
+	TerminalMaxDuration time.Duration
 }
 
 // HasRootBootstrap reports whether the AKERDOCK_ROOT_* trio was provided.
@@ -131,6 +140,8 @@ var envKeys = []string{
 	"AKERDOCK_DATA_DIR",
 	"AKERDOCK_WORKER_CONCURRENCY",
 	"AKERDOCK_SHUTDOWN_TIMEOUT",
+	"AKERDOCK_TERMINAL_IDLE_TIMEOUT",
+	"AKERDOCK_TERMINAL_MAX_DURATION",
 	"AKERDOCK_CONFIG_FILE",
 }
 
@@ -307,6 +318,24 @@ func Load(vars map[string]string, readFile func(string) ([]byte, error)) (*Confi
 			errs = append(errs, FieldError{"AKERDOCK_RETRY_BASE", fmt.Sprintf("invalid value %q (expected a Go duration such as 5s)", v)})
 		} else {
 			cfg.RetryBase = d
+		}
+	}
+
+	cfg.TerminalIdleTimeout = DefaultTerminalIdleTimeout
+	if v := get("AKERDOCK_TERMINAL_IDLE_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err != nil || d <= 0 {
+			errs = append(errs, FieldError{"AKERDOCK_TERMINAL_IDLE_TIMEOUT", fmt.Sprintf("invalid value %q (expected a Go duration such as 15m)", v)})
+		} else {
+			cfg.TerminalIdleTimeout = d
+		}
+	}
+
+	cfg.TerminalMaxDuration = DefaultTerminalMaxDuration
+	if v := get("AKERDOCK_TERMINAL_MAX_DURATION"); v != "" {
+		if d, err := time.ParseDuration(v); err != nil || d <= 0 {
+			errs = append(errs, FieldError{"AKERDOCK_TERMINAL_MAX_DURATION", fmt.Sprintf("invalid value %q (expected a Go duration such as 4h)", v)})
+		} else {
+			cfg.TerminalMaxDuration = d
 		}
 	}
 

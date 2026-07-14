@@ -175,12 +175,12 @@ flowchart TB
 
 | STRIDE | Scénario concret | Contrôle existant | Contrôle manquant |
 |---|---|---|---|
-| **S** | Détournement d'une session terminal ouverte (vol de token realtime) | Auth requise, session bornée à la team active, token court mono-usage (§10.4, §24.4) | Binding du token au fingerprint de connexion **(défaut proposé)** |
-| **T** | Injection de commandes via resize/escape sequences | Limitation des séquences terminal côté affichage (§23.3), PTY avec resize contrôlé (§24.4) | Fuzzing des séquences de contrôle terminal (§23.5) |
-| **R** | Actions destructives en terminal root non imputables | Ouverture/fermeture auditées (§24.4, §23.4) | Frappes non enregistrées par défaut (choix privacy §24.4) ; mode réglementaire opt-in **(défaut proposé : off)** |
-| **I** | Capture de secrets tapés au clavier dans les logs | Frappes non enregistrées par défaut (§24.4) | — (conforme) |
-| **D** | Sessions terminal laissées ouvertes indéfiniment | Idle timeout, durée max configurable, kill à déconnexion/expiration (§24.4) ; cible 50 sessions (§22.2) | Cap de sessions concurrentes par team **manquant** |
-| **E** | Ouverture d'un terminal root sans droit / sur une autre team | Accès contrôlé au niveau instance/team, réservé aux rôles autorisés (§10.4) | Permission dédiée `terminal:open` / `terminal:root` + double contrôle (voir rbac §5) **à implémenter** |
+| **S** | Détournement d'une session terminal ouverte (vol de token d'attache) | Token **mono-usage** consommé atomiquement en SQL (`WHERE claimed_at IS NULL RETURNING` — un rejeu ne matche aucune ligne), TTL 60 s, hash seul en base ; émis par une opération authentifiée et bornée à la team (§10.4, §24.4) | Binding du token au fingerprint de connexion **(défaut proposé)** — le token voyage en query string faute d'en-tête possible sur un WebSocket navigateur |
+| **T** | Injection de commandes via resize/escape sequences | Resize borné (1–1000 colonnes/lignes) et parsé côté serveur, jamais réinjecté dans un shell ; le rendu est délégué à xterm.js (§23.3, §24.4) | Fuzzing des séquences de contrôle terminal (§23.5) |
+| **R** | Actions destructives en terminal root non imputables | Ouverture **et** fermeture auditées, avec la raison de fin (§24.4, §23.4) | Frappes non enregistrées par défaut (choix privacy §24.4) ; mode réglementaire opt-in **(défaut proposé : off)** |
+| **I** | Capture de secrets tapés au clavier dans les logs | Frappes non enregistrées (§24.4) — le pont déplace des octets, il n'en retient aucun ; prouvé E2E (aucune frappe dans la table d'audit) | — (conforme) |
+| **D** | Sessions terminal laissées ouvertes indéfiniment | Idle timeout (la **sortie** ne compte pas comme activité) et durée max configurables, kill du pty garanti à la déconnexion/expiration ; balayage des lignes orphelines après un crash du control plane (§24.4) ; **cap de sessions concurrentes par team** (les tokens encore réclamables comptent) | — (conforme) |
+| **E** | Ouverture d'un terminal root sans droit / sur une autre team | Isolation team (une autre team reçoit `404`, jamais `403`) ; terminal container = permission `write` ; terminal **serveur** = terminal root : **double contrôle** — step-up passkey récent pour une session navigateur, permission `root` pour un token API (rbac §5, §10.4) | — (conforme ; le step-up s'appuie sur le passkey, le MFA TOTP restant à venir) |
 
 ### 3.4 Workers SSH (transport distant)
 
@@ -298,8 +298,8 @@ flowchart TB
 **Mitigation** : validation à l'import + catalogue signé (ADR-010) ; validation centralisée des options Docker (INV-012, §23.3) ; **manquant** : allowlist d'options + refus host mounts sensibles par défaut.
 
 ### AB-06 — Vol de session terminal (root)
-**Kill chain** : attaquant récupère un token realtime terminal → rejoue la connexion WS.
-**Mitigation** : token realtime court, mono-usage, borné à la ressource, révocation à la fermeture (§24.4) ; session bornée à la team active (§10.4) ; idle timeout + kill garanti (§24.4) ; ouverture/fermeture auditées (§23.4). Terminal root = double contrôle (rbac §5).
+**Kill chain** : attaquant récupère un token d'attache terminal → rejoue la connexion WS.
+**Mitigation** : le rejeu **ne peut pas aboutir** — le token est consommé atomiquement en SQL à la première attache (`WHERE claimed_at IS NULL RETURNING`), donc un second usage ne matche aucune ligne quelle que soit la course ; TTL 60 s, hash seul en base (§23.2, §24.4). Session bornée à la team active (§10.4) ; idle timeout + kill garanti du pty (§24.4) ; ouverture/fermeture auditées avec la raison (§23.4). Terminal root = double contrôle (rbac §5 : step-up passkey ou token `root`). Vérifié E2E : rejeu et token forgé répondent `401`.
 
 ### AB-07 — Serveur cible compromis pivotant vers les autres
 **Kill chain** : attaquant obtient root sur un serveur → cherche la clé SSH pour atteindre d'autres serveurs/control plane.

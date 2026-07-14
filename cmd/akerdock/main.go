@@ -134,6 +134,7 @@ func run(args []string) int {
 			Tick: cfg.SchedulerTick,
 			Pool: pool, Store: q, Keyring: keyring, Audit: recorder,
 			Dispatcher: dispatcher, Logger: logger,
+			TerminalMaxDuration: cfg.TerminalMaxDuration,
 		}).Run(ctx)
 	}
 
@@ -230,6 +231,9 @@ func run(args []string) int {
 			Events:   broker,
 			Version:  version,
 			Logger:   logger,
+
+			TerminalIdleTimeout: cfg.TerminalIdleTimeout,
+			TerminalMaxDuration: cfg.TerminalMaxDuration,
 		}, &auth.Middleware{Store: q, Settings: settings, Sessions: sessions, Logger: logger})
 	}
 	// otelhttp wraps the whole handler: one server span per request, with the
@@ -261,6 +265,7 @@ func run(args []string) int {
 		mux.Handle("/api/", apiHandler)
 		mux.Handle("/webhooks/", apiHandler)
 		mux.Handle("/auth/", apiHandler)
+		mux.Handle("/terminal/", apiHandler)
 		if ui != nil {
 			mux.Handle("/", ui)
 			logger.Info("dashboard embedded and served on /")

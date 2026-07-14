@@ -4,6 +4,11 @@
    event handler, which the control plane's CSP (script-src 'self') rightly
    blocks — the sheet would stay media="print" and never apply on screen. */
 @import './styles/tokens.css';
+/* xterm.js ships its own stylesheet (cursor, selection, viewport geometry).
+   Imported here rather than from angular.json so it is bundled, never fetched
+   from a CDN: the CSP allows no external origin, and an air-gapped instance
+   has none anyway. */
+@import '@xterm/xterm/css/xterm.css';
 
 *, *::before, *::after { box-sizing: border-box; }
 

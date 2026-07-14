@@ -1121,7 +1121,7 @@ Historique des exécutions de tâches planifiées (§5.7), avec notifications su
 
 ### 10.6 `terminal_sessions`
 
-Session terminal web (xterm.js → WebSocket → SSH/PTY, §5.7, §24.4). Ouverture et fermeture auditées ; les frappes ne sont **pas** enregistrées par défaut (§24.4). Suppression : **purge** par rétention ; les cibles supprimées passent en `SET NULL`, le libellé est conservé en snapshot.
+Session terminal web (xterm.js → WebSocket → SSH/PTY, §5.7, §24.4). Ouverture et fermeture auditées ; les frappes ne sont **pas** enregistrées par défaut (§24.4). L'attache WebSocket se fait par un **token court à usage unique** (§24.4) dont seul le hash est stocké (§23.2) — la ligne est créée à l'émission du token, la session démarre à la consommation. Suppression : **purge** par rétention ; les cibles supprimées passent en `SET NULL`, le libellé est conservé en snapshot.
 
 | Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
 |---|---|---|---|---|---|---|
@@ -1134,6 +1134,9 @@ Session terminal web (xterm.js → WebSocket → SSH/PTY, §5.7, §24.4). Ouvert
 | `resource_id` | `bigint` | oui | — | FK `resources(id)` ON DELETE SET NULL | non | Ressource du container ciblé. |
 | `target_name` | `text` | non | — | — | non | Snapshot du nom de la cible (survit aux suppressions). |
 | `client_ip` | `inet` | oui | — | — | non | — |
+| `token_hash` | `text` | non | — | UNIQUE | non (hash SHA-256) | Hash du token d'attache WebSocket ; le token clair n'est jamais stocké (§23.2). |
+| `token_expires_at` | `timestamptz` | non | — | — | non | Expiration du token d'attache (courte, §24.4). |
+| `claimed_at` | `timestamptz` | oui | — | — | non | Consommation du token par l'upgrade WebSocket — usage unique (§24.4). |
 | `started_at` | `timestamptz` | non | `now()` | — | non | — |
 | `ended_at` | `timestamptz` | oui | — | — | non | Kill garanti à la déconnexion/expiration (§24.4). |
 | `end_reason` | `terminal_end_reason` | oui | — | — | non | user_close / idle_timeout / max_duration / disconnect / revoked. |
