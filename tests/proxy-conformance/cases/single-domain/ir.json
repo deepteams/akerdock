@@ -1,0 +1,16 @@
+{
+  "ir_version": 1,
+  "description": "One application, one domain, one path — the ordinary case.",
+  "static": { "http_port": 80, "https_port": 443, "acme_email": "ops@example.test", "revision": 1 },
+  "groups": [
+    {
+      "app_uuid": "11111111-1111-1111-1111-111111111111",
+      "endpoint": "",
+      "force_https": true,
+      "revision": 7,
+      "routes": [
+        { "fqdn": "app.example.test", "path": "/", "target_port": 8080 }
+      ]
+    }
+  ]
+}

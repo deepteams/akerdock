@@ -1,0 +1,18 @@
+{
+  "ir_version": 1,
+  "description": "Two domains and nested paths: the most specific path must win, whatever the declaration order (§3.1).",
+  "groups": [
+    {
+      "app_uuid": "22222222-2222-2222-2222-222222222222",
+      "endpoint": "",
+      "force_https": true,
+      "revision": 3,
+      "routes": [
+        { "fqdn": "shop.example.test", "path": "/", "target_port": 8080 },
+        { "fqdn": "shop.example.test", "path": "/api/users", "target_port": 8081 },
+        { "fqdn": "shop.example.test", "path": "/api", "target_port": 8081 },
+        { "fqdn": "admin.example.test", "path": "/", "target_port": 9000 }
+      ]
+    }
+  ]
+}

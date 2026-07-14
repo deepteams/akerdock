@@ -1,0 +1,15 @@
+{
+  "ir_version": 1,
+  "description": "force_https disabled: no HTTP-to-HTTPS redirection middleware is emitted.",
+  "groups": [
+    {
+      "app_uuid": "44444444-4444-4444-4444-444444444444",
+      "endpoint": "",
+      "force_https": false,
+      "revision": 2,
+      "routes": [
+        { "fqdn": "plain.example.test", "path": "/", "target_port": 80 }
+      ]
+    }
+  ]
+}

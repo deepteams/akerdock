@@ -1,0 +1,14 @@
+# sqlc configuration (ADR-025: pgx + sqlc, explicit SQL).
+# Schema comes from the goose migrations; queries live in db/queries.
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "db/migrations"
+    queries: "db/queries"
+    gen:
+      go:
+        package: "store"
+        out: "internal/store"
+        sql_package: "pgx/v5"
+        emit_interface: true
+        emit_pointers_for_null_types: true

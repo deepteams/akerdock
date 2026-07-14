@@ -1,0 +1,79 @@
+# AkerDock — reference distribution (instance-config §4.1, ADR-021).
+#
+# Two services, one published port, named volumes. PostgreSQL is NOT published
+# on the host: it is only reachable on the private `akerdock` network, which is
+# the only reason sslmode=disable is acceptable here. An external database
+# requires sslmode=verify-full.
+#
+# Install:  cp .env.example .env && edit it, then `docker compose up -d`
+# Upgrade:  change AKERDOCK_TAG and `docker compose up -d`
+#
+# Local customisations go in docker-compose.override.yml, which upgrades never
+# touch (§4.2).
+name: akerdock
+
+services:
+  akerdock:
+    image: ghcr.io/deepteams/akerdock:${AKERDOCK_TAG:?an explicit image tag is required (never latest)}
+    command: ["all-in-one"]              # all-in-one | api | worker | scheduler (§18.2)
+    restart: unless-stopped
+    ports:
+      - "${AKERDOCK_PORT:-8080}:8080"    # the single published port of the control plane (§27.1)
+    environment:
+      AKERDOCK_DATABASE_URL: postgres://akerdock:${POSTGRES_PASSWORD}@postgres:5432/akerdock?sslmode=disable
+      AKERDOCK_MASTER_KEY_FILE: /run/secrets/master.key
+      AKERDOCK_INSTANCE_FQDN: ${AKERDOCK_INSTANCE_FQDN:-}
+      # Let's Encrypt contact. A wrong address fails silently — the proxy runs,
+      # the certificates never come (§4.3).
+      AKERDOCK_ACME_EMAIL: ${AKERDOCK_ACME_EMAIL:-}
+      # First root user (§10.2): read only when no user exists yet (§6.3).
+      AKERDOCK_ROOT_EMAIL: ${AKERDOCK_ROOT_EMAIL:-}
+      AKERDOCK_ROOT_NAME: ${AKERDOCK_ROOT_NAME:-}
+      AKERDOCK_ROOT_PASSWORD: ${AKERDOCK_ROOT_PASSWORD:-}
+      # Pre-registered localhost server (§6.2): read at seeding only.
+      AKERDOCK_LOCALHOST_USER: ${AKERDOCK_LOCALHOST_USER:-}
+    volumes:
+      - ./keys/master.key:/run/secrets/master.key:ro
+      - akerdock_data:/data/akerdock
+    networks: [akerdock]
+    extra_hosts:
+      # Makes host.docker.internal resolve to the host gateway on Linux (it is
+      # native on Docker Desktop): that name is the SSH address of the
+      # pre-registered localhost server (§6.2).
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # Distroless image: no shell, no curl. The binary carries its own probe.
+      test: ["CMD", "/akerdock", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 40s               # > AKERDOCK_SHUTDOWN_TIMEOUT (30s, §6.5)
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: akerdock
+      POSTGRES_DB: akerdock
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required (openssl rand -hex 24)}
+    volumes:
+      - akerdock_pgdata:/var/lib/postgresql/data
+      - ./backups:/backups               # local dumps, visible from the host (§5.1)
+    networks: [akerdock]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U akerdock -d akerdock"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+networks:
+  akerdock:
+    name: akerdock
+
+volumes:
+  akerdock_data:
+  akerdock_pgdata:

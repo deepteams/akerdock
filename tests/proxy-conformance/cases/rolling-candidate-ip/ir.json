@@ -1,0 +1,15 @@
+{
+  "ir_version": 1,
+  "description": "During a rolling switch the endpoint is the candidate's IP, not the container name (§7.2) — the old container keeps serving until this file is applied.",
+  "groups": [
+    {
+      "app_uuid": "33333333-3333-3333-3333-333333333333",
+      "endpoint": "172.20.0.9",
+      "force_https": true,
+      "revision": 12,
+      "routes": [
+        { "fqdn": "rolling.example.test", "path": "/", "target_port": 3000 }
+      ]
+    }
+  ]
+}

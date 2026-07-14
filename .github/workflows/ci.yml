@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # The nightly run of the full E2E catalogue (e2e-test-plan §2: smoke on
+    # every commit, full catalogue nightly).
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    # The queue's guarantees (SKIP LOCKED, leases, lock_key) are properties of
+    # the SQL: they are tested against a real PostgreSQL, not a mock.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: akerdock
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      AKERDOCK_TEST_DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/akerdock?sslmode=disable
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgres://postgres:test@127.0.0.1:5432/akerdock?sslmode=disable
+      GOOSE_MIGRATION_DIR: db/migrations
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Apply migrations to the test database
+        run: go tool goose up
+      # ADR-025: generated code must always match the spec and queries.
+      - name: Check generated code is up to date
+        run: |
+          make generate
+          git diff --exit-code
+      - name: Build
+        run: make build
+      - name: Test
+        run: make test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.12.2
+
+  openapi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # PRD §24.1: the OpenAPI artifact is versioned and validated in CI.
+      - name: Validate OpenAPI spec
+        run: make openapi-validate
+
+  # ADR-026: Docker-in-Docker E2E, per the test pyramid of e2e-test-plan §2 —
+  # the minimal SMOKE gate on every commit, the full catalogue nightly. The
+  # commit gate stays fast because everything provable in Go lives in `make
+  # test`; the smoke shard only proves what the assembled stack alone can:
+  # onboarding, deploy, HTTPS routing, the zero-downtime switch, deletion.
+  e2e-smoke:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run E2E smoke gate
+        run: bash scripts/e2e.sh smoke
+
+  # The full catalogue: nightly (and on demand), not on every push — that is
+  # what keeps the development loop fast. The shards are independent stacks, so
+  # they get independent RUNNERS rather than fighting over one machine's cores
+  # and memory. Wall clock is the slowest shard, not their sum, and a failure
+  # names the slice it belongs to.
+  e2e:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # a failing shard must not hide the state of the others
+      matrix:
+        shard: [deploy, build, data, platform]
+    name: e2e (${{ matrix.shard }})
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # the platform shard rebuilds the PREVIOUS commit (N-1 upgrade)
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run E2E shard
+        run: bash scripts/e2e.sh ${{ matrix.shard }}
+
+  # The artefact an operator actually installs: the distroless image and the
+  # reference compose file. A binary that passes E2E but ships in an image that
+  # cannot start has not shipped.
+  dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Smoke-test the distribution
+        run: bash scripts/dist-smoke.sh

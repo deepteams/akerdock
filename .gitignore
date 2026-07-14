@@ -1,0 +1,35 @@
+# Binaires et artefacts de build
+/bin/
+/dist/
+*.exe
+*.test
+
+# Couverture de tests
+*.out
+coverage.html
+
+# Environnement local
+.env
+.env.local
+
+# État d'instance généré par install.sh (installation depuis les sources)
+/keys/
+/backups/
+docker-compose.override.yml
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Node dependencies of the UI (the generated client IS committed — the contract
+# must be reviewable in the diff).
+web/node_modules/
+
+# Artefacts du build Angular. web/dist est recopié dans internal/web/dist par
+# `make web` (c'est CETTE copie que le binaire embarque et que la CI vérifie) :
+# suivre les deux revient à versionner deux fois le même build, et à laisser une
+# copie périmée dériver en silence.
+web/.angular/
+web/dist/
+web/node_modules/

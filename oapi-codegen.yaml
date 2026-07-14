@@ -1,0 +1,11 @@
+# oapi-codegen configuration (ADR-025: spec-first).
+# The OpenAPI spec in docs/specs/openapi-v1.yaml is the source of truth;
+# run `make generate` after every spec change.
+package: api
+output: internal/api/api.gen.go
+generate:
+  models: true
+  chi-server: true
+  strict-server: true
+output-options:
+  skip-prune: false

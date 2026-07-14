@@ -1,0 +1,186 @@
+// Package handlers implements the operations of the public API over the
+// oapi-codegen generated router. Unimplemented operations answer 501 via
+// the embedded generated stub.
+package handlers
+
+import (
+	"log/slog"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/deepteams/akerdock/internal/api"
+	"github.com/deepteams/akerdock/internal/audit"
+	"github.com/deepteams/akerdock/internal/auth"
+	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/events"
+	"github.com/deepteams/akerdock/internal/httpapi"
+	"github.com/deepteams/akerdock/internal/instance"
+	"github.com/deepteams/akerdock/internal/session"
+	"github.com/deepteams/akerdock/internal/store"
+)
+
+// API carries the dependencies of the implemented operations.
+type API struct {
+	// Sessions authenticates the dashboard's browser session (PRD §698). Nil in
+	// API-only deployments: the /auth routes then answer 404.
+	Sessions *session.Manager
+	// Passkeys is the WebAuthn engine behind /auth/passkeys/* and the passkey
+	// login. Nil when sessions are nil, or when no relying party could be
+	// configured.
+	Passkeys *session.Passkeys
+	api.Unimplemented
+
+	Store    *store.Queries
+	Pool     *pgxpool.Pool
+	Settings *instance.Cache
+	Keyring  *envelope.Keyring
+	Audit    *audit.Recorder
+	Events   *events.Broker
+	Version  string
+	Logger   *slog.Logger
+}
+
+// recordAudit appends to the audit trail (§23.4); failures are logged by
+// the recorder and never fail the audited operation.
+func (a *API) recordAudit(r *http.Request, id *auth.Identity, action, targetKind string, target pgtype.UUID) {
+	a.Audit.Record(r, id, audit.Event{Action: action, TargetKind: targetKind, TargetUUID: target})
+}
+
+// recordAuditDiff audits a modification with what actually changed (§23.4).
+// The diff is redacted by audit.Diff: a sensitive field is reported as changed,
+// never with its value — the audit table is kept forever and exported, so a
+// secret written into it is a second copy of that secret.
+func (a *API) recordAuditDiff(r *http.Request, id *auth.Identity, action, targetKind string, target pgtype.UUID, before, after map[string]any) {
+	a.Audit.Record(r, id, audit.Event{
+		Action: action, TargetKind: targetKind, TargetUUID: target,
+		Diff: audit.Diff(before, after),
+	})
+}
+
+// NewRouter assembles the public API router: request ids, panic recovery,
+// bearer authentication, then the cross-cutting policies of §24.1 — rate
+// limiting (200 req/min per token) and Idempotency-Key handling — and the
+// generated operation routes under /api/v1.
+func NewRouter(a *API, mw *auth.Middleware) http.Handler {
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(recoverJSON(a.Logger))
+
+	limiter := httpapi.NewLimiter()
+	rateLimit := limiter.Handler(func(req *http.Request) string {
+		// Budget per token; unauthenticated routes (health) are exempt.
+		if id, ok := auth.FromContext(req.Context()); ok {
+			return id.TokenUUID
+		}
+		return ""
+	})
+	idempotency := (&httpapi.Idempotency{Store: a.Store}).Handler(func(req *http.Request) (int64, bool) {
+		if id, ok := auth.FromContext(req.Context()); ok {
+			return id.TeamID, true
+		}
+		return 0, false
+	})
+
+	// Git webhooks live OUTSIDE /api/v1 and outside the bearer middleware
+	// (git-webhook-protocols §1.1): they are authenticated by the provider's
+	// signature, not by a token. They are mounted on the base router, before the
+	// generated routes, so no auth middleware ever sees them.
+	r.Post("/webhooks/{provider}/{endpoint_uuid}", a.ReceiveGitWebhook)
+
+	// GitHub App plumbing (git-webhook-protocols §2.1/§2.4): the manifest
+	// callback and the setup return are BROWSER redirects, the app webhook is
+	// GitHub calling — all authenticated by state or signature, never bearer.
+	r.Get("/webhooks/github/manifest/callback", a.GithubManifestCallback)
+	r.Get("/webhooks/github/apps/{app_uuid}/setup", a.GithubAppSetup)
+	r.Post("/webhooks/github/apps/{app_uuid}", a.ReceiveGithubAppWebhook)
+
+	// Browser authentication (PRD §698). Outside /api/v1 and outside the bearer
+	// middleware: the v1 contract knows nothing of sessions (§10.2), and these
+	// routes exist for the dashboard alone.
+	//
+	// The whole group sits behind a per-IP limiter, MUCH tighter than the API
+	// budget: /auth/login and the passkey finish are the endpoints that turn a
+	// guess into an answer, and they are reachable without any credential. The
+	// account lockout bounds guesses per account; this bounds them per source.
+	authLimit := httpapi.NewLimiterRate(httpapi.AuthRatePerMinute).Handler(httpapi.ClientIPKey)
+	r.Group(func(r chi.Router) {
+		r.Use(authLimit)
+		r.Post("/auth/login", a.Login)
+		r.Post("/auth/logout", a.Logout)
+		r.Get("/auth/me", a.Me)
+
+		// Passkeys (WebAuthn). Management requires a session (and CSRF); the
+		// login pair is anonymous by nature — a discoverable credential names
+		// its user.
+		r.Post("/auth/passkeys/register/begin", a.BeginPasskeyRegistration)
+		r.Post("/auth/passkeys/register/finish", a.FinishPasskeyRegistration)
+		r.Get("/auth/passkeys", a.ListPasskeys)
+		r.Delete("/auth/passkeys/{passkey_uuid}", a.DeletePasskey)
+		r.Post("/auth/passkey/login/begin", a.BeginPasskeyLogin)
+		r.Post("/auth/passkey/login/finish", a.FinishPasskeyLogin)
+	})
+
+	return api.HandlerWithOptions(a, api.ChiServerOptions{
+		BaseURL:    "/api/v1",
+		BaseRouter: r,
+		// The generated wrapper applies middlewares in reverse order (the last
+		// entry ends up outermost), so authentication must come last: rate
+		// limiting and idempotency both need the authenticated identity.
+		Middlewares: []api.MiddlewareFunc{idempotency, rateLimit, mw.Handler},
+		ErrorHandlerFunc: func(w http.ResponseWriter, req *http.Request, err error) {
+			httpapi.WriteError(w, req, http.StatusBadRequest, httpapi.CodeBadRequest, err.Error())
+		},
+	})
+}
+
+// recoverJSON turns panics into the Error schema, without a stack trace in
+// the response (§24.1).
+func recoverJSON(logger *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if rec := recover(); rec != nil {
+					logger.Error("panic in handler", "panic", rec, "path", r.URL.Path)
+					httpapi.WriteError(w, r, http.StatusInternalServerError, httpapi.CodeInternal, "internal error")
+				}
+			}()
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// require checks the operation's x-required-permission and writes the 401
+// or 403 response itself when the check fails.
+func (a *API) require(w http.ResponseWriter, r *http.Request, perm auth.Permission) (*auth.Identity, bool) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		httpapi.WriteError(w, r, http.StatusUnauthorized, httpapi.CodeUnauthorized, "missing or invalid bearer token")
+		return nil, false
+	}
+	if !auth.Has(id.Permissions, perm) {
+		httpapi.WriteError(w, r, http.StatusForbidden, httpapi.CodeForbidden, "this operation requires the "+string(perm)+" permission")
+		return nil, false
+	}
+	return id, true
+}
+
+// resolveTeam loads a team by public UUID and applies team isolation: a
+// valid UUID belonging to another team yields the same 404 as a missing one
+// (INV-002).
+func (a *API) resolveTeam(w http.ResponseWriter, r *http.Request, id *auth.Identity, teamUUID string) (store.Team, bool) {
+	var u pgtype.UUID
+	if err := u.Scan(teamUUID); err != nil {
+		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "team not found")
+		return store.Team{}, false
+	}
+	team, err := a.Store.GetTeamByUUID(r.Context(), u)
+	if err != nil || !id.CanAccessTeam(team.ID) {
+		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "team not found")
+		return store.Team{}, false
+	}
+	return team, true
+}

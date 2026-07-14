@@ -1,0 +1,25 @@
+{
+  "description": "Un wildcard serveur : les routes qui en dépendent sont émises en DNS-01 (proxy-contract §7.2). Une route hors wildcard reste en HTTP-01 — le challenge n'est pas un réglage global, c'est ce que le domaine impose.",
+  "ir_version": 1,
+  "static": {
+    "http_port": 80,
+    "https_port": 443,
+    "acme_email": "ops@example.com",
+    "dns_provider": "cloudflare",
+    "revision": 12
+  },
+  "groups": [
+    {
+      "app_uuid": "3f2a1c4e-0000-4000-8000-000000000001",
+      "endpoint": "3f2a1c4e-0000-4000-8000-000000000001",
+      "force_https": true,
+      "wildcard_domain": "preview.example.com",
+      "dns_provider": "cloudflare",
+      "revision": 12,
+      "routes": [
+        { "fqdn": "pr-42.preview.example.com", "path": "/", "target_port": 3000 },
+        { "fqdn": "app.example.com", "path": "/", "target_port": 3000 }
+      ]
+    }
+  ]
+}

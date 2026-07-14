@@ -1,0 +1,141 @@
+// Rich PR feedback (§20.4.6, protocols §2.7): ONE upserted comment and a
+// check run per preview. Everything here is BEST-EFFORT by contract: a
+// feedback failure is logged and never fails the deployment it narrates.
+package jobs
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/githubapp"
+	"github.com/deepteams/akerdock/internal/pguuid"
+	"github.com/deepteams/akerdock/internal/store"
+)
+
+// PreviewFeedback carries a preview state transition to the PR.
+type PreviewFeedback struct {
+	Store   *store.Queries
+	Keyring *envelope.Keyring
+	Logger  *slog.Logger
+}
+
+// Notify updates the PR's single comment and check run. state is one of
+// queued|deploying|success|failure|destroyed.
+func (f *PreviewFeedback) Notify(ctx context.Context, app store.GetApplicationByIDRow, preview store.Preview, state string) {
+	if app.Application.GitSourceID == nil || app.Application.RepositoryID == nil {
+		return // not a GitHub App source: nothing to talk to
+	}
+	source, err := f.Store.GetGitSourceByID(ctx, *app.Application.GitSourceID)
+	if err != nil || source.GithubAppID == nil {
+		return
+	}
+	gh, err := f.Store.GetGithubAppByID(ctx, *source.GithubAppID)
+	if err != nil || gh.AppID == nil || gh.InstallationID == nil || gh.AppPrivateKeyEnc == nil {
+		return
+	}
+	repo, err := f.Store.GetRepositoryByID(ctx, *app.Application.RepositoryID)
+	if err != nil {
+		return
+	}
+	pem, err := f.Keyring.Decrypt("github_apps", "app_private_key_enc", pguuid.String(gh.Uuid), gh.AppPrivateKeyEnc)
+	if err != nil {
+		f.Logger.Warn("preview feedback: key decrypt failed", "error", err)
+		return
+	}
+	client := &githubapp.Client{APIURL: gh.ApiUrl}
+	tokens := githubapp.NewTokenSource(client, *gh.AppID, pem)
+	// Bounded on purpose: feedback must never hold a deployment hostage.
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	token, err := tokens.Token(ctx, *gh.InstallationID, nil)
+	if err != nil {
+		f.Logger.Warn("preview feedback: token mint failed", "error", err)
+		return
+	}
+
+	url := ""
+	if preview.Fqdn != nil && *preview.Fqdn != "" {
+		url = "https://" + *preview.Fqdn
+	}
+	var line string
+	switch state {
+	case "queued":
+		line = "⏳ Preview queued for `" + shortSHA(preview.HeadSha) + "`."
+	case "deploying":
+		line = "🚀 Preview deploying `" + shortSHA(preview.HeadSha) + "`…"
+	case "success":
+		line = "✅ Preview ready: " + url
+		if url == "" {
+			line = "✅ Preview deployed (no domain configured)."
+		}
+	case "failure":
+		line = "❌ Preview deployment failed for `" + shortSHA(preview.HeadSha) + "` — see the deployment logs in AkerDock."
+	case "destroyed":
+		line = "🧹 Preview destroyed."
+	default:
+		return
+	}
+	body := fmt.Sprintf("**AkerDock preview — %s**\n\n%s", app.Resource.Name, line)
+	marker := fmt.Sprintf("preview-%s-%d", pguuid.String(app.Resource.Uuid), preview.PrID)
+	if err := client.UpsertPRComment(ctx, token, repo.FullName, int(preview.PrID), marker, body); err != nil {
+		f.Logger.Warn("preview feedback: comment upsert failed", "error", err)
+	}
+
+	// Deployments API (§2.7b): materializes the "View deployment" button on
+	// the PR. Transient environment — GitHub marks it inactive on its own once
+	// the deployment is gone.
+	if state == "success" || state == "failure" {
+		environment := fmt.Sprintf("preview/pr-%d", preview.PrID)
+		if preview.HeadSha != nil && *preview.HeadSha != "" {
+			if deploymentID, err := client.CreateDeployment(ctx, token, repo.FullName, *preview.HeadSha, environment); err != nil {
+				f.Logger.Warn("preview feedback: deployment creation failed", "error", err)
+			} else {
+				ghState := "success"
+				if state == "failure" {
+					ghState = "failure"
+				}
+				if err := client.CreateDeploymentStatus(ctx, token, repo.FullName, deploymentID, ghState, url); err != nil {
+					f.Logger.Warn("preview feedback: deployment status failed", "error", err)
+				}
+			}
+		}
+	}
+
+	// Check run (§2.7a): usable as a required status check. Same name and
+	// head_sha across transitions — GitHub surfaces the latest.
+	if preview.HeadSha == nil || *preview.HeadSha == "" {
+		return
+	}
+	in := githubapp.CheckRunInput{
+		Name:    "AkerDock / preview / " + app.Resource.Name,
+		HeadSHA: *preview.HeadSha,
+	}
+	switch state {
+	case "queued":
+		in.Status = "queued"
+	case "deploying":
+		in.Status = "in_progress"
+	case "success":
+		in.Status, in.Conclusion = "completed", "success"
+	case "failure":
+		in.Status, in.Conclusion = "completed", "failure"
+	default:
+		return // a destroyed preview does not rewrite its last check
+	}
+	if _, err := client.CreateCheckRun(ctx, token, repo.FullName, in); err != nil {
+		f.Logger.Warn("preview feedback: check run failed", "error", err)
+	}
+}
+
+func shortSHA(sha *string) string {
+	if sha == nil || *sha == "" {
+		return "?"
+	}
+	if len(*sha) > 12 {
+		return (*sha)[:12]
+	}
+	return *sha
+}

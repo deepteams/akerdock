@@ -1,0 +1,985 @@
+// Compose build pack (compose-spec.md, deployment-engine §5.7): the
+// repository's compose file becomes a multi-service stack. This iteration
+// replaces every changed service in place (recreate, topological order);
+// the per-service zero-downtime switch of §8.2 is the next one.
+package jobs
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/deepteams/akerdock/internal/compose"
+	"github.com/deepteams/akerdock/internal/pguuid"
+	"github.com/deepteams/akerdock/internal/sshexec"
+	"github.com/deepteams/akerdock/internal/store"
+)
+
+// executeCompose drives a deployment whose build pack is compose. It owns
+// everything after `preparing`: cloning, validation, per-service create.
+func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, labels string) error {
+	if r.d.IsRollback {
+		return fmt.Errorf("rollback of a compose stack is not supported yet — redeploy a previous commit instead")
+	}
+	if r.service == nil && r.app.Application.GitRepositoryUrl == nil {
+		return fmt.Errorf("the compose build pack requires a git source")
+	}
+	// No blind replay (§2.5): the fine-grained resume-by-inspection of the
+	// single-container path is not implemented for stacks yet, so a crashed
+	// compose deployment fails explicitly — redeploying is always safe, every
+	// mutation below is idempotent per service.
+	if r.d.Status != store.DeploymentStatusQueued && r.d.Status != store.DeploymentStatusPreparing {
+		return fmt.Errorf("this compose deployment was interrupted at %q and cannot resume — trigger a new deployment", r.d.Status)
+	}
+
+	if err := r.step(ctx, "prepare", func() (*sshexec.Result, error) {
+		return r.client.Run(ctx, fmt.Sprintf(
+			"docker info --format ok >/dev/null && mkdir -p %s/env && chmod 700 %s %s/env && (docker network inspect %s >/dev/null 2>&1 || docker network create --label akerdock.managed=true %s)",
+			appDir, appDir, appDir, r.dest.Network, r.dest.Network))
+	}); err != nil {
+		return err
+	}
+
+	// --- source: clone for the build pack, the services row inline ---------
+	var content, workDir, sha string
+	if r.service != nil {
+		// Inline stack: the file IS the database row (§9.1); relative binds
+		// resolve under the stack's own directory (§2.4). Builds were refused
+		// at save time — there is no source to build from.
+		content = r.service.ComposeContent
+		workDir = appDir + "/mounts"
+		sha = strings.ReplaceAll(pguuid.String(r.d.Uuid), "-", "")
+		r.skipStep(ctx, "clone", "inline compose stack (no git source)")
+		if err := r.setStatus(ctx, store.DeploymentStatusBuilding); err != nil {
+			return err
+		}
+	} else {
+		srcDir, gitSha, err := r.cloneForCompose(ctx, appUUID, appDir)
+		if err != nil {
+			return err
+		}
+		sha = gitSha
+		if err := r.setStatus(ctx, store.DeploymentStatusBuilding); err != nil {
+			return err
+		}
+		baseDir := strings.TrimPrefix(r.app.Application.BaseDirectory, "/")
+		composePath := "docker-compose.yml"
+		if p := r.app.BuildConfig.ComposeFilePath; p != nil && *p != "" {
+			composePath = strings.TrimPrefix(*p, "/")
+		}
+		workDir = strings.TrimRight(srcDir+"/"+baseDir, "/")
+		if err := r.step(ctx, "read_compose", func() (*sshexec.Result, error) {
+			res, err := r.client.Run(ctx, fmt.Sprintf("cat %s/%s", workDir, composePath))
+			if err == nil && res.ExitCode != 0 {
+				return res, fmt.Errorf("compose file %q not found in the repository", composePath)
+			}
+			if err == nil {
+				content = res.Stdout
+			}
+			return res, err
+		}); err != nil {
+			return err
+		}
+	}
+
+	// --- validation + plan (control plane, compose-spec §1–5) -------------
+	vars, err := r.plainEnvVars(ctx)
+	if err != nil {
+		return err
+	}
+	// First pass discovers the service names; magic variables may still be
+	// undefined here, which only produces warnings.
+	first, err := compose.Load(ctx, compose.Input{
+		Content: content, StackUUID: appUUID, Variables: vars,
+		Raw: r.app.BuildConfig.RawCompose,
+	})
+	if err != nil {
+		return err
+	}
+	if first.Plan != nil {
+		// Components must exist before the magic FQDN/URL pass: referencing
+		// SERVICE_FQDN_<ID> is a declaration of intent that CREATES the
+		// component's domain from the server wildcard (§6).
+		if _, err := r.syncComponents(ctx, first.Plan); err != nil {
+			return err
+		}
+		if err := r.ensureMagicVariables(ctx, content, first.Project.ServiceNames(), vars); err != nil {
+			return err
+		}
+	}
+	// The magic variables were possibly just persisted: runtime.sh must carry
+	// them, so it is rendered NOW, not in the shared preparing step.
+	envFile, stackKeys, err := r.renderRuntimeEnv(ctx)
+	if err != nil {
+		return err
+	}
+	if res, err := r.client.RunInput(ctx, fmt.Sprintf("umask 077 && cat > %s/env/runtime.sh", appDir), envFile); err != nil || res.ExitCode != 0 {
+		return fmt.Errorf("uploading runtime.sh failed")
+	}
+
+	result, err := compose.Load(ctx, compose.Input{
+		Content: content, StackUUID: appUUID, Variables: vars,
+		Raw: r.app.BuildConfig.RawCompose,
+	})
+	if err != nil {
+		return err
+	}
+	if err := r.reportFindings(ctx, result.Findings); err != nil || result.Plan == nil {
+		if err == nil {
+			err = fmt.Errorf("the compose file was refused by validation")
+		}
+		return err
+	}
+	plan := result.Plan
+	if r.service != nil {
+		for _, sp := range plan.Services {
+			if sp.Build {
+				return fmt.Errorf("service %s: build requires a git source — inline stacks deploy images only", sp.Name)
+			}
+		}
+	}
+
+	// --- component sync (data dictionary §9.2) ----------------------------
+	componentIDs, err := r.syncComponents(ctx, plan)
+	if err != nil {
+		return err
+	}
+
+	// --- stack objects: network, extra networks, volumes (§2.1, §2.4) -----
+	if err := r.step(ctx, "prepare_stack", func() (*sshexec.Result, error) {
+		var b strings.Builder
+		ensureNetwork := func(name string) {
+			fmt.Fprintf(&b, "docker network inspect %s >/dev/null 2>&1 || docker network create %s %s\n", name, labels, name)
+		}
+		ensureNetwork(plan.NetworkName)
+		extra := make([]string, 0, len(plan.ExtraNetworks))
+		for dockerName := range plan.ExtraNetworks {
+			extra = append(extra, dockerName)
+		}
+		sort.Strings(extra)
+		for _, dockerName := range extra {
+			ensureNetwork(dockerName)
+		}
+		volumes := make([]string, 0, len(plan.Volumes))
+		for _, dockerName := range plan.Volumes {
+			volumes = append(volumes, dockerName)
+		}
+		sort.Strings(volumes)
+		for _, dockerName := range volumes {
+			fmt.Fprintf(&b, "docker volume create %s %s >/dev/null\n", labels, dockerName)
+		}
+		return r.client.Run(ctx, b.String())
+	}); err != nil {
+		return err
+	}
+
+	// A private registry credential on the application applies to the whole
+	// stack's pulls, exactly like the single-container packs.
+	logout, err := r.registryLogin(ctx)
+	if err != nil {
+		return err
+	}
+	defer logout()
+
+	// Which components carry a domain — they must be reachable by the proxy,
+	// so they also join the destination network (§2.1).
+	routed, err := r.routedComponents(ctx, componentIDs)
+	if err != nil {
+		return err
+	}
+
+	// --- images first (§8.2 step 2): build/pull EVERYTHING before any
+	// mutation — a stack must never be half-replaced because an image of a
+	// later service turned out to be unpullable.
+	images := map[string]composeImage{}
+	for _, sp := range plan.Services {
+		img, err := r.ensureComposeImage(ctx, sp, workDir, labels, sha)
+		if err != nil {
+			return fmt.Errorf("service %s: %w", sp.Name, err)
+		}
+		images[sp.Name] = img
+	}
+
+	// --- per-service replacement, in topological order (§8.2) --------------
+	if err := r.setStatus(ctx, store.DeploymentStatusStarting); err != nil {
+		return err
+	}
+	for _, sp := range plan.Services {
+		if err := r.checkpoint(ctx); err != nil {
+			return err
+		}
+		if err := r.replaceComposeService(ctx, plan, sp, appDir, appUUID, labels, stackKeys, routed[sp.Name], images[sp.Name]); err != nil {
+			_ = r.h.Store.SetServiceComponentObserved(ctx, store.SetServiceComponentObservedParams{
+				ID: componentIDs[sp.Name], ObservedStatus: store.ResourceObservedStatusUnhealthy,
+			})
+			return fmt.Errorf("service %s: %w", sp.Name, err)
+		}
+		observed := store.ResourceObservedStatusHealthy
+		if sp.OneShot {
+			observed = store.ResourceObservedStatusExited
+		}
+		_ = r.h.Store.SetServiceComponentObserved(ctx, store.SetServiceComponentObservedParams{
+			ID: componentIDs[sp.Name], ObservedStatus: observed,
+		})
+	}
+
+	// --- routing + finishing ------------------------------------------------
+	if err := r.setStatus(ctx, store.DeploymentStatusSwitching); err != nil {
+		return err
+	}
+	if err := r.applyRouting(ctx, appUUID); err != nil {
+		return err
+	}
+	return r.finish(ctx, appUUID)
+}
+
+// cloneForCompose is the clone half of buildFromGit: resolve the branch to an
+// immutable SHA, then shallow-clone it into the per-deployment directory.
+func (r *deploymentRun) cloneForCompose(ctx context.Context, appUUID, appDir string) (string, string, error) {
+	repoURL := *r.app.Application.GitRepositoryUrl
+	branch := "main"
+	if r.app.Application.GitBranch != nil && *r.app.Application.GitBranch != "" {
+		branch = *r.app.Application.GitBranch
+	}
+	if err := r.setStatus(ctx, store.DeploymentStatusCloning); err != nil {
+		return "", "", err
+	}
+	gitEnv, cleanup, err := r.installDeployKey(ctx, appDir)
+	if err != nil {
+		return "", "", err
+	}
+	defer cleanup()
+
+	var sha string
+	if err := r.step(ctx, "resolve_sha", func() (*sshexec.Result, error) {
+		res, err := r.client.Run(ctx, fmt.Sprintf("%sgit ls-remote %s refs/heads/%s", gitEnv, repoURL, branch))
+		if err == nil && res.ExitCode == 0 {
+			sha, _, _ = strings.Cut(firstLine(res.Stdout), "\t")
+			sha = strings.TrimSpace(sha)
+			if len(sha) != 40 {
+				return res, fmt.Errorf("branch %q not found on %s", branch, repoURL)
+			}
+			_ = r.h.Store.SetDeploymentCommit(ctx, store.SetDeploymentCommitParams{ID: r.d.ID, CommitSha: &sha, GitBranch: &branch})
+		}
+		return res, err
+	}); err != nil {
+		return "", "", err
+	}
+
+	srcDir := fmt.Sprintf("%s/source/%s", appDir, pguuid.String(r.d.Uuid))
+	if err := r.step(ctx, "clone", func() (*sshexec.Result, error) {
+		return r.client.Run(ctx, fmt.Sprintf(
+			"rm -rf %s && mkdir -p %s && cd %s && git init -q && git remote add origin %s && %sgit fetch -q --depth 1 origin %s && git checkout -q --detach FETCH_HEAD",
+			srcDir, srcDir, srcDir, repoURL, gitEnv, sha))
+	}); err != nil {
+		return "", "", err
+	}
+	return srcDir, sha, nil
+}
+
+// syncComponents mirrors the plan's services into service_components
+// (data dictionary §9.2): upserts keep row identity stable, services removed
+// from the file lose their row (and, by CASCADE, domains and backup plans).
+func (r *deploymentRun) syncComponents(ctx context.Context, plan *compose.Plan) (map[string]int64, error) {
+	names := make([]string, 0, len(plan.Services))
+	componentIDs := map[string]int64{}
+	for _, sp := range plan.Services {
+		names = append(names, sp.Name)
+		var image *string
+		if sp.Image != "" {
+			image = &sp.Image
+		}
+		var engine *store.DbEngine
+		if sp.DatabaseEngine != "" {
+			e := store.DbEngine(sp.DatabaseEngine)
+			engine = &e
+		}
+		var routePort *int32
+		if sp.DefaultRoutePort > 0 {
+			p := int32(sp.DefaultRoutePort)
+			routePort = &p
+		}
+		component, err := r.h.Store.UpsertServiceComponent(ctx, store.UpsertServiceComponentParams{
+			ResourceID: r.app.Resource.ID, Name: sp.Name, Image: image,
+			IsDatabase: sp.IsDatabase, DatabaseEngine: engine, ExcludeFromHc: sp.ExcludeFromHC,
+			DefaultRoutePort: routePort,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("sync component %s: %w", sp.Name, err)
+		}
+		componentIDs[sp.Name] = component.ID
+	}
+	if _, err := r.h.Store.DeleteVanishedServiceComponents(ctx, store.DeleteVanishedServiceComponentsParams{
+		ResourceID: r.app.Resource.ID, Names: names,
+	}); err != nil {
+		return nil, err
+	}
+	return componentIDs, nil
+}
+
+// plainEnvVars decrypts the stack's variables into the interpolation map
+// (compose-spec §3.2) — never logged, never in argv (INV-003).
+func (r *deploymentRun) plainEnvVars(ctx context.Context) (map[string]string, error) {
+	rows, err := r.h.Store.ListEnvVarsForDeploy(ctx, r.app.Resource.ID)
+	if err != nil {
+		return nil, err
+	}
+	vars := make(map[string]string, len(rows))
+	for _, v := range rows {
+		plaintext, err := r.h.Keyring.Decrypt("environment_variables", "value_enc", pguuid.String(v.Uuid), v.ValueEnc)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt variable %s: %w", v.Key, err)
+		}
+		vars[v.Key] = string(plaintext)
+	}
+	return vars, nil
+}
+
+// ensureMagicVariables generates and persists the missing credential-type
+// magic variables (compose-spec §4.3) and resolves FQDN/URL references from
+// the components' domains. The map is updated in place for the second load.
+func (r *deploymentRun) ensureMagicVariables(ctx context.Context, content string, services []string, vars map[string]string) error {
+	refs, _ := compose.ScanMagicReferences(content, services)
+	for _, ref := range refs {
+		if _, exists := vars[ref.Name]; exists {
+			continue
+		}
+		switch {
+		case ref.Credential:
+			value, err := compose.GenerateMagicValue(ref)
+			if err != nil {
+				return err
+			}
+			u, err := pguuid.New()
+			if err != nil {
+				return err
+			}
+			enc, err := r.h.Keyring.Encrypt("environment_variables", "value_enc", pguuid.String(u), []byte(value))
+			if err != nil {
+				return err
+			}
+			inserted, err := r.h.Store.CreateGeneratedEnvVar(ctx, store.CreateGeneratedEnvVarParams{
+				Uuid: u, ResourceID: r.app.Resource.ID, Key: ref.Name, ValueEnc: enc, IsSecret: true,
+			})
+			if err != nil {
+				return fmt.Errorf("persist magic variable %s: %w", ref.Name, err)
+			}
+			if inserted == 0 {
+				// Raced by a concurrent writer or created between the list and
+				// now: the stored value is the truth, ours is discarded.
+				stored, err := r.plainEnvVars(ctx)
+				if err != nil {
+					return err
+				}
+				value = stored[ref.Name]
+			}
+			vars[ref.Name] = value
+		default:
+			// FQDN/URL: resolved from the component's domains below; left
+			// undefined (warning) when the component has none yet.
+			if fqdn := r.componentFQDN(ctx, ref); fqdn != "" {
+				if ref.Type == compose.MagicURL {
+					vars[ref.Name] = "https://" + fqdn
+				} else {
+					vars[ref.Name] = fqdn
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// componentFQDN returns the first domain of the component named by the
+// reference. When the component has none, referencing SERVICE_FQDN_<ID> is a
+// declaration of intent (§6): a domain is generated from the server wildcard
+// — no wildcard, no generation, and the variable stays undefined (warned).
+func (r *deploymentRun) componentFQDN(ctx context.Context, ref compose.MagicRef) string {
+	components, err := r.h.Store.ListServiceComponents(ctx, r.app.Resource.ID)
+	if err != nil {
+		return ""
+	}
+	for _, c := range components {
+		if compose.NormalizeComponentID(c.Name) != ref.ID {
+			continue
+		}
+		domains, err := r.h.Store.ListServiceComponentDomains(ctx, &c.ID)
+		if err != nil {
+			return ""
+		}
+		if len(domains) > 0 {
+			return domains[0].Fqdn
+		}
+		if r.server.WildcardDomain == nil || *r.server.WildcardDomain == "" {
+			return ""
+		}
+		appUUID := pguuid.String(r.app.Resource.Uuid)
+		fqdn := fmt.Sprintf("%s-%s.%s",
+			strings.ToLower(strings.ReplaceAll(c.Name, "_", "-")), appUUID[:8], *r.server.WildcardDomain)
+		u, err := pguuid.New()
+		if err != nil {
+			return ""
+		}
+		var targetPort *int32
+		if ref.Port > 0 {
+			p := int32(ref.Port)
+			targetPort = &p
+		}
+		if _, err := r.h.Store.CreateComponentDomain(ctx, store.CreateComponentDomainParams{
+			Uuid: u, ServiceComponentID: &c.ID, Fqdn: fqdn, TargetPort: targetPort,
+		}); err != nil {
+			// ON CONFLICT DO NOTHING + :one returns no rows when the fqdn is
+			// already taken elsewhere: the intent loses, the variable stays
+			// undefined rather than pointing at someone else's route.
+			r.h.Logger.Warn("generated component domain conflicts, skipped", "fqdn", fqdn, "component", c.Name)
+			return ""
+		}
+		return fqdn
+	}
+	return ""
+}
+
+// routedComponents maps service name -> true when the component carries at
+// least one domain: those must join the destination network so the proxy can
+// reach them (§2.1).
+func (r *deploymentRun) routedComponents(ctx context.Context, componentIDs map[string]int64) (map[string]bool, error) {
+	out := map[string]bool{}
+	for name, id := range componentIDs {
+		domains, err := r.h.Store.ListServiceComponentDomains(ctx, &id)
+		if err != nil {
+			return nil, err
+		}
+		out[name] = len(domains) > 0
+	}
+	return out, nil
+}
+
+// reportFindings traces every finding in the deployment log (compose-spec
+// §11) and returns an error when at least one blocks.
+func (r *deploymentRun) reportFindings(ctx context.Context, findings []compose.Finding) error {
+	if len(findings) == 0 {
+		r.skipStep(ctx, "validate_compose", "no findings")
+		return nil
+	}
+	var b strings.Builder
+	for _, f := range findings {
+		fmt.Fprintf(&b, "%s\n", f.String())
+	}
+	summary := b.String()
+	return r.step(ctx, "validate_compose", func() (*sshexec.Result, error) {
+		res := &sshexec.Result{Stdout: summary}
+		if compose.HasErrors(findings) {
+			res.ExitCode = 1
+			return res, fmt.Errorf("compose validation failed — see the findings above")
+		}
+		return res, nil
+	})
+}
+
+// composeImage is one resolved image of the stack: the reference to create
+// containers from (digest-pinned when the registry provides one, §18.3) and
+// whether the image ships its own HEALTHCHECK (§7.1).
+type composeImage struct {
+	Ref            string
+	HasHealthcheck bool
+}
+
+// ensureComposeImage builds or pulls one service's image — before any
+// container of the stack is touched (§8.2 step 2).
+func (r *deploymentRun) ensureComposeImage(ctx context.Context, sp compose.ServicePlan, workDir, labels, sha string) (composeImage, error) {
+	svc := sp.Service
+	ref := sp.Image
+
+	if sp.Build {
+		buildCtx := "."
+		if svc.Build.Context != "" {
+			buildCtx = "./" + strings.TrimPrefix(svc.Build.Context, "./")
+		}
+		dockerfile := "Dockerfile"
+		if svc.Build.Dockerfile != "" {
+			dockerfile = svc.Build.Dockerfile
+		}
+		ref = sp.BuildImage + ":" + sha[:12]
+		args := ""
+		for key, value := range svc.Build.Args {
+			if value == nil {
+				continue
+			}
+			args += fmt.Sprintf(" --build-arg %s=%s", key, shellQuote(*value))
+		}
+		if err := r.step(ctx, "build_"+sp.Name, func() (*sshexec.Result, error) {
+			return r.client.Run(ctx, fmt.Sprintf(
+				"cd %s/%s && DOCKER_BUILDKIT=1 docker build --file %s --progress plain%s --tag %s %s --label akerdock.commit_sha=%s --label akerdock.component=%s .",
+				workDir, strings.TrimPrefix(buildCtx, "./"), dockerfile, args, ref, labels, sha, sp.Name))
+		}); err != nil {
+			return composeImage{}, err
+		}
+	} else if err := r.step(ctx, "pull_"+sp.Name, func() (*sshexec.Result, error) {
+		return r.client.Run(ctx, "docker pull "+ref)
+	}); err != nil {
+		return composeImage{}, err
+	}
+
+	// Digest resolution (§18.3): what the stack runs is provably what was
+	// pulled — a moved tag between two services cannot split the stack.
+	img := composeImage{Ref: ref}
+	if err := r.step(ctx, "resolve_"+sp.Name, func() (*sshexec.Result, error) {
+		res, err := r.client.Run(ctx, fmt.Sprintf(
+			"docker image inspect --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}|{{if .Config.Healthcheck}}yes{{else}}no{{end}}' %s", ref))
+		if err == nil && res.ExitCode == 0 {
+			digest, hc, _ := strings.Cut(firstLine(res.Stdout), "|")
+			if !sp.Build && digest != "" {
+				img.Ref = digest
+			}
+			img.HasHealthcheck = hc == "yes"
+		}
+		return res, err
+	}); err != nil {
+		return composeImage{}, err
+	}
+	return img, nil
+}
+
+// composeConfigHash fingerprints the desired state of one service: the fully
+// rendered create command (with the deployment-scoped labels blanked) plus
+// the environment content. Same hash on the running container = the service
+// is unchanged and is not replaced (§8.2 step 1).
+func composeConfigHash(createCommand, envContent string) string {
+	sum := sha256.Sum256([]byte(createCommand + "\x00" + envContent))
+	return hex.EncodeToString(sum[:6])
+}
+
+// zeroDowntimeEligibility decides how a WEB service (one with a domain) is
+// replaced (§8.4). The returned reason names why a web service falls back to
+// recreate — surfaced in the deployment log, never silent.
+func zeroDowntimeEligibility(sp compose.ServicePlan, raw, imageHealthcheck bool) (bool, string) {
+	switch {
+	case raw:
+		return false, "raw compose mode (§9)"
+	case sp.ZeroDowntimeOptOut:
+		return false, "x-akerdock.zero_downtime: false"
+	case sp.HasHostPorts:
+		return false, "host port mapping — two instances cannot bind the same port"
+	case (sp.Health == nil || sp.Health.Disable || len(sp.Health.Test) == 0) && !imageHealthcheck:
+		return false, "no resolved healthcheck (compose or image)"
+	default:
+		return true, ""
+	}
+}
+
+// replaceComposeService replaces one service of the stack: untouched when
+// unchanged, zero-downtime switch when web and eligible, recreate otherwise.
+func (r *deploymentRun) replaceComposeService(ctx context.Context, plan *compose.Plan, sp compose.ServicePlan, appDir, appUUID, labels string, stackKeys []string, routedComponent bool, img composeImage) error {
+	envPath, envKeys, envContent, err := r.uploadComposeEnv(ctx, sp, appDir)
+	if err != nil {
+		return err
+	}
+	allKeys := append(append([]string{}, stackKeys...), envKeys...)
+
+	// The hash is computed over the deployment-invariant parts only: the
+	// per-deployment labels would make every service look changed.
+	hash := composeConfigHash(
+		r.composeCreateCommand(plan, sp, appDir, "", envPath, allKeys, img.Ref, composeCreateOpts{Name: sp.ContainerName, Aliases: sp.Aliases}),
+		envContent)
+	labeled := labels + " --label akerdock.config_hash=" + hash
+
+	if !r.d.ForceRebuild && !sp.OneShot {
+		currentHash, running := r.containerConfigState(ctx, sp.ContainerName)
+		if currentHash == hash && running {
+			r.skipStep(ctx, "start_"+sp.Name, "unchanged since the last deployment (config hash "+hash+")")
+			return nil
+		}
+	}
+
+	if sp.OneShot {
+		return r.recreateComposeService(ctx, plan, sp, appDir, labeled, envPath, allKeys, img.Ref, routedComponent)
+	}
+	if routedComponent {
+		if eligible, reason := zeroDowntimeEligibility(sp, r.app.BuildConfig.RawCompose, img.HasHealthcheck); eligible {
+			return r.zeroDowntimeReplace(ctx, plan, sp, appDir, appUUID, labeled, envPath, allKeys, img.Ref)
+		} else {
+			// compose_zero_downtime_ineligible (§8.4): the interruption is
+			// assumed and displayed, never silent.
+			r.skipStep(ctx, "zero_downtime_"+sp.Name, "recreate with interruption: "+reason)
+		}
+	}
+	return r.recreateComposeService(ctx, plan, sp, appDir, labeled, envPath, allKeys, img.Ref, routedComponent)
+}
+
+// uploadComposeEnv writes the per-service environment file (§2.7): values
+// travel by stdin and are sourced by name, never argv (INV-003/012).
+func (r *deploymentRun) uploadComposeEnv(ctx context.Context, sp compose.ServicePlan, appDir string) (string, []string, string, error) {
+	svc := sp.Service
+	var envFile strings.Builder
+	envKeys := make([]string, 0, len(svc.Environment))
+	for key, value := range svc.Environment {
+		if value == nil {
+			continue
+		}
+		envKeys = append(envKeys, key)
+	}
+	sort.Strings(envKeys)
+	for _, key := range envKeys {
+		fmt.Fprintf(&envFile, "export %s=%s\n", key, shellQuote(*svc.Environment[key]))
+	}
+	envPath := fmt.Sprintf("%s/env/%s.sh", appDir, sp.Name)
+	if res, err := r.client.RunInput(ctx, "umask 077 && cat > "+envPath, envFile.String()); err != nil || res.ExitCode != 0 {
+		return "", nil, "", fmt.Errorf("uploading the %s environment failed", sp.Name)
+	}
+	return envPath, envKeys, envFile.String(), nil
+}
+
+// containerConfigState reads the config hash label and run state of the
+// current container ("", false when it does not exist).
+func (r *deploymentRun) containerConfigState(ctx context.Context, name string) (string, bool) {
+	res, err := r.client.Run(ctx, fmt.Sprintf(
+		"docker inspect --format '{{index .Config.Labels \"akerdock.config_hash\"}} {{.State.Status}}' %s 2>/dev/null", name))
+	if err != nil || res.ExitCode != 0 {
+		return "", false
+	}
+	hash, status, _ := strings.Cut(firstLine(res.Stdout), " ")
+	return hash, status == "running"
+}
+
+// connectCommands attaches a container to its extra stack networks, and to
+// the destination network when the proxy must reach it (§2.1).
+func (r *deploymentRun) connectCommands(sp compose.ServicePlan, container string, routedComponent bool, shortAliases bool) []string {
+	var connects []string
+	for _, network := range sp.ExtraNetworks {
+		alias := container
+		if shortAliases {
+			alias = sp.Name
+		}
+		connects = append(connects, fmt.Sprintf("docker network connect --alias %s %s %s", alias, network, container))
+	}
+	if routedComponent {
+		connects = append(connects, fmt.Sprintf("docker network connect --alias %s %s %s", container, r.dest.Network, container))
+	}
+	return connects
+}
+
+// recreateComposeService is the stop-then-start path (§7.4 semantics): used
+// for non-web services, one-shots, and web services ineligible to the switch.
+func (r *deploymentRun) recreateComposeService(ctx context.Context, plan *compose.Plan, sp compose.ServicePlan, appDir, labels, envPath string, envKeys []string, runRef string, routedComponent bool) error {
+	create := r.composeCreateCommand(plan, sp, appDir, labels, envPath, envKeys, runRef,
+		composeCreateOpts{Name: sp.ContainerName, Aliases: sp.Aliases, ReplaceOld: true})
+	commands := append([]string{create}, r.connectCommands(sp, sp.ContainerName, routedComponent, true)...)
+	commands = append(commands, "docker start "+sp.ContainerName)
+	if err := r.step(ctx, "start_"+sp.Name, func() (*sshexec.Result, error) {
+		return r.client.Run(ctx, strings.Join(commands, " && "))
+	}); err != nil {
+		return err
+	}
+
+	if sp.OneShot {
+		// One-shot job (§7.3): runs at its topological position; a non-zero
+		// exit fails the deployment deterministically.
+		return r.step(ctx, "wait_"+sp.Name, func() (*sshexec.Result, error) {
+			res, err := r.client.Run(ctx, fmt.Sprintf("code=$(timeout 600 docker wait %s); echo \"exit=$code\"; [ \"$code\" = 0 ]", sp.ContainerName))
+			if err == nil && res.ExitCode != 0 {
+				return res, fmt.Errorf("one-shot service exited non-zero (%s)", firstLine(res.Stdout))
+			}
+			return res, err
+		})
+	}
+	if sp.ExcludeFromHC {
+		r.skipStep(ctx, "healthcheck_"+sp.Name, "excluded from the stack health (x-akerdock.exclude_from_hc)")
+		return nil
+	}
+	return r.waitComposeHealthy(ctx, sp, sp.ContainerName)
+}
+
+// zeroDowntimeReplace is the two-instance switch of one web service (§8.2
+// step 4): candidate next to the old, healthy first, proxy switched for THIS
+// component only, then promotion. A failure removes the candidate and leaves
+// the old container serving (C2); services already switched stay (C3).
+func (r *deploymentRun) zeroDowntimeReplace(ctx context.Context, plan *compose.Plan, sp compose.ServicePlan, appDir, appUUID, labels, envPath string, envKeys []string, runRef string) error {
+	candidate := sp.CandidateName
+	discard := func() { _, _ = r.client.Run(ctx, "docker rm -f "+candidate+" >/dev/null 2>&1 || true") }
+
+	// The candidate joins the stack network WITHOUT the short alias (§8.3):
+	// the other services keep resolving <service> to the OLD container until
+	// the promotion — they never see the candidate early.
+	create := r.composeCreateCommand(plan, sp, appDir, labels, envPath, envKeys, runRef,
+		composeCreateOpts{Name: candidate, Aliases: []string{candidate}})
+	commands := append([]string{"docker rm -f " + candidate + " >/dev/null 2>&1 || true", create},
+		r.connectCommands(sp, candidate, true, false)...)
+	commands = append(commands, "docker start "+candidate)
+	if err := r.step(ctx, "start_candidate_"+sp.Name, func() (*sshexec.Result, error) {
+		return r.client.Run(ctx, strings.Join(commands, " && "))
+	}); err != nil {
+		discard()
+		return err
+	}
+	if err := r.waitComposeHealthy(ctx, sp, candidate); err != nil {
+		discard()
+		return err
+	}
+
+	// Cancellation barrier (§8.2): past this point this component's switch
+	// runs to its end.
+	if err := r.checkpoint(ctx); err != nil {
+		discard()
+		return err
+	}
+
+	// Route THIS component to the candidate's IP: the old container keeps
+	// serving until the proxy really exposes the new endpoint (INV-005).
+	var candidateIP string
+	if err := r.step(ctx, "resolve_endpoint_"+sp.Name, func() (*sshexec.Result, error) {
+		res, err := r.client.Run(ctx, fmt.Sprintf(
+			"docker inspect --format '{{(index .NetworkSettings.Networks %q).IPAddress}}' %s", r.dest.Network, candidate))
+		if err == nil && res.ExitCode == 0 {
+			candidateIP = firstLine(res.Stdout)
+			if candidateIP == "" {
+				return res, fmt.Errorf("could not resolve the candidate IP on network %s", r.dest.Network)
+			}
+		}
+		return res, err
+	}); err != nil {
+		discard()
+		return err
+	}
+	if err := r.switchComponentRouting(ctx, appUUID, sp.Name, candidateIP); err != nil {
+		discard()
+		return err
+	}
+
+	// Promotion: stop the old, take its name, and give the promoted
+	// container the short DNS alias on the stack network (§8.3). The alias
+	// swap disconnects/reconnects the STACK network only — the proxy talks
+	// over the destination network, so routing never blinks.
+	grace := 30
+	if sp.Service.StopGracePeriod != nil {
+		grace = int(time.Duration(*sp.Service.StopGracePeriod).Seconds())
+	}
+	if err := r.step(ctx, "switch_"+sp.Name, func() (*sshexec.Result, error) {
+		return r.client.Run(ctx, fmt.Sprintf(
+			"(docker stop -t %d %s >/dev/null 2>&1 && docker rm %s >/dev/null 2>&1) || true; "+
+				"docker rename %s %s && docker network disconnect %s %s >/dev/null 2>&1; "+
+				"docker network connect --alias %s --alias %s %s %s",
+			grace, sp.ContainerName, sp.ContainerName,
+			candidate, sp.ContainerName, plan.NetworkName, sp.ContainerName,
+			sp.Name, sp.ContainerName, plan.NetworkName, sp.ContainerName))
+	}); err != nil {
+		return err
+	}
+	// Stabilize the routing on the container NAME: the candidate IP dies with
+	// the next replacement, the name does not.
+	return r.switchComponentRouting(ctx, appUUID, sp.Name, "")
+}
+
+// waitComposeHealthy waits for a container's health (compose or image
+// healthcheck), or a stable running state when it has none.
+func (r *deploymentRun) waitComposeHealthy(ctx context.Context, sp compose.ServicePlan, container string) error {
+	return r.step(ctx, "healthcheck_"+sp.Name, func() (*sshexec.Result, error) {
+		res, err := r.client.Run(ctx, fmt.Sprintf(
+			"deadline=$(( $(date +%%s) + %d )); while [ $(date +%%s) -lt $deadline ]; do "+
+				"st=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none-{{.State.Status}}{{end}}' %s 2>/dev/null); "+
+				"case \"$st\" in healthy) echo healthy; exit 0;; unhealthy) echo unhealthy; exit 1;; "+
+				"none-running) sleep 5; st2=$(docker inspect --format '{{.State.Status}}' %s); [ \"$st2\" = running ] && echo running && exit 0; echo \"$st2\"; exit 1;; esac; sleep 2; done; echo timeout; exit 1",
+			r.composeHealthBudget(sp), container, container))
+		if err == nil && res.ExitCode != 0 {
+			logs, _ := r.client.Run(ctx, "docker logs --tail 100 "+container+" 2>&1")
+			detail := ""
+			if logs != nil {
+				detail = "\n" + logs.Stdout
+			}
+			return res, fmt.Errorf("the service did not turn healthy (%s)%s", firstLine(res.Stdout), detail)
+		}
+		return res, err
+	})
+}
+
+// composeHealthBudget bounds the health wait (§4): start_period +
+// (interval + timeout) × retries + 30 s, with a floor for image healthchecks
+// whose parameters are unknown here.
+func (r *deploymentRun) composeHealthBudget(sp compose.ServicePlan) int {
+	if sp.Health == nil {
+		return 90
+	}
+	budget := int(sp.Health.StartPeriod.Seconds()) +
+		int((sp.Health.Interval + sp.Health.Timeout).Seconds())*int(sp.Health.Retries) + 30
+	if budget < 60 {
+		budget = 60
+	}
+	return budget
+}
+
+// switchComponentRouting re-renders the stack's routing with ONE component
+// pointed at an explicit endpoint (the candidate IP during its switch, the
+// stable container name after), applied atomically and verified.
+func (r *deploymentRun) switchComponentRouting(ctx context.Context, appUUID, component, endpoint string) error {
+	if r.server.ProxyType != store.ProxyTypeTraefik {
+		return nil
+	}
+	overrides := map[string]string{}
+	expect := ""
+	name := "switch_routing_" + component
+	if endpoint != "" {
+		overrides[component] = endpoint
+		expect = "http://" + endpoint + ":"
+	} else {
+		name = "stabilize_routing_" + component
+	}
+	content, err := RenderRoutingFileWithComponentEndpoints(ctx, r.h.Store, r.app, r.d.ID, "", overrides)
+	if err != nil {
+		return err
+	}
+	applier := &ProxyApplier{Store: r.h.Store, Client: r.client, Server: r.server, Network: r.dest.Network}
+	return r.step(ctx, name, func() (*sshexec.Result, error) {
+		return nil, applier.Apply(ctx, appUUID, content, expect)
+	})
+}
+
+// composeCreateOpts names the container a create command produces: the
+// final name for a recreate, the -next candidate for a zero-downtime switch.
+type composeCreateOpts struct {
+	Name    string
+	Aliases []string
+	// ReplaceOld prepends the stop+rm of the previous container (§7.4).
+	ReplaceOld bool
+}
+
+// composeCreateCommand renders the docker create for one service — every
+// value that could be hostile is shell-quoted, every secret travels by
+// environment sourcing, never argv (INV-003, INV-012). The container is NOT
+// started: callers connect its networks first, then start it.
+func (r *deploymentRun) composeCreateCommand(plan *compose.Plan, sp compose.ServicePlan, appDir, labels, envPath string, envKeys []string, runRef string, opts composeCreateOpts) string {
+	svc := sp.Service
+	var flags strings.Builder
+
+	fmt.Fprintf(&flags, " --restart %s", sp.Restart)
+	if sp.Restart == "" {
+		flags.Reset()
+		flags.WriteString(" --restart no") // raw mode without a policy: compose default
+	}
+	fmt.Fprintf(&flags, " --network %s", plan.NetworkName)
+	for _, alias := range opts.Aliases {
+		fmt.Fprintf(&flags, " --network-alias %s", alias)
+	}
+	fmt.Fprintf(&flags, " %s --label akerdock.component=%s", labels, sp.Name)
+	if sp.OneShot {
+		// The lifecycle job must not re-run one-shot jobs on start/restart.
+		flags.WriteString(" --label akerdock.oneshot=true")
+	}
+	userLabels := make([]string, 0, len(svc.Labels))
+	for key, value := range svc.Labels {
+		userLabels = append(userLabels, fmt.Sprintf(" --label %s", shellQuote(key+"="+value)))
+	}
+	sort.Strings(userLabels)
+	flags.WriteString(strings.Join(userLabels, ""))
+
+	for _, mount := range sp.Mounts {
+		switch mount.Type {
+		case "volume":
+			suffix := ""
+			if mount.ReadOnly {
+				suffix = ":ro"
+			}
+			fmt.Fprintf(&flags, " -v %s", shellQuote(mount.Source+":"+mount.Target+suffix))
+		case "bind":
+			source := mount.Source
+			if !strings.HasPrefix(source, "/") {
+				// Relative binds resolve inside the clone (§2.4).
+				source = appDir + "/mounts/" + strings.TrimPrefix(source, "./")
+			}
+			suffix := ""
+			if mount.ReadOnly {
+				suffix = ":ro"
+			}
+			fmt.Fprintf(&flags, " -v %s", shellQuote(source+":"+mount.Target+suffix))
+		case "tmpfs":
+			fmt.Fprintf(&flags, " --tmpfs %s", shellQuote(mount.Target))
+		}
+	}
+
+	for _, port := range svc.Ports {
+		spec := port.Published + ":" + fmt.Sprint(port.Target)
+		if port.HostIP != "" {
+			spec = port.HostIP + ":" + spec
+		}
+		if port.Protocol != "" && port.Protocol != "tcp" {
+			spec += "/" + port.Protocol
+		}
+		fmt.Fprintf(&flags, " -p %s", shellQuote(spec))
+	}
+
+	limits := sp.Limits
+	if limits.Memory > 0 {
+		fmt.Fprintf(&flags, " --memory %d", limits.Memory)
+	}
+	if limits.MemoryReservation > 0 {
+		fmt.Fprintf(&flags, " --memory-reservation %d", limits.MemoryReservation)
+	}
+	if limits.MemorySwap > 0 {
+		fmt.Fprintf(&flags, " --memory-swap %d", limits.MemorySwap)
+	}
+	if limits.CPUs > 0 {
+		fmt.Fprintf(&flags, " --cpus %g", limits.CPUs)
+	}
+	if limits.CPUShares > 0 {
+		fmt.Fprintf(&flags, " --cpu-shares %d", limits.CPUShares)
+	}
+	if limits.CPUSet != "" {
+		fmt.Fprintf(&flags, " --cpuset-cpus %s", shellQuote(limits.CPUSet))
+	}
+	if limits.Pids > 0 {
+		fmt.Fprintf(&flags, " --pids-limit %d", limits.Pids)
+	}
+
+	if health := sp.Health; health != nil {
+		switch {
+		case health.Disable || (len(health.Test) > 0 && health.Test[0] == "NONE"):
+			flags.WriteString(" --no-healthcheck")
+		case len(health.Test) > 1:
+			cmd := strings.Join(health.Test[1:], " ")
+			fmt.Fprintf(&flags, " --health-cmd %s --health-interval %s --health-timeout %s --health-retries %d --health-start-period %s",
+				shellQuote(cmd), health.Interval, health.Timeout, health.Retries, health.StartPeriod)
+		}
+	}
+
+	if svc.User != "" {
+		fmt.Fprintf(&flags, " --user %s", shellQuote(svc.User))
+	}
+	if svc.WorkingDir != "" {
+		fmt.Fprintf(&flags, " --workdir %s", shellQuote(svc.WorkingDir))
+	}
+	if svc.Init != nil && *svc.Init {
+		flags.WriteString(" --init")
+	}
+	if svc.ReadOnly {
+		flags.WriteString(" --read-only")
+	}
+	for _, host := range svc.ExtraHosts.AsList(":") {
+		fmt.Fprintf(&flags, " --add-host %s", shellQuote(host))
+	}
+	if svc.StopGracePeriod != nil {
+		fmt.Fprintf(&flags, " --stop-timeout %d", int(time.Duration(*svc.StopGracePeriod).Seconds()))
+	}
+	if svc.StopSignal != "" {
+		fmt.Fprintf(&flags, " --stop-signal %s", shellQuote(svc.StopSignal))
+	}
+
+	command := ""
+	if len(svc.Entrypoint) > 0 {
+		fmt.Fprintf(&flags, " --entrypoint %s", shellQuote(svc.Entrypoint[0]))
+		for _, arg := range svc.Entrypoint[1:] {
+			command += " " + shellQuote(arg)
+		}
+	}
+	for _, arg := range svc.Command {
+		command += " " + shellQuote(arg)
+	}
+
+	replace := ""
+	if opts.ReplaceOld {
+		replace = fmt.Sprintf("docker stop -t 30 %s >/dev/null 2>&1; docker rm -f %s >/dev/null 2>&1; ", opts.Name, opts.Name)
+	}
+	return fmt.Sprintf(
+		". %s/env/runtime.sh; . %s; %sdocker create --name %s%s%s %s%s >/dev/null",
+		appDir, envPath, replace, opts.Name, flags.String(), envFlags(envKeys), runRef, command)
+}

@@ -1,0 +1,203 @@
+/* Tokens are the only source of style (§2). Everything else consumes var(--akd-*). */
+/* Critical-CSS inlining is OFF in angular.json (inlineCritical: false): the
+   async-load trick it emits (<link media="print" onload="…">) is an inline
+   event handler, which the control plane's CSP (script-src 'self') rightly
+   blocks — the sheet would stay media="print" and never apply on screen. */
+@import './styles/tokens.css';
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--akd-font-ui);
+  font-size: var(--akd-text-md);
+  color: var(--akd-text);
+  background: var(--akd-bg);
+}
+
+/* Focus is never removed, only styled: keyboard operability is a requirement,
+   not a preference (§1.6, §4.3). */
+:focus-visible { outline: 2px solid var(--akd-focus-ring); outline-offset: 2px; }
+
+/* ---------------------------------------------------------------------------
+   Shared page vocabulary. Every dashboard page is built from the same few
+   shapes — one definition here, consumed by class, so twenty pages cannot
+   drift into twenty dialects. Tokens only (§6.1).
+--------------------------------------------------------------------------- */
+
+.akd-page { display: block; padding: var(--akd-space-6); }
+
+.akd-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--akd-space-3);
+  margin-bottom: var(--akd-space-5);
+  flex-wrap: wrap;
+}
+.akd-bar h1 { margin: 0; font-size: var(--akd-text-xl); color: var(--akd-text); }
+.akd-bar h2 { margin: 0; font-size: var(--akd-text-lg); color: var(--akd-text); }
+
+.akd-table { width: 100%; border-collapse: collapse; font-size: var(--akd-text-sm); }
+.akd-table th, .akd-table td {
+  padding: var(--akd-space-2) var(--akd-space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--akd-border);
+}
+.akd-table th {
+  font-size: var(--akd-text-xs);
+  font-weight: var(--akd-weight-semibold);
+  color: var(--akd-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.akd-table td { color: var(--akd-text); }
+.akd-table td.right, .akd-table th.right { text-align: right; }
+.akd-table a { color: var(--akd-text); font-weight: var(--akd-weight-medium); text-decoration: none; }
+.akd-table a:hover { text-decoration: underline; }
+
+.akd-btn {
+  padding: var(--akd-space-2) var(--akd-space-4);
+  font: inherit;
+  font-size: var(--akd-text-sm);
+  font-weight: var(--akd-weight-medium);
+  color: var(--akd-on-accent);
+  background: var(--akd-accent);
+  border: 0;
+  border-radius: var(--akd-radius-sm);
+  cursor: pointer;
+}
+.akd-btn:hover:not(:disabled) { background: var(--akd-accent-hover); }
+.akd-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.akd-btn-ghost {
+  padding: var(--akd-space-1) var(--akd-space-3);
+  font: inherit;
+  font-size: var(--akd-text-sm);
+  color: var(--akd-text);
+  background: transparent;
+  border: 1px solid var(--akd-border-input);
+  border-radius: var(--akd-radius-sm);
+  cursor: pointer;
+}
+.akd-btn-ghost:hover:not(:disabled) { background: var(--akd-surface-hover); }
+.akd-btn-ghost:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* Destructive actions look destructive BEFORE the click (§1.4). */
+.akd-btn-danger {
+  padding: var(--akd-space-1) var(--akd-space-3);
+  font: inherit;
+  font-size: var(--akd-text-sm);
+  color: var(--akd-status-danger-fg);
+  background: transparent;
+  border: 1px solid var(--akd-status-danger-fg);
+  border-radius: var(--akd-radius-sm);
+  cursor: pointer;
+}
+.akd-btn-danger:hover:not(:disabled) { background: var(--akd-status-danger-bg); }
+.akd-btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.akd-field { display: grid; gap: var(--akd-space-1); }
+.akd-field > label {
+  font-size: var(--akd-text-sm);
+  font-weight: var(--akd-weight-medium);
+  color: var(--akd-text);
+}
+.akd-input, .akd-select, .akd-textarea {
+  padding: var(--akd-space-2) var(--akd-space-3);
+  font: inherit;
+  font-size: var(--akd-text-md);
+  color: var(--akd-text);
+  background: var(--akd-bg);
+  border: 1px solid var(--akd-border-input);
+  border-radius: var(--akd-radius-sm);
+}
+.akd-textarea { font-family: var(--akd-font-mono); font-size: var(--akd-text-sm); }
+
+.akd-card {
+  display: grid;
+  gap: var(--akd-space-3);
+  padding: var(--akd-space-5);
+  background: var(--akd-surface);
+  border: 1px solid var(--akd-border);
+  border-radius: var(--akd-radius-lg);
+}
+
+.akd-empty {
+  padding: var(--akd-space-8);
+  text-align: center;
+  border: 1px dashed var(--akd-border);
+  border-radius: var(--akd-radius-lg);
+  color: var(--akd-text-secondary);
+}
+
+.akd-error {
+  margin: 0 0 var(--akd-space-3);
+  padding: var(--akd-space-2) var(--akd-space-3);
+  font-size: var(--akd-text-sm);
+  color: var(--akd-status-danger-fg);
+  background: var(--akd-status-danger-bg);
+  border-radius: var(--akd-radius-sm);
+}
+
+.akd-muted { color: var(--akd-text-secondary); }
+.akd-mono { font-family: var(--akd-font-mono); font-size: var(--akd-text-xs); }
+
+/* One-time secrets (tokens, invitation links) are shown once, in a box that
+   says so. */
+.akd-secret {
+  padding: var(--akd-space-3);
+  font-family: var(--akd-font-mono);
+  font-size: var(--akd-text-sm);
+  background: var(--akd-surface);
+  border: 1px solid var(--akd-border);
+  border-radius: var(--akd-radius-sm);
+  word-break: break-all;
+  user-select: all;
+}
+
+.akd-tabs {
+  display: flex;
+  gap: var(--akd-space-1);
+  margin-bottom: var(--akd-space-5);
+  border-bottom: 1px solid var(--akd-border);
+  flex-wrap: wrap;
+}
+.akd-tabs button {
+  padding: var(--akd-space-2) var(--akd-space-3);
+  font: inherit;
+  font-size: var(--akd-text-sm);
+  color: var(--akd-text-secondary);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.akd-tabs button[aria-selected='true'] {
+  color: var(--akd-text);
+  font-weight: var(--akd-weight-medium);
+  border-bottom-color: var(--akd-accent);
+}
+
+.akd-dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--akd-space-2) var(--akd-space-5);
+  margin: 0;
+  font-size: var(--akd-text-sm);
+}
+.akd-dl dt { color: var(--akd-text-secondary); }
+.akd-dl dd { margin: 0; color: var(--akd-text); overflow-wrap: anywhere; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -1,0 +1,20 @@
+{
+  "description": "Une base exposée par le proxy TCP (§2.6/§5.6) : l'entrypoint est statique — Traefik ne sait pas ajouter un listener à chaud — et c'est précisément pourquoi le port vit là et non sur le container de la base. Changer le port recrée le PROXY (quelques secondes, aucune donnée), pas la base (un redémarrage, et toutes les connexions ouvertes coupées). HostSNI(`*`) : passthrough brut, le TLS de la base traverse tel quel.",
+  "ir_version": 1,
+  "static": {
+    "http_port": 80,
+    "https_port": 443,
+    "acme_email": "ops@example.com",
+    "tcp_ports": [15432],
+    "revision": 44
+  },
+  "groups": [],
+  "tcp_routes": [
+    {
+      "resource_uuid": "4e7a9b0c-1122-4334-8556-778899aabbcc",
+      "listen_port": 15432,
+      "target_port": 5432,
+      "revision": 44
+    }
+  ]
+}

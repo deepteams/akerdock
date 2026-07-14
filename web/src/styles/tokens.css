@@ -1,0 +1,102 @@
+/* Design tokens — copied verbatim from docs/specs/design-system.md §2.6, which
+   is normative. This file is the ONLY place a literal colour, size or duration
+   may appear: components consume var(--akd-*) and nothing else (§6.1).
+   Do not hand-edit — change the spec, then re-copy. */
+/* packages/styles/tokens.css — source de vérité des tokens sémantiques.
+   Thème par défaut : suivi du système (prefers-color-scheme),
+   surchargé par data-theme="light|dark" posé sur <html> par le toggle. */
+
+:root {
+  /* ---- primitives (identiques aux tables 2.1–2.3) ---- */
+  --akd-gray-0:#ffffff; --akd-gray-50:#fafafa; --akd-gray-100:#f4f4f5;
+  --akd-gray-200:#e4e4e7; --akd-gray-300:#d4d4d8; --akd-gray-400:#a1a1aa;
+  --akd-gray-500:#71717a; --akd-gray-600:#52525b; --akd-gray-700:#3f3f46;
+  --akd-gray-800:#27272a; --akd-gray-900:#18181b; --akd-gray-950:#101012;
+  --akd-teal-50:#f0fdfa; --akd-teal-100:#ccfbf1; --akd-teal-200:#99f6e4;
+  --akd-teal-300:#5eead4; --akd-teal-400:#2dd4bf; --akd-teal-500:#14b8a6;
+  --akd-teal-600:#0d9488; --akd-teal-700:#0f766e; --akd-teal-800:#115e59;
+  --akd-teal-900:#134e4a;
+
+  /* ---- typo / espace / forme / mouvement ---- */
+  --akd-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, sans-serif;
+  --akd-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --akd-text-2xs:11px; --akd-text-xs:12px; --akd-text-sm:13px; --akd-text-md:14px;
+  --akd-text-lg:16px; --akd-text-xl:20px; --akd-text-2xl:24px;
+  --akd-weight-regular:400; --akd-weight-medium:500; --akd-weight-semibold:600;
+  --akd-space-05:2px; --akd-space-1:4px; --akd-space-2:8px; --akd-space-3:12px;
+  --akd-space-4:16px; --akd-space-5:20px; --akd-space-6:24px; --akd-space-8:32px;
+  --akd-space-10:40px; --akd-space-12:48px; --akd-space-16:64px;
+  --akd-radius-xs:2px; --akd-radius-sm:4px; --akd-radius-md:6px;
+  --akd-radius-lg:8px; --akd-radius-full:9999px;
+  --akd-shadow-1:0 1px 2px rgb(0 0 0 / .05);
+  --akd-shadow-2:0 2px 8px rgb(0 0 0 / .08), 0 1px 2px rgb(0 0 0 / .04);
+  --akd-shadow-3:0 8px 24px rgb(0 0 0 / .14), 0 2px 6px rgb(0 0 0 / .06);
+  --akd-duration-fast:100ms; --akd-duration-base:150ms; --akd-duration-slow:250ms;
+  --akd-ease:cubic-bezier(.2,0,0,1);
+}
+
+/* ---- thème clair (défaut) ---- */
+:root, :root[data-theme="light"] {
+  color-scheme: light;
+  --akd-bg:            var(--akd-gray-0);
+  --akd-surface:       var(--akd-gray-50);
+  --akd-surface-hover: var(--akd-gray-100);
+  --akd-border:        var(--akd-gray-200);   /* décoratif */
+  --akd-border-input:  var(--akd-gray-500);   /* UI, 4.83:1 */
+  --akd-text:          var(--akd-gray-900);   /* 17.72:1 */
+  --akd-text-secondary:var(--akd-gray-600);   /* 7.73:1 */
+  --akd-text-muted:    var(--akd-gray-500);   /* 4.83:1 */
+  --akd-text-disabled: var(--akd-gray-400);
+  --akd-accent:        var(--akd-teal-700);   /* texte/liens, 5.47:1 */
+  --akd-accent-hover:  var(--akd-teal-800);
+  --akd-accent-subtle: var(--akd-teal-50);
+  --akd-on-accent:     var(--akd-gray-0);     /* sur teal-700, 5.47:1 */
+  --akd-focus-ring:    var(--akd-teal-600);   /* 3.74:1 ≥ 3:1 UI */
+  --akd-status-success-fg:#15803d; --akd-status-success-bg:#f0fdf4; --akd-status-success-dot:#16a34a;
+  --akd-status-progress-fg:#2563eb; --akd-status-progress-bg:#eff6ff; --akd-status-progress-dot:#2563eb;
+  --akd-status-warning-fg:#b45309; --akd-status-warning-bg:#fffbeb; --akd-status-warning-dot:#d97706;
+  --akd-status-danger-fg:#dc2626;  --akd-status-danger-bg:#fef2f2;  --akd-status-danger-dot:#dc2626;
+  --akd-status-neutral-fg:var(--akd-gray-600); --akd-status-neutral-bg:var(--akd-gray-100);
+  --akd-status-neutral-dot:var(--akd-gray-500);
+  --akd-danger:#dc2626; --akd-danger-hover:#b91c1c; --akd-on-danger:var(--akd-gray-0);
+  /* logs & terminal : toujours sombres, même en thème clair */
+  --akd-log-bg:var(--akd-gray-950); --akd-log-fg:var(--akd-gray-200); /* 14.98:1 */
+  --akd-log-meta:var(--akd-gray-400);                                 /* 7.42:1 */
+}
+
+/* ---- thème sombre : par défaut via l'OS… ---- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --akd-_dark:1; }
+}
+/* …et explicitement via le toggle. Les deux blocs partagent les mêmes valeurs
+   (générées par le build depuis une seule définition ; dupliquées ici pour lisibilité). */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --akd-bg:            var(--akd-gray-950);
+  --akd-surface:       var(--akd-gray-900);
+  --akd-surface-hover: var(--akd-gray-800);
+  --akd-border:        var(--akd-gray-800);
+  --akd-border-input:  var(--akd-gray-500);   /* 3.93:1 ≥ 3:1 UI */
+  --akd-text:          var(--akd-gray-100);   /* 17.29:1 */
+  --akd-text-secondary:var(--akd-gray-400);   /* 7.42:1 */
+  --akd-text-muted:    var(--akd-gray-500);
+  --akd-text-disabled: var(--akd-gray-600);
+  --akd-accent:        var(--akd-teal-400);   /* 10.21:1 */
+  --akd-accent-hover:  var(--akd-teal-300);
+  --akd-accent-subtle: color-mix(in srgb, var(--akd-teal-900) 40%, transparent);
+  --akd-on-accent:     var(--akd-gray-950);   /* sur teal-400, 10.21:1 */
+  --akd-focus-ring:    var(--akd-teal-400);
+  --akd-status-success-fg:#4ade80; --akd-status-success-bg:#052e16; --akd-status-success-dot:#4ade80;
+  --akd-status-progress-fg:#60a5fa; --akd-status-progress-bg:#172554; --akd-status-progress-dot:#60a5fa;
+  --akd-status-warning-fg:#fbbf24; --akd-status-warning-bg:#451a03;  --akd-status-warning-dot:#fbbf24;
+  --akd-status-danger-fg:#f87171;  --akd-status-danger-bg:#450a0a;   --akd-status-danger-dot:#f87171;
+  --akd-status-neutral-fg:var(--akd-gray-400); --akd-status-neutral-bg:var(--akd-gray-800);
+  --akd-status-neutral-dot:var(--akd-gray-400);
+  --akd-danger:#f87171; --akd-danger-hover:#fca5a5; --akd-on-danger:var(--akd-gray-950);
+  --akd-log-bg:var(--akd-gray-950); --akd-log-fg:var(--akd-gray-200);
+  --akd-log-meta:var(--akd-gray-400);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --akd-duration-fast:1ms; --akd-duration-base:1ms; --akd-duration-slow:1ms; }
+}

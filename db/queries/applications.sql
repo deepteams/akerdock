@@ -1,0 +1,177 @@
+-- Applications: union base resources + 1-1 extensions (§19.1).
+
+-- name: CreateResource :one
+INSERT INTO resources (uuid, team_id, environment_id, destination_id, resource_type, name, description)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING *;
+
+-- name: CreateApplicationRow :exec
+INSERT INTO applications (id, git_repository_url, git_branch, base_directory, git_source_id, repository_id)
+VALUES ($1, $2, $3, $4, sqlc.narg(git_source_id), sqlc.narg(repository_id));
+
+-- name: CreateBuildConfig :exec
+INSERT INTO build_configs (application_id, build_pack, image_name, image_tag, dockerfile_content, dockerfile_path, publish_directory, registry_credential_id, use_build_server, push_enabled, push_registry_credential_id, compose_file_path, raw_compose)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, sqlc.narg(compose_file_path), $12);
+
+-- name: CreateRuntimeConfig :exec
+INSERT INTO runtime_configs (application_id, ports_exposes, memory_limit, cpu_limit,
+                             pre_deployment_command, post_deployment_command)
+VALUES ($1, $2, $3, $4, sqlc.narg(pre_deployment_command), sqlc.narg(post_deployment_command));
+
+-- name: GetApplicationByUUID :one
+SELECT sqlc.embed(r), sqlc.embed(a), sqlc.embed(b), sqlc.embed(rt),
+       e.uuid AS environment_uuid, p.uuid AS project_uuid,
+       dst.uuid AS destination_uuid, srv.uuid AS server_uuid, srv.id AS server_row_id,
+       pk.uuid AS private_key_uuid, rc.uuid AS registry_credential_uuid,
+       prc.uuid AS push_registry_credential_uuid
+FROM resources r
+JOIN applications a ON a.id = r.id
+JOIN build_configs b ON b.application_id = a.id
+JOIN runtime_configs rt ON rt.application_id = a.id
+JOIN environments e ON e.id = r.environment_id
+JOIN projects p ON p.id = e.project_id
+JOIN destinations dst ON dst.id = r.destination_id
+JOIN servers srv ON srv.id = dst.server_id
+LEFT JOIN git_sources gs ON gs.id = a.git_source_id
+LEFT JOIN private_keys pk ON pk.id = gs.private_key_id
+LEFT JOIN registry_credentials rc ON rc.id = b.registry_credential_id
+LEFT JOIN registry_credentials prc ON prc.id = b.push_registry_credential_id
+WHERE r.uuid = $1 AND r.team_id = $2 AND r.deleted_at IS NULL AND r.resource_type = 'application';
+
+-- name: ListApplicationsPage :many
+SELECT sqlc.embed(r), sqlc.embed(a), sqlc.embed(b), sqlc.embed(rt),
+       e.uuid AS environment_uuid, p.uuid AS project_uuid,
+       dst.uuid AS destination_uuid, srv.uuid AS server_uuid, srv.id AS server_row_id,
+       pk.uuid AS private_key_uuid, rc.uuid AS registry_credential_uuid,
+       prc.uuid AS push_registry_credential_uuid
+FROM resources r
+JOIN applications a ON a.id = r.id
+JOIN build_configs b ON b.application_id = a.id
+JOIN runtime_configs rt ON rt.application_id = a.id
+LEFT JOIN git_sources gs ON gs.id = a.git_source_id
+LEFT JOIN private_keys pk ON pk.id = gs.private_key_id
+LEFT JOIN registry_credentials rc ON rc.id = b.registry_credential_id
+LEFT JOIN registry_credentials prc ON prc.id = b.push_registry_credential_id
+JOIN environments e ON e.id = r.environment_id
+JOIN projects p ON p.id = e.project_id
+JOIN destinations dst ON dst.id = r.destination_id
+JOIN servers srv ON srv.id = dst.server_id
+WHERE r.team_id = sqlc.arg(team_id) AND r.deleted_at IS NULL AND r.resource_type = 'application'
+  AND (sqlc.arg(after_id)::bigint = 0 OR r.id < sqlc.arg(after_id))
+ORDER BY r.id DESC
+LIMIT sqlc.arg(page_limit);
+
+-- name: GetApplicationByID :one
+SELECT sqlc.embed(r), sqlc.embed(a), sqlc.embed(b), sqlc.embed(rt)
+FROM resources r
+JOIN applications a ON a.id = r.id
+JOIN build_configs b ON b.application_id = a.id
+JOIN runtime_configs rt ON rt.application_id = a.id
+WHERE r.id = $1 AND r.deleted_at IS NULL AND r.resource_type = 'application';
+
+-- name: GetResourceByID :one
+SELECT * FROM resources WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: SetResourceDesiredStatus :exec
+UPDATE resources SET desired_status = $2, updated_at = now() WHERE id = $1;
+
+-- name: SetResourceObservedStatus :exec
+UPDATE resources SET observed_status = $2, observed_at = now(),
+    last_online_at = CASE WHEN $2 = 'healthy'::resource_observed_status THEN now() ELSE last_online_at END,
+    updated_at = now()
+WHERE id = $1;
+
+-- name: SoftDeleteResource :execrows
+UPDATE resources SET deleted_at = now(), desired_status = 'deleted', updated_at = now()
+WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: CountResourcesInEnvironment :one
+SELECT count(*) FROM resources WHERE environment_id = $1 AND deleted_at IS NULL;
+
+-- name: CountResourcesInProject :one
+SELECT count(*) FROM resources r
+JOIN environments e ON e.id = r.environment_id
+WHERE e.project_id = $1 AND r.deleted_at IS NULL;
+
+-- name: CountResourcesOnServer :one
+SELECT count(*) FROM resources r
+JOIN destinations d ON d.id = r.destination_id
+WHERE d.server_id = $1 AND r.deleted_at IS NULL;
+
+-- name: GetDefaultDestination :one
+SELECT * FROM destinations WHERE server_id = $1 AND is_default;
+
+-- name: CreateDestination :one
+INSERT INTO destinations (uuid, server_id, name, network, is_default)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING *;
+
+-- name: GetDestinationByID :one
+SELECT * FROM destinations WHERE id = $1;
+
+-- name: UpdateResourceMeta :execrows
+UPDATE resources SET name = $2, description = $3, updated_at = now(), version = version + 1
+WHERE id = $1 AND version = sqlc.arg(expected_version) AND deleted_at IS NULL;
+
+-- name: UpdateBuildConfigSource :exec
+UPDATE build_configs SET image_name = $2, image_tag = $3, dockerfile_content = $4,
+    -- `set_registry_credential` distinguishes "leave it alone" from "clear it":
+    -- an explicit null means "this image is public now", and a COALESCE would
+    -- silently keep pulling with a credential the operator meant to remove.
+    registry_credential_id = CASE WHEN sqlc.arg(set_registry_credential)::boolean
+                                 THEN sqlc.narg(registry_credential_id)
+                                 ELSE registry_credential_id END,
+    use_build_server = COALESCE(sqlc.narg(use_build_server), use_build_server),
+    push_enabled = COALESCE(sqlc.narg(push_enabled), push_enabled),
+    push_registry_credential_id = CASE WHEN sqlc.arg(set_push_registry_credential)::boolean
+                                      THEN sqlc.narg(push_registry_credential_id)
+                                      ELSE push_registry_credential_id END,
+    updated_at = now()
+WHERE application_id = $1;
+
+-- name: UpdateRuntimeSettings :exec
+UPDATE runtime_configs SET ports_exposes = $2, memory_limit = $3,
+    pre_deployment_command = sqlc.narg(pre_deployment_command),
+    post_deployment_command = sqlc.narg(post_deployment_command),
+    updated_at = now()
+WHERE application_id = $1;
+
+-- name: DeleteDomainsForApplication :exec
+DELETE FROM domains WHERE application_id = $1;
+
+-- Tags (§5.4): used by the deploy webhook (?tag=).
+
+-- name: UpsertTag :one
+INSERT INTO tags (team_id, name) VALUES ($1, $2)
+ON CONFLICT (team_id, name) DO UPDATE SET name = EXCLUDED.name
+RETURNING *;
+
+-- name: TagResource :exec
+INSERT INTO resource_tags (resource_id, tag_id) VALUES ($1, $2)
+ON CONFLICT DO NOTHING;
+
+-- name: ListTagsForResource :many
+SELECT t.name FROM tags t
+JOIN resource_tags rt ON rt.tag_id = t.id
+WHERE rt.resource_id = $1
+ORDER BY t.name;
+
+-- name: ListApplicationsByTags :many
+SELECT DISTINCT r.uuid FROM resources r
+JOIN resource_tags rt ON rt.resource_id = r.id
+JOIN tags t ON t.id = rt.tag_id
+WHERE r.team_id = $1 AND r.deleted_at IS NULL AND r.resource_type = 'application'
+  AND t.name = ANY(sqlc.arg(tag_names)::citext[])
+ORDER BY r.uuid;
+
+-- name: ClearResourceTags :exec
+DELETE FROM resource_tags WHERE resource_id = $1;
+
+-- name: SetResourceRemnants :exec
+-- What a failed deletion left behind on the server (§20.6.4). Recorded so the
+-- operator can retry, or forget with an explicit acknowledgement — a forget
+-- never cleans anything up remotely, it only stops pretending the job matters.
+UPDATE resources SET remnants = $2, updated_at = now() WHERE id = $1;
+
+-- name: GetResourceRemnants :one
+SELECT remnants FROM resources WHERE id = $1;
