@@ -978,28 +978,28 @@ func (e NotificationRuleCreateMinSeverity) Valid() bool {
 
 // Defines values for ObservedStatus.
 const (
-	Exited    ObservedStatus = "exited"
-	Healthy   ObservedStatus = "healthy"
-	Missing   ObservedStatus = "missing"
-	Starting  ObservedStatus = "starting"
-	Unhealthy ObservedStatus = "unhealthy"
-	Unknown   ObservedStatus = "unknown"
+	ObservedStatusExited    ObservedStatus = "exited"
+	ObservedStatusHealthy   ObservedStatus = "healthy"
+	ObservedStatusMissing   ObservedStatus = "missing"
+	ObservedStatusStarting  ObservedStatus = "starting"
+	ObservedStatusUnhealthy ObservedStatus = "unhealthy"
+	ObservedStatusUnknown   ObservedStatus = "unknown"
 )
 
 // Valid indicates whether the value is a known member of the ObservedStatus enum.
 func (e ObservedStatus) Valid() bool {
 	switch e {
-	case Exited:
+	case ObservedStatusExited:
 		return true
-	case Healthy:
+	case ObservedStatusHealthy:
 		return true
-	case Missing:
+	case ObservedStatusMissing:
 		return true
-	case Starting:
+	case ObservedStatusStarting:
 		return true
-	case Unhealthy:
+	case ObservedStatusUnhealthy:
 		return true
-	case Unknown:
+	case ObservedStatusUnknown:
 		return true
 	default:
 		return false
@@ -1312,6 +1312,54 @@ func (e ServiceComponentDatabaseEngine) Valid() bool {
 	}
 }
 
+// Defines values for SharedVariableScope.
+const (
+	SharedVariableScopeEnvironment SharedVariableScope = "environment"
+	SharedVariableScopeProject     SharedVariableScope = "project"
+	SharedVariableScopeServer      SharedVariableScope = "server"
+	SharedVariableScopeTeam        SharedVariableScope = "team"
+)
+
+// Valid indicates whether the value is a known member of the SharedVariableScope enum.
+func (e SharedVariableScope) Valid() bool {
+	switch e {
+	case SharedVariableScopeEnvironment:
+		return true
+	case SharedVariableScopeProject:
+		return true
+	case SharedVariableScopeServer:
+		return true
+	case SharedVariableScopeTeam:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SharedVariableCreateScope.
+const (
+	SharedVariableCreateScopeEnvironment SharedVariableCreateScope = "environment"
+	SharedVariableCreateScopeProject     SharedVariableCreateScope = "project"
+	SharedVariableCreateScopeServer      SharedVariableCreateScope = "server"
+	SharedVariableCreateScopeTeam        SharedVariableCreateScope = "team"
+)
+
+// Valid indicates whether the value is a known member of the SharedVariableCreateScope enum.
+func (e SharedVariableCreateScope) Valid() bool {
+	switch e {
+	case SharedVariableCreateScopeEnvironment:
+		return true
+	case SharedVariableCreateScopeProject:
+		return true
+	case SharedVariableCreateScopeServer:
+		return true
+	case SharedVariableCreateScopeTeam:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SmtpConfigEncryption.
 const (
 	SmtpConfigEncryptionNone     SmtpConfigEncryption = "none"
@@ -1471,6 +1519,63 @@ func (e TransactionalEmailSetKind) Valid() bool {
 	}
 }
 
+// Defines values for UptimeCheckKind.
+const (
+	UptimeCheckKindHttp UptimeCheckKind = "http"
+	UptimeCheckKindTcp  UptimeCheckKind = "tcp"
+)
+
+// Valid indicates whether the value is a known member of the UptimeCheckKind enum.
+func (e UptimeCheckKind) Valid() bool {
+	switch e {
+	case UptimeCheckKindHttp:
+		return true
+	case UptimeCheckKindTcp:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UptimeCheckStatus.
+const (
+	UptimeCheckStatusDown    UptimeCheckStatus = "down"
+	UptimeCheckStatusUnknown UptimeCheckStatus = "unknown"
+	UptimeCheckStatusUp      UptimeCheckStatus = "up"
+)
+
+// Valid indicates whether the value is a known member of the UptimeCheckStatus enum.
+func (e UptimeCheckStatus) Valid() bool {
+	switch e {
+	case UptimeCheckStatusDown:
+		return true
+	case UptimeCheckStatusUnknown:
+		return true
+	case UptimeCheckStatusUp:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UptimeCheckCreateKind.
+const (
+	UptimeCheckCreateKindHttp UptimeCheckCreateKind = "http"
+	UptimeCheckCreateKindTcp  UptimeCheckCreateKind = "tcp"
+)
+
+// Valid indicates whether the value is a known member of the UptimeCheckCreateKind enum.
+func (e UptimeCheckCreateKind) Valid() bool {
+	switch e {
+	case UptimeCheckCreateKindHttp:
+		return true
+	case UptimeCheckCreateKindTcp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WebhookEndpointProvider.
 const (
 	WebhookEndpointProviderGitea  WebhookEndpointProvider = "gitea"
@@ -1528,6 +1633,30 @@ func (e DeleteWebhookEndpointParamsProvider) Valid() bool {
 	case Github:
 		return true
 	case Gitlab:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListSharedVariablesParamsScope.
+const (
+	ListSharedVariablesParamsScopeEnvironment ListSharedVariablesParamsScope = "environment"
+	ListSharedVariablesParamsScopeProject     ListSharedVariablesParamsScope = "project"
+	ListSharedVariablesParamsScopeServer      ListSharedVariablesParamsScope = "server"
+	ListSharedVariablesParamsScopeTeam        ListSharedVariablesParamsScope = "team"
+)
+
+// Valid indicates whether the value is a known member of the ListSharedVariablesParamsScope enum.
+func (e ListSharedVariablesParamsScope) Valid() bool {
+	switch e {
+	case ListSharedVariablesParamsScopeEnvironment:
+		return true
+	case ListSharedVariablesParamsScopeProject:
+		return true
+	case ListSharedVariablesParamsScopeServer:
+		return true
+	case ListSharedVariablesParamsScopeTeam:
 		return true
 	default:
 		return false
@@ -3577,6 +3706,53 @@ type ServiceUpdate struct {
 	Name                       *string `json:"name,omitempty"`
 }
 
+// SharedVariable Variable partagée hiérarchique (§5.4, §3.1). La valeur n'est rendue qu'avec `read:sensitive` (INV-003).
+type SharedVariable struct {
+	CreatedAt       *time.Time          `json:"created_at,omitempty"`
+	EnvironmentUuid *string             `json:"environment_uuid,omitempty"`
+	IsRedacted      *bool               `json:"is_redacted,omitempty"`
+	IsSecret        bool                `json:"is_secret"`
+	Key             string              `json:"key"`
+	ProjectUuid     *string             `json:"project_uuid,omitempty"`
+	Scope           SharedVariableScope `json:"scope"`
+	ServerUuid      *string             `json:"server_uuid,omitempty"`
+	UpdatedAt       *time.Time          `json:"updated_at,omitempty"`
+	Uuid            *string             `json:"uuid,omitempty"`
+
+	// Value NULL sans `read:sensitive` (`is_redacted` vaut alors true).
+	Value *string `json:"value,omitempty"`
+}
+
+// SharedVariableScope defines model for SharedVariable.Scope.
+type SharedVariableScope string
+
+// SharedVariableCreate defines model for SharedVariableCreate.
+type SharedVariableCreate struct {
+	// EnvironmentUuid Requis pour le scope `environment`.
+	EnvironmentUuid *string `json:"environment_uuid,omitempty"`
+	IsSecret        *bool   `json:"is_secret,omitempty"`
+
+	// Key Grammaire `[A-Za-z_][A-Za-z0-9_]*` (INV-012).
+	Key string `json:"key"`
+
+	// ProjectUuid Requis pour le scope `project`.
+	ProjectUuid *string                   `json:"project_uuid,omitempty"`
+	Scope       SharedVariableCreateScope `json:"scope"`
+
+	// ServerUuid Requis pour le scope `server`.
+	ServerUuid *string `json:"server_uuid,omitempty"`
+	Value      string  `json:"value"`
+}
+
+// SharedVariableCreateScope defines model for SharedVariableCreate.Scope.
+type SharedVariableCreateScope string
+
+// SharedVariableUpdate defines model for SharedVariableUpdate.
+type SharedVariableUpdate struct {
+	IsSecret *bool   `json:"is_secret,omitempty"`
+	Value    *string `json:"value,omitempty"`
+}
+
 // SmtpConfig Configuration SMTP (amendement n°18). Le mot de passe est chiffré au repos et jamais renvoyé (INV-003).
 type SmtpConfig struct {
 	// Encryption `none` n'est acceptable que vers un relais local : le mot de passe et le contenu de l'alerte traversent alors le réseau en clair.
@@ -3702,6 +3878,75 @@ type TransactionalEmailSet struct {
 
 // TransactionalEmailSetKind defines model for TransactionalEmailSet.Kind.
 type TransactionalEmailSetKind string
+
+// UptimeCheck Un check d'uptime (ADR-017) : sonde HTTP/TCP exécutée depuis le control plane, verdict à seuils (anti-flapping structurel).
+type UptimeCheck struct {
+	CreatedAt        *time.Time      `json:"created_at,omitempty"`
+	Enabled          bool            `json:"enabled"`
+	FailureThreshold int             `json:"failure_threshold"`
+	IntervalSeconds  int             `json:"interval_seconds"`
+	Kind             UptimeCheckKind `json:"kind"`
+	LastCheckedAt    *time.Time      `json:"last_checked_at,omitempty"`
+	LastError        *string         `json:"last_error,omitempty"`
+	LastLatencyMs    *int            `json:"last_latency_ms,omitempty"`
+	Name             string          `json:"name"`
+
+	// ResourceUuid Ressource liée (historique « par ressource », ADR-017).
+	ResourceUuid     *string            `json:"resource_uuid,omitempty"`
+	Status           *UptimeCheckStatus `json:"status,omitempty"`
+	StatusSince      *time.Time         `json:"status_since,omitempty"`
+	SuccessThreshold int                `json:"success_threshold"`
+
+	// Target URL (http) ou `host:port` (tcp).
+	Target         string  `json:"target"`
+	TimeoutSeconds int     `json:"timeout_seconds"`
+	Uuid           *string `json:"uuid,omitempty"`
+	Version        *int    `json:"version,omitempty"`
+}
+
+// UptimeCheckKind defines model for UptimeCheck.Kind.
+type UptimeCheckKind string
+
+// UptimeCheckStatus defines model for UptimeCheck.Status.
+type UptimeCheckStatus string
+
+// UptimeCheckCreate defines model for UptimeCheckCreate.
+type UptimeCheckCreate struct {
+	Enabled          *bool                 `json:"enabled,omitempty"`
+	FailureThreshold *int                  `json:"failure_threshold,omitempty"`
+	IntervalSeconds  *int                  `json:"interval_seconds,omitempty"`
+	Kind             UptimeCheckCreateKind `json:"kind"`
+	Name             string                `json:"name"`
+	ResourceUuid     *string               `json:"resource_uuid,omitempty"`
+	SuccessThreshold *int                  `json:"success_threshold,omitempty"`
+
+	// Target URL http(s) ou `host:port`.
+	Target         string `json:"target"`
+	TimeoutSeconds *int   `json:"timeout_seconds,omitempty"`
+}
+
+// UptimeCheckCreateKind defines model for UptimeCheckCreate.Kind.
+type UptimeCheckCreateKind string
+
+// UptimeCheckUpdate Mise à jour partielle — le verdict courant n'est jamais éditable.
+type UptimeCheckUpdate struct {
+	Enabled          *bool   `json:"enabled,omitempty"`
+	FailureThreshold *int    `json:"failure_threshold,omitempty"`
+	IntervalSeconds  *int    `json:"interval_seconds,omitempty"`
+	Name             *string `json:"name,omitempty"`
+	SuccessThreshold *int    `json:"success_threshold,omitempty"`
+	Target           *string `json:"target,omitempty"`
+	TimeoutSeconds   *int    `json:"timeout_seconds,omitempty"`
+}
+
+// UptimeResult Un résultat de sonde brut (rétention bornée).
+type UptimeResult struct {
+	CheckedAt  time.Time `json:"checked_at"`
+	Error      *string   `json:"error,omitempty"`
+	LatencyMs  *int      `json:"latency_ms,omitempty"`
+	Ok         bool      `json:"ok"`
+	StatusCode *int      `json:"status_code,omitempty"`
+}
 
 // VersionInfo defines model for VersionInfo.
 type VersionInfo struct {
@@ -3831,6 +4076,9 @@ type ServiceComponentUuid = string
 // ServiceUuid defines model for ServiceUuid.
 type ServiceUuid = string
 
+// SharedVariableUuid defines model for SharedVariableUuid.
+type SharedVariableUuid = string
+
 // StorageUuid defines model for StorageUuid.
 type StorageUuid = string
 
@@ -3842,6 +4090,9 @@ type TeamUuid = string
 
 // TokenUuid defines model for TokenUuid.
 type TokenUuid = string
+
+// UptimeCheckUuid defines model for UptimeCheckUuid.
+type UptimeCheckUuid = string
 
 // WebhookForce defines model for WebhookForce.
 type WebhookForce = bool
@@ -4544,6 +4795,25 @@ type ListServiceEnvsParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListSharedVariablesParams defines parameters for ListSharedVariables.
+type ListSharedVariablesParams struct {
+	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Nombre maximal d'éléments par page (1 à 100).
+	Limit *Limit                          `form:"limit,omitempty" json:"limit,omitempty"`
+	Scope *ListSharedVariablesParamsScope `form:"scope,omitempty" json:"scope,omitempty"`
+}
+
+// ListSharedVariablesParamsScope defines parameters for ListSharedVariables.
+type ListSharedVariablesParamsScope string
+
+// CreateSharedVariableParams defines parameters for CreateSharedVariable.
+type CreateSharedVariableParams struct {
+	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // RotateEncryptionParams defines parameters for RotateEncryption.
 type RotateEncryptionParams struct {
 	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
@@ -4596,6 +4866,36 @@ type ListApiTokensParams struct {
 type CreateApiTokenParams struct {
 	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ListUptimeChecksParams defines parameters for ListUptimeChecks.
+type ListUptimeChecksParams struct {
+	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Nombre maximal d'éléments par page (1 à 100).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// CreateUptimeCheckParams defines parameters for CreateUptimeCheck.
+type CreateUptimeCheckParams struct {
+	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// UpdateUptimeCheckParams defines parameters for UpdateUptimeCheck.
+type UpdateUptimeCheckParams struct {
+	// IfMatch Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`.
+	IfMatch IfMatch `json:"If-Match"`
+}
+
+// ListUptimeResultsParams defines parameters for ListUptimeResults.
+type ListUptimeResultsParams struct {
+	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Nombre maximal d'éléments par page (1 à 100).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // AdoptResourcesJSONRequestBody defines body for AdoptResources for application/json ContentType.
@@ -4724,6 +5024,12 @@ type CreateServiceEnvJSONRequestBody = EnvironmentVariableCreate
 // UpdateServiceEnvJSONRequestBody defines body for UpdateServiceEnv for application/json ContentType.
 type UpdateServiceEnvJSONRequestBody = EnvironmentVariableUpdate
 
+// CreateSharedVariableJSONRequestBody defines body for CreateSharedVariable for application/json ContentType.
+type CreateSharedVariableJSONRequestBody = SharedVariableCreate
+
+// UpdateSharedVariableJSONRequestBody defines body for UpdateSharedVariable for application/json ContentType.
+type UpdateSharedVariableJSONRequestBody = SharedVariableUpdate
+
 // SetTransactionalEmailJSONRequestBody defines body for SetTransactionalEmail for application/json ContentType.
 type SetTransactionalEmailJSONRequestBody = TransactionalEmailSet
 
@@ -4732,6 +5038,12 @@ type CreateTeamInvitationJSONRequestBody = InvitationCreate
 
 // CreateApiTokenJSONRequestBody defines body for CreateApiToken for application/json ContentType.
 type CreateApiTokenJSONRequestBody = ApiTokenCreate
+
+// CreateUptimeCheckJSONRequestBody defines body for CreateUptimeCheck for application/json ContentType.
+type CreateUptimeCheckJSONRequestBody = UptimeCheckCreate
+
+// UpdateUptimeCheckJSONRequestBody defines body for UpdateUptimeCheck for application/json ContentType.
+type UpdateUptimeCheckJSONRequestBody = UptimeCheckUpdate
 
 // AsApplicationCreateDockerImage returns the union data inside the ApplicationCreateRequest as a ApplicationCreateDockerImage
 func (t ApplicationCreateRequest) AsApplicationCreateDockerImage() (ApplicationCreateDockerImage, error) {
@@ -5313,6 +5625,18 @@ type ServerInterface interface {
 	// Arrêter les containers d'un stack
 	// (POST /services/{service_uuid}/stop)
 	StopService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid)
+	// Lister les variables partagées de la team
+	// (GET /shared-variables)
+	ListSharedVariables(w http.ResponseWriter, r *http.Request, params ListSharedVariablesParams)
+	// Créer une variable partagée
+	// (POST /shared-variables)
+	CreateSharedVariable(w http.ResponseWriter, r *http.Request, params CreateSharedVariableParams)
+	// Supprimer une variable partagée
+	// (DELETE /shared-variables/{shared_variable_uuid})
+	DeleteSharedVariable(w http.ResponseWriter, r *http.Request, sharedVariableUuid SharedVariableUuid)
+	// Modifier une variable partagée (valeur, masquage)
+	// (PATCH /shared-variables/{shared_variable_uuid})
+	UpdateSharedVariable(w http.ResponseWriter, r *http.Request, sharedVariableUuid SharedVariableUuid)
 	// Désactiver l'API
 	// (POST /system/api/disable)
 	DisableApi(w http.ResponseWriter, r *http.Request)
@@ -5358,6 +5682,24 @@ type ServerInterface interface {
 	// Révoquer un token API
 	// (DELETE /teams/{team_uuid}/tokens/{token_uuid})
 	RevokeApiToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, tokenUuid TokenUuid)
+	// Lister les checks d'uptime de la team
+	// (GET /uptime-checks)
+	ListUptimeChecks(w http.ResponseWriter, r *http.Request, params ListUptimeChecksParams)
+	// Créer un check d'uptime
+	// (POST /uptime-checks)
+	CreateUptimeCheck(w http.ResponseWriter, r *http.Request, params CreateUptimeCheckParams)
+	// Supprimer un check d'uptime
+	// (DELETE /uptime-checks/{uptime_check_uuid})
+	DeleteUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid)
+	// Détail d'un check d'uptime
+	// (GET /uptime-checks/{uptime_check_uuid})
+	GetUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid)
+	// Modifier un check d'uptime
+	// (PATCH /uptime-checks/{uptime_check_uuid})
+	UpdateUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid, params UpdateUptimeCheckParams)
+	// Historique des sondes d'un check
+	// (GET /uptime-checks/{uptime_check_uuid}/results)
+	ListUptimeResults(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid, params ListUptimeResultsParams)
 	// Version de l'instance
 	// (GET /version)
 	GetVersion(w http.ResponseWriter, r *http.Request)
@@ -6285,6 +6627,30 @@ func (_ Unimplemented) StopService(w http.ResponseWriter, r *http.Request, servi
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Lister les variables partagées de la team
+// (GET /shared-variables)
+func (_ Unimplemented) ListSharedVariables(w http.ResponseWriter, r *http.Request, params ListSharedVariablesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Créer une variable partagée
+// (POST /shared-variables)
+func (_ Unimplemented) CreateSharedVariable(w http.ResponseWriter, r *http.Request, params CreateSharedVariableParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Supprimer une variable partagée
+// (DELETE /shared-variables/{shared_variable_uuid})
+func (_ Unimplemented) DeleteSharedVariable(w http.ResponseWriter, r *http.Request, sharedVariableUuid SharedVariableUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Modifier une variable partagée (valeur, masquage)
+// (PATCH /shared-variables/{shared_variable_uuid})
+func (_ Unimplemented) UpdateSharedVariable(w http.ResponseWriter, r *http.Request, sharedVariableUuid SharedVariableUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Désactiver l'API
 // (POST /system/api/disable)
 func (_ Unimplemented) DisableApi(w http.ResponseWriter, r *http.Request) {
@@ -6372,6 +6738,42 @@ func (_ Unimplemented) CreateApiToken(w http.ResponseWriter, r *http.Request, te
 // Révoquer un token API
 // (DELETE /teams/{team_uuid}/tokens/{token_uuid})
 func (_ Unimplemented) RevokeApiToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, tokenUuid TokenUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Lister les checks d'uptime de la team
+// (GET /uptime-checks)
+func (_ Unimplemented) ListUptimeChecks(w http.ResponseWriter, r *http.Request, params ListUptimeChecksParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Créer un check d'uptime
+// (POST /uptime-checks)
+func (_ Unimplemented) CreateUptimeCheck(w http.ResponseWriter, r *http.Request, params CreateUptimeCheckParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Supprimer un check d'uptime
+// (DELETE /uptime-checks/{uptime_check_uuid})
+func (_ Unimplemented) DeleteUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Détail d'un check d'uptime
+// (GET /uptime-checks/{uptime_check_uuid})
+func (_ Unimplemented) GetUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Modifier un check d'uptime
+// (PATCH /uptime-checks/{uptime_check_uuid})
+func (_ Unimplemented) UpdateUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid, params UpdateUptimeCheckParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Historique des sondes d'un check
+// (GET /uptime-checks/{uptime_check_uuid}/results)
+func (_ Unimplemented) ListUptimeResults(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid, params ListUptimeResultsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -13675,6 +14077,182 @@ func (siw *ServerInterfaceWrapper) StopService(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// ListSharedVariables operation middleware
+func (siw *ServerInterfaceWrapper) ListSharedVariables(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSharedVariablesParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSharedVariables(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateSharedVariable operation middleware
+func (siw *ServerInterfaceWrapper) CreateSharedVariable(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateSharedVariableParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateSharedVariable(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteSharedVariable operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSharedVariable(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "shared_variable_uuid" -------------
+	var sharedVariableUuid SharedVariableUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "shared_variable_uuid", chi.URLParam(r, "shared_variable_uuid"), &sharedVariableUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "shared_variable_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteSharedVariable(w, r, sharedVariableUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateSharedVariable operation middleware
+func (siw *ServerInterfaceWrapper) UpdateSharedVariable(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "shared_variable_uuid" -------------
+	var sharedVariableUuid SharedVariableUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "shared_variable_uuid", chi.URLParam(r, "shared_variable_uuid"), &sharedVariableUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "shared_variable_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateSharedVariable(w, r, sharedVariableUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DisableApi operation middleware
 func (siw *ServerInterfaceWrapper) DisableApi(w http.ResponseWriter, r *http.Request) {
 
@@ -14283,6 +14861,290 @@ func (siw *ServerInterfaceWrapper) RevokeApiToken(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ListUptimeChecks operation middleware
+func (siw *ServerInterfaceWrapper) ListUptimeChecks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUptimeChecksParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUptimeChecks(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateUptimeCheck operation middleware
+func (siw *ServerInterfaceWrapper) CreateUptimeCheck(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateUptimeCheckParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateUptimeCheck(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteUptimeCheck operation middleware
+func (siw *ServerInterfaceWrapper) DeleteUptimeCheck(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "uptime_check_uuid" -------------
+	var uptimeCheckUuid UptimeCheckUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "uptime_check_uuid", chi.URLParam(r, "uptime_check_uuid"), &uptimeCheckUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uptime_check_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteUptimeCheck(w, r, uptimeCheckUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetUptimeCheck operation middleware
+func (siw *ServerInterfaceWrapper) GetUptimeCheck(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "uptime_check_uuid" -------------
+	var uptimeCheckUuid UptimeCheckUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "uptime_check_uuid", chi.URLParam(r, "uptime_check_uuid"), &uptimeCheckUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uptime_check_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUptimeCheck(w, r, uptimeCheckUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateUptimeCheck operation middleware
+func (siw *ServerInterfaceWrapper) UpdateUptimeCheck(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "uptime_check_uuid" -------------
+	var uptimeCheckUuid UptimeCheckUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "uptime_check_uuid", chi.URLParam(r, "uptime_check_uuid"), &uptimeCheckUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uptime_check_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateUptimeCheckParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = IfMatch
+
+	} else {
+		err := fmt.Errorf("Header parameter If-Match is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "If-Match", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateUptimeCheck(w, r, uptimeCheckUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListUptimeResults operation middleware
+func (siw *ServerInterfaceWrapper) ListUptimeResults(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "uptime_check_uuid" -------------
+	var uptimeCheckUuid UptimeCheckUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "uptime_check_uuid", chi.URLParam(r, "uptime_check_uuid"), &uptimeCheckUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uptime_check_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUptimeResultsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUptimeResults(w, r, uptimeCheckUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetVersion operation middleware
 func (siw *ServerInterfaceWrapper) GetVersion(w http.ResponseWriter, r *http.Request) {
 
@@ -14876,6 +15738,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/services/{service_uuid}/stop", wrapper.StopService)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/shared-variables", wrapper.ListSharedVariables)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/shared-variables", wrapper.CreateSharedVariable)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/shared-variables/{shared_variable_uuid}", wrapper.DeleteSharedVariable)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/shared-variables/{shared_variable_uuid}", wrapper.UpdateSharedVariable)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/system/api/disable", wrapper.DisableApi)
 	})
 	r.Group(func(r chi.Router) {
@@ -14919,6 +15793,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/teams/{team_uuid}/tokens/{token_uuid}", wrapper.RevokeApiToken)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/uptime-checks", wrapper.ListUptimeChecks)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/uptime-checks", wrapper.CreateUptimeCheck)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/uptime-checks/{uptime_check_uuid}", wrapper.DeleteUptimeCheck)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/uptime-checks/{uptime_check_uuid}", wrapper.GetUptimeCheck)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/uptime-checks/{uptime_check_uuid}", wrapper.UpdateUptimeCheck)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/uptime-checks/{uptime_check_uuid}/results", wrapper.ListUptimeResults)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/version", wrapper.GetVersion)
@@ -29827,6 +30719,375 @@ func (response StopService429JSONResponse) VisitStopServiceResponse(w http.Respo
 	return err
 }
 
+type ListSharedVariablesRequestObject struct {
+	Params ListSharedVariablesParams
+}
+
+type ListSharedVariablesResponseObject interface {
+	VisitListSharedVariablesResponse(w http.ResponseWriter) error
+}
+
+type ListSharedVariables200JSONResponse struct {
+	Data []SharedVariable `json:"data"`
+
+	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListSharedVariables200JSONResponse) VisitListSharedVariablesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSharedVariables400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListSharedVariables400JSONResponse) VisitListSharedVariablesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSharedVariables401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListSharedVariables401JSONResponse) VisitListSharedVariablesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSharedVariables403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListSharedVariables403JSONResponse) VisitListSharedVariablesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSharedVariables429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListSharedVariables429JSONResponse) VisitListSharedVariablesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSharedVariableRequestObject struct {
+	Params CreateSharedVariableParams
+	Body   *CreateSharedVariableJSONRequestBody
+}
+
+type CreateSharedVariableResponseObject interface {
+	VisitCreateSharedVariableResponse(w http.ResponseWriter) error
+}
+
+type CreateSharedVariable201JSONResponse SharedVariable
+
+func (response CreateSharedVariable201JSONResponse) VisitCreateSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSharedVariable400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateSharedVariable400JSONResponse) VisitCreateSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSharedVariable401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateSharedVariable401JSONResponse) VisitCreateSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSharedVariable403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateSharedVariable403JSONResponse) VisitCreateSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSharedVariable409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateSharedVariable409JSONResponse) VisitCreateSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSharedVariable422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response CreateSharedVariable422JSONResponse) VisitCreateSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateSharedVariable429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateSharedVariable429JSONResponse) VisitCreateSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSharedVariableRequestObject struct {
+	SharedVariableUuid SharedVariableUuid `json:"shared_variable_uuid"`
+}
+
+type DeleteSharedVariableResponseObject interface {
+	VisitDeleteSharedVariableResponse(w http.ResponseWriter) error
+}
+
+type DeleteSharedVariable204Response struct {
+}
+
+func (response DeleteSharedVariable204Response) VisitDeleteSharedVariableResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteSharedVariable401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteSharedVariable401JSONResponse) VisitDeleteSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSharedVariable403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteSharedVariable403JSONResponse) VisitDeleteSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSharedVariable404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteSharedVariable404JSONResponse) VisitDeleteSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSharedVariable429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response DeleteSharedVariable429JSONResponse) VisitDeleteSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSharedVariableRequestObject struct {
+	SharedVariableUuid SharedVariableUuid `json:"shared_variable_uuid"`
+	Body               *UpdateSharedVariableJSONRequestBody
+}
+
+type UpdateSharedVariableResponseObject interface {
+	VisitUpdateSharedVariableResponse(w http.ResponseWriter) error
+}
+
+type UpdateSharedVariable200JSONResponse SharedVariable
+
+func (response UpdateSharedVariable200JSONResponse) VisitUpdateSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSharedVariable400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateSharedVariable400JSONResponse) VisitUpdateSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSharedVariable401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateSharedVariable401JSONResponse) VisitUpdateSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSharedVariable403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateSharedVariable403JSONResponse) VisitUpdateSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSharedVariable404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateSharedVariable404JSONResponse) VisitUpdateSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateSharedVariable429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response UpdateSharedVariable429JSONResponse) VisitUpdateSharedVariableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DisableApiRequestObject struct {
 }
 
@@ -31103,6 +32364,604 @@ func (response RevokeApiToken429JSONResponse) VisitRevokeApiTokenResponse(w http
 	return err
 }
 
+type ListUptimeChecksRequestObject struct {
+	Params ListUptimeChecksParams
+}
+
+type ListUptimeChecksResponseObject interface {
+	VisitListUptimeChecksResponse(w http.ResponseWriter) error
+}
+
+type ListUptimeChecks200JSONResponse struct {
+	Data []UptimeCheck `json:"data"`
+
+	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListUptimeChecks200JSONResponse) VisitListUptimeChecksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUptimeChecks400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListUptimeChecks400JSONResponse) VisitListUptimeChecksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUptimeChecks401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListUptimeChecks401JSONResponse) VisitListUptimeChecksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUptimeChecks403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListUptimeChecks403JSONResponse) VisitListUptimeChecksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUptimeChecks429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListUptimeChecks429JSONResponse) VisitListUptimeChecksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateUptimeCheckRequestObject struct {
+	Params CreateUptimeCheckParams
+	Body   *CreateUptimeCheckJSONRequestBody
+}
+
+type CreateUptimeCheckResponseObject interface {
+	VisitCreateUptimeCheckResponse(w http.ResponseWriter) error
+}
+
+type CreateUptimeCheck201ResponseHeaders struct {
+	ETag *string
+}
+
+type CreateUptimeCheck201JSONResponse struct {
+	Body    UptimeCheck
+	Headers CreateUptimeCheck201ResponseHeaders
+}
+
+func (response CreateUptimeCheck201JSONResponse) VisitCreateUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateUptimeCheck400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateUptimeCheck400JSONResponse) VisitCreateUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateUptimeCheck401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateUptimeCheck401JSONResponse) VisitCreateUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateUptimeCheck403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateUptimeCheck403JSONResponse) VisitCreateUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateUptimeCheck409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateUptimeCheck409JSONResponse) VisitCreateUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateUptimeCheck422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response CreateUptimeCheck422JSONResponse) VisitCreateUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateUptimeCheck429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateUptimeCheck429JSONResponse) VisitCreateUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteUptimeCheckRequestObject struct {
+	UptimeCheckUuid UptimeCheckUuid `json:"uptime_check_uuid"`
+}
+
+type DeleteUptimeCheckResponseObject interface {
+	VisitDeleteUptimeCheckResponse(w http.ResponseWriter) error
+}
+
+type DeleteUptimeCheck204Response struct {
+}
+
+func (response DeleteUptimeCheck204Response) VisitDeleteUptimeCheckResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteUptimeCheck401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteUptimeCheck401JSONResponse) VisitDeleteUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteUptimeCheck403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteUptimeCheck403JSONResponse) VisitDeleteUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteUptimeCheck404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteUptimeCheck404JSONResponse) VisitDeleteUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteUptimeCheck429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response DeleteUptimeCheck429JSONResponse) VisitDeleteUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUptimeCheckRequestObject struct {
+	UptimeCheckUuid UptimeCheckUuid `json:"uptime_check_uuid"`
+}
+
+type GetUptimeCheckResponseObject interface {
+	VisitGetUptimeCheckResponse(w http.ResponseWriter) error
+}
+
+type GetUptimeCheck200ResponseHeaders struct {
+	ETag *string
+}
+
+type GetUptimeCheck200JSONResponse struct {
+	Body    UptimeCheck
+	Headers GetUptimeCheck200ResponseHeaders
+}
+
+func (response GetUptimeCheck200JSONResponse) VisitGetUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUptimeCheck401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetUptimeCheck401JSONResponse) VisitGetUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUptimeCheck403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetUptimeCheck403JSONResponse) VisitGetUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUptimeCheck404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetUptimeCheck404JSONResponse) VisitGetUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUptimeCheck429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetUptimeCheck429JSONResponse) VisitGetUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateUptimeCheckRequestObject struct {
+	UptimeCheckUuid UptimeCheckUuid `json:"uptime_check_uuid"`
+	Params          UpdateUptimeCheckParams
+	Body            *UpdateUptimeCheckJSONRequestBody
+}
+
+type UpdateUptimeCheckResponseObject interface {
+	VisitUpdateUptimeCheckResponse(w http.ResponseWriter) error
+}
+
+type UpdateUptimeCheck200ResponseHeaders struct {
+	ETag *string
+}
+
+type UpdateUptimeCheck200JSONResponse struct {
+	Body    UptimeCheck
+	Headers UpdateUptimeCheck200ResponseHeaders
+}
+
+func (response UpdateUptimeCheck200JSONResponse) VisitUpdateUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateUptimeCheck400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateUptimeCheck400JSONResponse) VisitUpdateUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateUptimeCheck401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateUptimeCheck401JSONResponse) VisitUpdateUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateUptimeCheck403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateUptimeCheck403JSONResponse) VisitUpdateUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateUptimeCheck404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateUptimeCheck404JSONResponse) VisitUpdateUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateUptimeCheck409JSONResponse struct{ VersionConflictJSONResponse }
+
+func (response UpdateUptimeCheck409JSONResponse) VisitUpdateUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateUptimeCheck422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response UpdateUptimeCheck422JSONResponse) VisitUpdateUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateUptimeCheck429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response UpdateUptimeCheck429JSONResponse) VisitUpdateUptimeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUptimeResultsRequestObject struct {
+	UptimeCheckUuid UptimeCheckUuid `json:"uptime_check_uuid"`
+	Params          ListUptimeResultsParams
+}
+
+type ListUptimeResultsResponseObject interface {
+	VisitListUptimeResultsResponse(w http.ResponseWriter) error
+}
+
+type ListUptimeResults200JSONResponse struct {
+	Data []UptimeResult `json:"data"`
+
+	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListUptimeResults200JSONResponse) VisitListUptimeResultsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUptimeResults401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListUptimeResults401JSONResponse) VisitListUptimeResultsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUptimeResults403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListUptimeResults403JSONResponse) VisitListUptimeResultsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUptimeResults404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListUptimeResults404JSONResponse) VisitListUptimeResultsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUptimeResults429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListUptimeResults429JSONResponse) VisitListUptimeResultsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetVersionRequestObject struct {
 }
 
@@ -31616,6 +33475,18 @@ type StrictServerInterface interface {
 	// Arrêter les containers d'un stack
 	// (POST /services/{service_uuid}/stop)
 	StopService(ctx context.Context, request StopServiceRequestObject) (StopServiceResponseObject, error)
+	// Lister les variables partagées de la team
+	// (GET /shared-variables)
+	ListSharedVariables(ctx context.Context, request ListSharedVariablesRequestObject) (ListSharedVariablesResponseObject, error)
+	// Créer une variable partagée
+	// (POST /shared-variables)
+	CreateSharedVariable(ctx context.Context, request CreateSharedVariableRequestObject) (CreateSharedVariableResponseObject, error)
+	// Supprimer une variable partagée
+	// (DELETE /shared-variables/{shared_variable_uuid})
+	DeleteSharedVariable(ctx context.Context, request DeleteSharedVariableRequestObject) (DeleteSharedVariableResponseObject, error)
+	// Modifier une variable partagée (valeur, masquage)
+	// (PATCH /shared-variables/{shared_variable_uuid})
+	UpdateSharedVariable(ctx context.Context, request UpdateSharedVariableRequestObject) (UpdateSharedVariableResponseObject, error)
 	// Désactiver l'API
 	// (POST /system/api/disable)
 	DisableApi(ctx context.Context, request DisableApiRequestObject) (DisableApiResponseObject, error)
@@ -31661,6 +33532,24 @@ type StrictServerInterface interface {
 	// Révoquer un token API
 	// (DELETE /teams/{team_uuid}/tokens/{token_uuid})
 	RevokeApiToken(ctx context.Context, request RevokeApiTokenRequestObject) (RevokeApiTokenResponseObject, error)
+	// Lister les checks d'uptime de la team
+	// (GET /uptime-checks)
+	ListUptimeChecks(ctx context.Context, request ListUptimeChecksRequestObject) (ListUptimeChecksResponseObject, error)
+	// Créer un check d'uptime
+	// (POST /uptime-checks)
+	CreateUptimeCheck(ctx context.Context, request CreateUptimeCheckRequestObject) (CreateUptimeCheckResponseObject, error)
+	// Supprimer un check d'uptime
+	// (DELETE /uptime-checks/{uptime_check_uuid})
+	DeleteUptimeCheck(ctx context.Context, request DeleteUptimeCheckRequestObject) (DeleteUptimeCheckResponseObject, error)
+	// Détail d'un check d'uptime
+	// (GET /uptime-checks/{uptime_check_uuid})
+	GetUptimeCheck(ctx context.Context, request GetUptimeCheckRequestObject) (GetUptimeCheckResponseObject, error)
+	// Modifier un check d'uptime
+	// (PATCH /uptime-checks/{uptime_check_uuid})
+	UpdateUptimeCheck(ctx context.Context, request UpdateUptimeCheckRequestObject) (UpdateUptimeCheckResponseObject, error)
+	// Historique des sondes d'un check
+	// (GET /uptime-checks/{uptime_check_uuid}/results)
+	ListUptimeResults(ctx context.Context, request ListUptimeResultsRequestObject) (ListUptimeResultsResponseObject, error)
 	// Version de l'instance
 	// (GET /version)
 	GetVersion(ctx context.Context, request GetVersionRequestObject) (GetVersionResponseObject, error)
@@ -36060,6 +37949,124 @@ func (sh *strictHandler) StopService(w http.ResponseWriter, r *http.Request, ser
 	}
 }
 
+// ListSharedVariables operation middleware
+func (sh *strictHandler) ListSharedVariables(w http.ResponseWriter, r *http.Request, params ListSharedVariablesParams) {
+	var request ListSharedVariablesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSharedVariables(ctx, request.(ListSharedVariablesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSharedVariables")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSharedVariablesResponseObject); ok {
+		if err := validResponse.VisitListSharedVariablesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateSharedVariable operation middleware
+func (sh *strictHandler) CreateSharedVariable(w http.ResponseWriter, r *http.Request, params CreateSharedVariableParams) {
+	var request CreateSharedVariableRequestObject
+
+	request.Params = params
+
+	var body CreateSharedVariableJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateSharedVariable(ctx, request.(CreateSharedVariableRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateSharedVariable")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateSharedVariableResponseObject); ok {
+		if err := validResponse.VisitCreateSharedVariableResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteSharedVariable operation middleware
+func (sh *strictHandler) DeleteSharedVariable(w http.ResponseWriter, r *http.Request, sharedVariableUuid SharedVariableUuid) {
+	var request DeleteSharedVariableRequestObject
+
+	request.SharedVariableUuid = sharedVariableUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteSharedVariable(ctx, request.(DeleteSharedVariableRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteSharedVariable")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteSharedVariableResponseObject); ok {
+		if err := validResponse.VisitDeleteSharedVariableResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateSharedVariable operation middleware
+func (sh *strictHandler) UpdateSharedVariable(w http.ResponseWriter, r *http.Request, sharedVariableUuid SharedVariableUuid) {
+	var request UpdateSharedVariableRequestObject
+
+	request.SharedVariableUuid = sharedVariableUuid
+
+	var body UpdateSharedVariableJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateSharedVariable(ctx, request.(UpdateSharedVariableRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateSharedVariable")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateSharedVariableResponseObject); ok {
+		if err := validResponse.VisitUpdateSharedVariableResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // DisableApi operation middleware
 func (sh *strictHandler) DisableApi(w http.ResponseWriter, r *http.Request) {
 	var request DisableApiRequestObject
@@ -36461,6 +38468,178 @@ func (sh *strictHandler) RevokeApiToken(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RevokeApiTokenResponseObject); ok {
 		if err := validResponse.VisitRevokeApiTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListUptimeChecks operation middleware
+func (sh *strictHandler) ListUptimeChecks(w http.ResponseWriter, r *http.Request, params ListUptimeChecksParams) {
+	var request ListUptimeChecksRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListUptimeChecks(ctx, request.(ListUptimeChecksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListUptimeChecks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListUptimeChecksResponseObject); ok {
+		if err := validResponse.VisitListUptimeChecksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateUptimeCheck operation middleware
+func (sh *strictHandler) CreateUptimeCheck(w http.ResponseWriter, r *http.Request, params CreateUptimeCheckParams) {
+	var request CreateUptimeCheckRequestObject
+
+	request.Params = params
+
+	var body CreateUptimeCheckJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateUptimeCheck(ctx, request.(CreateUptimeCheckRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateUptimeCheck")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateUptimeCheckResponseObject); ok {
+		if err := validResponse.VisitCreateUptimeCheckResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteUptimeCheck operation middleware
+func (sh *strictHandler) DeleteUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid) {
+	var request DeleteUptimeCheckRequestObject
+
+	request.UptimeCheckUuid = uptimeCheckUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteUptimeCheck(ctx, request.(DeleteUptimeCheckRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteUptimeCheck")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteUptimeCheckResponseObject); ok {
+		if err := validResponse.VisitDeleteUptimeCheckResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetUptimeCheck operation middleware
+func (sh *strictHandler) GetUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid) {
+	var request GetUptimeCheckRequestObject
+
+	request.UptimeCheckUuid = uptimeCheckUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetUptimeCheck(ctx, request.(GetUptimeCheckRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetUptimeCheck")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetUptimeCheckResponseObject); ok {
+		if err := validResponse.VisitGetUptimeCheckResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateUptimeCheck operation middleware
+func (sh *strictHandler) UpdateUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid, params UpdateUptimeCheckParams) {
+	var request UpdateUptimeCheckRequestObject
+
+	request.UptimeCheckUuid = uptimeCheckUuid
+	request.Params = params
+
+	var body UpdateUptimeCheckJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateUptimeCheck(ctx, request.(UpdateUptimeCheckRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateUptimeCheck")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateUptimeCheckResponseObject); ok {
+		if err := validResponse.VisitUpdateUptimeCheckResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListUptimeResults operation middleware
+func (sh *strictHandler) ListUptimeResults(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid, params ListUptimeResultsParams) {
+	var request ListUptimeResultsRequestObject
+
+	request.UptimeCheckUuid = uptimeCheckUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListUptimeResults(ctx, request.(ListUptimeResultsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListUptimeResults")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListUptimeResultsResponseObject); ok {
+		if err := validResponse.VisitListUptimeResultsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

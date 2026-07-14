@@ -169,11 +169,15 @@ type Querier interface {
 	// Compose stacks and their components (compose-spec.md, data-dictionary §9).
 	CreateServiceRow(ctx context.Context, arg CreateServiceRowParams) error
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
+	// Shared variables (§5.4, §3.1).
+	CreateSharedVariable(ctx context.Context, arg CreateSharedVariableParams) (SharedVariable, error)
 	// Persistent storages (§8).
 	CreateStorage(ctx context.Context, arg CreateStorageParams) (PersistentStorage, error)
 	CreateTaskExecution(ctx context.Context, arg CreateTaskExecutionParams) (TaskExecution, error)
 	// Web terminal sessions (PRD §5.7/§24.4, ADR-024, data-dictionary §10.6).
 	CreateTerminalSession(ctx context.Context, arg CreateTerminalSessionParams) (TerminalSession, error)
+	// Uptime monitoring (ADR-017).
+	CreateUptimeCheck(ctx context.Context, arg CreateUptimeCheckParams) (UptimeCheck, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	// ON CONFLICT DO NOTHING: a redelivery keeps the provider's delivery id, so the
 	// unique constraint absorbs it — no second row, no second deployment.
@@ -190,6 +194,7 @@ type Querier interface {
 	DeletePasskeyForUser(ctx context.Context, arg DeletePasskeyForUserParams) (int64, error)
 	DeletePrivateKey(ctx context.Context, id int64) (int64, error)
 	DeleteS3Storage(ctx context.Context, id int64) (int64, error)
+	DeleteSharedVariable(ctx context.Context, id int64) (int64, error)
 	DeleteStorage(ctx context.Context, id int64) (int64, error)
 	DeleteVanishedRepositories(ctx context.Context, arg DeleteVanishedRepositoriesParams) (int64, error)
 	// A service removed from the compose file loses its component row — and with
@@ -305,6 +310,8 @@ type Querier interface {
 	GetRepositoryByFullName(ctx context.Context, arg GetRepositoryByFullNameParams) (Repository, error)
 	GetRepositoryByID(ctx context.Context, id int64) (Repository, error)
 	GetResourceByID(ctx context.Context, id int64) (Resource, error)
+	// The optional resource link of a check (INV-002 isolation).
+	GetResourceByUUIDForTeam(ctx context.Context, arg GetResourceByUUIDForTeamParams) (Resource, error)
 	GetResourceRemnants(ctx context.Context, id int64) ([]byte, error)
 	GetS3StorageByID(ctx context.Context, id int64) (S3Storage, error)
 	GetS3StorageByUUID(ctx context.Context, arg GetS3StorageByUUIDParams) (S3Storage, error)
@@ -320,6 +327,7 @@ type Querier interface {
 	// A session is only valid while it is unrevoked AND unexpired: both are checked
 	// in SQL so no caller can forget one of them.
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (GetSessionByTokenHashRow, error)
+	GetSharedVariableByUUID(ctx context.Context, arg GetSharedVariableByUUIDParams) (SharedVariable, error)
 	GetStorageByUUID(ctx context.Context, arg GetStorageByUUIDParams) (PersistentStorage, error)
 	// Teams (§10.1). Cursor pagination follows ERD §12: (team_id, id DESC)
 	// ordering, opaque cursor carrying the last seen internal id.
@@ -327,6 +335,7 @@ type Querier interface {
 	GetTeamByUUID(ctx context.Context, uuid pgtype.UUID) (Team, error)
 	// The team a session acts in, with its role. Falls back to the personal team.
 	GetTeamMembershipForUser(ctx context.Context, userID int64) (GetTeamMembershipForUserRow, error)
+	GetUptimeCheckByUUID(ctx context.Context, arg GetUptimeCheckByUUIDParams) (UptimeCheck, error)
 	// Browser sessions (PRD §698).
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id int64) (User, error)
@@ -382,6 +391,9 @@ type Querier interface {
 	// due immediately: the first drill is the one that tells you whether the
 	// backups were ever any good.
 	ListDrillablePlans(ctx context.Context) ([]ListDrillablePlansRow, error)
+	// The prober's work list: enabled checks whose window has passed (or was
+	// never seeded). Owned by the scheduler leader — no extra locking needed.
+	ListDueUptimeChecks(ctx context.Context) ([]UptimeCheck, error)
 	ListEnvVarsForDeploy(ctx context.Context, resourceID int64) ([]EnvironmentVariable, error)
 	// The production set by default; the dedicated preview set on demand (§5.6):
 	// the platform-generated preview credentials live there, and an operator who
@@ -464,6 +476,11 @@ type Querier interface {
 	ListServiceComponentDomains(ctx context.Context, serviceComponentID *int64) ([]Domain, error)
 	ListServiceComponents(ctx context.Context, resourceID int64) ([]ServiceComponent, error)
 	ListServiceStacksPage(ctx context.Context, arg ListServiceStacksPageParams) ([]ListServiceStacksPageRow, error)
+	// Everything a deployment of this resource inherits (§5.4): the team's
+	// variables, the ones of its project and environment, and the server-scoped
+	// variables of its destination server.
+	ListSharedVariablesForResource(ctx context.Context, resourceID int64) ([]SharedVariable, error)
+	ListSharedVariablesPage(ctx context.Context, arg ListSharedVariablesPageParams) ([]SharedVariable, error)
 	ListStoragesForResource(ctx context.Context, resourceID int64) ([]PersistentStorage, error)
 	// Every public port routed through the proxy on a server. It is the set the
 	// static config must declare: Traefik cannot add a listener at runtime.
@@ -478,6 +495,8 @@ type Querier interface {
 	// never run SSH does not accumulate a failed job every tick forever — past
 	// the window, validation stays a click away in the UI.
 	ListUnvalidatedLocalhostServers(ctx context.Context) ([]Server, error)
+	ListUptimeChecksPage(ctx context.Context, arg ListUptimeChecksPageParams) ([]UptimeCheck, error)
+	ListUptimeResultsPage(ctx context.Context, arg ListUptimeResultsPageParams) ([]UptimeCheckResult, error)
 	ListWebhookEndpointsToRotate(ctx context.Context, arg ListWebhookEndpointsToRotateParams) ([]ListWebhookEndpointsToRotateRow, error)
 	MarkBackupLocalDeleted(ctx context.Context, id int64) error
 	MarkBackupS3Deleted(ctx context.Context, id int64) error
@@ -514,6 +533,9 @@ type Querier interface {
 	// kept until an operator retries or forgets them.
 	PurgeTerminalJobs(ctx context.Context, retentionDays int32) (int64, error)
 	PurgeTerminalSessions(ctx context.Context, retentionDays int32) (int64, error)
+	// History retention (§19.2): raw probe results are bounded; the check row
+	// keeps the current verdict forever.
+	PurgeUptimeResults(ctx context.Context, retentionDays int32) (int64, error)
 	// Retention bounds the dedup window: purging too aggressively would reopen the
 	// replay window (INV-009), hence 30 days minimum.
 	PurgeWebhookDeliveries(ctx context.Context) (int64, error)
@@ -530,6 +552,7 @@ type Querier interface {
 	// so the caller can tell "locked now" from "still open".
 	RecordFailedLogin(ctx context.Context, arg RecordFailedLoginParams) (RecordFailedLoginRow, error)
 	RecordServerFacts(ctx context.Context, arg RecordServerFactsParams) error
+	RecordUptimeResult(ctx context.Context, arg RecordUptimeResultParams) error
 	// Deliberate re-pin, on an explicit re-validation of a rebuilt server.
 	RepinServerHostKey(ctx context.Context, arg RepinServerHostKeyParams) error
 	// Cooperative cancellation (§2.6): the worker checks the flag at each
@@ -602,6 +625,9 @@ type Querier interface {
 	// judged by the caller against the step-up window.
 	SetSessionMfaVerified(ctx context.Context, id int64) error
 	SetTransactionalEmailConfig(ctx context.Context, transactionalEmailConfigEnc []byte) error
+	// The prober's state write: counters, verdict, and the next window. Never
+	// bumps `version` (not a user edit — it must not conflict with a PATCH).
+	SetUptimeCheckState(ctx context.Context, arg SetUptimeCheckStateParams) error
 	SoftDeleteBackupPlan(ctx context.Context, id int64) (int64, error)
 	SoftDeleteDNSCredential(ctx context.Context, id int64) (int64, error)
 	SoftDeleteEnvironment(ctx context.Context, id int64) (int64, error)
@@ -611,6 +637,7 @@ type Querier interface {
 	SoftDeleteResource(ctx context.Context, id int64) (int64, error)
 	SoftDeleteScheduledTask(ctx context.Context, id int64) (int64, error)
 	SoftDeleteServer(ctx context.Context, id int64) (int64, error)
+	SoftDeleteUptimeCheck(ctx context.Context, id int64) (int64, error)
 	SucceedJob(ctx context.Context, arg SucceedJobParams) (int64, error)
 	// Coalescing (§3.4): a queued webhook deployment for the same application
 	// is superseded by a newer one; an already leased/running deployment is
@@ -644,6 +671,8 @@ type Querier interface {
 	UpdateScheduledTask(ctx context.Context, arg UpdateScheduledTaskParams) (int64, error)
 	UpdateServer(ctx context.Context, arg UpdateServerParams) (int64, error)
 	UpdateServiceCompose(ctx context.Context, arg UpdateServiceComposeParams) (int64, error)
+	UpdateSharedVariable(ctx context.Context, arg UpdateSharedVariableParams) (int64, error)
+	UpdateUptimeCheck(ctx context.Context, arg UpdateUptimeCheckParams) (int64, error)
 	// Certificates: observed reflection of the server state (§18.3).
 	UpsertCertificate(ctx context.Context, arg UpsertCertificateParams) error
 	// Health checks (§8.8): one row per resource, gate the rolling update.

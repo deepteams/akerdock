@@ -5731,6 +5731,343 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
 
   # ---------------------------------------------------------------------------
+  # Uptime monitoring (ADR-017) — checks HTTP/TCP exécutés depuis le control
+  # plane, HORS du workload surveillé ; up/down et latence, pas d'APM. Les
+  # transitions (seuils franchis) alimentent les canaux de notification (§11).
+  # ---------------------------------------------------------------------------
+  /uptime-checks:
+    get:
+      tags: [Uptime]
+      operationId: listUptimeChecks
+      summary: Lister les checks d'uptime de la team
+      x-required-permission: read
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page de checks.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UptimeCheck"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      tags: [Uptime]
+      operationId: createUptimeCheck
+      summary: Créer un check d'uptime
+      description: >-
+        Check HTTP (URL, up = réponse < 400) ou TCP (host:port, up =
+        connexion). Sondé depuis le control plane toutes les
+        `interval_seconds` ; le verdict ne bascule qu'après
+        `failure_threshold` échecs consécutifs (et remonte après
+        `success_threshold` succès) — l'anti-flapping est dans les seuils,
+        pas dans le notifier. La granularité effective est bornée par le
+        tick du scheduler.
+      x-required-permission: write
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UptimeCheckCreate"
+      responses:
+        "201":
+          description: Check créé.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UptimeCheck"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /uptime-checks/{uptime_check_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/UptimeCheckUuid"
+    get:
+      tags: [Uptime]
+      operationId: getUptimeCheck
+      summary: Détail d'un check d'uptime
+      x-required-permission: read
+      responses:
+        "200":
+          description: Le check.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UptimeCheck"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      tags: [Uptime]
+      operationId: updateUptimeCheck
+      summary: Modifier un check d'uptime
+      description: PATCH sensible — `If-Match` obligatoire.
+      x-required-permission: write
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UptimeCheckUpdate"
+      responses:
+        "200":
+          description: Check mis à jour.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UptimeCheck"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/VersionConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    delete:
+      tags: [Uptime]
+      operationId: deleteUptimeCheck
+      summary: Supprimer un check d'uptime
+      description: L'historique est purgé avec le check.
+      x-required-permission: write
+      responses:
+        "204":
+          description: Check supprimé.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /uptime-checks/{uptime_check_uuid}/results:
+    parameters:
+      - $ref: "#/components/parameters/UptimeCheckUuid"
+    get:
+      tags: [Uptime]
+      operationId: listUptimeResults
+      summary: Historique des sondes d'un check
+      description: >-
+        Les résultats bruts (ok, latence, code, erreur), du plus récent au
+        plus ancien — rétention bornée (30 jours) ; le verdict courant vit
+        sur le check lui-même.
+      x-required-permission: read
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page de résultats.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/UptimeResult"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
+  # Variables partagées (§5.4, §3.1) — {{team.VAR}} / {{project.VAR}} /
+  # {{environment.VAR}} interpolées dans les valeurs des ressources (sauf
+  # `literal`), plus les variables de scope `server` injectées dans toute
+  # ressource déployée sur ce serveur (la variable propre de la ressource
+  # gagne). Une référence inconnue reste verbatim — visible, donc diagnosticable.
+  # ---------------------------------------------------------------------------
+  /shared-variables:
+    get:
+      tags: [SharedVariables]
+      operationId: listSharedVariables
+      summary: Lister les variables partagées de la team
+      x-required-permission: read
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [team, project, environment, server]
+      responses:
+        "200":
+          description: Page de variables (valeurs seulement avec `read:sensitive`, INV-003).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SharedVariable"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      tags: [SharedVariables]
+      operationId: createSharedVariable
+      summary: Créer une variable partagée
+      description: >-
+        Le scope nomme le niveau d'héritage : `team` (aucun parent),
+        `project`/`environment`/`server` (parent obligatoire). Une clé est
+        unique par parent. La valeur est chiffrée au repos et prend effet au
+        prochain déploiement des ressources concernées.
+      x-required-permission: write
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SharedVariableCreate"
+      responses:
+        "201":
+          description: Variable créée.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedVariable"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /shared-variables/{shared_variable_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/SharedVariableUuid"
+    patch:
+      tags: [SharedVariables]
+      operationId: updateSharedVariable
+      summary: Modifier une variable partagée (valeur, masquage)
+      description: La clé et le scope sont immuables — recréer pour changer d'identité.
+      x-required-permission: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SharedVariableUpdate"
+      responses:
+        "200":
+          description: Variable mise à jour.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedVariable"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    delete:
+      tags: [SharedVariables]
+      operationId: deleteSharedVariable
+      summary: Supprimer une variable partagée
+      description: >-
+        Les valeurs déjà interpolées dans des containers en cours d'exécution
+        ne changent qu'au prochain déploiement.
+      x-required-permission: write
+      responses:
+        "204":
+          description: Variable supprimée.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # ---------------------------------------------------------------------------
   # Jobs
   # ---------------------------------------------------------------------------
   /jobs:
@@ -6072,6 +6409,20 @@ components:
       in: path
       required: true
       description: UUID d'un composant de stack compose.
+      schema:
+        type: string
+    UptimeCheckUuid:
+      name: uptime_check_uuid
+      in: path
+      required: true
+      description: UUID d'un check d'uptime (ADR-017).
+      schema:
+        type: string
+    SharedVariableUuid:
+      name: shared_variable_uuid
+      in: path
+      required: true
+      description: UUID d'une variable partagée (§5.4).
       schema:
         type: string
     RegistryCredentialUuid:
@@ -7097,6 +7448,229 @@ components:
           description: FQDN détectés dans les labels de reverse proxy (Traefik).
           items:
             type: string
+
+    SharedVariable:
+      type: object
+      description: >-
+        Variable partagée hiérarchique (§5.4, §3.1). La valeur n'est rendue
+        qu'avec `read:sensitive` (INV-003).
+      required: [uuid, scope, key, is_secret, created_at]
+      properties:
+        uuid:
+          type: string
+          readOnly: true
+        scope:
+          type: string
+          enum: [team, project, environment, server]
+        key:
+          type: string
+        value:
+          type: string
+          nullable: true
+          description: NULL sans `read:sensitive` (`is_redacted` vaut alors true).
+        is_redacted:
+          type: boolean
+        is_secret:
+          type: boolean
+        project_uuid:
+          type: string
+          nullable: true
+        environment_uuid:
+          type: string
+          nullable: true
+        server_uuid:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    SharedVariableCreate:
+      type: object
+      required: [scope, key, value]
+      properties:
+        scope:
+          type: string
+          enum: [team, project, environment, server]
+        key:
+          type: string
+          description: Grammaire `[A-Za-z_][A-Za-z0-9_]*` (INV-012).
+        value:
+          type: string
+        is_secret:
+          type: boolean
+          default: false
+        project_uuid:
+          type: string
+          description: Requis pour le scope `project`.
+        environment_uuid:
+          type: string
+          description: Requis pour le scope `environment`.
+        server_uuid:
+          type: string
+          description: Requis pour le scope `server`.
+
+    SharedVariableUpdate:
+      type: object
+      properties:
+        value:
+          type: string
+        is_secret:
+          type: boolean
+
+    UptimeCheck:
+      type: object
+      description: >-
+        Un check d'uptime (ADR-017) : sonde HTTP/TCP exécutée depuis le
+        control plane, verdict à seuils (anti-flapping structurel).
+      required: [uuid, name, kind, target, interval_seconds, timeout_seconds, failure_threshold, success_threshold, enabled, status, created_at, version]
+      properties:
+        uuid:
+          type: string
+          readOnly: true
+        resource_uuid:
+          type: string
+          nullable: true
+          description: Ressource liée (historique « par ressource », ADR-017).
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [http, tcp]
+        target:
+          type: string
+          description: URL (http) ou `host:port` (tcp).
+        interval_seconds:
+          type: integer
+          minimum: 10
+        timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 60
+        failure_threshold:
+          type: integer
+          minimum: 1
+        success_threshold:
+          type: integer
+          minimum: 1
+        enabled:
+          type: boolean
+        status:
+          type: string
+          enum: [unknown, up, down]
+          readOnly: true
+        status_since:
+          type: string
+          nullable: true
+          format: date-time
+          readOnly: true
+        last_checked_at:
+          type: string
+          nullable: true
+          format: date-time
+          readOnly: true
+        last_latency_ms:
+          type: integer
+          nullable: true
+          readOnly: true
+        last_error:
+          type: string
+          nullable: true
+          readOnly: true
+        version:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    UptimeCheckCreate:
+      type: object
+      required: [name, kind, target]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        kind:
+          type: string
+          enum: [http, tcp]
+        target:
+          type: string
+          description: URL http(s) ou `host:port`.
+        resource_uuid:
+          type: string
+          nullable: true
+        interval_seconds:
+          type: integer
+          minimum: 10
+          default: 60
+        timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 60
+          default: 10
+        failure_threshold:
+          type: integer
+          minimum: 1
+          default: 3
+        success_threshold:
+          type: integer
+          minimum: 1
+          default: 2
+        enabled:
+          type: boolean
+          default: true
+
+    UptimeCheckUpdate:
+      type: object
+      description: Mise à jour partielle — le verdict courant n'est jamais éditable.
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        target:
+          type: string
+        interval_seconds:
+          type: integer
+          minimum: 10
+        timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 60
+        failure_threshold:
+          type: integer
+          minimum: 1
+        success_threshold:
+          type: integer
+          minimum: 1
+        enabled:
+          type: boolean
+
+    UptimeResult:
+      type: object
+      description: Un résultat de sonde brut (rétention bornée).
+      required: [ok, checked_at]
+      properties:
+        ok:
+          type: boolean
+        checked_at:
+          type: string
+          format: date-time
+        latency_ms:
+          type: integer
+          nullable: true
+        status_code:
+          type: integer
+          nullable: true
+        error:
+          type: string
+          nullable: true
 
     AdoptRequest:
       type: object

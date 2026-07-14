@@ -1486,6 +1486,50 @@ func (ns NullServerStatus) Value() (driver.Value, error) {
 	return string(ns.ServerStatus), nil
 }
 
+type SharedVariableScope string
+
+const (
+	SharedVariableScopeTeam        SharedVariableScope = "team"
+	SharedVariableScopeProject     SharedVariableScope = "project"
+	SharedVariableScopeEnvironment SharedVariableScope = "environment"
+	SharedVariableScopeServer      SharedVariableScope = "server"
+)
+
+func (e *SharedVariableScope) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SharedVariableScope(s)
+	case string:
+		*e = SharedVariableScope(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SharedVariableScope: %T", src)
+	}
+	return nil
+}
+
+type NullSharedVariableScope struct {
+	SharedVariableScope SharedVariableScope
+	Valid               bool // Valid is true if SharedVariableScope is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSharedVariableScope) Scan(value interface{}) error {
+	if value == nil {
+		ns.SharedVariableScope, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SharedVariableScope.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSharedVariableScope) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SharedVariableScope), nil
+}
+
 type StorageKind string
 
 const (
@@ -1785,6 +1829,91 @@ func (ns NullTerminalTarget) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.TerminalTarget), nil
+}
+
+type UptimeCheckKind string
+
+const (
+	UptimeCheckKindHttp UptimeCheckKind = "http"
+	UptimeCheckKindTcp  UptimeCheckKind = "tcp"
+)
+
+func (e *UptimeCheckKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = UptimeCheckKind(s)
+	case string:
+		*e = UptimeCheckKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for UptimeCheckKind: %T", src)
+	}
+	return nil
+}
+
+type NullUptimeCheckKind struct {
+	UptimeCheckKind UptimeCheckKind
+	Valid           bool // Valid is true if UptimeCheckKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullUptimeCheckKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.UptimeCheckKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.UptimeCheckKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullUptimeCheckKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.UptimeCheckKind), nil
+}
+
+type UptimeStatus string
+
+const (
+	UptimeStatusUnknown UptimeStatus = "unknown"
+	UptimeStatusUp      UptimeStatus = "up"
+	UptimeStatusDown    UptimeStatus = "down"
+)
+
+func (e *UptimeStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = UptimeStatus(s)
+	case string:
+		*e = UptimeStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for UptimeStatus: %T", src)
+	}
+	return nil
+}
+
+type NullUptimeStatus struct {
+	UptimeStatus UptimeStatus
+	Valid        bool // Valid is true if UptimeStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullUptimeStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.UptimeStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.UptimeStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullUptimeStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.UptimeStatus), nil
 }
 
 type WebhookDeliveryStatus string
@@ -2800,6 +2929,23 @@ type Session struct {
 	CsrfToken     *string
 }
 
+type SharedVariable struct {
+	ID            int64
+	Uuid          pgtype.UUID
+	TeamID        int64
+	Scope         SharedVariableScope
+	ProjectID     *int64
+	EnvironmentID *int64
+	ServerID      *int64
+	Key           string
+	ValueEnc      []byte
+	IsSecret      bool
+	CreatedBy     *int64
+	UpdatedBy     *int64
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+}
+
 type Tag struct {
 	ID        int64
 	Uuid      pgtype.UUID
@@ -2862,6 +3008,44 @@ type TerminalSession struct {
 	EndedAt        pgtype.Timestamptz
 	EndReason      *TerminalEndReason
 	CreatedAt      pgtype.Timestamptz
+}
+
+type UptimeCheck struct {
+	ID                   int64
+	Uuid                 pgtype.UUID
+	TeamID               int64
+	ResourceID           *int64
+	Name                 string
+	Kind                 UptimeCheckKind
+	Target               string
+	IntervalSeconds      int32
+	TimeoutSeconds       int32
+	FailureThreshold     int32
+	SuccessThreshold     int32
+	Enabled              bool
+	Status               UptimeStatus
+	StatusSince          pgtype.Timestamptz
+	ConsecutiveFailures  int32
+	ConsecutiveSuccesses int32
+	LastCheckedAt        pgtype.Timestamptz
+	LastLatencyMs        *int32
+	LastError            *string
+	NextRunAt            pgtype.Timestamptz
+	CreatedBy            *int64
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+	DeletedAt            pgtype.Timestamptz
+	Version              int32
+}
+
+type UptimeCheckResult struct {
+	ID         int64
+	CheckID    int64
+	CheckedAt  pgtype.Timestamptz
+	Ok         bool
+	LatencyMs  *int32
+	StatusCode *int32
+	Error      *string
 }
 
 type User struct {

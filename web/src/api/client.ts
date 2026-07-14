@@ -1268,6 +1268,66 @@ export class AkerDockClient {
     return this.request<Response>('POST', `/servers/${serverUuid}/cleanup`);
   }
 
+  // --- uptime monitoring (ADR-017) ----------------------------------------------------------------
+
+  listUptimeChecks(query?: { cursor?: string; limit?: number }) {
+    type Response =
+      paths['/uptime-checks']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', '/uptime-checks', { query });
+  }
+
+  createUptimeCheck(body: components['schemas']['UptimeCheckCreate']) {
+    type Response =
+      paths['/uptime-checks']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', '/uptime-checks', { body });
+  }
+
+  getUptimeCheck(uuid: string) {
+    type Response =
+      paths['/uptime-checks/{uptime_check_uuid}']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/uptime-checks/${uuid}`);
+  }
+
+  updateUptimeCheck(uuid: string, version: number, body: components['schemas']['UptimeCheckUpdate']) {
+    type Response =
+      paths['/uptime-checks/{uptime_check_uuid}']['patch']['responses']['200']['content']['application/json'];
+    return this.request<Response>('PATCH', `/uptime-checks/${uuid}`, { ifMatch: version, body });
+  }
+
+  deleteUptimeCheck(uuid: string) {
+    return this.request<void>('DELETE', `/uptime-checks/${uuid}`);
+  }
+
+  listUptimeResults(uuid: string, query?: { cursor?: string; limit?: number }) {
+    type Response =
+      paths['/uptime-checks/{uptime_check_uuid}/results']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/uptime-checks/${uuid}/results`, { query });
+  }
+
+  // --- shared variables (§5.4) --------------------------------------------------------------------
+
+  listSharedVariables(query?: { cursor?: string; limit?: number; scope?: 'team' | 'project' | 'environment' | 'server' }) {
+    type Response =
+      paths['/shared-variables']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', '/shared-variables', { query });
+  }
+
+  createSharedVariable(body: components['schemas']['SharedVariableCreate']) {
+    type Response =
+      paths['/shared-variables']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', '/shared-variables', { body });
+  }
+
+  updateSharedVariable(uuid: string, body: components['schemas']['SharedVariableUpdate']) {
+    type Response =
+      paths['/shared-variables/{shared_variable_uuid}']['patch']['responses']['200']['content']['application/json'];
+    return this.request<Response>('PATCH', `/shared-variables/${uuid}`, { body });
+  }
+
+  deleteSharedVariable(uuid: string) {
+    return this.request<void>('DELETE', `/shared-variables/${uuid}`);
+  }
+
   // --- jobs (retry, forget) ---------------------------------------------------------------------
 
   listJobs(query?: {

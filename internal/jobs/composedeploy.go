@@ -399,13 +399,28 @@ func (r *deploymentRun) plainEnvVars(ctx context.Context) (map[string]string, er
 	if err != nil {
 		return nil, err
 	}
-	vars := make(map[string]string, len(rows))
+	// Shared scopes merged by the caller, as compose-spec §3.2 prescribes:
+	// {{scope.KEY}} references resolve inside stack variable values, and the
+	// server-scoped variables join the interpolation set unless the stack
+	// defines the key itself.
+	shared, err := resolveSharedEnv(ctx, r.h.Store, r.h.Keyring, r.app.Resource.ID)
+	if err != nil {
+		return nil, err
+	}
+	vars := make(map[string]string, len(rows)+len(shared.server))
+	for k, v := range shared.server {
+		vars[k] = v
+	}
 	for _, v := range rows {
 		plaintext, err := r.h.Keyring.Decrypt("environment_variables", "value_enc", pguuid.String(v.Uuid), v.ValueEnc)
 		if err != nil {
 			return nil, fmt.Errorf("decrypt variable %s: %w", v.Key, err)
 		}
-		vars[v.Key] = string(plaintext)
+		value := string(plaintext)
+		if !v.IsLiteral {
+			value = shared.interpolate(value)
+		}
+		vars[v.Key] = value
 	}
 	return vars, nil
 }

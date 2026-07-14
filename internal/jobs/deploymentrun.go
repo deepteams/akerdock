@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1000,6 +1001,14 @@ func (r *deploymentRun) renderBuildEnv(ctx context.Context) (string, buildInputs
 	if err != nil {
 		return "", buildInputs{}, err
 	}
+	// Shared {{scope.KEY}} references resolve in build values too (§5.4) —
+	// never for previews (their set is strictly dedicated, INV-010).
+	shared := sharedEnv{}
+	if r.preview == nil {
+		if shared, err = resolveSharedEnv(ctx, r.h.Store, r.h.Keyring, r.app.Resource.ID); err != nil {
+			return "", buildInputs{}, err
+		}
+	}
 	var b strings.Builder
 	var inputs buildInputs
 	for _, v := range vars {
@@ -1010,9 +1019,13 @@ func (r *deploymentRun) renderBuildEnv(ctx context.Context) (string, buildInputs
 		if err != nil {
 			return "", buildInputs{}, fmt.Errorf("decrypt variable %s: %w", v.Key, err)
 		}
+		value := string(plaintext)
+		if !v.IsLiteral {
+			value = shared.interpolate(value)
+		}
 		// Shell-quoted: build.env is sourced with `set -a`, so a quoted
 		// multiline value is exported intact.
-		fmt.Fprintf(&b, "%s=%s\n", v.Key, shellQuote(string(plaintext)))
+		fmt.Fprintf(&b, "%s=%s\n", v.Key, shellQuote(value))
 		if v.IsSecret {
 			inputs.secrets = append(inputs.secrets, v.Key)
 		} else {
@@ -1198,15 +1211,43 @@ func (r *deploymentRun) renderRuntimeEnv(ctx context.Context) (string, []string,
 	if err != nil {
 		return "", nil, err
 	}
+	// Shared variables (§5.4, §3.1): {{scope.KEY}} references resolve inside
+	// values (literal variables excepted — that is what literal means), and
+	// the server-scoped variables are injected unless the resource overrides
+	// the key. Previews keep their strictly dedicated set (INV-010).
+	shared := sharedEnv{}
+	if r.preview == nil {
+		if shared, err = resolveSharedEnv(ctx, r.h.Store, r.h.Keyring, r.app.Resource.ID); err != nil {
+			return "", nil, err
+		}
+	}
 	var b strings.Builder
 	keys := make([]string, 0, len(vars))
+	seen := map[string]bool{}
 	for _, v := range vars {
 		plaintext, err := r.h.Keyring.Decrypt("environment_variables", "value_enc", pguuid.String(v.Uuid), v.ValueEnc)
 		if err != nil {
 			return "", nil, fmt.Errorf("decrypt variable %s: %w", v.Key, err)
 		}
-		fmt.Fprintf(&b, "export %s=%s\n", v.Key, shellQuote(string(plaintext)))
+		value := string(plaintext)
+		if !v.IsLiteral {
+			value = shared.interpolate(value)
+		}
+		fmt.Fprintf(&b, "export %s=%s\n", v.Key, shellQuote(value))
 		keys = append(keys, v.Key)
+		seen[v.Key] = true
+	}
+	serverKeys := make([]string, 0, len(shared.server))
+	for k := range shared.server {
+		serverKeys = append(serverKeys, k)
+	}
+	sort.Strings(serverKeys)
+	for _, k := range serverKeys {
+		if seen[k] {
+			continue // the resource's own variable wins
+		}
+		fmt.Fprintf(&b, "export %s=%s\n", k, shellQuote(shared.server[k]))
+		keys = append(keys, k)
 	}
 	if r.preview != nil {
 		fmt.Fprintf(&b, "export AKERDOCK_PR_ID=%d\n", r.preview.PrID)

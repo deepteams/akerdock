@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,6 +30,9 @@ const lockID int64 = 0x414B4552 // "AKER"
 // Retention windows (§19.2, §22.2).
 const jobRetentionDays = 30
 
+// uptimeResultRetentionDays bounds the raw probe history (ADR-017).
+const uptimeResultRetentionDays = 30
+
 // Scheduler runs the maintenance tasks of the instance.
 type Scheduler struct {
 	// Tick is how often due work is looked for (cron backups, expiring
@@ -43,6 +47,9 @@ type Scheduler struct {
 	// thresholdProbes throttles the §3.7 disk probes (leader-local state:
 	// only the elected leader schedules).
 	thresholdProbes map[int64]time.Time
+	// uptimeInflight prevents uptime passes from piling up when targets are
+	// slow (ADR-017): the pass runs in the background, one at a time.
+	uptimeInflight atomic.Bool
 	// TerminalMaxDuration bounds the crash-net sweep of terminal sessions
 	// (§24.4): a session row still open past this ceiling can only be a
 	// control-plane restart — sessions live in-process. Zero falls back to
@@ -135,6 +142,7 @@ func (s *Scheduler) runCronTasks(ctx context.Context) {
 	s.runDueScheduledTasks(ctx)
 	s.runDueDrills(ctx)
 	s.runDueCleanups(ctx)
+	s.runDueUptimeChecks(ctx)
 	s.alertExpiringCertificates(ctx)
 	s.Dispatcher.Dispatch(ctx)
 	s.Dispatcher.FlushDigests(ctx)
@@ -170,6 +178,13 @@ func (s *Scheduler) purgeRetention(ctx context.Context) {
 		s.Logger.Warn("webhook delivery purge failed", "error", err)
 	} else if n > 0 {
 		s.Logger.Info("purged webhook deliveries", "count", n)
+	}
+	// Raw uptime probe results are bounded history (ADR-017); the check row
+	// keeps the current verdict forever.
+	if n, err := s.Store.PurgeUptimeResults(ctx, uptimeResultRetentionDays); err != nil {
+		s.Logger.Warn("uptime result purge failed", "error", err)
+	} else if n > 0 {
+		s.Logger.Info("purged uptime results", "count", n)
 	}
 	// Terminal sessions: sweep rows orphaned by a control-plane crash (the
 	// sessions themselves live in-process), then purge the ended history.

@@ -304,7 +304,7 @@ Environnement éphémère déployé automatiquement **pour chaque pull request**
 - Métriques CPU/RAM serveur + containers (Sentinel) avec historique.
 - Canal d'**audit structuré** pour les requêtes API et événements webhook ; corrélation avec acteur/token, team, cible, résultat et identifiant de requête, sans journaliser les secrets.
 - Health checks applicatifs ; surveillance de joignabilité des serveurs avec notifications ; alertes disque.
-- Pas d'APM ni d'uptime monitoring intégré (Uptime Kuma & co disponibles en one-click).
+- Pas d'APM. L'**uptime monitoring intégré** est décidé par ADR-017 : checks HTTP/TCP simples exécutés hors du workload, historique et alerting via les canaux existants — le périmètre s'arrête au up/down et à la latence (Uptime Kuma & co restent disponibles en one-click pour les besoins avancés).
 
 ---
 
@@ -839,7 +839,7 @@ La colonne « Sections » renvoie aux exigences de ce document qui définissent 
 | Adoption de ressources existantes | §20.7, §27.13 | P2 | Conforme | E2E adoption compose multi-services sans perte (shard `platform`) |
 | Déploiement coordonné + auto-rollback | §20.8, §27.16 | P2 | À faire | E2E graphe + hook migration + rollback sur health |
 | Fiabilité compose (zero-downtime, limits) | §27.15 | P2 | À faire | E2E rolling update stack compose + vérif cgroups |
-| Uptime monitoring intégré | §27.17 | P2 | À faire | Checks + alerting E2E |
+| Uptime monitoring intégré | §27.17 | P2 | Conforme | Checks + alerting E2E (shard `platform`) |
 | CLI deploy local (`akerdock up`) | §12, §27.18 | P2 | À faire | E2E push local → app en ligne |
 | Notifications : routage/agrégation | §11, §27.19 | P2 | À faire | Tests flapping/débounce + heures calmes |
 | Observabilité/terminal | §3.8, §5.7, §13 | P2 | À faire | Charge + auth + reconnect |

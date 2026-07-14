@@ -2608,6 +2608,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/uptime-checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lister les checks d'uptime de la team */
+        get: operations["listUptimeChecks"];
+        put?: never;
+        /**
+         * Créer un check d'uptime
+         * @description Check HTTP (URL, up = réponse < 400) ou TCP (host:port, up = connexion). Sondé depuis le control plane toutes les `interval_seconds` ; le verdict ne bascule qu'après `failure_threshold` échecs consécutifs (et remonte après `success_threshold` succès) — l'anti-flapping est dans les seuils, pas dans le notifier. La granularité effective est bornée par le tick du scheduler.
+         */
+        post: operations["createUptimeCheck"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/uptime-checks/{uptime_check_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'un check d'uptime (ADR-017). */
+                uptime_check_uuid: components["parameters"]["UptimeCheckUuid"];
+            };
+            cookie?: never;
+        };
+        /** Détail d'un check d'uptime */
+        get: operations["getUptimeCheck"];
+        put?: never;
+        post?: never;
+        /**
+         * Supprimer un check d'uptime
+         * @description L'historique est purgé avec le check.
+         */
+        delete: operations["deleteUptimeCheck"];
+        options?: never;
+        head?: never;
+        /**
+         * Modifier un check d'uptime
+         * @description PATCH sensible — `If-Match` obligatoire.
+         */
+        patch: operations["updateUptimeCheck"];
+        trace?: never;
+    };
+    "/uptime-checks/{uptime_check_uuid}/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'un check d'uptime (ADR-017). */
+                uptime_check_uuid: components["parameters"]["UptimeCheckUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Historique des sondes d'un check
+         * @description Les résultats bruts (ok, latence, code, erreur), du plus récent au plus ancien — rétention bornée (30 jours) ; le verdict courant vit sur le check lui-même.
+         */
+        get: operations["listUptimeResults"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/shared-variables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lister les variables partagées de la team */
+        get: operations["listSharedVariables"];
+        put?: never;
+        /**
+         * Créer une variable partagée
+         * @description Le scope nomme le niveau d'héritage : `team` (aucun parent), `project`/`environment`/`server` (parent obligatoire). Une clé est unique par parent. La valeur est chiffrée au repos et prend effet au prochain déploiement des ressources concernées.
+         */
+        post: operations["createSharedVariable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/shared-variables/{shared_variable_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'une variable partagée (§5.4). */
+                shared_variable_uuid: components["parameters"]["SharedVariableUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Supprimer une variable partagée
+         * @description Les valeurs déjà interpolées dans des containers en cours d'exécution ne changent qu'au prochain déploiement.
+         */
+        delete: operations["deleteSharedVariable"];
+        options?: never;
+        head?: never;
+        /**
+         * Modifier une variable partagée (valeur, masquage)
+         * @description La clé et le scope sont immuables — recréer pour changer d'identité.
+         */
+        patch: operations["updateSharedVariable"];
+        trace?: never;
+    };
     "/jobs": {
         parameters: {
             query?: never;
@@ -3100,6 +3220,107 @@ export interface components {
             networks?: string[];
             /** @description FQDN détectés dans les labels de reverse proxy (Traefik). */
             domains?: string[];
+        };
+        /** @description Variable partagée hiérarchique (§5.4, §3.1). La valeur n'est rendue qu'avec `read:sensitive` (INV-003). */
+        SharedVariable: {
+            readonly uuid: string;
+            /** @enum {string} */
+            scope: "team" | "project" | "environment" | "server";
+            key: string;
+            /** @description NULL sans `read:sensitive` (`is_redacted` vaut alors true). */
+            value?: string | null;
+            is_redacted?: boolean;
+            is_secret: boolean;
+            project_uuid?: string | null;
+            environment_uuid?: string | null;
+            server_uuid?: string | null;
+            /** Format: date-time */
+            readonly created_at: string;
+            /** Format: date-time */
+            readonly updated_at?: string;
+        };
+        SharedVariableCreate: {
+            /** @enum {string} */
+            scope: "team" | "project" | "environment" | "server";
+            /** @description Grammaire `[A-Za-z_][A-Za-z0-9_]*` (INV-012). */
+            key: string;
+            value: string;
+            /** @default false */
+            is_secret: boolean;
+            /** @description Requis pour le scope `project`. */
+            project_uuid?: string;
+            /** @description Requis pour le scope `environment`. */
+            environment_uuid?: string;
+            /** @description Requis pour le scope `server`. */
+            server_uuid?: string;
+        };
+        SharedVariableUpdate: {
+            value?: string;
+            is_secret?: boolean;
+        };
+        /** @description Un check d'uptime (ADR-017) : sonde HTTP/TCP exécutée depuis le control plane, verdict à seuils (anti-flapping structurel). */
+        UptimeCheck: {
+            readonly uuid: string;
+            /** @description Ressource liée (historique « par ressource », ADR-017). */
+            resource_uuid?: string | null;
+            name: string;
+            /** @enum {string} */
+            kind: "http" | "tcp";
+            /** @description URL (http) ou `host:port` (tcp). */
+            target: string;
+            interval_seconds: number;
+            timeout_seconds: number;
+            failure_threshold: number;
+            success_threshold: number;
+            enabled: boolean;
+            /** @enum {string} */
+            readonly status: "unknown" | "up" | "down";
+            /** Format: date-time */
+            readonly status_since?: string | null;
+            /** Format: date-time */
+            readonly last_checked_at?: string | null;
+            readonly last_latency_ms?: number | null;
+            readonly last_error?: string | null;
+            readonly version: number;
+            /** Format: date-time */
+            readonly created_at: string;
+        };
+        UptimeCheckCreate: {
+            name: string;
+            /** @enum {string} */
+            kind: "http" | "tcp";
+            /** @description URL http(s) ou `host:port`. */
+            target: string;
+            resource_uuid?: string | null;
+            /** @default 60 */
+            interval_seconds: number;
+            /** @default 10 */
+            timeout_seconds: number;
+            /** @default 3 */
+            failure_threshold: number;
+            /** @default 2 */
+            success_threshold: number;
+            /** @default true */
+            enabled: boolean;
+        };
+        /** @description Mise à jour partielle — le verdict courant n'est jamais éditable. */
+        UptimeCheckUpdate: {
+            name?: string;
+            target?: string;
+            interval_seconds?: number;
+            timeout_seconds?: number;
+            failure_threshold?: number;
+            success_threshold?: number;
+            enabled?: boolean;
+        };
+        /** @description Un résultat de sonde brut (rétention bornée). */
+        UptimeResult: {
+            ok: boolean;
+            /** Format: date-time */
+            checked_at: string;
+            latency_ms?: number | null;
+            status_code?: number | null;
+            error?: string | null;
         };
         /** @description Sélection de candidats d'un scan à adopter (§20.7). */
         AdoptRequest: {
@@ -4800,6 +5021,10 @@ export interface components {
         AdoptionScanUuid: string;
         /** @description UUID d'un composant de stack compose. */
         ServiceComponentUuid: string;
+        /** @description UUID d'un check d'uptime (ADR-017). */
+        UptimeCheckUuid: string;
+        /** @description UUID d'une variable partagée (§5.4). */
+        SharedVariableUuid: string;
         /** @description UUID du credential de registry. */
         RegistryCredentialUuid: string;
         /** @description UUID de la tâche planifiée. */
@@ -10041,6 +10266,321 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listUptimeChecks: {
+        parameters: {
+            query?: {
+                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page de checks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UptimeCheck"][];
+                        next_cursor?: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createUptimeCheck: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UptimeCheckCreate"];
+            };
+        };
+        responses: {
+            /** @description Check créé. */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UptimeCheck"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getUptimeCheck: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'un check d'uptime (ADR-017). */
+                uptime_check_uuid: components["parameters"]["UptimeCheckUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Le check. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UptimeCheck"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    deleteUptimeCheck: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'un check d'uptime (ADR-017). */
+                uptime_check_uuid: components["parameters"]["UptimeCheckUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Check supprimé. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    updateUptimeCheck: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description UUID d'un check d'uptime (ADR-017). */
+                uptime_check_uuid: components["parameters"]["UptimeCheckUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UptimeCheckUpdate"];
+            };
+        };
+        responses: {
+            /** @description Check mis à jour. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UptimeCheck"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["VersionConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listUptimeResults: {
+        parameters: {
+            query?: {
+                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description UUID d'un check d'uptime (ADR-017). */
+                uptime_check_uuid: components["parameters"]["UptimeCheckUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page de résultats. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["UptimeResult"][];
+                        next_cursor?: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listSharedVariables: {
+        parameters: {
+            query?: {
+                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                limit?: components["parameters"]["Limit"];
+                scope?: "team" | "project" | "environment" | "server";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page de variables (valeurs seulement avec `read:sensitive`, INV-003). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SharedVariable"][];
+                        next_cursor?: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createSharedVariable: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SharedVariableCreate"];
+            };
+        };
+        responses: {
+            /** @description Variable créée. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedVariable"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    deleteSharedVariable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'une variable partagée (§5.4). */
+                shared_variable_uuid: components["parameters"]["SharedVariableUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Variable supprimée. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    updateSharedVariable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID d'une variable partagée (§5.4). */
+                shared_variable_uuid: components["parameters"]["SharedVariableUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SharedVariableUpdate"];
+            };
+        };
+        responses: {
+            /** @description Variable mise à jour. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedVariable"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["TooManyRequests"];
         };
     };

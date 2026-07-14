@@ -95,6 +95,8 @@ Extensions PostgreSQL requises : `citext` (emails), `pgcrypto` (`gen_random_uuid
 | `task_execution_status` | `running`, `succeeded`, `failed`, `skipped` | §5.7 |
 | `terminal_target` | `server`, `container` | §5.7 |
 | `adoption_scan_status` | `pending`, `running`, `completed`, `failed` | §20.7 |
+| `uptime_check_kind` | `http`, `tcp` | ADR-017 |
+| `uptime_status` | `unknown`, `up`, `down` | ADR-017 |
 | `terminal_end_reason` | `user_close`, `idle_timeout`, `max_duration`, `disconnect`, `revoked` | §24.4 |
 | `notification_channel_kind` | `smtp`, `resend`, `discord`, `telegram`, `slack`, `pushover`, `webhook` | §11 |
 | `notification_severity` | `info`, `warning`, `critical` | §27.19 |
@@ -545,6 +547,52 @@ Un scan d'adoption (§20.7, ADR-013/ADR-023) : inventaire des containers et stac
 | `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
 | `created_at` | `timestamptz` | non | `now()` | — | non | — |
 | `completed_at` | `timestamptz` | oui | — | — | non | — |
+
+### 6.9 `uptime_checks`
+
+Un check d'uptime (ADR-017) : sonde HTTP/TCP exécutée **depuis le control plane** — hors du workload surveillé —, verdict à seuils (le basculement après N résultats consécutifs EST l'anti-flapping ; le notifier ne voit que les transitions). La fenêtre (`next_run_at`) est possédée par le scheduler ; la granularité effective est bornée par son tick. Suppression : tombstone ; l'historique suit en CASCADE.
+
+| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+|---|---|---|---|---|---|---|
+| `id` | `bigint` | non | identity | PK | non | — |
+| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
+| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE CASCADE, index `(team_id, id DESC)` | non | Isolation team (INV-002). |
+| `resource_id` | `bigint` | oui | — | FK `resources(id)` ON DELETE CASCADE | non | Lien optionnel : l'historique « par ressource » d'ADR-017. |
+| `name` | `text` | non | — | UNIQUE `(team_id, name)` | non | — |
+| `kind` | `uptime_check_kind` | non | — | — | non | `http` (URL, up = réponse < 400) ou `tcp` (host:port, up = connexion). |
+| `target` | `text` | non | — | — | non | URL ou `host:port`, validé à l'entrée. |
+| `interval_seconds` | `integer` | non | `60` | CHECK `>= 10` | non | — |
+| `timeout_seconds` | `integer` | non | `10` | CHECK `1..60` | non | — |
+| `failure_threshold` | `integer` | non | `3` | CHECK `> 0` | non | Échecs consécutifs avant `down`. |
+| `success_threshold` | `integer` | non | `2` | CHECK `> 0` | non | Succès consécutifs avant retour `up` (depuis `unknown`, un seul suffit). |
+| `enabled` | `boolean` | non | `true` | — | non | — |
+| `status` | `uptime_status` | non | `'unknown'` | — | non | Verdict courant — écrit par le prober seul. |
+| `status_since` | `timestamptz` | oui | — | — | non | Début du verdict courant. |
+| `consecutive_failures` | `integer` | non | `0` | — | non | Compteur de la machine à états. |
+| `consecutive_successes` | `integer` | non | `0` | — | non | — |
+| `last_checked_at` | `timestamptz` | oui | — | — | non | — |
+| `last_latency_ms` | `integer` | oui | — | — | non | — |
+| `last_error` | `text` | oui | — | — | non | Dernier motif d'échec. |
+| `next_run_at` | `timestamptz` | oui | — | — | non | Fenêtre du prober ; NULL = à resemer (création ou édition). |
+| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
+| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `deleted_at` | `timestamptz` | oui | — | — | non | Tombstone. |
+| `version` | `integer` | non | `1` | — | non | Verrou optimiste (les écritures du prober ne le bumpent jamais). |
+
+### 6.10 `uptime_check_results`
+
+L'historique brut des sondes, borné par rétention (30 jours) — le verdict courant vit sur le check. Suppression : **CASCADE** avec le check.
+
+| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+|---|---|---|---|---|---|---|
+| `id` | `bigint` | non | identity | PK | non | — |
+| `check_id` | `bigint` | non | — | FK `uptime_checks(id)` ON DELETE CASCADE, index `(check_id, id DESC)` | non | — |
+| `checked_at` | `timestamptz` | non | `now()` | — | non | — |
+| `ok` | `boolean` | non | — | — | non | — |
+| `latency_ms` | `integer` | oui | — | — | non | — |
+| `status_code` | `integer` | oui | — | — | non | HTTP seulement. |
+| `error` | `text` | oui | — | — | non | Motif d'échec de la sonde. |
 
 ---
 

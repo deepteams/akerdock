@@ -33,3 +33,6 @@ web/node_modules/
 web/.angular/
 web/dist/
 web/node_modules/
+
+# Catalogue Storybook (généré par `npm run build-storybook`).
+web/storybook-static/

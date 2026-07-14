@@ -715,6 +715,61 @@ docker exec "$DIND_CTR" docker rm -f innocent-bystander >/dev/null 2>&1 || true
 docker exec "$DIND_CTR" docker volume rm keepme-named >/dev/null 2>&1 || true
 ok "cleanup pruned the managed garbage and spared named volumes, foreign containers and tagged images (§3.7, INV-015)"
 
+# --- shared variables (§5.4, §3.1) -----------------------------------------------------
+# E2E-SHVAR-01. A {{team.VAR}} reference resolves inside a resource variable
+# at deploy time; a server-scoped variable is injected into every resource of
+# that server; the resource's own key always wins; values are redacted
+# without read:sensitive at the API (INV-003 — root sees them).
+say "shared variables: interpolation at deploy, server injection, resource precedence"
+api POST /shared-variables '{"scope":"team","key":"REGION","value":"eu-west-e2e"}' >/dev/null
+api POST /shared-variables "{\"scope\":\"server\",\"key\":\"FLEET_TAG\",\"value\":\"from-server\",\"server_uuid\":\"$S\"}" >/dev/null
+api POST /shared-variables "{\"scope\":\"server\",\"key\":\"APP_MODE\",\"value\":\"loses-to-resource\",\"server_uuid\":\"$S\"}" >/dev/null
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $ROOT_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"scope":"project","key":"X","value":"v"}' "$B/shared-variables")
+[ "$CODE" = "422" ] || die "a project-scoped variable without project_uuid must be refused (got $CODE)"
+
+api POST "/applications/$AU/envs" '{"key":"DEPLOY_REGION","value":"region is {{team.REGION}}"}' >/dev/null
+[ "$(wait_deployment "$(api POST "/applications/$AU/deploy" | jsonq "d['deployment_uuid']")" 240)" = "succeeded" ] || die "redeploy for shared variables failed"
+ENVOUT=$(docker exec "$DIND_CTR" docker exec "$AU" env)
+echo "$ENVOUT" | grep -q '^DEPLOY_REGION=region is eu-west-e2e$' || die "the {{team.REGION}} reference did not interpolate: $(echo "$ENVOUT" | grep DEPLOY_REGION)"
+echo "$ENVOUT" | grep -q '^FLEET_TAG=from-server$' || die "the server-scoped variable was not injected"
+echo "$ENVOUT" | grep -q '^APP_MODE=production$' || die "the resource's own variable must win over the server scope: $(echo "$ENVOUT" | grep APP_MODE)"
+ok "shared variables: {{team.*}} interpolated, server scope injected, resource key wins (§5.4)"
+
+# --- uptime monitoring (ADR-017) -------------------------------------------------------
+# E2E-UPTIME-01/02. Probes run from the CONTROL PLANE (outside the workload).
+# A healthy target goes up on the first probe; a dead one goes down only
+# after failure_threshold consecutive failures — and THAT transition, not
+# the probes, is what reaches the outbox as a critical event.
+say "uptime: control-plane probes, threshold-based verdicts, transition events"
+UPC=$(api POST /uptime-checks "{\"name\":\"api-health\",\"kind\":\"http\",\"target\":\"http://127.0.0.1:$API_PORT/health\",\"interval_seconds\":10,\"failure_threshold\":2}")
+UPCU=$(echo "$UPC" | jsonq "d['uuid']")
+DOWNC=$(api POST /uptime-checks '{"name":"dead-port","kind":"tcp","target":"127.0.0.1:1","interval_seconds":10,"failure_threshold":2,"timeout_seconds":1}')
+DOWNCU=$(echo "$DOWNC" | jsonq "d['uuid']")
+# A target the prober cannot speak to is refused at the edge.
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $ROOT_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"name":"bad","kind":"http","target":"not-a-url"}' "$B/uptime-checks")
+[ "$CODE" = "422" ] || die "an invalid target must be refused (got $CODE)"
+
+for _ in $(seq 60); do
+  UP_ST=$(api GET "/uptime-checks/$UPCU" | jsonq "d['status']")
+  DOWN_ST=$(api GET "/uptime-checks/$DOWNCU" | jsonq "d['status']")
+  [ "$UP_ST" = "up" ] && [ "$DOWN_ST" = "down" ] && break
+  sleep 2
+done
+[ "$UP_ST" = "up" ] || die "the healthy check never went up (status: $UP_ST)"
+[ "$DOWN_ST" = "down" ] || die "the dead check never went down (status: $DOWN_ST)"
+# Latency and raw history are recorded; the verdict lives on the check.
+api GET "/uptime-checks/$UPCU" | jsonq "d['last_latency_ms'] is not None" | grep -q True || die "latency not recorded"
+[ "$(api GET "/uptime-checks/$UPCU/results" | jsonq "len(d['data'])")" -ge 1 ] || die "no probe history recorded"
+# The DOWN transition — and only the transition — reached the outbox, critical.
+DOWN_EVENTS=$(docker exec "$PG_CTR" psql -U postgres -d akerdock -tAc \
+  "SELECT count(*) FROM outbox_events WHERE event_type = 'uptime.check.failed.v1'")
+[ "$DOWN_EVENTS" = "1" ] || die "expected exactly 1 uptime.check.failed.v1 transition event, got $DOWN_EVENTS"
+api DELETE "/uptime-checks/$DOWNCU" >/dev/null
+api DELETE "/uptime-checks/$UPCU" >/dev/null
+ok "uptime: up on first success, down after the threshold, one critical event per transition (ADR-017)"
+
 # --- rolling upgrade N-1 / N (§18.2, ADR-021) ----------------------------------------
 say "the schema of version N still serves the binary of version N-1"
 # An upgrade is a tag change: the new binary migrates, while the OLD one may
