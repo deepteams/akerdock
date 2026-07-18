@@ -80,7 +80,7 @@ it, never written by hand and then documented afterwards.
   in the parity matrix (PRD §26). Accepted ADRs are immutable: revisions go
   through a new ADR that supersedes the old one.
 
-## Tests (ADR-026)
+## Tests (ADR-026, ADR-028)
 
 The pyramid (`docs/specs/e2e-test-plan.md` §2): the bulk of the coverage is
 **unit tests**, and E2E is kept to the minimum the assembled product alone
@@ -90,13 +90,13 @@ can prove. That is what keeps the development loop fast.
   New logic MUST ship with unit tests — parsing, validation (the `4xx`
   guards), config generation, state machines, retention/backoff math all
   belong here, never in an E2E scenario.
-- An E2E scenario is only added when the full stack is the *only* way to
-  prove the behaviour (real SSH, real proxy, a real zero-downtime switch).
-  If a check can be expressed as a Go test against the package, it goes in
-  the package. E2E runs in Docker-in-Docker against simulated servers.
-- Cadence: the **smoke shard** (`make e2e-smoke` — onboarding, deploy, HTTPS
-  routing, zero-downtime switch, safe deletion) gates every commit; the full
-  catalogue (`make e2e`) runs nightly and on demand (`workflow_dispatch`).
+- There is exactly **one** product E2E journey (`make e2e`). It proves the
+  assembled SSH → Docker → Traefik path, including a real zero-downtime
+  switch. Do not add a shard or a second journey. If the full stack is truly
+  required, enrich or replace one assertion in that journey.
+- Cadence: pull requests run unit/module tests only. The E2E journey runs
+  after merge to `main`, on demand, and before a release. There is no nightly
+  E2E catalogue.
 - A feature is not "complete" without documentation, migrations, metrics,
   audit events, authorization tests, and a recovery scenario (PRD §26.1).
 
@@ -113,13 +113,10 @@ Build tools are pinned in `go.mod` (`tool` directive) and invoked through
 | Regenerate API + store code | `make generate` |
 | Validate the OpenAPI spec | `make openapi-validate` |
 | Migration status | `AKERDOCK_DATABASE_URL=... make migrate-status` |
-| E2E smoke gate (needs Docker) | `make e2e-smoke` |
-| Full E2E catalogue (needs Docker) | `make e2e` |
+| Complete E2E journey (needs Docker) | `make e2e` |
 
-The E2E harness (`scripts/e2e.sh` — ADR-026) boots PostgreSQL and a
-Docker-in-Docker target server, then drives the public API. The `smoke`
-shard is the per-commit gate: server validation with Traefik bootstrap, a
-docker_image deployment with encrypted environment variables, HTTPS
-routing, logs (JSON + SSE), the zero-downtime rolling switch, and safe
-deletion. The four full shards (deploy, build, data, platform) are the
-nightly catalogue.
+The E2E harness (`scripts/e2e.sh` — ADR-026/028) boots PostgreSQL and a
+Docker-in-Docker target server, then drives one complete public-API journey:
+server validation with Traefik bootstrap, a docker_image deployment with an
+encrypted environment variable, HTTPS routing, logs (JSON + SSE), the
+zero-downtime rolling switch, authentication, and safe deletion.

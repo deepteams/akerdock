@@ -874,7 +874,8 @@ func (r *deploymentRun) buildFromGit(ctx context.Context, appUUID, appDir, label
 		r.skipStep(ctx, "resolve_sha", "preview head "+sha[:min(12, len(sha))])
 		_ = r.h.Store.SetDeploymentCommit(ctx, store.SetDeploymentCommitParams{ID: r.d.ID, CommitSha: &sha, GitBranch: r.preview.SourceBranch})
 	} else if err := r.step(ctx, "resolve_sha", func() (*sshexec.Result, error) {
-		res, err := r.bc().Run(ctx, fmt.Sprintf("%sgit ls-remote %s refs/heads/%s", gitEnv, repoURL, branch))
+		res, err := r.bc().Run(ctx, fmt.Sprintf("%sgit ls-remote %s refs/heads/%s",
+			gitEnv, shellQuote(repoURL), shellQuote(branch)))
 		if err == nil && res.ExitCode == 0 {
 			sha, _, _ = strings.Cut(firstLine(res.Stdout), "\t")
 			sha = strings.TrimSpace(sha)
@@ -903,7 +904,7 @@ func (r *deploymentRun) buildFromGit(ctx context.Context, appUUID, appDir, label
 	if err := r.step(ctx, "clone", func() (*sshexec.Result, error) {
 		return r.bc().Run(ctx, fmt.Sprintf(
 			"rm -rf %s && mkdir -p %s && cd %s && git init -q && git remote add origin %s && %sgit fetch -q --depth 1 origin %s && git checkout -q --detach FETCH_HEAD",
-			srcDir, srcDir, srcDir, repoURL, gitEnv, fetchRef))
+			srcDir, srcDir, srcDir, shellQuote(repoURL), gitEnv, shellQuote(fetchRef)))
 	}); err != nil {
 		return "", err
 	}

@@ -1,7 +1,7 @@
 GO      ?= go
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: all build test lint generate api-gen sqlc-gen openapi-validate migrate-status e2e e2e-smoke clean web
+.PHONY: all build test lint generate api-gen sqlc-gen openapi-validate migrate-status e2e clean web
 
 all: generate build test
 
@@ -54,17 +54,11 @@ openapi-validate:
 migrate-status:
 	$(GO) tool goose -dir db/migrations postgres "$$AKERDOCK_DATABASE_URL" status
 
-# Full E2E catalogue against real containers (ADR-026). Needs Docker.
-# Every shard, in parallel — the NIGHTLY suite. `bash scripts/e2e.sh <shard>`
-# runs one on its own, which is how you debug a failure.
+# The single complete assembled-product journey (ADR-028). Needs Docker.
+# Pull requests use `make test`; this slower proof runs after merge and before
+# release because real SSH, Traefik and a zero-downtime switch cannot be mocked.
 e2e:
 	bash scripts/e2e.sh
-
-# The minimal per-commit E2E gate (e2e-test-plan §2): one stack, the vertical
-# slice only — onboarding, deploy, HTTPS routing, zero-downtime switch, safe
-# deletion. Everything provable in Go belongs in `make test`, not here.
-e2e-smoke:
-	bash scripts/e2e.sh smoke
 
 # Smoke test of the shipped artefact: distroless image + reference compose.
 dist-smoke:

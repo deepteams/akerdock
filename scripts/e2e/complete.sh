@@ -1,16 +1,14 @@
-# The SMOKE shard: the minimal end-to-end proof that the assembled product
-# works — one stack, one server, one application, from registration to safe
-# deletion. It is the per-commit E2E gate (e2e-test-plan §2: "smoke à chaque
-# commit, catalogue complet nightly"); everything else the full shards cover
-# is either proven by unit/integration tests or belongs to the nightly run.
+# The one complete end-to-end proof that the assembled product works: one stack,
+# one server and one application, from registration to safe deletion. It runs
+# after merge and before a release; pull requests use fast unit/module tests.
 #
 # A check earns its place here only if the assembled stack is the ONLY way to
 # prove it (real SSH, real proxy, real containers). Anything computable in Go
 # belongs in `go test` — see CONTRIBUTING.md "Tests".
 
 # The lib.sh socle has already counted three checks by the time this runs:
-# target server ready, boot sequence complete, server validated with the
-# Traefik proxy bootstrapped. What follows is the application lifecycle.
+# target server ready, boot sequence complete, server validated and Traefik
+# started explicitly. What follows is the application lifecycle.
 
 # --- deploy a docker_image application behind the proxy ------------------------
 say "deploying a docker_image application behind the proxy"
@@ -60,7 +58,8 @@ D7=$(api POST "/applications/$AU5/deploy" | jsonq "d['deployment_uuid']")
 [ "$(wait_deployment "$D7" 240)" = "succeeded" ] || die_deployment "$D7" "first rolling deployment failed"
 wait_route rolling.e2e.test 301
 docker exec "$DIND_CTR" sh -c '
-  rm -f /tmp/hits /tmp/misses
+  : > /tmp/hits
+  : > /tmp/misses
   ( for i in $(seq 1 400); do
       if curl -sk -o /dev/null --max-time 2 --resolve rolling.e2e.test:443:127.0.0.1 https://rolling.e2e.test/; then
         echo x >> /tmp/hits
@@ -88,7 +87,8 @@ ok "anonymous and invalid tokens refused with 401"
 
 # --- safe deletion ---------------------------------------------------------------
 say "deleting the application cleanly"
-[ "$(wait_job "$(api DELETE "/applications/$AU" | jsonq "d['job_uuid']")" 120)" = "succeeded" ] || die "deletion failed"
+DJU=$(api DELETE "/applications/$AU" | jsonq "d['job_uuid']")
+[ "$(wait_job "$DJU" 120)" = "succeeded" ] || die_job "$DJU" "deletion failed"
 docker exec "$DIND_CTR" docker inspect "$AU" >/dev/null 2>&1 && die "the container survived the deletion"
 GONE=$(docker exec "$DIND_CTR" curl -s -o /dev/null -w '%{http_code}' -H 'Host: renamed.e2e.test' http://127.0.0.1:80/)
 [ "$GONE" = "404" ] || die "the route survived the deletion (got $GONE)"

@@ -827,23 +827,23 @@ La colonne « Sections » renvoie aux exigences de ce document qui définissent 
 | Capacité | Sections | Priorité | Statut | Preuve attendue |
 |---|---|---:|---|---|
 | Team isolation/auth/tokens | §10, §23 | P0 | À faire | Tests inter-team + API |
-| Server onboarding/SSH | §3, §20.1 | P0 | À faire | E2E DinD ; VM/ARM64 non automatisé (risque accepté §27.26) |
-| Deploy image/Dockerfile | §5, §20.2 | P0 | À faire | E2E + crash recovery |
-| Proxy/domaines/ACME | §4 | P0 | À faire | E2E DNS/HTTP/TLS |
-| Git/build packs/webhooks | §5.1–5.6 | P1 | À faire | Matrice providers/build packs |
-| Databases/backups/restore | §6–7 | P1 | À faire | E2E par moteur supporté |
+| Server onboarding/SSH | §3, §20.1 | P0 | À faire | Tests module du validateur + parcours E2E unique ; VM/ARM64 manuels (§27.26) |
+| Deploy image/Dockerfile | §5, §20.2 | P0 | À faire | Tests unitaires du moteur/reprise + parcours E2E unique |
+| Proxy/domaines/ACME | §4 | P0 | À faire | Fixtures de conformité + routage réel dans le parcours E2E unique |
+| Git/build packs/webhooks | §5.1–5.6 | P1 | À faire | Tests de protocole/module par provider et build pack |
+| Databases/backups/restore | §6–7 | P1 | À faire | Tests module par moteur supporté |
 | Compose/services/templates | §5.2, §9 | P2 | À faire | Conformance fixtures Compose |
-| Previews PR enrichies (compose, données éphémères, TTL/caps, protection, checks, forks approuvés) | §5.6, §20.4, §27.11 | P2 | Conforme (hors scale-to-zero, DEVRAIT différé — ADR-011) | E2E multi-providers (shards `github` + `forge` : GitLab/Gitea, feedback, commandes, compose éphémère) + sécurité fork/accès |
-| Backups volumes + Redis/ClickHouse + restore drills | §20.5, §27.14 | P1 | À faire | E2E backup/restore + drill automatisé |
+| Previews PR enrichies (compose, données éphémères, TTL/caps, protection, checks, forks approuvés) | §5.6, §20.4, §27.11 | P2 | Conforme (hors scale-to-zero, DEVRAIT différé — ADR-011) | Tests protocole multi-providers + sécurité fork/accès |
+| Backups volumes + Redis/ClickHouse + restore drills | §20.5, §27.14 | P1 | À faire | Tests module backup/restore + drill automatisé |
 | Config as code + Terraform officiel | §24.5, §27.12 | P2 | À faire | Round-trip export→apply + tests provider |
-| Adoption de ressources existantes | §20.7, §27.13 | P2 | Conforme | E2E adoption compose multi-services sans perte (shard `platform`) |
-| Déploiement coordonné + auto-rollback | §20.8, §27.16 | P2 | À faire | E2E graphe + hook migration + rollback sur health |
-| Fiabilité compose (zero-downtime, limits) | §27.15 | P2 | À faire | E2E rolling update stack compose + vérif cgroups |
-| Uptime monitoring intégré | §27.17 | P2 | Conforme | Checks + alerting E2E (shard `platform`) |
-| CLI deploy local (`akerdock up`) | §12, §27.18 | P2 | À faire | E2E push local → app en ligne |
+| Adoption de ressources existantes | §20.7, §27.13 | P2 | Conforme | Tests module scan/réconciliation sans perte |
+| Déploiement coordonné + auto-rollback | §20.8, §27.16 | P2 | À faire | Tests unitaires graphe, hooks et rollback |
+| Fiabilité compose (zero-downtime, limits) | §27.15 | P2 | À faire | Tests de commandes/états + fixtures cgroups ciblées |
+| Uptime monitoring intégré | §27.17 | P2 | Conforme | Tests module des checks, seuils et alerting |
+| CLI deploy local (`akerdock up`) | §12, §27.18 | P2 | À faire | Tests module du push local + validation manuelle ciblée |
 | Notifications : routage/agrégation | §11, §27.19 | P2 | À faire | Tests flapping/débounce + heures calmes |
 | Observabilité/terminal | §3.8, §5.7, §13 | P2 | À faire | Charge + auth + reconnect |
-| Multi-serveurs HA d'une même app | §3.3, §27.4 | P3 | À faire | Spike + E2E (Swarm non réimplémenté, ADR-004) |
+| Multi-serveurs HA d'une même app | §3.3, §27.4 | P3 | À faire | Spike + validation manuelle (Swarm non réimplémenté, ADR-004) |
 | Tunnels Cloudflare / provisioning cloud / server patching | §3.2, §3.6 | — | Abandonné | ADR-027 (réévaluable sur demande avérée) |
 
 Le statut autorisé est `À faire | En cours | Partiel | Conforme | Divergence documentée | Abandonné`. Une preuve renvoie vers tests, captures, benchmark ou ADR.
@@ -852,7 +852,8 @@ Le statut autorisé est `À faire | En cours | Partiel | Conforme | Divergence d
 
 1. Comportements nominaux et erreurs documentés.
 2. API et modèle d'autorisation spécifiés.
-3. Tests unitaires, intégration et au moins un E2E représentatif.
+3. Tests unitaires et module au niveau propriétaire ; le produit conserve un
+   parcours E2E représentatif unique (ADR-028).
 4. Idempotence, retry, cancellation et reprise après crash testés si action longue.
 5. Logs, métriques, trace/correlation ID, audit et notifications pertinents présents.
 6. Migration up/down ou procédure de rollback de release.
@@ -914,7 +915,7 @@ Ces sujets sont tracés ici avec leur statut. Les 26 points ci-dessous sont tous
 25. **Socle technique Go/API**.
     **Décision** : accès PostgreSQL via **pgx + sqlc** (SQL explicite, types vérifiés à la compilation — indispensable pour les requêtes critiques de queue/leases/outbox), migrations SQL versionnées ; API **spec-first** avec router **chi** + **oapi-codegen** : les handlers Go et le client TypeScript de l'UI (§25.2) sont générés depuis le même artefact OpenAPI (§24.1).
 26. **Stratégie de tests E2E**.
-    **Décision** : E2E automatisés en **Docker-in-Docker uniquement** (serveurs cibles simulés en containers : rapides, gratuits, parallélisables sur chaque commit). **Risque résiduel accepté et documenté** : systemd, reboots réels, firewalls, disques pleins et ARM64 ne sont pas couverts par l'automatisation — ces classes de bugs seront découvertes en usage réel ou lors de validations manuelles ponctuelles.
+    **Décision révisée par ADR-028** : exactement **un parcours E2E produit**, en **Docker-in-Docker uniquement**, après fusion sur `main`, à la demande et avant release ; aucun E2E sur les pull requests et aucun catalogue nightly. Les règles déterministes sont prouvées en tests unitaires/module. **Risque résiduel accepté et documenté** : systemd, reboots réels, firewalls, disques pleins et ARM64 ne sont pas couverts par l'automatisation — ces classes sont validées manuellement de façon ponctuelle.
 
 ## 28. Maintenance de ce document
 
@@ -934,10 +935,10 @@ Ce PRD définit le produit et ses garanties, mais ne remplace pas à lui seul le
 6. **Contrat proxy** : représentation intermédiaire, génération Traefik/Caddy, priorités de routes, certificats, reload atomique et fixtures de conformité. — **Livré** : `docs/specs/proxy-contract.md`
 7. **Threat model STRIDE** et matrice RBAC/permissions par action et type de ressource. — **Livré** : `docs/specs/threat-model.md` + `docs/specs/rbac-matrix.md`
 8. **Protocoles Git/webhook** par fournisseur avec signatures, événements, permissions d'installation et scénarios de preview. — **Livré** : `docs/specs/git-webhook-protocols.md`
-9. **Plan de tests E2E** sur moteurs de base, build packs, proxies, providers Git et storages S3 — automatisé en Docker-in-Docker (décision §27.26) ; la matrice OS/architecture reste supportée (§22.4) mais validée manuellement, hors automatisation. — **Livré** : `docs/specs/e2e-test-plan.md`
+9. **Plan de tests** : couverture prioritairement unitaire/module et un parcours produit E2E unique en Docker-in-Docker (décision §27.26, ADR-028) ; la matrice OS/architecture reste validée manuellement. — **Livré** : `docs/specs/e2e-test-plan.md`
 10. **Runbooks opérateur** : install/upgrade/downgrade, rotation de clés, panne PostgreSQL/queue, serveur compromis, restore, cleanup bloqué et récupération d'un déploiement orphelin. — **Livré** : `docs/runbooks/` (11 runbooks + index)
 11. **Inventaire licences/SBOM** : dépendances, images helper, templates one-click, logos et conditions de redistribution. — **Livré** : `docs/specs/licensing-sbom.md`
-12. **ADRs initiaux** : choix listés au §27, avec décision, alternatives et conséquences. — **Livré** : `docs/adr/` (ADR-001 à ADR-026 + index)
+12. **ADRs initiaux et révisions** : choix listés au §27, avec décision, alternatives et conséquences. — **Livré** : `docs/adr/` (ADR-001 à ADR-028 + index)
 13. **Design system et catalogue de composants** (§25.3) : tokens, thèmes clair/sombre, états visuels normalisés et composants documentés, versionnés avec l'UI Angular. — **Livré** : `docs/specs/design-system.md`
 
 L'implémentation peut démarrer par un vertical slice P0 (auth team → ajout d'un serveur → déploiement d'une image → domaine HTTPS → logs → suppression sûre), pendant que ces artefacts sont détaillés itérativement. La parité complète ne doit toutefois pas être déclarée avant leur couverture.

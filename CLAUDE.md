@@ -21,4 +21,4 @@ PaaS self-hosted en Go : déploiement d'applications, bases et stacks compose su
 - Documentation en **français** ; code, identifiants et messages de commit selon l'usage Go habituel.
 - Variables prédéfinies préfixées `AKERDOCK_*` — jamais d'alias sous une autre marque (ADR-022). L'ancien nom du projet était « dockerbox » : ne pas réintroduire ce nom.
 - Temps réel : SSE avec reprise `Last-Event-ID` ; WebSocket réservé au terminal (ADR-024).
-- Tests : la majorité de la couverture est **unitaire** (toute logique nouvelle DOIT être testée en unitaire) ; l'E2E est réduit au minimum que seul le produit assemblé peut prouver — Docker-in-Docker uniquement (ADR-026), shard `smoke` à chaque commit, catalogue complet en nightly (plan de tests §2).
+- Tests : la majorité de la couverture est **unitaire** (toute logique nouvelle DOIT être testée en unitaire) ; il existe exactement **un parcours E2E** Docker-in-Docker, exécuté après fusion et avant release, jamais de shard ni de catalogue nightly (ADR-026/028, plan de tests §2).

@@ -4,10 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  schedule:
-    # The nightly run of the full E2E catalogue (e2e-test-plan §2: smoke on
-    # every commit, full catalogue nightly).
-    - cron: "17 2 * * *"
   workflow_dispatch:
 
 permissions:
@@ -72,44 +68,20 @@ jobs:
       - name: Validate OpenAPI spec
         run: make openapi-validate
 
-  # ADR-026: Docker-in-Docker E2E, per the test pyramid of e2e-test-plan §2 —
-  # the minimal SMOKE gate on every commit, the full catalogue nightly. The
-  # commit gate stays fast because everything provable in Go lives in `make
-  # test`; the smoke shard only proves what the assembled stack alone can:
-  # onboarding, deploy, HTTPS routing, the zero-downtime switch, deletion.
-  e2e-smoke:
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Run E2E smoke gate
-        run: bash scripts/e2e.sh smoke
-
-  # The full catalogue: nightly (and on demand), not on every push — that is
-  # what keeps the development loop fast. The shards are independent stacks, so
-  # they get independent RUNNERS rather than fighting over one machine's cores
-  # and memory. Wall clock is the slowest shard, not their sum, and a failure
-  # names the slice it belongs to.
+  # ADR-028: exactly one assembled-product journey. Pull requests are gated by
+  # fast unit/module tests; the expensive DinD proof runs after merge to main
+  # (or explicitly on demand) and again before a release.
   e2e:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false # a failing shard must not hide the state of the others
-      matrix:
-        shard: [deploy, build, data, platform, compose, github, forge]
-    name: e2e (${{ matrix.shard }})
+    name: e2e (complete journey)
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2 # the platform shard rebuilds the PREVIOUS commit (N-1 upgrade)
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Run E2E shard
-        run: bash scripts/e2e.sh ${{ matrix.shard }}
+      - name: Run the complete E2E journey
+        run: make e2e
 
   # The dashboard: type-checked against the generated contract (a spec drift
   # breaks HERE, not in a user's browser), unit-tested, and the Storybook
@@ -135,8 +107,10 @@ jobs:
 
   # The artefact an operator actually installs: the distroless image and the
   # reference compose file. A binary that passes E2E but ships in an image that
-  # cannot start has not shipped.
+  # cannot start has not shipped. Keep this Docker-heavy packaging check out of
+  # the pull-request feedback loop too; the release workflow repeats it.
   dist:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

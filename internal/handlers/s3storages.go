@@ -86,7 +86,8 @@ func (a *API) checkStorage(ctx context.Context, s store.S3Storage) (bool, *strin
 // validateS3Endpoint keeps an unusable endpoint out of the database.
 func validateS3Endpoint(raw string) bool {
 	u, err := url.Parse(raw)
-	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") &&
+		u.Host != "" && u.User == nil
 }
 
 func (a *API) resolveS3Storage(w http.ResponseWriter, r *http.Request, id *auth.Identity, storageUUID string) (store.S3Storage, bool) {

@@ -22,6 +22,7 @@ bytes. That is not a stylistic preference — the proxy applies a config only wh
 its checksum differs (§6.2), so a generator that reorders a map on every run
 would rewrite the remote file forever and defeat drift detection.
 
-Golden files are level 1. Level 2 — replaying real HTTP assertions against the
-generated config in Docker-in-Docker — is covered today by `scripts/e2e.sh`,
-which routes real traffic through a real Traefik.
+Golden files are level 1. The single product journey in `scripts/e2e.sh` adds
+one assembled-stack proof: it routes real HTTPS traffic through a real Traefik
+and verifies a rolling switch without dropped requests. Provider variations
+remain owned by these fast conformance fixtures.
