@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
@@ -10,6 +11,8 @@ import {
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
+import { CardComponent } from '../../ui/card/card.component';
+import { IconComponent } from '../../ui/icon/icon.component';
 import { TerminalComponent } from '../../ui/terminal/terminal.component';
 import type { TerminalSessionInfo } from '../../ui/terminal/protocol';
 import { ApiService } from '../core/api.service';
@@ -21,20 +24,46 @@ type ServerResource = components['schemas']['ServerResource'];
 type ServerDomain = components['schemas']['ServerDomain'];
 type Certificate = components['schemas']['Certificate'];
 type LogLine = components['schemas']['LogLine'];
+type DnsCredential = components['schemas']['DnsCredential'];
+
+/** A certificate this close to its expiry is a renewal that should already have happened. */
+const EXPIRY_WARN_DAYS = 14;
 
 @Component({
   selector: 'app-server-detail',
   standalone: true,
-  imports: [FormsModule, RouterLink, StatusBadgeComponent, TerminalComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    StatusBadgeComponent,
+    CardComponent,
+    IconComponent,
+    TerminalComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
-        <div>
-          <a routerLink="/servers" class="back">← Servers</a>
-          <h1>{{ server()?.name ?? '…' }}</h1>
-        </div>
-        <button class="akd-btn" type="button" [disabled]="busy()" (click)="validate()">
+        <a
+          class="akd-iconbtn akd-iconbtn--bordered"
+          routerLink="/servers"
+          aria-label="Back to servers"
+        >
+          <akd-icon name="arrow-left" [size]="15" />
+        </a>
+        <h1 class="title-mono">{{ server()?.name ?? '…' }}</h1>
+        @if (server(); as srv) {
+          <akd-status-badge domain="resource" [state]="srv.status" />
+          <span class="akd-mono faint">{{ srv.user }}&#64;{{ srv.host }}:{{ srv.port }}</span>
+        }
+        <span class="grow"></span>
+        <button
+          class="akd-btn akd-btn--secondary"
+          type="button"
+          [disabled]="busy()"
+          (click)="validate()"
+        >
+          <akd-icon name="check-circle" [size]="15" />
           Validate
         </button>
       </header>
@@ -49,403 +78,719 @@ type LogLine = components['schemas']['LogLine'];
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
       } @else if (server(); as srv) {
-        <section class="akd-card section">
-          <header class="akd-bar" style="margin-bottom: 0">
-            <h2>Overview</h2>
-            <akd-status-badge domain="resource" [state]="srv.status" />
-          </header>
-          <dl class="akd-dl">
-            <dt>SSH</dt>
-            <dd class="akd-mono">{{ srv.user }}&#64;{{ srv.host }}:{{ srv.port }}</dd>
-            <dt>Architecture</dt>
-            <dd>{{ srv.architecture ?? 'unknown until validated' }}</dd>
-            <dt>Docker</dt>
-            <dd>{{ srv.docker_version ?? 'unknown until validated' }}</dd>
-            <dt>Role</dt>
-            <dd>{{ srv.is_build_server ? 'dedicated build server' : 'deployment server' }}</dd>
-            <dt>Proxy</dt>
-            <dd>
-              {{ srv.proxy_type ?? 'traefik' }}
-              @if (srv.proxy_type !== 'none') {
-                (http {{ srv.proxy_http_port ?? 80 }}, https {{ srv.proxy_https_port ?? 443 }})
+        <!-- pending/unreachable are diagnoses, not just states: say what each
+             means and where the remediation message lives (the validate job
+             records one per step, §20.1). -->
+        @if (srv.status === 'pending') {
+          <div class="valhint valhint--warn" role="status">
+            <akd-icon name="alert-triangle" [size]="15" />
+            <span class="valhint__text">
+              SSH reaches this server, but validation stopped at the system checks — unsupported OS,
+              or Docker missing / too old / unreachable over a non-interactive shell. The failing
+              step and its remediation are recorded on the
+              @if (validationJobUuid(); as job) {
+                <a [routerLink]="['/jobs', job]">validation job</a>
+              } @else {
+                <a routerLink="/jobs" [queryParams]="{ type: 'server.validate' }">validation job</a>
               }
-            </dd>
-            <dt>Wildcard domain</dt>
-            <dd>{{ srv.wildcard_domain ?? '—' }}</dd>
-            <dt>Last observed</dt>
-            <dd>{{ srv.observed_at ?? 'never' }}</dd>
-          </dl>
-        </section>
-
-        @if (srv.proxy_type !== 'none') {
-          <section class="akd-card section">
-            <header class="akd-bar" style="margin-bottom: 0">
-              <h2>Proxy</h2>
-              <div class="proxy-actions">
+              .
+            </span>
+          </div>
+        } @else if (srv.status === 'unreachable') {
+          <div class="valhint valhint--danger" role="status">
+            <akd-icon name="alert-triangle" [size]="15" />
+            <span class="valhint__text">
+              SSH connection failed — check host, port, user, firewall, and that the public key is
+              in authorized_keys. Details on the
+              @if (validationJobUuid(); as job) {
+                <a [routerLink]="['/jobs', job]">validation job</a>
+              } @else {
+                <a routerLink="/jobs" [queryParams]="{ type: 'server.validate' }">validation job</a>
+              }
+              .
+            </span>
+          </div>
+        }
+        <div class="stack">
+          <!-- Two very different "stopped": a proxy that has never run yet is
+               a setup step, not an incident. Only a proxy that DID serve
+               traffic gets the alarm treatment. -->
+          @if (
+            !srv.is_build_server &&
+            srv.proxy_type !== 'none' &&
+            srv.proxy_desired_state === 'stopped'
+          ) {
+            @if ((srv.proxy_observed_status ?? 'unknown') === 'unknown') {
+              <div class="notstarted-banner" role="status">
+                <akd-icon name="info" [size]="15" />
+                <span>
+                  The proxy has not been started yet — nothing listens on ports
+                  {{ srv.proxy_http_port ?? 80 }}/{{ srv.proxy_https_port ?? 443 }} until you review
+                  the proxy settings below and press Start. The first start creates the
+                  configuration and the container.
+                </span>
+                <span class="grow"></span>
                 <button
-                  class="akd-btn-ghost"
+                  class="akd-btn akd-btn--primary akd-btn--sm"
                   type="button"
                   [disabled]="busy()"
-                  (click)="proxy('restart')"
+                  (click)="proxy('start')"
                 >
-                  Restart
+                  <akd-icon name="play" [size]="14" />
+                  Start proxy
                 </button>
-                @if (srv.proxy_desired_state === 'stopped') {
-                  <button
-                    class="akd-btn"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="proxy('start')"
-                  >
-                    Start
-                  </button>
-                } @else {
-                  <button
-                    class="akd-btn-danger"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="proxy('stop')"
-                  >
-                    Stop
-                  </button>
-                }
               </div>
-            </header>
+            } @else {
+              <div class="stopped-banner" role="status">
+                The proxy is intentionally stopped — every domain routed by this server is down
+                until it is started again. Drift reconciliation will not restart it.
+                <span class="grow"></span>
+                <button
+                  class="akd-btn akd-btn--primary akd-btn--sm"
+                  type="button"
+                  [disabled]="busy()"
+                  (click)="proxy('start')"
+                >
+                  <akd-icon name="play" [size]="14" />
+                  Start proxy
+                </button>
+              </div>
+            }
+          }
 
+          <akd-card title="Overview">
             <dl class="akd-dl">
-              <dt>Desired</dt>
-              <dd>{{ srv.proxy_desired_state ?? 'running' }}</dd>
-              <dt>Observed</dt>
-              <dd>
-                <akd-status-badge domain="resource" [state]="srv.proxy_observed_status ?? 'unknown'" />
-              </dd>
-              <dt>Listening</dt>
-              <dd class="akd-mono">
-                http {{ srv.proxy_http_port ?? 80 }} · https {{ srv.proxy_https_port ?? 443 }}
-              </dd>
+              <dt>Architecture</dt>
+              <dd>{{ srv.architecture ?? 'unknown until validated' }}</dd>
+              <dt>Docker</dt>
+              <dd>{{ srv.docker_version ?? 'unknown until validated' }}</dd>
+              <dt>Role</dt>
+              <dd>{{ srv.is_build_server ? 'dedicated build server' : 'deployment server' }}</dd>
+              <dt>Wildcard domain</dt>
+              <dd>{{ srv.wildcard_domain ?? '—' }}</dd>
+              <dt>Last observed</dt>
+              <dd>{{ srv.observed_at ?? 'never' }}</dd>
             </dl>
+          </akd-card>
 
-            @if (srv.proxy_desired_state === 'stopped') {
-              <p class="akd-error" role="status">
-                The proxy is stopped: every domain routed by this server is down until it is
-                started again.
-              </p>
-            }
+          <!-- A build server hosts no application, so it routes nothing (§3.4):
+               the proxy card would offer controls the backend refuses. -->
+          @if (!srv.is_build_server && srv.proxy_type !== 'none') {
+            <akd-card title="Proxy">
+              <span card-actions class="badges">
+                <akd-status-badge
+                  domain="resource"
+                  [state]="srv.proxy_desired_state ?? 'running'"
+                  [label]="'desired: ' + (srv.proxy_desired_state ?? 'running')"
+                />
+                <akd-status-badge
+                  domain="resource"
+                  [state]="srv.proxy_observed_status ?? 'unknown'"
+                  [label]="'observed: ' + (srv.proxy_observed_status ?? 'unknown')"
+                />
+              </span>
+              <div class="proxy-body">
+                <div class="proxy-meta">
+                  {{ srv.proxy_type ?? 'traefik' }} · listening on
+                  <span class="akd-mono">
+                    :{{ srv.proxy_http_port ?? 80 }} :{{ srv.proxy_https_port ?? 443 }}
+                  </span>
+                </div>
+                <div class="proxy-actions">
+                  @if (srv.proxy_desired_state === 'stopped') {
+                    <button
+                      class="akd-btn akd-btn--primary akd-btn--sm"
+                      type="button"
+                      [disabled]="busy()"
+                      (click)="proxy('start')"
+                    >
+                      <akd-icon name="play" [size]="14" />
+                      Start
+                    </button>
+                  } @else {
+                    <button
+                      class="akd-btn akd-btn--danger akd-btn--sm"
+                      type="button"
+                      [disabled]="busy()"
+                      (click)="proxy('stop')"
+                    >
+                      <akd-icon name="square" [size]="14" />
+                      Stop
+                    </button>
+                  }
+                  <button
+                    class="akd-btn akd-btn--secondary akd-btn--sm"
+                    type="button"
+                    [disabled]="busy()"
+                    (click)="proxy('restart')"
+                  >
+                    <akd-icon name="refresh-cw" [size]="14" />
+                    Restart
+                  </button>
+                  <button
+                    class="akd-btn akd-btn--ghost akd-btn--sm"
+                    type="button"
+                    [disabled]="busy()"
+                    (click)="loadProxyLogs()"
+                  >
+                    <akd-icon name="logs" [size]="14" />
+                    {{ proxyLogs() === null ? 'Proxy logs' : 'Refresh logs' }}
+                  </button>
+                  @if (proxyLogs() !== null) {
+                    <button
+                      class="akd-btn akd-btn--ghost akd-btn--sm"
+                      type="button"
+                      (click)="proxyLogs.set(null)"
+                    >
+                      Hide
+                    </button>
+                  }
+                </div>
+                @if (proxyLogs(); as lines) {
+                  <div class="akd-log logs" tabindex="0" aria-label="Proxy logs">
+                    @for (line of lines; track line.sequence) {
+                      <div class="akd-log__line">
+                        <span class="akd-log__ts">{{ ts(line) }}</span>
+                        <span class="akd-log__msg">{{ line.message }}</span>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            </akd-card>
+          }
 
-            <div class="logs-actions">
-              <button
-                class="akd-btn-ghost"
-                type="button"
-                [disabled]="busy()"
-                (click)="loadProxyLogs()"
-              >
-                {{ proxyLogs() === null ? 'Show logs' : 'Refresh logs' }}
-              </button>
-              @if (proxyLogs() !== null) {
-                <button class="akd-btn-ghost" type="button" (click)="proxyLogs.set(null)">
-                  Hide
-                </button>
+          @if (!srv.is_build_server) {
+            <akd-card title="Proxy settings">
+              <form class="proxyform" (ngSubmit)="saveProxySettings()">
+                <div class="proxyform__grid">
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="sd-proxy-type">Proxy</label>
+                    <div class="akd-select">
+                      <select
+                        id="sd-proxy-type"
+                        name="proxyType"
+                        class="akd-input"
+                        [(ngModel)]="proxyType"
+                        [disabled]="busy()"
+                      >
+                        <option value="traefik">traefik (managed)</option>
+                        <option value="none">none — this server routes nothing</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="sd-proxy-http">HTTP port</label>
+                    <input
+                      id="sd-proxy-http"
+                      name="proxyHttpPort"
+                      class="akd-input akd-input--mono"
+                      type="number"
+                      min="1"
+                      max="65535"
+                      [(ngModel)]="proxyHttpPort"
+                      [disabled]="busy() || proxyType === 'none'"
+                    />
+                  </div>
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="sd-proxy-https">HTTPS port</label>
+                    <input
+                      id="sd-proxy-https"
+                      name="proxyHttpsPort"
+                      class="akd-input akd-input--mono"
+                      type="number"
+                      min="1"
+                      max="65535"
+                      [(ngModel)]="proxyHttpsPort"
+                      [disabled]="busy() || proxyType === 'none'"
+                    />
+                  </div>
+                </div>
+                <div class="proxyform__grid">
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="sd-wildcard">Wildcard domain</label>
+                    <input
+                      id="sd-wildcard"
+                      name="wildcardDomain"
+                      class="akd-input akd-input--mono"
+                      placeholder="*.apps.example.com"
+                      [(ngModel)]="wildcardDomain"
+                      [disabled]="busy() || proxyType === 'none'"
+                    />
+                    <span class="akd-field__hint">
+                      Wildcards cannot be validated over HTTP-01 — a DNS-01 credential is required.
+                    </span>
+                  </div>
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="sd-dns">DNS-01 credential</label>
+                    <div class="akd-select">
+                      <select
+                        id="sd-dns"
+                        name="dnsCredentialUuid"
+                        class="akd-input"
+                        [(ngModel)]="dnsCredentialUuid"
+                        [disabled]="busy() || proxyType === 'none'"
+                      >
+                        <option value="">none</option>
+                        @for (cred of dnsCredentials(); track cred.uuid) {
+                          <option [value]="cred.uuid">{{ cred.name }} ({{ cred.provider }})</option>
+                        }
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div class="proxyform__actions">
+                  <span class="akd-field__hint">
+                    Applied when the proxy container is (re)created — for a proxy not started yet,
+                    at its first start. The ACME contact email lives in Global settings.
+                  </span>
+                  <button class="akd-btn akd-btn--secondary" type="submit" [disabled]="busy()">
+                    Save proxy settings
+                  </button>
+                </div>
+              </form>
+            </akd-card>
+          }
+
+          <akd-card title="Certificates" [padded]="false">
+            <form card-actions class="cert-filter" (ngSubmit)="loadCertificates()">
+              @if (expiringCount() > 0) {
+                <span class="akd-badge akd-badge--warn akd-badge--mono">
+                  {{ expiringCount() }} expiring
+                </span>
               }
-            </div>
-            @if (proxyLogs(); as lines) {
-              <pre class="logs" tabindex="0" aria-label="Proxy logs">@for (l of lines; track l.sequence) {<span class="line">{{ l.message }}</span>}</pre>
-            }
-          </section>
-        }
-
-        <section class="akd-card section">
-          <header class="akd-bar" style="margin-bottom: 0">
-            <h2>Settings</h2>
-          </header>
-          <p class="akd-muted">
-            Changing host, port or user puts the server back in <em>pending</em>: it must be
-            validated again before anything deploys to it.
-          </p>
-          <form class="form" (ngSubmit)="save()">
-            <div class="akd-field">
-              <label for="sd-name">Name</label>
-              <input
-                id="sd-name"
-                name="name"
-                class="akd-input"
-                required
-                [(ngModel)]="name"
-                [disabled]="busy()"
-              />
-            </div>
-            <div class="akd-field">
-              <label for="sd-description">Description</label>
-              <input
-                id="sd-description"
-                name="description"
-                class="akd-input"
-                [(ngModel)]="description"
-                [disabled]="busy()"
-              />
-            </div>
-            <div class="row">
-              <div class="akd-field grow">
-                <label for="sd-host">Host</label>
-                <input
-                  id="sd-host"
-                  name="host"
-                  class="akd-input akd-mono"
-                  required
-                  [(ngModel)]="host"
-                  [disabled]="busy()"
-                />
-              </div>
-              <div class="akd-field">
-                <label for="sd-port">Port</label>
-                <input
-                  id="sd-port"
-                  name="port"
-                  class="akd-input"
-                  type="number"
-                  min="1"
-                  max="65535"
-                  [(ngModel)]="port"
-                  [disabled]="busy()"
-                />
-              </div>
-              <div class="akd-field">
-                <label for="sd-user">User</label>
-                <input
-                  id="sd-user"
-                  name="user"
-                  class="akd-input akd-mono"
-                  [(ngModel)]="user"
-                  [disabled]="busy()"
-                />
-              </div>
-            </div>
-            <div>
-              <button class="akd-btn" type="submit" [disabled]="busy() || !name.trim()">
-                Save settings
-              </button>
-            </div>
-          </form>
-        </section>
-
-        <section class="akd-card section">
-          <header class="akd-bar" style="margin-bottom: 0">
-            <h2>Database CA certificate</h2>
-          </header>
-          <p class="akd-muted">
-            Databases with SSL serve certificates signed by this per-server CA. Clients verify
-            against it — a TLS the client does not verify protects nothing.
-          </p>
-          @if (caCert() === undefined) {
-            <div>
-              <button class="akd-btn-ghost" type="button" [disabled]="busy()" (click)="loadCA()">
-                Show CA certificate
-              </button>
-            </div>
-          } @else if (caCert() === null) {
-            <p class="akd-muted">No CA yet — it is generated when the first SSL database is created.</p>
-          } @else {
-            <pre class="akd-secret ca">{{ caCert() }}</pre>
-            <div>
-              <button class="akd-btn-ghost" type="button" (click)="downloadCA()">
-                Download PEM
-              </button>
-            </div>
-          }
-        </section>
-
-        <section class="akd-card section">
-          <akd-terminal
-            title="Server shell"
-            hint="Opens a root shell on this server over SSH — the blast radius is the whole machine, every application and every database on it. Re-authentication with a passkey is required, and the session is audited."
-            [open]="openTerminal"
-          />
-        </section>
-
-        <section class="akd-card section">
-          <header class="akd-bar" style="margin-bottom: 0">
-            <h2>Resources</h2>
-          </header>
-          @if (resources().length === 0) {
-            <p class="akd-muted">Nothing is deployed on this server.</p>
-          } @else {
-            <table class="akd-table">
-              <caption class="sr-only">Resources deployed on this server</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Kind</th>
-                  <th scope="col">Name</th>
-                  <th scope="col">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (resource of resources(); track resource.uuid) {
-                  <tr>
-                    <td class="akd-muted">{{ resource.type }}</td>
-                    <td>{{ resource.name }}</td>
-                    <td><akd-status-badge domain="resource" [state]="resource.status" /></td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          }
-        </section>
-
-        <section class="akd-card section">
-          <header class="akd-bar" style="margin-bottom: 0">
-            <h2>Routed domains</h2>
-          </header>
-          @if (domains().length === 0) {
-            <p class="akd-muted">The proxy routes no domain on this server.</p>
-          } @else {
-            <table class="akd-table">
-              <caption class="sr-only">Domains routed by this server's proxy</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Resource</th>
-                  <th scope="col">Domains</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (entry of domains(); track entry.resource_uuid) {
-                  <tr>
-                    <td class="akd-muted">{{ entry.resource_type }} {{ entry.resource_uuid }}</td>
-                    <td class="akd-mono">{{ entry.domains.join(', ') }}</td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          }
-        </section>
-
-        <section class="akd-card section">
-          <header class="akd-bar" style="margin-bottom: 0">
-            <h2>Certificates</h2>
-          </header>
-          <form class="row" (ngSubmit)="loadCertificates()">
-            <div class="akd-field">
-              <label for="sd-expiring">Expiring within (days, empty = all)</label>
+              <label class="sr-only" for="sd-expiring">Expiring within (days, empty = all)</label>
               <input
                 id="sd-expiring"
                 name="expiringDays"
-                class="akd-input"
+                class="akd-input akd-input--mono days"
                 type="number"
                 min="0"
+                placeholder="days"
                 [(ngModel)]="expiringDays"
                 [disabled]="busy()"
               />
-            </div>
-            <button class="akd-btn-ghost" type="submit" [disabled]="busy()">Filter</button>
-          </form>
-          @if (certificates().length === 0) {
-            <p class="akd-muted">No certificate matches.</p>
-          } @else {
-            <table class="akd-table">
-              <caption class="sr-only">TLS certificates served by this server's proxy</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Domain</th>
-                  <th scope="col">Kind</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Expires</th>
-                  <th scope="col"><span class="sr-only">Actions</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (cert of certificates(); track cert.uuid) {
+              <button class="akd-btn akd-btn--ghost akd-btn--sm" type="submit" [disabled]="busy()">
+                Filter
+              </button>
+            </form>
+            @if (certificates().length === 0) {
+              <p class="akd-muted pad">No certificate matches.</p>
+            } @else {
+              <table class="akd-table">
+                <caption class="sr-only">
+                  TLS certificates served by this server's proxy
+                </caption>
+                <thead>
                   <tr>
-                    <td class="akd-mono">{{ cert.main_domain }}</td>
-                    <td class="akd-muted">{{ cert.kind }}</td>
-                    <td><akd-status-badge domain="resource" [state]="cert.status" /></td>
-                    <td class="akd-muted">{{ cert.not_after ?? '—' }}</td>
-                    <td class="right">
-                      <button
-                        class="akd-btn-ghost"
-                        type="button"
-                        [attr.aria-expanded]="expandedCert() === cert.uuid"
-                        (click)="toggleCert(cert)"
-                      >
-                        {{ expandedCert() === cert.uuid ? 'Hide' : 'Details' }}
-                      </button>
-                      <button
-                        class="akd-btn-ghost"
-                        type="button"
-                        [disabled]="busy()"
-                        (click)="renew(cert)"
-                      >
-                        Renew
-                      </button>
-                    </td>
+                    <th scope="col">Domain</th>
+                    <th scope="col">Kind</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Expires</th>
+                    <th scope="col"><span class="sr-only">Actions</span></th>
                   </tr>
-                  @if (expandedCert() === cert.uuid && certDetail(); as detail) {
+                </thead>
+                <tbody>
+                  @for (cert of certificates(); track cert.uuid) {
                     <tr>
-                      <td colspan="5">
-                        <dl class="akd-dl">
-                          <dt>Issuer</dt>
-                          <dd>{{ detail.issuer ?? '—' }}</dd>
-                          <dt>Valid from</dt>
-                          <dd>{{ detail.not_before ?? '—' }}</dd>
-                          <dt>Valid until</dt>
-                          <dd>{{ detail.not_after ?? '—' }}</dd>
-                          <dt>SANs</dt>
-                          <dd class="akd-mono">
-                            {{ detail.sans.length ? detail.sans.join(', ') : '—' }}
-                          </dd>
-                          @if (detail.last_error) {
-                            <dt>Last error</dt>
-                            <dd>{{ detail.last_error }}</dd>
-                          }
-                        </dl>
+                      <td class="akd-mono">{{ cert.main_domain }}</td>
+                      <td>
+                        <span class="akd-badge akd-badge--mono">{{ cert.kind }}</span>
+                      </td>
+                      <td><akd-status-badge domain="resource" [state]="cert.status" /></td>
+                      <td>
+                        @if (cert.not_after) {
+                          <span
+                            class="akd-badge akd-badge--mono"
+                            [class.akd-badge--warn]="expiringSoon(cert)"
+                          >
+                            {{ expiry(cert) }}
+                          </span>
+                        } @else {
+                          <span class="akd-muted">—</span>
+                        }
+                      </td>
+                      <td class="right">
+                        <button
+                          class="akd-btn akd-btn--ghost akd-btn--sm"
+                          type="button"
+                          [attr.aria-expanded]="expandedCert() === cert.uuid"
+                          (click)="toggleCert(cert)"
+                        >
+                          {{ expandedCert() === cert.uuid ? 'Hide' : 'Details' }}
+                        </button>
+                        <button
+                          class="akd-btn akd-btn--ghost akd-btn--sm"
+                          type="button"
+                          [disabled]="busy()"
+                          (click)="renew(cert)"
+                        >
+                          <akd-icon name="refresh-cw" [size]="14" />
+                          Renew
+                        </button>
                       </td>
                     </tr>
+                    @if (expandedCert() === cert.uuid && certDetail(); as detail) {
+                      <tr>
+                        <td colspan="5">
+                          <dl class="akd-dl cert-detail">
+                            <dt>Issuer</dt>
+                            <dd>{{ detail.issuer ?? '—' }}</dd>
+                            <dt>Valid from</dt>
+                            <dd>{{ detail.not_before ?? '—' }}</dd>
+                            <dt>Valid until</dt>
+                            <dd>{{ detail.not_after ?? '—' }}</dd>
+                            <dt>SANs</dt>
+                            <dd class="akd-mono">
+                              {{ detail.sans.length ? detail.sans.join(', ') : '—' }}
+                            </dd>
+                            @if (detail.last_error) {
+                              <dt>Last error</dt>
+                              <dd>{{ detail.last_error }}</dd>
+                            }
+                          </dl>
+                        </td>
+                      </tr>
+                    }
                   }
-                }
-              </tbody>
-            </table>
-          }
-        </section>
+                </tbody>
+              </table>
+            }
+          </akd-card>
 
-        <section class="akd-card section danger-zone">
-          <header class="akd-bar" style="margin-bottom: 0">
-            <h2>Delete this server</h2>
-          </header>
-          <p class="akd-muted">
-            The server is unregistered from AkerDock. A server still hosting resources cannot be
-            deleted.
-          </p>
-          <div>
-            <button class="akd-btn-danger" type="button" [disabled]="busy()" (click)="remove()">
-              Delete server
-            </button>
+          <akd-card title="Resources on this server" [padded]="false">
+            @if (resources().length === 0) {
+              <p class="akd-muted pad">Nothing is deployed on this server.</p>
+            } @else {
+              <table class="akd-table">
+                <caption class="sr-only">
+                  Resources deployed on this server
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Resource</th>
+                    <th scope="col">Kind</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (resource of resources(); track resource.uuid) {
+                    <tr>
+                      <td class="akd-mono">{{ resource.name }}</td>
+                      <td>
+                        <span class="akd-badge akd-badge--mono">{{ resource.type }}</span>
+                      </td>
+                      <td><akd-status-badge domain="resource" [state]="resource.status" /></td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            }
+          </akd-card>
+
+          <akd-card title="Routed domains" [padded]="false">
+            @if (domains().length === 0) {
+              <p class="akd-muted pad">The proxy routes no domain on this server.</p>
+            } @else {
+              <table class="akd-table">
+                <caption class="sr-only">
+                  Domains routed by this server's proxy
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Resource</th>
+                    <th scope="col">Domains</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (entry of domains(); track entry.resource_uuid) {
+                    <tr>
+                      <td class="akd-muted">{{ entry.resource_type }} {{ entry.resource_uuid }}</td>
+                      <td class="akd-mono">{{ entry.domains.join(', ') }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            }
+          </akd-card>
+
+          <akd-card title="Settings">
+            <p class="akd-muted intro">
+              Changing host, port or user puts the server back in <em>pending</em>: it must be
+              validated again before anything deploys to it.
+            </p>
+            <form class="form" (ngSubmit)="save()">
+              <div class="akd-field">
+                <label class="akd-field__label" for="sd-name">Name</label>
+                <input
+                  id="sd-name"
+                  name="name"
+                  class="akd-input"
+                  required
+                  [(ngModel)]="name"
+                  [disabled]="busy()"
+                />
+              </div>
+              <div class="akd-field">
+                <label class="akd-field__label" for="sd-description">Description</label>
+                <input
+                  id="sd-description"
+                  name="description"
+                  class="akd-input"
+                  [(ngModel)]="description"
+                  [disabled]="busy()"
+                />
+              </div>
+              <div class="row">
+                <div class="akd-field grow">
+                  <label class="akd-field__label" for="sd-host">Host</label>
+                  <input
+                    id="sd-host"
+                    name="host"
+                    class="akd-input akd-input--mono"
+                    required
+                    [(ngModel)]="host"
+                    [disabled]="busy()"
+                  />
+                </div>
+                <div class="akd-field">
+                  <label class="akd-field__label" for="sd-port">Port</label>
+                  <input
+                    id="sd-port"
+                    name="port"
+                    class="akd-input"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    [(ngModel)]="port"
+                    [disabled]="busy()"
+                  />
+                </div>
+                <div class="akd-field">
+                  <label class="akd-field__label" for="sd-user">User</label>
+                  <input
+                    id="sd-user"
+                    name="user"
+                    class="akd-input akd-input--mono"
+                    [(ngModel)]="user"
+                    [disabled]="busy()"
+                  />
+                </div>
+              </div>
+              <div>
+                <button
+                  class="akd-btn akd-btn--primary"
+                  type="submit"
+                  [disabled]="busy() || !name.trim()"
+                >
+                  Save settings
+                </button>
+              </div>
+            </form>
+          </akd-card>
+
+          <akd-card title="Database CA certificate">
+            <p class="akd-muted intro">
+              Databases with SSL serve certificates signed by this per-server CA. Clients verify
+              against it — a TLS the client does not verify protects nothing.
+            </p>
+            @if (caCert() === undefined) {
+              <div>
+                <button
+                  class="akd-btn akd-btn--secondary"
+                  type="button"
+                  [disabled]="busy()"
+                  (click)="loadCA()"
+                >
+                  <akd-icon name="eye" [size]="15" />
+                  Show CA certificate
+                </button>
+              </div>
+            } @else if (caCert() === null) {
+              <p class="akd-muted">
+                No CA yet — it is generated when the first SSL database is created.
+              </p>
+            } @else {
+              <pre class="akd-secret ca">{{ caCert() }}</pre>
+              <div>
+                <button class="akd-btn akd-btn--secondary" type="button" (click)="downloadCA()">
+                  <akd-icon name="download" [size]="15" />
+                  Download PEM
+                </button>
+              </div>
+            }
+          </akd-card>
+
+          <akd-card>
+            <akd-terminal
+              title="Server shell"
+              hint="Opens a root shell on this server over SSH — the blast radius is the whole machine, every application and every database on it. Re-authentication with a passkey is required, and the session is audited."
+              [open]="openTerminal"
+            />
+          </akd-card>
+
+          <div class="akd-card danger-zone">
+            <div class="akd-card__header">
+              <h2 class="akd-card__title">Delete this server</h2>
+            </div>
+            <div class="akd-card__body">
+              <p class="akd-muted intro">
+                The server is unregistered from AkerDock. A server still hosting resources cannot be
+                deleted.
+              </p>
+              <div>
+                <button
+                  class="akd-btn akd-btn--danger"
+                  type="button"
+                  [disabled]="busy()"
+                  (click)="remove()"
+                >
+                  <akd-icon name="trash-2" [size]="15" />
+                  Delete server
+                </button>
+              </div>
+            </div>
           </div>
-        </section>
+        </div>
       }
     </div>
   `,
   styles: [
     `
-      .back {
-        font-size: var(--akd-text-sm);
-        color: var(--akd-text-secondary);
-        text-decoration: none;
+      .grow {
+        flex: 1;
       }
-      .back:hover {
+      .title-mono {
+        font-family: var(--font-mono);
+      }
+      .faint {
+        color: var(--text-faint);
+      }
+      .stack {
+        display: grid;
+        gap: var(--space-5);
+      }
+      .stopped-banner {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-2) var(--space-4);
+        font-size: var(--text-sm);
+        color: var(--danger);
+        background: var(--danger-dim);
+        border: 1px solid var(--danger-border);
+        border-radius: var(--radius-2);
+      }
+      .notstarted-banner {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-2) var(--space-4);
+        font-size: var(--text-sm);
+        color: var(--accent);
+        background: var(--accent-dim);
+        border: 1px solid var(--accent-border);
+        border-radius: var(--radius-2);
+      }
+      .notstarted-banner span:first-of-type {
+        color: var(--text-2);
+      }
+      .proxyform {
+        display: grid;
+        gap: var(--space-4);
+      }
+      .proxyform__grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr 1fr;
+        gap: var(--space-4);
+        align-items: start;
+      }
+      .proxyform__grid:nth-of-type(2) {
+        grid-template-columns: 2fr 2fr;
+      }
+      .proxyform__actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-4);
+      }
+      .badges {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
+      }
+      .valhint {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--space-3);
+        padding: 10px 16px;
+        border-radius: var(--radius-2);
+        font-size: var(--text-sm);
+        margin-bottom: var(--space-4);
+      }
+      .valhint--warn {
+        background: var(--warn-dim);
+        border: 1px solid var(--warn-border);
+        color: var(--warn);
+      }
+      .valhint--danger {
+        background: var(--danger-dim);
+        border: 1px solid var(--danger-border);
+        color: var(--danger);
+      }
+      .valhint__text {
+        color: var(--text-2);
+      }
+      .valhint__text a {
+        color: inherit;
         text-decoration: underline;
       }
-      .akd-bar h1 {
-        margin-top: var(--akd-space-1);
+      .proxy-body {
+        display: grid;
+        gap: var(--space-3);
       }
-      .section {
-        margin-bottom: var(--akd-space-5);
+      .proxy-meta {
+        font-size: var(--text-sm);
+        color: var(--text-2);
+      }
+      .proxy-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        flex-wrap: wrap;
+      }
+      .logs {
+        max-height: 24rem;
+        padding: var(--space-2) 0;
+      }
+      .cert-filter {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+      }
+      .cert-filter .days {
+        width: 6rem;
+      }
+      .cert-detail {
+        padding: var(--space-3) 0;
+      }
+      .pad {
+        padding: var(--space-5);
+        margin: 0;
+      }
+      .intro {
+        margin: 0 0 var(--space-4);
+        font-size: var(--text-sm);
       }
       .form {
         display: grid;
-        gap: var(--akd-space-3);
+        gap: var(--space-4);
         max-width: 44rem;
       }
       .row {
         display: flex;
         align-items: end;
-        gap: var(--akd-space-2);
+        gap: var(--space-3);
         flex-wrap: wrap;
       }
       .row .grow {
@@ -453,42 +798,18 @@ type LogLine = components['schemas']['LogLine'];
         min-width: 14rem;
       }
       .ca {
-        margin: 0;
+        margin: 0 0 var(--space-4);
         max-height: 20rem;
         overflow: auto;
         white-space: pre-wrap;
       }
       .danger-zone {
-        border-color: var(--akd-status-danger-fg);
+        border-color: var(--danger-border);
       }
-          .proxy-actions {
-        display: flex;
-        gap: var(--akd-space-2);
-      }
-      .logs-actions {
-        display: flex;
-        gap: var(--akd-space-2);
-        margin-top: var(--akd-space-3);
-      }
-      .logs {
-        margin: var(--akd-space-3) 0 0;
-        padding: var(--akd-space-3);
-        max-height: 24rem;
-        overflow: auto;
-        background: var(--akd-surface);
-        border: 1px solid var(--akd-border);
-        border-radius: var(--akd-radius-lg);
-        font-family: var(--akd-font-mono);
-        font-size: var(--akd-text-xs);
-        line-height: 1.6;
-        color: var(--akd-text);
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-      .logs .line {
+      akd-card {
         display: block;
       }
-`,
+    `,
   ],
 })
 export class ServerDetailComponent {
@@ -510,7 +831,13 @@ export class ServerDetailComponent {
   protected readonly proxyLogs = signal<LogLine[] | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly notice = signal<string | null>(null);
+  /** UUID of the validation job this session enqueued — the diagnosis lives in its steps. */
+  protected readonly validationJobUuid = signal<string | null>(null);
   protected readonly busy = signal(false);
+
+  protected readonly expiringCount = computed(
+    () => this.certificates().filter((cert) => this.expiringSoon(cert)).length,
+  );
 
   /**
    * Opens a server shell — a root terminal, so the server demands a fresh
@@ -540,11 +867,32 @@ export class ServerDetailComponent {
   protected user = 'root';
   protected expiringDays: number | null = null;
 
+  protected readonly dnsCredentials = signal<DnsCredential[]>([]);
+  protected proxyType: 'traefik' | 'none' = 'traefik';
+  protected proxyHttpPort = 80;
+  protected proxyHttpsPort = 443;
+  protected wildcardDomain = '';
+  protected dnsCredentialUuid = '';
+
   constructor() {
     effect(() => {
       const uuid = this.uuid();
       untracked(() => void this.load(uuid));
     });
+  }
+
+  protected ts(line: LogLine): string {
+    return new Date(line.timestamp).toLocaleTimeString();
+  }
+
+  protected expiry(cert: Certificate): string {
+    return cert.not_after ? cert.not_after.slice(0, 10) : '—';
+  }
+
+  protected expiringSoon(cert: Certificate): boolean {
+    if (!cert.not_after) return false;
+    const remaining = Date.parse(cert.not_after) - Date.now();
+    return remaining < EXPIRY_WARN_DAYS * 24 * 60 * 60 * 1000;
   }
 
   /**
@@ -604,6 +952,14 @@ export class ServerDetailComponent {
       this.resources.set(resources.data);
       this.domains.set(domains.data);
       this.certificates.set(certificates.data);
+      // Feeds the DNS-01 select of the proxy settings; decorative, must not
+      // block the page.
+      try {
+        const creds = await client.listDnsCredentials({ limit: 100 });
+        this.dnsCredentials.set(creds.data);
+      } catch {
+        /* the select simply stays empty */
+      }
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -618,6 +974,11 @@ export class ServerDetailComponent {
     this.host = server.host;
     this.port = server.port;
     this.user = server.user;
+    this.proxyType = (server.proxy_type as 'traefik' | 'none' | undefined) ?? 'traefik';
+    this.proxyHttpPort = server.proxy_http_port ?? 80;
+    this.proxyHttpsPort = server.proxy_https_port ?? 443;
+    this.wildcardDomain = server.wildcard_domain ?? '';
+    this.dnsCredentialUuid = server.dns_credential_uuid ?? '';
   }
 
   private async refresh(): Promise<void> {
@@ -635,6 +996,7 @@ export class ServerDetailComponent {
     this.notice.set(null);
     try {
       const accepted = await this.api.client().validateServer(this.uuid());
+      this.validationJobUuid.set(accepted.job_uuid ?? null);
       this.notice.set(`Validation queued (job ${accepted.job_uuid}).`);
       await this.refresh();
     } catch (err) {
@@ -663,6 +1025,38 @@ export class ServerDetailComponent {
     } catch (err) {
       // A 409 version conflict means someone else changed the server while this
       // form was open: reload their version instead of clobbering it (§24.1).
+      if (err instanceof ApiError && err.isVersionConflict) {
+        await this.refresh();
+        this.error.set(
+          'Your edit raced a concurrent change: the latest configuration was reloaded. Re-apply your edit on top of it.',
+        );
+      } else {
+        this.error.set(ApiService.describe(err));
+      }
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async saveProxySettings(): Promise<void> {
+    const server = this.server();
+    if (!server || this.busy()) return;
+    this.busy.set(true);
+    this.error.set(null);
+    this.notice.set(null);
+    try {
+      const updated = await this.api.client().updateServer(this.uuid(), server.version, {
+        proxy_type: this.proxyType,
+        proxy_http_port: this.proxyHttpPort,
+        proxy_https_port: this.proxyHttpsPort,
+        wildcard_domain: this.wildcardDomain.trim() || null,
+        dns_credential_uuid: this.dnsCredentialUuid || null,
+      });
+      this.setServer(updated);
+      this.notice.set(
+        'Proxy settings saved — they take effect when the proxy container is (re)created.',
+      );
+    } catch (err) {
       if (err instanceof ApiError && err.isVersionConflict) {
         await this.refresh();
         this.error.set(

@@ -9,6 +9,9 @@ import {
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { StatusBadgeComponent } from '../../../ui/status-badge/status-badge.component';
+import { CardComponent } from '../../../ui/card/card.component';
+import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
+import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
 import type { components } from '../../../api/schema';
 
@@ -19,7 +22,7 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
 @Component({
   selector: 'app-application-deployments-tab',
   standalone: true,
-  imports: [StatusBadgeComponent, SlicePipe],
+  imports: [StatusBadgeComponent, CardComponent, EmptyStateComponent, IconComponent, SlicePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (error(); as message) {
@@ -32,67 +35,90 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
     @if (loading()) {
       <p class="akd-muted">Loading…</p>
     } @else if (deployments().length === 0) {
-      <div class="akd-empty">
-        <p><strong>No deployment yet.</strong></p>
-      </div>
+      <akd-empty-state
+        icon="rocket"
+        title="No deployment yet"
+        message="Trigger one with the Deploy button above — it appears here with its status and logs."
+      />
     } @else {
-      <table class="akd-table">
-        <caption class="sr-only">Deployment history of this application</caption>
-        <thead>
-          <tr>
-            <th scope="col">Status</th>
-            <th scope="col">Trigger</th>
-            <th scope="col">Commit</th>
-            <th scope="col">Created</th>
-            <th scope="col"><span class="sr-only">Actions</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (d of deployments(); track d.uuid) {
+      <akd-card title="History" [padded]="false">
+        <table class="akd-table">
+          <caption class="sr-only">
+            Deployment history of this application
+          </caption>
+          <thead>
             <tr>
-              <td><akd-status-badge domain="deployment" [state]="d.status" /></td>
-              <td class="akd-muted">
-                {{ d.trigger }}{{ d.is_rollback ? ' · rollback' : '' }}
-              </td>
-              <td>
-                @if (d.commit_sha) {
-                  <span class="akd-mono">{{ d.commit_sha | slice: 0 : 8 }}</span>
-                  @if (d.commit_message) {
-                    <span class="akd-muted"> {{ d.commit_message }}</span>
-                  }
-                } @else {
-                  <span class="akd-muted">—</span>
-                }
-              </td>
-              <td class="akd-muted">{{ d.created_at }}</td>
-              <td class="right">
-                @if (cancellable(d)) {
-                  <button
-                    class="akd-btn-danger"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="cancel(d)"
-                  >
-                    Cancel
-                  </button>
-                }
-                @if (d.status === 'succeeded' && !d.is_rollback) {
-                  <button
-                    class="akd-btn-ghost"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="rollback(d)"
-                  >
-                    Roll back to this
-                  </button>
-                }
-              </td>
+              <th scope="col">Commit</th>
+              <th scope="col">Status</th>
+              <th scope="col">Trigger</th>
+              <th scope="col">Duration</th>
+              <th scope="col">Created</th>
+              <th scope="col" class="right"><span class="sr-only">Actions</span></th>
             </tr>
-          }
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            @for (d of deployments(); track d.uuid) {
+              <tr>
+                <td>
+                  @if (d.commit_sha) {
+                    <span class="akd-badge akd-badge--mono">{{ d.commit_sha | slice: 0 : 8 }}</span>
+                    @if (d.commit_message) {
+                      <span class="akd-muted commit-msg"> {{ d.commit_message }}</span>
+                    }
+                  } @else {
+                    <span class="akd-muted">—</span>
+                  }
+                </td>
+                <td><akd-status-badge domain="deployment" [state]="d.status" /></td>
+                <td class="akd-muted">{{ d.trigger }}{{ d.is_rollback ? ' · rollback' : '' }}</td>
+                <td>
+                  <span class="akd-mono akd-muted">{{ duration(d) }}</span>
+                </td>
+                <td class="akd-muted">{{ d.created_at }}</td>
+                <td class="right">
+                  <div class="row-actions">
+                    @if (cancellable(d)) {
+                      <button
+                        class="akd-btn akd-btn--danger akd-btn--sm"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="cancel(d)"
+                      >
+                        Cancel
+                      </button>
+                    }
+                    @if (d.status === 'succeeded' && !d.is_rollback) {
+                      <button
+                        class="akd-btn akd-btn--ghost akd-btn--sm"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="rollback(d)"
+                      >
+                        <akd-icon name="rotate-ccw" [size]="13" />
+                        Roll back to this
+                      </button>
+                    }
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </akd-card>
     }
   `,
+  styles: [
+    `
+      .row-actions {
+        display: flex;
+        gap: var(--space-2);
+        justify-content: flex-end;
+      }
+      .commit-msg {
+        font-size: var(--text-sm);
+      }
+    `,
+  ],
 })
 export class ApplicationDeploymentsTabComponent {
   readonly uuid = input.required<string>();
@@ -114,6 +140,15 @@ export class ApplicationDeploymentsTabComponent {
 
   protected cancellable(d: Deployment): boolean {
     return !TERMINAL.includes(d.status);
+  }
+
+  /** Derived from started_at/finished_at — a deployment still running has none. */
+  protected duration(d: Deployment): string {
+    if (!d.started_at || !d.finished_at) return '—';
+    const ms = Date.parse(d.finished_at) - Date.parse(d.started_at);
+    if (!Number.isFinite(ms) || ms < 0) return '—';
+    const seconds = Math.round(ms / 1000);
+    return seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`;
   }
 
   private async load(uuid: string): Promise<void> {

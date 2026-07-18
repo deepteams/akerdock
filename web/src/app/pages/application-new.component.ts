@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { CardComponent } from '../../ui/card/card.component';
+import { IconComponent } from '../../ui/icon/icon.component';
 import { ApiService } from '../core/api.service';
 import type { components } from '../../api/schema';
 import { ApplicationConfigFieldsComponent } from './application/config-fields.component';
@@ -22,13 +24,25 @@ type GitRepository = components['schemas']['GitRepository'];
 @Component({
   selector: 'app-application-new',
   standalone: true,
-  imports: [FormsModule, RouterLink, ApplicationConfigFieldsComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    ApplicationConfigFieldsComponent,
+    CardComponent,
+    IconComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
-        <div>
-          <a routerLink="/applications" class="back">← Applications</a>
+        <div class="title">
+          <a
+            class="akd-iconbtn akd-iconbtn--bordered"
+            routerLink="/applications"
+            aria-label="Back to applications"
+          >
+            <akd-icon name="arrow-left" [size]="15" />
+          </a>
           <h1>New application</h1>
         </div>
       </header>
@@ -38,63 +52,69 @@ type GitRepository = components['schemas']['GitRepository'];
       }
 
       <form class="form" (ngSubmit)="create()">
-        <fieldset class="group">
-          <legend>Placement</legend>
-          <div class="akd-field">
-            <label for="an-project">Project</label>
-            <select
-              id="an-project"
-              name="project"
-              class="akd-select"
-              [(ngModel)]="form.projectUuid"
-              (ngModelChange)="onProjectChange($event)"
-              [disabled]="busy()"
-            >
-              <option value="" disabled>Choose a project…</option>
-              @for (project of projects(); track project.uuid) {
-                <option [value]="project.uuid">{{ project.name }}</option>
-              }
-            </select>
+        <akd-card title="Placement">
+          <div class="fields">
+            <div class="akd-field">
+              <label class="akd-field__label" for="an-project">Project</label>
+              <div class="akd-select">
+                <select
+                  id="an-project"
+                  name="project"
+                  class="akd-input"
+                  [(ngModel)]="form.projectUuid"
+                  (ngModelChange)="onProjectChange($event)"
+                  [disabled]="busy()"
+                >
+                  <option value="" disabled>Choose a project…</option>
+                  @for (project of projects(); track project.uuid) {
+                    <option [value]="project.uuid">{{ project.name }}</option>
+                  }
+                </select>
+              </div>
+            </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="an-environment">Environment</label>
+              <div class="akd-select">
+                <select
+                  id="an-environment"
+                  name="environment"
+                  class="akd-input"
+                  [(ngModel)]="form.environmentUuid"
+                  [disabled]="busy() || !form.projectUuid"
+                >
+                  <option value="" disabled>
+                    {{ form.projectUuid ? 'Choose an environment…' : 'Pick a project first' }}
+                  </option>
+                  @for (env of environments(); track env.uuid) {
+                    <option [value]="env.uuid">{{ env.name }}</option>
+                  }
+                </select>
+              </div>
+            </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="an-server">Server</label>
+              <div class="akd-select">
+                <select
+                  id="an-server"
+                  name="server"
+                  class="akd-input"
+                  [(ngModel)]="form.serverUuid"
+                  [disabled]="busy()"
+                >
+                  <option value="" disabled>Choose a server…</option>
+                  @for (server of servers(); track server.uuid) {
+                    <option [value]="server.uuid">{{ server.name }} ({{ server.status }})</option>
+                  }
+                </select>
+              </div>
+            </div>
           </div>
-          <div class="akd-field">
-            <label for="an-environment">Environment</label>
-            <select
-              id="an-environment"
-              name="environment"
-              class="akd-select"
-              [(ngModel)]="form.environmentUuid"
-              [disabled]="busy() || !form.projectUuid"
-            >
-              <option value="" disabled>
-                {{ form.projectUuid ? 'Choose an environment…' : 'Pick a project first' }}
-              </option>
-              @for (env of environments(); track env.uuid) {
-                <option [value]="env.uuid">{{ env.name }}</option>
-              }
-            </select>
-          </div>
-          <div class="akd-field">
-            <label for="an-server">Server</label>
-            <select
-              id="an-server"
-              name="server"
-              class="akd-select"
-              [(ngModel)]="form.serverUuid"
-              [disabled]="busy()"
-            >
-              <option value="" disabled>Choose a server…</option>
-              @for (server of servers(); track server.uuid) {
-                <option [value]="server.uuid">{{ server.name }} ({{ server.status }})</option>
-              }
-            </select>
-          </div>
-        </fieldset>
+        </akd-card>
 
-        <fieldset class="group">
-          <legend>Source type</legend>
+        <akd-card title="Source type">
           <div class="sources" role="radiogroup" aria-label="Source type">
             @for (s of sourceTypes; track s.id) {
-              <label class="source" [class.active]="form.sourceType === s.id">
+              <label class="source" [class.source--active]="form.sourceType === s.id">
                 <input
                   type="radio"
                   name="sourceType"
@@ -103,54 +123,61 @@ type GitRepository = components['schemas']['GitRepository'];
                   [disabled]="busy()"
                 />
                 <strong>{{ s.label }}</strong>
-                <span class="akd-muted">{{ s.hint }}</span>
+                <span class="source__hint">{{ s.hint }}</span>
               </label>
             }
           </div>
-        </fieldset>
+        </akd-card>
 
         @if (form.sourceType === 'git' && githubApps().length > 0) {
-          <fieldset class="group">
-            <legend>GitHub App (optional)</legend>
-            <div class="akd-field">
-              <label for="an-ghapp">Source</label>
-              <select
-                id="an-ghapp"
-                name="githubApp"
-                class="akd-select"
-                [(ngModel)]="form.githubAppUuid"
-                (ngModelChange)="onGithubAppChange($event)"
-                [disabled]="busy()"
-              >
-                <option value="">Manual URL (public or deploy key)</option>
-                @for (app of githubApps(); track app.uuid) {
-                  <option [value]="app.uuid" [disabled]="!app.is_installed">
-                    {{ app.name }}{{ app.is_installed ? '' : ' (not installed)' }}
-                  </option>
-                }
-              </select>
-            </div>
-            @if (form.githubAppUuid) {
+          <akd-card title="GitHub App (optional)">
+            <div class="fields">
               <div class="akd-field">
-                <label for="an-ghrepo">Repository</label>
-                <select
-                  id="an-ghrepo"
-                  name="githubRepo"
-                  class="akd-select"
-                  [(ngModel)]="form.repositoryFullName"
-                  (ngModelChange)="onRepositoryChange($event)"
-                  [disabled]="busy()"
-                >
-                  <option value="" disabled>
-                    {{ repositories().length ? 'Choose a repository…' : 'Loading repositories…' }}
-                  </option>
-                  @for (repo of repositories(); track repo.uuid) {
-                    <option [value]="repo.full_name">{{ repo.full_name }}</option>
-                  }
-                </select>
+                <label class="akd-field__label" for="an-ghapp">Source</label>
+                <div class="akd-select">
+                  <select
+                    id="an-ghapp"
+                    name="githubApp"
+                    class="akd-input"
+                    [(ngModel)]="form.githubAppUuid"
+                    (ngModelChange)="onGithubAppChange($event)"
+                    [disabled]="busy()"
+                  >
+                    <option value="">Manual URL (public or deploy key)</option>
+                    @for (app of githubApps(); track app.uuid) {
+                      <option [value]="app.uuid" [disabled]="!app.is_installed">
+                        {{ app.name }}{{ app.is_installed ? '' : ' (not installed)' }}
+                      </option>
+                    }
+                  </select>
+                </div>
               </div>
-            }
-          </fieldset>
+              @if (form.githubAppUuid) {
+                <div class="akd-field">
+                  <label class="akd-field__label" for="an-ghrepo">Repository</label>
+                  <div class="akd-select">
+                    <select
+                      id="an-ghrepo"
+                      name="githubRepo"
+                      class="akd-input"
+                      [(ngModel)]="form.repositoryFullName"
+                      (ngModelChange)="onRepositoryChange($event)"
+                      [disabled]="busy()"
+                    >
+                      <option value="" disabled>
+                        {{
+                          repositories().length ? 'Choose a repository…' : 'Loading repositories…'
+                        }}
+                      </option>
+                      @for (repo of repositories(); track repo.uuid) {
+                        <option [value]="repo.full_name">{{ repo.full_name }}</option>
+                      }
+                    </select>
+                  </div>
+                </div>
+              }
+            </div>
+          </akd-card>
         }
 
         <app-application-config-fields
@@ -161,7 +188,7 @@ type GitRepository = components['schemas']['GitRepository'];
           [busy]="busy()"
         />
 
-        <label class="check">
+        <label class="akd-check">
           <input
             type="checkbox"
             name="instantDeploy"
@@ -172,7 +199,12 @@ type GitRepository = components['schemas']['GitRepository'];
         </label>
 
         <div class="actions">
-          <button class="akd-btn" type="submit" [disabled]="busy() || problem() !== null">
+          <button
+            class="akd-btn akd-btn--primary"
+            type="submit"
+            [disabled]="busy() || problem() !== null"
+          >
+            <akd-icon name="plus" [size]="15" />
             {{ busy() ? 'Creating…' : 'Create application' }}
           </button>
           @if (problem(); as message) {
@@ -184,65 +216,49 @@ type GitRepository = components['schemas']['GitRepository'];
   `,
   styles: [
     `
-      .back {
-        font-size: var(--akd-text-sm);
-        color: var(--akd-text-secondary);
-        text-decoration: none;
-      }
-      .back:hover {
-        text-decoration: underline;
+      .title {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
       }
       .form {
-        max-width: 44rem;
+        max-width: 720px;
         display: grid;
-        gap: var(--akd-space-3);
+        gap: var(--space-4);
       }
-      .group {
-        margin: 0;
-        padding: var(--akd-space-3) var(--akd-space-4) var(--akd-space-4);
-        border: 1px solid var(--akd-border);
-        border-radius: var(--akd-radius-lg);
+      .fields {
         display: grid;
-        gap: var(--akd-space-3);
-      }
-      legend {
-        padding: 0 var(--akd-space-2);
-        font-size: var(--akd-text-xs);
-        font-weight: var(--akd-weight-semibold);
-        color: var(--akd-text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+        gap: var(--space-4);
       }
       .sources {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-        gap: var(--akd-space-2);
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: var(--space-2);
       }
       .source {
         display: grid;
-        gap: var(--akd-space-1);
-        padding: var(--akd-space-3);
-        border: 1px solid var(--akd-border-input);
-        border-radius: var(--akd-radius-lg);
+        gap: var(--space-1);
+        padding: var(--space-3);
+        background: var(--bg-2);
+        border: 1px solid var(--border-1);
+        border-radius: var(--radius-2);
         cursor: pointer;
-        font-size: var(--akd-text-sm);
-        color: var(--akd-text);
+        font-size: var(--text-sm);
+        color: var(--text-1);
+        transition: border-color var(--dur-1) var(--ease-out);
       }
-      .source.active {
-        border-color: var(--akd-focus-ring);
-        background: var(--akd-surface-hover);
+      .source--active {
+        border-color: var(--accent-border);
+        background: var(--accent-dim);
       }
-      .check {
-        display: flex;
-        align-items: center;
-        gap: var(--akd-space-2);
-        font-size: var(--akd-text-sm);
-        color: var(--akd-text);
+      .source__hint {
+        font-size: var(--text-xs);
+        color: var(--text-3);
       }
       .actions {
         display: flex;
         align-items: center;
-        gap: var(--akd-space-3);
+        gap: var(--space-3);
       }
     `,
   ],
@@ -271,6 +287,19 @@ export class ApplicationNewComponent {
 
   constructor() {
     void this.loadSelectors();
+    // The Projects drill-down lands here with ?project=&environment= so the
+    // resource is created where the user already was.
+    const params = inject(ActivatedRoute).snapshot.queryParamMap;
+    const project = params.get('project');
+    const environment = params.get('environment');
+    if (project) {
+      this.form.projectUuid = project;
+      void this.onProjectChange(project).then(() => {
+        if (environment && this.environments().some((env) => env.uuid === environment)) {
+          this.form.environmentUuid = environment;
+        }
+      });
+    }
   }
 
   protected problem(): string | null {

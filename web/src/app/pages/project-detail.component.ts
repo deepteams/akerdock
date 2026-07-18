@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
@@ -10,6 +11,10 @@ import {
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
+import { BreadcrumbComponent, type Crumb } from '../../ui/breadcrumb/breadcrumb.component';
+import { CardComponent } from '../../ui/card/card.component';
+import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
+import { IconComponent } from '../../ui/icon/icon.component';
 import type { components } from '../../api/schema';
 
 type Project = components['schemas']['Project'];
@@ -18,16 +23,38 @@ type Environment = components['schemas']['Environment'];
 @Component({
   selector: 'app-project-detail',
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [
+    FormsModule,
+    RouterLink,
+    BreadcrumbComponent,
+    CardComponent,
+    EmptyStateComponent,
+    IconComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
+      <div class="crumbs">
+        <akd-breadcrumb [items]="crumbs()" />
+      </div>
       <header class="akd-bar">
-        <div>
-          <a routerLink="/projects" class="back">← Projects</a>
-          <h1>{{ project()?.name ?? '…' }}</h1>
+        <div class="title">
+          <a
+            class="akd-iconbtn akd-iconbtn--bordered"
+            routerLink="/projects"
+            aria-label="Back to projects"
+          >
+            <akd-icon name="arrow-left" [size]="16" />
+          </a>
+          <h1 class="title__name">{{ project()?.name ?? '…' }}</h1>
         </div>
-        <button class="akd-btn-danger" type="button" [disabled]="busy()" (click)="remove()">
+        <button
+          class="akd-btn akd-btn--danger"
+          type="button"
+          [disabled]="busy()"
+          (click)="remove()"
+        >
+          <akd-icon name="trash-2" [size]="15" />
           Delete project
         </button>
       </header>
@@ -39,24 +66,21 @@ type Environment = components['schemas']['Environment'];
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
       } @else if (project(); as p) {
-        <section class="akd-card section">
-          <header class="akd-bar" style="margin-bottom: 0">
-            <h2>Details</h2>
-          </header>
+        <akd-card title="Details" class="section">
           <form class="row" (ngSubmit)="save()">
             <div class="akd-field grow">
-              <label for="pd-name">Name</label>
+              <label class="akd-field__label" for="pd-name">Name</label>
               <input
                 id="pd-name"
                 name="name"
-                class="akd-input"
+                class="akd-input akd-input--mono"
                 required
                 [(ngModel)]="name"
                 [disabled]="busy()"
               />
             </div>
             <div class="akd-field grow">
-              <label for="pd-description">Description</label>
+              <label class="akd-field__label" for="pd-description">Description</label>
               <input
                 id="pd-description"
                 name="description"
@@ -65,126 +89,191 @@ type Environment = components['schemas']['Environment'];
                 [disabled]="busy()"
               />
             </div>
-            <button class="akd-btn" type="submit" [disabled]="busy() || !name.trim()">Save</button>
+            <button
+              class="akd-btn akd-btn--secondary"
+              type="submit"
+              [disabled]="busy() || !name.trim()"
+            >
+              Save
+            </button>
           </form>
-        </section>
+        </akd-card>
 
-        <section class="akd-card section">
-          <header class="akd-bar" style="margin-bottom: 0">
-            <h2>Environments</h2>
-          </header>
-
-          <form class="row" (ngSubmit)="createEnvironment()">
-            <div class="akd-field grow">
-              <label for="env-name">New environment</label>
-              <input
-                id="env-name"
-                name="envName"
-                class="akd-input"
-                placeholder="e.g. production, staging"
-                [(ngModel)]="envName"
-                [disabled]="busy()"
-              />
-            </div>
-            <button class="akd-btn" type="submit" [disabled]="busy() || !envName.trim()">
+        <akd-card title="Environments" [padded]="false" class="section">
+          <form card-actions class="envform" (ngSubmit)="createEnvironment()">
+            <input
+              class="akd-input akd-input--mono"
+              name="envName"
+              placeholder="e.g. production, staging"
+              aria-label="New environment name"
+              [(ngModel)]="envName"
+              [disabled]="busy()"
+            />
+            <button
+              class="akd-btn akd-btn--primary akd-btn--sm"
+              type="submit"
+              [disabled]="busy() || !envName.trim()"
+            >
+              <akd-icon name="plus" [size]="14" />
               Add
             </button>
           </form>
 
           @if (environments().length === 0) {
-            <div class="akd-empty">
-              <p><strong>No environments yet.</strong></p>
-              <p>Resources live inside an environment — create one to start deploying.</p>
-            </div>
+            <akd-empty-state
+              icon="square-dashed"
+              title="No environments yet"
+              message="Resources live inside an environment — create one to start deploying."
+            />
           } @else {
-            <table class="akd-table">
-              <caption class="sr-only">Environments of this project</caption>
+            <table class="akd-table akd-table--clickable">
+              <caption class="sr-only">
+                Environments of this project
+              </caption>
               <thead>
                 <tr>
-                  <th scope="col">Name</th>
+                  <th scope="col">Environment</th>
                   <th scope="col">Description</th>
-                  <th scope="col">Resources</th>
-                  <th scope="col"><span class="sr-only">Actions</span></th>
+                  <th scope="col" class="right">Resources</th>
+                  <th scope="col" class="right"><span class="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
                 @for (env of environments(); track env.uuid) {
-                  <tr>
+                  <tr (click)="openEnvironment(env)">
                     <td>
                       @if (editing() === env.uuid) {
-                        <form class="row" (ngSubmit)="saveEnvironment(env)">
+                        <form
+                          class="rename"
+                          (ngSubmit)="saveEnvironment(env)"
+                          (click)="$event.stopPropagation()"
+                        >
                           <input
-                            class="akd-input"
+                            class="akd-input akd-input--mono"
                             name="editName"
                             [attr.aria-label]="'New name for ' + env.name"
                             [(ngModel)]="editName"
                             [disabled]="busy()"
                           />
-                          <button class="akd-btn" type="submit" [disabled]="busy() || !editName.trim()">
+                          <button
+                            class="akd-btn akd-btn--secondary akd-btn--sm"
+                            type="submit"
+                            [disabled]="busy() || !editName.trim()"
+                          >
                             Save
                           </button>
-                          <button class="akd-btn-ghost" type="button" (click)="editing.set(null)">
+                          <button
+                            class="akd-btn akd-btn--ghost akd-btn--sm"
+                            type="button"
+                            (click)="editing.set(null)"
+                          >
                             Cancel
                           </button>
                         </form>
                       } @else {
-                        {{ env.name }}
+                        <a
+                          class="akd-mono"
+                          [routerLink]="['/projects', uuid(), 'environments', env.uuid]"
+                          (click)="$event.stopPropagation()"
+                        >
+                          {{ env.name }}
+                        </a>
                       }
                     </td>
                     <td class="akd-muted">{{ env.description || '—' }}</td>
-                    <td class="akd-muted">{{ env.resource_count ?? 0 }}</td>
                     <td class="right">
-                      <button
-                        class="akd-btn-ghost"
-                        type="button"
-                        [disabled]="busy()"
-                        (click)="startRename(env)"
-                      >
-                        Rename
-                      </button>
-                      <button
-                        class="akd-btn-danger"
-                        type="button"
-                        [disabled]="busy()"
-                        (click)="removeEnvironment(env)"
-                      >
-                        Delete
-                      </button>
+                      <span class="akd-mono akd-muted">{{ env.resource_count ?? 0 }}</span>
+                    </td>
+                    <td class="right">
+                      <div class="actions" (click)="$event.stopPropagation()">
+                        <button
+                          class="akd-iconbtn"
+                          type="button"
+                          [attr.aria-label]="'Rename environment ' + env.name"
+                          [disabled]="busy()"
+                          (click)="startRename(env)"
+                        >
+                          <akd-icon name="pencil" [size]="15" />
+                        </button>
+                        <button
+                          class="akd-iconbtn"
+                          type="button"
+                          [attr.aria-label]="'Delete environment ' + env.name"
+                          [disabled]="busy()"
+                          (click)="removeEnvironment(env)"
+                        >
+                          <akd-icon name="trash-2" [size]="15" />
+                        </button>
+                        <span class="chevron" aria-hidden="true">
+                          <akd-icon name="chevron-right" [size]="15" />
+                        </span>
+                      </div>
                     </td>
                   </tr>
                 }
               </tbody>
             </table>
           }
-        </section>
+        </akd-card>
       }
     </div>
   `,
   styles: [
     `
-      .back {
-        font-size: var(--akd-text-sm);
-        color: var(--akd-text-secondary);
-        text-decoration: none;
+      .crumbs {
+        margin-bottom: var(--space-2);
       }
-      .back:hover {
-        text-decoration: underline;
+      .title {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        min-width: 0;
       }
-      .akd-bar h1 {
-        margin-top: var(--akd-space-1);
+      .akd-bar h1.title__name {
+        font-family: var(--font-mono);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .section {
-        margin-bottom: var(--akd-space-5);
+        display: block;
+        margin-bottom: var(--space-5);
       }
       .row {
         display: flex;
-        align-items: end;
-        gap: var(--akd-space-2);
+        align-items: flex-end;
+        gap: var(--space-3);
         flex-wrap: wrap;
       }
       .row .grow {
         flex: 1;
         min-width: 14rem;
+      }
+      .envform {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+      }
+      .envform .akd-input {
+        width: 14rem;
+      }
+      .rename {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+      }
+      .rename .akd-input {
+        width: 11rem;
+      }
+      .actions {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-1);
+      }
+      .chevron {
+        color: var(--text-3);
+        line-height: 0;
+        margin-left: var(--space-1);
       }
     `,
   ],
@@ -202,6 +291,10 @@ export class ProjectDetailComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
   protected readonly editing = signal<string | null>(null);
+  protected readonly crumbs = computed<Crumb[]>(() => [
+    { label: 'Projects', link: '/projects' },
+    { label: this.project()?.name ?? '…' },
+  ]);
 
   protected name = '';
   protected description = '';
@@ -284,6 +377,10 @@ export class ProjectDetailComponent {
     } finally {
       this.busy.set(false);
     }
+  }
+
+  protected openEnvironment(env: Environment): void {
+    void this.router.navigate(['/projects', this.uuid(), 'environments', env.uuid]);
   }
 
   protected startRename(env: Environment): void {

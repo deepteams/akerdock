@@ -3676,7 +3676,7 @@ type Server struct {
 	Port           int        `json:"port"`
 	PrivateKeyUuid string     `json:"private_key_uuid"`
 
-	// ProxyDesiredState Intention de l'opérateur sur le proxy (§3). Un `stopped` explicite n'est pas « réparé » par la réconciliation.
+	// ProxyDesiredState Intention de l'opérateur sur le proxy (§3). `stopped` à la création : la validation n'installe ni ne démarre le proxy tant que l'opérateur n'a pas revu ses réglages puis demandé le premier démarrage (POST /servers/{server_uuid}/proxy/start, §20.1 étape 5). Un `stopped` explicite n'est pas « réparé » par la réconciliation.
 	ProxyDesiredState *ServerProxyDesiredState `json:"proxy_desired_state,omitempty"`
 	ProxyHttpPort     *int                     `json:"proxy_http_port,omitempty"`
 	ProxyHttpsPort    *int                     `json:"proxy_https_port,omitempty"`
@@ -3698,7 +3698,7 @@ type Server struct {
 // ServerArchitecture Architecture détectée à la validation.
 type ServerArchitecture string
 
-// ServerProxyDesiredState Intention de l'opérateur sur le proxy (§3). Un `stopped` explicite n'est pas « réparé » par la réconciliation.
+// ServerProxyDesiredState Intention de l'opérateur sur le proxy (§3). `stopped` à la création : la validation n'installe ni ne démarre le proxy tant que l'opérateur n'a pas revu ses réglages puis demandé le premier démarrage (POST /servers/{server_uuid}/proxy/start, §20.1 étape 5). Un `stopped` explicite n'est pas « réparé » par la réconciliation.
 type ServerProxyDesiredState string
 
 // ServerProxyType defines model for Server.ProxyType.

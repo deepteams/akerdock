@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
+import { CardComponent } from '../../ui/card/card.component';
 import type { components } from '../../api/schema';
 
 type TransactionalEmail = components['schemas']['TransactionalEmail'];
@@ -22,307 +23,453 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
 @Component({
   selector: 'app-system',
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, CardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
-        <h1>System</h1>
+        <h1>Global settings</h1>
+        <span class="akd-badge akd-badge--accent akd-badge--mono">instance</span>
       </header>
 
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      <section class="akd-card">
-        <h2>Transactional email</h2>
-        @if (email(); as em) {
-          <p class="akd-muted">
-            @if (em.configured) {
-              Configured — {{ em.kind }} sending as {{ em.from }}. While configured, invitation
-              emails are sent automatically instead of handing out a link.
-            } @else {
-              Not configured. Invitations fall back to a one-time link you pass along yourself.
-            }
-          </p>
-        }
-        <form class="form" (ngSubmit)="saveEmail()">
-          <div class="akd-field mode">
-            <label for="em-kind">Mode</label>
-            <select id="em-kind" name="kind" class="akd-select" [(ngModel)]="emailKind">
-              <option value="smtp">smtp</option>
-              <option value="resend">resend</option>
-            </select>
-          </div>
-          @if (emailKind === 'smtp') {
-            <div class="row">
-              <div class="akd-field">
-                <label for="em-host">Host</label>
-                <input id="em-host" name="host" class="akd-input" [(ngModel)]="smtpHost" required />
-              </div>
-              <div class="akd-field">
-                <label for="em-port">Port</label>
-                <input id="em-port" name="port" type="number" class="akd-input" [(ngModel)]="smtpPort" />
-              </div>
-              <div class="akd-field">
-                <label for="em-enc">Encryption</label>
-                <select id="em-enc" name="encryption" class="akd-select" [(ngModel)]="smtpEncryption">
-                  <option value="starttls">starttls</option>
-                  <option value="tls">tls</option>
-                  <option value="none">none (local relay only)</option>
-                </select>
-              </div>
+      <div class="cols">
+        <div class="col">
+          <akd-card title="Transactional email">
+            <div class="stack">
+              @if (email(); as em) {
+                <p class="akd-muted sm">
+                  @if (em.configured) {
+                    Configured — {{ em.kind }} sending as {{ em.from }}. While configured,
+                    invitation emails are sent automatically instead of handing out a link.
+                  } @else {
+                    Not configured. Invitations fall back to a one-time link you pass along
+                    yourself.
+                  }
+                </p>
+              }
+              <form class="stack" (ngSubmit)="saveEmail()">
+                <div class="akd-field mode">
+                  <label class="akd-field__label" for="em-kind">Mode</label>
+                  <div class="akd-select">
+                    <select id="em-kind" name="kind" class="akd-input" [(ngModel)]="emailKind">
+                      <option value="smtp">smtp</option>
+                      <option value="resend">resend</option>
+                    </select>
+                  </div>
+                </div>
+                @if (emailKind === 'smtp') {
+                  <div class="row">
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="em-host">Host</label>
+                      <input
+                        id="em-host"
+                        name="host"
+                        class="akd-input akd-input--mono"
+                        [(ngModel)]="smtpHost"
+                        required
+                      />
+                    </div>
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="em-port">Port</label>
+                      <input
+                        id="em-port"
+                        name="port"
+                        type="number"
+                        class="akd-input akd-input--mono"
+                        [(ngModel)]="smtpPort"
+                      />
+                    </div>
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="em-enc">Encryption</label>
+                      <div class="akd-select">
+                        <select
+                          id="em-enc"
+                          name="encryption"
+                          class="akd-input"
+                          [(ngModel)]="smtpEncryption"
+                        >
+                          <option value="starttls">starttls</option>
+                          <option value="tls">tls</option>
+                          <option value="none">none (local relay only)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="em-user">Username (optional)</label>
+                      <input
+                        id="em-user"
+                        name="username"
+                        class="akd-input akd-input--mono"
+                        [(ngModel)]="smtpUsername"
+                      />
+                    </div>
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="em-pass">Password (optional)</label>
+                      <input
+                        id="em-pass"
+                        name="password"
+                        type="password"
+                        class="akd-input akd-input--mono"
+                        autocomplete="new-password"
+                        [(ngModel)]="smtpPassword"
+                      />
+                    </div>
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="em-from">From</label>
+                      <input
+                        id="em-from"
+                        name="from"
+                        class="akd-input akd-input--mono"
+                        [(ngModel)]="emailFrom"
+                        required
+                      />
+                    </div>
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="em-to">
+                        Test recipients (comma-separated)
+                      </label>
+                      <input
+                        id="em-to"
+                        name="to"
+                        class="akd-input akd-input--mono"
+                        [(ngModel)]="emailTo"
+                        required
+                      />
+                    </div>
+                  </div>
+                } @else {
+                  <div class="row">
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="em-key">API key</label>
+                      <input
+                        id="em-key"
+                        name="api_key"
+                        type="password"
+                        class="akd-input akd-input--mono"
+                        autocomplete="new-password"
+                        [(ngModel)]="resendApiKey"
+                        required
+                      />
+                    </div>
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="em-from">From</label>
+                      <input
+                        id="em-from"
+                        name="from"
+                        class="akd-input akd-input--mono"
+                        [(ngModel)]="emailFrom"
+                        required
+                      />
+                    </div>
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="em-to">
+                        Test recipients (comma-separated)
+                      </label>
+                      <input
+                        id="em-to"
+                        name="to"
+                        class="akd-input akd-input--mono"
+                        [(ngModel)]="emailTo"
+                        required
+                      />
+                    </div>
+                  </div>
+                }
+                <p class="akd-muted xs">
+                  Secrets (password, API key) are write-only: encrypted at rest, never returned by
+                  the API. Saving sends a verification message to the test recipients — an
+                  unreachable relay is refused on the spot.
+                </p>
+                <div>
+                  <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
+                    Save configuration
+                  </button>
+                </div>
+              </form>
             </div>
-            <div class="row">
-              <div class="akd-field">
-                <label for="em-user">Username (optional)</label>
-                <input id="em-user" name="username" class="akd-input" [(ngModel)]="smtpUsername" />
-              </div>
-              <div class="akd-field">
-                <label for="em-pass">Password (optional)</label>
-                <input
-                  id="em-pass"
-                  name="password"
-                  type="password"
-                  class="akd-input"
-                  autocomplete="new-password"
-                  [(ngModel)]="smtpPassword"
-                />
-              </div>
-              <div class="akd-field">
-                <label for="em-from">From</label>
-                <input id="em-from" name="from" class="akd-input" [(ngModel)]="emailFrom" required />
-              </div>
-              <div class="akd-field">
-                <label for="em-to">Test recipients (comma-separated)</label>
-                <input id="em-to" name="to" class="akd-input" [(ngModel)]="emailTo" required />
-              </div>
-            </div>
-          } @else {
-            <div class="row">
-              <div class="akd-field">
-                <label for="em-key">API key</label>
-                <input
-                  id="em-key"
-                  name="api_key"
-                  type="password"
-                  class="akd-input"
-                  autocomplete="new-password"
-                  [(ngModel)]="resendApiKey"
-                  required
-                />
-              </div>
-              <div class="akd-field">
-                <label for="em-from">From</label>
-                <input id="em-from" name="from" class="akd-input" [(ngModel)]="emailFrom" required />
-              </div>
-              <div class="akd-field">
-                <label for="em-to">Test recipients (comma-separated)</label>
-                <input id="em-to" name="to" class="akd-input" [(ngModel)]="emailTo" required />
-              </div>
-            </div>
-          }
-          <p class="akd-muted hint">
-            Secrets (password, API key) are write-only: encrypted at rest, never returned by the
-            API. Saving sends a verification message to the test recipients — an unreachable relay
-            is refused on the spot.
-          </p>
-          <div>
-            <button class="akd-btn" type="submit" [disabled]="busy()">Save configuration</button>
-          </div>
-        </form>
-      </section>
+          </akd-card>
 
-      <section class="akd-card">
-        <h2>Encryption</h2>
-        @if (encryption(); as enc) {
-          <dl class="akd-dl">
-            <dt>Active key version</dt>
-            <dd>{{ enc.active_key_version }}</dd>
-            @if (enc.rotation_job_uuid; as jobUuid) {
-              <dt>Rotation in progress</dt>
-              <dd><a [routerLink]="['/jobs', jobUuid]" class="akd-mono">{{ jobUuid }}</a></dd>
-            }
-          </dl>
-          @if (enc.key_versions.length > 0) {
+          <akd-card title="API access">
+            <div class="stack">
+              @if (apiEnabled(); as state) {
+                <p class="akd-muted sm" role="status">
+                  The API is now {{ state === 'enabled' ? 'enabled' : 'disabled' }}.
+                </p>
+              }
+              <p class="akd-muted sm">
+                Disabling refuses every API call immediately — tokens, scripts, CI, and this
+                dashboard's own requests included. Only re-enabling stays reachable, from this page.
+              </p>
+              <div class="actions">
+                <button
+                  class="akd-btn akd-btn--primary"
+                  type="button"
+                  [disabled]="busy()"
+                  (click)="enableApi()"
+                >
+                  Enable API
+                </button>
+                <button
+                  class="akd-btn akd-btn--danger"
+                  type="button"
+                  [disabled]="busy()"
+                  (click)="disableApi()"
+                >
+                  Disable API
+                </button>
+              </div>
+            </div>
+          </akd-card>
+        </div>
+
+        <div class="col">
+          <akd-card title="Sign-in providers (OAuth/OIDC)" [padded]="false">
+            <p class="akd-muted sm pad">
+              Let the dashboard sign in through an identity provider. The client secret is
+              write-only: encrypted at rest, never returned. The provider's redirect URL is
+              <span class="akd-mono">{{ callbackHint() }}</span
+              >.
+            </p>
+
             <table class="akd-table">
-              <caption class="sr-only">Encrypted rows per key version</caption>
+              <caption class="sr-only">
+                Configured sign-in providers
+              </caption>
               <thead>
                 <tr>
-                  <th scope="col">Key version</th>
-                  <th scope="col">Rows</th>
-                  <th scope="col">Columns</th>
+                  <th scope="col">Provider</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Client ID</th>
+                  <th scope="col"><span class="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
-                @for (kv of enc.key_versions; track kv.key_version) {
+                @for (p of oauthCatalog; track p.key) {
                   <tr>
-                    <td>
-                      {{ kv.key_version }}
-                      @if (kv.key_version === enc.active_key_version) {
-                        <span class="akd-muted">(active)</span>
+                    <td>{{ p.label }}</td>
+                    <td class="akd-muted">
+                      @if (oauthConfigOf(p.key); as cfg) {
+                        {{ cfg.enabled ? 'enabled' : 'configured, disabled' }}
+                      } @else {
+                        not configured
                       }
                     </td>
-                    <td>{{ kv.total_rows }}</td>
-                    <td class="akd-mono">
-                      @for (col of kv.columns ?? []; track col.table + col.column) {
-                        <span class="col">{{ col.table }}.{{ col.column }} ({{ col.rows }})</span>
-                      } @empty {
-                        —
+                    <td class="akd-mono akd-muted">{{ oauthConfigOf(p.key)?.client_id ?? '—' }}</td>
+                    <td class="right">
+                      <button
+                        class="akd-btn akd-btn--ghost akd-btn--sm"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="editOauth(p.key)"
+                      >
+                        {{ oauthConfigOf(p.key) ? 'Edit' : 'Configure' }}
+                      </button>
+                      @if (oauthConfigOf(p.key)) {
+                        <button
+                          class="akd-btn akd-btn--danger akd-btn--sm"
+                          type="button"
+                          [disabled]="busy()"
+                          (click)="removeOauth(p.key)"
+                        >
+                          Remove
+                        </button>
                       }
                     </td>
                   </tr>
                 }
               </tbody>
             </table>
-            <p class="akd-muted hint">
-              A rotation has converged when only the active version is still referenced.
-            </p>
-          }
-        } @else {
-          <p class="akd-muted">Loading…</p>
-        }
-        <div>
-          <button class="akd-btn-ghost" type="button" [disabled]="busy()" (click)="rotate()">
-            Rotate encryption key
-          </button>
-        </div>
-      </section>
 
-      <section class="akd-card">
-        <h2>Sign-in providers (OAuth/OIDC)</h2>
-        <p class="akd-muted">
-          Let the dashboard sign in through an identity provider. The client secret is write-only:
-          encrypted at rest, never returned. The provider's redirect URL is
-          <code>{{ callbackHint() }}</code
-          >.
-        </p>
-
-        <table class="akd-table">
-          <caption class="sr-only">Configured sign-in providers</caption>
-          <thead>
-            <tr>
-              <th scope="col">Provider</th>
-              <th scope="col">Status</th>
-              <th scope="col">Client ID</th>
-              <th scope="col"><span class="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (p of oauthCatalog; track p.key) {
-              <tr>
-                <td>{{ p.label }}</td>
-                <td class="akd-muted">
-                  @if (oauthConfigOf(p.key); as cfg) {
-                    {{ cfg.enabled ? 'enabled' : 'configured, disabled' }}
-                  } @else {
-                    not configured
-                  }
-                </td>
-                <td class="akd-mono akd-muted">{{ oauthConfigOf(p.key)?.client_id ?? '—' }}</td>
-                <td class="right">
-                  <button class="akd-btn-ghost" type="button" [disabled]="busy()" (click)="editOauth(p.key)">
-                    {{ oauthConfigOf(p.key) ? 'Edit' : 'Configure' }}
-                  </button>
-                  @if (oauthConfigOf(p.key)) {
-                    <button class="akd-btn-danger" type="button" [disabled]="busy()" (click)="removeOauth(p.key)">
-                      Remove
-                    </button>
-                  }
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
-
-        @if (oauthEditing(); as key) {
-          <form class="form" (ngSubmit)="saveOauth()">
-            <h3>{{ oauthLabel(key) }}</h3>
-            <div class="row">
-              <div class="akd-field">
-                <label for="oa-client-id">Client ID</label>
-                <input id="oa-client-id" name="client_id" class="akd-input" [(ngModel)]="oauthClientId" required />
-              </div>
-              <div class="akd-field">
-                <label for="oa-client-secret">Client secret</label>
-                <input
-                  id="oa-client-secret"
-                  name="client_secret"
-                  type="password"
-                  class="akd-input"
-                  autocomplete="new-password"
-                  [(ngModel)]="oauthClientSecret"
-                  required
-                />
-              </div>
-            </div>
-            @if (oauthNeedsIssuer(key)) {
-              <div class="row">
-                <div class="akd-field">
-                  <label for="oa-issuer">OpenID Connect issuer URL</label>
+            @if (oauthEditing(); as key) {
+              <form class="stack pad" (ngSubmit)="saveOauth()">
+                <h3>{{ oauthLabel(key) }}</h3>
+                <div class="row">
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="oa-client-id">Client ID</label>
+                    <input
+                      id="oa-client-id"
+                      name="client_id"
+                      class="akd-input akd-input--mono"
+                      [(ngModel)]="oauthClientId"
+                      required
+                    />
+                  </div>
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="oa-client-secret">Client secret</label>
+                    <input
+                      id="oa-client-secret"
+                      name="client_secret"
+                      type="password"
+                      class="akd-input akd-input--mono"
+                      autocomplete="new-password"
+                      [(ngModel)]="oauthClientSecret"
+                      required
+                    />
+                  </div>
+                </div>
+                @if (oauthNeedsIssuer(key)) {
+                  <div class="row">
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="oa-issuer">
+                        OpenID Connect issuer URL
+                      </label>
+                      <input
+                        id="oa-issuer"
+                        name="issuer_url"
+                        class="akd-input akd-input--mono"
+                        placeholder="https://your-idp.example.com"
+                        [(ngModel)]="oauthIssuer"
+                        required
+                      />
+                    </div>
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="oa-name">Button label (optional)</label>
+                      <input
+                        id="oa-name"
+                        name="display_name"
+                        class="akd-input"
+                        placeholder="e.g. Okta"
+                        [(ngModel)]="oauthDisplayName"
+                      />
+                    </div>
+                  </div>
+                }
+                <label class="switch-row">
                   <input
-                    id="oa-issuer"
-                    name="issuer_url"
-                    class="akd-input"
-                    placeholder="https://your-idp.example.com"
-                    [(ngModel)]="oauthIssuer"
-                    required
+                    type="checkbox"
+                    class="akd-switch"
+                    name="enabled"
+                    [(ngModel)]="oauthEnabled"
                   />
+                  Show on the sign-in page
+                </label>
+                <div class="actions">
+                  <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
+                    Save provider
+                  </button>
+                  <button
+                    class="akd-btn akd-btn--ghost"
+                    type="button"
+                    [disabled]="busy()"
+                    (click)="oauthEditing.set(null)"
+                  >
+                    Cancel
+                  </button>
                 </div>
-                <div class="akd-field">
-                  <label for="oa-name">Button label (optional)</label>
-                  <input id="oa-name" name="display_name" class="akd-input" placeholder="e.g. Okta" [(ngModel)]="oauthDisplayName" />
-                </div>
-              </div>
+              </form>
             }
-            <label class="akd-muted enabled-toggle">
-              <input type="checkbox" name="enabled" [(ngModel)]="oauthEnabled" />
-              Show on the sign-in page
-            </label>
-            <div class="actions">
-              <button class="akd-btn" type="submit" [disabled]="busy()">Save provider</button>
-              <button class="akd-btn-ghost" type="button" [disabled]="busy()" (click)="oauthEditing.set(null)">
-                Cancel
-              </button>
-            </div>
-          </form>
-        }
-      </section>
+          </akd-card>
 
-      <section class="akd-card">
-        <h2>API access</h2>
-        @if (apiEnabled(); as state) {
-          <p class="akd-muted" role="status">
-            The API is now {{ state === 'enabled' ? 'enabled' : 'disabled' }}.
-          </p>
-        }
-        <p class="akd-muted">
-          Disabling refuses every API call immediately — tokens, scripts, CI, and this dashboard's
-          own requests included. Only re-enabling stays reachable, from this page.
-        </p>
-        <div class="actions">
-          <button class="akd-btn" type="button" [disabled]="busy()" (click)="enableApi()">
-            Enable API
-          </button>
-          <button class="akd-btn-danger" type="button" [disabled]="busy()" (click)="disableApi()">
-            Disable API
-          </button>
+          <akd-card title="Encryption" [padded]="false">
+            @if (encryption(); as enc) {
+              <div class="pad">
+                <dl class="akd-dl">
+                  <dt>Active key version</dt>
+                  <dd>{{ enc.active_key_version }}</dd>
+                  @if (enc.rotation_job_uuid; as jobUuid) {
+                    <dt>Rotation in progress</dt>
+                    <dd>
+                      <a [routerLink]="['/jobs', jobUuid]" class="akd-mono">{{ jobUuid }}</a>
+                    </dd>
+                  }
+                </dl>
+              </div>
+              @if (enc.key_versions.length > 0) {
+                <table class="akd-table">
+                  <caption class="sr-only">
+                    Encrypted rows per key version
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Key version</th>
+                      <th scope="col">Rows</th>
+                      <th scope="col">Columns</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (kv of enc.key_versions; track kv.key_version) {
+                      <tr>
+                        <td>
+                          {{ kv.key_version }}
+                          @if (kv.key_version === enc.active_key_version) {
+                            <span class="akd-muted">(active)</span>
+                          }
+                        </td>
+                        <td>{{ kv.total_rows }}</td>
+                        <td class="akd-mono">
+                          @for (col of kv.columns ?? []; track col.table + col.column) {
+                            <span class="cell-line">
+                              {{ col.table }}.{{ col.column }} ({{ col.rows }})
+                            </span>
+                          } @empty {
+                            —
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+            } @else {
+              <p class="akd-muted sm pad">Loading…</p>
+            }
+            <div class="stack pad">
+              @if (encryption()?.key_versions?.length) {
+                <p class="akd-muted xs">
+                  A rotation has converged when only the active version is still referenced.
+                </p>
+              }
+              <div>
+                <button
+                  class="akd-btn akd-btn--ghost akd-btn--sm"
+                  type="button"
+                  [disabled]="busy()"
+                  (click)="rotate()"
+                >
+                  Rotate encryption key
+                </button>
+              </div>
+            </div>
+          </akd-card>
         </div>
-      </section>
+      </div>
     </div>
   `,
   styles: [
     `
-      .akd-card {
-        margin-bottom: var(--akd-space-5);
-      }
-      .form {
+      .cols {
         display: grid;
-        gap: var(--akd-space-3);
+        grid-template-columns: 1fr 1fr;
+        gap: var(--space-4);
+        align-items: start;
+      }
+      @media (max-width: 1100px) {
+        .cols {
+          grid-template-columns: 1fr;
+        }
+      }
+      .col {
+        display: grid;
+        gap: var(--space-4);
+        min-width: 0;
+      }
+      .stack {
+        display: grid;
+        gap: var(--space-3);
+      }
+      .pad {
+        padding: var(--space-5);
+        margin: 0;
       }
       .row {
         display: flex;
-        gap: var(--akd-space-3);
+        gap: var(--space-3);
         flex-wrap: wrap;
       }
       .row .akd-field {
@@ -332,25 +479,38 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
       .mode {
         max-width: 200px;
       }
-      .hint {
+      .sm {
+        font-size: var(--text-sm);
         margin: 0;
-        font-size: var(--akd-text-xs);
+      }
+      .xs {
+        font-size: var(--text-xs);
+        margin: 0;
       }
       .actions {
         display: flex;
-        gap: var(--akd-space-2);
+        gap: var(--space-2);
+        flex-wrap: wrap;
       }
-      .enabled-toggle {
+      .switch-row {
         display: flex;
         align-items: center;
-        gap: var(--akd-space-2);
-        font-size: var(--akd-text-sm);
+        gap: var(--space-2);
+        font-size: var(--text-sm);
+        color: var(--text-1);
+        cursor: pointer;
       }
       .right {
         text-align: right;
+        white-space: nowrap;
       }
-      .col {
+      .cell-line {
         display: block;
+      }
+      h3 {
+        margin: 0;
+        font: var(--weight-semibold) var(--text-md) var(--font-display);
+        color: var(--text-1);
       }
     `,
   ],

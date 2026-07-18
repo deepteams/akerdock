@@ -1,5 +1,8 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { CardComponent } from '../../ui/card/card.component';
+import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
+import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import { ApiService } from '../core/api.service';
 import type { components } from '../../api/schema';
@@ -9,39 +12,38 @@ type S3Storage = components['schemas']['S3Storage'];
 @Component({
   selector: 'app-s3-storages',
   standalone: true,
-  imports: [FormsModule, StatusBadgeComponent],
+  imports: [FormsModule, CardComponent, EmptyStateComponent, IconComponent, StatusBadgeComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
-        <h1>S3 storages</h1>
+        <h2>S3 storages</h2>
       </header>
 
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      <section class="akd-card">
-        <h2>{{ editing() ? 'Edit storage' : 'Add a storage' }}</h2>
-        <form class="form" (ngSubmit)="save()">
+      <akd-card [title]="editing() ? 'Edit storage' : 'Add a storage'" class="create">
+        <form class="fields" (ngSubmit)="save()">
           <div class="row">
             <div class="akd-field">
-              <label for="s3-name">Name</label>
+              <label class="akd-field__label" for="s3-name">Name</label>
               <input
                 id="s3-name"
                 name="name"
-                class="akd-input"
+                class="akd-input akd-input--mono"
                 [(ngModel)]="name"
                 [disabled]="busy()"
                 required
               />
             </div>
             <div class="akd-field">
-              <label for="s3-endpoint">Endpoint</label>
+              <label class="akd-field__label" for="s3-endpoint">Endpoint</label>
               <input
                 id="s3-endpoint"
                 name="endpoint"
-                class="akd-input"
+                class="akd-input akd-input--mono"
                 placeholder="https://s3.eu-west-3.amazonaws.com"
                 [(ngModel)]="endpoint"
                 [disabled]="busy()"
@@ -49,22 +51,22 @@ type S3Storage = components['schemas']['S3Storage'];
               />
             </div>
             <div class="akd-field">
-              <label for="s3-bucket">Bucket</label>
+              <label class="akd-field__label" for="s3-bucket">Bucket</label>
               <input
                 id="s3-bucket"
                 name="bucket"
-                class="akd-input"
+                class="akd-input akd-input--mono"
                 [(ngModel)]="bucket"
                 [disabled]="busy()"
                 required
               />
             </div>
             <div class="akd-field">
-              <label for="s3-region">Region (optional)</label>
+              <label class="akd-field__label" for="s3-region">Region (optional)</label>
               <input
                 id="s3-region"
                 name="region"
-                class="akd-input"
+                class="akd-input akd-input--mono"
                 placeholder="eu-west-3"
                 [(ngModel)]="region"
                 [disabled]="busy()"
@@ -73,11 +75,11 @@ type S3Storage = components['schemas']['S3Storage'];
           </div>
           <div class="row">
             <div class="akd-field">
-              <label for="s3-access">Access key</label>
+              <label class="akd-field__label" for="s3-access">Access key</label>
               <input
                 id="s3-access"
                 name="access_key"
-                class="akd-input"
+                class="akd-input akd-input--mono"
                 autocomplete="off"
                 [placeholder]="editing() ? 'leave blank to keep' : ''"
                 [(ngModel)]="accessKey"
@@ -85,7 +87,7 @@ type S3Storage = components['schemas']['S3Storage'];
               />
             </div>
             <div class="akd-field">
-              <label for="s3-secret">Secret key</label>
+              <label class="akd-field__label" for="s3-secret">Secret key</label>
               <input
                 id="s3-secret"
                 name="secret_key"
@@ -98,85 +100,111 @@ type S3Storage = components['schemas']['S3Storage'];
               />
             </div>
           </div>
-          <p class="akd-muted hint">
+          <p class="form-hint">
             The keys are write-only: encrypted at rest and never returned by the API.
           </p>
           <div class="actions">
-            <button class="akd-btn" type="submit" [disabled]="busy()">
+            <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
               {{ editing() ? 'Save changes' : 'Add storage' }}
             </button>
             @if (editing()) {
-              <button class="akd-btn-ghost" type="button" (click)="cancelEdit()">Cancel</button>
+              <button class="akd-btn akd-btn--ghost" type="button" (click)="cancelEdit()">
+                Cancel
+              </button>
             }
           </div>
         </form>
-      </section>
+      </akd-card>
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
       } @else if (storages().length === 0) {
-        <div class="akd-empty">
-          <p><strong>No S3 storages yet.</strong></p>
-          <p>Backups need one to leave the server.</p>
-        </div>
+        <akd-empty-state
+          icon="archive"
+          title="No S3 storages yet"
+          message="Backups need one to leave the server."
+        />
       } @else {
-        <table class="akd-table">
-          <caption class="sr-only">S3-compatible storages of this team</caption>
-          <thead>
-            <tr>
-              <th scope="col">Name</th>
-              <th scope="col">Endpoint</th>
-              <th scope="col">Bucket</th>
-              <th scope="col">Status</th>
-              <th scope="col">Last check</th>
-              <th scope="col"><span class="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (storage of storages(); track storage.uuid) {
+        <akd-card [padded]="false">
+          <table class="akd-table">
+            <caption class="sr-only">
+              S3-compatible storages of this team
+            </caption>
+            <thead>
               <tr>
-                <td>{{ storage.name }}</td>
-                <td class="akd-mono">{{ storage.endpoint }}</td>
-                <td class="akd-mono">{{ storage.bucket }}</td>
-                <td>
-                  <akd-status-badge
-                    domain="resource"
-                    [state]="storage.is_usable ? 'ready' : storage.last_check_error ? 'unhealthy' : 'unknown'"
-                    [label]="storage.is_usable ? 'usable' : storage.last_check_error ? 'failing' : 'unverified'"
-                  />
-                </td>
-                <td class="akd-muted">{{ storage.last_check_error ?? '—' }}</td>
-                <td class="right">
-                  <button
-                    class="akd-btn-ghost"
-                    type="button"
-                    [disabled]="validating() === storage.uuid || busy()"
-                    (click)="validate(storage)"
-                  >
-                    {{ validating() === storage.uuid ? 'Validating…' : 'Validate' }}
-                  </button>
-                  <button
-                    class="akd-btn-ghost"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="edit(storage)"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    class="akd-btn-danger"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="remove(storage)"
-                  >
-                    Delete
-                  </button>
-                </td>
+                <th scope="col">Name</th>
+                <th scope="col">Endpoint</th>
+                <th scope="col">Bucket</th>
+                <th scope="col">Status</th>
+                <th scope="col">Last check</th>
+                <th scope="col" class="right"><span class="sr-only">Actions</span></th>
               </tr>
-            }
-          </tbody>
-        </table>
-        <p class="akd-muted hint">
+            </thead>
+            <tbody>
+              @for (storage of storages(); track storage.uuid) {
+                <tr>
+                  <td class="akd-mono">{{ storage.name }}</td>
+                  <td class="akd-mono akd-muted">{{ storage.endpoint }}</td>
+                  <td>
+                    <span class="akd-badge akd-badge--mono">{{ storage.bucket }}</span>
+                  </td>
+                  <td>
+                    <akd-status-badge
+                      domain="resource"
+                      [state]="
+                        storage.is_usable
+                          ? 'ready'
+                          : storage.last_check_error
+                            ? 'unhealthy'
+                            : 'unknown'
+                      "
+                      [label]="
+                        storage.is_usable
+                          ? 'usable'
+                          : storage.last_check_error
+                            ? 'failing'
+                            : 'unverified'
+                      "
+                    />
+                  </td>
+                  <td class="akd-muted">{{ storage.last_check_error ?? '—' }}</td>
+                  <td class="right">
+                    <span class="row-actions">
+                      <button
+                        class="akd-btn akd-btn--secondary akd-btn--sm"
+                        type="button"
+                        [disabled]="validating() === storage.uuid || busy()"
+                        (click)="validate(storage)"
+                      >
+                        <akd-icon name="refresh-cw" [size]="13" />
+                        {{ validating() === storage.uuid ? 'Validating…' : 'Validate' }}
+                      </button>
+                      <button
+                        class="akd-iconbtn"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="edit(storage)"
+                        aria-label="Edit storage"
+                      >
+                        <akd-icon name="pencil" [size]="15" />
+                      </button>
+                      <button
+                        class="akd-iconbtn"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="remove(storage)"
+                        aria-label="Delete storage"
+                      >
+                        <akd-icon name="trash-2" [size]="15" />
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </akd-card>
+        <p class="footnote">
           Validate does a real round-trip: it writes, reads back and deletes a probe object in the
           bucket.
         </p>
@@ -185,33 +213,37 @@ type S3Storage = components['schemas']['S3Storage'];
   `,
   styles: [
     `
-      .form {
+      .create {
+        margin-bottom: var(--space-5);
+      }
+      .fields {
         display: grid;
-        gap: var(--akd-space-3);
+        gap: var(--space-4);
       }
       .row {
-        display: flex;
-        gap: var(--akd-space-3);
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: var(--space-4);
       }
-      .row .akd-field {
-        flex: 1;
-        min-width: 180px;
-      }
-      .hint {
+      .form-hint {
         margin: 0;
-        font-size: var(--akd-text-xs);
+        font-size: var(--text-xs);
+        color: var(--text-3);
       }
       .actions {
         display: flex;
-        gap: var(--akd-space-2);
+        gap: var(--space-2);
       }
-      table + .hint {
-        margin-top: var(--akd-space-2);
+      .row-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-1);
+        justify-content: flex-end;
       }
-      td .akd-btn-ghost,
-      td .akd-btn-danger {
-        margin-left: var(--akd-space-2);
+      .footnote {
+        margin: var(--space-2) 0 0;
+        font-size: var(--text-xs);
+        color: var(--text-3);
       }
     `,
   ],

@@ -54,161 +54,215 @@ type PrivateKey = components['schemas']['PrivateKey'];
         />
 
         @if (application()!.source_type === 'git') {
-          <label class="check">
-            <input
-              type="checkbox"
-              name="autoDeploy"
-              [(ngModel)]="form.autoDeploy"
-              [disabled]="busy()"
-            />
-            Auto-deploy on push (via the webhook endpoint)
-          </label>
-        }
+          <section class="akd-card group">
+            <div class="akd-card__header">
+              <h2 class="akd-card__title">Deploys</h2>
+            </div>
+            <div class="akd-card__body body">
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  class="akd-switch"
+                  name="autoDeploy"
+                  [(ngModel)]="form.autoDeploy"
+                  [disabled]="busy()"
+                />
+                <span>
+                  <span class="switch__label">Auto-deploy on push</span>
+                  <span class="switch__desc">Via the webhook endpoint.</span>
+                </span>
+              </label>
+            </div>
+          </section>
 
-        @if (application()!.source_type === 'git') {
-          <fieldset class="previews">
-            <legend>PR previews</legend>
-            <label class="check">
-              <input
-                type="checkbox"
-                name="previewsEnabled"
-                [(ngModel)]="form.previewsEnabled"
-                [disabled]="busy()"
-              />
-              Deploy a protected preview for every pull request (GitHub App source)
-            </label>
-            @if (form.previewsEnabled) {
-              <div class="akd-field">
-                <label for="pv-template">URL template ({{ templateHint }})</label>
-                <input
-                  id="pv-template"
-                  name="previewUrlTemplate"
-                  class="akd-input akd-mono"
-                  [(ngModel)]="form.previewUrlTemplate"
-                  [disabled]="busy()"
-                />
-              </div>
-              <div class="akd-field">
-                <label for="pv-max">Max concurrent previews (empty = unlimited)</label>
-                <input
-                  id="pv-max"
-                  name="previewMaxConcurrent"
-                  class="akd-input akd-mono"
-                  inputmode="numeric"
-                  [(ngModel)]="form.previewMaxConcurrent"
-                  [disabled]="busy()"
-                />
-              </div>
-              <div class="akd-field">
-                <label for="pv-ttl">Inactivity TTL in minutes (empty = never destroyed)</label>
-                <input
-                  id="pv-ttl"
-                  name="previewTtlMinutes"
-                  class="akd-input akd-mono"
-                  inputmode="numeric"
-                  [(ngModel)]="form.previewTtlMinutes"
-                  [disabled]="busy()"
-                />
-              </div>
-              <div class="akd-field">
-                <label for="pv-protection">Access protection</label>
-                <select
-                  id="pv-protection"
-                  name="previewProtection"
-                  class="akd-select"
-                  [(ngModel)]="form.previewProtection"
-                  [disabled]="busy()"
-                >
-                  <option value="basic_auth">Basic auth (default)</option>
-                  <option value="none">Public (explicit choice)</option>
-                </select>
-              </div>
-              <label class="check">
+          <section class="akd-card group">
+            <div class="akd-card__header">
+              <h2 class="akd-card__title">PR previews</h2>
+            </div>
+            <div class="akd-card__body body">
+              <label class="switch">
                 <input
                   type="checkbox"
-                  name="previewForkApproval"
-                  [(ngModel)]="form.previewForkApprovalEnabled"
+                  class="akd-switch"
+                  name="previewsEnabled"
+                  [(ngModel)]="form.previewsEnabled"
                   [disabled]="busy()"
                 />
-                Allow fork PRs after maintainer approval (no secret ever injected)
+                <span>
+                  <span class="switch__label">PR previews</span>
+                  <span class="switch__desc">
+                    Deploy a protected preview for every pull request (GitHub App source).
+                  </span>
+                </span>
               </label>
-              <label class="check">
-                <input
-                  type="checkbox"
-                  name="previewExcludeDrafts"
-                  [(ngModel)]="form.previewExcludeDrafts"
-                  [disabled]="busy()"
-                />
-                Skip draft pull requests
-              </label>
-              <div class="akd-field">
-                <label for="pv-label">Required PR label (empty = every PR gets a preview)</label>
-                <input
-                  id="pv-label"
-                  name="previewRequireLabel"
-                  class="akd-input akd-mono"
-                  [(ngModel)]="form.previewRequireLabel"
-                  [disabled]="busy()"
-                />
-              </div>
-              <label class="check">
-                <input
-                  type="checkbox"
-                  name="previewCommentCommands"
-                  [(ngModel)]="form.previewCommentCommandsEnabled"
-                  [disabled]="busy()"
-                />
-                Enable /deploy and /destroy comment commands on pull requests
-              </label>
-              <label class="check">
-                <input
-                  type="checkbox"
-                  name="previewCancelObsoleteBuilds"
-                  [(ngModel)]="form.previewCancelObsoleteBuilds"
-                  [disabled]="busy()"
-                />
-                Cancel the preview build made obsolete by a new commit
-              </label>
-              <div class="akd-field">
-                <label for="pv-token">
-                  Provider API token (GitLab / Gitea PAT)
-                  @if (application()!.git_api_token_set) {
-                    <span class="akd-muted">— a token is configured</span>
-                  }
-                </label>
-                <input
-                  id="pv-token"
-                  name="gitApiToken"
-                  type="password"
-                  class="akd-input"
-                  autocomplete="new-password"
-                  [placeholder]="application()!.git_api_token_set ? 'leave blank to keep' : ''"
-                  [(ngModel)]="form.gitApiToken"
-                  [disabled]="busy() || form.gitApiTokenClear"
-                />
-              </div>
-              @if (application()!.git_api_token_set) {
-                <label class="check">
+              @if (form.previewsEnabled) {
+                <div class="akd-field">
+                  <label class="akd-field__label" for="pv-template">
+                    URL template ({{ templateHint }})
+                  </label>
                   <input
-                    type="checkbox"
-                    name="gitApiTokenClear"
-                    [(ngModel)]="form.gitApiTokenClear"
+                    id="pv-template"
+                    name="previewUrlTemplate"
+                    class="akd-input akd-input--mono"
+                    [(ngModel)]="form.previewUrlTemplate"
                     [disabled]="busy()"
                   />
-                  Remove the configured token
+                </div>
+                <div class="akd-field">
+                  <label class="akd-field__label" for="pv-max">
+                    Max concurrent previews (empty = unlimited)
+                  </label>
+                  <input
+                    id="pv-max"
+                    name="previewMaxConcurrent"
+                    class="akd-input akd-input--mono"
+                    inputmode="numeric"
+                    [(ngModel)]="form.previewMaxConcurrent"
+                    [disabled]="busy()"
+                  />
+                </div>
+                <div class="akd-field">
+                  <label class="akd-field__label" for="pv-ttl">
+                    Inactivity TTL in minutes (empty = never destroyed)
+                  </label>
+                  <input
+                    id="pv-ttl"
+                    name="previewTtlMinutes"
+                    class="akd-input akd-input--mono"
+                    inputmode="numeric"
+                    [(ngModel)]="form.previewTtlMinutes"
+                    [disabled]="busy()"
+                  />
+                </div>
+                <div class="akd-field">
+                  <label class="akd-field__label" for="pv-protection">Access protection</label>
+                  <div class="akd-select">
+                    <select
+                      id="pv-protection"
+                      name="previewProtection"
+                      class="akd-input"
+                      [(ngModel)]="form.previewProtection"
+                      [disabled]="busy()"
+                    >
+                      <option value="basic_auth">Basic auth (default)</option>
+                      <option value="none">Public (explicit choice)</option>
+                    </select>
+                  </div>
+                </div>
+                <label class="switch">
+                  <input
+                    type="checkbox"
+                    class="akd-switch"
+                    name="previewForkApproval"
+                    [(ngModel)]="form.previewForkApprovalEnabled"
+                    [disabled]="busy()"
+                  />
+                  <span>
+                    <span class="switch__label">Fork PRs after approval</span>
+                    <span class="switch__desc">
+                      Allow fork PRs after maintainer approval (no secret ever injected).
+                    </span>
+                  </span>
                 </label>
+                <label class="switch">
+                  <input
+                    type="checkbox"
+                    class="akd-switch"
+                    name="previewExcludeDrafts"
+                    [(ngModel)]="form.previewExcludeDrafts"
+                    [disabled]="busy()"
+                  />
+                  <span>
+                    <span class="switch__label">Skip draft pull requests</span>
+                  </span>
+                </label>
+                <div class="akd-field">
+                  <label class="akd-field__label" for="pv-label">
+                    Required PR label (empty = every PR gets a preview)
+                  </label>
+                  <input
+                    id="pv-label"
+                    name="previewRequireLabel"
+                    class="akd-input akd-input--mono"
+                    [(ngModel)]="form.previewRequireLabel"
+                    [disabled]="busy()"
+                  />
+                </div>
+                <label class="switch">
+                  <input
+                    type="checkbox"
+                    class="akd-switch"
+                    name="previewCommentCommands"
+                    [(ngModel)]="form.previewCommentCommandsEnabled"
+                    [disabled]="busy()"
+                  />
+                  <span>
+                    <span class="switch__label">Comment commands</span>
+                    <span class="switch__desc">
+                      Enable /deploy and /destroy comment commands on pull requests.
+                    </span>
+                  </span>
+                </label>
+                <label class="switch">
+                  <input
+                    type="checkbox"
+                    class="akd-switch"
+                    name="previewCancelObsoleteBuilds"
+                    [(ngModel)]="form.previewCancelObsoleteBuilds"
+                    [disabled]="busy()"
+                  />
+                  <span>
+                    <span class="switch__label">Cancel obsolete builds</span>
+                    <span class="switch__desc">
+                      Cancel the preview build made obsolete by a new commit.
+                    </span>
+                  </span>
+                </label>
+                <div class="akd-field">
+                  <label class="akd-field__label" for="pv-token">
+                    Provider API token (GitLab / Gitea PAT)
+                    @if (application()!.git_api_token_set) {
+                      <span class="akd-muted">— a token is configured</span>
+                    }
+                  </label>
+                  <input
+                    id="pv-token"
+                    name="gitApiToken"
+                    type="password"
+                    class="akd-input"
+                    autocomplete="new-password"
+                    [placeholder]="application()!.git_api_token_set ? 'leave blank to keep' : ''"
+                    [(ngModel)]="form.gitApiToken"
+                    [disabled]="busy() || form.gitApiTokenClear"
+                  />
+                </div>
+                @if (application()!.git_api_token_set) {
+                  <label class="akd-check">
+                    <input
+                      type="checkbox"
+                      name="gitApiTokenClear"
+                      [(ngModel)]="form.gitApiTokenClear"
+                      [disabled]="busy()"
+                    />
+                    Remove the configured token
+                  </label>
+                }
+                <p class="akd-field__hint hint">
+                  The token is write-only: encrypted at rest, never returned by the API. Comment
+                  commands and GitLab/Gitea preview feedback (commit statuses, PR comment) need it
+                  for manual webhook sources — not needed with a GitHub App.
+                </p>
               }
-              <p class="akd-muted hint">
-                The token is write-only: encrypted at rest, never returned by the API. Comment
-                commands and GitLab/Gitea preview feedback (commit statuses, PR comment) need it
-                for manual webhook sources — not needed with a GitHub App.
-              </p>
-            }
-          </fieldset>
+            </div>
+          </section>
         }
 
         <div class="actions">
-          <button class="akd-btn" type="submit" [disabled]="busy() || !form.name.trim()">
+          <button
+            class="akd-btn akd-btn--primary"
+            type="submit"
+            [disabled]="busy() || !form.name.trim()"
+          >
             {{ busy() ? 'Saving…' : 'Save settings' }}
           </button>
           <span class="akd-muted">
@@ -223,39 +277,38 @@ type PrivateKey = components['schemas']['PrivateKey'];
       .form {
         max-width: 44rem;
         display: grid;
-        gap: var(--akd-space-3);
+        gap: var(--space-4);
       }
-      .previews {
-        margin: 0;
-        padding: var(--akd-space-3) var(--akd-space-4) var(--akd-space-4);
-        border: 1px solid var(--akd-border);
-        border-radius: var(--akd-radius-lg);
+      .body {
         display: grid;
-        gap: var(--akd-space-3);
+        gap: var(--space-4);
       }
-      .previews legend {
-        padding: 0 var(--akd-space-2);
-        font-size: var(--akd-text-xs);
-        font-weight: var(--akd-weight-semibold);
-        color: var(--akd-text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+      .switch {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--space-3);
+        cursor: pointer;
+      }
+      .switch > .akd-switch {
+        margin-top: var(--space-1);
+      }
+      .switch__label {
+        display: block;
+        font-weight: var(--weight-medium);
+        color: var(--text-1);
+      }
+      .switch__desc {
+        display: block;
+        font-size: var(--text-sm);
+        color: var(--text-3);
       }
       .hint {
         margin: 0;
-        font-size: var(--akd-text-xs);
-      }
-      .check {
-        display: flex;
-        align-items: center;
-        gap: var(--akd-space-2);
-        font-size: var(--akd-text-sm);
-        color: var(--akd-text);
       }
       .actions {
         display: flex;
         align-items: center;
-        gap: var(--akd-space-3);
+        gap: var(--space-3);
         flex-wrap: wrap;
       }
     `,

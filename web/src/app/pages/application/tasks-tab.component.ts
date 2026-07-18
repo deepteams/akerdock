@@ -9,6 +9,9 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { StatusBadgeComponent } from '../../../ui/status-badge/status-badge.component';
+import { CardComponent } from '../../../ui/card/card.component';
+import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
+import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
 import type { components } from '../../../api/schema';
 
@@ -18,222 +21,264 @@ type TaskExecution = components['schemas']['TaskExecution'];
 @Component({
   selector: 'app-application-tasks-tab',
   standalone: true,
-  imports: [FormsModule, StatusBadgeComponent],
+  imports: [FormsModule, StatusBadgeComponent, CardComponent, EmptyStateComponent, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (error(); as message) {
       <p class="akd-error" role="alert">{{ message }}</p>
     }
 
-    <form class="akd-card create" (ngSubmit)="create()">
-      <div class="akd-field">
-        <label for="tk-name">Name</label>
-        <input
-          id="tk-name"
-          name="name"
-          class="akd-input"
-          required
-          [(ngModel)]="name"
-          [disabled]="busy()"
-        />
-      </div>
-      <div class="akd-field">
-        <label for="tk-command">Command (run in the container)</label>
-        <input
-          id="tk-command"
-          name="command"
-          class="akd-input akd-mono"
-          placeholder="php artisan schedule:run"
-          required
-          [(ngModel)]="command"
-          [disabled]="busy()"
-        />
-      </div>
-      <div class="akd-field">
-        <label for="tk-cron">Cron expression</label>
-        <input
-          id="tk-cron"
-          name="cron"
-          class="akd-input akd-mono"
-          placeholder="0 3 * * *"
-          required
-          [(ngModel)]="cron"
-          [disabled]="busy()"
-        />
-      </div>
-      <div>
-        <button class="akd-btn" type="submit" [disabled]="busy() || !valid()">Add task</button>
-      </div>
-    </form>
+    <akd-card title="Add task" class="create">
+      <form class="form" (ngSubmit)="create()">
+        <div class="akd-field">
+          <label class="akd-field__label" for="tk-name">Name</label>
+          <input
+            id="tk-name"
+            name="name"
+            class="akd-input"
+            required
+            [(ngModel)]="name"
+            [disabled]="busy()"
+          />
+        </div>
+        <div class="akd-field">
+          <label class="akd-field__label" for="tk-command">Command (run in the container)</label>
+          <input
+            id="tk-command"
+            name="command"
+            class="akd-input akd-input--mono"
+            placeholder="php artisan schedule:run"
+            required
+            [(ngModel)]="command"
+            [disabled]="busy()"
+          />
+        </div>
+        <div class="akd-field">
+          <label class="akd-field__label" for="tk-cron">Cron expression</label>
+          <input
+            id="tk-cron"
+            name="cron"
+            class="akd-input akd-input--mono"
+            placeholder="0 3 * * *"
+            required
+            [(ngModel)]="cron"
+            [disabled]="busy()"
+          />
+        </div>
+        <div>
+          <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy() || !valid()">
+            <akd-icon name="plus" [size]="15" />
+            Add task
+          </button>
+        </div>
+      </form>
+    </akd-card>
 
     @if (loading()) {
       <p class="akd-muted">Loading…</p>
     } @else if (tasks().length === 0) {
-      <div class="akd-empty">
-        <p><strong>No scheduled tasks.</strong></p>
-      </div>
+      <akd-empty-state icon="clock" title="No scheduled tasks" />
     } @else {
-      <table class="akd-table">
-        <caption class="sr-only">Scheduled tasks of this application</caption>
-        <thead>
-          <tr>
-            <th scope="col">Name</th>
-            <th scope="col">Command</th>
-            <th scope="col">Schedule</th>
-            <th scope="col">Next run</th>
-            <th scope="col"><span class="sr-only">Actions</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (task of tasks(); track task.uuid) {
+      <akd-card title="Scheduled tasks" [padded]="false">
+        <table class="akd-table">
+          <caption class="sr-only">
+            Scheduled tasks of this application
+          </caption>
+          <thead>
             <tr>
-              <td>{{ task.name }}</td>
-              <td class="akd-mono">{{ task.command }}</td>
-              <td class="akd-mono">{{ task.cron_expression }}</td>
-              <td class="akd-muted">{{ task.next_run_at ?? '—' }}</td>
-              <td class="right">
-                <button
-                  class="akd-btn-ghost"
-                  type="button"
-                  [disabled]="busy()"
-                  (click)="run(task)"
-                >
-                  Run now
-                </button>
-                <button
-                  class="akd-btn-ghost"
-                  type="button"
-                  [disabled]="busy()"
-                  (click)="startEdit(task)"
-                >
-                  Edit
-                </button>
-                <button
-                  class="akd-btn-ghost"
-                  type="button"
-                  [attr.aria-expanded]="expanded() === task.uuid"
-                  (click)="toggleHistory(task)"
-                >
-                  {{ expanded() === task.uuid ? 'Hide runs' : 'Runs' }}
-                </button>
-                <button
-                  class="akd-btn-danger"
-                  type="button"
-                  [disabled]="busy()"
-                  (click)="remove(task)"
-                >
-                  Delete
-                </button>
-              </td>
+              <th scope="col">Name</th>
+              <th scope="col">Command</th>
+              <th scope="col">Schedule</th>
+              <th scope="col">Next run</th>
+              <th scope="col" class="right"><span class="sr-only">Actions</span></th>
             </tr>
-            @if (editing() === task.uuid) {
+          </thead>
+          <tbody>
+            @for (task of tasks(); track task.uuid) {
               <tr>
-                <td colspan="5">
-                  <form class="edit" (ngSubmit)="saveEdit(task)">
-                    <div class="akd-field">
-                      <label [for]="'te-name-' + task.uuid">Name</label>
-                      <input
-                        [id]="'te-name-' + task.uuid"
-                        name="editName"
-                        class="akd-input"
-                        [(ngModel)]="editName"
-                        [disabled]="busy()"
-                      />
-                    </div>
-                    <div class="akd-field">
-                      <label [for]="'te-command-' + task.uuid">Command</label>
-                      <input
-                        [id]="'te-command-' + task.uuid"
-                        name="editCommand"
-                        class="akd-input akd-mono"
-                        [(ngModel)]="editCommand"
-                        [disabled]="busy()"
-                      />
-                    </div>
-                    <div class="akd-field">
-                      <label [for]="'te-cron-' + task.uuid">Cron expression</label>
-                      <input
-                        [id]="'te-cron-' + task.uuid"
-                        name="editCron"
-                        class="akd-input akd-mono"
-                        [(ngModel)]="editCron"
-                        [disabled]="busy()"
-                      />
-                    </div>
-                    <div class="edit-actions">
-                      <button class="akd-btn" type="submit" [disabled]="busy()">Save</button>
-                      <button class="akd-btn-ghost" type="button" (click)="editing.set(null)">
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
+                <td>{{ task.name }}</td>
+                <td class="akd-mono">{{ task.command }}</td>
+                <td>
+                  <span class="akd-badge akd-badge--mono">{{ task.cron_expression }}</span>
+                </td>
+                <td class="akd-muted">{{ task.next_run_at ?? '—' }}</td>
+                <td class="right">
+                  <div class="row-actions">
+                    <button
+                      class="akd-btn akd-btn--ghost akd-btn--sm"
+                      type="button"
+                      [disabled]="busy()"
+                      (click)="run(task)"
+                    >
+                      <akd-icon name="play" [size]="13" />
+                      Run now
+                    </button>
+                    <button
+                      class="akd-btn akd-btn--ghost akd-btn--sm"
+                      type="button"
+                      [disabled]="busy()"
+                      (click)="startEdit(task)"
+                    >
+                      <akd-icon name="pencil" [size]="13" />
+                      Edit
+                    </button>
+                    <button
+                      class="akd-btn akd-btn--ghost akd-btn--sm"
+                      type="button"
+                      [attr.aria-expanded]="expanded() === task.uuid"
+                      (click)="toggleHistory(task)"
+                    >
+                      {{ expanded() === task.uuid ? 'Hide runs' : 'Runs' }}
+                    </button>
+                    <button
+                      class="akd-btn akd-btn--danger akd-btn--sm"
+                      type="button"
+                      [disabled]="busy()"
+                      (click)="remove(task)"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
-            }
-            @if (expanded() === task.uuid) {
-              <tr>
-                <td colspan="5">
-                  @if (executions().length === 0) {
-                    <p class="akd-muted">Never run.</p>
-                  } @else {
-                    <table class="akd-table">
-                      <caption class="sr-only">Recent runs of {{ task.name }}</caption>
-                      <thead>
-                        <tr>
-                          <th scope="col">Status</th>
-                          <th scope="col">Started</th>
-                          <th scope="col">Exit code</th>
-                          <th scope="col">Output</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        @for (exec of executions(); track exec.uuid) {
+              @if (editing() === task.uuid) {
+                <tr>
+                  <td colspan="5">
+                    <form class="edit" (ngSubmit)="saveEdit(task)">
+                      <div class="akd-field">
+                        <label class="akd-field__label" [for]="'te-name-' + task.uuid">Name</label>
+                        <input
+                          [id]="'te-name-' + task.uuid"
+                          name="editName"
+                          class="akd-input"
+                          [(ngModel)]="editName"
+                          [disabled]="busy()"
+                        />
+                      </div>
+                      <div class="akd-field">
+                        <label class="akd-field__label" [for]="'te-command-' + task.uuid">
+                          Command
+                        </label>
+                        <input
+                          [id]="'te-command-' + task.uuid"
+                          name="editCommand"
+                          class="akd-input akd-input--mono"
+                          [(ngModel)]="editCommand"
+                          [disabled]="busy()"
+                        />
+                      </div>
+                      <div class="akd-field">
+                        <label class="akd-field__label" [for]="'te-cron-' + task.uuid">
+                          Cron expression
+                        </label>
+                        <input
+                          [id]="'te-cron-' + task.uuid"
+                          name="editCron"
+                          class="akd-input akd-input--mono"
+                          [(ngModel)]="editCron"
+                          [disabled]="busy()"
+                        />
+                      </div>
+                      <div class="edit-actions">
+                        <button
+                          class="akd-btn akd-btn--primary akd-btn--sm"
+                          type="submit"
+                          [disabled]="busy()"
+                        >
+                          Save
+                        </button>
+                        <button
+                          class="akd-btn akd-btn--secondary akd-btn--sm"
+                          type="button"
+                          (click)="editing.set(null)"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  </td>
+                </tr>
+              }
+              @if (expanded() === task.uuid) {
+                <tr>
+                  <td colspan="5">
+                    @if (executions().length === 0) {
+                      <p class="akd-muted">Never run.</p>
+                    } @else {
+                      <table class="akd-table">
+                        <caption class="sr-only">
+                          Recent runs of
+                          {{
+                            task.name
+                          }}
+                        </caption>
+                        <thead>
                           <tr>
-                            <td>
-                              <akd-status-badge domain="task" [state]="exec.status" />
-                              @if (exec.skip_reason) {
-                                <span class="akd-muted"> {{ exec.skip_reason }}</span>
-                              }
-                            </td>
-                            <td class="akd-muted">{{ exec.started_at }}</td>
-                            <td class="akd-mono">{{ exec.exit_code ?? '—' }}</td>
-                            <td>
-                              @if (exec.output) {
-                                <pre class="akd-mono output">{{ exec.output }}</pre>
-                                @if (exec.output_truncated) {
-                                  <p class="akd-muted">Output truncated by the server.</p>
-                                }
-                              } @else {
-                                <span class="akd-muted">—</span>
-                              }
-                            </td>
+                            <th scope="col">Status</th>
+                            <th scope="col">Started</th>
+                            <th scope="col">Exit code</th>
+                            <th scope="col">Output</th>
                           </tr>
-                        }
-                      </tbody>
-                    </table>
-                  }
-                </td>
-              </tr>
+                        </thead>
+                        <tbody>
+                          @for (exec of executions(); track exec.uuid) {
+                            <tr>
+                              <td>
+                                <akd-status-badge domain="task" [state]="exec.status" />
+                                @if (exec.skip_reason) {
+                                  <span class="akd-muted"> {{ exec.skip_reason }}</span>
+                                }
+                              </td>
+                              <td class="akd-muted">{{ exec.started_at }}</td>
+                              <td class="akd-mono">{{ exec.exit_code ?? '—' }}</td>
+                              <td>
+                                @if (exec.output) {
+                                  <pre class="akd-mono output">{{ exec.output }}</pre>
+                                  @if (exec.output_truncated) {
+                                    <p class="akd-muted">Output truncated by the server.</p>
+                                  }
+                                } @else {
+                                  <span class="akd-muted">—</span>
+                                }
+                              </td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    }
+                  </td>
+                </tr>
+              }
             }
-          }
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </akd-card>
     }
   `,
   styles: [
     `
       .create {
-        margin-bottom: var(--akd-space-5);
+        display: block;
+        margin-bottom: var(--space-5);
         max-width: 32rem;
+      }
+      .form {
+        display: grid;
+        gap: var(--space-3);
       }
       .edit {
         display: grid;
-        gap: var(--akd-space-3);
+        gap: var(--space-3);
         max-width: 32rem;
+        padding: var(--space-3) 0;
       }
-      .edit-actions {
+      .edit-actions,
+      .row-actions {
         display: flex;
-        gap: var(--akd-space-2);
+        gap: var(--space-2);
+      }
+      .row-actions {
+        justify-content: flex-end;
       }
       .output {
         margin: 0;
@@ -379,9 +424,7 @@ export class ApplicationTasksTabComponent {
 
   protected async remove(task: ScheduledTask): Promise<void> {
     if (
-      !confirm(
-        `Delete the task "${task.name}"? Its schedule stops and its run history is removed.`,
-      )
+      !confirm(`Delete the task "${task.name}"? Its schedule stops and its run history is removed.`)
     ) {
       return;
     }

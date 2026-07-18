@@ -227,10 +227,19 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) *auth.Ident
 		return nil
 	}
 
+	// The session row may carry no explicit current team (single-team users
+	// never pick one): the membership is then the acting team. Either way the
+	// public UUID must be filled — /auth/me hands it to the dashboard, which
+	// addresses every /teams/{uuid} endpoint with it.
+	if teamID == 0 {
+		teamID = membership.TeamID
+	}
+
 	return &auth.Identity{
 		TokenID:     row.ID,
 		TokenUUID:   uuidString(row.Uuid),
 		TeamID:      teamID,
+		TeamUUID:    uuidString(membership.TeamUuid),
 		Permissions: PermissionsForRole(membership.Role),
 		Session:     true,
 	}

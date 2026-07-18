@@ -1,12 +1,13 @@
 import { ChangeDetectionStrategy, Component, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
 
 @Component({
   selector: 'app-application-danger-tab',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (error(); as message) {
@@ -14,26 +15,34 @@ import { ApiService } from '../../core/api.service';
     }
 
     <section class="akd-card zone">
-      <header class="akd-bar" style="margin-bottom: 0">
-        <h2>Delete this application</h2>
-      </header>
-      <p class="akd-muted">
-        The container is stopped and removed, the routing is dropped, and the configuration is
-        deleted. Deletion runs as a job — it continues even if this page is closed.
-      </p>
-      <label class="check">
-        <input
-          type="checkbox"
-          name="deleteVolumes"
-          [(ngModel)]="deleteVolumes"
-          [disabled]="busy()"
-        />
-        Also delete its volumes — the persisted data is destroyed with them
-      </label>
-      <div>
-        <button class="akd-btn-danger" type="button" [disabled]="busy()" (click)="destroy()">
-          {{ busy() ? 'Deleting…' : 'Delete application' }}
-        </button>
+      <div class="akd-card__header">
+        <h2 class="akd-card__title">Danger zone</h2>
+      </div>
+      <div class="akd-card__body body">
+        <p class="akd-muted intro">
+          The container is stopped and removed, the routing is dropped, and the configuration is
+          deleted. Deletion runs as a job — it continues even if this page is closed.
+        </p>
+        <label class="akd-check">
+          <input
+            type="checkbox"
+            name="deleteVolumes"
+            [(ngModel)]="deleteVolumes"
+            [disabled]="busy()"
+          />
+          Also delete its volumes — the persisted data is destroyed with them
+        </label>
+        <div>
+          <button
+            class="akd-btn akd-btn--danger"
+            type="button"
+            [disabled]="busy()"
+            (click)="destroy()"
+          >
+            <akd-icon name="trash-2" [size]="15" />
+            {{ busy() ? 'Deleting…' : 'Delete application' }}
+          </button>
+        </div>
       </div>
     </section>
   `,
@@ -41,14 +50,14 @@ import { ApiService } from '../../core/api.service';
     `
       .zone {
         max-width: 44rem;
-        border-color: var(--akd-status-danger-fg);
+        border-color: var(--danger-border);
       }
-      .check {
-        display: flex;
-        align-items: center;
-        gap: var(--akd-space-2);
-        font-size: var(--akd-text-sm);
-        color: var(--akd-text);
+      .body {
+        display: grid;
+        gap: var(--space-3);
+      }
+      .intro {
+        margin: 0;
       }
     `,
   ],

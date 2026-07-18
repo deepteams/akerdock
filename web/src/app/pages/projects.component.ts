@@ -1,8 +1,11 @@
-import { SlicePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
+import { CardComponent } from '../../ui/card/card.component';
+import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
+import { IconComponent } from '../../ui/icon/icon.component';
+import { StatComponent } from '../../ui/stat/stat.component';
 import type { components } from '../../api/schema';
 
 type Project = components['schemas']['Project'];
@@ -10,15 +13,29 @@ type Project = components['schemas']['Project'];
 @Component({
   selector: 'app-projects',
   standalone: true,
-  imports: [FormsModule, RouterLink, SlicePipe],
+  imports: [
+    FormsModule,
+    RouterLink,
+    CardComponent,
+    EmptyStateComponent,
+    IconComponent,
+    StatComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
         <h1>Projects</h1>
-        <button class="akd-btn" type="button" (click)="creating.set(!creating())">
-          {{ creating() ? 'Cancel' : 'New project' }}
-        </button>
+        @if (creating()) {
+          <button class="akd-btn akd-btn--ghost" type="button" (click)="creating.set(false)">
+            Cancel
+          </button>
+        } @else {
+          <button class="akd-btn akd-btn--primary" type="button" (click)="creating.set(true)">
+            <akd-icon name="plus" [size]="15" />
+            New project
+          </button>
+        }
       </header>
 
       @if (error(); as message) {
@@ -26,86 +43,169 @@ type Project = components['schemas']['Project'];
       }
 
       @if (creating()) {
-        <form class="akd-card create" (ngSubmit)="create()">
-          <div class="akd-field">
-            <label for="pr-name">Name</label>
-            <input
-              id="pr-name"
-              name="name"
-              class="akd-input"
-              required
-              [(ngModel)]="name"
-              [disabled]="busy()"
-            />
-          </div>
-          <div class="akd-field">
-            <label for="pr-description">Description (optional)</label>
-            <input
-              id="pr-description"
-              name="description"
-              class="akd-input"
-              [(ngModel)]="description"
-              [disabled]="busy()"
-            />
-          </div>
-          <div>
-            <button class="akd-btn" type="submit" [disabled]="busy() || !name.trim()">
-              {{ busy() ? 'Creating…' : 'Create project' }}
-            </button>
-          </div>
-        </form>
+        <akd-card title="New project" class="create">
+          <form class="create__form" (ngSubmit)="create()">
+            <div class="akd-field">
+              <label class="akd-field__label" for="pr-name">Name</label>
+              <input
+                id="pr-name"
+                name="name"
+                class="akd-input akd-input--mono"
+                placeholder="my-product"
+                required
+                [(ngModel)]="name"
+                [disabled]="busy()"
+              />
+            </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="pr-description">Description</label>
+              <input
+                id="pr-description"
+                name="description"
+                class="akd-input"
+                [(ngModel)]="description"
+                [disabled]="busy()"
+              />
+              <span class="akd-field__hint">Optional — shown on the project card.</span>
+            </div>
+            <div class="create__actions">
+              <button
+                class="akd-btn akd-btn--primary"
+                type="submit"
+                [disabled]="busy() || !name.trim()"
+              >
+                <akd-icon name="plus" [size]="15" />
+                {{ busy() ? 'Creating…' : 'Create project' }}
+              </button>
+            </div>
+          </form>
+        </akd-card>
       }
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
       } @else if (projects().length === 0) {
-        <div class="akd-empty">
-          <p><strong>No projects yet.</strong></p>
-          <p>A project groups environments; environments hold the resources.</p>
-        </div>
+        <akd-empty-state
+          icon="folder-git-2"
+          title="No projects yet"
+          message="A project groups environments; environments hold the resources."
+        >
+          @if (!creating()) {
+            <button class="akd-btn akd-btn--primary" type="button" (click)="creating.set(true)">
+              <akd-icon name="plus" [size]="15" />
+              New project
+            </button>
+          }
+        </akd-empty-state>
       } @else {
-        <table class="akd-table">
-          <caption class="sr-only">Projects of this team</caption>
-          <thead>
-            <tr>
-              <th scope="col">Name</th>
-              <th scope="col">Description</th>
-              <th scope="col">Environments</th>
-              <th scope="col">Created</th>
-              <th scope="col"><span class="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (project of projects(); track project.uuid) {
-              <tr>
-                <td>
-                  <a [routerLink]="['/projects', project.uuid]">{{ project.name }}</a>
-                </td>
-                <td class="akd-muted">{{ project.description || '—' }}</td>
-                <td class="akd-muted">{{ project.environments?.length ?? 0 }}</td>
-                <td class="akd-muted">{{ project.created_at | slice: 0 : 10 }}</td>
-                <td class="right">
-                  <button
-                    class="akd-btn-danger"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="remove(project)"
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
+        <div class="stats">
+          <akd-card><akd-stat label="Projects" [value]="projects().length" /></akd-card>
+          <akd-card><akd-stat label="Environments" [value]="totalEnvironments()" /></akd-card>
+        </div>
+
+        <div class="grid">
+          @for (project of projects(); track project.uuid) {
+            <div class="pcard akd-card">
+              <div class="pcard__head">
+                <span class="pcard__icon"><akd-icon name="folder-git-2" [size]="17" /></span>
+                <a class="pcard__name" [routerLink]="['/projects', project.uuid]">
+                  {{ project.name }}
+                </a>
+                <span class="spacer"></span>
+                <button
+                  class="akd-iconbtn pcard__delete"
+                  type="button"
+                  [attr.aria-label]="'Delete project ' + project.name"
+                  [disabled]="busy()"
+                  (click)="remove(project)"
+                >
+                  <akd-icon name="trash-2" [size]="15" />
+                </button>
+              </div>
+              <div class="pcard__desc akd-muted">{{ project.description || '—' }}</div>
+              <div class="pcard__badges">
+                <span class="akd-badge akd-badge--mono">
+                  {{ project.environments?.length ?? 0 }} environments
+                </span>
+              </div>
+            </div>
+          }
+        </div>
       }
     </div>
   `,
   styles: [
     `
       .create {
-        margin-bottom: var(--akd-space-5);
+        display: block;
+        margin-bottom: var(--space-5);
         max-width: 32rem;
+      }
+      .create__form {
+        display: grid;
+        gap: var(--space-4);
+      }
+      .create__actions {
+        display: flex;
+        justify-content: flex-end;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+        gap: var(--space-4);
+        margin-bottom: var(--space-5);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr));
+        gap: var(--space-4);
+      }
+      .pcard {
+        position: relative;
+        display: grid;
+        gap: var(--space-3);
+        transition: border-color var(--dur-1) var(--ease-out);
+      }
+      .pcard:hover {
+        border-color: var(--border-2);
+      }
+      .pcard__head {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        min-width: 0;
+      }
+      .pcard__icon {
+        color: var(--accent);
+        display: inline-flex;
+      }
+      .pcard__name {
+        font: var(--weight-semibold) var(--text-lg) var(--font-mono);
+        color: var(--text-1);
+        text-decoration: none;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      /* Stretched link: the whole card navigates to the project. */
+      .pcard__name::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+      }
+      .spacer {
+        flex: 1;
+      }
+      .pcard__delete {
+        position: relative;
+        z-index: 1;
+      }
+      .pcard__desc {
+        font-size: var(--text-sm);
+      }
+      .pcard__badges {
+        display: flex;
+        gap: var(--space-2);
       }
     `,
   ],
@@ -118,6 +218,9 @@ export class ProjectsComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
   protected readonly creating = signal(false);
+  protected readonly totalEnvironments = computed(() =>
+    this.projects().reduce((sum, project) => sum + (project.environments?.length ?? 0), 0),
+  );
   protected name = '';
   protected description = '';
 

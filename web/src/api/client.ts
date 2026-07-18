@@ -136,7 +136,12 @@ export class AkerDockClient {
   // Each return type comes from the contract, so a spec change that removes a
   // field breaks the build here rather than at runtime, in front of a user.
 
-  listApplications(query?: { cursor?: string; limit?: number }) {
+  listApplications(query?: {
+    cursor?: string;
+    limit?: number;
+    project_uuid?: string;
+    environment_uuid?: string;
+  }) {
     type Response =
       paths['/applications']['get']['responses']['200']['content']['application/json'];
     return this.request<Response>('GET', '/applications', { query });
@@ -230,7 +235,8 @@ export class AkerDockClient {
   }
 
   createGithubApp(body: components['schemas']['GithubAppCreateRequest']) {
-    type Response = paths['/github-apps']['post']['responses']['201']['content']['application/json'];
+    type Response =
+      paths['/github-apps']['post']['responses']['201']['content']['application/json'];
     return this.request<Response>('POST', '/github-apps', { body });
   }
 
@@ -1184,7 +1190,10 @@ export class AkerDockClient {
     return this.request<Response>('GET', `/service-components/${componentUuid}/backups`, { query });
   }
 
-  createComponentBackupPlan(componentUuid: string, body: components['schemas']['BackupPlanCreate']) {
+  createComponentBackupPlan(
+    componentUuid: string,
+    body: components['schemas']['BackupPlanCreate'],
+  ) {
     type Response =
       paths['/service-components/{service_component_uuid}/backups']['post']['responses']['201']['content']['application/json'];
     return this.request<Response>('POST', `/service-components/${componentUuid}/backups`, { body });
@@ -1193,7 +1202,10 @@ export class AkerDockClient {
   getComponentBackupPlan(componentUuid: string, backupPlanUuid: string) {
     type Response =
       paths['/service-components/{service_component_uuid}/backups/{backup_plan_uuid}']['get']['responses']['200']['content']['application/json'];
-    return this.request<Response>('GET', `/service-components/${componentUuid}/backups/${backupPlanUuid}`);
+    return this.request<Response>(
+      'GET',
+      `/service-components/${componentUuid}/backups/${backupPlanUuid}`,
+    );
   }
 
   updateComponentBackupPlan(
@@ -1212,7 +1224,10 @@ export class AkerDockClient {
   }
 
   deleteComponentBackupPlan(componentUuid: string, backupPlanUuid: string) {
-    return this.request<void>('DELETE', `/service-components/${componentUuid}/backups/${backupPlanUuid}`);
+    return this.request<void>(
+      'DELETE',
+      `/service-components/${componentUuid}/backups/${backupPlanUuid}`,
+    );
   }
 
   executeComponentBackupPlan(componentUuid: string, backupPlanUuid: string) {
@@ -1304,7 +1319,11 @@ export class AkerDockClient {
     return this.request<Response>('GET', `/uptime-checks/${uuid}`);
   }
 
-  updateUptimeCheck(uuid: string, version: number, body: components['schemas']['UptimeCheckUpdate']) {
+  updateUptimeCheck(
+    uuid: string,
+    version: number,
+    body: components['schemas']['UptimeCheckUpdate'],
+  ) {
     type Response =
       paths['/uptime-checks/{uptime_check_uuid}']['patch']['responses']['200']['content']['application/json'];
     return this.request<Response>('PATCH', `/uptime-checks/${uuid}`, { ifMatch: version, body });
@@ -1322,7 +1341,11 @@ export class AkerDockClient {
 
   // --- shared variables (§5.4) --------------------------------------------------------------------
 
-  listSharedVariables(query?: { cursor?: string; limit?: number; scope?: 'team' | 'project' | 'environment' | 'server' }) {
+  listSharedVariables(query?: {
+    cursor?: string;
+    limit?: number;
+    scope?: 'team' | 'project' | 'environment' | 'server';
+  }) {
     type Response =
       paths['/shared-variables']['get']['responses']['200']['content']['application/json'];
     return this.request<Response>('GET', '/shared-variables', { query });

@@ -2,7 +2,7 @@
 
 > Artefact §29.13 du PRD. Couvre : principes, design tokens, inventaire des composants, patterns d'interaction, architecture Angular et checklist d'ajout. Référence les exigences PRD §21 (machines à états), §22.5 (accessibilité), §25 (dashboard/UX), §5.7 et §13 (logs, terminal), §3.8 (métriques), §19.2 (statuts stale), §22.2 (backpressure logs), §23.3 (neutralisation ANSI).
 >
-> Statut : spécification initiale. Toutes les valeurs chiffrées (hex, échelles, durées) sont des **défauts proposés**, vérifiées au contraste WCAG 2.1 AA (ratios calculés selon la formule de luminance relative WCAG, affichés dans les tables). Toute révision passe par un commit sur ce document ; le catalogue Storybook fait foi pour l'implémentation.
+> Statut : révisé le 2026-07-18 — les tokens (§2) et le vocabulaire de classes (§3) reprennent le kit Claude Design validé par le product owner et remplacent les défauts proposés initiaux. Les valeurs chiffrées sont vérifiées au contraste WCAG 2.1 AA (ratios calculés selon la formule de luminance relative WCAG, affichés dans les tables). Toute révision passe par un commit sur ce document ; le catalogue Storybook fait foi pour l'implémentation.
 
 ---
 
@@ -13,77 +13,77 @@
 3. **Hiérarchie par la typographie et l'espacement, pas par la décoration**. Pas de dégradés, pas d'ombres portées lourdes, pas d'illustrations décoratives. La structure visuelle vient de : taille/graisse de texte, espacement vertical, bordures fines, et couleur réservée à la sémantique (états, actions, liens).
 4. **Un état = une représentation unique partout** (§25.3). Un état de la machine §21 (`running`, `failed`, `queued`…) se lit exactement de la même façon sur le dashboard, une carte ressource, une ligne de table, une timeline de déploiement ou un job : même couleur, même icône, même libellé, via le seul composant `akd-status-badge`. Interdiction de re-styler un état localement.
 5. **Jamais la couleur seule**. Chaque état combine couleur + icône + libellé texte (WCAG 1.4.1). Les états `unknown/stale` et `cancelled/superseded` ont en plus une forme distincte (pointillé, barré) lisible sans perception des couleurs.
-6. **Accessibilité dès la conception, pas en retrofit** (§25.3, §22.5) : parcours clavier complet, focus visible, labels de formulaire, contraste AA dans les deux thèmes, annonces live pour progression et erreurs.
+6. **Accessibilité dès la conception, pas en retrofit** (§25.3, §22.5) : parcours clavier complet, focus visible, labels de formulaire, contraste AA sur le thème sombre unique (§2.7), annonces live pour progression et erreurs.
 7. **Anglais, i18n-first** (§25.2). L'UI est en anglais par défaut ; aucune chaîne en dur — tous les libellés de ce document sont des valeurs par défaut de clés de traduction.
 
 ---
 
 ## 2. Design tokens
 
-Les tokens sont la seule source de style : **aucune couleur, taille ou durée en dur dans un composant**. Deux couches :
+> **Note de révision (2026-07-18).** Cette section remplace l'ancienne palette gray/teal light-first (échelles zinc/teal hex, deux thèmes commutables) par les tokens du kit Claude Design « Plateforme SPA Angular pour serveurs » validé par le product owner : thème sombre unique, couleurs en `oklch`, accent teal « dock light », trois familles typographiques embarquées. Les valeurs ci-dessous sont normatives ; `web/src/styles/tokens.css` en est la copie verbatim (jamais l'inverse).
 
-- **Tokens primitifs** (`--akd-gray-500`, `--akd-teal-600`…) : la palette brute, identique dans les deux thèmes. Jamais consommés directement par les composants.
-- **Tokens sémantiques** (`--akd-bg`, `--akd-text`, `--akd-status-running-fg`…) : réassignés par thème. Seule surface consommée par les composants.
+Les tokens sont la seule source de style : **aucune couleur, taille ou durée en dur dans un composant**. Trois couches :
 
-### 2.1 Couleurs — palette neutre (défaut proposé)
+- **Tokens canoniques** (`--bg-0…3`, `--border-1/2`, `--text-1/2/3`, `--accent*`, familles d'état `--ok/--warn/--danger/--info/--neutral` avec variantes `-dim`/`-border`, typo/espace/forme/mouvement) : la surface consommée par le nouveau code.
+- **Alias sémantiques** (`--surface-page`, `--surface-card`, `--surface-terminal`, `--text-body`, `--text-muted`, `--link`…) : noms d'usage résolvant vers les canoniques.
+- **Couche de compatibilité `--akd-*`** : alias **transitoires** pour les pages antérieures au redesign ; chaque `--akd-*` résout vers un token canonique. Le nouveau code ne l'utilise pas ; la couche rétrécit avec la migration et sera supprimée avec son dernier consommateur.
 
-Échelle de gris légèrement froide (base zinc), 12 crans. Sert surfaces, bordures et texte dans les deux thèmes.
+### 2.1 Couleurs — surfaces, bordures et texte
 
-| Token | Hex | Usage clair | Usage sombre |
-|---|---|---|---|
-| `--akd-gray-0` | `#ffffff` | fond page | texte sur accent/danger foncé |
-| `--akd-gray-50` | `#fafafa` | surface (cartes) | — |
-| `--akd-gray-100` | `#f4f4f5` | surface survolée, code inline | texte principal |
-| `--akd-gray-200` | `#e4e4e7` | séparateurs, bordures décoratives | texte logs |
-| `--akd-gray-300` | `#d4d4d8` | bordures de cartes | — |
-| `--akd-gray-400` | `#a1a1aa` | texte désactivé | texte secondaire |
-| `--akd-gray-500` | `#71717a` | texte tertiaire, bordures d'inputs | texte tertiaire, bordures d'inputs |
-| `--akd-gray-600` | `#52525b` | texte secondaire | texte désactivé |
-| `--akd-gray-700` | `#3f3f46` | — | bordures fortes |
-| `--akd-gray-800` | `#27272a` | — | séparateurs, surface survolée |
-| `--akd-gray-900` | `#18181b` | texte principal | surface (cartes) |
-| `--akd-gray-950` | `#101012` | fond logs/terminal (les deux thèmes) | fond page |
+Rampe bleu-noir froide (`oklch`, teinte ~252), thème sombre unique :
+
+| Token | Valeur | Usage (alias) |
+|---|---|---|
+| `--bg-0` | `oklch(14.5% 0.014 252)` | fond page (`--surface-page`) |
+| `--bg-1` | `oklch(17.5% 0.015 252)` | cartes (`--surface-card`) |
+| `--bg-2` | `oklch(20.5% 0.016 252)` | surfaces relevées, hover de ligne/bouton (`--surface-raised`) |
+| `--bg-3` | `oklch(24% 0.017 252)` | overlays, toasts (`--surface-overlay`) |
+| `--bg-inset` | `oklch(12% 0.013 252)` | logs, terminal, fonds d'inputs (`--surface-terminal`) |
+| `--border-1` | `oklch(28% 0.018 252)` | bordures décoratives, séparateurs |
+| `--border-2` | `oklch(36% 0.02 252)` | bordures renforcées (hover d'input, overlays) |
+| `--text-1` | `oklch(94% 0.006 250)` | texte principal (`--text-body`) |
+| `--text-2` | `oklch(74% 0.012 250)` | texte secondaire (`--text-muted`) |
+| `--text-3` | `oklch(56% 0.014 250)` | micro-labels, méta (`--text-faint`) |
+| `--text-disabled` | `oklch(44% 0.012 250)` | texte désactivé |
 
 Contrastes vérifiés (calcul WCAG) :
 
-| Paire | Thème | Ratio | Exigence | Verdict |
-|---|---|---:|---|---|
-| texte principal `gray-900` / fond `gray-0` | clair | **17.72:1** | 4.5:1 | ✅ |
-| texte secondaire `gray-600` / fond `gray-0` | clair | **7.73:1** | 4.5:1 | ✅ |
-| texte tertiaire `gray-500` / fond `gray-0` | clair | **4.83:1** | 4.5:1 | ✅ |
-| texte principal `gray-100` / fond `gray-950` | sombre | **17.29:1** | 4.5:1 | ✅ |
-| texte principal `gray-100` / surface `gray-900` | sombre | **16.12:1** | 4.5:1 | ✅ |
-| texte secondaire `gray-400` / fond `gray-950` | sombre | **7.42:1** | 4.5:1 | ✅ |
-| bordure d'input `gray-500` / fond `gray-0` | clair | **4.83:1** | 3:1 (UI) | ✅ |
-| bordure d'input `gray-500` / fond `gray-950` | sombre | **3.93:1** | 3:1 (UI) | ✅ |
+| Paire | Ratio | Exigence | Verdict |
+|---|---:|---|---|
+| texte principal `--text-1` / fond `--bg-0` | **16.60:1** | 4.5:1 | ✅ |
+| texte principal `--text-1` / carte `--bg-1` | **15.91:1** | 4.5:1 | ✅ |
+| texte secondaire `--text-2` / fond `--bg-0` | **8.59:1** | 4.5:1 | ✅ |
+| texte secondaire `--text-2` / carte `--bg-1` | **8.23:1** | 4.5:1 | ✅ |
+| méta `--text-3` / fond `--bg-0` | **4.26:1** | — | ⚠️ voir règle |
+| texte logs `--text-2` / `--bg-inset` | **8.81:1** | 4.5:1 | ✅ |
 
-Règle : les **bordures porteuses de sens** (inputs, contrôles) utilisent `gray-500` dans les deux thèmes (≥ 3:1). Les bordures **décoratives** (séparateurs de cartes, dividers) utilisent `gray-200`/`gray-800` — exemptées de 1.4.11 car non nécessaires à l'identification du composant.
+Règles :
 
-### 2.2 Couleurs — accent teal (défaut proposé)
+- `--text-3` est sous le seuil AA texte (4.26:1) : réservé aux méta **non essentielles ou redondantes** (micro-labels en capitales accompagnant une valeur en `--text-1/2`, timestamps de logs retrouvables dans le fichier téléchargé, séparateurs de breadcrumb). Il n'est **jamais** le seul porteur d'une information.
+- Les bordures `--border-1/2` sont **décoratives** (< 3:1, exemption 1.4.11 assumée) : l'identification des champs repose sur le contraste de fond `--bg-inset` / surface, et l'état focus sur `--accent` (10.40:1 ≥ 3:1).
 
-Couleur de marque teal/cyan (§25.3 — sans collision avec les couleurs sémantiques d'état : succès, alerte, danger). Base `#14b8a6` (≈ `oklch(0.75 0.13 180)`), 10 crans :
+### 2.2 Couleurs — accent teal
 
-| Token | Hex | Token | Hex |
-|---|---|---|---|
-| `--akd-teal-50` | `#f0fdfa` | `--akd-teal-500` | `#14b8a6` |
-| `--akd-teal-100` | `#ccfbf1` | `--akd-teal-600` | `#0d9488` |
-| `--akd-teal-200` | `#99f6e4` | `--akd-teal-700` | `#0f766e` |
-| `--akd-teal-300` | `#5eead4` | `--akd-teal-800` | `#115e59` |
-| `--akd-teal-400` | `#2dd4bf` | `--akd-teal-900` | `#134e4a` |
+Accent teal « dock light » (teinte oklch 195), réservé aux actions, liens, sélection, focus et indicateurs actifs :
 
-Contrastes vérifiés — le teal moyen est un piège classique, d'où des crans différents par thème :
+| Token | Valeur | Usage |
+|---|---|---|
+| `--accent` | `oklch(78% 0.125 195)` | liens (`--link`), focus, texte/indicateur accent |
+| `--accent-strong` | `oklch(68% 0.13 195)` | fond du bouton primaire, coche/piste cochée |
+| `--accent-on` | `oklch(16% 0.03 195)` | texte/glyphe sur fond accent |
+| `--accent-dim` | `oklch(78% 0.125 195 / 0.12)` | fonds subtils (nav active, sélection, `::selection`) |
+| `--accent-border` | `oklch(78% 0.125 195 / 0.35)` | bordures teintées accent |
+| `--link-hover` | `oklch(86% 0.11 195)` | liens au survol |
 
-| Paire | Thème | Ratio | Exigence | Verdict |
-|---|---|---:|---|---|
-| lien/accent texte `teal-700` / `gray-0` | clair | **5.47:1** | 4.5:1 | ✅ |
-| bouton primaire : texte `gray-0` sur fond `teal-700` | clair | **5.47:1** | 4.5:1 | ✅ |
-| ⚠️ contre-exemple : `gray-0` sur `teal-600` | clair | **3.74:1** | 4.5:1 | ❌ interdit pour du texte |
-| lien/accent texte `teal-400` / `gray-950` | sombre | **10.21:1** | 4.5:1 | ✅ |
-| bouton primaire : texte `gray-950` sur fond `teal-400` | sombre | **10.21:1** | 4.5:1 | ✅ |
-| focus ring `teal-600` / `gray-0` | clair | **3.74:1** | 3:1 (UI) | ✅ |
-| focus ring `teal-400` / `gray-950` | sombre | **10.21:1** | 3:1 (UI) | ✅ |
+Contrastes vérifiés :
 
-En sombre, le bouton primaire est donc **fond teal clair + texte sombre** (pattern « inversé »), pas blanc sur teal.
+| Paire | Ratio | Exigence | Verdict |
+|---|---:|---|---|
+| lien/accent texte `--accent` / `--bg-0` | **10.40:1** | 4.5:1 | ✅ |
+| bouton primaire : `--accent-on` sur `--accent-strong` | **7.22:1** | 4.5:1 | ✅ |
+| focus ring `--accent` / `--bg-0` | **10.40:1** | 3:1 (UI) | ✅ |
+
+Le bouton primaire est **fond teal + texte sombre** (pattern « inversé » du thème sombre : `--accent-strong` / `--accent-on`), jamais blanc sur teal. Le focus des contrôles du kit utilise le double anneau `--ring-focus` (`--bg-0` puis `--accent`, §2.5), lisible sur toute surface.
 
 ### 2.3 Couleurs sémantiques d'état — mapping sur les machines à états §21
 
@@ -99,197 +99,239 @@ Cinq familles sémantiques + deux modificateurs de forme. **Chaque état des mac
 | **neutral + bordure pointillée** | information périmée (§19.2 : `observed_at` trop ancien → « jamais un faux running ») | — | `unknown` / stale | — |
 | **neutral + libellé barré** | remplacé/abandonné, terminal | `cancelled`, `superseded` | — | `cancelled` |
 
-Valeurs proposées (crans Tailwind pour l'interopérabilité outillage), avec fond tinté pour les badges :
+Chaque famille est portée par un triplet de tokens — couleur pleine (texte, pastille), fond translucide `-dim` (alpha 0.12), bordure translucide `-border` (alpha 0.35). Même clarté/chroma oklch pour toutes les familles (78 % / 0.125, sauf danger relevé en chroma), seule la teinte varie :
 
-| Rôle | Clair : fg / bg badge | Sombre : fg / bg badge |
+| Famille | fg (couleur pleine) | bg badge | bordure badge |
+|---|---|---|---|
+| success | `--ok` = `oklch(78% 0.125 155)` | `--ok-dim` | `--ok-border` |
+| progress | `--accent` (teinte 195) | `--info-dim` = `oklch(78% 0.125 195 / 0.12)` | `--accent-border` |
+| warning | `--warn` = `oklch(78% 0.125 85)` | `--warn-dim` | `--warn-border` |
+| danger | `--danger` = `oklch(72% 0.155 25)` | `--danger-dim` | `--danger-border` |
+| neutral | `--neutral` = `oklch(70% 0.02 252)` | `--neutral-dim` | `--neutral-border` |
+
+Contrastes vérifiés (texte d'état sur fond page, et texte de badge sur son fond `-dim` composité sur `--bg-0`) :
+
+| Paire | Ratio | Exigence | Verdict |
+|---|---:|---|---|
+| success texte `--ok` / `--bg-0` | **10.40:1** | 4.5:1 | ✅ |
+| success badge `--ok` / `--ok-dim` | **8.63:1** | 4.5:1 | ✅ |
+| progress badge `--accent` / `--info-dim` | **8.66:1** | 4.5:1 | ✅ |
+| warning texte `--warn` / `--bg-0` | **9.82:1** | 4.5:1 | ✅ |
+| warning badge `--warn` / `--warn-dim` | **8.24:1** | 4.5:1 | ✅ |
+| danger texte `--danger` / `--bg-0` | **7.46:1** | 4.5:1 | ✅ |
+| danger badge `--danger` / `--danger-dim` | **6.50:1** | 4.5:1 | ✅ |
+| bouton danger : `--danger` sur `--danger-dim` | **6.50:1** | 4.5:1 | ✅ |
+| neutral badge `--neutral` / `--neutral-dim` | **6.40:1** | 4.5:1 | ✅ |
+| pastilles d'état (couleur pleine / `--bg-0`, indicateur non textuel) | **≥ 6.40:1** | 3:1 (UI) | ✅ |
+
+Note : la famille **progress partage la teinte de l'accent** (195) — choix assumé du kit : « en cours » se lit comme de l'activité. La distinction statut/interactif ne repose donc **jamais sur la couleur** : un statut est toujours une pill `akd-status` avec pastille de forme propre à sa famille + libellé (§3.6, principe 5) ; un élément interactif n'a jamais cette forme. Les autres familles restent sans collision avec l'accent (§25.3).
+
+### 2.4 Typographie
+
+Trois familles, **embarquées via `@fontsource`** depuis `node_modules` (bundlées par Angular au build — la CSP n'autorise aucune origine externe et reste **inchangée**, jamais de CDN ; une instance air-gapped n'en a de toute façon aucune) :
+
+- **`--font-display` : Space Grotesk** (graisses 500/600/700) — titres de pages, de cartes et de modales, valeurs de stat.
+- **`--font-body` : IBM Plex Sans** (400/500/600) — corps, formulaires, tables, navigation.
+- **`--font-mono` : JetBrains Mono** (400/500/700) — logs, terminal, UUID, digests, SHA, URLs, valeurs d'env, cron.
+
+Chaque famille garde un repli système (`system-ui` / `ui-monospace`).
+
+Échelle de tailles, 8 crans (corps par défaut 14px, jamais en dessous de 10px) :
+
+| Token | Taille | Usage |
 |---|---|---|
-| success | `#15803d` / `#f0fdf4` | `#4ade80` / `#052e16` |
-| progress | `#2563eb` / `#eff6ff` | `#60a5fa` / `#172554` |
-| warning | `#b45309` / `#fffbeb` | `#fbbf24` / `#451a03` |
-| danger | `#dc2626` / `#fef2f2` | `#f87171` / `#450a0a` |
-| neutral | `#52525b` / `#f4f4f5` | `#a1a1aa` / `#27272a` |
+| `--text-2xs` | 10px | compteurs d'onglets, sections de nav, méta ultra-dense |
+| `--text-xs` | 11px | micro-labels en capitales (labels de champ, en-têtes de table), badges |
+| `--text-sm` | 12.5px | méta, hints, logs, valeurs mono, breadcrumb |
+| `--text-md` | 14px | **corps par défaut** : tables, formulaires, nav, boutons |
+| `--text-lg` | 16px | titres de cartes/sections (display) |
+| `--text-xl` | 20px | titres de modales |
+| `--text-2xl` | 26px | titres de pages, valeurs de stat |
+| `--text-3xl` | 34px | chiffres héro du dashboard |
 
-Contrastes vérifiés (texte de badge sur son fond tinté, et texte d'état sur fond page) :
-
-| Paire | Thème | Ratio | Exigence | Verdict |
-|---|---|---:|---|---|
-| success texte `#15803d` / `gray-0` | clair | **5.02:1** | 4.5:1 | ✅ |
-| success badge `#15803d` / `#f0fdf4` | clair | **4.79:1** | 4.5:1 | ✅ |
-| success texte `#4ade80` / `gray-950` | sombre | **10.91:1** | 4.5:1 | ✅ |
-| success badge `#4ade80` / `#052e16` | sombre | **8.55:1** | 4.5:1 | ✅ |
-| progress texte `#2563eb` / `gray-0` | clair | **5.17:1** | 4.5:1 | ✅ |
-| progress badge `#93c5fd` / `#172554` (var. sombre) | sombre | **8.15:1** | 4.5:1 | ✅ |
-| warning texte `#b45309` / `gray-0` | clair | **5.02:1** | 4.5:1 | ✅ |
-| warning texte `#fbbf24` / `gray-950` | sombre | **11.39:1** | 4.5:1 | ✅ |
-| danger texte `#dc2626` / `gray-0` | clair | **4.83:1** | 4.5:1 | ✅ |
-| danger texte `#f87171` / `gray-950` | sombre | **6.87:1** | 4.5:1 | ✅ |
-| bouton danger : `gray-0` sur `#dc2626` | clair | **4.83:1** | 4.5:1 | ✅ |
-| bouton danger : `gray-950` sur `#f87171` | sombre | **6.87:1** | 4.5:1 | ✅ |
-| pastille success `#16a34a` / `gray-0` (indicateur non textuel) | clair | **3.30:1** | 3:1 (UI) | ✅ |
-| pastille warning `#d97706` / `gray-0` (indicateur non textuel) | clair | **3.19:1** | 3:1 (UI) | ✅ |
-
-Note : l'accent teal n'est **jamais** utilisé comme couleur d'état — il est réservé aux actions, liens, sélection et focus, ce qui garantit qu'un élément teal se lit toujours « interactif », jamais « statut » (§25.3).
-
-### 2.4 Typographie (défaut proposé)
-
-- **Police UI : system stack** (défaut proposé). Zéro octet embarqué dans le binaire Go, rendu natif par OS, robustesse offline. Inter (variable, self-hosted — jamais de CDN) est l'alternative documentée si la cohérence de rendu inter-OS devient une exigence de marque ; le changement est un swap de token.
-- **Police mono** pour logs, terminal, UUID, digests, SHA, URLs, valeurs d'env, cron : stack mono système.
-
-```
---akd-font-ui:   -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, sans-serif;
---akd-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-```
-
-Échelle de tailles, 7 crans (densité outil d'ops : corps à 13px, jamais en dessous de 11px) :
-
-| Token | Taille / interligne | Usage |
-|---|---|---|
-| `--akd-text-2xs` | 11px / 16px | timestamps de logs, axes de graphiques, méta ultra-dense |
-| `--akd-text-xs` | 12px / 16px | badges, labels de table, breadcrumb, aides de champ |
-| `--akd-text-sm` | 13px / 20px | **corps par défaut** : tables, formulaires, nav |
-| `--akd-text-md` | 14px / 20px | corps confortable, descriptions |
-| `--akd-text-lg` | 16px / 24px | titres de cartes/sections |
-| `--akd-text-xl` | 20px / 28px | titres de pages |
-| `--akd-text-2xl` | 24px / 32px | dashboard, chiffres clés |
-
-Graisses : `--akd-weight-regular: 400` (corps), `--akd-weight-medium: 500` (labels, nav active), `--akd-weight-semibold: 600` (titres, boutons, badges). Pas de 700+ : la hiérarchie vient de la taille et de l'espacement (principe 3). Chiffres tabulaires (`font-variant-numeric: tabular-nums`) obligatoires dans les tables, durées, métriques.
+Interlignes par tokens : `--leading-tight: 1.2` (titres, valeurs), `--leading-normal: 1.5` (corps). Graisses : `--weight-regular: 400` (corps), `--weight-medium: 500` (labels, nav active, tabs, statuts), `--weight-semibold: 600` (titres de cartes, boutons, labels de champ), `--weight-bold: 700` (**réservé au display** : h1 de page, valeurs de stat — le corps ne dépasse pas 600, principe 3). Les micro-labels sont en capitales avec `--tracking-wide: 0.06em`. Chiffres tabulaires (`font-variant-numeric: tabular-nums`) obligatoires dans les tables, durées, métriques.
 
 ### 2.5 Espacement, rayons, élévations, animation
 
-**Espacement** — échelle base 4px : `--akd-space-0: 0` ; `-1: 4px` ; `-2: 8px` ; `-3: 12px` ; `-4: 16px` ; `-5: 20px` ; `-6: 24px` ; `-8: 32px` ; `-10: 40px` ; `-12: 48px` ; `-16: 64px`. Demi-cran `--akd-space-05: 2px` réservé aux intérieurs de badges.
+**Espacement** — échelle à 9 crans : `--space-1: 4px` ; `-2: 8px` ; `-3: 12px` ; `-4: 16px` ; `-5: 20px` ; `-6: 24px` ; `-7: 32px` ; `-8: 40px` ; `-9: 56px`.
 
-**Rayons** : `--akd-radius-xs: 2px` (badges, checkbox) ; `--akd-radius-sm: 4px` (inputs, boutons) ; `--akd-radius-md: 6px` (cartes, panels) ; `--akd-radius-lg: 8px` (modales, popovers) ; `--akd-radius-full: 9999px` (pastilles d'état, toggle).
+**Rayons** : `--radius-1: 4px` (badges, checkbox) ; `--radius-2: 6px` (inputs, boutons, logs) ; `--radius-3: 10px` (cartes, modales, toasts) ; `--radius-full: 999px` (pills de statut, switch).
 
-**Élévations** — discrètes ; en thème sombre la hiérarchie vient surtout de la couleur de surface, les ombres restent subtiles :
+**Élévations** — la hiérarchie vient d'abord de la couleur de surface (`--bg-0…3`) ; les ombres renforcent les couches flottantes :
 
 ```
---akd-shadow-1: 0 1px 2px rgb(0 0 0 / 0.05);                              /* cartes */
---akd-shadow-2: 0 2px 8px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.04); /* popovers, dropdowns */
---akd-shadow-3: 0 8px 24px rgb(0 0 0 / 0.14), 0 2px 6px rgb(0 0 0 / 0.06);/* modales */
+--shadow-1: 0 1px 2px oklch(0% 0 0 / 0.4);
+--shadow-2: 0 4px 16px oklch(0% 0 0 / 0.45);   /* toasts, popovers, dropdowns */
+--shadow-3: 0 16px 48px oklch(0% 0 0 / 0.55);  /* modales */
+--ring-focus: 0 0 0 2px var(--bg-0), 0 0 0 4px var(--accent);  /* double anneau focus */
 ```
 
 **Animation** — rapide, jamais bloquante :
 
 ```
---akd-duration-fast: 100ms;  /* hover, focus, toggle */
---akd-duration-base: 150ms;  /* dropdowns, tooltips, toasts */
---akd-duration-slow: 250ms;  /* modales, panneaux latéraux */
---akd-ease: cubic-bezier(0.2, 0, 0, 1);
+--dur-1: 120ms;  /* hover, focus, transitions de boutons */
+--dur-2: 200ms;  /* toasts, switch, dropdowns, tooltips */
+--dur-3: 350ms;  /* modales, panneaux latéraux */
+--ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 ```
 
 Sous `prefers-reduced-motion: reduce` : toutes les durées passent à `1ms`, les animations d'état « progress » (pulsation de badge, spinner de timeline, shimmer de skeleton) sont remplacées par des représentations statiques équivalentes (icône fixe, texte « In progress »). Aucune information n'est portée uniquement par le mouvement.
 
-### 2.6 Bloc CSS de référence (utilisable tel quel)
+### 2.6 Bloc CSS de référence (copié tel quel par `web/src/styles/tokens.css`)
 
 ```css
-/* packages/styles/tokens.css — source de vérité des tokens sémantiques.
-   Thème par défaut : suivi du système (prefers-color-scheme),
-   surchargé par data-theme="light|dark" posé sur <html> par le toggle. */
+/* Design tokens — copied verbatim from docs/specs/design-system.md §2, which
+   is normative (source: the AkerDock UI kit, dark-first). This file is the
+   ONLY place a literal colour, size or duration may appear: components consume
+   the CSS variables below and nothing else.
+   Do not hand-edit — change the spec, then re-copy. */
 
+/* ---- colors (dark-first, single theme) ---- */
 :root {
-  /* ---- primitives (identiques aux tables 2.1–2.3) ---- */
-  --akd-gray-0:#ffffff; --akd-gray-50:#fafafa; --akd-gray-100:#f4f4f5;
-  --akd-gray-200:#e4e4e7; --akd-gray-300:#d4d4d8; --akd-gray-400:#a1a1aa;
-  --akd-gray-500:#71717a; --akd-gray-600:#52525b; --akd-gray-700:#3f3f46;
-  --akd-gray-800:#27272a; --akd-gray-900:#18181b; --akd-gray-950:#101012;
-  --akd-teal-50:#f0fdfa; --akd-teal-100:#ccfbf1; --akd-teal-200:#99f6e4;
-  --akd-teal-300:#5eead4; --akd-teal-400:#2dd4bf; --akd-teal-500:#14b8a6;
-  --akd-teal-600:#0d9488; --akd-teal-700:#0f766e; --akd-teal-800:#115e59;
-  --akd-teal-900:#134e4a;
-
-  /* ---- typo / espace / forme / mouvement ---- */
-  --akd-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, sans-serif;
-  --akd-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --akd-text-2xs:11px; --akd-text-xs:12px; --akd-text-sm:13px; --akd-text-md:14px;
-  --akd-text-lg:16px; --akd-text-xl:20px; --akd-text-2xl:24px;
-  --akd-weight-regular:400; --akd-weight-medium:500; --akd-weight-semibold:600;
-  --akd-space-05:2px; --akd-space-1:4px; --akd-space-2:8px; --akd-space-3:12px;
-  --akd-space-4:16px; --akd-space-5:20px; --akd-space-6:24px; --akd-space-8:32px;
-  --akd-space-10:40px; --akd-space-12:48px; --akd-space-16:64px;
-  --akd-radius-xs:2px; --akd-radius-sm:4px; --akd-radius-md:6px;
-  --akd-radius-lg:8px; --akd-radius-full:9999px;
-  --akd-shadow-1:0 1px 2px rgb(0 0 0 / .05);
-  --akd-shadow-2:0 2px 8px rgb(0 0 0 / .08), 0 1px 2px rgb(0 0 0 / .04);
-  --akd-shadow-3:0 8px 24px rgb(0 0 0 / .14), 0 2px 6px rgb(0 0 0 / .06);
-  --akd-duration-fast:100ms; --akd-duration-base:150ms; --akd-duration-slow:250ms;
-  --akd-ease:cubic-bezier(.2,0,0,1);
-}
-
-/* ---- thème clair (défaut) ---- */
-:root, :root[data-theme="light"] {
-  color-scheme: light;
-  --akd-bg:            var(--akd-gray-0);
-  --akd-surface:       var(--akd-gray-50);
-  --akd-surface-hover: var(--akd-gray-100);
-  --akd-border:        var(--akd-gray-200);   /* décoratif */
-  --akd-border-input:  var(--akd-gray-500);   /* UI, 4.83:1 */
-  --akd-text:          var(--akd-gray-900);   /* 17.72:1 */
-  --akd-text-secondary:var(--akd-gray-600);   /* 7.73:1 */
-  --akd-text-muted:    var(--akd-gray-500);   /* 4.83:1 */
-  --akd-text-disabled: var(--akd-gray-400);
-  --akd-accent:        var(--akd-teal-700);   /* texte/liens, 5.47:1 */
-  --akd-accent-hover:  var(--akd-teal-800);
-  --akd-accent-subtle: var(--akd-teal-50);
-  --akd-on-accent:     var(--akd-gray-0);     /* sur teal-700, 5.47:1 */
-  --akd-focus-ring:    var(--akd-teal-600);   /* 3.74:1 ≥ 3:1 UI */
-  --akd-status-success-fg:#15803d; --akd-status-success-bg:#f0fdf4; --akd-status-success-dot:#16a34a;
-  --akd-status-progress-fg:#2563eb; --akd-status-progress-bg:#eff6ff; --akd-status-progress-dot:#2563eb;
-  --akd-status-warning-fg:#b45309; --akd-status-warning-bg:#fffbeb; --akd-status-warning-dot:#d97706;
-  --akd-status-danger-fg:#dc2626;  --akd-status-danger-bg:#fef2f2;  --akd-status-danger-dot:#dc2626;
-  --akd-status-neutral-fg:var(--akd-gray-600); --akd-status-neutral-bg:var(--akd-gray-100);
-  --akd-status-neutral-dot:var(--akd-gray-500);
-  --akd-danger:#dc2626; --akd-danger-hover:#b91c1c; --akd-on-danger:var(--akd-gray-0);
-  /* logs & terminal : toujours sombres, même en thème clair */
-  --akd-log-bg:var(--akd-gray-950); --akd-log-fg:var(--akd-gray-200); /* 14.98:1 */
-  --akd-log-meta:var(--akd-gray-400);                                 /* 7.42:1 */
-}
-
-/* ---- thème sombre : par défaut via l'OS… ---- */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --akd-_dark:1; }
-}
-/* …et explicitement via le toggle. Les deux blocs partagent les mêmes valeurs
-   (générées par le build depuis une seule définition ; dupliquées ici pour lisibilité). */
-:root[data-theme="dark"] {
   color-scheme: dark;
-  --akd-bg:            var(--akd-gray-950);
-  --akd-surface:       var(--akd-gray-900);
-  --akd-surface-hover: var(--akd-gray-800);
-  --akd-border:        var(--akd-gray-800);
-  --akd-border-input:  var(--akd-gray-500);   /* 3.93:1 ≥ 3:1 UI */
-  --akd-text:          var(--akd-gray-100);   /* 17.29:1 */
-  --akd-text-secondary:var(--akd-gray-400);   /* 7.42:1 */
-  --akd-text-muted:    var(--akd-gray-500);
-  --akd-text-disabled: var(--akd-gray-600);
-  --akd-accent:        var(--akd-teal-400);   /* 10.21:1 */
-  --akd-accent-hover:  var(--akd-teal-300);
-  --akd-accent-subtle: color-mix(in srgb, var(--akd-teal-900) 40%, transparent);
-  --akd-on-accent:     var(--akd-gray-950);   /* sur teal-400, 10.21:1 */
-  --akd-focus-ring:    var(--akd-teal-400);
-  --akd-status-success-fg:#4ade80; --akd-status-success-bg:#052e16; --akd-status-success-dot:#4ade80;
-  --akd-status-progress-fg:#60a5fa; --akd-status-progress-bg:#172554; --akd-status-progress-dot:#60a5fa;
-  --akd-status-warning-fg:#fbbf24; --akd-status-warning-bg:#451a03;  --akd-status-warning-dot:#fbbf24;
-  --akd-status-danger-fg:#f87171;  --akd-status-danger-bg:#450a0a;   --akd-status-danger-dot:#f87171;
-  --akd-status-neutral-fg:var(--akd-gray-400); --akd-status-neutral-bg:var(--akd-gray-800);
-  --akd-status-neutral-dot:var(--akd-gray-400);
-  --akd-danger:#f87171; --akd-danger-hover:#fca5a5; --akd-on-danger:var(--akd-gray-950);
-  --akd-log-bg:var(--akd-gray-950); --akd-log-fg:var(--akd-gray-200);
-  --akd-log-meta:var(--akd-gray-400);
+  /* Surfaces (cool blue-black ramp) */
+  --bg-0: oklch(14.5% 0.014 252);
+  --bg-1: oklch(17.5% 0.015 252);
+  --bg-2: oklch(20.5% 0.016 252);
+  --bg-3: oklch(24% 0.017 252);
+  --bg-inset: oklch(12% 0.013 252);
+  /* Borders */
+  --border-1: oklch(28% 0.018 252);
+  --border-2: oklch(36% 0.02 252);
+  /* Text */
+  --text-1: oklch(94% 0.006 250);
+  --text-2: oklch(74% 0.012 250);
+  --text-3: oklch(56% 0.014 250);
+  --text-disabled: oklch(44% 0.012 250);
+  /* Accent — teal (dock light) */
+  --accent: oklch(78% 0.125 195);
+  --accent-strong: oklch(68% 0.13 195);
+  --accent-on: oklch(16% 0.03 195);
+  --accent-dim: oklch(78% 0.125 195 / 0.12);
+  --accent-border: oklch(78% 0.125 195 / 0.35);
+  /* Semantic — same lightness/chroma, hue varies */
+  --ok: oklch(78% 0.125 155);
+  --ok-dim: oklch(78% 0.125 155 / 0.12);
+  --ok-border: oklch(78% 0.125 155 / 0.35);
+  --warn: oklch(78% 0.125 85);
+  --warn-dim: oklch(78% 0.125 85 / 0.12);
+  --warn-border: oklch(78% 0.125 85 / 0.35);
+  --danger: oklch(72% 0.155 25);
+  --danger-dim: oklch(72% 0.155 25 / 0.12);
+  --danger-border: oklch(72% 0.155 25 / 0.35);
+  --info: oklch(78% 0.125 195);
+  --info-dim: oklch(78% 0.125 195 / 0.12);
+  --neutral: oklch(70% 0.02 252);
+  --neutral-dim: oklch(70% 0.02 252 / 0.12);
+  --neutral-border: oklch(70% 0.02 252 / 0.35);
+  /* Semantic aliases */
+  --surface-page: var(--bg-0);
+  --surface-card: var(--bg-1);
+  --surface-raised: var(--bg-2);
+  --surface-overlay: var(--bg-3);
+  --surface-terminal: var(--bg-inset);
+  --text-body: var(--text-1);
+  --text-muted: var(--text-2);
+  --text-faint: var(--text-3);
+  --link: var(--accent);
+  --link-hover: oklch(86% 0.11 195);
+
+  /* ---- typography (fonts bundled via @fontsource, no external origin) ---- */
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12.5px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 26px;
+  --text-3xl: 34px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --tracking-wide: 0.06em; /* uppercase micro-labels */
+
+  /* ---- spacing, radii, shadows, motion ---- */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-7: 32px; --space-8: 40px; --space-9: 56px;
+  --radius-1: 4px; --radius-2: 6px; --radius-3: 10px; --radius-full: 999px;
+  --shadow-1: 0 1px 2px oklch(0% 0 0 / 0.4);
+  --shadow-2: 0 4px 16px oklch(0% 0 0 / 0.45);
+  --shadow-3: 0 16px 48px oklch(0% 0 0 / 0.55);
+  --ring-focus: 0 0 0 2px var(--bg-0), 0 0 0 4px var(--accent);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-1: 120ms; --dur-2: 200ms; --dur-3: 350ms;
+}
+
+/* ---------------------------------------------------------------------------
+   Compatibility aliases — the pre-redesign pages consume var(--akd-*). Each
+   alias resolves to a token above so those pages render in the new language
+   without edits. New code uses the canonical tokens; this block shrinks as
+   pages migrate and is deleted when the last consumer is gone.
+--------------------------------------------------------------------------- */
+:root {
+  --akd-bg:            var(--bg-0);
+  --akd-surface:       var(--bg-1);
+  --akd-surface-hover: var(--bg-2);
+  --akd-border:        var(--border-1);
+  --akd-border-input:  var(--border-2);
+  --akd-text:          var(--text-1);
+  --akd-text-secondary:var(--text-2);
+  --akd-text-muted:    var(--text-3);
+  --akd-text-disabled: var(--text-disabled);
+  --akd-accent:        var(--accent);
+  --akd-accent-hover:  var(--link-hover);
+  --akd-accent-subtle: var(--accent-dim);
+  --akd-on-accent:     var(--accent-on);
+  --akd-focus-ring:    var(--accent);
+  --akd-status-success-fg: var(--ok);      --akd-status-success-bg: var(--ok-dim);      --akd-status-success-dot: var(--ok);
+  --akd-status-progress-fg: var(--accent); --akd-status-progress-bg: var(--info-dim);   --akd-status-progress-dot: var(--accent);
+  --akd-status-warning-fg: var(--warn);    --akd-status-warning-bg: var(--warn-dim);    --akd-status-warning-dot: var(--warn);
+  --akd-status-danger-fg: var(--danger);   --akd-status-danger-bg: var(--danger-dim);   --akd-status-danger-dot: var(--danger);
+  --akd-status-neutral-fg: var(--neutral); --akd-status-neutral-bg: var(--neutral-dim); --akd-status-neutral-dot: var(--neutral);
+  --akd-danger: var(--danger);
+  --akd-danger-hover: var(--danger);
+  --akd-on-danger: var(--bg-0);
+  --akd-log-bg: var(--bg-inset);
+  --akd-log-fg: var(--text-2);
+  --akd-log-meta: var(--text-3);
+  --akd-font-ui: var(--font-body);
+  --akd-font-mono: var(--font-mono);
+  --akd-text-2xs: var(--text-2xs); --akd-text-xs: var(--text-xs); --akd-text-sm: var(--text-sm);
+  --akd-text-md: var(--text-md); --akd-text-lg: var(--text-lg); --akd-text-xl: var(--text-xl);
+  --akd-text-2xl: var(--text-2xl);
+  --akd-weight-regular: var(--weight-regular); --akd-weight-medium: var(--weight-medium);
+  --akd-weight-semibold: var(--weight-semibold);
+  --akd-space-05: 2px;
+  --akd-space-1: var(--space-1); --akd-space-2: var(--space-2); --akd-space-3: var(--space-3);
+  --akd-space-4: var(--space-4); --akd-space-5: var(--space-5); --akd-space-6: var(--space-6);
+  --akd-space-8: var(--space-7); --akd-space-10: var(--space-8); --akd-space-12: 48px;
+  --akd-space-16: 64px;
+  --akd-radius-xs: 2px; --akd-radius-sm: var(--radius-1); --akd-radius-md: var(--radius-2);
+  --akd-radius-lg: var(--radius-3); --akd-radius-full: var(--radius-full);
+  --akd-shadow-1: var(--shadow-1); --akd-shadow-2: var(--shadow-2); --akd-shadow-3: var(--shadow-3);
+  --akd-duration-fast: var(--dur-1); --akd-duration-base: var(--dur-2); --akd-duration-slow: var(--dur-3);
+  --akd-ease: var(--ease-out);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root { --akd-duration-fast:1ms; --akd-duration-base:1ms; --akd-duration-slow:1ms; }
+  :root { --dur-1: 1ms; --dur-2: 1ms; --dur-3: 1ms; }
 }
 ```
 
-> Note d'implémentation : le mode « suivi du système » ne pose **aucun** `data-theme` ; le bloc `@media (prefers-color-scheme: dark)` applique alors les valeurs sombres (générées par le build à partir de la même définition que `[data-theme="dark"]`, pour éviter la duplication manuelle montrée ci-dessus). Le sentinel `--akd-_dark` ci-dessus est un raccourci de lisibilité du document, pas le code final.
+> Note d'implémentation : le second bloc `:root` est la **couche de compatibilité transitoire `--akd-*`** (§2, troisième couche). Elle permet aux pages antérieures au redesign de rendre dans le nouveau langage sans modification ; elle n'introduit aucune valeur nouvelle (tout alias résout vers un token canonique) et sera supprimée avec son dernier consommateur.
 
 ### 2.7 Gestion du thème
 
-- **Défaut : suivi du système** via `prefers-color-scheme` (décision actée). Trois valeurs utilisateur : `system | light | dark`.
-- Le toggle (dans le menu utilisateur) pose `data-theme` sur `<html>` et persiste : **localStorage** (`akd.theme`) pour l'application instantanée avant bootstrap Angular (script inline anti-FOUC dans `index.html`), **préférence de compte** via l'API pour la synchronisation multi-appareils. localStorage prime au chargement, la préférence compte réconcilie après login.
-- `color-scheme` est posé par thème pour que scrollbars, contrôles natifs et `<select>` suivent.
-- Les deux thèmes sont testés au contraste en CI (voir §6) ; un composant ne peut pas passer AA dans un seul thème.
+- **Thème sombre unique** (décision actée avec le kit validé : le kit de design a été validé dark-only par le product owner et un outil d'exploitation se consulte majoritairement dans des contextes sombres — salle machine, on-call de nuit, terminaux). Il n'y a **plus de toggle light/dark ni de `prefers-color-scheme`** : le thème n'est plus une préférence utilisateur (ni localStorage, ni préférence de compte, ni `data-theme`).
+- `color-scheme: dark` est posé sur `:root` pour que scrollbars, contrôles natifs et `<select>` suivent.
+- `prefers-reduced-motion` reste honoré (§2.5) : la suppression du thème clair ne retire aucune adaptation d'accessibilité.
+- Le contraste est testé en CI sur ce seul thème (voir §6).
 
 ---
 
@@ -297,15 +339,37 @@ Sous `prefers-reduced-motion: reduce` : toutes les durées passent à `1ms`, les
 
 Tous les composants sont des composants Angular **standalone** préfixés `akd-` (§5). Conventions transverses, applicables à tout l'inventaire :
 
-- **Focus visible** : `outline: 2px solid var(--akd-focus-ring); outline-offset: 2px;` — jamais supprimé, jamais remplacé par un simple changement de couleur. Ratio ring/fond ≥ 3:1 dans les deux thèmes (§2.2).
+- **Focus visible** : règle globale `outline: 2px solid var(--accent); outline-offset: 2px;` ; les contrôles du kit (boutons, inputs, tabs, switch…) utilisent le double anneau `box-shadow: var(--ring-focus)` (§2.5), lisible sur toute surface. Jamais supprimé, jamais remplacé par un simple changement de couleur. Ratio ring/fond 10.40:1 ≥ 3:1 (§2.2).
 - **Cible tactile/clic** : hauteur interactive ≥ 32px en densité par défaut (outil desktop, dérogation motivée à 44px mobile pour les actions d'urgence §22.4).
 - **Désactivé** : `--akd-text-disabled` + `cursor: not-allowed` + `aria-disabled` (les boutons désactivés restent focusables pour rester découvrables au lecteur d'écran, avec tooltip expliquant pourquoi).
 - **i18n** : toute chaîne rendue est une clé de traduction, y compris les `aria-label`.
 
+Le vocabulaire visuel de l'inventaire est implémenté par des **classes CSS globales `.akd-*`** (convention BEM, `web/src/styles.css`, reprises du kit — tokens uniquement), que les composants Angular composent :
+
+| Composant | Classes du kit |
+|---|---|
+| Boutons (§3.1) | `.akd-btn` + modificateurs `--primary` / `--secondary` / `--ghost` / `--danger`, taille `--sm` ; bouton icône `.akd-iconbtn` (+ `--bordered`) |
+| Champs (§3.2) | `.akd-field` (`__label`, `__hint`, `__hint--error`), `.akd-input` (+ `--mono`, `--error`), wrapper `.akd-select` autour d'un `<select>` natif |
+| Cases / toggle (§3.3) | `.akd-check`, `.akd-switch` |
+| Statuts (§3.6) | pill `.akd-status` + `--ok` / `--progress` / `--warn` / `--danger` / `--neutral`, pastille `.akd-status__dot` (forme par famille) ; badges informatifs `.akd-badge` (+ `--mono`, `--accent`, `--ok`, `--warn`, `--danger`) |
+| Tables (§3.5) | `.akd-table` (+ `--clickable`), valeurs mono `.akd-mono` |
+| Cartes (§3.7) | `.akd-card` (`__header`, `__title`, `__body`) |
+| Tabs (§3.8) | `.akd-tabs`, `.akd-tab` (+ `--active`), compteur `.akd-tab__count` |
+| Modales (§3.9–3.10) | `.akd-modal-backdrop`, `.akd-modal` (+ `--danger`), `__header` / `__body` / `__footer` |
+| Toasts (§3.11) | `.akd-toast` (+ `--ok`, `--warn`, `--danger`), `__icon`, `__title`, `__msg` |
+| Timeline (§3.12) | `.akd-timeline`, `.akd-tstep` (+ `--done`, `--active`, `--failed`, `--pending`), `__rail` / `__node` / `__line` / `__title` / `__dur` / `__detail` |
+| Log viewer (§3.13) | `.akd-log`, `.akd-log__line` (+ `--info`, `--ok`, `--warn`, `--error`, `--cmd`), `__ts`, `__msg` |
+| Stats / métriques (§3.16) | `.akd-stat` (`__label`, `__value`, `__unit`, `__delta`) |
+| État vide (§3.18) | `.akd-empty` (`__icon`, `__title`, `__msg`) |
+| Navigation (§3.20) | `.akd-breadcrumb` (`__sep`, `__current`), `.akd-sidenav` (`__section`, `__item`, `__item--active`) |
+| Gabarit de page | `.akd-page`, `.akd-bar` (h1/h2 en `--font-display`), `.akd-error`, `.akd-secret`, `.akd-dl`, `.akd-muted`, `.sr-only` |
+
+Une **couche de compatibilité** en fin de `styles.css` rend l'ancien dialecte de classes (`.akd-btn` nu = primaire, `.akd-btn-ghost` / `.akd-btn-danger` autonomes, `select.akd-select`, tabs marquées par `aria-selected`, cartes auto-paddées) dans le nouveau langage ; comme la couche `--akd-*` (§2.6), elle disparaît avec la migration des dernières pages.
+
 ### 3.1 `akd-button`
 
 - **Anatomie** : conteneur, libellé, icône optionnelle (gauche ou seule), spinner intégré en état loading.
-- **Variantes** : `primary` (fond `--akd-accent`… clair : teal-700/texte blanc 5.47:1 ; sombre : teal-400/texte gray-950 10.21:1) ; `secondary` (fond transparent, bordure `--akd-border-input`, texte `--akd-text`) ; `danger` (clair : blanc sur `#dc2626` 4.83:1 ; sombre : gray-950 sur `#f87171` 6.87:1) — réservé aux actions destructives ; `ghost` (texte seul, hover `--akd-surface-hover`) pour les actions tertiaires en table. Tailles `sm` (24px, tables), `md` (32px, défaut), `lg` (40px, onboarding).
+- **Variantes** (modificateurs `.akd-btn--*`) : `primary` (fond `--accent-strong`, texte `--accent-on`, 7.22:1) ; `secondary` (fond `--bg-2`, bordure `--border-1`, texte `--text-1`) ; `danger` (teinté : fond `--danger-dim`, bordure `--danger-border`, texte `--danger`, 6.50:1) — réservé aux actions destructives ; `ghost` (fond transparent, texte `--text-2`, hover `--bg-2`) pour les actions tertiaires en table. Tailles : défaut 36px, `sm` (28px, tables et toolbars) ; bouton icône `.akd-iconbtn` 32px avec `aria-label` obligatoire.
 - **États** : default, hover, active, focus-visible, disabled, **loading** (spinner + libellé conservé + `aria-busy="true"`, clics ignorés sans disparition du bouton).
 - **A11y** : `<button>` natif (jamais de `div`), `type` explicite ; icône seule ⇒ `aria-label` obligatoire (contrôlé par lint) ; Enter/Space natifs.
 
@@ -351,8 +415,8 @@ Le PRD impose de distinguer systématiquement : **valeur enregistrée, valeur h�
 
 Composant unique de rendu d'état (§25.3 : « états visuels normalisés » ; principe 4). Consomme exclusivement la table de mapping §2.3, générée depuis les enums d'états de l'OpenAPI (§24.1) — l'exhaustivité du mapping est vérifiée par un test : **tout état §21 sans entrée de mapping fait échouer la CI**.
 
-- **Anatomie** : conteneur arrondi (`--akd-radius-full`), **pastille/icône + libellé texte — jamais la couleur seule**, fond tinté (`--akd-status-*-bg`), texte (`--akd-status-*-fg`).
-- **Icônes par famille** : success `●` (check en variante icône), progress **anneau animé** (rotation ; statique sous reduced-motion), warning `▲`, danger `✕`, neutral `■`, unknown/stale `?` + **bordure pointillée** (`border: 1px dashed`), cancelled/superseded `⊘` + **libellé barré** (`text-decoration: line-through`).
+- **Anatomie** : pill arrondie (`--radius-full`, classe `.akd-status`), **pastille + libellé texte — jamais la couleur seule**, fond translucide `-dim`, bordure `-border`, texte en couleur pleine de la famille (§2.3).
+- **Formes de pastille par famille** (`.akd-status__dot` — la forme distingue les familles sans perception des couleurs) : success **rond plein**, progress **losange** (carré pivoté) en pulsation (statique sous reduced-motion), warning **triangle**, danger **carré**, neutral **anneau creux** ; unknown/stale : neutral + **bordure pointillée** (`border: 1px dashed`), cancelled/superseded : `⊘` + **libellé barré** (`text-decoration: line-through`).
 - **Variantes** : `badge` (défaut) ; `dot` (pastille + texte sans fond, pour les tables ultra-denses — la pastille respecte 3:1 UI, §2.3) ; `dot-only` **interdit** hors cas où le libellé est adjacent dans la même cellule.
 - **Comportements spécifiques** :
   - **stale** (§19.2) : dès que `observed_at` dépasse le seuil, le badge bascule sur `Unknown` avec tooltip « Last observed 12 min ago » — jamais un faux `Running`.
@@ -362,7 +426,7 @@ Composant unique de rendu d'état (§25.3 : « états visuels normalisés » ; p
 
 ### 3.7 `akd-card` / `akd-panel`
 
-- **Anatomie** : surface `--akd-surface`, bordure `--akd-border`, rayon `--akd-radius-md`, ombre `--akd-shadow-1` (optionnelle) ; zones header (titre `--akd-text-lg` + actions) / body / footer.
+- **Anatomie** : surface `--surface-card`, bordure `--border-1`, rayon `--radius-3` ; zones header (`.akd-card__header` : titre `.akd-card__title` en `--text-lg` `--font-display` + actions) / body (`.akd-card__body`) / footer.
 - **Variantes** : `card` (bloc de contenu) ; `panel` (section de page, sans ombre) ; `card` cliquable (toute la carte = un seul lien, les actions secondaires restent des contrôles distincts) ; carte de ressource du dashboard (titre, `akd-status-badge`, méta, sparkline).
 - **États** : default, hover (cartes cliquables), focus-within visible.
 - **A11y** : le titre de carte est un heading de niveau correct dans l'outline de page ; carte cliquable = `<a>` étendu par pseudo-élément, pas de `div onclick`.
@@ -407,7 +471,7 @@ Rendu de la machine à états de déploiement, étape par étape.
 
 ### 3.13 `akd-log-viewer` (§5.7, §22.2, §23.3)
 
-- **Anatomie** : toolbar (recherche, filtres de niveau si structuré, follow/pause, wrap, timestamps on/off, téléchargement, plein écran) ; zone de log **virtualisée** (rendu fenêtré, obligatoire — cible : dizaines de milliers de lignes sans dégradation) ; fond `--akd-log-bg` (sombre dans les deux thèmes), texte `--akd-log-fg` (14.98:1), timestamps `--akd-log-meta` (7.42:1) en `--akd-font-mono` `--akd-text-2xs`.
+- **Anatomie** : toolbar (recherche, filtres de niveau si structuré, follow/pause, wrap, timestamps on/off, téléchargement, plein écran) ; zone de log **virtualisée** (rendu fenêtré, obligatoire — cible : dizaines de milliers de lignes sans dégradation) ; fond `--surface-terminal` (`--bg-inset`), texte `--akd-log-fg` (`--text-2`, 8.81:1), timestamps `--akd-log-meta` (`--text-3`, 4.37:1 — méta redondante, le fichier téléchargé fait foi) en `--font-mono`.
 - **Fonctions requises par le PRD** :
   - **Recherche** dans le buffer chargé, surlignage AA des occurrences, navigation n/N.
   - **Sections repliables** : les logs de build sont groupés par étape de la timeline (§3.12) ; chevron par section, état plié persistant ; erreur ⇒ section dépliée automatiquement.
@@ -426,13 +490,13 @@ Wrapper d'un éditeur embarquable existant (défaut proposé : **CodeMirror 6** 
 - **Anatomie** : toolbar (langage, validation, diff avant/après §25.1), gouttière de numéros de ligne, zone d'édition, pied (position curseur, erreurs de validation).
 - **Variantes** : `env` (coloration clé=valeur, masquage optionnel des valeurs secrètes), `yaml/compose` (validation schéma inline, erreurs soulignées + listées sous l'éditeur), `diff` (lecture seule, deux volets ou inline, pour le config diff d'un déploiement §25.1) ; limite d'édition inline 5 MiB (§23.3) — au-delà, lecture seule + téléchargement.
 - **États** : éditable, lecture seule, invalide (liste d'erreurs cliquables), dirty (branché sur le dirty state du formulaire §4.1).
-- **A11y** : mode « Escape sort de l'éditeur » documenté et annoncé (piège à tabulation contrôlé, WCAG 2.1.2) ; thème de coloration syntaxique dérivé des tokens, vérifié AA dans les deux thèmes ; toutes les erreurs disponibles en liste texte hors de l'éditeur.
+- **A11y** : mode « Escape sort de l'éditeur » documenté et annoncé (piège à tabulation contrôlé, WCAG 2.1.2) ; thème de coloration syntaxique dérivé des tokens, vérifié AA ; toutes les erreurs disponibles en liste texte hors de l'éditeur.
 
 ### 3.15 `akd-terminal` (§5.7, §13)
 
 Conteneur **xterm.js** (dépendance spécialisée assumée, §25.3) : shell dans tout container ou serveur géré via WebSocket → SSH.
 
-- **Anatomie** : barre de session (cible : serveur/container + badge de contexte, indicateur de connexion, bouton reconnect, kill), zone xterm (fond `--akd-log-bg` dans les deux thèmes), scrollback.
+- **Anatomie** : barre de session (cible : serveur/container + badge de contexte, indicateur de connexion, bouton reconnect, kill), zone xterm (fond `--akd-log-bg`), scrollback.
 - **Variantes** : container, serveur, **root** (accès précédé de `akd-confirm-modal` §3.10, session auditée §23.4 — bandeau persistant « Root session — audited »).
 - **États** : connecting, connected, reconnecting (reconnexion §5.7 : bandeau + tentatives), disconnected (overlay avec cause + bouton), terminated.
 - **A11y** : `screenReaderMode` d'xterm.js activable dans la barre de session ; limitation des séquences terminal côté affichage (§23.3) ; focus : clic/Enter entre dans le terminal, **Ctrl+Shift+Escape en sort** (raccourci documenté dans la barre — Escape seul appartient au shell) ; tailles de police réglables.
@@ -472,7 +536,7 @@ Pour toute valeur générée : UUID, domaine, URLs interne/externe, credentials 
 ### 3.20 `akd-breadcrumb` + `akd-side-nav` (hiérarchie Team → Project → Environment → Resource)
 
 - **`akd-breadcrumb`** : anatomie `<nav aria-label="Breadcrumb">` + `<ol>` — Team / Project / Environment / Resource, chaque segment cliquable, dernier segment `aria-current="page"` non cliquable ; segments intermédiaires = **switchers** (dropdown au clic pour changer de project/environment sans remonter) ; troncature au milieu sur écrans étroits (premier + dernier toujours visibles).
-- **`akd-side-nav`** : navigation latérale par domaine fonctionnel (Dashboard, Servers, Projects, Security, Settings — alignée sur le lazy loading §25.2) ; anatomie : sélecteur de team en tête (frontière de sécurité §23.1 — le changement de team est global et explicite), items avec icône + libellé, compteurs d'alerte (serveurs unreachable, déploiements failed — dashboard §25.1) via badge, section pliable, footer (thème, user).
+- **`akd-side-nav`** : navigation latérale par domaine fonctionnel (Dashboard, Servers, Projects, Security, Settings — alignée sur le lazy loading §25.2) ; anatomie : sélecteur de team en tête (frontière de sécurité §23.1 — le changement de team est global et explicite), items avec icône + libellé, compteurs d'alerte (serveurs unreachable, déploiements failed — dashboard §25.1) via badge, section pliable, footer (user).
 - **États** : item actif (`--akd-accent-subtle` + barre gauche accent + `--akd-weight-medium` — jamais la couleur seule), hover, focus-visible ; nav repliable en icônes (état persisté) avec tooltips.
 - **A11y** : `<nav>` labellisée ; `aria-current="page"` ; skip-link « Skip to content » en premier élément focusable de l'app ; ordre de tabulation = ordre visuel ; en mode replié, les tooltips sont accessibles au focus clavier.
 
@@ -513,7 +577,7 @@ Un service Angular (`DbxAnnouncer`) est l'unique API d'écriture ; les composant
 
 ### 4.5 Densités
 
-Deux densités globales, persistées avec le thème : **comfortable** (défaut) et **compact** (tables 32px→28px, espacements -1 cran, `--akd-text-sm` partout). Implémentées par un jeu de tokens `--akd-density-*` re-mappés via `data-density` sur `<html>` — les composants ne connaissent pas la densité, seulement leurs tokens. Les cibles interactives ne descendent jamais sous 24×24px (WCAG 2.5.8).
+Deux densités globales, persistées (localStorage + préférence de compte) : **comfortable** (défaut) et **compact** (tables 32px→28px, espacements -1 cran, `--akd-text-sm` partout). Implémentées par un jeu de tokens `--akd-density-*` re-mappés via `data-density` sur `<html>` — les composants ne connaissent pas la densité, seulement leurs tokens. Les cibles interactives ne descendent jamais sous 24×24px (WCAG 2.5.8).
 
 ### 4.6 Temps et fuseaux (§22.3)
 
@@ -538,22 +602,21 @@ web/
           button.component.spec.ts
         status-badge/ …         # un dossier par composant, même structure
       src/styles/               # package styles partagé
-        tokens.css              # §2.6 — source de vérité
+        tokens.css              # §2.6 — copie verbatim de la spec (thème sombre unique)
         reset.css
-        themes/                 # généré : light.css, dark.css depuis une définition unique
     dashboard/                  # l'application (lazy loading par domaine §25.2)
 ```
 
 - **Composants standalone**, préfixe de sélecteur **`akd-`** (réservé à la lib — lint : l'app ne déclare pas de `akd-*`), TypeScript strict, signals pour l'état local, `OnPush` partout, zoneless si la LTS le permet.
 - La lib `akd-ui` **ne dépend pas** du client API généré : elle est purement présentationnelle (inputs/outputs/signals). Les composants connectés (ex. la page qui alimente `akd-log-viewer` depuis le flux realtime) vivent dans l'app.
-- Les **tokens** vivent dans le package styles partagé, importés une fois globalement ; les styles de composants ne référencent que des `var(--akd-*)` (lint stylelint : couleur/dimension littérale interdite, voir §6).
+- Les **tokens** vivent dans le package styles partagé, importés une fois globalement ; les styles de composants ne référencent que des variables de tokens du §2.6 (canoniques ; alias `--akd-*` tolérés pendant la migration) — lint stylelint : couleur/dimension littérale interdite, voir §6.
 - Les enums d'états consommés par `akd-status-badge` sont **générés depuis l'OpenAPI** (§24.1, §25.2) — le mapping état→famille vit dans la lib et sa complétude est testée contre l'enum généré.
 
 ### 5.2 Catalogue (§25.3 — exigence bloquante)
 
 - **Storybook** (builder Angular officiel ; alternative acceptée : Analog/Sandbox équivalent, mais Storybook est le défaut proposé pour ses addons a11y/interactions).
 - Règle PRD : **« un composant n'entre dans l'UI que s'il est au catalogue »** — appliquée mécaniquement : la CI échoue si un composant exporté de `akd-ui` n'a pas de `.stories.ts`, et l'app ne peut importer que ce que la lib exporte.
-- Chaque composant expose une story par variante × état (incluant états d'erreur, vide, loading, stale, reduced-motion), rendue **dans les deux thèmes** (toolbar de thème globale) et les deux densités.
+- Chaque composant expose une story par variante × état (incluant états d'erreur, vide, loading, stale, reduced-motion), rendue sur le thème sombre unique et les deux densités.
 - Addons requis : `@storybook/addon-a11y` (axe-core, échec CI sur violation), interactions (tests de clavier scriptés), viewport (responsive §22.4).
 - Le catalogue buildé est publié en interne à chaque merge : c'est la **référence unique** designers/développeurs.
 
@@ -570,11 +633,11 @@ web/
 
 Un composant est mergé dans `akd-ui` seulement si **tout** est vrai :
 
-1. **Tokens only** : aucun hex/px/ms littéral dans son CSS — uniquement `var(--akd-*)` (stylelint bloquant en CI). Aucun style ne dépend du thème autrement que via les tokens sémantiques.
-2. **AA dans les deux thèmes** : contrastes texte ≥ 4.5:1 et UI ≥ 3:1 vérifiés en clair **et** sombre — automatiquement (axe sur les stories des deux thèmes) et, pour toute nouvelle paire de couleurs, ratio calculé et consigné dans §2 de ce document.
+1. **Tokens only** : aucun hex/oklch/px/ms littéral dans son CSS — uniquement des variables de tokens du §2.6 (canoniques ; alias `--akd-*` tolérés pendant la migration) (stylelint bloquant en CI).
+2. **AA** : contrastes texte ≥ 4.5:1 et UI ≥ 3:1 vérifiés sur le thème sombre unique — automatiquement (axe sur les stories) et, pour toute nouvelle paire de couleurs, ratio calculé et consigné dans §2 de ce document.
 3. **Clavier complet** : tous les usages opérables sans souris ; focus visible sur chaque élément interactif ; ordre de tabulation logique ; raccourcis documentés dans la story ; test d'interaction Storybook couvrant le parcours clavier nominal.
 4. **États normalisés** : si le composant affiche un état métier, il compose `akd-status-badge` (jamais de couleurs d'état locales) ; états loading/empty/error/disabled définis, plus stale si le composant affiche des données observées (§19.2).
-5. **Stories exhaustives** : une story par variante × état, deux thèmes, deux densités, reduced-motion ; addon a11y sans violation ; le composant n'est importable par l'app qu'une fois ses stories présentes (§5.2).
+5. **Stories exhaustives** : une story par variante × état, deux densités, reduced-motion ; addon a11y sans violation ; le composant n'est importable par l'app qu'une fois ses stories présentes (§5.2).
 6. **Spec de test** : `.spec.ts` couvrant le contrat (inputs/outputs, états, rendu ARIA — rôles et attributs asserted) ; pour les composants à interaction riche (modal, table, log viewer), tests d'interaction (harness Angular CDK ou testing-library).
 7. **i18n** : aucune chaîne en dur ; toutes les clés créées avec leur valeur anglaise ; `aria-label` paramétrables.
 8. **Documentation** : description d'usage dans la story (quand l'utiliser / quand ne pas l'utiliser), et mise à jour de l'inventaire §3 si le composant est nouveau.
@@ -583,20 +646,23 @@ Un composant est mergé dans `akd-ui` seulement si **tout** est vrai :
 
 ## Annexe A — Récapitulatif des ratios de contraste vérifiés
 
-Méthode : luminance relative WCAG 2.1 (sRGB), ratio = (L1+0.05)/(L2+0.05). Script de vérification à intégrer en CI (les mêmes paires, en snapshot test sur `tokens.css`).
+Méthode : conversion oklch → sRGB puis luminance relative WCAG 2.1, ratio = (L1+0.05)/(L2+0.05) ; les fonds translucides `-dim` (alpha 0.12) sont composités sur `--bg-0`. Script de vérification à intégrer en CI (les mêmes paires, en snapshot test sur `tokens.css`).
 
-Paires critiques (texte : exigence 4.5:1 ; UI : 3:1) :
+Paires critiques (texte : exigence 4.5:1 ; UI : 3:1) — thème sombre unique :
 
-| # | Paire | Clair | Sombre |
-|---|---|---:|---:|
-| 1 | Texte principal / fond page | 17.72 ✅ | 17.29 ✅ |
-| 2 | Texte secondaire / fond page | 7.73 ✅ | 7.42 ✅ |
-| 3 | Bouton primaire (texte/fond accent) | 5.47 ✅ | 10.21 ✅ |
-| 4 | Bouton/texte danger | 4.83 ✅ | 6.87 ✅ |
-| 5 | Texte warning / fond page | 5.02 ✅ | 11.39 ✅ |
-| 6 | Focus ring / fond page (UI 3:1) | 3.74 ✅ | 10.21 ✅ |
-| 7 | Badge success (fg/bg tinté) | 4.79 ✅ | 8.55 ✅ |
-| 8 | Bordure d'input / fond (UI 3:1) | 4.83 ✅ | 3.93 ✅ |
-| 9 | Log viewer (texte/fond) | 14.98 ✅ | 14.98 ✅ |
+| # | Paire | Ratio |
+|---|---|---:|
+| 1 | Texte principal `--text-1` / fond page `--bg-0` | 16.60 ✅ |
+| 2 | Texte principal `--text-1` / carte `--bg-1` | 15.91 ✅ |
+| 3 | Texte secondaire `--text-2` / fond page | 8.59 ✅ |
+| 4 | Lien/accent `--accent` / fond page | 10.40 ✅ |
+| 5 | Bouton primaire `--accent-on` / `--accent-strong` | 7.22 ✅ |
+| 6 | Bouton/texte danger `--danger` / `--danger-dim` | 6.50 ✅ |
+| 7 | Texte warning `--warn` / fond page | 9.82 ✅ |
+| 8 | Focus ring `--accent` / fond page (UI 3:1) | 10.40 ✅ |
+| 9 | Badge success `--ok` / `--ok-dim` | 8.63 ✅ |
+| 10 | Badge progress `--accent` / `--info-dim` | 8.66 ✅ |
+| 11 | Badge neutral `--neutral` / `--neutral-dim` | 6.40 ✅ |
+| 12 | Log viewer `--text-2` / `--bg-inset` | 8.81 ✅ |
 
-Garde-fous documentés : `teal-600` sur blanc = 3.74:1 → **interdit pour du texte** (réservé au focus ring et aux éléments UI) ; `teal-500` sur blanc = 2.49:1 → décoratif uniquement ; pastilles d'état non textuelles ≥ 3:1 dans les deux thèmes (§2.3).
+Garde-fous documentés : `--text-3` sur `--bg-0` = 4.26:1 → réservé aux méta **non essentielles ou redondantes**, jamais un corps de texte ni le seul porteur d'une information (§2.1) ; `--text-disabled` = décoratif uniquement ; bordures `--border-1/2` **décoratives** (< 3:1, exemption 1.4.11) — l'identification des contrôles passe par le contraste de fond `--bg-inset` et le focus accent ; pastilles d'état non textuelles ≥ 6.40:1 ≥ 3:1 (§2.3).

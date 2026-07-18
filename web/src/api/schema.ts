@@ -3681,7 +3681,7 @@ export interface components {
             proxy_http_port?: number;
             proxy_https_port?: number;
             /**
-             * @description Intention de l'opérateur sur le proxy (§3). Un `stopped` explicite n'est pas « réparé » par la réconciliation.
+             * @description Intention de l'opérateur sur le proxy (§3). `stopped` à la création : la validation n'installe ni ne démarre le proxy tant que l'opérateur n'a pas revu ses réglages puis demandé le premier démarrage (POST /servers/{server_uuid}/proxy/start, §20.1 étape 5). Un `stopped` explicite n'est pas « réparé » par la réconciliation.
              * @enum {string}
              */
             readonly proxy_desired_state?: "running" | "stopped";

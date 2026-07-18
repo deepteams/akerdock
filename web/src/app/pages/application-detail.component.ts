@@ -11,6 +11,8 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
+import { IconComponent } from '../../ui/icon/icon.component';
+import { CardComponent } from '../../ui/card/card.component';
 import { ApiService } from '../core/api.service';
 import type { components } from '../../api/schema';
 import { ApplicationSettingsTabComponent } from './application/settings-tab.component';
@@ -54,6 +56,8 @@ const isGap = (row: Row): row is GapMarker => 'gap' in row;
   standalone: true,
   imports: [
     StatusBadgeComponent,
+    IconComponent,
+    CardComponent,
     RouterLink,
     ApplicationSettingsTabComponent,
     ApplicationEnvsTabComponent,
@@ -66,46 +70,105 @@ const isGap = (row: Row): row is GapMarker => 'gap' in row;
     ApplicationTerminalTabComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'akd-page' },
   template: `
-    <header class="bar">
-      <div>
-        <a routerLink="/applications" class="back">← Applications</a>
-        <h1>{{ application()?.name ?? '…' }}</h1>
-      </div>
+    <header class="akd-bar head">
+      <a
+        routerLink="/applications"
+        class="akd-iconbtn akd-iconbtn--bordered"
+        aria-label="Back to applications"
+      >
+        <akd-icon name="arrow-left" [size]="15" />
+      </a>
+      <h1 class="name">{{ application()?.name ?? '…' }}</h1>
       @if (application(); as app) {
+        <akd-status-badge
+          domain="resource"
+          [state]="app.desired_status"
+          [label]="'desired: ' + app.desired_status"
+        />
+        <akd-status-badge
+          domain="resource"
+          [state]="app.observed_status"
+          [label]="'observed: ' + app.observed_status"
+        />
+        @if (app.domains?.[0]; as domain) {
+          <a class="akd-mono" [href]="'https://' + domain" target="_blank" rel="noopener">
+            {{ domain }}
+          </a>
+        }
+        <span class="spacer"></span>
+        @if (app.git_branch; as branch) {
+          <span class="akd-badge akd-badge--mono">{{ branch }}</span>
+        }
+        @if (app.build_pack; as pack) {
+          <span class="akd-badge akd-badge--mono">{{ pack }}</span>
+        }
+        @if (serverName(); as server) {
+          <span class="akd-badge akd-badge--mono">{{ server }}</span>
+        }
         <div class="actions">
-          <button class="ghost" type="button" [disabled]="busy()" (click)="run('deploy')">
-            Deploy
-          </button>
-          <button class="ghost" type="button" [disabled]="busy()" (click)="run('restart')">
+          <button
+            class="akd-btn akd-btn--secondary"
+            type="button"
+            [disabled]="busy()"
+            (click)="run('restart')"
+          >
+            <akd-icon name="refresh-cw" [size]="15" />
             Restart
           </button>
           @if (app.desired_status === 'stopped') {
-            <button class="ghost" type="button" [disabled]="busy()" (click)="run('start')">
+            <button
+              class="akd-btn akd-btn--secondary"
+              type="button"
+              [disabled]="busy()"
+              (click)="run('start')"
+            >
+              <akd-icon name="play" [size]="15" />
               Start
             </button>
           } @else {
-            <button class="ghost" type="button" [disabled]="busy()" (click)="run('stop')">
+            <button
+              class="akd-btn akd-btn--secondary"
+              type="button"
+              [disabled]="busy()"
+              (click)="run('stop')"
+            >
+              <akd-icon name="square" [size]="13" />
               Stop
             </button>
           }
+          <button
+            class="akd-btn akd-btn--primary"
+            type="button"
+            [disabled]="busy()"
+            (click)="run('deploy')"
+          >
+            <akd-icon name="rocket" [size]="15" />
+            Deploy
+          </button>
         </div>
       }
     </header>
 
     @if (error(); as message) {
-      <p class="error" role="alert">{{ message }}</p>
+      <p class="akd-error" role="alert">{{ message }}</p>
     }
 
     <nav class="akd-tabs" role="tablist" aria-label="Application sections">
       @for (t of tabs; track t.id) {
         <button
           type="button"
+          class="akd-tab"
           role="tab"
+          [class.akd-tab--active]="tab() === t.id"
           [attr.aria-selected]="tab() === t.id"
           (click)="tab.set(t.id)"
         >
           {{ t.label }}
+          @if (t.id === 'deployments' && deployments().length > 0) {
+            <span class="akd-tab__count">{{ deployments().length }}</span>
+          }
         </button>
       }
     </nav>
@@ -114,62 +177,60 @@ const isGap = (row: Row): row is GapMarker => 'gap' in row;
       @case ('overview') {
         @if (application(); as app) {
           <section class="cards">
-            <div class="card">
-              <h2>Desired</h2>
+            <div class="akd-card">
               <!-- Intent and observation are shown side by side and never merged: a
                    desired "running" says nothing about what is actually up (§19.2). -->
-              <akd-status-badge domain="resource" [state]="app.desired_status" />
+              <span class="akd-stat__label">Desired</span>
+              <span><akd-status-badge domain="resource" [state]="app.desired_status" /></span>
             </div>
-            <div class="card">
-              <h2>Observed</h2>
-              <akd-status-badge domain="resource" [state]="app.observed_status" />
+            <div class="akd-card">
+              <span class="akd-stat__label">Observed</span>
+              <span><akd-status-badge domain="resource" [state]="app.observed_status" /></span>
             </div>
-            <div class="card">
-              <h2>Source</h2>
-              <p class="muted">{{ app.source_type }}</p>
+            <div class="akd-card">
+              <span class="akd-stat__label">Source</span>
+              <span class="akd-mono">{{ app.source_type }}</span>
             </div>
-            <div class="card">
-              <h2>Domains</h2>
+            <div class="akd-card">
+              <span class="akd-stat__label">Domains</span>
               @if (app.domains?.length) {
-                <ul class="domains">
+                <ul class="domains akd-mono">
                   @for (domain of app.domains; track domain) {
                     <li>{{ domain }}</li>
                   }
                 </ul>
               } @else {
-                <p class="muted">None</p>
+                <span class="akd-muted">None</span>
               }
             </div>
           </section>
 
           @if (components().length > 0) {
-            <section class="components">
-              <h2>Stack components</h2>
+            <akd-card title="Stack components" class="components">
               <ul class="component-list">
                 @for (c of components(); track c.uuid) {
                   <li>
                     <span class="akd-mono">{{ c.name }}</span>
                     @if (c.is_database) {
-                      <span class="muted">db: {{ c.database_engine }}</span>
+                      <span class="akd-badge akd-badge--mono">db: {{ c.database_engine }}</span>
                     }
                     @if (c.exclude_from_hc) {
-                      <span class="muted">one-shot</span>
+                      <span class="akd-badge">one-shot</span>
                     }
                     <akd-status-badge domain="resource" [state]="c.observed_status" />
                   </li>
                 }
               </ul>
-            </section>
+            </akd-card>
           }
         }
 
         <section class="split">
-          <div>
-            <h2>Deployments</h2>
+          <akd-card title="Deployments" [padded]="false">
             @if (deployments().length === 0) {
-              <p class="muted">No deployment yet.</p>
+              <p class="akd-muted pad">No deployment yet.</p>
             } @else {
-              <ul class="timeline">
+              <ul class="deploy-list">
                 @for (d of deployments(); track d.uuid) {
                   <li [class.selected]="d.uuid === selected()">
                     <button type="button" class="row" (click)="select(d.uuid!)">
@@ -177,36 +238,43 @@ const isGap = (row: Row): row is GapMarker => 'gap' in row;
                       <span class="trigger"
                         >{{ d.trigger }}{{ d.is_rollback ? ' · rollback' : '' }}</span
                       >
-                      <span class="muted when">{{ d.created_at }}</span>
+                      <span class="akd-muted when">{{ d.created_at }}</span>
                     </button>
                   </li>
                 }
               </ul>
             }
-          </div>
+          </akd-card>
 
-          <div class="logs-pane">
-            <h2>
-              Build logs
+          <akd-card title="Build logs" [padded]="false">
+            <span card-actions>
               @if (streaming()) {
-                <span class="live" role="status">live</span>
+                <akd-status-badge domain="job" state="running" label="live · SSE" />
               }
-            </h2>
+            </span>
             @if (!selected()) {
-              <p class="muted">Pick a deployment to read its logs.</p>
+              <p class="akd-muted pad">Pick a deployment to read its logs.</p>
             } @else {
-              <pre
-                class="logs"
-                tabindex="0"
-                aria-label="Deployment build logs"
-              >@for (row of rows(); track row.sequence) {<span
-                  class="line"
-                  [class.stderr]="!isGap(row) && row.channel === 'stderr'"
-                  [class.system]="!isGap(row) && row.channel === 'system'"
-                  [class.gap]="isGap(row)"
-                >{{ render(row) }}</span>}</pre>
+              <div class="akd-log logpane" tabindex="0" aria-label="Deployment build logs">
+                @for (row of rows(); track row.sequence) {
+                  @if (isGap(row)) {
+                    <div class="akd-log__line akd-log__line--warn">
+                      <span class="akd-log__msg">{{ render(row) }}</span>
+                    </div>
+                  } @else {
+                    <div
+                      class="akd-log__line"
+                      [class.akd-log__line--error]="row.channel === 'stderr'"
+                      [class.akd-log__line--cmd]="row.channel === 'system'"
+                    >
+                      <span class="akd-log__ts">{{ clock(row.timestamp) }}</span>
+                      <span class="akd-log__msg">{{ render(row) }}</span>
+                    </div>
+                  }
+                }
+              </div>
             }
-          </div>
+          </akd-card>
         </section>
       }
       @case ('settings') {
@@ -241,203 +309,106 @@ const isGap = (row: Row): row is GapMarker => 'gap' in row;
   styles: [
     `
       /* Tokens only — no literal colour or size (design-system §6.1). */
-      :host {
-        display: block;
-        padding: var(--akd-space-6);
-        background: var(--akd-bg);
-        min-height: 100vh;
+      .head {
+        justify-content: flex-start;
+        row-gap: var(--space-2);
       }
-      .bar {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        margin-bottom: var(--akd-space-5);
+      h1.name {
+        font-family: var(--font-mono);
       }
-      .back {
-        font-size: var(--akd-text-sm);
-        color: var(--akd-text-secondary);
-        text-decoration: none;
-      }
-      .back:hover {
-        text-decoration: underline;
-      }
-      h1 {
-        margin: var(--akd-space-1) 0 0;
-        font-size: var(--akd-text-xl);
-        color: var(--akd-text);
-      }
-      h2 {
-        margin: 0 0 var(--akd-space-2);
-        font-size: var(--akd-text-xs);
-        font-weight: var(--akd-weight-semibold);
-        color: var(--akd-text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+      .spacer {
+        flex: 1;
       }
       .actions {
         display: flex;
-        gap: var(--akd-space-2);
+        gap: var(--space-2);
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+        gap: var(--space-3);
+        margin-bottom: var(--space-5);
       }
       .components {
-        margin-bottom: var(--akd-space-6);
+        display: block;
+        margin-bottom: var(--space-5);
       }
       .component-list {
         list-style: none;
         margin: 0;
         padding: 0;
         display: grid;
-        gap: var(--akd-space-1);
-        font-size: var(--akd-text-sm);
+        gap: var(--space-1);
+        font-size: var(--text-sm);
       }
       .component-list li {
         display: flex;
         align-items: center;
-        gap: var(--akd-space-3);
-        padding: var(--akd-space-1) 0;
-      }
-      .cards {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-        gap: var(--akd-space-3);
-        margin-bottom: var(--akd-space-6);
-      }
-      .card {
-        padding: var(--akd-space-3);
-        border: 1px solid var(--akd-border);
-        border-radius: var(--akd-radius-lg);
-        background: var(--akd-surface);
+        gap: var(--space-3);
+        padding: var(--space-1) 0;
       }
       .split {
         display: grid;
-        grid-template-columns: minmax(16rem, 22rem) 1fr;
-        gap: var(--akd-space-5);
+        grid-template-columns: minmax(16rem, 24rem) 1fr;
+        gap: var(--space-5);
         align-items: start;
       }
-      .timeline {
+      .deploy-list {
         list-style: none;
         margin: 0;
         padding: 0;
       }
-      .timeline li + li {
-        border-top: 1px solid var(--akd-border);
+      .deploy-list li + li {
+        border-top: 1px solid var(--border-1);
       }
-      .timeline .selected {
-        background: var(--akd-surface-hover);
+      .deploy-list .selected {
+        background: var(--bg-2);
       }
       .row {
         display: flex;
         align-items: center;
-        gap: var(--akd-space-2);
+        gap: var(--space-2);
         width: 100%;
-        padding: var(--akd-space-2);
+        padding: var(--space-2) var(--space-3);
         font: inherit;
         text-align: left;
         background: transparent;
         border: 0;
         cursor: pointer;
-        color: var(--akd-text);
+        color: var(--text-1);
       }
       .row:hover {
-        background: var(--akd-surface-hover);
+        background: var(--bg-2);
       }
       .row:focus-visible {
-        outline: 2px solid var(--akd-focus-ring);
-        outline-offset: -2px;
+        outline: none;
+        box-shadow: var(--ring-focus);
       }
       .trigger {
-        font-size: var(--akd-text-sm);
+        font-size: var(--text-sm);
       }
       .when {
         margin-left: auto;
-        font-size: var(--akd-text-xs);
+        font-size: var(--text-xs);
       }
-      .live {
-        margin-left: var(--akd-space-2);
-        color: var(--akd-status-progress-fg);
-        text-transform: none;
-        letter-spacing: 0;
-      }
-      .logs {
+      .pad {
         margin: 0;
-        padding: var(--akd-space-3);
+        padding: var(--space-4) var(--space-5);
+      }
+      .logpane {
+        border: none;
+        border-radius: 0 0 var(--radius-3) var(--radius-3);
         max-height: 60vh;
-        overflow: auto;
-        background: var(--akd-surface);
-        border: 1px solid var(--akd-border);
-        border-radius: var(--akd-radius-lg);
-        font-family: var(--akd-font-mono);
-        font-size: var(--akd-text-xs);
-        line-height: 1.6;
-        color: var(--akd-text);
-        white-space: pre-wrap;
-        word-break: break-word;
+        padding: var(--space-2) 0;
       }
-      .logs:focus-visible {
-        outline: 2px solid var(--akd-focus-ring);
-      }
-      .line {
-        display: block;
-      }
-      /* stderr and system are marked by a prefix in the text as well as by
-         colour: a log read in black and white must still be readable. */
-      .line.stderr {
-        color: var(--akd-status-danger-fg);
-      }
-      .line.system {
-        color: var(--akd-text-secondary);
-      }
-      .line.gap {
-        color: var(--akd-status-warning-fg);
-        font-weight: var(--akd-weight-semibold);
-      }
-      .sr-only {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        padding: 0;
-        margin: -1px;
-        overflow: hidden;
-        clip: rect(0 0 0 0);
-        white-space: nowrap;
-        border: 0;
+      .logpane:focus-visible {
+        outline: none;
+        box-shadow: var(--ring-focus);
       }
       .domains {
         list-style: none;
         margin: 0;
         padding: 0;
-        font-size: var(--akd-text-sm);
-      }
-      .muted {
-        color: var(--akd-text-secondary);
-        margin: 0;
-      }
-      .ghost {
-        padding: var(--akd-space-1) var(--akd-space-3);
-        font: inherit;
-        font-size: var(--akd-text-sm);
-        color: var(--akd-text);
-        background: transparent;
-        border: 1px solid var(--akd-border-input);
-        border-radius: var(--akd-radius-sm);
-        cursor: pointer;
-      }
-      .ghost:hover:not(:disabled) {
-        background: var(--akd-surface-hover);
-      }
-      .ghost:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
-      .ghost:focus-visible {
-        outline: 2px solid var(--akd-focus-ring);
-        outline-offset: 1px;
-      }
-      .error {
-        padding: var(--akd-space-2) var(--akd-space-3);
-        margin-bottom: var(--akd-space-4);
-        color: var(--akd-status-danger-fg);
-        background: var(--akd-status-danger-bg);
-        border-radius: var(--akd-radius-sm);
       }
       @media (max-width: 60rem) {
         .split {
@@ -470,6 +441,7 @@ export class ApplicationDetailComponent {
   protected readonly application = signal<Application | null>(null);
   protected readonly components = signal<ServiceComponent[]>([]);
   protected readonly deployments = signal<Deployment[]>([]);
+  protected readonly serverName = signal<string | null>(null);
   protected readonly selected = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
@@ -507,6 +479,11 @@ export class ApplicationDetailComponent {
     return prefix + row.message;
   }
 
+  /** HH:MM:SS from an RFC 3339 timestamp — the date is in the list next door. */
+  protected clock(timestamp: string): string {
+    return timestamp.slice(11, 19);
+  }
+
   private async load(uuid: string): Promise<void> {
     const client = this.api.client();
     try {
@@ -518,11 +495,22 @@ export class ApplicationDetailComponent {
       this.application.set(app);
       this.components.set(comps.data);
       this.deployments.set(page.data);
+      void this.loadServerName(app.server_uuid);
       // The newest deployment is the one an operator is here to watch.
       const latest = page.data[0]?.uuid;
       if (latest && !this.selected()) this.select(latest);
     } catch (err) {
       this.error.set(ApiService.describe(err));
+    }
+  }
+
+  /** Header badge only — its absence must never block the page. */
+  private async loadServerName(serverUuid: string): Promise<void> {
+    try {
+      const server = await this.api.client().getServer(serverUuid);
+      this.serverName.set(server.name);
+    } catch {
+      this.serverName.set(null);
     }
   }
 

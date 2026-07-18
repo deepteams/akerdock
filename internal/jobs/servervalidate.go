@@ -120,14 +120,10 @@ func (h *ServerValidate) Execute(ctx context.Context, job store.Job, rec *queue.
 	}
 
 	// Step 4 — proxy bootstrap (proxy-contract §1.3): static config +
-	// managed Traefik container, unless proxy_type is none.
-	//
-	// A build server hosts no application (§3.4), so it routes nothing: giving
-	// it a proxy would bind ports 80/443 on a machine that has no reason to
-	// listen on them.
-	if server.IsBuildServer {
-		rec.Skip(ctx, "bootstrap_proxy", "build server: it hosts no application, so it routes nothing")
-	} else if server.ProxyType == store.ProxyTypeTraefik {
+	// managed Traefik container, when the operator's intent asks for it.
+	if run, reason := proxyBootstrapDecision(server); !run {
+		rec.Skip(ctx, "bootstrap_proxy", reason)
+	} else {
 		rec.Start(ctx, "bootstrap_proxy")
 		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, server, false); err != nil {
 			rec.Fail(ctx, "proxy bootstrap failed — retry the validation once the cause is fixed: "+firstLine(err.Error()))
@@ -276,6 +272,29 @@ func checkDocker(ctx context.Context, client *sshexec.Client, facts *systemFacts
 //
 // A free function, not a method: the database job needs it too, and a proxy that
 // two jobs converge differently is a proxy that drifts.
+// proxyBootstrapDecision says whether a background job may create and start
+// the managed proxy of this server, and if not, why (the reason is shown as
+// the step's skip message).
+//
+// A build server hosts no application (§3.4), so it routes nothing: giving it
+// a proxy would bind ports 80/443 on a machine that has no reason to listen
+// on them. And a proxy whose desired state is `stopped` — the state every new
+// server starts in — belongs to the operator: they review the proxy settings
+// first, then the FIRST start is their explicit action (POST /proxy/start),
+// never a side effect of validation (§20.1 step 5, « selon les options »).
+func proxyBootstrapDecision(server store.Server) (run bool, skipReason string) {
+	switch {
+	case server.IsBuildServer:
+		return false, "build server: it hosts no application, so it routes nothing"
+	case server.ProxyType != store.ProxyTypeTraefik:
+		return false, "proxy_type is none — this server routes nothing until an operator changes it"
+	case server.ProxyDesiredState != store.ProxyDesiredStateRunning:
+		return false, "proxy intent is stopped — review the proxy settings (ports, wildcard domain, ACME email), then start it from the server page"
+	default:
+		return true, ""
+	}
+}
+
 func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring, client *sshexec.Client, server store.Server, recreate bool) error {
 	h := &ServerValidate{Store: q, Keyring: kr}
 	dest, err := h.Store.GetDefaultDestination(ctx, server.ID)

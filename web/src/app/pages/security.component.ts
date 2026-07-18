@@ -10,10 +10,13 @@ import {
   Passkey,
   TotpSetup,
 } from '../core/api.service';
+import { CardComponent } from '../../ui/card/card.component';
+import { IconComponent } from '../../ui/icon/icon.component';
+import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 
 /**
- * Account security: passkey enrolment and revocation, and TOTP two-factor
- * authentication.
+ * Personal settings: passkey enrolment and revocation, linked identities and
+ * TOTP two-factor authentication.
  *
  * A passkey is phishing-resistant where a password is not — the signature
  * binds the origin. This page exists so an operator can get to the point of
@@ -24,268 +27,350 @@ import {
 @Component({
   selector: 'app-security',
   standalone: true,
-  imports: [FormsModule, SlicePipe],
+  imports: [FormsModule, SlicePipe, CardComponent, IconComponent, StatusBadgeComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
-        <h1>Security</h1>
+        <h1>Personal settings</h1>
       </header>
 
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      <section class="akd-card">
-        <header class="akd-bar" style="margin-bottom: 0">
-          <h2>Passkeys</h2>
-        </header>
-        <p class="akd-muted">
-          A passkey signs a challenge bound to this origin: a look-alike domain gets nothing to
-          replay. Enrol one per device, and name it after the device — the name is how you will
-          know which one to revoke when it is lost.
-        </p>
-
-        @if (!supported) {
-          <p class="akd-muted">This browser does not support WebAuthn.</p>
-        } @else {
-          <form class="enrol" (ngSubmit)="enrol()">
-            <div class="akd-field">
-              <label for="pk-name">Name for the new passkey</label>
-              <input
-                id="pk-name"
-                name="name"
-                class="akd-input"
-                placeholder="e.g. MacBook Touch ID"
-                [(ngModel)]="name"
-                [disabled]="busy()"
-              />
-            </div>
-            <button class="akd-btn" type="submit" [disabled]="busy()">
-              {{ busy() ? 'Waiting for the authenticator…' : 'Add a passkey' }}
-            </button>
-          </form>
-        }
-
-        @if (loading()) {
-          <p class="akd-muted">Loading…</p>
-        } @else if (passkeys().length === 0) {
-          <div class="akd-empty">
-            <p><strong>No passkeys yet.</strong></p>
-            <p>Until one is enrolled, this account signs in by password alone.</p>
-          </div>
-        } @else {
-          <table class="akd-table">
-            <caption class="sr-only">Enrolled passkeys</caption>
-            <thead>
-              <tr>
-                <th scope="col">Name</th>
-                <th scope="col">Created</th>
-                <th scope="col">Last used</th>
-                <th scope="col"><span class="sr-only">Actions</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (pk of passkeys(); track pk.uuid) {
-                <tr>
-                  <td>{{ pk.name }}</td>
-                  <td class="akd-muted">{{ pk.created_at | slice: 0 : 10 }}</td>
-                  <td class="akd-muted">
-                    {{ pk.last_used_at ? (pk.last_used_at | slice: 0 : 10) : 'never' }}
-                  </td>
-                  <td class="right">
-                    <button
-                      class="akd-btn-danger"
-                      type="button"
-                      [disabled]="busy()"
-                      (click)="revoke(pk)"
-                    >
-                      Revoke
-                    </button>
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        }
-      </section>
-
-      <section class="akd-card">
-        <header class="akd-bar" style="margin-bottom: 0">
-          <h2>Linked accounts</h2>
-        </header>
-        <p class="akd-muted">
-          Sign in with an identity provider instead of the password. Linking is explicit and done
-          from here, signed in — a provider account merely sharing your email never attaches
-          itself.
-        </p>
-
-        @if (identities().length > 0) {
-          <table class="akd-table">
-            <caption class="sr-only">Linked identities</caption>
-            <thead>
-              <tr>
-                <th scope="col">Provider</th>
-                <th scope="col">Email at the provider</th>
-                <th scope="col"><span class="sr-only">Actions</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (identity of identities(); track identity.uuid) {
-                <tr>
-                  <td>{{ identity.provider }}</td>
-                  <td class="akd-muted">{{ identity.email ?? '—' }}</td>
-                  <td class="right">
-                    <button
-                      class="akd-btn-danger"
-                      type="button"
-                      [disabled]="busy()"
-                      (click)="unlink(identity)"
-                    >
-                      Unlink
-                    </button>
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        }
-
-        @if (linkableProviders().length > 0) {
-          <div class="link-row">
-            @for (p of linkableProviders(); track p.provider) {
-              <button class="akd-btn" type="button" [disabled]="busy()" (click)="link(p.provider)">
-                Link {{ p.name }}
+      <div class="cards">
+        <akd-card title="Passkeys" [padded]="false">
+          <span card-actions>
+            @if (supported) {
+              <button
+                class="akd-btn akd-btn--primary akd-btn--sm"
+                type="button"
+                (click)="adding.set(!adding())"
+              >
+                <akd-icon name="key-round" [size]="14" />
+                {{ adding() ? 'Cancel' : 'Add passkey' }}
               </button>
             }
-          </div>
-        } @else if (identities().length === 0) {
-          <p class="akd-muted">No identity provider is configured on this instance.</p>
-        }
-      </section>
+          </span>
 
-      <section class="akd-card">
-        <header class="akd-bar" style="margin-bottom: 0">
-          <h2>Two-factor authentication</h2>
-        </header>
-
-        @if (recoveryCodes(); as codes) {
-          <!-- Shown exactly once: only hashes survive server-side. -->
-          <div class="akd-empty">
-            <p><strong>Save these recovery codes now.</strong></p>
-            <p>
-              Each one signs you in once if the authenticator is lost. They will never be shown
-              again.
-            </p>
-            <pre class="codes">{{ recoveryText() }}</pre>
-            <button class="akd-btn" type="button" (click)="copyRecoveryCodes()">
-              {{ copied() ? 'Copied' : 'Copy codes' }}
-            </button>
-            <button class="akd-btn" type="button" (click)="recoveryCodes.set(null)">
-              I saved them
-            </button>
-          </div>
-        } @else if (setup(); as pending) {
-          <p class="akd-muted">
-            Add this secret to your authenticator app (scan or type it), then confirm with the
-            six-digit code it displays. Nothing changes until the code confirms the app really
-            holds the secret.
-          </p>
-          <p>
-            <a [href]="pending.otpauth_uri">Open in the authenticator app</a> or enter the secret
-            manually:
-          </p>
-          <pre class="codes">{{ pending.secret }}</pre>
-          <form class="enrol" (ngSubmit)="confirmTotp()">
-            <div class="akd-field">
-              <label for="totp-confirm">Six-digit code</label>
-              <input
-                id="totp-confirm"
-                name="code"
-                class="akd-input"
-                inputmode="numeric"
-                autocomplete="one-time-code"
-                [(ngModel)]="totpCode"
-                [disabled]="busy()"
-              />
-            </div>
-            <button class="akd-btn" type="submit" [disabled]="busy() || !totpCode">Confirm</button>
-            <button class="akd-btn" type="button" [disabled]="busy()" (click)="cancelSetup()">
-              Cancel
-            </button>
-          </form>
-        } @else if (mfa(); as status) {
-          @if (status.enabled) {
-            <p class="akd-muted">
-              Enabled since {{ (status.confirmed_at ?? '') | slice: 0 : 10 }} —
-              {{ status.recovery_codes_remaining }} recovery code(s) left. Signing in by password
-              asks for a code from your authenticator app; passkeys are unaffected (they already
-              are a second factor).
-            </p>
-            <div class="enrol">
+          @if (!supported) {
+            <p class="akd-muted sm pad">This browser does not support WebAuthn.</p>
+          } @else if (adding()) {
+            <form class="enrol pad" (ngSubmit)="enrol()">
               <div class="akd-field">
-                <label for="totp-manage">
-                  {{ useRecoveryToDisable ? 'Recovery code' : 'Current six-digit code' }}
-                </label>
+                <label class="akd-field__label" for="pk-name">Name for the new passkey</label>
                 <input
-                  id="totp-manage"
-                  name="code"
+                  id="pk-name"
+                  name="name"
                   class="akd-input"
-                  [attr.inputmode]="useRecoveryToDisable ? 'text' : 'numeric'"
-                  autocomplete="one-time-code"
-                  [(ngModel)]="totpCode"
+                  placeholder="e.g. MacBook Touch ID"
+                  [(ngModel)]="name"
                   [disabled]="busy()"
                 />
+                <span class="akd-field__hint">
+                  Enrol one per device, and name it after the device — the name is how you will know
+                  which one to revoke when it is lost.
+                </span>
               </div>
-              @if (!useRecoveryToDisable) {
-                <button
-                  class="akd-btn"
-                  type="button"
-                  [disabled]="busy() || !totpCode"
-                  (click)="regenerate()"
-                >
-                  New recovery codes
-                </button>
-              }
-              <button
-                class="akd-btn-danger"
-                type="button"
-                [disabled]="busy() || !totpCode"
-                (click)="disableTotp()"
-              >
-                Disable 2FA
+              <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
+                {{ busy() ? 'Waiting for the authenticator…' : 'Enrol' }}
               </button>
-            </div>
-            <label class="akd-muted recovery-toggle">
-              <input
-                type="checkbox"
-                name="use-recovery"
-                [(ngModel)]="useRecoveryToDisable"
-                [disabled]="busy()"
-              />
-              I lost the authenticator — use a recovery code
-            </label>
-          } @else {
-            <p class="akd-muted">
-              Add a code from an authenticator app to every password sign-in. An attacker who
-              phishes or guesses the password still cannot get in without the code.
-            </p>
-            <button class="akd-btn" type="button" [disabled]="busy()" (click)="startSetup()">
-              Enable two-factor authentication
-            </button>
+            </form>
           }
-        } @else {
-          <p class="akd-muted">Loading…</p>
-        }
-      </section>
+
+          @if (loading()) {
+            <p class="akd-muted sm pad">Loading…</p>
+          } @else if (passkeys().length === 0) {
+            <p class="akd-muted sm pad">
+              No passkeys yet — until one is enrolled, this account signs in by password alone.
+            </p>
+          } @else {
+            <table class="akd-table">
+              <caption class="sr-only">
+                Enrolled passkeys
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Passkey</th>
+                  <th scope="col">Added</th>
+                  <th scope="col">Last used</th>
+                  <th scope="col"><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (pk of passkeys(); track pk.uuid) {
+                  <tr>
+                    <td>{{ pk.name }}</td>
+                    <td class="akd-muted">{{ pk.created_at | slice: 0 : 10 }}</td>
+                    <td class="akd-muted">
+                      {{ pk.last_used_at ? (pk.last_used_at | slice: 0 : 10) : 'never' }}
+                    </td>
+                    <td class="right">
+                      <button
+                        class="akd-iconbtn"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="revoke(pk)"
+                        aria-label="Remove passkey"
+                      >
+                        <akd-icon name="trash-2" [size]="15" />
+                      </button>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </akd-card>
+
+        <div class="cols">
+          <akd-card title="Two-factor (TOTP)">
+            <span card-actions>
+              @if (mfa(); as status) {
+                <akd-status-badge
+                  domain="resource"
+                  [state]="status.enabled ? 'running' : 'stopped'"
+                  [label]="status.enabled ? 'enabled' : 'disabled'"
+                />
+              }
+            </span>
+
+            <div class="stack">
+              @if (recoveryCodes(); as codes) {
+                <!-- Shown exactly once: only hashes survive server-side. -->
+                <p class="sm"><strong>Save these recovery codes now.</strong></p>
+                <p class="akd-muted sm">
+                  Each one signs you in once if the authenticator is lost. They will never be shown
+                  again.
+                </p>
+                <pre class="akd-secret codes">{{ recoveryText() }}</pre>
+                <div class="actions">
+                  <button
+                    class="akd-btn akd-btn--secondary akd-btn--sm"
+                    type="button"
+                    (click)="copyRecoveryCodes()"
+                  >
+                    {{ copied() ? 'Copied' : 'Copy codes' }}
+                  </button>
+                  <button
+                    class="akd-btn akd-btn--primary akd-btn--sm"
+                    type="button"
+                    (click)="recoveryCodes.set(null)"
+                  >
+                    I saved them
+                  </button>
+                </div>
+              } @else if (setup(); as pending) {
+                <p class="akd-muted sm">
+                  Add this secret to your authenticator app (scan or type it), then confirm with the
+                  six-digit code it displays. Nothing changes until the code confirms the app really
+                  holds the secret.
+                </p>
+                <p class="sm">
+                  <a [href]="pending.otpauth_uri">Open in the authenticator app</a> or enter the
+                  secret manually:
+                </p>
+                <pre class="akd-secret codes">{{ pending.secret }}</pre>
+                <form class="enrol" (ngSubmit)="confirmTotp()">
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="totp-confirm">Six-digit code</label>
+                    <input
+                      id="totp-confirm"
+                      name="code"
+                      class="akd-input akd-input--mono"
+                      inputmode="numeric"
+                      autocomplete="one-time-code"
+                      [(ngModel)]="totpCode"
+                      [disabled]="busy()"
+                    />
+                  </div>
+                  <button
+                    class="akd-btn akd-btn--primary"
+                    type="submit"
+                    [disabled]="busy() || !totpCode"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    class="akd-btn akd-btn--ghost"
+                    type="button"
+                    [disabled]="busy()"
+                    (click)="cancelSetup()"
+                  >
+                    Cancel
+                  </button>
+                </form>
+              } @else if (mfa(); as status) {
+                @if (status.enabled) {
+                  <p class="akd-muted sm">
+                    Enabled since {{ status.confirmed_at ?? '' | slice: 0 : 10 }}. Signing in by
+                    password asks for a code from your authenticator app; passkey sign-ins skip TOTP
+                    — a passkey is already a phishing-resistant second factor. Disabling requires a
+                    valid code.
+                  </p>
+                  <div>
+                    <span class="akd-badge akd-badge--mono">
+                      {{ status.recovery_codes_remaining }} recovery code(s) left
+                    </span>
+                  </div>
+                  <div class="enrol">
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="totp-manage">
+                        {{ useRecoveryToDisable ? 'Recovery code' : 'Current six-digit code' }}
+                      </label>
+                      <input
+                        id="totp-manage"
+                        name="code"
+                        class="akd-input akd-input--mono"
+                        [attr.inputmode]="useRecoveryToDisable ? 'text' : 'numeric'"
+                        autocomplete="one-time-code"
+                        [(ngModel)]="totpCode"
+                        [disabled]="busy()"
+                      />
+                    </div>
+                    @if (!useRecoveryToDisable) {
+                      <button
+                        class="akd-btn akd-btn--secondary akd-btn--sm"
+                        type="button"
+                        [disabled]="busy() || !totpCode"
+                        (click)="regenerate()"
+                      >
+                        <akd-icon name="rotate-ccw" [size]="14" />
+                        Regenerate recovery codes
+                      </button>
+                    }
+                    <button
+                      class="akd-btn akd-btn--danger akd-btn--sm"
+                      type="button"
+                      [disabled]="busy() || !totpCode"
+                      (click)="disableTotp()"
+                    >
+                      Disable
+                    </button>
+                  </div>
+                  <label class="akd-check sm">
+                    <input
+                      type="checkbox"
+                      name="use-recovery"
+                      [(ngModel)]="useRecoveryToDisable"
+                      [disabled]="busy()"
+                    />
+                    I lost the authenticator — use a recovery code
+                  </label>
+                } @else {
+                  <p class="akd-muted sm">
+                    Add a code from an authenticator app to every password sign-in. An attacker who
+                    phishes or guesses the password still cannot get in without the code. Passkeys
+                    are unaffected — they already are a second factor.
+                  </p>
+                  <div>
+                    <button
+                      class="akd-btn akd-btn--primary"
+                      type="button"
+                      [disabled]="busy()"
+                      (click)="startSetup()"
+                    >
+                      Enable two-factor authentication
+                    </button>
+                  </div>
+                }
+              } @else {
+                <p class="akd-muted sm">Loading…</p>
+              }
+            </div>
+          </akd-card>
+
+          <akd-card title="Linked accounts" [padded]="false">
+            <p class="akd-muted sm pad">
+              Sign in with an identity provider instead of the password. Linking is explicit and
+              done from here, signed in — a provider account merely sharing your email never
+              attaches itself.
+            </p>
+
+            @if (identities().length > 0) {
+              <table class="akd-table">
+                <caption class="sr-only">
+                  Linked identities
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Provider</th>
+                    <th scope="col">Email at the provider</th>
+                    <th scope="col"><span class="sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (identity of identities(); track identity.uuid) {
+                    <tr>
+                      <td>{{ identity.provider }}</td>
+                      <td class="akd-muted">{{ identity.email ?? '—' }}</td>
+                      <td class="right">
+                        <button
+                          class="akd-btn akd-btn--danger akd-btn--sm"
+                          type="button"
+                          [disabled]="busy()"
+                          (click)="unlink(identity)"
+                        >
+                          Unlink
+                        </button>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            }
+
+            @if (linkableProviders().length > 0) {
+              <div class="link-row pad">
+                @for (p of linkableProviders(); track p.provider) {
+                  <button
+                    class="akd-btn akd-btn--secondary akd-btn--sm"
+                    type="button"
+                    [disabled]="busy()"
+                    (click)="link(p.provider)"
+                  >
+                    Link {{ p.name }}
+                  </button>
+                }
+              </div>
+            } @else if (identities().length === 0) {
+              <p class="akd-muted sm pad">No identity provider is configured on this instance.</p>
+            }
+          </akd-card>
+        </div>
+      </div>
     </div>
   `,
   styles: [
     `
+      .cards {
+        display: grid;
+        gap: var(--space-4);
+      }
+      .cols {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--space-4);
+        align-items: start;
+      }
+      @media (max-width: 900px) {
+        .cols {
+          grid-template-columns: 1fr;
+        }
+      }
+      .stack {
+        display: grid;
+        gap: var(--space-3);
+      }
+      .pad {
+        padding: var(--space-5);
+        margin: 0;
+      }
       .enrol {
         display: flex;
         align-items: end;
-        gap: var(--akd-space-3);
+        gap: var(--space-3);
         flex-wrap: wrap;
       }
       .enrol .akd-field {
@@ -293,25 +378,21 @@ import {
         min-width: 240px;
       }
       .codes {
-        padding: var(--akd-space-3);
-        font-family: var(--akd-font-mono);
-        font-size: var(--akd-text-sm);
-        background: var(--akd-bg);
-        border: 1px solid var(--akd-border);
-        border-radius: var(--akd-radius-sm);
-        user-select: all;
+        margin: 0;
         overflow-x: auto;
       }
-      .recovery-toggle {
-        display: flex;
-        align-items: center;
-        gap: var(--akd-space-2);
-        font-size: var(--akd-text-sm);
+      .sm {
+        font-size: var(--text-sm);
+        margin: 0;
       }
+      .actions,
       .link-row {
         display: flex;
-        gap: var(--akd-space-2);
+        gap: var(--space-2);
         flex-wrap: wrap;
+      }
+      .right {
+        text-align: right;
       }
     `,
   ],
@@ -327,6 +408,7 @@ export class SecurityComponent {
   protected readonly loading = signal(true);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
+  protected readonly adding = signal(false);
   protected name = '';
 
   protected readonly mfa = signal<MfaStatus | null>(null);
@@ -415,6 +497,7 @@ export class SecurityComponent {
     try {
       await this.api.registerPasskey(this.name.trim() || 'passkey');
       this.name = '';
+      this.adding.set(false);
       await this.load();
     } catch (err) {
       this.error.set(

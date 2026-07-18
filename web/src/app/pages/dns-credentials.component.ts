@@ -1,6 +1,9 @@
 import { SlicePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { CardComponent } from '../../ui/card/card.component';
+import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
+import { IconComponent } from '../../ui/icon/icon.component';
 import { ApiService } from '../core/api.service';
 import type { components } from '../../api/schema';
 
@@ -9,32 +12,31 @@ type DnsCredential = components['schemas']['DnsCredential'];
 @Component({
   selector: 'app-dns-credentials',
   standalone: true,
-  imports: [FormsModule, SlicePipe],
+  imports: [FormsModule, SlicePipe, CardComponent, EmptyStateComponent, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
-        <h1>DNS credentials</h1>
+        <h2>DNS credentials</h2>
       </header>
 
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      <section class="akd-card">
-        <h2>Add a credential</h2>
-        <p class="akd-muted">
-          Used for DNS-01 challenges (wildcard certificates). The provider is a Lego provider id
-          — cloudflare, route53, ovh…
-        </p>
-        <form class="form" (ngSubmit)="create()">
+      <akd-card title="Add a credential" class="create">
+        <form class="fields" (ngSubmit)="create()">
+          <p class="intro">
+            Used for DNS-01 challenges (wildcard certificates). The provider is a Lego provider id —
+            cloudflare, route53, ovh…
+          </p>
           <div class="row">
             <div class="akd-field">
-              <label for="dns-name">Name</label>
+              <label class="akd-field__label" for="dns-name">Name</label>
               <input
                 id="dns-name"
                 name="name"
-                class="akd-input"
+                class="akd-input akd-input--mono"
                 placeholder="e.g. cloudflare-prod"
                 [(ngModel)]="name"
                 [disabled]="busy()"
@@ -42,11 +44,11 @@ type DnsCredential = components['schemas']['DnsCredential'];
               />
             </div>
             <div class="akd-field">
-              <label for="dns-provider">Provider</label>
+              <label class="akd-field__label" for="dns-provider">Provider</label>
               <input
                 id="dns-provider"
                 name="provider"
-                class="akd-input"
+                class="akd-input akd-input--mono"
                 placeholder="e.g. cloudflare"
                 [(ngModel)]="provider"
                 [disabled]="busy()"
@@ -55,91 +57,111 @@ type DnsCredential = components['schemas']['DnsCredential'];
             </div>
           </div>
           <div class="akd-field">
-            <label for="dns-config">Provider variables (KEY=VALUE, one per line)</label>
+            <label class="akd-field__label" for="dns-config">
+              Provider variables (KEY=VALUE, one per line)
+            </label>
             <textarea
               id="dns-config"
               name="config"
-              class="akd-textarea"
+              class="akd-input akd-input--mono"
               rows="4"
               placeholder="CLOUDFLARE_DNS_API_TOKEN=…"
               [(ngModel)]="config"
               [disabled]="busy()"
               required
             ></textarea>
-            <p class="akd-muted hint">
+            <span class="akd-field__hint">
               The variables expected by the Lego provider. They are write-only: encrypted at rest
               and never returned by the API.
-            </p>
+            </span>
           </div>
           <div>
-            <button class="akd-btn" type="submit" [disabled]="busy()">Add credential</button>
+            <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
+              <akd-icon name="plus" [size]="15" />
+              Add credential
+            </button>
           </div>
         </form>
-      </section>
+      </akd-card>
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
       } @else if (credentials().length === 0) {
-        <div class="akd-empty">
-          <p><strong>No DNS credentials yet.</strong></p>
-          <p>Wildcard certificates need one to answer DNS-01 challenges.</p>
-        </div>
+        <akd-empty-state
+          icon="globe"
+          title="No DNS credentials yet"
+          message="Wildcard certificates need one to answer DNS-01 challenges."
+        />
       } @else {
-        <table class="akd-table">
-          <caption class="sr-only">DNS-01 credentials of this team</caption>
-          <thead>
-            <tr>
-              <th scope="col">Name</th>
-              <th scope="col">Provider</th>
-              <th scope="col">In use</th>
-              <th scope="col">Created</th>
-              <th scope="col"><span class="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (cred of credentials(); track cred.uuid) {
+        <akd-card [padded]="false">
+          <table class="akd-table">
+            <caption class="sr-only">
+              DNS-01 credentials of this team
+            </caption>
+            <thead>
               <tr>
-                <td>{{ cred.name }}</td>
-                <td class="akd-mono">{{ cred.provider }}</td>
-                <td class="akd-muted">{{ cred.in_use ? 'yes' : 'no' }}</td>
-                <td class="akd-muted">
-                  {{ cred.created_at ? (cred.created_at | slice: 0 : 10) : '—' }}
-                </td>
-                <td class="right">
-                  <button
-                    class="akd-btn-danger"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="remove(cred)"
-                  >
-                    Delete
-                  </button>
-                </td>
+                <th scope="col">Name</th>
+                <th scope="col">Provider</th>
+                <th scope="col">In use</th>
+                <th scope="col">Created</th>
+                <th scope="col" class="right"><span class="sr-only">Actions</span></th>
               </tr>
-            }
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              @for (cred of credentials(); track cred.uuid) {
+                <tr>
+                  <td class="akd-mono">{{ cred.name }}</td>
+                  <td>
+                    <span class="akd-badge akd-badge--mono">{{ cred.provider }}</span>
+                  </td>
+                  <td>
+                    @if (cred.in_use) {
+                      <span class="akd-badge akd-badge--accent">in use</span>
+                    } @else {
+                      <span class="akd-badge">unused</span>
+                    }
+                  </td>
+                  <td class="akd-muted">
+                    {{ cred.created_at ? (cred.created_at | slice: 0 : 10) : '—' }}
+                  </td>
+                  <td class="right">
+                    <button
+                      class="akd-iconbtn"
+                      type="button"
+                      [disabled]="busy()"
+                      (click)="remove(cred)"
+                      aria-label="Delete credential"
+                    >
+                      <akd-icon name="trash-2" [size]="15" />
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </akd-card>
       }
     </div>
   `,
   styles: [
     `
-      .form {
+      .create {
+        margin-bottom: var(--space-5);
+        max-width: 640px;
+      }
+      .fields {
         display: grid;
-        gap: var(--akd-space-3);
+        gap: var(--space-4);
+      }
+      .intro {
+        margin: 0;
+        font-size: var(--text-sm);
+        color: var(--text-2);
       }
       .row {
-        display: flex;
-        gap: var(--akd-space-3);
-        flex-wrap: wrap;
-      }
-      .row .akd-field {
-        flex: 1;
-        min-width: 200px;
-      }
-      .hint {
-        margin: 0;
-        font-size: var(--akd-text-xs);
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: var(--space-4);
       }
     `,
   ],

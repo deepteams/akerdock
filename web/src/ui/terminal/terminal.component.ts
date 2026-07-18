@@ -42,8 +42,8 @@ export type OpenSession = () => Promise<TerminalSessionInfo>;
         <h2>{{ title() }}</h2>
         @if (state() === 'open') {
           <p class="akd-muted">
-            Idle timeout {{ minutes(idleTimeout()) }} · maximum {{ minutes(maxDuration()) }}. Keystrokes
-            are not recorded; opening and closing are audited.
+            Idle timeout {{ minutes(idleTimeout()) }} · maximum {{ minutes(maxDuration()) }}.
+            Keystrokes are not recorded; opening and closing are audited.
           </p>
         } @else {
           <p class="akd-muted">{{ hint() }}</p>
@@ -53,7 +53,12 @@ export type OpenSession = () => Promise<TerminalSessionInfo>;
         @if (state() === 'open') {
           <button class="akd-btn-danger" type="button" (click)="disconnect()">Close session</button>
         } @else {
-          <button class="akd-btn" type="button" [disabled]="state() === 'opening'" (click)="connect()">
+          <button
+            class="akd-btn"
+            type="button"
+            [disabled]="state() === 'opening'"
+            (click)="connect()"
+          >
             {{ state() === 'opening' ? 'Connecting…' : 'Open terminal' }}
           </button>
         }

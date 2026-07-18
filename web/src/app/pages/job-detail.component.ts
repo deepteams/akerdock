@@ -9,6 +9,8 @@ import {
   untracked,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { CardComponent } from '../../ui/card/card.component';
+import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import { ApiError } from '../../api/client';
 import { ApiService } from '../core/api.service';
@@ -20,12 +22,10 @@ type ErrorDetail = components['schemas']['ErrorDetail'];
 @Component({
   selector: 'app-job-detail',
   standalone: true,
-  imports: [RouterLink, SlicePipe, StatusBadgeComponent],
+  imports: [RouterLink, SlicePipe, CardComponent, IconComponent, StatusBadgeComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
-      <p><a routerLink="/jobs" class="akd-muted">← Jobs</a></p>
-
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
@@ -34,13 +34,34 @@ type ErrorDetail = components['schemas']['ErrorDetail'];
         <p class="akd-muted">Loading…</p>
       } @else if (job(); as j) {
         <header class="akd-bar">
-          <h1 class="akd-mono">{{ j.type }}</h1>
+          <div class="head">
+            <a
+              routerLink="/jobs"
+              class="akd-iconbtn akd-iconbtn--bordered"
+              aria-label="Back to jobs"
+            >
+              <akd-icon name="arrow-left" [size]="16" />
+            </a>
+            <h1 class="akd-mono">{{ j.type }}</h1>
+            <akd-status-badge domain="job" [state]="j.status" />
+          </div>
           @if (j.status === 'dead_letter') {
             <div class="head-actions">
-              <button class="akd-btn" type="button" [disabled]="busy()" (click)="retry(j)">
+              <button
+                class="akd-btn akd-btn--secondary akd-btn--sm"
+                type="button"
+                [disabled]="busy()"
+                (click)="retry(j)"
+              >
+                <akd-icon name="rotate-ccw" [size]="14" />
                 Retry
               </button>
-              <button class="akd-btn-danger" type="button" [disabled]="busy()" (click)="forget(j)">
+              <button
+                class="akd-btn akd-btn--danger akd-btn--sm"
+                type="button"
+                [disabled]="busy()"
+                (click)="forget(j)"
+              >
                 Forget
               </button>
             </div>
@@ -49,131 +70,161 @@ type ErrorDetail = components['schemas']['ErrorDetail'];
 
         @if (retriedAs(); as newUuid) {
           <p class="akd-muted" role="status">
-            Retry queued as <a [routerLink]="['/jobs', newUuid]" class="akd-mono">{{ newUuid }}</a> —
-            this job stays as the record of the failed attempt.
+            Retry queued as
+            <a [routerLink]="['/jobs', newUuid]" class="akd-mono">{{ newUuid }}</a> — this job stays
+            as the record of the failed attempt.
           </p>
         }
 
-        <dl class="akd-dl">
-          <dt>Status</dt>
-          <dd><akd-status-badge domain="job" [state]="j.status" /></dd>
-          <dt>Queue</dt>
-          <dd>{{ j.queue ?? '—' }}</dd>
-          <dt>Attempt</dt>
-          <dd>{{ j.attempt }}</dd>
-          @if (j.resource_type) {
-            <dt>Resource</dt>
-            <dd class="akd-mono">{{ j.resource_type }} {{ j.resource_uuid }}</dd>
-          }
-          @if (j.retry_of_uuid; as origin) {
-            <dt>Retry of</dt>
-            <dd><a [routerLink]="['/jobs', origin]" class="akd-mono">{{ origin }}</a></dd>
-          }
-          <dt>Created</dt>
-          <dd>{{ j.created_at | slice: 0 : 19 }}</dd>
-          @if (j.finished_at; as finished) {
-            <dt>Finished</dt>
-            <dd>{{ finished | slice: 0 : 19 }}</dd>
-          }
-          @if (j.dead_lettered_at; as dead) {
-            <dt>Dead-lettered</dt>
-            <dd>{{ dead | slice: 0 : 19 }}</dd>
-          }
-        </dl>
-
-        @if (remnants(); as items) {
-          <section class="akd-card remnants">
-            <h2>Remnants on the server</h2>
-            <p class="akd-muted">
-              This job left objects behind — forgetting it deletes nothing remotely. Clean them up
-              by hand, or acknowledge them to close the job anyway (the acknowledgement is
-              audited).
-            </p>
-            <ul class="akd-mono">
-              @for (item of items; track $index) {
-                <li>{{ item.field ? item.field + ': ' : '' }}{{ item.message }}</li>
-              }
-            </ul>
-            <div>
-              <button
-                class="akd-btn-danger"
-                type="button"
-                [disabled]="busy()"
-                (click)="forgetAnyway(j)"
-              >
-                Forget anyway (acknowledge remnants)
-              </button>
-            </div>
-          </section>
-        }
-
-        @if (j.steps?.length) {
-          <section class="akd-card">
-            <h2>Steps</h2>
-            <table class="akd-table">
-              <caption class="sr-only">Steps of this job</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Step</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Detail</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (step of j.steps; track $index) {
-                  <tr>
-                    <td class="akd-mono">{{ step.name }}</td>
-                    <td><akd-status-badge domain="task" [state]="step.status" /></td>
-                    <td class="akd-muted">{{ step.message ?? '—' }}</td>
-                  </tr>
+        <div class="stack">
+          <akd-card title="Details">
+            <dl class="akd-dl">
+              <dt>Queue</dt>
+              <dd>
+                @if (j.queue; as queue) {
+                  <span class="akd-badge akd-badge--mono">{{ queue }}</span>
+                } @else {
+                  —
                 }
-              </tbody>
-            </table>
-          </section>
-        }
+              </dd>
+              <dt>Attempt</dt>
+              <dd>{{ j.attempt }}</dd>
+              @if (j.resource_type) {
+                <dt>Resource</dt>
+                <dd class="akd-mono">{{ j.resource_type }} {{ j.resource_uuid }}</dd>
+              }
+              @if (j.retry_of_uuid; as origin) {
+                <dt>Retry of</dt>
+                <dd>
+                  <a [routerLink]="['/jobs', origin]" class="akd-mono">{{ origin }}</a>
+                </dd>
+              }
+              <dt>Created</dt>
+              <dd class="akd-mono">{{ j.created_at | slice: 0 : 19 }}</dd>
+              @if (j.finished_at; as finished) {
+                <dt>Finished</dt>
+                <dd class="akd-mono">{{ finished | slice: 0 : 19 }}</dd>
+              }
+              @if (j.dead_lettered_at; as dead) {
+                <dt>Dead-lettered</dt>
+                <dd class="akd-mono">{{ dead | slice: 0 : 19 }}</dd>
+              }
+            </dl>
+          </akd-card>
 
-        @if (j.result) {
-          <section class="akd-card">
-            <h2>Result</h2>
-            <pre class="akd-mono block">{{ json(j.result) }}</pre>
-          </section>
-        }
+          @if (remnants(); as items) {
+            <akd-card title="Remnants on the server">
+              <p class="remnants-intro akd-muted">
+                This job left objects behind — forgetting it deletes nothing remotely. Clean them up
+                by hand, or acknowledge them to close the job anyway (the acknowledgement is
+                audited).
+              </p>
+              <ul class="remnants-list akd-mono">
+                @for (item of items; track $index) {
+                  <li>{{ item.field ? item.field + ': ' : '' }}{{ item.message }}</li>
+                }
+              </ul>
+              <div>
+                <button
+                  class="akd-btn akd-btn--danger akd-btn--sm"
+                  type="button"
+                  [disabled]="busy()"
+                  (click)="forgetAnyway(j)"
+                >
+                  Forget anyway (acknowledge remnants)
+                </button>
+              </div>
+            </akd-card>
+          }
 
-        @if (j.error; as jobError) {
-          <section class="akd-card">
-            <h2>Error</h2>
-            <p>{{ jobError.message }} <span class="akd-muted">({{ jobError.code }})</span></p>
-            @if (jobError.details.length) {
-              <pre class="akd-mono block">{{ json(jobError.details) }}</pre>
-            }
-          </section>
-        }
+          @if (j.steps?.length) {
+            <akd-card title="Steps" [padded]="false">
+              <table class="akd-table">
+                <caption class="sr-only">
+                  Steps of this job
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Step</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Detail</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (step of j.steps; track $index) {
+                    <tr>
+                      <td class="akd-mono">{{ step.name }}</td>
+                      <td><akd-status-badge domain="task" [state]="step.status" /></td>
+                      <td class="akd-muted">{{ step.message ?? '—' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </akd-card>
+          }
+
+          @if (j.result) {
+            <akd-card title="Result">
+              <pre class="akd-mono block">{{ json(j.result) }}</pre>
+            </akd-card>
+          }
+
+          @if (j.error; as jobError) {
+            <akd-card title="Error">
+              <p class="error-line">
+                {{ jobError.message }} <span class="akd-muted">({{ jobError.code }})</span>
+              </p>
+              @if (jobError.details.length) {
+                <pre class="akd-mono block">{{ json(jobError.details) }}</pre>
+              }
+            </akd-card>
+          }
+        </div>
       }
     </div>
   `,
   styles: [
     `
+      .head {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        min-width: 0;
+      }
+      .head h1 {
+        font-family: var(--font-mono);
+        overflow-wrap: anywhere;
+      }
       .head-actions {
         display: flex;
-        gap: var(--akd-space-2);
+        gap: var(--space-2);
       }
-      .akd-dl {
-        margin-bottom: var(--akd-space-5);
-      }
-      .akd-card {
-        margin-bottom: var(--akd-space-5);
+      .stack {
+        display: grid;
+        gap: var(--space-5);
+        align-items: start;
       }
       .block {
         margin: 0;
-        padding: var(--akd-space-3);
-        background: var(--akd-bg);
-        border: 1px solid var(--akd-border);
-        border-radius: var(--akd-radius-sm);
+        padding: var(--space-3);
+        font-size: var(--text-sm);
+        background: var(--bg-inset);
+        border: 1px solid var(--border-1);
+        border-radius: var(--radius-2);
         overflow-x: auto;
       }
-      .remnants ul {
-        margin: 0;
-        padding-left: var(--akd-space-5);
+      .remnants-intro {
+        margin: 0 0 var(--space-3);
+      }
+      .remnants-list {
+        margin: 0 0 var(--space-3);
+        padding-left: var(--space-5);
+      }
+      .error-line {
+        margin: 0 0 var(--space-3);
+      }
+      .error-line:last-child {
+        margin-bottom: 0;
       }
     `,
   ],

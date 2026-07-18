@@ -2,6 +2,9 @@ import { SlicePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
+import { CardComponent } from '../../ui/card/card.component';
+import { IconComponent } from '../../ui/icon/icon.component';
+import { ModalComponent } from '../../ui/modal/modal.component';
 import type { components } from '../../api/schema';
 
 type Team = components['schemas']['Team'];
@@ -10,62 +13,58 @@ type Invitation = components['schemas']['Invitation'];
 type ApiToken = components['schemas']['ApiToken'];
 type ApiTokenPermission = components['schemas']['ApiTokenPermission'];
 
-type Tab = 'members' | 'invitations' | 'tokens';
-
 const PERMISSIONS: ApiTokenPermission[] = ['read', 'read:sensitive', 'write', 'deploy', 'root'];
 
+/**
+ * Team members page (design kit: MembersScreen). Invitations and API tokens
+ * are created in modals; their one-time secrets (invite link, token value)
+ * stay in the modal until it is closed — only their hash survives server-side.
+ */
 @Component({
   selector: 'app-team',
   standalone: true,
-  imports: [FormsModule, SlicePipe],
+  imports: [FormsModule, SlicePipe, CardComponent, IconComponent, ModalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
-        <h1>Team</h1>
+        <h1>Members</h1>
+        @if (team(); as t) {
+          <span class="akd-badge akd-badge--mono">team {{ t.name }}</span>
+        }
+        <span class="grow"></span>
+        <button class="akd-btn akd-btn--primary" type="button" (click)="openInvite()">
+          <akd-icon name="user-plus" [size]="15" />
+          Invite member
+        </button>
       </header>
 
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      @if (team(); as t) {
-        <dl class="akd-dl head">
-          <dt>Name</dt>
-          <dd>{{ t.name }}</dd>
-          @if (t.description) {
-            <dt>Description</dt>
-            <dd>{{ t.description }}</dd>
-          }
-        </dl>
+      @if (team()?.description; as description) {
+        <p class="akd-muted desc">{{ description }}</p>
       }
-
-      <nav class="akd-tabs" role="tablist" aria-label="Team sections">
-        <button type="button" role="tab" [attr.aria-selected]="tab() === 'members'" (click)="tab.set('members')">
-          Members
-        </button>
-        <button type="button" role="tab" [attr.aria-selected]="tab() === 'invitations'" (click)="tab.set('invitations')">
-          Invitations
-        </button>
-        <button type="button" role="tab" [attr.aria-selected]="tab() === 'tokens'" (click)="tab.set('tokens')">
-          API tokens
-        </button>
-      </nav>
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
       } @else {
-        @switch (tab()) {
-          @case ('members') {
+        <div class="stack">
+          <akd-card title="Members" [padded]="false">
+            <span card-actions class="akd-badge akd-badge--mono">
+              {{ members().length }} members
+            </span>
             @if (members().length === 0) {
-              <div class="akd-empty"><p><strong>No members.</strong></p></div>
+              <p class="akd-muted pad">No members.</p>
             } @else {
               <table class="akd-table">
-                <caption class="sr-only">Members of this team</caption>
+                <caption class="sr-only">
+                  Members of this team
+                </caption>
                 <thead>
                   <tr>
-                    <th scope="col">Name</th>
-                    <th scope="col">Email</th>
+                    <th scope="col">Member</th>
                     <th scope="col">Role</th>
                     <th scope="col">Joined</th>
                   </tr>
@@ -73,230 +72,414 @@ const PERMISSIONS: ApiTokenPermission[] = ['read', 'read:sensitive', 'write', 'd
                 <tbody>
                   @for (member of members(); track member.user_uuid) {
                     <tr>
-                      <td>{{ member.name ?? '—' }}</td>
-                      <td class="akd-muted">{{ member.email }}</td>
-                      <td class="akd-muted">{{ member.role }}</td>
+                      <td>
+                        <span class="member-cell">
+                          <span class="avatar" aria-hidden="true">{{ initials(member) }}</span>
+                          <span class="member-id">
+                            <span class="member-name">{{ member.name ?? member.email }}</span>
+                            @if (member.name) {
+                              <span class="sub-mono">{{ member.email }}</span>
+                            }
+                          </span>
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          class="akd-badge akd-badge--mono"
+                          [class.akd-badge--accent]="member.role === 'owner'"
+                        >
+                          {{ member.role }}
+                        </span>
+                      </td>
                       <td class="akd-muted">{{ member.joined_at | slice: 0 : 10 }}</td>
                     </tr>
                   }
                 </tbody>
               </table>
             }
-          }
+          </akd-card>
 
-          @case ('invitations') {
-            <section class="akd-card">
-              <h2>Invite someone</h2>
-              <form class="row" (ngSubmit)="invite()">
-                <div class="akd-field grow">
-                  <label for="inv-email">Email</label>
-                  <input
-                    id="inv-email"
-                    name="email"
-                    type="email"
-                    class="akd-input"
-                    [(ngModel)]="inviteEmail"
-                    [disabled]="busy()"
-                    required
-                  />
-                </div>
-                <div class="akd-field">
-                  <label for="inv-role">Role</label>
-                  <select id="inv-role" name="role" class="akd-select" [(ngModel)]="inviteRole">
-                    <option value="member">member</option>
-                    <option value="admin">admin</option>
-                  </select>
-                </div>
-                <button class="akd-btn" type="submit" [disabled]="busy()">Invite</button>
-              </form>
-
-              @if (inviteLink(); as link) {
-                <div>
-                  <p class="akd-muted hint">
-                    One-time invitation link — shown once, copy it now and pass it to the invitee.
-                  </p>
-                  <p class="akd-secret">{{ link }}</p>
-                </div>
-              } @else if (inviteSent(); as email) {
-                <p class="akd-muted" role="status">Invitation email sent to {{ email }}.</p>
-              }
-            </section>
-
-            @if (invitations().length === 0) {
-              <div class="akd-empty"><p><strong>No invitations.</strong></p></div>
-            } @else {
-              <table class="akd-table">
-                <caption class="sr-only">Pending and past invitations</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Email</th>
-                    <th scope="col">Role</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Expires</th>
-                    <th scope="col"><span class="sr-only">Actions</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (inv of invitations(); track inv.uuid) {
+          <div class="grid2">
+            <akd-card title="Pending invitations" [padded]="false">
+              @if (invitations().length === 0) {
+                <p class="akd-muted pad">No invitations.</p>
+              } @else {
+                <table class="akd-table">
+                  <caption class="sr-only">
+                    Pending and past invitations
+                  </caption>
+                  <thead>
                     <tr>
-                      <td>{{ inv.email }}</td>
-                      <td class="akd-muted">{{ inv.role }}</td>
-                      <td class="akd-muted">{{ inv.status }}</td>
-                      <td class="akd-muted">{{ inv.expires_at | slice: 0 : 10 }}</td>
-                      <td class="right">
-                        @if (inv.status === 'pending') {
+                      <th scope="col">Email</th>
+                      <th scope="col">Role</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Expires</th>
+                      <th scope="col"><span class="sr-only">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (inv of invitations(); track inv.uuid) {
+                      <tr>
+                        <td class="akd-mono">{{ inv.email }}</td>
+                        <td>
+                          <span class="akd-badge akd-badge--mono">{{ inv.role }}</span>
+                        </td>
+                        <td>
+                          <span class="akd-badge akd-badge--mono">{{ inv.status }}</span>
+                        </td>
+                        <td class="akd-muted">{{ inv.expires_at | slice: 0 : 10 }}</td>
+                        <td class="right">
+                          @if (inv.status === 'pending') {
+                            <button
+                              class="akd-iconbtn"
+                              type="button"
+                              [disabled]="busy()"
+                              (click)="revokeInvitation(inv)"
+                              aria-label="Revoke invitation"
+                            >
+                              <akd-icon name="x" [size]="15" />
+                            </button>
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+            </akd-card>
+
+            <akd-card title="API tokens" [padded]="false">
+              <button
+                card-actions
+                class="akd-btn akd-btn--secondary akd-btn--sm"
+                type="button"
+                (click)="openToken()"
+              >
+                <akd-icon name="plus" [size]="13" />
+                New token
+              </button>
+              @if (tokens().length === 0) {
+                <p class="akd-muted pad">No API tokens.</p>
+              } @else {
+                <table class="akd-table">
+                  <caption class="sr-only">
+                    API tokens of this team
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Token</th>
+                      <th scope="col">Permissions</th>
+                      <th scope="col">Last used</th>
+                      <th scope="col"><span class="sr-only">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (token of tokens(); track token.uuid) {
+                      <tr>
+                        <td>
+                          <span class="member-id">
+                            <span class="member-name akd-mono">{{ token.name }}</span>
+                            <span class="sub-mono">{{ token.token_prefix }}…</span>
+                          </span>
+                        </td>
+                        <td>
+                          <span
+                            class="akd-badge akd-badge--mono"
+                            [class.akd-badge--danger]="token.permissions.includes('root')"
+                          >
+                            {{ token.permissions.join(' · ') }}
+                          </span>
+                        </td>
+                        <td class="akd-muted">
+                          {{ token.last_used_at ? (token.last_used_at | slice: 0 : 10) : 'never' }}
+                        </td>
+                        <td class="right">
                           <button
-                            class="akd-btn-danger"
+                            class="akd-iconbtn"
                             type="button"
                             [disabled]="busy()"
-                            (click)="revokeInvitation(inv)"
+                            (click)="revokeToken(token)"
+                            aria-label="Revoke token"
                           >
-                            Revoke
+                            <akd-icon name="trash-2" [size]="15" />
                           </button>
-                        }
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            }
-          }
-
-          @case ('tokens') {
-            <section class="akd-card">
-              <h2>Create a token</h2>
-              <form class="form" (ngSubmit)="createToken()">
-                <div class="akd-field">
-                  <label for="tok-name">Name</label>
-                  <input
-                    id="tok-name"
-                    name="name"
-                    class="akd-input"
-                    placeholder="e.g. ci-github-actions"
-                    [(ngModel)]="tokenName"
-                    [disabled]="busy()"
-                    required
-                  />
-                </div>
-                <fieldset class="perms">
-                  <legend>Permissions</legend>
-                  @for (perm of permissions; track perm) {
-                    <label class="check">
-                      <input
-                        type="checkbox"
-                        [name]="'perm-' + perm"
-                        [(ngModel)]="tokenPerms[perm]"
-                      />
-                      {{ perm }}
-                    </label>
-                  }
-                </fieldset>
-                <div>
-                  <button class="akd-btn" type="submit" [disabled]="busy()">Create token</button>
-                </div>
-              </form>
-
-              @if (tokenValue(); as value) {
-                <div>
-                  <p class="akd-muted hint">
-                    Token value — shown once, copy it now. Only its hash is stored.
-                  </p>
-                  <p class="akd-secret">{{ value }}</p>
-                </div>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
               }
-            </section>
+            </akd-card>
+          </div>
 
-            @if (tokens().length === 0) {
-              <div class="akd-empty"><p><strong>No API tokens.</strong></p></div>
-            } @else {
-              <table class="akd-table">
-                <caption class="sr-only">API tokens of this team</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Name</th>
-                    <th scope="col">Prefix</th>
-                    <th scope="col">Permissions</th>
-                    <th scope="col">Last used</th>
-                    <th scope="col"><span class="sr-only">Actions</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (token of tokens(); track token.uuid) {
-                    <tr>
-                      <td>{{ token.name }}</td>
-                      <td class="akd-mono">{{ token.token_prefix }}…</td>
-                      <td class="akd-muted">{{ token.permissions.join(', ') }}</td>
-                      <td class="akd-muted">
-                        {{ token.last_used_at ? (token.last_used_at | slice: 0 : 10) : 'never' }}
-                      </td>
-                      <td class="right">
-                        <button
-                          class="akd-btn-danger"
-                          type="button"
-                          [disabled]="busy()"
-                          (click)="revokeToken(token)"
-                        >
-                          Revoke
-                        </button>
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            }
-          }
-        }
+          <p class="footnote">
+            Invitation links and token secrets are shown once — only their SHA-256 is stored. Email
+            delivery is an addition: the link stays in the response even without a configured relay.
+          </p>
+        </div>
       }
+
+      <akd-modal [open]="inviteOpen()" title="Invite a member" (closed)="inviteOpen.set(false)">
+        @if (error(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        }
+        @if (inviteLink(); as link) {
+          <div class="modal-stack">
+            <span>
+              Invitation created. The link below is shown <strong>once</strong> — only its hash is
+              stored.
+            </span>
+            <div class="secret-line">
+              <code>{{ link }}</code>
+              <button
+                class="akd-iconbtn akd-iconbtn--bordered"
+                type="button"
+                (click)="copy(link)"
+                aria-label="Copy link"
+              >
+                <akd-icon [name]="copied() ? 'check' : 'copy'" [size]="15" />
+              </button>
+            </div>
+          </div>
+        } @else if (inviteSent(); as email) {
+          <p class="modal-status" role="status">Invitation email sent to {{ email }}.</p>
+        } @else {
+          <form id="invite-form" class="modal-stack" (ngSubmit)="invite()">
+            <div class="akd-field">
+              <label class="akd-field__label" for="inv-email">Email</label>
+              <input
+                id="inv-email"
+                name="email"
+                type="email"
+                class="akd-input akd-input--mono"
+                [(ngModel)]="inviteEmail"
+                [disabled]="busy()"
+                required
+              />
+            </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="inv-role">Role</label>
+              <div class="akd-select">
+                <select
+                  id="inv-role"
+                  name="role"
+                  class="akd-input"
+                  [(ngModel)]="inviteRole"
+                  [disabled]="busy()"
+                >
+                  <option value="member">member</option>
+                  <option value="admin">admin</option>
+                </select>
+              </div>
+              <span class="akd-field__hint">
+                Admins can manage servers and destructive actions; root stays API-token only.
+              </span>
+            </div>
+          </form>
+        }
+        <div modal-footer>
+          @if (inviteLink() || inviteSent()) {
+            <button class="akd-btn akd-btn--ghost" type="button" (click)="inviteOpen.set(false)">
+              Close
+            </button>
+          } @else {
+            <button
+              class="akd-btn akd-btn--ghost"
+              type="button"
+              (click)="inviteOpen.set(false)"
+              [disabled]="busy()"
+            >
+              Cancel
+            </button>
+            <button
+              class="akd-btn akd-btn--primary"
+              type="submit"
+              form="invite-form"
+              [disabled]="busy() || !inviteEmail.trim()"
+            >
+              <akd-icon name="send" [size]="15" />
+              {{ busy() ? 'Sending…' : 'Send invitation' }}
+            </button>
+          }
+        </div>
+      </akd-modal>
+
+      <akd-modal [open]="tokenOpen()" title="Create an API token" (closed)="tokenOpen.set(false)">
+        @if (error(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        }
+        @if (tokenValue(); as value) {
+          <div class="modal-stack">
+            <span>
+              Token created. The value below is shown <strong>once</strong> — only its hash is
+              stored.
+            </span>
+            <div class="secret-line">
+              <code>{{ value }}</code>
+              <button
+                class="akd-iconbtn akd-iconbtn--bordered"
+                type="button"
+                (click)="copy(value)"
+                aria-label="Copy token"
+              >
+                <akd-icon [name]="copied() ? 'check' : 'copy'" [size]="15" />
+              </button>
+            </div>
+          </div>
+        } @else {
+          <form id="token-form" class="modal-stack" (ngSubmit)="createToken()">
+            <div class="akd-field">
+              <label class="akd-field__label" for="tok-name">Name</label>
+              <input
+                id="tok-name"
+                name="name"
+                class="akd-input akd-input--mono"
+                placeholder="e.g. ci-github-actions"
+                [(ngModel)]="tokenName"
+                [disabled]="busy()"
+                required
+              />
+            </div>
+            <fieldset class="perms">
+              <legend class="akd-field__label">Permissions</legend>
+              @for (perm of permissions; track perm) {
+                <label class="akd-check">
+                  <input
+                    type="checkbox"
+                    [name]="'perm-' + perm"
+                    [(ngModel)]="tokenPerms[perm]"
+                    [disabled]="busy()"
+                  />
+                  <span class="akd-mono">{{ perm }}</span>
+                </label>
+              }
+            </fieldset>
+          </form>
+        }
+        <div modal-footer>
+          @if (tokenValue()) {
+            <button class="akd-btn akd-btn--ghost" type="button" (click)="tokenOpen.set(false)">
+              Close
+            </button>
+          } @else {
+            <button
+              class="akd-btn akd-btn--ghost"
+              type="button"
+              (click)="tokenOpen.set(false)"
+              [disabled]="busy()"
+            >
+              Cancel
+            </button>
+            <button
+              class="akd-btn akd-btn--primary"
+              type="submit"
+              form="token-form"
+              [disabled]="busy() || !tokenName.trim()"
+            >
+              <akd-icon name="key" [size]="15" />
+              {{ busy() ? 'Creating…' : 'Create token' }}
+            </button>
+          }
+        </div>
+      </akd-modal>
     </div>
   `,
   styles: [
     `
-      .head {
-        margin-bottom: var(--akd-space-5);
-      }
-      .akd-card {
-        margin-bottom: var(--akd-space-5);
-      }
-      .form {
-        display: grid;
-        gap: var(--akd-space-3);
-      }
-      .row {
-        display: flex;
-        align-items: end;
-        gap: var(--akd-space-3);
-        flex-wrap: wrap;
-      }
       .grow {
         flex: 1;
-        min-width: 220px;
+      }
+      .desc {
+        margin: 0 0 var(--space-4);
+        font-size: var(--text-sm);
+      }
+      .stack {
+        display: grid;
+        gap: var(--space-5);
+      }
+      .grid2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--space-5);
+        align-items: start;
+      }
+      @media (max-width: 960px) {
+        .grid2 {
+          grid-template-columns: 1fr;
+        }
+      }
+      .pad {
+        padding: var(--space-5);
+        margin: 0;
+      }
+      .footnote {
+        margin: 0;
+        font-size: var(--text-xs);
+        color: var(--text-3);
+      }
+      .member-cell {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
+      }
+      .avatar {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--accent-dim);
+        border: 1px solid var(--accent-border);
+        display: grid;
+        place-content: center;
+        font: var(--weight-semibold) var(--text-2xs) var(--font-display);
+        color: var(--accent);
+        flex: none;
+      }
+      .member-id {
+        display: grid;
+      }
+      .member-name {
+        font-weight: var(--weight-medium);
+      }
+      .sub-mono {
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+        color: var(--text-3);
+      }
+      .modal-stack {
+        display: grid;
+        gap: var(--space-4);
+      }
+      .modal-status {
+        margin: 0;
+      }
+      .secret-line {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        background: var(--bg-inset);
+        border: 1px dashed var(--accent-border);
+        border-radius: var(--radius-2);
+        padding: var(--space-2) var(--space-3);
+      }
+      .secret-line code {
+        flex: 1;
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+        color: var(--text-1);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .perms {
-        display: flex;
-        gap: var(--akd-space-4);
-        flex-wrap: wrap;
+        display: grid;
+        gap: var(--space-2);
         margin: 0;
         padding: 0;
         border: 0;
       }
       .perms legend {
-        font-size: var(--akd-text-sm);
-        font-weight: var(--akd-weight-medium);
         padding: 0;
-        margin-bottom: var(--akd-space-1);
-      }
-      .check {
-        display: flex;
-        align-items: center;
-        gap: var(--akd-space-1);
-        font-size: var(--akd-text-sm);
-      }
-      .hint {
-        margin: 0 0 var(--akd-space-1);
-        font-size: var(--akd-text-xs);
-      }
-      p.akd-secret {
-        margin: 0;
+        margin-bottom: var(--space-1);
       }
     `,
   ],
@@ -305,7 +488,6 @@ export class TeamComponent {
   private readonly api = inject(ApiService);
 
   protected readonly permissions = PERMISSIONS;
-  protected readonly tab = signal<Tab>('members');
   protected readonly team = signal<Team | null>(null);
   protected readonly members = signal<TeamMember[]>([]);
   protected readonly invitations = signal<Invitation[]>([]);
@@ -313,6 +495,9 @@ export class TeamComponent {
   protected readonly loading = signal(true);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
+  protected readonly inviteOpen = signal(false);
+  protected readonly tokenOpen = signal(false);
+  protected readonly copied = signal(false);
   /** One-time invitation link — the server never returns it again. */
   protected readonly inviteLink = signal<string | null>(null);
   protected readonly inviteSent = signal<string | null>(null);
@@ -338,6 +523,42 @@ export class TeamComponent {
       this.loading.set(false);
     } else {
       void this.load(this.teamUuid);
+    }
+  }
+
+  protected initials(member: TeamMember): string {
+    const source = (member.name ?? member.email).trim();
+    return (
+      source
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((word) => word[0])
+        .join('')
+        .toUpperCase() || '?'
+    );
+  }
+
+  protected openInvite(): void {
+    this.inviteLink.set(null);
+    this.inviteSent.set(null);
+    this.copied.set(false);
+    this.inviteOpen.set(true);
+  }
+
+  protected openToken(): void {
+    this.tokenValue.set(null);
+    this.copied.set(false);
+    this.tokenOpen.set(true);
+  }
+
+  protected async copy(value: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(value);
+      this.copied.set(true);
+      setTimeout(() => this.copied.set(false), 2000);
+    } catch {
+      // Clipboard may be unavailable — the secret stays selectable in the box.
     }
   }
 

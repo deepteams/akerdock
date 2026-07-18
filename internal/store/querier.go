@@ -368,7 +368,8 @@ type Querier interface {
 	// ordering, opaque cursor carrying the last seen internal id.
 	GetTeamByID(ctx context.Context, id int64) (Team, error)
 	GetTeamByUUID(ctx context.Context, uuid pgtype.UUID) (Team, error)
-	// The team a session acts in, with its role. Falls back to the personal team.
+	// The team a session acts in, with its role and public UUID (the dashboard
+	// addresses team endpoints by UUID). Falls back to the personal team.
 	GetTeamMembershipForUser(ctx context.Context, userID int64) (GetTeamMembershipForUserRow, error)
 	GetUptimeCheckByUUID(ctx context.Context, arg GetUptimeCheckByUUIDParams) (UptimeCheck, error)
 	// Browser sessions (PRD §698).

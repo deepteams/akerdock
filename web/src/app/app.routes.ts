@@ -41,6 +41,11 @@ export const routes: Routes = [
           import('./pages/project-detail.component').then((m) => m.ProjectDetailComponent),
       },
       {
+        path: 'projects/:uuid/environments/:envUuid',
+        loadComponent: () =>
+          import('./pages/environment-detail.component').then((m) => m.EnvironmentDetailComponent),
+      },
+      {
         path: 'applications',
         loadComponent: () =>
           import('./pages/applications.component').then((m) => m.ApplicationsComponent),
@@ -112,38 +117,30 @@ export const routes: Routes = [
           ),
       },
 
-      // Resources
+      // Sources — one page, five credential families. The old top-level paths
+      // redirect to their tab so bookmarks keep working.
       {
-        path: 'github-apps',
-        loadComponent: () =>
-          import('./pages/github-apps.component').then((m) => m.GithubAppsComponent),
+        path: 'sources',
+        loadComponent: () => import('./pages/sources.component').then((m) => m.SourcesComponent),
       },
-      {
-        path: 'private-keys',
-        loadComponent: () =>
-          import('./pages/private-keys.component').then((m) => m.PrivateKeysComponent),
-      },
-      {
-        path: 'registries',
-        loadComponent: () =>
-          import('./pages/registries.component').then((m) => m.RegistriesComponent),
-      },
-      {
-        path: 'dns-credentials',
-        loadComponent: () =>
-          import('./pages/dns-credentials.component').then((m) => m.DnsCredentialsComponent),
-      },
-      {
-        path: 's3-storages',
-        loadComponent: () =>
-          import('./pages/s3-storages.component').then((m) => m.S3StoragesComponent),
-      },
+      { path: 'github-apps', redirectTo: '/sources?tab=github-apps' },
+      { path: 'private-keys', redirectTo: '/sources?tab=private-keys' },
+      { path: 'registries', redirectTo: '/sources?tab=registries' },
+      { path: 'dns-credentials', redirectTo: '/sources?tab=dns' },
+      { path: 's3-storages', redirectTo: '/sources?tab=s3' },
 
-      // Instance
+      // Team
       {
         path: 'team',
         loadComponent: () => import('./pages/team.component').then((m) => m.TeamComponent),
       },
+      {
+        path: 'settings',
+        loadComponent: () =>
+          import('./pages/team-settings.component').then((m) => m.TeamSettingsComponent),
+      },
+
+      // Instance (reached from the user menu)
       {
         path: 'system',
         loadComponent: () => import('./pages/system.component').then((m) => m.SystemComponent),

@@ -1,6 +1,9 @@
 import { SlicePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { CardComponent } from '../../ui/card/card.component';
+import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
+import { IconComponent } from '../../ui/icon/icon.component';
 import { ApiService } from '../core/api.service';
 import type { components } from '../../api/schema';
 
@@ -9,27 +12,26 @@ type PrivateKey = components['schemas']['PrivateKey'];
 @Component({
   selector: 'app-private-keys',
   standalone: true,
-  imports: [FormsModule, SlicePipe],
+  imports: [FormsModule, SlicePipe, CardComponent, EmptyStateComponent, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
-        <h1>Private keys</h1>
+        <h2>Private keys</h2>
       </header>
 
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      <section class="akd-card">
-        <h2>Add a key</h2>
-        <form class="form" (ngSubmit)="create()">
+      <akd-card title="Add a key" class="create">
+        <form class="fields" (ngSubmit)="create()">
           <div class="akd-field">
-            <label for="pk-name">Name</label>
+            <label class="akd-field__label" for="pk-name">Name</label>
             <input
               id="pk-name"
               name="name"
-              class="akd-input"
+              class="akd-input akd-input--mono"
               placeholder="e.g. deploy-key-prod"
               [(ngModel)]="name"
               [disabled]="busy()"
@@ -37,111 +39,136 @@ type PrivateKey = components['schemas']['PrivateKey'];
             />
           </div>
           <div class="akd-field">
-            <label for="pk-material">Private key (PEM / OpenSSH, no passphrase)</label>
+            <label class="akd-field__label" for="pk-material">
+              Private key (PEM / OpenSSH, no passphrase)
+            </label>
             <textarea
               id="pk-material"
               name="private_key"
-              class="akd-textarea"
+              class="akd-input akd-input--mono"
               rows="6"
               placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
               [(ngModel)]="material"
               [disabled]="busy()"
               required
             ></textarea>
-            <p class="akd-muted hint">
+            <span class="akd-field__hint">
               Stored encrypted. The private material is not echoed back on creation — reveal it
               later only with the read:sensitive permission.
-            </p>
+            </span>
           </div>
           <div>
-            <button class="akd-btn" type="submit" [disabled]="busy()">Add key</button>
+            <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
+              <akd-icon name="plus" [size]="15" />
+              Add key
+            </button>
           </div>
         </form>
-      </section>
+      </akd-card>
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
       } @else if (keys().length === 0) {
-        <div class="akd-empty">
-          <p><strong>No private keys yet.</strong></p>
-          <p>Servers are reached over SSH with a key registered here.</p>
-        </div>
+        <akd-empty-state
+          icon="key-round"
+          title="No private keys yet"
+          message="Servers are reached over SSH with a key registered here."
+        />
       } @else {
-        <table class="akd-table">
-          <caption class="sr-only">Private SSH keys of this team</caption>
-          <thead>
-            <tr>
-              <th scope="col">Name</th>
-              <th scope="col">Fingerprint</th>
-              <th scope="col">In use</th>
-              <th scope="col">Created</th>
-              <th scope="col"><span class="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (pk of keys(); track pk.uuid) {
+        <akd-card [padded]="false">
+          <table class="akd-table">
+            <caption class="sr-only">
+              Private SSH keys of this team
+            </caption>
+            <thead>
               <tr>
-                <td>{{ pk.name }}</td>
-                <td class="akd-mono">{{ pk.fingerprint }}</td>
-                <td class="akd-muted">{{ pk.in_use ? 'yes' : 'no' }}</td>
-                <td class="akd-muted">{{ pk.created_at | slice: 0 : 10 }}</td>
-                <td class="right">
-                  <button
-                    class="akd-btn-ghost"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="toggleReveal(pk)"
-                  >
-                    {{ revealed()[pk.uuid] ? 'Hide' : 'Reveal' }}
-                  </button>
-                  <button
-                    class="akd-btn-ghost"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="rename(pk)"
-                  >
-                    Rename
-                  </button>
-                  <button
-                    class="akd-btn-danger"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="remove(pk)"
-                  >
-                    Delete
-                  </button>
-                </td>
+                <th scope="col">Name</th>
+                <th scope="col">Fingerprint</th>
+                <th scope="col">In use</th>
+                <th scope="col">Created</th>
+                <th scope="col" class="right"><span class="sr-only">Actions</span></th>
               </tr>
-              @if (revealed()[pk.uuid]; as secret) {
+            </thead>
+            <tbody>
+              @for (pk of keys(); track pk.uuid) {
                 <tr>
-                  <td colspan="5">
-                    <pre class="akd-secret">{{ secret }}</pre>
+                  <td class="akd-mono">{{ pk.name }}</td>
+                  <td class="akd-mono akd-muted">{{ pk.fingerprint }}</td>
+                  <td>
+                    @if (pk.in_use) {
+                      <span class="akd-badge akd-badge--accent">in use</span>
+                    } @else {
+                      <span class="akd-badge">unused</span>
+                    }
+                  </td>
+                  <td class="akd-muted">{{ pk.created_at | slice: 0 : 10 }}</td>
+                  <td class="right">
+                    <span class="row-actions">
+                      <button
+                        class="akd-iconbtn"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="toggleReveal(pk)"
+                        [attr.aria-label]="
+                          revealed()[pk.uuid] ? 'Hide key material' : 'Reveal key material'
+                        "
+                      >
+                        <akd-icon [name]="revealed()[pk.uuid] ? 'eye-off' : 'eye'" [size]="15" />
+                      </button>
+                      <button
+                        class="akd-iconbtn"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="rename(pk)"
+                        aria-label="Rename key"
+                      >
+                        <akd-icon name="pencil" [size]="15" />
+                      </button>
+                      <button
+                        class="akd-iconbtn"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="remove(pk)"
+                        aria-label="Delete key"
+                      >
+                        <akd-icon name="trash-2" [size]="15" />
+                      </button>
+                    </span>
                   </td>
                 </tr>
+                @if (revealed()[pk.uuid]; as secret) {
+                  <tr>
+                    <td colspan="5">
+                      <pre class="akd-secret">{{ secret }}</pre>
+                    </td>
+                  </tr>
+                }
               }
-            }
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </akd-card>
       }
     </div>
   `,
   styles: [
     `
-      .form {
-        display: grid;
-        gap: var(--akd-space-3);
+      .create {
+        margin-bottom: var(--space-5);
+        max-width: 640px;
       }
-      .hint {
-        margin: 0;
-        font-size: var(--akd-text-xs);
+      .fields {
+        display: grid;
+        gap: var(--space-4);
       }
       pre.akd-secret {
-        margin: 0;
+        margin: var(--space-2) 0;
         white-space: pre-wrap;
       }
-      td .akd-btn-ghost,
-      td .akd-btn-danger {
-        margin-left: var(--akd-space-2);
+      .row-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-1);
+        justify-content: flex-end;
       }
     `,
   ],

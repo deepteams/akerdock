@@ -31,7 +31,11 @@ export interface Geometry {
  * browser WebSocket API cannot set headers — it is single-use and expires in
  * a minute, which is what makes that acceptable (§24.4).
  */
-export function attachUrl(session: TerminalSessionInfo, origin: string, geometry: Geometry): string {
+export function attachUrl(
+  session: TerminalSessionInfo,
+  origin: string,
+  geometry: Geometry,
+): string {
   const url = new URL(session.websocket_path, origin);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   url.searchParams.set('token', session.token);
@@ -46,12 +50,7 @@ export function resizeMessage(geometry: Geometry): string {
 }
 
 /** Why the server says the session ended. */
-export type EndReason =
-  | 'user_close'
-  | 'idle_timeout'
-  | 'max_duration'
-  | 'disconnect'
-  | 'revoked';
+export type EndReason = 'user_close' | 'idle_timeout' | 'max_duration' | 'disconnect' | 'revoked';
 
 /**
  * Reads the server's end frame. Anything else (terminal output arrives as

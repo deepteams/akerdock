@@ -1,4 +1,7 @@
+import { SlicePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, OnDestroy, inject, signal } from '@angular/core';
+import { CardComponent } from '../../ui/card/card.component';
+import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { ApiService } from '../core/api.service';
 
 interface LiveEvent {
@@ -17,49 +20,81 @@ interface LiveEvent {
 @Component({
   selector: 'app-events',
   standalone: true,
+  imports: [SlicePipe, CardComponent, EmptyStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
-        <h1>Events</h1>
-        <span class="akd-muted" role="status">
-          {{ connected() ? 'live' : 'connecting…' }}
-        </span>
+        <div class="head">
+          <h1>Events</h1>
+          <span class="akd-badge" [class.akd-badge--ok]="connected()" role="status">
+            {{ connected() ? 'live' : 'connecting…' }}
+          </span>
+        </div>
       </header>
 
       @if (events().length === 0) {
-        <div class="akd-empty">
-          <p><strong>Waiting for events.</strong></p>
-          <p>Deployments, job transitions and alerts appear here as they happen.</p>
-        </div>
+        <akd-empty-state
+          icon="activity"
+          title="Waiting for events."
+          message="Deployments, job transitions and alerts appear here as they happen."
+        />
       } @else {
-        <table class="akd-table">
-          <caption class="sr-only">Live instance events, newest first</caption>
-          <thead>
-            <tr>
-              <th scope="col">Type</th>
-              <th scope="col">Payload</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (event of events(); track event.id) {
+        <akd-card [padded]="false">
+          <table class="akd-table">
+            <caption class="sr-only">
+              Live instance events, newest first
+            </caption>
+            <thead>
               <tr>
-                <td class="akd-mono type">{{ event.type }}</td>
-                <td class="akd-mono payload">{{ event.payload }}</td>
+                <th scope="col">Time</th>
+                <th scope="col">Event</th>
+                <th scope="col">Severity</th>
+                <th scope="col">Payload</th>
               </tr>
-            }
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              @for (event of events(); track event.id) {
+                @let sev = severity(event.type);
+                <tr>
+                  <td class="akd-mono time">{{ event.at | slice: 11 : 19 }}</td>
+                  <td class="akd-mono type">{{ event.type }}</td>
+                  <td>
+                    <span
+                      class="akd-badge"
+                      [class.akd-badge--danger]="sev === 'error'"
+                      [class.akd-badge--warn]="sev === 'warning'"
+                    >
+                      {{ sev }}
+                    </span>
+                  </td>
+                  <td class="akd-mono payload">{{ event.payload }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </akd-card>
       }
     </div>
   `,
   styles: [
     `
+      .head {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+      }
+      .time {
+        color: var(--text-3);
+        white-space: nowrap;
+        vertical-align: top;
+      }
       .type {
         white-space: nowrap;
         vertical-align: top;
       }
       .payload {
+        color: var(--text-3);
         overflow-wrap: anywhere;
       }
     `,
@@ -118,6 +153,17 @@ export class EventsComponent implements OnDestroy {
     for (const type of EventsComponent.eventTypes) {
       this.source.addEventListener(type, (msg) => this.push(type, msg));
     }
+  }
+
+  /**
+   * Severity is read from the event name itself — the raw feed carries no
+   * other structured field. Word boundaries keep `drill_failed` from matching
+   * `failed` (underscore is a word character), hence its own alternative.
+   */
+  protected severity(type: string): 'error' | 'warning' | 'info' {
+    if (/\b(failed|dead_letter|drill_failed|unreachable)\b/.test(type)) return 'error';
+    if (/\b(expiring|partial|cancelled)\b/.test(type)) return 'warning';
+    return 'info';
   }
 
   private push(type: string, msg: MessageEvent<string>): void {

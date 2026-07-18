@@ -1,199 +1,933 @@
-/* Tokens are the only source of style (§2). Everything else consumes var(--akd-*). */
+/* Tokens are the only source of style. Everything else consumes the CSS
+   variables defined in styles/tokens.css. */
 /* Critical-CSS inlining is OFF in angular.json (inlineCritical: false): the
    async-load trick it emits (<link media="print" onload="…">) is an inline
    event handler, which the control plane's CSP (script-src 'self') rightly
    blocks — the sheet would stay media="print" and never apply on screen. */
+/* Fonts are bundled from node_modules (@fontsource): the CSP allows no
+   external origin, and an air-gapped instance has none anyway. */
+@import '@fontsource/space-grotesk/500.css';
+@import '@fontsource/space-grotesk/600.css';
+@import '@fontsource/space-grotesk/700.css';
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/700.css';
 @import './styles/tokens.css';
 /* xterm.js ships its own stylesheet (cursor, selection, viewport geometry).
    Imported here rather than from angular.json so it is bundled, never fetched
-   from a CDN: the CSP allows no external origin, and an air-gapped instance
-   has none anyway. */
+   from a CDN. */
 @import '@xterm/xterm/css/xterm.css';
 
-*, *::before, *::after { box-sizing: border-box; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
-html, body {
+html,
+body {
   margin: 0;
   padding: 0;
-  font-family: var(--akd-font-ui);
-  font-size: var(--akd-text-md);
-  color: var(--akd-text);
-  background: var(--akd-bg);
+  background: var(--surface-page);
+  color: var(--text-body);
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+code,
+pre,
+kbd {
+  font-family: var(--font-mono);
+}
+::selection {
+  background: var(--accent-dim);
 }
 
 /* Focus is never removed, only styled: keyboard operability is a requirement,
-   not a preference (§1.6, §4.3). */
-:focus-visible { outline: 2px solid var(--akd-focus-ring); outline-offset: 2px; }
+   not a preference. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@keyframes akd-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes akd-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes akd-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes akd-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* ---------------------------------------------------------------------------
-   Shared page vocabulary. Every dashboard page is built from the same few
-   shapes — one definition here, consumed by class, so twenty pages cannot
-   drift into twenty dialects. Tokens only (§6.1).
+   Component vocabulary (.akd-*) — verbatim from the design kit
+   (design-system.md §3). Tokens only.
 --------------------------------------------------------------------------- */
+.akd-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* Buttons */
+.akd-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font: var(--weight-semibold) var(--text-md) var(--font-body);
+  border-radius: var(--radius-2);
+  border: 1px solid transparent;
+  cursor: pointer;
+  height: 36px;
+  padding: 0 16px;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    filter var(--dur-1) var(--ease-out);
+  white-space: nowrap;
+}
+.akd-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+.akd-btn--sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--text-sm);
+  gap: 6px;
+}
+.akd-btn--primary {
+  background: var(--accent-strong);
+  color: var(--accent-on);
+}
+.akd-btn--primary:hover {
+  filter: brightness(1.12);
+}
+.akd-btn--secondary {
+  background: var(--bg-2);
+  border-color: var(--border-1);
+  color: var(--text-1);
+}
+.akd-btn--secondary:hover {
+  background: var(--bg-3);
+  border-color: var(--border-2);
+}
+.akd-btn--ghost {
+  background: transparent;
+  color: var(--text-2);
+}
+.akd-btn--ghost:hover {
+  background: var(--bg-2);
+  color: var(--text-1);
+}
+.akd-btn--danger {
+  background: var(--danger-dim);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+.akd-btn--danger:hover {
+  filter: brightness(1.15);
+}
+.akd-btn[disabled] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.akd-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--radius-2);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.akd-iconbtn:hover {
+  background: var(--bg-2);
+  color: var(--text-1);
+}
+.akd-iconbtn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+.akd-iconbtn--bordered {
+  background: var(--bg-2);
+  border-color: var(--border-1);
+}
+.akd-iconbtn--bordered:hover {
+  background: var(--bg-3);
+  border-color: var(--border-2);
+}
+/* Inputs */
+.akd-field {
+  display: grid;
+  gap: 6px;
+}
+.akd-field__label {
+  font: var(--weight-semibold) var(--text-xs) var(--font-body);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-3);
+}
+.akd-field__hint {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+.akd-field__hint--error {
+  color: var(--danger);
+}
+.akd-input {
+  min-width: 0;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  padding: 8px 12px;
+  color: var(--text-1);
+  font: var(--weight-regular) var(--text-md) var(--font-body);
+  width: 100%;
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+.akd-input::placeholder {
+  color: var(--text-3);
+}
+.akd-input:hover {
+  border-color: var(--border-2);
+}
+.akd-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.akd-input--mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.akd-input--error {
+  border-color: var(--danger);
+}
+.akd-input[disabled] {
+  opacity: 0.45;
+}
+.akd-select {
+  position: relative;
+  display: block;
+}
+.akd-select > select {
+  appearance: none;
+  padding-right: 32px;
+  cursor: pointer;
+}
+.akd-select::after {
+  content: '';
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -6px;
+  border-right: 1.5px solid var(--text-3);
+  border-bottom: 1.5px solid var(--text-3);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+/* Checkbox & switch */
+.akd-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: var(--text-md);
+  color: var(--text-1);
+}
+.akd-check > input {
+  appearance: none;
+  margin: 0;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-1);
+  background: var(--bg-inset);
+  display: grid;
+  place-content: center;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.akd-check > input:checked {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+.akd-check > input:checked::before {
+  content: '';
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid var(--accent-on);
+  border-bottom: 2px solid var(--accent-on);
+  transform: rotate(-45deg) translate(0, -1px);
+}
+.akd-check > input:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+.akd-switch {
+  appearance: none;
+  margin: 0;
+  width: 36px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  background: var(--bg-3);
+  border: 1px solid var(--border-1);
+  position: relative;
+  cursor: pointer;
+  transition: background var(--dur-2) var(--ease-out);
+  flex: none;
+}
+.akd-switch::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-2);
+  transition:
+    transform var(--dur-2) var(--ease-out),
+    background var(--dur-2) var(--ease-out);
+}
+.akd-switch:checked {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+.akd-switch:checked::before {
+  transform: translateX(16px);
+  background: var(--accent-on);
+}
+.akd-switch:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+/* Status & badges */
+.akd-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 12px 3px 10px;
+  border-radius: var(--radius-full);
+  font: var(--weight-medium) var(--text-sm) var(--font-body);
+  border: 1px solid;
+  white-space: nowrap;
+}
+.akd-status__dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+}
+.akd-status--ok {
+  background: var(--ok-dim);
+  border-color: var(--ok-border);
+  color: var(--ok);
+}
+.akd-status--ok .akd-status__dot {
+  border-radius: 50%;
+  background: var(--ok);
+}
+.akd-status--progress {
+  background: var(--info-dim);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.akd-status--progress .akd-status__dot {
+  background: var(--accent);
+  transform: rotate(45deg) scale(0.9);
+  animation: akd-pulse 1.4s var(--ease-out) infinite;
+}
+.akd-status--warn {
+  background: var(--warn-dim);
+  border-color: var(--warn-border);
+  color: var(--warn);
+}
+.akd-status--warn .akd-status__dot {
+  width: 0;
+  height: 0;
+  background: none;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 9px solid var(--warn);
+}
+.akd-status--danger {
+  background: var(--danger-dim);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+.akd-status--danger .akd-status__dot {
+  background: var(--danger);
+}
+.akd-status--neutral {
+  background: var(--neutral-dim);
+  border-color: var(--neutral-border);
+  color: var(--neutral);
+}
+.akd-status--neutral .akd-status__dot {
+  border-radius: 50%;
+  border: 2px solid var(--neutral);
+  background: none;
+  box-sizing: border-box;
+}
+.akd-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--radius-1);
+  font: var(--weight-medium) var(--text-xs) var(--font-body);
+  border: 1px solid var(--border-1);
+  background: var(--bg-2);
+  color: var(--text-2);
+}
+.akd-badge--mono {
+  font-family: var(--font-mono);
+}
+.akd-badge--accent {
+  background: var(--accent-dim);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.akd-badge--ok {
+  background: var(--ok-dim);
+  border-color: var(--ok-border);
+  color: var(--ok);
+}
+.akd-badge--warn {
+  background: var(--warn-dim);
+  border-color: var(--warn-border);
+  color: var(--warn);
+}
+.akd-badge--danger {
+  background: var(--danger-dim);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+/* Card */
+.akd-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-3);
+}
+.akd-card__body {
+  padding: var(--space-5);
+}
+.akd-card__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-1);
+}
+.akd-card__title {
+  font: var(--weight-semibold) var(--text-lg) var(--font-display);
+  margin: 0;
+}
+/* Table */
+.akd-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-md);
+}
+.akd-table th {
+  text-align: left;
+  font: var(--weight-semibold) var(--text-xs) var(--font-body);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-3);
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-1);
+}
+.akd-table td {
+  padding: 0 16px;
+  height: 44px;
+  border-bottom: 1px solid var(--border-1);
+  color: var(--text-1);
+}
+.akd-table tbody tr {
+  transition: background var(--dur-1) var(--ease-out);
+}
+.akd-table tbody tr:hover {
+  background: var(--bg-2);
+}
+.akd-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.akd-table--clickable tbody tr {
+  cursor: pointer;
+}
+.akd-table td.right,
+.akd-table th.right {
+  text-align: right;
+}
+.akd-table a {
+  color: var(--text-1);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+}
+.akd-table a:hover {
+  text-decoration: underline;
+}
+.akd-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+/* Logs */
+.akd-log {
+  background: var(--surface-terminal);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  font: var(--weight-regular) var(--text-sm)/1.65 var(--font-mono);
+  overflow: auto;
+}
+.akd-log__line {
+  display: flex;
+  gap: 14px;
+  padding: 1px 14px;
+  animation: akd-slide-in var(--dur-1) var(--ease-out);
+}
+.akd-log__line:hover {
+  background: var(--bg-1);
+}
+.akd-log__ts {
+  color: var(--text-3);
+  flex: none;
+}
+.akd-log__msg {
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.akd-log__line--info .akd-log__msg {
+  color: var(--text-2);
+}
+.akd-log__line--ok .akd-log__msg {
+  color: var(--ok);
+}
+.akd-log__line--warn .akd-log__msg {
+  color: var(--warn);
+}
+.akd-log__line--error .akd-log__msg {
+  color: var(--danger);
+}
+.akd-log__line--cmd .akd-log__msg {
+  color: var(--text-1);
+}
+/* Timeline */
+.akd-timeline {
+  display: grid;
+  gap: 0;
+}
+.akd-tstep {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 0 14px;
+}
+.akd-tstep__rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.akd-tstep__node {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--border-2);
+  background: var(--bg-1);
+  flex: none;
+  margin-top: 4px;
+  box-sizing: border-box;
+}
+.akd-tstep--done .akd-tstep__node {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+.akd-tstep--active .akd-tstep__node {
+  border-color: var(--accent);
+  background: var(--accent);
+  animation: akd-pulse 1.4s var(--ease-out) infinite;
+}
+.akd-tstep--failed .akd-tstep__node {
+  border-color: var(--danger);
+  background: var(--danger);
+  border-radius: 2px;
+}
+.akd-tstep__line {
+  width: 2px;
+  flex: 1;
+  background: var(--border-1);
+  margin: 4px 0;
+  min-height: 16px;
+}
+.akd-tstep--done .akd-tstep__line {
+  background: var(--ok-border);
+}
+.akd-tstep__body {
+  padding-bottom: 18px;
+  min-width: 0;
+}
+.akd-tstep__title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font: var(--weight-medium) var(--text-md) var(--font-body);
+  color: var(--text-1);
+}
+.akd-tstep--pending .akd-tstep__title {
+  color: var(--text-3);
+}
+.akd-tstep__dur {
+  font: var(--weight-regular) var(--text-xs) var(--font-mono);
+  color: var(--text-3);
+}
+.akd-tstep__detail {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  margin-top: 2px;
+}
+/* Stat */
+.akd-stat__label {
+  font: var(--weight-semibold) var(--text-xs) var(--font-body);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-3);
+}
+.akd-stat__value {
+  font: var(--weight-bold) var(--text-2xl) var(--font-display);
+  color: var(--text-1);
+  margin-top: 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.akd-stat__unit {
+  font: var(--weight-medium) var(--text-sm) var(--font-body);
+  color: var(--text-2);
+}
+.akd-stat__delta {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  margin-top: 4px;
+}
+/* Tabs */
+.akd-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border-1);
+}
+.akd-tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 10px 14px;
+  font: var(--weight-medium) var(--text-md) var(--font-body);
+  color: var(--text-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: color var(--dur-1) var(--ease-out);
+}
+.akd-tab:hover {
+  color: var(--text-1);
+}
+.akd-tab--active {
+  color: var(--text-1);
+  border-bottom-color: var(--accent);
+}
+.akd-tab__count {
+  font: var(--weight-medium) var(--text-2xs) var(--font-mono);
+  background: var(--bg-2);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-full);
+  padding: 1px 7px;
+  color: var(--text-2);
+}
+.akd-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+  border-radius: var(--radius-1);
+}
+/* Breadcrumb */
+.akd-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  min-width: 0;
+}
+.akd-breadcrumb a {
+  color: var(--text-2);
+}
+.akd-breadcrumb a:hover {
+  color: var(--text-1);
+  text-decoration: none;
+}
+.akd-breadcrumb__sep {
+  color: var(--text-3);
+  opacity: 0.6;
+}
+.akd-breadcrumb__current {
+  color: var(--text-1);
+  font-weight: var(--weight-medium);
+}
+/* SideNav */
+.akd-sidenav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.akd-sidenav__section {
+  font: var(--weight-semibold) var(--text-2xs) var(--font-body);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-3);
+  padding: 14px 12px 6px;
+}
+.akd-sidenav__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: var(--radius-2);
+  color: var(--text-2);
+  font: var(--weight-medium) var(--text-md) var(--font-body);
+  cursor: pointer;
+  border: none;
+  background: none;
+  text-align: left;
+  width: 100%;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.akd-sidenav__item:hover {
+  background: var(--bg-2);
+  color: var(--text-1);
+}
+.akd-sidenav__item--active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.akd-sidenav__item--active:hover {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+/* Toast */
+.akd-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-3);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-2);
+  max-width: 420px;
+  animation: akd-slide-in var(--dur-2) var(--ease-out);
+}
+.akd-toast__title {
+  font: var(--weight-semibold) var(--text-md) var(--font-body);
+  color: var(--text-1);
+}
+.akd-toast__msg {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  margin-top: 2px;
+}
+.akd-toast--ok {
+  border-color: var(--ok-border);
+}
+.akd-toast--ok .akd-toast__icon {
+  color: var(--ok);
+}
+.akd-toast--warn {
+  border-color: var(--warn-border);
+}
+.akd-toast--warn .akd-toast__icon {
+  color: var(--warn);
+}
+.akd-toast--danger {
+  border-color: var(--danger-border);
+}
+.akd-toast--danger .akd-toast__icon {
+  color: var(--danger);
+}
+/* Empty state */
+.akd-empty {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: var(--space-8) var(--space-6);
+  color: var(--text-2);
+  border: 1px dashed var(--border-1);
+  border-radius: var(--radius-3);
+}
+.akd-empty__icon {
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+.akd-empty__title {
+  font: var(--weight-semibold) var(--text-lg) var(--font-display);
+  color: var(--text-1);
+}
+.akd-empty__msg {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  max-width: 40ch;
+}
+/* Modal */
+.akd-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: oklch(10% 0.01 252 / 0.6);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+  animation: akd-slide-in var(--dur-2) var(--ease-out);
+}
+.akd-modal {
+  background: var(--bg-1);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-3);
+  box-shadow: var(--shadow-3);
+  width: min(480px, calc(100vw - 48px));
+}
+.akd-modal__header {
+  padding: var(--space-5) var(--space-5) 0;
+  font: var(--weight-semibold) var(--text-xl) var(--font-display);
+}
+.akd-modal__body {
+  padding: var(--space-4) var(--space-5);
+  color: var(--text-2);
+  font-size: var(--text-md);
+}
+.akd-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 0 var(--space-5) var(--space-5);
+}
+.akd-modal--danger {
+  border-color: var(--danger-border);
+}
 
-.akd-page { display: block; padding: var(--akd-space-6); }
-
+/* ---------------------------------------------------------------------------
+   Page scaffolding shared by every dashboard page.
+--------------------------------------------------------------------------- */
+.akd-page {
+  display: block;
+  padding: var(--space-6);
+}
 .akd-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--akd-space-3);
-  margin-bottom: var(--akd-space-5);
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
   flex-wrap: wrap;
 }
-.akd-bar h1 { margin: 0; font-size: var(--akd-text-xl); color: var(--akd-text); }
-.akd-bar h2 { margin: 0; font-size: var(--akd-text-lg); color: var(--akd-text); }
-
-.akd-table { width: 100%; border-collapse: collapse; font-size: var(--akd-text-sm); }
-.akd-table th, .akd-table td {
-  padding: var(--akd-space-2) var(--akd-space-3);
-  text-align: left;
-  border-bottom: 1px solid var(--akd-border);
+.akd-bar h1 {
+  margin: 0;
+  font: var(--weight-bold) var(--text-2xl) var(--font-display);
+  color: var(--text-1);
 }
-.akd-table th {
-  font-size: var(--akd-text-xs);
-  font-weight: var(--akd-weight-semibold);
-  color: var(--akd-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.akd-table td { color: var(--akd-text); }
-.akd-table td.right, .akd-table th.right { text-align: right; }
-.akd-table a { color: var(--akd-text); font-weight: var(--akd-weight-medium); text-decoration: none; }
-.akd-table a:hover { text-decoration: underline; }
-
-.akd-btn {
-  padding: var(--akd-space-2) var(--akd-space-4);
-  font: inherit;
-  font-size: var(--akd-text-sm);
-  font-weight: var(--akd-weight-medium);
-  color: var(--akd-on-accent);
-  background: var(--akd-accent);
-  border: 0;
-  border-radius: var(--akd-radius-sm);
-  cursor: pointer;
-}
-.akd-btn:hover:not(:disabled) { background: var(--akd-accent-hover); }
-.akd-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-
-.akd-btn-ghost {
-  padding: var(--akd-space-1) var(--akd-space-3);
-  font: inherit;
-  font-size: var(--akd-text-sm);
-  color: var(--akd-text);
-  background: transparent;
-  border: 1px solid var(--akd-border-input);
-  border-radius: var(--akd-radius-sm);
-  cursor: pointer;
-}
-.akd-btn-ghost:hover:not(:disabled) { background: var(--akd-surface-hover); }
-.akd-btn-ghost:disabled { opacity: 0.6; cursor: not-allowed; }
-
-/* Destructive actions look destructive BEFORE the click (§1.4). */
-.akd-btn-danger {
-  padding: var(--akd-space-1) var(--akd-space-3);
-  font: inherit;
-  font-size: var(--akd-text-sm);
-  color: var(--akd-status-danger-fg);
-  background: transparent;
-  border: 1px solid var(--akd-status-danger-fg);
-  border-radius: var(--akd-radius-sm);
-  cursor: pointer;
-}
-.akd-btn-danger:hover:not(:disabled) { background: var(--akd-status-danger-bg); }
-.akd-btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
-
-.akd-field { display: grid; gap: var(--akd-space-1); }
-.akd-field > label {
-  font-size: var(--akd-text-sm);
-  font-weight: var(--akd-weight-medium);
-  color: var(--akd-text);
-}
-.akd-input, .akd-select, .akd-textarea {
-  padding: var(--akd-space-2) var(--akd-space-3);
-  font: inherit;
-  font-size: var(--akd-text-md);
-  color: var(--akd-text);
-  background: var(--akd-bg);
-  border: 1px solid var(--akd-border-input);
-  border-radius: var(--akd-radius-sm);
-}
-.akd-textarea { font-family: var(--akd-font-mono); font-size: var(--akd-text-sm); }
-
-.akd-card {
-  display: grid;
-  gap: var(--akd-space-3);
-  padding: var(--akd-space-5);
-  background: var(--akd-surface);
-  border: 1px solid var(--akd-border);
-  border-radius: var(--akd-radius-lg);
-}
-
-.akd-empty {
-  padding: var(--akd-space-8);
-  text-align: center;
-  border: 1px dashed var(--akd-border);
-  border-radius: var(--akd-radius-lg);
-  color: var(--akd-text-secondary);
+.akd-bar h2 {
+  margin: 0;
+  font: var(--weight-semibold) var(--text-lg) var(--font-display);
+  color: var(--text-1);
 }
 
 .akd-error {
-  margin: 0 0 var(--akd-space-3);
-  padding: var(--akd-space-2) var(--akd-space-3);
-  font-size: var(--akd-text-sm);
-  color: var(--akd-status-danger-fg);
-  background: var(--akd-status-danger-bg);
-  border-radius: var(--akd-radius-sm);
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--danger);
+  background: var(--danger-dim);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-2);
 }
 
-.akd-muted { color: var(--akd-text-secondary); }
-.akd-mono { font-family: var(--akd-font-mono); font-size: var(--akd-text-xs); }
+.akd-muted {
+  color: var(--text-2);
+}
 
 /* One-time secrets (tokens, invitation links) are shown once, in a box that
    says so. */
 .akd-secret {
-  padding: var(--akd-space-3);
-  font-family: var(--akd-font-mono);
-  font-size: var(--akd-text-sm);
-  background: var(--akd-surface);
-  border: 1px solid var(--akd-border);
-  border-radius: var(--akd-radius-sm);
+  padding: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
   word-break: break-all;
   user-select: all;
-}
-
-.akd-tabs {
-  display: flex;
-  gap: var(--akd-space-1);
-  margin-bottom: var(--akd-space-5);
-  border-bottom: 1px solid var(--akd-border);
-  flex-wrap: wrap;
-}
-.akd-tabs button {
-  padding: var(--akd-space-2) var(--akd-space-3);
-  font: inherit;
-  font-size: var(--akd-text-sm);
-  color: var(--akd-text-secondary);
-  background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-}
-.akd-tabs button[aria-selected='true'] {
-  color: var(--akd-text);
-  font-weight: var(--akd-weight-medium);
-  border-bottom-color: var(--akd-accent);
 }
 
 .akd-dl {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: var(--akd-space-2) var(--akd-space-5);
+  gap: var(--space-2) var(--space-5);
   margin: 0;
-  font-size: var(--akd-text-sm);
+  font-size: var(--text-sm);
 }
-.akd-dl dt { color: var(--akd-text-secondary); }
-.akd-dl dd { margin: 0; color: var(--akd-text); overflow-wrap: anywhere; }
+.akd-dl dt {
+  color: var(--text-3);
+}
+.akd-dl dd {
+  margin: 0;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
 
 .sr-only {
   position: absolute;
@@ -205,4 +939,142 @@ html, body {
   clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Legacy compatibility — pre-redesign pages use the old class dialect
+   (.akd-btn alone means primary, .akd-btn-ghost/-danger are standalone,
+   .akd-select sits on the <select> itself, tabs mark the active button with
+   aria-selected, cards carry their own padding). Each rule restates the new
+   language for that dialect; delete alongside the last page that speaks it.
+--------------------------------------------------------------------------- */
+.akd-btn:not([class*='akd-btn--']) {
+  background: var(--accent-strong);
+  color: var(--accent-on);
+}
+.akd-btn:not([class*='akd-btn--']):hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+.akd-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.akd-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  font: var(--weight-semibold) var(--text-sm) var(--font-body);
+  color: var(--text-1);
+  background: var(--bg-2);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  cursor: pointer;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out);
+  white-space: nowrap;
+}
+.akd-btn-ghost:hover:not(:disabled) {
+  background: var(--bg-3);
+  border-color: var(--border-2);
+}
+.akd-btn-ghost:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.akd-btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  font: var(--weight-semibold) var(--text-sm) var(--font-body);
+  color: var(--danger);
+  background: var(--danger-dim);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-2);
+  cursor: pointer;
+  transition: filter var(--dur-1) var(--ease-out);
+  white-space: nowrap;
+}
+.akd-btn-danger:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+.akd-btn-danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+select.akd-select,
+.akd-textarea {
+  min-width: 0;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-1);
+  border-radius: var(--radius-2);
+  padding: 8px 12px;
+  color: var(--text-1);
+  font: var(--weight-regular) var(--text-md) var(--font-body);
+  width: 100%;
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+select.akd-select:hover,
+.akd-textarea:hover {
+  border-color: var(--border-2);
+}
+select.akd-select:focus,
+.akd-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.akd-textarea {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.akd-field > label {
+  font: var(--weight-semibold) var(--text-xs) var(--font-body);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-3);
+}
+
+/* Cards without the new header/body sub-elements carry their own padding. */
+.akd-card:not(:has(> .akd-card__header, > .akd-card__body)) {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-5);
+}
+
+/* Old tab markup: <div class="akd-tabs"><button aria-selected…>. */
+.akd-tabs > button {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 10px 14px;
+  font: var(--weight-medium) var(--text-md) var(--font-body);
+  color: var(--text-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: color var(--dur-1) var(--ease-out);
+}
+.akd-tabs > button:hover {
+  color: var(--text-1);
+}
+.akd-tabs > button[aria-selected='true'] {
+  color: var(--text-1);
+  border-bottom-color: var(--accent);
+}
+.akd-tabs {
+  margin-bottom: var(--space-5);
+  flex-wrap: wrap;
 }

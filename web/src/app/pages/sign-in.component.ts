@@ -22,101 +22,137 @@ const OAUTH_ERRORS: Record<string, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <main class="wrap">
-      @if (challenge(); as chal) {
-        <form class="card" (ngSubmit)="verify()">
-          <h1>AkerDock</h1>
-          <p class="hint">
-            {{
-              useRecovery()
-                ? 'Enter one of your recovery codes. It only works once.'
-                : 'Enter the code from your authenticator app.'
-            }}
-          </p>
+      <div class="panel">
+        <h1 class="brand">Aker<span class="brand__accent">Dock</span></h1>
 
-          @if (error(); as message) {
-            <p class="error" role="alert">{{ message }}</p>
-          }
+        @if (challenge(); as chal) {
+          <form class="akd-card card" (ngSubmit)="verify()">
+            <p class="hint">
+              {{
+                useRecovery()
+                  ? 'Enter one of your recovery codes. It only works once.'
+                  : 'Enter the code from your authenticator app.'
+              }}
+            </p>
 
-          <label for="mfa-code">{{ useRecovery() ? 'Recovery code' : 'Six-digit code' }}</label>
-          <input
-            id="mfa-code"
-            name="code"
-            type="text"
-            [attr.inputmode]="useRecovery() ? 'text' : 'numeric'"
-            autocomplete="one-time-code"
-            [(ngModel)]="code"
-            [disabled]="busy()"
-            required
-            autofocus
-          />
+            @if (error(); as message) {
+              <p class="akd-error" role="alert">{{ message }}</p>
+            }
 
-          <button type="submit" [disabled]="busy() || !code">
-            {{ busy() ? 'Verifying…' : 'Verify' }}
-          </button>
+            <div class="akd-field">
+              <label class="akd-field__label" for="mfa-code">
+                {{ useRecovery() ? 'Recovery code' : 'Six-digit code' }}
+              </label>
+              <input
+                id="mfa-code"
+                name="code"
+                type="text"
+                class="akd-input akd-input--mono"
+                [attr.inputmode]="useRecovery() ? 'text' : 'numeric'"
+                autocomplete="one-time-code"
+                [(ngModel)]="code"
+                [disabled]="busy()"
+                required
+                autofocus
+              />
+            </div>
 
-          <button type="button" class="passkey" [disabled]="busy()" (click)="toggleRecovery()">
-            {{ useRecovery() ? 'Use the authenticator app instead' : 'Use a recovery code' }}
-          </button>
-
-          <button type="button" class="link" [disabled]="busy()" (click)="restart()">
-            Back to sign-in
-          </button>
-        </form>
-      } @else {
-        <form class="card" (ngSubmit)="submit()">
-          <h1>AkerDock</h1>
-          <p class="hint">Sign in to your instance.</p>
-
-          @if (error(); as message) {
-            <p class="error" role="alert">{{ message }}</p>
-          }
-
-          <label for="email">Email</label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            autocomplete="username"
-            [(ngModel)]="email"
-            [disabled]="busy()"
-            required
-          />
-
-          <label for="password">Password</label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autocomplete="current-password"
-            [(ngModel)]="password"
-            [disabled]="busy()"
-            required
-          />
-
-          <button type="submit" [disabled]="busy() || !email || !password">
-            {{ busy() ? 'Signing in…' : 'Sign in' }}
-          </button>
-
-          @if (passkeysAvailable || providers().length > 0) {
-            <div class="divider" aria-hidden="true"><span>or</span></div>
-          }
-          @if (passkeysAvailable) {
-            <button type="button" class="passkey" [disabled]="busy()" (click)="passkey()">
-              Sign in with a passkey
+            <button
+              class="akd-btn akd-btn--primary wide"
+              type="submit"
+              [disabled]="busy() || !code"
+            >
+              {{ busy() ? 'Verifying…' : 'Verify' }}
             </button>
-          }
-          @for (p of providers(); track p.provider) {
-            <button type="button" class="passkey" [disabled]="busy()" (click)="oauth(p.provider)">
-              Continue with {{ p.name }}
-            </button>
-          }
 
-          <p class="hint small">
-            The session lives in a cookie this page cannot read — so neither can an attacker who
-            manages to run script in it.
-          </p>
-        </form>
-      }
+            <button
+              class="akd-btn akd-btn--secondary wide"
+              type="button"
+              [disabled]="busy()"
+              (click)="toggleRecovery()"
+            >
+              {{ useRecovery() ? 'Use the authenticator app instead' : 'Use a recovery code' }}
+            </button>
+
+            <button type="button" class="link" [disabled]="busy()" (click)="restart()">
+              Back to sign-in
+            </button>
+          </form>
+        } @else {
+          <form class="akd-card card" (ngSubmit)="submit()">
+            <p class="hint">Sign in to your instance.</p>
+
+            @if (error(); as message) {
+              <p class="akd-error" role="alert">{{ message }}</p>
+            }
+
+            <div class="akd-field">
+              <label class="akd-field__label" for="email">Email</label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                class="akd-input"
+                autocomplete="username"
+                [(ngModel)]="email"
+                [disabled]="busy()"
+                required
+              />
+            </div>
+
+            <div class="akd-field">
+              <label class="akd-field__label" for="password">Password</label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                class="akd-input"
+                autocomplete="current-password"
+                [(ngModel)]="password"
+                [disabled]="busy()"
+                required
+              />
+            </div>
+
+            <button
+              class="akd-btn akd-btn--primary wide"
+              type="submit"
+              [disabled]="busy() || !email || !password"
+            >
+              {{ busy() ? 'Signing in…' : 'Sign in' }}
+            </button>
+
+            @if (passkeysAvailable || providers().length > 0) {
+              <div class="divider" aria-hidden="true"><span>or</span></div>
+            }
+            @if (passkeysAvailable) {
+              <button
+                class="akd-btn akd-btn--secondary wide"
+                type="button"
+                [disabled]="busy()"
+                (click)="passkey()"
+              >
+                Sign in with a passkey
+              </button>
+            }
+            @for (p of providers(); track p.provider) {
+              <button
+                class="akd-btn akd-btn--secondary wide"
+                type="button"
+                [disabled]="busy()"
+                (click)="oauth(p.provider)"
+              >
+                Continue with {{ p.name }}
+              </button>
+            }
+
+            <p class="hint hint--small">
+              The session lives in a cookie this page cannot read — so neither can an attacker who
+              manages to run script in it.
+            </p>
+          </form>
+        }
+      </div>
     </main>
   `,
   styles: [
@@ -125,125 +161,74 @@ const OAUTH_ERRORS: Record<string, string> = {
         display: grid;
         place-items: center;
         min-height: 100vh;
-        background: var(--akd-bg);
+        padding: var(--space-6);
+        background: var(--surface-page);
+      }
+      .panel {
+        display: grid;
+        gap: var(--space-5);
+        justify-items: center;
+      }
+      .brand {
+        margin: 0;
+        font: var(--weight-bold) var(--text-2xl) var(--font-display);
+        color: var(--text-1);
+      }
+      .brand__accent {
+        color: var(--accent);
       }
       .card {
         display: grid;
-        gap: var(--akd-space-3);
+        gap: var(--space-4);
         width: 380px;
         max-width: 90vw;
-        padding: var(--akd-space-6);
-        background: var(--akd-surface);
-        border: 1px solid var(--akd-border);
-        border-radius: var(--akd-radius-lg);
+        padding: var(--space-6);
       }
-      h1 {
+      .wide {
+        width: 100%;
+      }
+      .akd-error {
         margin: 0;
-        font-size: var(--akd-text-xl);
-        color: var(--akd-text);
-      }
-      label {
-        font-size: var(--akd-text-sm);
-        font-weight: var(--akd-weight-medium);
-        color: var(--akd-text);
-      }
-      input {
-        padding: var(--akd-space-2) var(--akd-space-3);
-        font: inherit;
-        font-size: var(--akd-text-md);
-        color: var(--akd-text);
-        background: var(--akd-bg);
-        border: 1px solid var(--akd-border-input);
-        border-radius: var(--akd-radius-sm);
-      }
-      input:focus-visible {
-        outline: 2px solid var(--akd-focus-ring);
-        outline-offset: 1px;
-      }
-      button {
-        padding: var(--akd-space-2) var(--akd-space-4);
-        font: inherit;
-        font-weight: var(--akd-weight-medium);
-        color: var(--akd-on-accent);
-        background: var(--akd-accent);
-        border: 0;
-        border-radius: var(--akd-radius-sm);
-        cursor: pointer;
-      }
-      button:hover:not(:disabled) {
-        background: var(--akd-accent-hover);
-      }
-      button:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
-      button:focus-visible {
-        outline: 2px solid var(--akd-focus-ring);
-        outline-offset: 2px;
       }
       .hint {
         margin: 0;
-        font-size: var(--akd-text-sm);
-        color: var(--akd-text-secondary);
+        font-size: var(--text-sm);
+        color: var(--text-2);
       }
-      .hint.small {
-        font-size: var(--akd-text-xs);
-        color: var(--akd-text-muted);
-      }
-      .error {
-        margin: 0;
-        padding: var(--akd-space-2) var(--akd-space-3);
-        font-size: var(--akd-text-sm);
-        color: var(--akd-status-danger-fg);
-        background: var(--akd-status-danger-bg);
-        border-radius: var(--akd-radius-sm);
-      }
-      code {
-        font-family: var(--akd-font-mono);
-        font-size: var(--akd-text-xs);
+      .hint--small {
+        font-size: var(--text-xs);
+        color: var(--text-3);
       }
       .divider {
         display: flex;
         align-items: center;
-        gap: var(--akd-space-2);
-        color: var(--akd-text-muted);
-        font-size: var(--akd-text-xs);
+        gap: var(--space-2);
+        color: var(--text-3);
+        font-size: var(--text-xs);
       }
       .divider::before,
       .divider::after {
         content: '';
         flex: 1;
-        border-top: 1px solid var(--akd-border);
-      }
-      .passkey {
-        padding: var(--akd-space-2) var(--akd-space-4);
-        font: inherit;
-        font-weight: var(--akd-weight-medium);
-        color: var(--akd-text);
-        background: transparent;
-        border: 1px solid var(--akd-border-input);
-        border-radius: var(--akd-radius-sm);
-        cursor: pointer;
-      }
-      .passkey:hover:not(:disabled) {
-        background: var(--akd-surface-hover);
-      }
-      .passkey:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
+        border-top: 1px solid var(--border-1);
       }
       .link {
+        justify-self: center;
         padding: 0;
-        font-size: var(--akd-text-sm);
-        color: var(--akd-text-secondary);
+        font: inherit;
+        font-size: var(--text-sm);
+        color: var(--text-2);
         background: transparent;
         border: 0;
         cursor: pointer;
         text-decoration: underline;
       }
       .link:hover:not(:disabled) {
-        background: transparent;
-        color: var(--akd-text);
+        color: var(--text-1);
+      }
+      .link:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
       }
     `,
   ],
@@ -298,8 +283,11 @@ export class SignInComponent {
     } catch (err) {
       // A cancelled prompt surfaces as NotAllowedError with a browser-worded
       // message; keep it short rather than technical.
-      this.error.set(err instanceof DOMException ? 'Passkey sign-in was cancelled or failed.'
-        : ApiService.describe(err));
+      this.error.set(
+        err instanceof DOMException
+          ? 'Passkey sign-in was cancelled or failed.'
+          : ApiService.describe(err),
+      );
     } finally {
       this.busy.set(false);
     }

@@ -162,22 +162,25 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash string) (
 }
 
 const getTeamMembershipForUser = `-- name: GetTeamMembershipForUser :one
-SELECT tm.team_id, tm.role FROM team_memberships tm
+SELECT tm.team_id, tm.role, t.uuid AS team_uuid FROM team_memberships tm
+JOIN teams t ON t.id = tm.team_id
 WHERE tm.user_id = $1
 ORDER BY tm.team_id
 LIMIT 1
 `
 
 type GetTeamMembershipForUserRow struct {
-	TeamID int64
-	Role   TeamRole
+	TeamID   int64
+	Role     TeamRole
+	TeamUuid pgtype.UUID
 }
 
-// The team a session acts in, with its role. Falls back to the personal team.
+// The team a session acts in, with its role and public UUID (the dashboard
+// addresses team endpoints by UUID). Falls back to the personal team.
 func (q *Queries) GetTeamMembershipForUser(ctx context.Context, userID int64) (GetTeamMembershipForUserRow, error) {
 	row := q.db.QueryRow(ctx, getTeamMembershipForUser, userID)
 	var i GetTeamMembershipForUserRow
-	err := row.Scan(&i.TeamID, &i.Role)
+	err := row.Scan(&i.TeamID, &i.Role, &i.TeamUuid)
 	return i, err
 }
 

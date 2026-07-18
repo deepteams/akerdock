@@ -7,10 +7,11 @@ import { StatusDomain, statusMeaning } from './status';
  * timeline and a job panel all render `running` identically, because they all
  * render it here.
  *
- * Never colour alone (§1.5, WCAG 1.4.1): the badge always shows a dot, a shape
- * modifier when relevant, AND the label. A colour-blind operator, a
- * black-and-white screenshot in an incident report, and a screen reader all get
- * the same information.
+ * Never colour alone (§1.5, WCAG 1.4.1): each family also has its own dot
+ * SHAPE (disc, rotated square, triangle, square, ring), plus a modifier when
+ * relevant, AND the label. A colour-blind operator, a black-and-white
+ * screenshot in an incident report, and a screen reader all get the same
+ * information.
  */
 @Component({
   selector: 'akd-status-badge',
@@ -33,62 +34,73 @@ import { StatusDomain, statusMeaning } from './status';
       .badge {
         display: inline-flex;
         align-items: center;
-        gap: var(--akd-space-1);
-        padding: var(--akd-space-05) var(--akd-space-2);
-        border-radius: var(--akd-radius-full);
-        font-size: var(--akd-text-xs);
-        font-weight: var(--akd-weight-medium);
-        line-height: 1.4;
+        gap: var(--space-2);
+        padding: 3px 12px 3px 10px;
+        border-radius: var(--radius-full);
+        font: var(--weight-medium) var(--text-sm) var(--font-body);
         white-space: nowrap;
         border: 1px solid transparent;
       }
       .dot {
-        width: var(--akd-space-2);
-        height: var(--akd-space-2);
-        border-radius: var(--akd-radius-full);
+        width: 8px;
+        height: 8px;
         flex: none;
       }
       .family-success {
-        color: var(--akd-status-success-fg);
-        background: var(--akd-status-success-bg);
+        color: var(--ok);
+        background: var(--ok-dim);
+        border-color: var(--ok-border);
       }
       .family-success .dot {
-        background: var(--akd-status-success-dot);
+        border-radius: 50%;
+        background: var(--ok);
       }
       .family-progress {
-        color: var(--akd-status-progress-fg);
-        background: var(--akd-status-progress-bg);
+        color: var(--accent);
+        background: var(--info-dim);
+        border-color: var(--accent-border);
       }
       .family-progress .dot {
-        background: var(--akd-status-progress-dot);
-        animation: pulse var(--akd-duration-slow) var(--akd-ease) infinite alternate;
+        background: var(--accent);
+        transform: rotate(45deg) scale(0.9);
+        animation: akd-pulse 1.4s var(--ease-out) infinite;
       }
       .family-warning {
-        color: var(--akd-status-warning-fg);
-        background: var(--akd-status-warning-bg);
+        color: var(--warn);
+        background: var(--warn-dim);
+        border-color: var(--warn-border);
       }
       .family-warning .dot {
-        background: var(--akd-status-warning-dot);
+        width: 0;
+        height: 0;
+        background: none;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-bottom: 9px solid var(--warn);
       }
       .family-danger {
-        color: var(--akd-status-danger-fg);
-        background: var(--akd-status-danger-bg);
+        color: var(--danger);
+        background: var(--danger-dim);
+        border-color: var(--danger-border);
       }
       .family-danger .dot {
-        background: var(--akd-status-danger-dot);
+        background: var(--danger);
       }
       .family-neutral {
-        color: var(--akd-status-neutral-fg);
-        background: var(--akd-status-neutral-bg);
+        color: var(--neutral);
+        background: var(--neutral-dim);
+        border-color: var(--neutral-border);
       }
       .family-neutral .dot {
-        background: var(--akd-status-neutral-dot);
+        border-radius: 50%;
+        border: 2px solid var(--neutral);
+        background: none;
+        box-sizing: border-box;
       }
 
       /* Shape, not colour: readable without colour perception (§1.5). */
       .mod-stale {
         border-style: dashed;
-        border-color: currentColor;
       }
       .mod-stale .dot {
         background: transparent;
@@ -98,14 +110,6 @@ import { StatusDomain, statusMeaning } from './status';
         text-decoration: line-through;
       }
 
-      @keyframes pulse {
-        from {
-          opacity: 1;
-        }
-        to {
-          opacity: 0.45;
-        }
-      }
       /* prefers-reduced-motion collapses the durations in tokens.css, but an
          infinite animation must stop outright, not merely run fast. */
       @media (prefers-reduced-motion: reduce) {

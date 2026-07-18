@@ -1,5 +1,8 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { CardComponent } from '../../ui/card/card.component';
+import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
+import { IconComponent } from '../../ui/icon/icon.component';
 import { ApiService } from '../core/api.service';
 import type { components } from '../../api/schema';
 
@@ -8,28 +11,27 @@ type RegistryCredential = components['schemas']['RegistryCredential'];
 @Component({
   selector: 'app-registries',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, CardComponent, EmptyStateComponent, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
-        <h1>Registry credentials</h1>
+        <h2>Registry credentials</h2>
       </header>
 
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      <section class="akd-card">
-        <h2>{{ editing() ? 'Edit credential' : 'Add a credential' }}</h2>
-        <form class="form" (ngSubmit)="save()">
+      <akd-card [title]="editing() ? 'Edit credential' : 'Add a credential'" class="create">
+        <form class="fields" (ngSubmit)="save()">
           <div class="row">
             <div class="akd-field">
-              <label for="rc-name">Name</label>
+              <label class="akd-field__label" for="rc-name">Name</label>
               <input
                 id="rc-name"
                 name="name"
-                class="akd-input"
+                class="akd-input akd-input--mono"
                 placeholder="e.g. ghcr-company"
                 [(ngModel)]="name"
                 [disabled]="busy()"
@@ -37,11 +39,11 @@ type RegistryCredential = components['schemas']['RegistryCredential'];
               />
             </div>
             <div class="akd-field">
-              <label for="rc-url">Registry host</label>
+              <label class="akd-field__label" for="rc-url">Registry host</label>
               <input
                 id="rc-url"
                 name="registry_url"
-                class="akd-input"
+                class="akd-input akd-input--mono"
                 placeholder="e.g. ghcr.io"
                 [(ngModel)]="registryUrl"
                 [disabled]="busy()"
@@ -49,18 +51,18 @@ type RegistryCredential = components['schemas']['RegistryCredential'];
               />
             </div>
             <div class="akd-field">
-              <label for="rc-user">Username</label>
+              <label class="akd-field__label" for="rc-user">Username</label>
               <input
                 id="rc-user"
                 name="username"
-                class="akd-input"
+                class="akd-input akd-input--mono"
                 [(ngModel)]="username"
                 [disabled]="busy()"
                 required
               />
             </div>
             <div class="akd-field">
-              <label for="rc-pass">Password or token</label>
+              <label class="akd-field__label" for="rc-pass">Password or token</label>
               <input
                 id="rc-pass"
                 name="password"
@@ -73,97 +75,119 @@ type RegistryCredential = components['schemas']['RegistryCredential'];
               />
             </div>
           </div>
-          <p class="akd-muted hint">
+          <p class="form-hint">
             The password is write-only: it is encrypted at rest and never returned by the API — it
             only exists again at docker login time on the server.
           </p>
           <div class="actions">
-            <button class="akd-btn" type="submit" [disabled]="busy()">
+            <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
               {{ editing() ? 'Save changes' : 'Add credential' }}
             </button>
             @if (editing()) {
-              <button class="akd-btn-ghost" type="button" (click)="cancelEdit()">Cancel</button>
+              <button class="akd-btn akd-btn--ghost" type="button" (click)="cancelEdit()">
+                Cancel
+              </button>
             }
           </div>
         </form>
-      </section>
+      </akd-card>
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
       } @else if (credentials().length === 0) {
-        <div class="akd-empty">
-          <p><strong>No registry credentials yet.</strong></p>
-          <p>Add one to pull images from a private registry.</p>
-        </div>
+        <akd-empty-state
+          icon="box"
+          title="No registry credentials yet"
+          message="Add one to pull images from a private registry."
+        />
       } @else {
-        <table class="akd-table">
-          <caption class="sr-only">Private registry credentials of this team</caption>
-          <thead>
-            <tr>
-              <th scope="col">Name</th>
-              <th scope="col">Registry</th>
-              <th scope="col">Username</th>
-              <th scope="col">In use</th>
-              <th scope="col"><span class="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (cred of credentials(); track cred.uuid) {
+        <akd-card [padded]="false">
+          <table class="akd-table">
+            <caption class="sr-only">
+              Private registry credentials of this team
+            </caption>
+            <thead>
               <tr>
-                <td>{{ cred.name }}</td>
-                <td class="akd-mono">{{ cred.registry_url }}</td>
-                <td class="akd-muted">{{ cred.username }}</td>
-                <td class="akd-muted">{{ cred.in_use ? 'yes' : 'no' }}</td>
-                <td class="right">
-                  <button
-                    class="akd-btn-ghost"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="edit(cred)"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    class="akd-btn-danger"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="remove(cred)"
-                  >
-                    Delete
-                  </button>
-                </td>
+                <th scope="col">Name</th>
+                <th scope="col">Registry</th>
+                <th scope="col">Username</th>
+                <th scope="col">In use</th>
+                <th scope="col" class="right"><span class="sr-only">Actions</span></th>
               </tr>
-            }
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              @for (cred of credentials(); track cred.uuid) {
+                <tr>
+                  <td class="akd-mono">{{ cred.name }}</td>
+                  <td>
+                    <span class="akd-badge akd-badge--mono">{{ cred.registry_url }}</span>
+                  </td>
+                  <td class="akd-mono akd-muted">{{ cred.username }}</td>
+                  <td>
+                    @if (cred.in_use) {
+                      <span class="akd-badge akd-badge--accent">in use</span>
+                    } @else {
+                      <span class="akd-badge">unused</span>
+                    }
+                  </td>
+                  <td class="right">
+                    <span class="row-actions">
+                      <button
+                        class="akd-iconbtn"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="edit(cred)"
+                        aria-label="Edit credential"
+                      >
+                        <akd-icon name="pencil" [size]="15" />
+                      </button>
+                      <button
+                        class="akd-iconbtn"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="remove(cred)"
+                        aria-label="Delete credential"
+                      >
+                        <akd-icon name="trash-2" [size]="15" />
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </akd-card>
       }
     </div>
   `,
   styles: [
     `
-      .form {
+      .create {
+        margin-bottom: var(--space-5);
+      }
+      .fields {
         display: grid;
-        gap: var(--akd-space-3);
+        gap: var(--space-4);
       }
       .row {
-        display: flex;
-        gap: var(--akd-space-3);
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: var(--space-4);
       }
-      .row .akd-field {
-        flex: 1;
-        min-width: 180px;
-      }
-      .hint {
+      .form-hint {
         margin: 0;
-        font-size: var(--akd-text-xs);
+        font-size: var(--text-xs);
+        color: var(--text-3);
       }
       .actions {
         display: flex;
-        gap: var(--akd-space-2);
+        gap: var(--space-2);
       }
-      td .akd-btn-danger {
-        margin-left: var(--akd-space-2);
+      .row-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-1);
+        justify-content: flex-end;
       }
     `,
   ],
@@ -247,7 +271,9 @@ export class RegistriesComponent {
   }
 
   protected async remove(cred: RegistryCredential): Promise<void> {
-    if (!confirm(`Delete the credential "${cred.name}"? Pulls from ${cred.registry_url} will fail.`)) {
+    if (
+      !confirm(`Delete the credential "${cred.name}"? Pulls from ${cred.registry_url} will fail.`)
+    ) {
       return;
     }
     this.busy.set(true);

@@ -16,8 +16,8 @@ Opérations du contrat (sémantique normative, signatures Go non prescrites) :
 
 | Opération | Rôle | Référence |
 |---|---|---|
-| `DeployProxy(server)` | Créer et démarrer le container proxy sur un serveur (onboarding §20.1 étape 5) | §1.3 |
-| `StartProxy` / `StopProxy` / `RestartProxy` | Cycle de vie depuis l'UI ; l'arrêt coupe tout le trafic entrant du serveur (avertissement explicite, §4.1 PRD) | §1.3 |
+| `DeployProxy(server)` | Créer et démarrer le container proxy sur un serveur — uniquement si l'intention est `running` ; un serveur naît avec l'intention `stopped` et le premier démarrage passe par `StartProxy` (onboarding §20.1 étape 5) | §1.3 |
+| `StartProxy` / `StopProxy` / `RestartProxy` | Cycle de vie depuis l'UI ; `StartProxy` converge config **et** container depuis zéro (c'est le premier démarrage nominal) ; l'arrêt coupe tout le trafic entrant du serveur (avertissement explicite, §4.1 PRD) | §1.3 |
 | `UpgradeProxy(server, image)` | Recréation du container avec la nouvelle image épinglée ; notification « proxy obsolète » (§4.1, §11 PRD) | §1.4 |
 | `GenerateStatic(ir) → fichiers` | Configuration statique du proxy (entrypoints, resolvers ACME) depuis l'IR serveur | §5.2 |
 | `GenerateApp(ir, app, endpoint) → fichier` | Fichier de configuration dynamique d'une application ; `endpoint` = IP du candidat (forme transitoire) ou nom du container (forme stable) — deployment-engine §7.2 | §5.3 |

@@ -313,13 +313,24 @@ func (h *DatabaseRun) applyTCPRoute(ctx context.Context, client *sshexec.Client,
 	if err != nil {
 		return err
 	}
+	// A proxy whose intent is not `running` (never started yet, or deliberately
+	// stopped) must not be created or recreated as a side effect of routing a
+	// database: the entrypoints are regenerated from the database at the next
+	// explicit start, so the route is picked up then.
+	converge := func() error {
+		if run, _ := proxyBootstrapDecision(server); !run {
+			return nil
+		}
+		return bootstrapProxy(ctx, h.Store, h.Keyring, client, server, true)
+	}
+
 	if !tcpProxied(row.Database) || row.Database.PublicPort == nil {
 		// Not (or no longer) proxied: remove the file, then converge the proxy so
 		// the entrypoint disappears with it.
 		if _, err := client.Run(ctx, "rm -f /data/akerdock/proxy/dynamic/"+dbUUID+".yaml"); err != nil {
 			return err
 		}
-		return bootstrapProxy(ctx, h.Store, h.Keyring, client, server, true)
+		return converge()
 	}
 
 	content := proxy.GenerateTCP(proxy.TCPRoute{
@@ -333,7 +344,7 @@ func (h *DatabaseRun) applyTCPRoute(ctx context.Context, client *sshexec.Client,
 	}
 	// The proxy is recreated because the entrypoint is static. The database is
 	// not touched: that is the entire point of this mode.
-	return bootstrapProxy(ctx, h.Store, h.Keyring, client, server, true)
+	return converge()
 }
 
 // databaseCertificate mints the TLS certificate of a database, signing it with

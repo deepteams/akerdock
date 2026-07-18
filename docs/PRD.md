@@ -499,7 +499,7 @@ Serveurs cibles : Docker/BuildKit + Proxy + Sentinel
 2. L'API valide syntaxe, unicité et appartenance des références, puis crée le serveur en `pending`.
 3. Un worker teste host key/politique SSH, connexion, sudo, OS/architecture, espace disque, Docker/Compose et ports.
 4. Si autorisé, le worker installe ou met à niveau les prérequis et crée le réseau/dossiers/helper containers.
-5. Il déploie et vérifie proxy et Sentinel selon les options, puis passe le serveur à `ready`.
+5. Il déploie et vérifie proxy et Sentinel selon les options, puis passe le serveur à `ready`. Le proxy n'est concerné que si son intention est `running` : un serveur est créé avec l'intention `stopped`, et le **premier démarrage du proxy est un acte explicite de l'opérateur** (revue des réglages — ports, wildcard, email ACME — puis Start), jamais un effet de bord de la validation.
 6. Chaque étape est rejouable, loguée, annulable entre deux mutations et assortie d'une instruction de remédiation.
 
 **Acceptation** : mauvais host key, clé d'une autre team, Docker Snap, architecture inconnue, sudo interactif, disque insuffisant et timeout produisent chacun une erreur distincte sans serveur faussement `ready`.

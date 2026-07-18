@@ -52,8 +52,10 @@ UPDATE users SET failed_login_count = 0, locked_until = NULL, updated_at = now()
 WHERE id = $1;
 
 -- name: GetTeamMembershipForUser :one
--- The team a session acts in, with its role. Falls back to the personal team.
-SELECT tm.team_id, tm.role FROM team_memberships tm
+-- The team a session acts in, with its role and public UUID (the dashboard
+-- addresses team endpoints by UUID). Falls back to the personal team.
+SELECT tm.team_id, tm.role, t.uuid AS team_uuid FROM team_memberships tm
+JOIN teams t ON t.id = tm.team_id
 WHERE tm.user_id = $1
 ORDER BY tm.team_id
 LIMIT 1;

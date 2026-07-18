@@ -1,5 +1,8 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { CardComponent } from '../../ui/card/card.component';
+import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
+import { IconComponent } from '../../ui/icon/icon.component';
 import { ApiService } from '../core/api.service';
 import type { components } from '../../api/schema';
 
@@ -14,13 +17,14 @@ type GithubApp = components['schemas']['GithubApp'];
 @Component({
   selector: 'app-github-apps',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, CardComponent, EmptyStateComponent, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
-        <h1>GitHub Apps</h1>
-        <button class="akd-btn" type="button" (click)="creating.set(!creating())">
+        <h2>GitHub Apps</h2>
+        <button class="akd-btn akd-btn--primary" type="button" (click)="creating.set(!creating())">
+          <akd-icon [name]="creating() ? 'x' : 'plus'" [size]="15" />
           {{ creating() ? 'Cancel' : 'New GitHub App' }}
         </button>
       </header>
@@ -30,112 +34,130 @@ type GithubApp = components['schemas']['GithubApp'];
       }
 
       @if (creating()) {
-        <form class="akd-card create" (ngSubmit)="create()">
-          <p class="akd-muted">
-            AkerDock generates the app on GitHub for you (manifest flow): you will be
-            redirected to GitHub to confirm, then to install it. No key or secret to
-            paste — GitHub sends them straight to this instance, encrypted at rest.
-          </p>
-          <div class="akd-field">
-            <label for="gh-org">GitHub organization (empty = your personal account)</label>
-            <input
-              id="gh-org"
-              name="organization"
-              class="akd-input"
-              placeholder="my-org"
-              [(ngModel)]="organization"
-              [disabled]="busy()"
-            />
-          </div>
-          <div class="akd-field">
-            <label for="gh-api">GitHub Enterprise API URL (empty = github.com)</label>
-            <input
-              id="gh-api"
-              name="apiUrl"
-              class="akd-input akd-mono"
-              placeholder="https://ghe.example.com/api/v3"
-              [(ngModel)]="apiUrl"
-              [disabled]="busy()"
-            />
-          </div>
-          <div>
-            <button class="akd-btn" type="submit" [disabled]="busy()">
-              {{ busy() ? 'Preparing…' : 'Create on GitHub' }}
-            </button>
-          </div>
-        </form>
+        <akd-card class="create">
+          <form class="fields" (ngSubmit)="create()">
+            <p class="intro">
+              AkerDock generates the app on GitHub for you (manifest flow): you will be redirected
+              to GitHub to confirm, then to install it. No key or secret to paste — GitHub sends
+              them straight to this instance, encrypted at rest.
+            </p>
+            <div class="akd-field">
+              <label class="akd-field__label" for="gh-org">GitHub organization</label>
+              <input
+                id="gh-org"
+                name="organization"
+                class="akd-input akd-input--mono"
+                placeholder="my-org"
+                [(ngModel)]="organization"
+                [disabled]="busy()"
+              />
+              <span class="akd-field__hint">Empty = your personal account.</span>
+            </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="gh-api">GitHub Enterprise API URL</label>
+              <input
+                id="gh-api"
+                name="apiUrl"
+                class="akd-input akd-input--mono"
+                placeholder="https://ghe.example.com/api/v3"
+                [(ngModel)]="apiUrl"
+                [disabled]="busy()"
+              />
+              <span class="akd-field__hint">Empty = github.com.</span>
+            </div>
+            <div>
+              <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
+                <akd-icon name="external-link" [size]="15" />
+                {{ busy() ? 'Preparing…' : 'Create on GitHub' }}
+              </button>
+            </div>
+          </form>
+        </akd-card>
       }
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
       } @else if (apps().length === 0) {
-        <div class="akd-empty">
-          <p><strong>No GitHub App yet.</strong></p>
-          <p class="akd-muted">
-            A GitHub App gives you private repository discovery, one-click application
-            creation from your repos, and auto-deploy on push — without pasting deploy
-            keys or configuring webhooks by hand.
-          </p>
-        </div>
+        <akd-empty-state
+          icon="folder-git-2"
+          title="No GitHub App yet"
+          message="A GitHub App gives you private repository discovery, one-click application creation from your repos, and auto-deploy on push — without pasting deploy keys or configuring webhooks by hand."
+        />
       } @else {
-        <table class="akd-table">
-          <caption class="sr-only">GitHub Apps of this team</caption>
-          <thead>
-            <tr>
-              <th scope="col">Name</th>
-              <th scope="col">App ID</th>
-              <th scope="col">Status</th>
-              <th scope="col"><span class="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (app of apps(); track app.uuid) {
+        <akd-card [padded]="false">
+          <table class="akd-table">
+            <caption class="sr-only">
+              GitHub Apps of this team
+            </caption>
+            <thead>
               <tr>
-                <td>{{ app.name }}</td>
-                <td class="akd-mono">{{ app.app_id ?? '—' }}</td>
-                <td>
-                  @if (app.is_installed) {
-                    <span class="ok">installed</span>
-                  } @else if (app.app_id) {
-                    <span class="akd-muted">created — not installed</span>
-                  } @else {
-                    <span class="akd-muted">draft (finish the flow on GitHub)</span>
-                  }
-                </td>
-                <td class="right">
-                  @if (!app.is_installed && app.install_url) {
-                    <a class="akd-btn" [href]="app.install_url">Install</a>
-                  }
-                  <button
-                    class="akd-btn-ghost"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="remove(app)"
-                  >
-                    Delete
-                  </button>
-                </td>
+                <th scope="col">Name</th>
+                <th scope="col">App ID</th>
+                <th scope="col">Status</th>
+                <th scope="col" class="right"><span class="sr-only">Actions</span></th>
               </tr>
-            }
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              @for (app of apps(); track app.uuid) {
+                <tr>
+                  <td class="akd-mono">{{ app.name }}</td>
+                  <td class="akd-mono akd-muted">{{ app.app_id ?? '—' }}</td>
+                  <td>
+                    @if (app.is_installed) {
+                      <span class="akd-badge akd-badge--ok">installed</span>
+                    } @else if (app.app_id) {
+                      <span class="akd-badge akd-badge--warn">created — not installed</span>
+                    } @else {
+                      <span class="akd-badge">draft (finish the flow on GitHub)</span>
+                    }
+                  </td>
+                  <td class="right">
+                    <span class="row-actions">
+                      @if (!app.is_installed && app.install_url) {
+                        <a class="akd-btn akd-btn--primary akd-btn--sm" [href]="app.install_url">
+                          <akd-icon name="external-link" [size]="13" />
+                          Install
+                        </a>
+                      }
+                      <button
+                        class="akd-iconbtn"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="remove(app)"
+                        aria-label="Delete GitHub App"
+                      >
+                        <akd-icon name="trash-2" [size]="15" />
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </akd-card>
       }
     </div>
   `,
   styles: [
     `
       .create {
-        margin-bottom: var(--akd-space-5);
-        max-width: 36rem;
+        margin-bottom: var(--space-5);
+        max-width: 640px;
       }
-      .right {
-        text-align: right;
-        display: flex;
-        gap: var(--akd-space-2);
+      .fields {
+        display: grid;
+        gap: var(--space-4);
+      }
+      .intro {
+        margin: 0;
+        font-size: var(--text-sm);
+        color: var(--text-2);
+      }
+      .row-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
         justify-content: flex-end;
-      }
-      .ok {
-        color: var(--akd-status-success-fg, var(--akd-text));
       }
     `,
   ],

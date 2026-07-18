@@ -20,7 +20,9 @@ describe('terminal protocol', () => {
   // browser blocks a ws:// connection from an https:// page as mixed content,
   // and the only trace is a console line.
   it('upgrades the page scheme: https → wss', () => {
-    const url = new URL(attachUrl(session(), 'https://akerdock.example.com', { cols: 80, rows: 24 }));
+    const url = new URL(
+      attachUrl(session(), 'https://akerdock.example.com', { cols: 80, rows: 24 }),
+    );
     expect(url.protocol).toBe('wss:');
     expect(url.host).toBe('akerdock.example.com');
     expect(url.pathname).toBe('/terminal/ws');
@@ -60,7 +62,13 @@ describe('terminal protocol', () => {
   });
 
   it('explains every end reason in words', () => {
-    for (const reason of ['user_close', 'idle_timeout', 'max_duration', 'disconnect', 'revoked'] as const) {
+    for (const reason of [
+      'user_close',
+      'idle_timeout',
+      'max_duration',
+      'disconnect',
+      'revoked',
+    ] as const) {
       expect(describeEnd(reason).length).toBeGreaterThan(0);
     }
   });
