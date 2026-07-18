@@ -11,6 +11,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
+	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -100,6 +101,100 @@ var (
 	imageWithTag     = regexp.MustCompile(`^[a-z0-9]+((\.|_{1,2}|-+|/|:[0-9]+/)[a-z0-9]+)*(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?$`)
 	identifierFormat = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 )
+
+// ensureGitSource returns the application's git source, creating one when a
+// public repository never needed a row until now — the API token and API URL
+// have to live somewhere, and the spec places them on the git source
+// (protocols §3-§6).
+func (a *API) ensureGitSource(w http.ResponseWriter, r *http.Request, qtx *store.Queries,
+	id *auth.Identity, row store.GetApplicationByUUIDRow, field string,
+) (store.GitSource, bool) {
+	if row.Application.GitRepositoryUrl == nil || *row.Application.GitRepositoryUrl == "" {
+		httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+			Field: ptr(field), Code: ptr("invalid"),
+			Message: "a provider API setting only makes sense on a git application",
+		}})
+		return store.GitSource{}, false
+	}
+	if row.Application.GitSourceID != nil {
+		source, err := qtx.GetGitSourceByID(r.Context(), *row.Application.GitSourceID)
+		if err != nil {
+			a.internalError(w, r, "update application", err)
+			return store.GitSource{}, false
+		}
+		return source, true
+	}
+	source, err := qtx.CreateGitSource(r.Context(), store.CreateGitSourceParams{
+		TeamID:   id.TeamID,
+		Name:     "api:" + uuidString(row.Resource.Uuid),
+		Kind:     store.GitSourceKindPublic,
+		Provider: gitProviderOf(*row.Application.GitRepositoryUrl),
+	})
+	if err != nil {
+		a.internalError(w, r, "update application", err)
+		return store.GitSource{}, false
+	}
+	if err := qtx.SetApplicationGitSource(r.Context(), store.SetApplicationGitSourceParams{
+		ID: row.Resource.ID, GitSourceID: &source.ID,
+	}); err != nil {
+		a.internalError(w, r, "update application", err)
+		return store.GitSource{}, false
+	}
+	return source, true
+}
+
+// setGitAPIToken stores (or removes, on null) the provider API token on the
+// application's git source (amendment 31). The token is write-only:
+// envelope-encrypted here, never returned by any endpoint (INV-003).
+func (a *API) setGitAPIToken(w http.ResponseWriter, r *http.Request, qtx *store.Queries,
+	source store.GitSource, token *string,
+) bool {
+	var enc []byte
+	var err error
+	if token != nil && *token != "" {
+		enc, err = a.Keyring.Encrypt("git_sources", "api_token_enc", uuidString(source.Uuid), []byte(*token))
+		if err != nil {
+			a.internalError(w, r, "update application", err)
+			return false
+		}
+	}
+	if err := qtx.SetGitSourceAPIToken(r.Context(), store.SetGitSourceAPITokenParams{
+		ID: source.ID, ApiTokenEnc: enc,
+	}); err != nil {
+		a.internalError(w, r, "update application", err)
+		return false
+	}
+	return true
+}
+
+// setGitAPIURL pins (or clears) the provider API endpoint on the git source
+// (self-hosted, protocols §4.1/§6.1).
+func (a *API) setGitAPIURL(w http.ResponseWriter, r *http.Request, qtx *store.Queries,
+	source store.GitSource, apiURL *string,
+) bool {
+	if apiURL != nil && *apiURL != "" {
+		u, err := url.Parse(*apiURL)
+		if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil {
+			httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+				Field: ptr("git_api_url"), Code: ptr("invalid"),
+				Message: "git_api_url must be an http(s) URL without credentials (§23.3)",
+			}})
+			return false
+		}
+	}
+	var value *string
+	if apiURL != nil && *apiURL != "" {
+		trimmed := strings.TrimRight(*apiURL, "/")
+		value = &trimmed
+	}
+	if err := qtx.SetGitSourceAPIURL(r.Context(), store.SetGitSourceAPIURLParams{
+		ID: source.ID, ApiUrl: value,
+	}); err != nil {
+		a.internalError(w, r, "update application", err)
+		return false
+	}
+	return true
+}
 
 // deployKeySource returns the git_sources row binding this team to this
 // deploy key, creating it on first use (data-dictionary §7.1). The API speaks

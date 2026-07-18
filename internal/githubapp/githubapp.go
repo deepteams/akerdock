@@ -20,6 +20,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -314,6 +315,24 @@ func (c *Client) CreateDeploymentStatus(ctx context.Context, token, fullName str
 		"state":           state,
 		"environment_url": environmentURL,
 	}, nil)
+}
+
+// CollaboratorCanWrite reports whether username may command a deployment on
+// this repo (§2.7d): permission write or admin. A non-collaborator is a
+// plain "no", not an error.
+func (c *Client) CollaboratorCanWrite(ctx context.Context, token, fullName, username string) (bool, error) {
+	var out struct {
+		Permission string `json:"permission"`
+	}
+	err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/collaborators/%s/permission", fullName, username), token, nil, &out)
+	if err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+			return false, nil
+		}
+		return false, err
+	}
+	return out.Permission == "write" || out.Permission == "admin", nil
 }
 
 // UpsertPRComment maintains the SINGLE preview comment of a PR (§20.4.6):

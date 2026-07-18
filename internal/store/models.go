@@ -2373,6 +2373,7 @@ type GitSource struct {
 	CreatedAt    pgtype.Timestamptz
 	UpdatedAt    pgtype.Timestamptz
 	Version      int32
+	ApiTokenEnc  []byte
 }
 
 type GithubApp struct {
@@ -2676,6 +2677,7 @@ type Preview struct {
 	DestroyedAt    pgtype.Timestamptz
 	CreatedAt      pgtype.Timestamptz
 	UpdatedAt      pgtype.Timestamptz
+	RepoReference  *string
 }
 
 type PrivateKey struct {

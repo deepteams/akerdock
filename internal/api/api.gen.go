@@ -1974,8 +1974,14 @@ type Application struct {
 	DockerfileLocation *string   `json:"dockerfile_location,omitempty"`
 	Domains            *[]string `json:"domains,omitempty"`
 	EnvironmentUuid    *string   `json:"environment_uuid,omitempty"`
-	GitBranch          *string   `json:"git_branch,omitempty"`
-	GitRepository      *string   `json:"git_repository,omitempty"`
+
+	// GitApiTokenSet Un token API de provider est configuré sur la git source (jamais la valeur — INV-003).
+	GitApiTokenSet *bool `json:"git_api_token_set,omitempty"`
+
+	// GitApiUrl Endpoint API du provider sur la git source (self-hosted).
+	GitApiUrl     *string `json:"git_api_url,omitempty"`
+	GitBranch     *string `json:"git_branch,omitempty"`
+	GitRepository *string `json:"git_repository,omitempty"`
 
 	// HealthCheck Health check applicatif (§5.3) — conditionne le routage et le zero-downtime.
 	HealthCheck      *HealthCheckConfig `json:"health_check,omitempty"`
@@ -1992,21 +1998,30 @@ type Application struct {
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
 
 	// ObservedStatus État observé d'une ressource (§21.2) — `unknown` si l'observation est trop ancienne (stale).
-	ObservedStatus             ObservedStatus                `json:"observed_status"`
-	PortsExposes               *string                       `json:"ports_exposes,omitempty"`
-	PostDeploymentCommand      *string                       `json:"post_deployment_command,omitempty"`
-	PreDeploymentCommand       *string                       `json:"pre_deployment_command,omitempty"`
-	PreviewExcludeDrafts       *bool                         `json:"preview_exclude_drafts,omitempty"`
-	PreviewForkApprovalEnabled *bool                         `json:"preview_fork_approval_enabled,omitempty"`
-	PreviewMaxConcurrent       *int                          `json:"preview_max_concurrent,omitempty"`
-	PreviewProtection          *ApplicationPreviewProtection `json:"preview_protection,omitempty"`
-	PreviewTtlMinutes          *int                          `json:"preview_ttl_minutes,omitempty"`
-	PreviewUrlTemplate         *string                       `json:"preview_url_template,omitempty"`
-	PreviewsEnabled            *bool                         `json:"previews_enabled,omitempty"`
-	PrivateKeyUuid             *string                       `json:"private_key_uuid,omitempty"`
-	ProjectUuid                *string                       `json:"project_uuid,omitempty"`
-	PublishDirectory           *string                       `json:"publish_directory,omitempty"`
-	PushRegistryCredentialUuid *string                       `json:"push_registry_credential_uuid,omitempty"`
+	ObservedStatus        ObservedStatus `json:"observed_status"`
+	PortsExposes          *string        `json:"ports_exposes,omitempty"`
+	PostDeploymentCommand *string        `json:"post_deployment_command,omitempty"`
+	PreDeploymentCommand  *string        `json:"pre_deployment_command,omitempty"`
+
+	// PreviewCancelObsoleteBuilds Annulation du build de preview obsolète (§20.4.7).
+	PreviewCancelObsoleteBuilds *bool `json:"preview_cancel_obsolete_builds,omitempty"`
+
+	// PreviewCommentCommandsEnabled Commandes `/deploy` `/destroy` en commentaire (§20.4.7).
+	PreviewCommentCommandsEnabled *bool                         `json:"preview_comment_commands_enabled,omitempty"`
+	PreviewExcludeDrafts          *bool                         `json:"preview_exclude_drafts,omitempty"`
+	PreviewForkApprovalEnabled    *bool                         `json:"preview_fork_approval_enabled,omitempty"`
+	PreviewMaxConcurrent          *int                          `json:"preview_max_concurrent,omitempty"`
+	PreviewProtection             *ApplicationPreviewProtection `json:"preview_protection,omitempty"`
+
+	// PreviewRequireLabel Opt-in par label de PR (§20.4.7) ; null = désactivé.
+	PreviewRequireLabel        *string `json:"preview_require_label,omitempty"`
+	PreviewTtlMinutes          *int    `json:"preview_ttl_minutes,omitempty"`
+	PreviewUrlTemplate         *string `json:"preview_url_template,omitempty"`
+	PreviewsEnabled            *bool   `json:"previews_enabled,omitempty"`
+	PrivateKeyUuid             *string `json:"private_key_uuid,omitempty"`
+	ProjectUuid                *string `json:"project_uuid,omitempty"`
+	PublishDirectory           *string `json:"publish_directory,omitempty"`
+	PushRegistryCredentialUuid *string `json:"push_registry_credential_uuid,omitempty"`
 
 	// RawCompose (build pack compose) Mode raw compose (compose-spec §9).
 	RawCompose *bool `json:"raw_compose,omitempty"`
@@ -2302,6 +2317,12 @@ type ApplicationUpdate struct {
 	DockerfileLocation *string   `json:"dockerfile_location,omitempty"`
 	Domains            *[]string `json:"domains,omitempty"`
 
+	// GitApiToken (source git) Token API du provider, stocké chiffré sur la git source de l'application (protocols §3-§6) : porte le feedback de preview (commit statuses, commentaire upserté) et la vérification des droits des commandes pour GitLab, Gitea et les webhooks GitHub manuels. Write-only — jamais relu par l'API (INV-003). Null pour le retirer. Inutile avec une GitHub App (elle a ses propres credentials).
+	GitApiToken *string `json:"git_api_token,omitempty"`
+
+	// GitApiUrl (source git) Endpoint API du provider sur la git source (self-hosted, protocols §4.1/§6.1) — par exemple https://gitlab.example.com/api/v4. Null pour revenir à la dérivation depuis l'hôte du dépôt.
+	GitApiUrl *string `json:"git_api_url,omitempty"`
+
 	// GitBranch (source git) Branche.
 	GitBranch *string `json:"git_branch,omitempty"`
 
@@ -2322,6 +2343,12 @@ type ApplicationUpdate struct {
 	// PreDeploymentCommand Commande exécutée dans le container **existant** avant tout clone/build (§10). Un échec fait échouer le déploiement **avant toute mutation** — l'existant n'est pas touché. Sautée s'il n'y a pas de container en cours d'exécution. DOIT être idempotente : elle peut être rejouée lors d'une reprise après crash.
 	PreDeploymentCommand *string `json:"pre_deployment_command,omitempty"`
 
+	// PreviewCancelObsoleteBuilds Annule le build de preview rendu obsolète par un nouveau commit de la même PR (§20.4.7, opt-in) — le déploiement en file est superseded, le build en cours annulé coopérativement.
+	PreviewCancelObsoleteBuilds *bool `json:"preview_cancel_obsolete_builds,omitempty"`
+
+	// PreviewCommentCommandsEnabled Commandes en commentaire de PR `/deploy` et `/destroy` (§20.4.7, opt-in). Les droits de l'auteur sont vérifiés côté serveur via l'API du provider — un token API est requis pour les webhooks manuels (protocols §2.7d, §3-§6).
+	PreviewCommentCommandsEnabled *bool `json:"preview_comment_commands_enabled,omitempty"`
+
 	// PreviewExcludeDrafts Les draft PRs ne déclenchent pas de preview (opt-in, ADR-011).
 	PreviewExcludeDrafts *bool `json:"preview_exclude_drafts,omitempty"`
 
@@ -2334,13 +2361,16 @@ type ApplicationUpdate struct {
 	// PreviewProtection Protection d'accès des URLs de preview (§20.4.4) — basic_auth par défaut.
 	PreviewProtection *ApplicationUpdatePreviewProtection `json:"preview_protection,omitempty"`
 
+	// PreviewRequireLabel Opt-in par label (§20.4.7, ADR-011) : la PR doit porter ce label pour obtenir une preview ; null = désactivé (comportement de parité).
+	PreviewRequireLabel *string `json:"preview_require_label,omitempty"`
+
 	// PreviewTtlMinutes TTL d'inactivité en minutes ; null = pas de destruction automatique.
 	PreviewTtlMinutes *int `json:"preview_ttl_minutes,omitempty"`
 
 	// PreviewUrlTemplate Placeholders : {{pr_id}}, {{domain}}, {{random}} (§5.6).
 	PreviewUrlTemplate *string `json:"preview_url_template,omitempty"`
 
-	// PreviewsEnabled Previews par PR (§20.4) — source GitHub App requise pour le déclenchement.
+	// PreviewsEnabled Previews par PR (§20.4) — déclenchées par le webhook de la GitHub App ou par un webhook manuel GitLab/Gitea/GitHub de l'application (protocols §1.2).
 	PreviewsEnabled *bool `json:"previews_enabled,omitempty"`
 
 	// PrivateKeyUuid (source git) Deploy key.

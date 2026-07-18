@@ -22,16 +22,33 @@ type PreviewFeedback struct {
 	Logger  *slog.Logger
 }
 
-// Notify updates the PR's single comment and check run. state is one of
-// queued|deploying|success|failure|destroyed.
+// Notify updates the PR's single comment and commit status/check run.
+// state is one of queued|deploying|success|failure|destroyed. GitHub App
+// sources get the rich path (checks, Deployments API); GitLab and Gitea get
+// the parity path (commit statuses + the same upserted comment, §20.4.6).
 func (f *PreviewFeedback) Notify(ctx context.Context, app store.GetApplicationByIDRow, preview store.Preview, state string) {
-	if app.Application.GitSourceID == nil || app.Application.RepositoryID == nil {
-		return // not a GitHub App source: nothing to talk to
+	// Bounded on purpose: feedback must never hold a deployment hostage.
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	if app.Application.GitSourceID != nil && app.Application.RepositoryID != nil {
+		if source, err := f.Store.GetGitSourceByID(ctx, *app.Application.GitSourceID); err == nil && source.GithubAppID != nil {
+			f.notifyGithubApp(ctx, source, app, preview, state)
+			return
+		}
 	}
-	source, err := f.Store.GetGitSourceByID(ctx, *app.Application.GitSourceID)
-	if err != nil || source.GithubAppID == nil {
+	notifier, err := forgeNotifier(ctx, f.Store, f.Keyring, app, preview.Provider)
+	if err != nil {
+		f.Logger.Warn("preview feedback: forge client unavailable", "error", err)
 		return
 	}
+	if notifier == nil {
+		return // no API credential: the preview works, the PR shows nothing (§3)
+	}
+	notifyForge(ctx, notifier, f.Logger, app, preview, state)
+}
+
+// notifyGithubApp is the rich GitHub App path (§2.7).
+func (f *PreviewFeedback) notifyGithubApp(ctx context.Context, source store.GitSource, app store.GetApplicationByIDRow, preview store.Preview, state string) {
 	gh, err := f.Store.GetGithubAppByID(ctx, *source.GithubAppID)
 	if err != nil || gh.AppID == nil || gh.InstallationID == nil || gh.AppPrivateKeyEnc == nil {
 		return
@@ -47,9 +64,6 @@ func (f *PreviewFeedback) Notify(ctx context.Context, app store.GetApplicationBy
 	}
 	client := &githubapp.Client{APIURL: gh.ApiUrl}
 	tokens := githubapp.NewTokenSource(client, *gh.AppID, pem)
-	// Bounded on purpose: feedback must never hold a deployment hostage.
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
 	token, err := tokens.Token(ctx, *gh.InstallationID, nil)
 	if err != nil {
 		f.Logger.Warn("preview feedback: token mint failed", "error", err)

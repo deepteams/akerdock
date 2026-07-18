@@ -65,11 +65,23 @@ func (h *WebhookProcess) Execute(ctx context.Context, job store.Job, rec *queue.
 	}
 
 	rec.Start(ctx, "policies")
-	if delivery.EventType == nil || *delivery.EventType != "push" {
-		return ignore("event " + deref(delivery.EventType) + " is not a push")
+	provider := gitwebhook.Provider(delivery.Provider)
+	eventType := deref(delivery.EventType)
+
+	// PR/MR and comment deliveries feed the preview lifecycle (§20.4) — the
+	// same one the GitHub App uses, so a GitLab MR obeys exactly the same
+	// policies as a GitHub PR (protocols §1.2).
+	if gitwebhook.IsPullRequestEvent(provider, eventType) {
+		return h.processPullRequest(ctx, delivery, provider, rec, ignore)
+	}
+	if gitwebhook.IsCommentEvent(provider, eventType) {
+		return h.processComment(ctx, delivery, provider, rec, ignore)
+	}
+	if eventType != "push" {
+		return ignore("event " + eventType + " is not a push")
 	}
 
-	push, err := gitwebhook.ParsePush(gitwebhook.Provider(delivery.Provider), delivery.Payload)
+	push, err := gitwebhook.ParsePush(provider, delivery.Payload)
 	if err != nil {
 		msg := err.Error()
 		_ = h.Store.FinishWebhookDelivery(ctx, store.FinishWebhookDeliveryParams{
@@ -166,6 +178,77 @@ func matchesWatchPaths(files []string, spec string) bool {
 		}
 	}
 	return false
+}
+
+// processPullRequest routes a PR/MR delivery of a per-application webhook
+// into the shared preview lifecycle (§20.4).
+func (h *WebhookProcess) processPullRequest(ctx context.Context, delivery store.WebhookDelivery,
+	provider gitwebhook.Provider, rec *queue.StepRecorder, ignore func(string) (any, error),
+) (any, error) {
+	app, err := h.Store.GetApplicationByID(ctx, *delivery.ApplicationID)
+	if err != nil {
+		return nil, fmt.Errorf("application vanished: %w", err)
+	}
+	if !app.Application.PreviewsEnabled {
+		return ignore("previews disabled")
+	}
+	event, err := gitwebhook.ParsePullRequest(provider, delivery.Payload)
+	if err != nil {
+		msg := err.Error()
+		_ = h.Store.FinishWebhookDelivery(ctx, store.FinishWebhookDeliveryParams{
+			ID: delivery.ID, Status: store.WebhookDeliveryStatusFailed, IgnoreReason: &msg,
+		})
+		rec.Fail(ctx, msg)
+		return nil, err
+	}
+	outcome, err := HandlePreviewPREvent(ctx, h.Store, h.Keyring, h.Logger,
+		app, store.GitProvider(provider), event)
+	if err != nil {
+		msg := err.Error()
+		_ = h.Store.FinishWebhookDelivery(ctx, store.FinishWebhookDeliveryParams{
+			ID: delivery.ID, Status: store.WebhookDeliveryStatusFailed, IgnoreReason: &msg,
+		})
+		rec.Fail(ctx, msg)
+		return nil, err
+	}
+	_ = h.Store.FinishWebhookDelivery(ctx, store.FinishWebhookDeliveryParams{
+		ID: delivery.ID, Status: store.WebhookDeliveryStatusAccepted,
+	})
+	rec.Succeed(ctx, outcome)
+	return map[string]any{"status": "accepted", "action": event.Action, "pr": event.Number, "outcome": outcome}, nil
+}
+
+// processComment routes a PR/MR comment delivery to the command handler
+// (§20.4.7 — /deploy, /destroy; opt-in per application).
+func (h *WebhookProcess) processComment(ctx context.Context, delivery store.WebhookDelivery,
+	provider gitwebhook.Provider, rec *queue.StepRecorder, ignore func(string) (any, error),
+) (any, error) {
+	app, err := h.Store.GetApplicationByID(ctx, *delivery.ApplicationID)
+	if err != nil {
+		return nil, fmt.Errorf("application vanished: %w", err)
+	}
+	event, err := gitwebhook.ParseComment(provider, delivery.Payload)
+	if err != nil {
+		return ignore("unparsable comment payload")
+	}
+	outcome, err := HandlePreviewComment(ctx, h.Store, h.Keyring, h.Logger,
+		app, store.GitProvider(provider), event)
+	if err != nil {
+		msg := err.Error()
+		_ = h.Store.FinishWebhookDelivery(ctx, store.FinishWebhookDeliveryParams{
+			ID: delivery.ID, Status: store.WebhookDeliveryStatusFailed, IgnoreReason: &msg,
+		})
+		rec.Fail(ctx, msg)
+		return nil, err
+	}
+	if outcome.Ignored != "" {
+		return ignore(outcome.Ignored)
+	}
+	_ = h.Store.FinishWebhookDelivery(ctx, store.FinishWebhookDeliveryParams{
+		ID: delivery.ID, Status: store.WebhookDeliveryStatusAccepted,
+	})
+	rec.Succeed(ctx, outcome.Accepted)
+	return map[string]any{"status": "accepted", "outcome": outcome.Accepted}, nil
 }
 
 func ptr[T any](v T) *T { return &v }

@@ -407,6 +407,9 @@ type Querier interface {
 	ListBackupExecutionsPage(ctx context.Context, arg ListBackupExecutionsPageParams) ([]BackupExecution, error)
 	ListBackupPlansForComponent(ctx context.Context, serviceComponentID *int64) ([]DatabaseBackupPlan, error)
 	ListBackupPlansForDatabase(ctx context.Context, databaseID *int64) ([]DatabaseBackupPlan, error)
+	// The build phases only: switching/finishing are past the point of no
+	// return, and terminal states have nothing to cancel.
+	ListCancellablePreviewDeploymentIDs(ctx context.Context, arg ListCancellablePreviewDeploymentIDsParams) ([]int64, error)
 	ListCertificatesForServer(ctx context.Context, arg ListCertificatesForServerParams) ([]Certificate, error)
 	// Certificates entering a threshold they have not been announced for yet
 	// (§4.3). A certificate already alerted at J-30 stays silent until it crosses
@@ -626,6 +629,10 @@ type Querier interface {
 	SetAdoptionScanRunning(ctx context.Context, id int64) error
 	// Instance settings mutations (§14.2).
 	SetApiEnabled(ctx context.Context, apiEnabled bool) (InstanceSetting, error)
+	// Links an application to a git source after creation — used when a provider
+	// API token arrives on an application whose public repository needed no source
+	// row until now (amendment 31).
+	SetApplicationGitSource(ctx context.Context, arg SetApplicationGitSourceParams) error
 	// Restore drills (ADR-014). A backup that has never been restored is a file,
 	// not a backup.
 	SetBackupExecutionTableCount(ctx context.Context, arg SetBackupExecutionTableCountParams) error
@@ -640,6 +647,13 @@ type Querier interface {
 	SetDeploymentImage(ctx context.Context, arg SetDeploymentImageParams) error
 	SetDeploymentImageDigest(ctx context.Context, arg SetDeploymentImageDigestParams) error
 	SetDeploymentStatus(ctx context.Context, arg SetDeploymentStatusParams) error
+	// Write-only provider API token (INV-003): stored envelope-encrypted, NULL
+	// removes it. Funds the degraded preview feedback and command rights checks
+	// (protocols §3-§6).
+	SetGitSourceAPIToken(ctx context.Context, arg SetGitSourceAPITokenParams) error
+	// Self-hosted API endpoint (protocols §4.1/§6.1); NULL falls back to the
+	// derivation from the repository host.
+	SetGitSourceAPIURL(ctx context.Context, arg SetGitSourceAPIURLParams) error
 	// First of the two redundant installation signals wins (§2.1 step 7).
 	SetGithubAppInstallation(ctx context.Context, arg SetGithubAppInstallationParams) (int64, error)
 	SetLocalhostSeeded(ctx context.Context) (int64, error)
@@ -687,6 +701,11 @@ type Querier interface {
 	SoftDeleteServer(ctx context.Context, id int64) (int64, error)
 	SoftDeleteUptimeCheck(ctx context.Context, id int64) (int64, error)
 	SucceedJob(ctx context.Context, arg SucceedJobParams) (int64, error)
+	// §20.4.7 (opt-in preview_cancel_obsolete_builds): a new commit makes the
+	// in-flight preview build obsolete. Queued deployments flip here; running
+	// ones get a cooperative cancel (RequestDeploymentJobCancel) — never past
+	// the traffic switch (§21.1).
+	SupersedeObsoletePreviewDeployments(ctx context.Context, arg SupersedeObsoletePreviewDeploymentsParams) ([]int64, error)
 	// Coalescing (§3.4): a queued webhook deployment for the same application
 	// is superseded by a newer one; an already leased/running deployment is
 	// never coalesced.

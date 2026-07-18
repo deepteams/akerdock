@@ -9362,7 +9362,10 @@ components:
           description: (source git) Active/désactive l'auto-deploy sur push (§5.5).
         previews_enabled:
           type: boolean
-          description: Previews par PR (§20.4) — source GitHub App requise pour le déclenchement.
+          description: >-
+            Previews par PR (§20.4) — déclenchées par le webhook de la GitHub
+            App ou par un webhook manuel GitLab/Gitea/GitHub de l'application
+            (protocols §1.2).
         preview_url_template:
           type: string
           description: "Placeholders : {{pr_id}}, {{domain}}, {{random}} (§5.6)."
@@ -9384,6 +9387,45 @@ components:
         preview_exclude_drafts:
           type: boolean
           description: Les draft PRs ne déclenchent pas de preview (opt-in, ADR-011).
+        preview_require_label:
+          type: string
+          nullable: true
+          description: >-
+            Opt-in par label (§20.4.7, ADR-011) : la PR doit porter ce label
+            pour obtenir une preview ; null = désactivé (comportement de
+            parité).
+        preview_comment_commands_enabled:
+          type: boolean
+          description: >-
+            Commandes en commentaire de PR `/deploy` et `/destroy` (§20.4.7,
+            opt-in). Les droits de l'auteur sont vérifiés côté serveur via
+            l'API du provider — un token API est requis pour les webhooks
+            manuels (protocols §2.7d, §3-§6).
+        preview_cancel_obsolete_builds:
+          type: boolean
+          description: >-
+            Annule le build de preview rendu obsolète par un nouveau commit de
+            la même PR (§20.4.7, opt-in) — le déploiement en file est
+            superseded, le build en cours annulé coopérativement.
+        git_api_token:
+          type: string
+          nullable: true
+          description: >-
+            (source git) Token API du provider, stocké chiffré sur la git
+            source de l'application (protocols §3-§6) : porte le feedback de
+            preview (commit statuses, commentaire upserté) et la vérification
+            des droits des commandes pour GitLab, Gitea et les webhooks GitHub
+            manuels. Write-only — jamais relu par l'API (INV-003). Null pour
+            le retirer. Inutile avec une GitHub App (elle a ses propres
+            credentials).
+        git_api_url:
+          type: string
+          nullable: true
+          description: >-
+            (source git) Endpoint API du provider sur la git source
+            (self-hosted, protocols §4.1/§6.1) — par exemple
+            https://gitlab.example.com/api/v4. Null pour revenir à la
+            dérivation depuis l'hôte du dépôt.
 
     Application:
       type: object
@@ -9507,6 +9549,26 @@ components:
           type: boolean
         preview_exclude_drafts:
           type: boolean
+        preview_require_label:
+          type: string
+          nullable: true
+          description: Opt-in par label de PR (§20.4.7) ; null = désactivé.
+        preview_comment_commands_enabled:
+          type: boolean
+          description: Commandes `/deploy` `/destroy` en commentaire (§20.4.7).
+        preview_cancel_obsolete_builds:
+          type: boolean
+          description: Annulation du build de preview obsolète (§20.4.7).
+        git_api_token_set:
+          type: boolean
+          readOnly: true
+          description: >-
+            Un token API de provider est configuré sur la git source (jamais
+            la valeur — INV-003).
+        git_api_url:
+          type: string
+          nullable: true
+          description: Endpoint API du provider sur la git source (self-hosted).
         domains:
           type: array
           items:

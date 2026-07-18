@@ -23,7 +23,9 @@ SELECT sqlc.embed(r), sqlc.embed(a), sqlc.embed(b), sqlc.embed(rt),
        e.uuid AS environment_uuid, p.uuid AS project_uuid,
        dst.uuid AS destination_uuid, srv.uuid AS server_uuid, srv.id AS server_row_id,
        pk.uuid AS private_key_uuid, rc.uuid AS registry_credential_uuid,
-       prc.uuid AS push_registry_credential_uuid
+       prc.uuid AS push_registry_credential_uuid,
+       (gs.api_token_enc IS NOT NULL)::boolean AS git_api_token_set,
+       gs.api_url AS git_api_url
 FROM resources r
 JOIN applications a ON a.id = r.id
 JOIN build_configs b ON b.application_id = a.id
@@ -43,7 +45,9 @@ SELECT sqlc.embed(r), sqlc.embed(a), sqlc.embed(b), sqlc.embed(rt),
        e.uuid AS environment_uuid, p.uuid AS project_uuid,
        dst.uuid AS destination_uuid, srv.uuid AS server_uuid, srv.id AS server_row_id,
        pk.uuid AS private_key_uuid, rc.uuid AS registry_credential_uuid,
-       prc.uuid AS push_registry_credential_uuid
+       prc.uuid AS push_registry_credential_uuid,
+       (gs.api_token_enc IS NOT NULL)::boolean AS git_api_token_set,
+       gs.api_url AS git_api_url
 FROM resources r
 JOIN applications a ON a.id = r.id
 JOIN build_configs b ON b.application_id = a.id

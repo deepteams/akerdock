@@ -29,7 +29,7 @@ func (q *Queries) CountApplicationsUsingPrivateKey(ctx context.Context, privateK
 const createGitSource = `-- name: CreateGitSource :one
 INSERT INTO git_sources (team_id, name, kind, provider, private_key_id, created_by)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, uuid, team_id, name, kind, provider, api_url, html_url, private_key_id, github_app_id, created_by, updated_by, created_at, updated_at, version
+RETURNING id, uuid, team_id, name, kind, provider, api_url, html_url, private_key_id, github_app_id, created_by, updated_by, created_at, updated_at, version, api_token_enc
 `
 
 type CreateGitSourceParams struct {
@@ -67,13 +67,14 @@ func (q *Queries) CreateGitSource(ctx context.Context, arg CreateGitSourceParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.ApiTokenEnc,
 	)
 	return i, err
 }
 
 const getDeployKeySource = `-- name: GetDeployKeySource :one
 
-SELECT id, uuid, team_id, name, kind, provider, api_url, html_url, private_key_id, github_app_id, created_by, updated_by, created_at, updated_at, version FROM git_sources
+SELECT id, uuid, team_id, name, kind, provider, api_url, html_url, private_key_id, github_app_id, created_by, updated_by, created_at, updated_at, version, api_token_enc FROM git_sources
 WHERE team_id = $1 AND kind = 'deploy_key' AND private_key_id = $2
 `
 
@@ -104,12 +105,13 @@ func (q *Queries) GetDeployKeySource(ctx context.Context, arg GetDeployKeySource
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.ApiTokenEnc,
 	)
 	return i, err
 }
 
 const getGitSourceByID = `-- name: GetGitSourceByID :one
-SELECT id, uuid, team_id, name, kind, provider, api_url, html_url, private_key_id, github_app_id, created_by, updated_by, created_at, updated_at, version FROM git_sources WHERE id = $1
+SELECT id, uuid, team_id, name, kind, provider, api_url, html_url, private_key_id, github_app_id, created_by, updated_by, created_at, updated_at, version, api_token_enc FROM git_sources WHERE id = $1
 `
 
 func (q *Queries) GetGitSourceByID(ctx context.Context, id int64) (GitSource, error) {
@@ -131,6 +133,7 @@ func (q *Queries) GetGitSourceByID(ctx context.Context, id int64) (GitSource, er
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.ApiTokenEnc,
 	)
 	return i, err
 }
@@ -169,4 +172,56 @@ func (q *Queries) ListPrivateKeyIDsInUse(ctx context.Context, keyIds []int64) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const setApplicationGitSource = `-- name: SetApplicationGitSource :exec
+UPDATE applications SET git_source_id = $2 WHERE id = $1
+`
+
+type SetApplicationGitSourceParams struct {
+	ID          int64
+	GitSourceID *int64
+}
+
+// Links an application to a git source after creation — used when a provider
+// API token arrives on an application whose public repository needed no source
+// row until now (amendment 31).
+func (q *Queries) SetApplicationGitSource(ctx context.Context, arg SetApplicationGitSourceParams) error {
+	_, err := q.db.Exec(ctx, setApplicationGitSource, arg.ID, arg.GitSourceID)
+	return err
+}
+
+const setGitSourceAPIToken = `-- name: SetGitSourceAPIToken :exec
+UPDATE git_sources SET api_token_enc = $2, updated_at = now()
+WHERE id = $1
+`
+
+type SetGitSourceAPITokenParams struct {
+	ID          int64
+	ApiTokenEnc []byte
+}
+
+// Write-only provider API token (INV-003): stored envelope-encrypted, NULL
+// removes it. Funds the degraded preview feedback and command rights checks
+// (protocols §3-§6).
+func (q *Queries) SetGitSourceAPIToken(ctx context.Context, arg SetGitSourceAPITokenParams) error {
+	_, err := q.db.Exec(ctx, setGitSourceAPIToken, arg.ID, arg.ApiTokenEnc)
+	return err
+}
+
+const setGitSourceAPIURL = `-- name: SetGitSourceAPIURL :exec
+UPDATE git_sources SET api_url = $2, updated_at = now()
+WHERE id = $1
+`
+
+type SetGitSourceAPIURLParams struct {
+	ID     int64
+	ApiUrl *string
+}
+
+// Self-hosted API endpoint (protocols §4.1/§6.1); NULL falls back to the
+// derivation from the repository host.
+func (q *Queries) SetGitSourceAPIURL(ctx context.Context, arg SetGitSourceAPIURLParams) error {
+	_, err := q.db.Exec(ctx, setGitSourceAPIURL, arg.ID, arg.ApiUrl)
+	return err
 }

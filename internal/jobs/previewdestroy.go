@@ -86,12 +86,18 @@ func (h *PreviewDestroy) Execute(ctx context.Context, job store.Job, rec *queue.
 			return cleanupFailed(fmt.Errorf("routing removal: %w", err))
 		}
 	}
+	// Containers first, then the volumes and networks a compose preview
+	// created under its own labels (§20.4.1 — "détruit intégralement"), then
+	// the directory. Every object of the instance derives from the preview
+	// uuid (INV-011), so nothing of production matches these filters.
 	cmd := fmt.Sprintf(
 		"docker rm -f %s %s-next >/dev/null 2>&1; "+
 			"docker ps -aq --filter label=akerdock.preview_uuid=%s | xargs -r docker rm -f >/dev/null 2>&1; "+
 			"docker volume ls -q --filter label=akerdock.resource_uuid=%s | xargs -r docker volume rm -f >/dev/null 2>&1; "+
+			"docker volume ls -q --filter label=akerdock.preview_uuid=%s | xargs -r docker volume rm -f >/dev/null 2>&1; "+
+			"docker network ls -q --filter label=akerdock.preview_uuid=%s | xargs -r docker network rm >/dev/null 2>&1; "+
 			"rm -rf /data/akerdock/previews/%s",
-		previewUUID, previewUUID, previewUUID, previewUUID, previewUUID)
+		previewUUID, previewUUID, previewUUID, previewUUID, previewUUID, previewUUID, previewUUID)
 	if res, err := client.Run(ctx, cmd); err != nil || res.ExitCode != 0 {
 		if err == nil {
 			err = fmt.Errorf("remote cleanup exited with code %d", res.ExitCode)

@@ -16,6 +16,7 @@ import (
 	"github.com/deepteams/akerdock/internal/adoption"
 	"github.com/deepteams/akerdock/internal/compose"
 	"github.com/deepteams/akerdock/internal/pguuid"
+	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
@@ -113,11 +114,15 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 	if first.Plan != nil {
 		// Components must exist before the magic FQDN/URL pass: referencing
 		// SERVICE_FQDN_<ID> is a declaration of intent that CREATES the
-		// component's domain from the server wildcard (§6).
-		if _, err := r.syncComponents(ctx, first.Plan); err != nil {
-			return err
+		// component's domain from the server wildcard (§6). A preview stack
+		// syncs nothing: service_components describe PRODUCTION — a preview
+		// overwriting them would corrupt the real stack's state (INV-010).
+		if r.preview == nil {
+			if _, err := r.syncComponents(ctx, first.Plan); err != nil {
+				return err
+			}
 		}
-		if err := r.ensureMagicVariables(ctx, content, first.Project.ServiceNames(), vars); err != nil {
+		if err := r.ensureMagicVariables(ctx, content, first.Plan, first.Project.ServiceNames(), vars); err != nil {
 			return err
 		}
 	}
@@ -154,9 +159,11 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 	}
 
 	// --- component sync (data dictionary §9.2) ----------------------------
-	componentIDs, err := r.syncComponents(ctx, plan)
-	if err != nil {
-		return err
+	componentIDs := map[string]int64{}
+	if r.preview == nil {
+		if componentIDs, err = r.syncComponents(ctx, plan); err != nil {
+			return err
+		}
 	}
 
 	// --- stack objects: network, extra networks, volumes (§2.1, §2.4) -----
@@ -196,17 +203,30 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 	defer logout()
 
 	// Which components carry a domain — they must be reachable by the proxy,
-	// so they also join the destination network (§2.1).
-	routed, err := r.routedComponents(ctx, componentIDs)
-	if err != nil {
+	// so they also join the destination network (§2.1). A preview routes from
+	// its own derived FQDNs (§20.4.1), never from the production domains.
+	var routed map[string]bool
+	if r.preview != nil {
+		routed = map[string]bool{}
+		for name := range r.composePreviewRoutes(ctx, content, plan) {
+			routed[name] = true
+		}
+	} else if routed, err = r.routedComponents(ctx, componentIDs); err != nil {
 		return err
 	}
 
 	// Pre-deployment hooks (§10, x-akerdock): in the EXISTING container of
 	// each service that declares one, before any build or mutation — a
 	// failure here fails the deployment while the running stack is untouched.
+	// A preview stack skips hooks entirely: the §10 guarantees are written
+	// against the production switch, and a fresh ephemeral stack has neither
+	// an existing container nor a candidate to promise anything about.
 	for _, sp := range plan.Services {
 		if sp.PreCommand == "" {
+			continue
+		}
+		if r.preview != nil {
+			r.skipStep(ctx, "pre_deployment_"+sp.Name, "hooks are skipped in previews")
 			continue
 		}
 		cmd := sp.PreCommand
@@ -231,8 +251,9 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 	// holds for a service that actually switches: routed, zero-downtime
 	// eligible, with a resolvable health check. Refused NOW, before anything
 	// is mutated: a guarantee that silently degrades is worse than none.
+	// (Previews run no hooks at all, so there is nothing to guarantee.)
 	for _, sp := range plan.Services {
-		if sp.PostCommand == "" {
+		if sp.PostCommand == "" || r.preview != nil {
 			continue
 		}
 		if !routed[sp.Name] {
@@ -250,7 +271,9 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 	// declared external under their original names). Brief interruption,
 	// announced at adoption time — data loss is what §20.7 forbids, not a
 	// restart during the normalizing redeployment.
-	if p := adoption.ParsePointer(r.app.Resource.Adoption); p != nil && p.ComposeProject != "" {
+	// Never from a preview: the adopted project IS production — a PR instance
+	// retiring it would be the §20.7 data-loss scenario by another road.
+	if p := adoption.ParsePointer(r.app.Resource.Adoption); r.preview == nil && p != nil && p.ComposeProject != "" {
 		// AkerDock containers never carry the compose-CLI labels, so the
 		// project filter only matches the original stack.
 		if err := r.step(ctx, "retire_adopted_stack", func() (*sshexec.Result, error) {
@@ -284,25 +307,33 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 			}
 		}
 		if err := r.replaceComposeService(ctx, plan, sp, appDir, appUUID, labels, stackKeys, routed[sp.Name], images[sp.Name]); err != nil {
-			_ = r.h.Store.SetServiceComponentObserved(ctx, store.SetServiceComponentObservedParams{
-				ID: componentIDs[sp.Name], ObservedStatus: store.ResourceObservedStatusUnhealthy,
-			})
+			if id, ok := componentIDs[sp.Name]; ok {
+				_ = r.h.Store.SetServiceComponentObserved(ctx, store.SetServiceComponentObservedParams{
+					ID: id, ObservedStatus: store.ResourceObservedStatusUnhealthy,
+				})
+			}
 			return fmt.Errorf("service %s: %w", sp.Name, err)
 		}
 		observed := store.ResourceObservedStatusHealthy
 		if sp.OneShot {
 			observed = store.ResourceObservedStatusExited
 		}
-		_ = r.h.Store.SetServiceComponentObserved(ctx, store.SetServiceComponentObservedParams{
-			ID: componentIDs[sp.Name], ObservedStatus: observed,
-		})
+		if id, ok := componentIDs[sp.Name]; ok {
+			_ = r.h.Store.SetServiceComponentObserved(ctx, store.SetServiceComponentObservedParams{
+				ID: id, ObservedStatus: observed,
+			})
+		}
 	}
 
 	// --- routing + finishing ------------------------------------------------
 	if err := r.setStatus(ctx, store.DeploymentStatusSwitching); err != nil {
 		return err
 	}
-	if err := r.applyRouting(ctx, appUUID); err != nil {
+	if r.preview != nil {
+		if err := r.applyComposePreviewRouting(ctx, content, plan, appUUID); err != nil {
+			return err
+		}
+	} else if err := r.applyRouting(ctx, appUUID); err != nil {
 		return err
 	}
 	return r.finish(ctx, appUUID)
@@ -326,7 +357,12 @@ func (r *deploymentRun) cloneForCompose(ctx context.Context, appUUID, appDir str
 	defer cleanup()
 
 	var sha string
-	if err := r.step(ctx, "resolve_sha", func() (*sshexec.Result, error) {
+	if r.preview != nil && r.preview.HeadSha != nil && *r.preview.HeadSha != "" {
+		// A preview deploys the PR head, pinned at delivery time (§20.4).
+		sha = *r.preview.HeadSha
+		r.skipStep(ctx, "resolve_sha", "preview head "+sha[:min(12, len(sha))])
+		_ = r.h.Store.SetDeploymentCommit(ctx, store.SetDeploymentCommitParams{ID: r.d.ID, CommitSha: &sha, GitBranch: r.preview.SourceBranch})
+	} else if err := r.step(ctx, "resolve_sha", func() (*sshexec.Result, error) {
 		res, err := r.client.Run(ctx, fmt.Sprintf("%sgit ls-remote %s refs/heads/%s", gitEnv, repoURL, branch))
 		if err == nil && res.ExitCode == 0 {
 			sha, _, _ = strings.Cut(firstLine(res.Stdout), "\t")
@@ -341,13 +377,34 @@ func (r *deploymentRun) cloneForCompose(ctx context.Context, appUUID, appDir str
 		return "", "", err
 	}
 
+	// A fork's commit does not exist in the base repository: the PR head ref
+	// is the only fetchable name, and it must still carry the announced SHA
+	// (§20.4.8 — same discipline as the single-container path).
+	fetchRef := sha
+	if ref := r.previewFetchRef(); ref != "" {
+		fetchRef = ref
+	}
 	srcDir := fmt.Sprintf("%s/source/%s", appDir, pguuid.String(r.d.Uuid))
 	if err := r.step(ctx, "clone", func() (*sshexec.Result, error) {
 		return r.client.Run(ctx, fmt.Sprintf(
 			"rm -rf %s && mkdir -p %s && cd %s && git init -q && git remote add origin %s && %sgit fetch -q --depth 1 origin %s && git checkout -q --detach FETCH_HEAD",
-			srcDir, srcDir, srcDir, repoURL, gitEnv, sha))
+			srcDir, srcDir, srcDir, repoURL, gitEnv, fetchRef))
 	}); err != nil {
 		return "", "", err
+	}
+	if fetchRef != sha {
+		if err := r.step(ctx, "verify_head", func() (*sshexec.Result, error) {
+			res, err := r.client.Run(ctx, "cd "+srcDir+" && git rev-parse HEAD")
+			if err == nil && res.ExitCode == 0 {
+				got := firstLine(res.Stdout)
+				if got != sha {
+					return res, fmt.Errorf("%s resolved to %s, but the delivery announced %s — the pull request moved", fetchRef, got, sha)
+				}
+			}
+			return res, err
+		}); err != nil {
+			return "", "", err
+		}
 	}
 	return srcDir, sha, nil
 }
@@ -395,6 +452,29 @@ func (r *deploymentRun) syncComponents(ctx context.Context, plan *compose.Plan) 
 // plainEnvVars decrypts the stack's variables into the interpolation map
 // (compose-spec §3.2) — never logged, never in argv (INV-003).
 func (r *deploymentRun) plainEnvVars(ctx context.Context) (map[string]string, error) {
+	if r.preview != nil {
+		// The DEDICATED preview set (INV-010): production secrets and shared
+		// scopes never reach a PR instance — plus the predefined preview
+		// variables (§5.6), so ${AKERDOCK_URL} interpolates in the file too.
+		rows, err := r.h.Store.ListPreviewEnvVars(ctx, r.app.Resource.ID)
+		if err != nil {
+			return nil, err
+		}
+		vars := make(map[string]string, len(rows)+3)
+		for _, v := range rows {
+			plaintext, err := r.h.Keyring.Decrypt("environment_variables", "value_enc", pguuid.String(v.Uuid), v.ValueEnc)
+			if err != nil {
+				return nil, fmt.Errorf("decrypt variable %s: %w", v.Key, err)
+			}
+			vars[v.Key] = string(plaintext)
+		}
+		vars["AKERDOCK_PR_ID"] = fmt.Sprint(r.preview.PrID)
+		if r.preview.Fqdn != nil && *r.preview.Fqdn != "" {
+			vars["AKERDOCK_FQDN"] = *r.preview.Fqdn
+			vars["AKERDOCK_URL"] = "https://" + *r.preview.Fqdn
+		}
+		return vars, nil
+	}
 	rows, err := r.h.Store.ListEnvVarsForDeploy(ctx, r.app.Resource.ID)
 	if err != nil {
 		return nil, err
@@ -427,9 +507,14 @@ func (r *deploymentRun) plainEnvVars(ctx context.Context) (map[string]string, er
 
 // ensureMagicVariables generates and persists the missing credential-type
 // magic variables (compose-spec §4.3) and resolves FQDN/URL references from
-// the components' domains. The map is updated in place for the second load.
-func (r *deploymentRun) ensureMagicVariables(ctx context.Context, content string, services []string, vars map[string]string) error {
+// the components' domains — or, for a preview, from the preview's own
+// derived FQDNs (§20.4.1). The map is updated in place for the second load.
+func (r *deploymentRun) ensureMagicVariables(ctx context.Context, content string, plan *compose.Plan, services []string, vars map[string]string) error {
 	refs, _ := compose.ScanMagicReferences(content, services)
+	var previewRoutes map[string]previewComposeRoute
+	if r.preview != nil {
+		previewRoutes = r.composePreviewRoutes(ctx, content, plan)
+	}
 	for _, ref := range refs {
 		if _, exists := vars[ref.Name]; exists {
 			continue
@@ -448,9 +533,18 @@ func (r *deploymentRun) ensureMagicVariables(ctx context.Context, content string
 			if err != nil {
 				return err
 			}
-			inserted, err := r.h.Store.CreateGeneratedEnvVar(ctx, store.CreateGeneratedEnvVarParams{
-				Uuid: u, ResourceID: r.app.Resource.ID, Key: ref.Name, ValueEnc: enc, IsSecret: true,
-			})
+			// A preview's generated credentials live in the PREVIEW variable
+			// set (INV-010): they are the preview's own, never production's.
+			var inserted int64
+			if r.preview != nil {
+				inserted, err = r.h.Store.CreateGeneratedPreviewEnvVar(ctx, store.CreateGeneratedPreviewEnvVarParams{
+					Uuid: u, ResourceID: r.app.Resource.ID, Key: ref.Name, ValueEnc: enc,
+				})
+			} else {
+				inserted, err = r.h.Store.CreateGeneratedEnvVar(ctx, store.CreateGeneratedEnvVarParams{
+					Uuid: u, ResourceID: r.app.Resource.ID, Key: ref.Name, ValueEnc: enc, IsSecret: true,
+				})
+			}
 			if err != nil {
 				return fmt.Errorf("persist magic variable %s: %w", ref.Name, err)
 			}
@@ -465,9 +559,20 @@ func (r *deploymentRun) ensureMagicVariables(ctx context.Context, content string
 			}
 			vars[ref.Name] = value
 		default:
-			// FQDN/URL: resolved from the component's domains below; left
-			// undefined (warning) when the component has none yet.
-			if fqdn := r.componentFQDN(ctx, ref); fqdn != "" {
+			// FQDN/URL: resolved from the component's domains (or the preview
+			// route map); left undefined (warning) when there is none.
+			fqdn := ""
+			if r.preview != nil {
+				for name, route := range previewRoutes {
+					if compose.NormalizeComponentID(name) == ref.ID {
+						fqdn = route.FQDN
+						break
+					}
+				}
+			} else {
+				fqdn = r.componentFQDN(ctx, ref)
+			}
+			if fqdn != "" {
 				if ref.Type == compose.MagicURL {
 					vars[ref.Name] = "https://" + fqdn
 				} else {
@@ -477,6 +582,149 @@ func (r *deploymentRun) ensureMagicVariables(ctx context.Context, content string
 		}
 	}
 	return nil
+}
+
+// previewComposeRoute is one served service of a preview stack.
+type previewComposeRoute struct {
+	FQDN string
+	Port int
+}
+
+// composePreviewRoutes decides which services of a preview stack are served
+// and on which port (§20.4.1): the SERVICE_FQDN/URL declarations of the
+// compose file plus the components routed in production (§5.6 parity — the
+// preview serves what production serves). A single served service takes the
+// preview's own fqdn; several each take "<service>-<fqdn>", kept ONE dns
+// level deep so the server wildcard still covers them. Cached: the magic
+// pass, the network wiring and the final routing must all see the same map.
+func (r *deploymentRun) composePreviewRoutes(ctx context.Context, content string, plan *compose.Plan) map[string]previewComposeRoute {
+	if r.previewComposeRouted != nil {
+		return r.previewComposeRouted
+	}
+	routes := map[string]previewComposeRoute{}
+	r.previewComposeRouted = routes
+	if r.preview.Fqdn == nil || *r.preview.Fqdn == "" {
+		return routes // no fqdn resolved: the preview runs unrouted
+	}
+	base := *r.preview.Fqdn
+
+	names := make([]string, 0, len(plan.Services))
+	plans := map[string]compose.ServicePlan{}
+	for _, sp := range plan.Services {
+		names = append(names, sp.Name)
+		plans[sp.Name] = sp
+	}
+
+	// ports maps every SERVED service to its target port; 0 means "served,
+	// port still to resolve from the plan default".
+	ports := map[string]int{}
+	// Explicit intent: SERVICE_FQDN_<ID> / SERVICE_URL_<ID> in the file.
+	refs, _ := compose.ScanMagicReferences(content, names)
+	for _, ref := range refs {
+		if ref.Credential {
+			continue
+		}
+		for _, name := range names {
+			if compose.NormalizeComponentID(name) == ref.ID {
+				if ref.Port > 0 || ports[name] == 0 {
+					ports[name] = ref.Port
+				}
+				break
+			}
+		}
+	}
+	// Production parity: a component served in production is served in the
+	// preview too (read-only — the preview never touches the domain rows).
+	if components, err := r.h.Store.ListServiceComponents(ctx, r.app.Resource.ID); err == nil {
+		for _, c := range components {
+			if _, inStack := plans[c.Name]; !inStack {
+				continue
+			}
+			domains, err := r.h.Store.ListServiceComponentDomains(ctx, &c.ID)
+			if err != nil || len(domains) == 0 {
+				continue
+			}
+			if ports[c.Name] == 0 {
+				switch {
+				case domains[0].TargetPort != nil:
+					ports[c.Name] = int(*domains[0].TargetPort)
+				case c.DefaultRoutePort != nil:
+					ports[c.Name] = int(*c.DefaultRoutePort)
+				default:
+					ports[c.Name] = 0
+				}
+			}
+		}
+	}
+
+	served := make([]string, 0, len(ports))
+	for name, port := range ports {
+		if port == 0 {
+			port = plans[name].DefaultRoutePort
+		}
+		if port == 0 {
+			// No resolvable port: same rule as production routing — never a
+			// guessed port (compose-spec §6), the service stays unserved.
+			r.h.Logger.Warn("preview service has no resolvable port, unrouted",
+				"service", name, "preview", pguuid.String(r.preview.Uuid))
+			continue
+		}
+		ports[name] = port
+		served = append(served, name)
+	}
+	sort.Strings(served)
+	for _, name := range served {
+		fqdn := base
+		if len(served) > 1 {
+			fqdn = strings.ToLower(strings.ReplaceAll(name, "_", "-")) + "-" + base
+		}
+		routes[name] = previewComposeRoute{FQDN: fqdn, Port: ports[name]}
+	}
+	return routes
+}
+
+// applyComposePreviewRouting serves the preview stack (§20.4.1): every route
+// targets its own component container and carries the preview protection —
+// basic auth by default — and X-Robots-Tag: noindex, exactly like a
+// single-container preview (§20.4.4).
+func (r *deploymentRun) applyComposePreviewRouting(ctx context.Context, content string, plan *compose.Plan, appUUID string) error {
+	if r.server.ProxyType != store.ProxyTypeTraefik {
+		return nil
+	}
+	routes := r.composePreviewRoutes(ctx, content, plan)
+	names := make([]string, 0, len(routes))
+	for name := range routes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	rg := proxy.RouteGroup{AppUUID: appUUID, ForceHTTPS: true}
+	for _, name := range names {
+		route := routes[name]
+		rg.Routes = append(rg.Routes, proxy.Route{
+			FQDN: route.FQDN, Path: "/", TargetPort: route.Port,
+			// The component's own container: StackUUID is the preview uuid,
+			// so the name is already preview-scoped (INV-011).
+			Endpoint: plans(plan)[name].ContainerName,
+		})
+	}
+	routingContent := ""
+	if len(rg.Routes) > 0 {
+		routingContent = injectPreviewMiddlewares(proxy.GenerateDynamic(rg, r.d.ID), appUUID,
+			r.app.Application.PreviewProtection, r.previewAuthHash(ctx))
+	}
+	applier := &ProxyApplier{Store: r.h.Store, Client: r.client, Server: r.server, Network: r.dest.Network}
+	return r.step(ctx, "apply_routing", func() (*sshexec.Result, error) {
+		return nil, applier.Apply(ctx, appUUID, routingContent, "")
+	})
+}
+
+// plans indexes a compose plan's services by name.
+func plans(plan *compose.Plan) map[string]compose.ServicePlan {
+	out := make(map[string]compose.ServicePlan, len(plan.Services))
+	for _, sp := range plan.Services {
+		out[sp.Name] = sp
+	}
+	return out
 }
 
 // componentFQDN returns the first domain of the component named by the
@@ -684,9 +932,17 @@ func (r *deploymentRun) replaceComposeService(ctx context.Context, plan *compose
 		return r.recreateComposeService(ctx, plan, sp, appDir, labeled, envPath, allKeys, img.Ref, routedComponent)
 	}
 	if routedComponent {
-		if eligible, reason := zeroDowntimeEligibility(sp, r.app.BuildConfig.RawCompose, img.HasHealthcheck); eligible {
-			return r.zeroDowntimeReplace(ctx, plan, sp, appDir, appUUID, labeled, envPath, allKeys, img.Ref)
-		} else {
+		switch {
+		case r.preview != nil:
+			// A preview is ephemeral by definition (§20.4.1): a redeploy may
+			// interrupt it, and nobody is served by keeping two instances of
+			// a PR stack alive through a switch.
+			r.skipStep(ctx, "zero_downtime_"+sp.Name, "preview stack: recreate")
+		default:
+			eligible, reason := zeroDowntimeEligibility(sp, r.app.BuildConfig.RawCompose, img.HasHealthcheck)
+			if eligible {
+				return r.zeroDowntimeReplace(ctx, plan, sp, appDir, appUUID, labeled, envPath, allKeys, img.Ref)
+			}
 			// compose_zero_downtime_ineligible (§8.4): the interruption is
 			// assumed and displayed, never silent.
 			r.skipStep(ctx, "zero_downtime_"+sp.Name, "recreate with interruption: "+reason)

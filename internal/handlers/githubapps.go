@@ -527,9 +527,22 @@ func (a *API) ReceiveGithubAppWebhook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		httpapi.WriteJSON(w, http.StatusOK, map[string]any{"received": true})
+	case "issue_comment":
+		// Comment commands (§20.4.7, opt-in per application) — the job
+		// re-checks everything, including the author's rights via the API.
+		if _, err := queue.Enqueue(r.Context(), a.Store, queue.EnqueueOptions{
+			Queue: "webhook",
+			Type:  jobs.TypeGithubAppIssueComment,
+			Payload: jobs.GithubAppPullRequestPayload{
+				DeliveryID: delivery.ID, GithubAppID: row.ID,
+			},
+			TeamID: ptr(row.TeamID),
+		}); err != nil {
+			a.internalError(w, r, "receive github app webhook", err)
+			return
+		}
+		httpapi.WriteJSON(w, http.StatusOK, map[string]any{"received": true})
 	default:
-		// issue_comment (commands) arrives with the trigger controls;
-		// recorded, visible, ignored with a reason — never silently dropped.
 		reason := "event_not_handled"
 		_ = a.Store.FinishWebhookDelivery(r.Context(), store.FinishWebhookDeliveryParams{
 			ID: delivery.ID, Status: store.WebhookDeliveryStatusIgnored, IgnoreReason: &reason,

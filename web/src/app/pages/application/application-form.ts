@@ -84,6 +84,14 @@ export interface SettingsForm extends ConfigForm {
   previewProtection: 'none' | 'basic_auth';
   previewForkApprovalEnabled: boolean;
   previewExcludeDrafts: boolean;
+  /** PR label required to get a preview; empty = disabled (every PR). */
+  previewRequireLabel: string;
+  previewCommentCommandsEnabled: boolean;
+  previewCancelObsoleteBuilds: boolean;
+  /** New provider API token to store; blank = keep the stored one (write-only). */
+  gitApiToken: string;
+  /** Explicitly remove the stored token (sends null). */
+  gitApiTokenClear: boolean;
 }
 
 /** Create form: placement + source discriminant on top of the configuration. */
@@ -185,6 +193,11 @@ export function settingsFromApplication(app: Application): SettingsForm {
     previewProtection: (app.preview_protection as 'none' | 'basic_auth') ?? 'basic_auth',
     previewForkApprovalEnabled: app.preview_fork_approval_enabled ?? false,
     previewExcludeDrafts: app.preview_exclude_drafts ?? false,
+    previewRequireLabel: app.preview_require_label ?? '',
+    previewCommentCommandsEnabled: app.preview_comment_commands_enabled ?? false,
+    previewCancelObsoleteBuilds: app.preview_cancel_obsolete_builds ?? false,
+    gitApiToken: '',
+    gitApiTokenClear: false,
     useBuildServer: app.use_build_server ?? false,
     pushRegistryCredentialUuid: app.push_registry_credential_uuid ?? '',
     preDeploymentCommand: app.pre_deployment_command ?? '',
@@ -318,6 +331,17 @@ export function settingsToUpdate(form: SettingsForm, sourceType: SourceType): Ap
       update.preview_protection = form.previewProtection;
       update.preview_fork_approval_enabled = form.previewForkApprovalEnabled;
       update.preview_exclude_drafts = form.previewExcludeDrafts;
+      update.preview_require_label = orNull(form.previewRequireLabel);
+      update.preview_comment_commands_enabled = form.previewCommentCommandsEnabled;
+      update.preview_cancel_obsolete_builds = form.previewCancelObsoleteBuilds;
+      // The token never comes back (write-only): a blank field means "keep the
+      // stored one", the clear checkbox means "remove it" (explicit null), and
+      // a typed value replaces it.
+      if (form.gitApiTokenClear) {
+        update.git_api_token = null;
+      } else if (form.gitApiToken.trim()) {
+        update.git_api_token = form.gitApiToken.trim();
+      }
       update.use_build_server = form.useBuildServer;
       update.push_registry_credential_uuid = orNull(form.pushRegistryCredentialUuid);
       break;

@@ -16,7 +16,7 @@ set -euo pipefail
 # sections in parallel. Nothing is shared between shards — not a port, not a
 # container name, not the DinD image cache — because anything shared would make
 # one shard's failure depend on another shard's timing.
-SHARD=${E2E_SHARD:?E2E_SHARD must be set (smoke|deploy|build|data|platform|compose|github)}
+SHARD=${E2E_SHARD:?E2E_SHARD must be set (smoke|deploy|build|data|platform|compose|github|forge)}
 case "$SHARD" in
   deploy)   IDX=0 ;;
   build)    IDX=1 ;;
@@ -25,6 +25,7 @@ case "$SHARD" in
   smoke)    IDX=4 ;;
   compose)  IDX=5 ;;
   github)   IDX=6 ;;
+  forge)    IDX=7 ;;
   *) printf 'unknown shard: %s\n' "$SHARD" >&2; exit 2 ;;
 esac
 
@@ -102,6 +103,8 @@ cleanup() {
   # A stub that outlives its shard keeps its port AND its old certificate: the
   # next run would trust a new CA and talk to the old server.
   [ -n "${GITHUB_STUB_PID:-}" ] && kill -TERM "$GITHUB_STUB_PID" 2>/dev/null || true
+  [ -n "${GITLAB_STUB_PID:-}" ] && kill -TERM "$GITLAB_STUB_PID" 2>/dev/null || true
+  [ -n "${GITEA_STUB_PID:-}" ] && kill -TERM "$GITEA_STUB_PID" 2>/dev/null || true
   [ -n "${SINK_PID:-}" ] && kill -TERM "$SINK_PID" 2>/dev/null || true
   [ -n "${OTLP_PID:-}" ] && kill -TERM "$OTLP_PID" 2>/dev/null || true
   if [ "$KEEP" != "--keep" ]; then

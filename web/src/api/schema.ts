@@ -4152,7 +4152,7 @@ export interface components {
             watch_paths?: string[];
             /** @description (source git) Active/désactive l'auto-deploy sur push (§5.5). */
             auto_deploy?: boolean;
-            /** @description Previews par PR (§20.4) — source GitHub App requise pour le déclenchement. */
+            /** @description Previews par PR (§20.4) — déclenchées par le webhook de la GitHub App ou par un webhook manuel GitLab/Gitea/GitHub de l'application (protocols §1.2). */
             previews_enabled?: boolean;
             /** @description Placeholders : {{pr_id}}, {{domain}}, {{random}} (§5.6). */
             preview_url_template?: string;
@@ -4169,6 +4169,16 @@ export interface components {
             preview_fork_approval_enabled?: boolean;
             /** @description Les draft PRs ne déclenchent pas de preview (opt-in, ADR-011). */
             preview_exclude_drafts?: boolean;
+            /** @description Opt-in par label (§20.4.7, ADR-011) : la PR doit porter ce label pour obtenir une preview ; null = désactivé (comportement de parité). */
+            preview_require_label?: string | null;
+            /** @description Commandes en commentaire de PR `/deploy` et `/destroy` (§20.4.7, opt-in). Les droits de l'auteur sont vérifiés côté serveur via l'API du provider — un token API est requis pour les webhooks manuels (protocols §2.7d, §3-§6). */
+            preview_comment_commands_enabled?: boolean;
+            /** @description Annule le build de preview rendu obsolète par un nouveau commit de la même PR (§20.4.7, opt-in) — le déploiement en file est superseded, le build en cours annulé coopérativement. */
+            preview_cancel_obsolete_builds?: boolean;
+            /** @description (source git) Token API du provider, stocké chiffré sur la git source de l'application (protocols §3-§6) : porte le feedback de preview (commit statuses, commentaire upserté) et la vérification des droits des commandes pour GitLab, Gitea et les webhooks GitHub manuels. Write-only — jamais relu par l'API (INV-003). Null pour le retirer. Inutile avec une GitHub App (elle a ses propres credentials). */
+            git_api_token?: string | null;
+            /** @description (source git) Endpoint API du provider sur la git source (self-hosted, protocols §4.1/§6.1) — par exemple https://gitlab.example.com/api/v4. Null pour revenir à la dérivation depuis l'hôte du dépôt. */
+            git_api_url?: string | null;
         };
         /** @description Application déployable (§5). Regroupe l'identité, la configuration désirée (source, build, routage, santé, limites) et les statuts désiré/observé (§21.2). */
         Application: {
@@ -4215,6 +4225,16 @@ export interface components {
             preview_protection?: "none" | "basic_auth";
             preview_fork_approval_enabled?: boolean;
             preview_exclude_drafts?: boolean;
+            /** @description Opt-in par label de PR (§20.4.7) ; null = désactivé. */
+            preview_require_label?: string | null;
+            /** @description Commandes `/deploy` `/destroy` en commentaire (§20.4.7). */
+            preview_comment_commands_enabled?: boolean;
+            /** @description Annulation du build de preview obsolète (§20.4.7). */
+            preview_cancel_obsolete_builds?: boolean;
+            /** @description Un token API de provider est configuré sur la git source (jamais la valeur — INV-003). */
+            readonly git_api_token_set?: boolean;
+            /** @description Endpoint API du provider sur la git source (self-hosted). */
+            git_api_url?: string | null;
             domains?: string[];
             ports_exposes?: string | null;
             health_check?: components["schemas"]["HealthCheckConfig"];

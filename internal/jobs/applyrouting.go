@@ -212,10 +212,17 @@ func RenderPreviewRoutingFile(app store.GetApplicationByIDRow, preview store.Pre
 		Routes: []proxy.Route{{FQDN: *preview.Fqdn, Path: "/", TargetPort: port}},
 	}
 	content := proxy.GenerateDynamic(rg, revision)
+	return injectPreviewMiddlewares(content, previewUUID, app.Application.PreviewProtection, basicAuthHash), nil
+}
 
+// injectPreviewMiddlewares attaches the preview protection to every https
+// router of a generated routing file (§20.4.4): X-Robots-Tag noindex always,
+// basic auth when the application asks for it — shared by the
+// single-container previews and the compose preview stacks.
+func injectPreviewMiddlewares(content, previewUUID string, protection store.PreviewProtection, basicAuthHash string) string {
 	middlewares := []string{previewUUID + "-noindex"}
 	extra := fmt.Sprintf("    %s-noindex:\n      headers:\n        customResponseHeaders:\n          X-Robots-Tag: noindex\n", previewUUID)
-	if app.Application.PreviewProtection == store.PreviewProtectionBasicAuth && basicAuthHash != "" {
+	if protection == store.PreviewProtectionBasicAuth && basicAuthHash != "" {
 		// The credentials are the application's generated preview secret
 		// (AKERDOCK_PREVIEW_BASIC_AUTH in the preview variable set): stable
 		// across previews of the application, readable by the team, never in
@@ -249,5 +256,5 @@ func RenderPreviewRoutingFile(app store.GetApplicationByIDRow, preview store.Pre
 			out = append(out, "      middlewares: ["+strings.Join(middlewares, ", ")+"]")
 		}
 	}
-	return strings.Join(out, "\n"), nil
+	return strings.Join(out, "\n")
 }

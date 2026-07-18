@@ -156,13 +156,17 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 	// field is untouched, an explicit null clears the bound (TTL, cap).
 	if body.PreviewsEnabled != nil || body.PreviewUrlTemplate != nil || patch.Has("preview_max_concurrent") ||
 		patch.Has("preview_ttl_minutes") || body.PreviewProtection != nil ||
-		body.PreviewForkApprovalEnabled != nil || body.PreviewExcludeDrafts != nil {
+		body.PreviewForkApprovalEnabled != nil || body.PreviewExcludeDrafts != nil ||
+		patch.Has("preview_require_label") || body.PreviewCommentCommandsEnabled != nil ||
+		body.PreviewCancelObsoleteBuilds != nil {
 		params := store.UpdateApplicationPreviewSettingsParams{
-			ID:                         row.Resource.ID,
-			PreviewsEnabled:            body.PreviewsEnabled,
-			PreviewUrlTemplate:         body.PreviewUrlTemplate,
-			PreviewForkApprovalEnabled: body.PreviewForkApprovalEnabled,
-			PreviewExcludeDrafts:       body.PreviewExcludeDrafts,
+			ID:                            row.Resource.ID,
+			PreviewsEnabled:               body.PreviewsEnabled,
+			PreviewUrlTemplate:            body.PreviewUrlTemplate,
+			PreviewForkApprovalEnabled:    body.PreviewForkApprovalEnabled,
+			PreviewExcludeDrafts:          body.PreviewExcludeDrafts,
+			PreviewCommentCommandsEnabled: body.PreviewCommentCommandsEnabled,
+			PreviewCancelObsoleteBuilds:   body.PreviewCancelObsoleteBuilds,
 		}
 		if patch.Has("preview_max_concurrent") {
 			params.SetMaxConcurrent = true
@@ -172,12 +176,35 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 			params.SetTtl = true
 			params.PreviewTtlMinutes = int32PtrOf(body.PreviewTtlMinutes)
 		}
+		if patch.Has("preview_require_label") {
+			params.SetRequireLabel = true
+			if body.PreviewRequireLabel != nil && *body.PreviewRequireLabel != "" {
+				params.PreviewRequireLabel = body.PreviewRequireLabel
+			}
+		}
 		if body.PreviewProtection != nil {
 			protection := store.PreviewProtection(*body.PreviewProtection)
 			params.PreviewProtection = &protection
 		}
 		if err := qtx.UpdateApplicationPreviewSettings(r.Context(), params); err != nil {
 			a.internalError(w, r, "update application", err)
+			return
+		}
+	}
+	// Provider API token and endpoint (amendment 31): stored on the
+	// application's git source (protocols §3-§6). The token is write-only,
+	// envelope-encrypted; an explicit null removes either. The source is
+	// resolved ONCE for both fields — resolving twice would try to create
+	// the same row twice when the application had none yet.
+	if patch.Has("git_api_token") || patch.Has("git_api_url") {
+		source, ok := a.ensureGitSource(w, r, qtx, id, row, "git_api_token")
+		if !ok {
+			return
+		}
+		if patch.Has("git_api_token") && !a.setGitAPIToken(w, r, qtx, source, body.GitApiToken) {
+			return
+		}
+		if patch.Has("git_api_url") && !a.setGitAPIURL(w, r, qtx, source, body.GitApiUrl) {
 			return
 		}
 	}

@@ -612,6 +612,7 @@ Connexion à un fournisseur Git (§5.1) : dépôt public, deploy key (clé SSH) 
 | `provider` | `git_provider` | non | — | — | non | GitHub, GitLab, Bitbucket, Gitea, autre. |
 | `api_url` | `text` | oui | — | — | non | Endpoint API (self-hosted / GitHub Enterprise, §5.1). |
 | `html_url` | `text` | oui | — | — | non | Base des URLs web du fournisseur. |
+| `api_token_enc` | `bytea` | oui | — | chiffrement enveloppe (§23.2) | **oui** | Token API du provider (protocols §3-§6) : feedback de preview dégradé et vérification des droits des commandes sans GitHub App. Write-only (INV-003). |
 | `private_key_id` | `bigint` | oui | — | FK `private_keys(id)` ON DELETE RESTRICT | non | Deploy key (même team, INV-002). |
 | `github_app_id` | `bigint` | oui | — | FK `github_apps(id)` ON DELETE RESTRICT | non | Intégration GitHub App. |
 | `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
@@ -921,6 +922,7 @@ Environnement éphémère de PR/MR (§5.6, §20.4). Identité déterministe `(ap
 | `source_branch` | `text` | oui | — | — | non | Branche source de la PR. |
 | `head_sha` | `text` | oui | — | — | non | Dernier SHA déployé (redeploy à chaque commit, §5.6). |
 | `is_fork` | `boolean` | non | `false` | — | non | PR issue d'un fork (INV-010). |
+| `repo_reference` | `text` | oui | — | — | non | Référence du dépôt chez le provider pour le feedback (§20.4.6) : project id GitLab, `owner/repo` Gitea/GitHub. Capturée de la livraison authentifiée ; NULL sur le chemin GitHub App (cache `repositories`). |
 | `fork_approved_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | Approbation mainteneur (§20.4.8) ; NULL = non approuvée. |
 | `fork_approved_at` | `timestamptz` | oui | — | — | non | — |
 | `fqdn` | `citext` | oui | — | — | non | URL de la preview (template `{{pr_id}}.{{domain}}`, §5.6). |

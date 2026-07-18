@@ -157,6 +157,46 @@ describe('settingsFromApplication / settingsToUpdate round trip', () => {
     expect(update.git_branch).toBeUndefined();
   });
 
+  it('round-trips the preview trigger fields of a git application', () => {
+    const app = anApplication({
+      source_type: 'git',
+      previews_enabled: true,
+      preview_require_label: 'preview',
+      preview_comment_commands_enabled: true,
+      preview_cancel_obsolete_builds: true,
+    });
+
+    const update = settingsToUpdate(settingsFromApplication(app), 'git');
+
+    expect(update.preview_require_label).toBe('preview');
+    expect(update.preview_comment_commands_enabled).toBeTrue();
+    expect(update.preview_cancel_obsolete_builds).toBeTrue();
+  });
+
+  it('sends null for a blank required label — disabled, not the string ""', () => {
+    const form = settingsFromApplication(anApplication({ source_type: 'git' }));
+    form.previewRequireLabel = '  ';
+
+    expect(settingsToUpdate(form, 'git').preview_require_label).toBeNull();
+  });
+
+  it('never sends the git API token unless typed or explicitly cleared', () => {
+    const form = settingsFromApplication(
+      anApplication({ source_type: 'git', git_api_token_set: true }),
+    );
+
+    // Blank field: keep the stored (write-only) token untouched.
+    expect(settingsToUpdate(form, 'git').git_api_token).toBeUndefined();
+
+    // Typed value: replace it.
+    form.gitApiToken = ' glpat-abc123 ';
+    expect(settingsToUpdate(form, 'git').git_api_token).toBe('glpat-abc123');
+
+    // Clear checkbox wins over anything typed: explicit null removes it.
+    form.gitApiTokenClear = true;
+    expect(settingsToUpdate(form, 'git').git_api_token).toBeNull();
+  });
+
   it('falls back to health check defaults when numeric inputs are garbage', () => {
     const form = settingsFromApplication(anApplication({ docker_image: 'nginx' }));
     form.hcIntervalSeconds = 'abc';

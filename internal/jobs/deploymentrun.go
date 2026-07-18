@@ -172,10 +172,14 @@ type deploymentRun struct {
 	preview *store.Preview
 	// previewAuth caches the bcrypt htpasswd line of the preview protection.
 	previewAuth string
-	server      store.Server
-	dest        store.Destination
-	teamUUID    string
-	client      *sshexec.Client
+	// previewComposeRouted caches the served-services map of a compose
+	// preview (§20.4.1) — the magic pass, the network wiring and the final
+	// routing must all see the same one.
+	previewComposeRouted map[string]previewComposeRoute
+	server               store.Server
+	dest                 store.Destination
+	teamUUID             string
+	client               *sshexec.Client
 	// builder is the machine the image is BUILT on. It is the target server
 	// unless the application asked for a build server (§3.4) — in which case
 	// what ships is not the image on that machine, but the one it pushed to a
@@ -347,9 +351,6 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	}
 	previewLabel := ""
 	if r.preview != nil {
-		if r.app.BuildConfig.BuildPack == store.BuildPackCompose {
-			return fmt.Errorf("compose previews are not supported yet")
-		}
 		if r.preview.IsFork && !r.preview.ForkApprovedAt.Valid {
 			return fmt.Errorf("fork preview without maintainer approval (INV-010)")
 		}
@@ -985,14 +986,23 @@ func (r *deploymentRun) buildFromGit(ctx context.Context, appUUID, appDir, label
 	return imageRef, nil
 }
 
-// previewFetchRef is the ref a preview clone must fetch: for GitHub, the pull
-// request's head ref of the BASE repository (refs/pull/<n>/head), which exists
-// for forks too. Empty for anything that is not a GitHub preview.
+// previewFetchRef is the ref a preview clone must fetch: the pull request's
+// head ref of the BASE repository, which exists for forks too — the only ref
+// reachable with the base repo's credential (§20.4.8). GitHub and Gitea
+// publish refs/pull/<n>/head; GitLab refs/merge-requests/<iid>/head. Empty
+// for a non-preview run.
 func (r *deploymentRun) previewFetchRef() string {
-	if r.preview == nil || r.preview.Provider != store.GitProviderGithub {
+	if r.preview == nil {
 		return ""
 	}
-	return fmt.Sprintf("refs/pull/%d/head", r.preview.PrID)
+	switch r.preview.Provider {
+	case store.GitProviderGithub, store.GitProviderGitea:
+		return fmt.Sprintf("refs/pull/%d/head", r.preview.PrID)
+	case store.GitProviderGitlab:
+		return fmt.Sprintf("refs/merge-requests/%d/head", r.preview.PrID)
+	default:
+		return ""
+	}
 }
 
 // renderBuildEnv renders build.env with the build-time variables (§5.2).

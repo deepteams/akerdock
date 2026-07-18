@@ -141,6 +141,68 @@ type PrivateKey = components['schemas']['PrivateKey'];
                 />
                 Skip draft pull requests
               </label>
+              <div class="akd-field">
+                <label for="pv-label">Required PR label (empty = every PR gets a preview)</label>
+                <input
+                  id="pv-label"
+                  name="previewRequireLabel"
+                  class="akd-input akd-mono"
+                  [(ngModel)]="form.previewRequireLabel"
+                  [disabled]="busy()"
+                />
+              </div>
+              <label class="check">
+                <input
+                  type="checkbox"
+                  name="previewCommentCommands"
+                  [(ngModel)]="form.previewCommentCommandsEnabled"
+                  [disabled]="busy()"
+                />
+                Enable /deploy and /destroy comment commands on pull requests
+              </label>
+              <label class="check">
+                <input
+                  type="checkbox"
+                  name="previewCancelObsoleteBuilds"
+                  [(ngModel)]="form.previewCancelObsoleteBuilds"
+                  [disabled]="busy()"
+                />
+                Cancel the preview build made obsolete by a new commit
+              </label>
+              <div class="akd-field">
+                <label for="pv-token">
+                  Provider API token (GitLab / Gitea PAT)
+                  @if (application()!.git_api_token_set) {
+                    <span class="akd-muted">— a token is configured</span>
+                  }
+                </label>
+                <input
+                  id="pv-token"
+                  name="gitApiToken"
+                  type="password"
+                  class="akd-input"
+                  autocomplete="new-password"
+                  [placeholder]="application()!.git_api_token_set ? 'leave blank to keep' : ''"
+                  [(ngModel)]="form.gitApiToken"
+                  [disabled]="busy() || form.gitApiTokenClear"
+                />
+              </div>
+              @if (application()!.git_api_token_set) {
+                <label class="check">
+                  <input
+                    type="checkbox"
+                    name="gitApiTokenClear"
+                    [(ngModel)]="form.gitApiTokenClear"
+                    [disabled]="busy()"
+                  />
+                  Remove the configured token
+                </label>
+              }
+              <p class="akd-muted hint">
+                The token is write-only: encrypted at rest, never returned by the API. Comment
+                commands and GitLab/Gitea preview feedback (commit statuses, PR comment) need it
+                for manual webhook sources — not needed with a GitHub App.
+              </p>
             }
           </fieldset>
         }
@@ -178,6 +240,10 @@ type PrivateKey = components['schemas']['PrivateKey'];
         color: var(--akd-text-secondary);
         text-transform: uppercase;
         letter-spacing: 0.04em;
+      }
+      .hint {
+        margin: 0;
+        font-size: var(--akd-text-xs);
       }
       .check {
         display: flex;
@@ -220,6 +286,11 @@ export class ApplicationSettingsTabComponent {
     previewProtection: 'basic_auth',
     previewForkApprovalEnabled: false,
     previewExcludeDrafts: false,
+    previewRequireLabel: '',
+    previewCommentCommandsEnabled: false,
+    previewCancelObsoleteBuilds: false,
+    gitApiToken: '',
+    gitApiTokenClear: false,
   };
 
   constructor() {

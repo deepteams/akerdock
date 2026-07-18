@@ -4,12 +4,13 @@
 -- New commit on the same PR reuses the identity — the instance redeploys,
 -- it is never duplicated (§20.4). A destroyed preview row is revived when
 -- the PR reopens.
-INSERT INTO previews (application_id, provider, pr_id, source_branch, head_sha, is_fork)
-VALUES ($1, $2, $3, sqlc.narg(source_branch), sqlc.narg(head_sha), $4)
+INSERT INTO previews (application_id, provider, pr_id, source_branch, head_sha, is_fork, repo_reference)
+VALUES ($1, $2, $3, sqlc.narg(source_branch), sqlc.narg(head_sha), $4, sqlc.narg(repo_reference))
 ON CONFLICT (application_id, provider, pr_id) DO UPDATE SET
     source_branch = excluded.source_branch,
     head_sha = excluded.head_sha,
     is_fork = excluded.is_fork,
+    repo_reference = COALESCE(excluded.repo_reference, previews.repo_reference),
     status = CASE WHEN previews.status IN ('destroyed', 'failed') THEN 'queued'::preview_status ELSE previews.status END,
     destroyed_at = NULL,
     updated_at = now()
@@ -70,6 +71,23 @@ SELECT * FROM environment_variables
 WHERE resource_id = $1 AND is_preview = true
 ORDER BY key;
 
+-- name: SupersedeObsoletePreviewDeployments :many
+-- §20.4.7 (opt-in preview_cancel_obsolete_builds): a new commit makes the
+-- in-flight preview build obsolete. Queued deployments flip here; running
+-- ones get a cooperative cancel (RequestDeploymentJobCancel) — never past
+-- the traffic switch (§21.1).
+UPDATE deployments SET status = 'superseded', superseded_by_id = $2,
+    finished_at = now(), updated_at = now()
+WHERE preview_id = $1 AND status = 'queued' AND id <> $2
+RETURNING id;
+
+-- name: ListCancellablePreviewDeploymentIDs :many
+-- The build phases only: switching/finishing are past the point of no
+-- return, and terminal states have nothing to cancel.
+SELECT id FROM deployments
+WHERE preview_id = $1 AND id <> $2
+  AND status IN ('preparing', 'cloning', 'building', 'pushing', 'starting', 'healthchecking', 'retrying');
+
 -- name: GetPreviewByUUIDForTeam :one
 -- Team ownership travels through the application chain (INV-002).
 SELECT p.* FROM previews p
@@ -84,5 +102,8 @@ UPDATE applications SET
     preview_ttl_minutes = CASE WHEN sqlc.arg(set_ttl)::boolean THEN sqlc.narg(preview_ttl_minutes) ELSE preview_ttl_minutes END,
     preview_protection = COALESCE(sqlc.narg(preview_protection), preview_protection),
     preview_fork_approval_enabled = COALESCE(sqlc.narg(preview_fork_approval_enabled), preview_fork_approval_enabled),
-    preview_exclude_drafts = COALESCE(sqlc.narg(preview_exclude_drafts), preview_exclude_drafts)
+    preview_exclude_drafts = COALESCE(sqlc.narg(preview_exclude_drafts), preview_exclude_drafts),
+    preview_require_label = CASE WHEN sqlc.arg(set_require_label)::boolean THEN sqlc.narg(preview_require_label) ELSE preview_require_label END,
+    preview_comment_commands_enabled = COALESCE(sqlc.narg(preview_comment_commands_enabled), preview_comment_commands_enabled),
+    preview_cancel_obsolete_builds = COALESCE(sqlc.narg(preview_cancel_obsolete_builds), preview_cancel_obsolete_builds)
 WHERE id = $1;

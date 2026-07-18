@@ -1,6 +1,8 @@
-// PR preview lifecycle from the GitHub App webhook (§20.4, protocols §2.4):
-// opened/synchronize/reopened deploy, closed destroys, forks wait for an
-// approval that never injects secrets (INV-010).
+// PR preview lifecycle (§20.4): opened/synchronize/reopened deploy, closed
+// destroys, forks wait for an approval that never injects secrets (INV-010).
+// The same lifecycle serves the GitHub App webhook and the per-application
+// manual webhooks (GitLab MR events, Gitea PR events) — one implementation,
+// one set of policies (protocols §1.2).
 package jobs
 
 import (
@@ -13,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/gitwebhook"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/store"
@@ -42,28 +45,6 @@ type GithubAppPullRequest struct {
 	Logger  *slog.Logger
 }
 
-// prEvent is the subset of the pull_request payload the lifecycle needs.
-type prEvent struct {
-	Action      string `json:"action"`
-	Number      int    `json:"number"`
-	PullRequest struct {
-		Draft  bool `json:"draft"`
-		Merged bool `json:"merged"`
-		Head   struct {
-			Ref  string `json:"ref"`
-			SHA  string `json:"sha"`
-			Repo struct {
-				ID int64 `json:"id"`
-			} `json:"repo"`
-		} `json:"head"`
-		Base struct {
-			Repo struct {
-				ID int64 `json:"id"`
-			} `json:"repo"`
-		} `json:"base"`
-	} `json:"pull_request"`
-}
-
 // Execute drives the preview lifecycle for every application bound to the
 // PR's base repository.
 func (h *GithubAppPullRequest) Execute(ctx context.Context, job store.Job, rec *queue.StepRecorder) (any, error) {
@@ -78,10 +59,22 @@ func (h *GithubAppPullRequest) Execute(ctx context.Context, job store.Job, rec *
 	if !delivery.SignatureValid {
 		return nil, fmt.Errorf("refusing an unverified delivery")
 	}
-	var event prEvent
-	if err := json.Unmarshal(delivery.Payload, &event); err != nil {
+	event, err := gitwebhook.ParsePullRequest(gitwebhook.GitHub, delivery.Payload)
+	if err != nil {
 		return nil, fmt.Errorf("unparsable pull_request payload: %w", err)
 	}
+	// The GitHub App path resolves the repository through its own cache, so
+	// the payload's base repo id is what the fan-out keys on.
+	var raw struct {
+		PullRequest struct {
+			Base struct {
+				Repo struct {
+					ID int64 `json:"id"`
+				} `json:"repo"`
+			} `json:"base"`
+		} `json:"pull_request"`
+	}
+	_ = json.Unmarshal(delivery.Payload, &raw)
 
 	finish := func(status store.WebhookDeliveryStatus, reason string) {
 		params := store.FinishWebhookDeliveryParams{ID: delivery.ID, Status: status}
@@ -94,7 +87,7 @@ func (h *GithubAppPullRequest) Execute(ctx context.Context, job store.Job, rec *
 	rec.Start(ctx, "previews")
 	appIDs, err := h.Store.ListApplicationIDsForRepositoryPush(ctx, store.ListApplicationIDsForRepositoryPushParams{
 		GithubAppID: &payload.GithubAppID,
-		ExternalID:  fmt.Sprint(event.PullRequest.Base.Repo.ID),
+		ExternalID:  fmt.Sprint(raw.PullRequest.Base.Repo.ID),
 	})
 	if err != nil {
 		return nil, err
@@ -111,7 +104,7 @@ func (h *GithubAppPullRequest) Execute(ctx context.Context, job store.Job, rec *
 			results[appUUID] = "previews disabled"
 			continue
 		}
-		outcome, err := h.handleForApplication(ctx, app, event)
+		outcome, err := HandlePreviewPREvent(ctx, h.Store, h.Keyring, h.Logger, app, store.GitProviderGithub, event)
 		if err != nil {
 			results[appUUID] = "failed: " + err.Error()
 			continue
@@ -128,57 +121,94 @@ func (h *GithubAppPullRequest) Execute(ctx context.Context, job store.Job, rec *
 	return map[string]any{"action": event.Action, "pr": event.Number, "applications": results}, nil
 }
 
-func (h *GithubAppPullRequest) handleForApplication(ctx context.Context, app store.GetApplicationByIDRow, event prEvent) (string, error) {
-	switch event.Action {
-	case "closed":
-		preview, err := h.Store.GetPreviewByIdentity(ctx, store.GetPreviewByIdentityParams{
-			ApplicationID: app.Resource.ID, Provider: store.GitProviderGithub, PrID: int32(event.Number),
+// HandlePreviewPREvent applies the preview lifecycle for one application and
+// one normalized PR/MR event — shared by the GitHub App fan-out and the
+// per-application webhook path so a GitLab MR and a GitHub PR obey exactly
+// the same policies (§20.4, ADR-011).
+func HandlePreviewPREvent(ctx context.Context, q *store.Queries, keyring *envelope.Keyring, logger *slog.Logger,
+	app store.GetApplicationByIDRow, provider store.GitProvider, event gitwebhook.PullRequestEvent,
+) (string, error) {
+	destroyIfLive := func() (string, error) {
+		preview, err := q.GetPreviewByIdentity(ctx, store.GetPreviewByIdentityParams{
+			ApplicationID: app.Resource.ID, Provider: provider, PrID: int32(event.Number),
 		})
 		if err != nil {
 			return "no preview to destroy", nil
 		}
-		if preview.Status == store.PreviewStatusDestroyed {
+		if preview.Status == store.PreviewStatusDestroyed || preview.Status == store.PreviewStatusDestroying {
 			return "already destroyed", nil
 		}
-		if err := EnqueuePreviewDestroy(ctx, h.Store, preview); err != nil {
+		if err := EnqueuePreviewDestroy(ctx, q, preview); err != nil {
 			return "", err
 		}
 		return "destroy queued", nil
+	}
 
-	case "opened", "synchronize", "reopened", "ready_for_review":
-		if event.PullRequest.Draft && app.Application.PreviewExcludeDrafts {
+	switch event.Action {
+	case "closed":
+		return destroyIfLive()
+
+	case "opened", "synchronize", "reopened", "ready_for_review", "labeled", "unlabeled":
+		// Label opt-in (§20.4.7): when configured, the label IS the switch —
+		// a PR without it gets nothing, and removing it from a live preview
+		// destroys the preview rather than leaving an unlabeled PR served.
+		if required := app.Application.PreviewRequireLabel; required != nil && *required != "" {
+			if !event.HasLabel(*required) {
+				outcome, err := destroyIfLive()
+				if err != nil {
+					return "", err
+				}
+				if outcome == "destroy queued" {
+					return "required label removed: " + outcome, nil
+				}
+				return "label " + *required + " required (preview_require_label)", nil
+			}
+		} else if event.Action == "labeled" || event.Action == "unlabeled" {
+			// No label control configured: label noise redeploys nothing.
+			return "label events ignored without preview_require_label", nil
+		}
+		if event.Draft && app.Application.PreviewExcludeDrafts {
 			return "draft excluded (preview_exclude_drafts)", nil
 		}
-		isFork := event.PullRequest.Head.Repo.ID != 0 &&
-			event.PullRequest.Head.Repo.ID != event.PullRequest.Base.Repo.ID
-		if isFork && !app.Application.PreviewForkApprovalEnabled {
+		if event.IsFork && !app.Application.PreviewForkApprovalEnabled {
 			// Default policy (INV-010): fork PRs deploy nothing at all.
 			return "fork ignored (enable preview_fork_approval_enabled to allow approvals)", nil
 		}
 
-		preview, err := h.Store.UpsertPreview(ctx, store.UpsertPreviewParams{
-			ApplicationID: app.Resource.ID, Provider: store.GitProviderGithub, PrID: int32(event.Number),
-			SourceBranch: &event.PullRequest.Head.Ref, HeadSha: &event.PullRequest.Head.SHA,
-			IsFork: isFork,
+		var repoRef *string
+		if event.RepoReference != "" {
+			repoRef = &event.RepoReference
+		}
+		preview, err := q.UpsertPreview(ctx, store.UpsertPreviewParams{
+			ApplicationID: app.Resource.ID, Provider: provider, PrID: int32(event.Number),
+			SourceBranch: &event.HeadRef, HeadSha: &event.HeadSHA,
+			IsFork: event.IsFork, RepoReference: repoRef,
 		})
 		if err != nil {
 			return "", err
+		}
+		// A label event on a preview already serving this SHA changes
+		// nothing: redeploying it would only churn the instance.
+		if event.Action == "labeled" &&
+			(preview.Status == store.PreviewStatusActive || preview.Status == store.PreviewStatusDeploying) &&
+			preview.HeadSha != nil && *preview.HeadSha == event.HeadSHA {
+			return "already deployed at this SHA", nil
 		}
 		// The URL and the access credential are settled BEFORE the fork gate:
 		// a maintainer decides on a preview they can already see the address
 		// of, and an approval arriving later must not find a preview that
 		// deploys with no URL at all. Nothing here builds or injects anything.
-		if err := h.ensurePreviewScaffolding(ctx, app, &preview); err != nil {
+		if err := ensurePreviewScaffolding(ctx, q, keyring, app, &preview); err != nil {
 			return "", err
 		}
-		if isFork && !preview.ForkApprovedAt.Valid {
+		if event.IsFork && !preview.ForkApprovedAt.Valid {
 			return "fork waiting for maintainer approval (INV-010)", nil
 		}
-		promoted, reason, err := TryPromotePreview(ctx, h.Store, h.Logger, app, preview)
+		promoted, reason, err := TryPromotePreview(ctx, q, logger, app, preview)
 		if err != nil {
 			return "", err
 		}
-		feedback := &PreviewFeedback{Store: h.Store, Keyring: h.Keyring, Logger: h.Logger}
+		feedback := &PreviewFeedback{Store: q, Keyring: keyring, Logger: logger}
 		if !promoted {
 			feedback.Notify(ctx, app, preview, "queued")
 			return "queued: " + reason, nil
@@ -192,11 +222,13 @@ func (h *GithubAppPullRequest) handleForApplication(ctx context.Context, app sto
 
 // ensurePreviewScaffolding gives the preview its URL and the application its
 // generated protection credential (§20.4.4) — both once.
-func (h *GithubAppPullRequest) ensurePreviewScaffolding(ctx context.Context, app store.GetApplicationByIDRow, preview *store.Preview) error {
+func ensurePreviewScaffolding(ctx context.Context, q *store.Queries, keyring *envelope.Keyring,
+	app store.GetApplicationByIDRow, preview *store.Preview,
+) error {
 	if preview.Fqdn == nil || *preview.Fqdn == "" {
-		fqdn, err := h.previewFQDN(ctx, app, int(preview.PrID))
+		fqdn, err := previewFQDN(ctx, q, app, int(preview.PrID))
 		if err == nil && fqdn != "" {
-			_ = h.Store.SetPreviewFqdn(ctx, store.SetPreviewFqdnParams{ID: preview.ID, Fqdn: &fqdn})
+			_ = q.SetPreviewFqdn(ctx, store.SetPreviewFqdnParams{ID: preview.ID, Fqdn: &fqdn})
 			preview.Fqdn = &fqdn
 		}
 	}
@@ -214,11 +246,11 @@ func (h *GithubAppPullRequest) ensurePreviewScaffolding(ctx context.Context, app
 		return err
 	}
 	value := "preview:" + password
-	enc, err := h.Keyring.Encrypt("environment_variables", "value_enc", pguuid.String(u), []byte(value))
+	enc, err := keyring.Encrypt("environment_variables", "value_enc", pguuid.String(u), []byte(value))
 	if err != nil {
 		return err
 	}
-	_, err = h.Store.CreateGeneratedPreviewEnvVar(ctx, store.CreateGeneratedPreviewEnvVarParams{
+	_, err = q.CreateGeneratedPreviewEnvVar(ctx, store.CreateGeneratedPreviewEnvVarParams{
 		Uuid: u, ResourceID: app.Resource.ID, Key: "AKERDOCK_PREVIEW_BASIC_AUTH", ValueEnc: enc,
 	})
 	return err
@@ -227,18 +259,18 @@ func (h *GithubAppPullRequest) ensurePreviewScaffolding(ctx context.Context, app
 // previewFQDN applies the application's URL template (§5.6): {{pr_id}},
 // {{domain}} (first configured domain), {{random}}; the server wildcard is
 // the fallback when the application has no domain.
-func (h *GithubAppPullRequest) previewFQDN(ctx context.Context, app store.GetApplicationByIDRow, prID int) (string, error) {
+func previewFQDN(ctx context.Context, q *store.Queries, app store.GetApplicationByIDRow, prID int) (string, error) {
 	template := app.Application.PreviewUrlTemplate
 	domain := ""
-	if domains, err := h.Store.ListDomainsForApplication(ctx, &app.Resource.ID); err == nil && len(domains) > 0 {
+	if domains, err := q.ListDomainsForApplication(ctx, &app.Resource.ID); err == nil && len(domains) > 0 {
 		domain = domains[0].Fqdn
 	}
 	if domain == "" {
-		dest, err := h.Store.GetDestinationByID(ctx, app.Resource.DestinationID)
+		dest, err := q.GetDestinationByID(ctx, app.Resource.DestinationID)
 		if err != nil {
 			return "", err
 		}
-		server, err := h.Store.GetServerByID(ctx, dest.ServerID)
+		server, err := q.GetServerByID(ctx, dest.ServerID)
 		if err != nil {
 			return "", err
 		}
@@ -297,6 +329,38 @@ func TryPromotePreview(ctx context.Context, q *store.Queries, logger *slog.Logge
 	})
 	if err != nil {
 		return false, "", err
+	}
+	// Cancel-obsolete (§20.4.7, opt-in): the deployment that was building the
+	// previous commit of this PR is now building history. Queued ones are
+	// superseded; running ones are cancelled cooperatively — never past the
+	// traffic switch (§21.1).
+	if app.Application.PreviewCancelObsoleteBuilds {
+		superseded, err := q.SupersedeObsoletePreviewDeployments(ctx, store.SupersedeObsoletePreviewDeploymentsParams{
+			PreviewID: &preview.ID, SupersededByID: &deployment.ID,
+		})
+		if err != nil {
+			return false, "", err
+		}
+		if len(superseded) > 0 {
+			if err := q.CancelJobsForDeployments(ctx, superseded); err != nil {
+				return false, "", err
+			}
+		}
+		running, err := q.ListCancellablePreviewDeploymentIDs(ctx, store.ListCancellablePreviewDeploymentIDsParams{
+			PreviewID: &preview.ID, ID: deployment.ID,
+		})
+		if err != nil {
+			return false, "", err
+		}
+		for _, id := range running {
+			if _, err := q.RequestDeploymentJobCancel(ctx, id); err != nil {
+				return false, "", err
+			}
+		}
+		if len(superseded) > 0 || len(running) > 0 {
+			logger.Info("obsolete preview builds cancelled",
+				"preview", pguuid.String(preview.Uuid), "superseded", len(superseded), "cancelling", len(running))
+		}
 	}
 	// Its own lock: a preview deploys NEXT TO production, never serialized
 	// against it — but two deployments of the same preview are.

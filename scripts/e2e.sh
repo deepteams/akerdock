@@ -35,7 +35,7 @@
 set -uo pipefail
 
 ROOT_DIR=$(cd "$(dirname "$0")/.." && pwd)
-SHARDS=(deploy build data platform compose github)
+SHARDS=(deploy build data platform compose github forge)
 LOG_DIR=$(mktemp -d)
 
 run_shard() { # run_shard NAME — one isolated stack, one slice of the suite

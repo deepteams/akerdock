@@ -833,7 +833,7 @@ La colonne « Sections » renvoie aux exigences de ce document qui définissent 
 | Git/build packs/webhooks | §5.1–5.6 | P1 | À faire | Matrice providers/build packs |
 | Databases/backups/restore | §6–7 | P1 | À faire | E2E par moteur supporté |
 | Compose/services/templates | §5.2, §9 | P2 | À faire | Conformance fixtures Compose |
-| Previews PR enrichies (compose, données éphémères, TTL/caps, protection, checks, forks approuvés) | §5.6, §20.4, §27.11 | P2 | À faire | E2E multi-providers + tests sécurité fork/accès |
+| Previews PR enrichies (compose, données éphémères, TTL/caps, protection, checks, forks approuvés) | §5.6, §20.4, §27.11 | P2 | Conforme (hors scale-to-zero, DEVRAIT différé — ADR-011) | E2E multi-providers (shards `github` + `forge` : GitLab/Gitea, feedback, commandes, compose éphémère) + sécurité fork/accès |
 | Backups volumes + Redis/ClickHouse + restore drills | §20.5, §27.14 | P1 | À faire | E2E backup/restore + drill automatisé |
 | Config as code + Terraform officiel | §24.5, §27.12 | P2 | À faire | Round-trip export→apply + tests provider |
 | Adoption de ressources existantes | §20.7, §27.13 | P2 | Conforme | E2E adoption compose multi-services sans perte (shard `platform`) |

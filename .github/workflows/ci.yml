@@ -99,7 +99,7 @@ jobs:
     strategy:
       fail-fast: false # a failing shard must not hide the state of the others
       matrix:
-        shard: [deploy, build, data, platform, compose, github]
+        shard: [deploy, build, data, platform, compose, github, forge]
     name: e2e (${{ matrix.shard }})
     steps:
       - uses: actions/checkout@v4

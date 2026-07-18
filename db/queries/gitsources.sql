@@ -14,6 +14,25 @@ RETURNING *;
 -- name: GetGitSourceByID :one
 SELECT * FROM git_sources WHERE id = $1;
 
+-- name: SetApplicationGitSource :exec
+-- Links an application to a git source after creation — used when a provider
+-- API token arrives on an application whose public repository needed no source
+-- row until now (amendment 31).
+UPDATE applications SET git_source_id = $2 WHERE id = $1;
+
+-- name: SetGitSourceAPIURL :exec
+-- Self-hosted API endpoint (protocols §4.1/§6.1); NULL falls back to the
+-- derivation from the repository host.
+UPDATE git_sources SET api_url = sqlc.narg(api_url), updated_at = now()
+WHERE id = $1;
+
+-- name: SetGitSourceAPIToken :exec
+-- Write-only provider API token (INV-003): stored envelope-encrypted, NULL
+-- removes it. Funds the degraded preview feedback and command rights checks
+-- (protocols §3-§6).
+UPDATE git_sources SET api_token_enc = sqlc.narg(api_token_enc), updated_at = now()
+WHERE id = $1;
+
 -- name: CountApplicationsUsingPrivateKey :one
 -- Applications cloning through a deploy key backed by this key. A key still
 -- in use is not deletable (§19.2) — reported as a conflict, not as a foreign

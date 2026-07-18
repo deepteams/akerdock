@@ -146,7 +146,7 @@ func (q *Queries) CreateDraftGithubApp(ctx context.Context, arg CreateDraftGithu
 const createGithubAppSource = `-- name: CreateGithubAppSource :one
 INSERT INTO git_sources (team_id, name, kind, provider, api_url, html_url, github_app_id, created_by)
 VALUES ($1, $2, 'github_app', 'github', $3, $4, $5, $6)
-RETURNING id, uuid, team_id, name, kind, provider, api_url, html_url, private_key_id, github_app_id, created_by, updated_by, created_at, updated_at, version
+RETURNING id, uuid, team_id, name, kind, provider, api_url, html_url, private_key_id, github_app_id, created_by, updated_by, created_at, updated_at, version, api_token_enc
 `
 
 type CreateGithubAppSourceParams struct {
@@ -185,6 +185,7 @@ func (q *Queries) CreateGithubAppSource(ctx context.Context, arg CreateGithubApp
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.ApiTokenEnc,
 	)
 	return i, err
 }
@@ -220,7 +221,7 @@ func (q *Queries) DeleteVanishedRepositories(ctx context.Context, arg DeleteVani
 }
 
 const getGitSourceForGithubApp = `-- name: GetGitSourceForGithubApp :one
-SELECT id, uuid, team_id, name, kind, provider, api_url, html_url, private_key_id, github_app_id, created_by, updated_by, created_at, updated_at, version FROM git_sources WHERE github_app_id = $1
+SELECT id, uuid, team_id, name, kind, provider, api_url, html_url, private_key_id, github_app_id, created_by, updated_by, created_at, updated_at, version, api_token_enc FROM git_sources WHERE github_app_id = $1
 `
 
 func (q *Queries) GetGitSourceForGithubApp(ctx context.Context, githubAppID *int64) (GitSource, error) {
@@ -242,6 +243,7 @@ func (q *Queries) GetGitSourceForGithubApp(ctx context.Context, githubAppID *int
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.ApiTokenEnc,
 	)
 	return i, err
 }
