@@ -29,7 +29,15 @@ func SecurityHeaders(hsts bool) func(http.Handler) http.Handler {
 		"object-src 'none'; " +
 		"frame-ancestors 'none'; " +
 		"base-uri 'self'; " +
-		"form-action 'self'"
+		// The GitHub App manifest flow (git-webhook-protocols §2.1) is, by
+		// design, a browser FORM POST to github.com — or to any GitHub
+		// Enterprise host the operator configures at runtime, so the target
+		// cannot be enumerated here. 'self' alone blocks that submit silently
+		// (a console-only CSP violation, the page just hangs). https: keeps
+		// plain-http exfiltration blocked while letting the flow leave;
+		// script injection, the channel that would abuse it, stays hard-closed
+		// by script-src 'self'.
+		"form-action 'self' https:"
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

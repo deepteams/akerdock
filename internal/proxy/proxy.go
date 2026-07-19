@@ -24,10 +24,11 @@ type Route struct {
 type RouteGroup struct {
 	AppUUID string
 	// WildcardDomain and DNSProvider describe the server's wildcard, when it
-	// has one. A route under that wildcard is issued over DNS-01: a wildcard
-	// cannot be validated over HTTP-01 — the CA has no single host to ask — so
-	// asking for one anyway would produce a route that silently serves the
-	// self-signed fallback forever (§7.2).
+	// has one. With a DNSProvider, a route under the wildcard rides the single
+	// DNS-01 wildcard certificate. Without one, the wildcard is only a naming
+	// template: every route — under the wildcard or not — gets its own
+	// per-router HTTP-01 certificate (§7.2), which is why the resolver choice
+	// below checks BOTH fields.
 	WildcardDomain string
 	DNSProvider    string
 	// Endpoint is the service target: the container name in the stable

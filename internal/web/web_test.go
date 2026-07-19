@@ -18,16 +18,43 @@ func TestHandlerServesIndexAssetsAndSPARoutes(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	for _, tc := range []struct {
+	// Hashed asset names change on EVERY rebuild of the dashboard: the test
+	// must discover them in the embedded build, or it breaks at the first
+	// redesign for reasons that have nothing to do with the handler.
+	var hashedAssets []string
+	entries, err := fs.ReadDir(dist, "dist")
+	if err != nil {
+		t.Fatalf("reading the embedded build: %v", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, "chunk-") && strings.HasSuffix(name, ".js") {
+			hashedAssets = append(hashedAssets, "/"+name)
+			break
+		}
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, "styles-") && strings.HasSuffix(name, ".css") {
+			hashedAssets = append(hashedAssets, "/"+name)
+			break
+		}
+	}
+	if len(hashedAssets) != 2 {
+		t.Fatalf("expected a chunk-*.js and a styles-*.css in the embedded build, found %v", hashedAssets)
+	}
+
+	cases := []struct {
 		path         string
 		content      string
 		cacheControl string
 	}{
 		{"/", "<!doctype html>", "no-cache"},
 		{"/applications/example/settings", "<!doctype html>", "no-cache"},
-		{"/chunk-D54LGOLI.js", "", "public, max-age=31536000, immutable"},
-		{"/styles-YB2YLKR2.css", "", "public, max-age=31536000, immutable"},
-	} {
+		{hashedAssets[0], "", "public, max-age=31536000, immutable"},
+		{hashedAssets[1], "", "public, max-age=31536000, immutable"},
+	}
+	for _, tc := range cases {
 		response, err := http.Get(server.URL + tc.path)
 		if err != nil {
 			t.Fatalf("GET %s: %v", tc.path, err)

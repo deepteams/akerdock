@@ -3643,7 +3643,7 @@ export interface components {
             private_key_uuid: string;
             /** @default 30 */
             ssh_timeout_seconds: number;
-            /** @description Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). **Requis** dès qu'un `wildcard_domain` est défini : un wildcard ne peut pas être émis en HTTP-01, la CA n'ayant aucun hôte unique à interroger. */
+            /** @description Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). Optionnel même avec un `wildcard_domain` (amendement) : sans credential, le wildcard n'est qu'un gabarit de nommage et chaque hôte attribué reçoit son propre certificat individuel via HTTP-01 (proxy-contract §7.2) — hôtes joignables publiquement sur le port HTTP requis, limites d'émission de la CA par hôte. Avec credential, un unique certificat wildcard est émis en DNS-01. */
             dns_credential_uuid?: string | null;
             /**
              * @description Serveur dédié au build (§3.4) — ne peut pas héberger d'applications.
@@ -3678,7 +3678,7 @@ export interface components {
             user?: string;
             private_key_uuid?: string;
             ssh_timeout_seconds?: number;
-            /** @description Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). **Requis** dès qu'un `wildcard_domain` est défini : un wildcard ne peut pas être émis en HTTP-01, la CA n'ayant aucun hôte unique à interroger. */
+            /** @description Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). Optionnel même avec un `wildcard_domain` (amendement) : sans credential, le wildcard n'est qu'un gabarit de nommage et chaque hôte attribué reçoit son propre certificat individuel via HTTP-01 (proxy-contract §7.2) — hôtes joignables publiquement sur le port HTTP requis, limites d'émission de la CA par hôte. Avec credential, un unique certificat wildcard est émis en DNS-01. */
             dns_credential_uuid?: string | null;
             is_build_server?: boolean;
             wildcard_domain?: string | null;
@@ -3707,7 +3707,7 @@ export interface components {
             user: string;
             private_key_uuid: string;
             ssh_timeout_seconds?: number;
-            /** @description Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). **Requis** dès qu'un `wildcard_domain` est défini : un wildcard ne peut pas être émis en HTTP-01, la CA n'ayant aucun hôte unique à interroger. */
+            /** @description Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). Optionnel même avec un `wildcard_domain` (amendement) : sans credential, le wildcard n'est qu'un gabarit de nommage et chaque hôte attribué reçoit son propre certificat individuel via HTTP-01 (proxy-contract §7.2) — hôtes joignables publiquement sur le port HTTP requis, limites d'émission de la CA par hôte. Avec credential, un unique certificat wildcard est émis en DNS-01. */
             dns_credential_uuid?: string | null;
             is_build_server?: boolean;
             /** @description Vrai pour le serveur `localhost` pré-enregistré à l'amorçage (instance-config §6.2) — la machine hébergeant l'instance. Jamais positionnable par l'API. */

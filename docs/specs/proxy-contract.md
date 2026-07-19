@@ -585,7 +585,8 @@ Conforme deployment-engine §7.2 étape 4 :
 
 ### 7.2 DNS-01 (wildcard)
 
-- Obligatoire pour tout certificat wildcard (§4.3 PRD). Un resolver `dns01-<provider>` par provider DNS utilisé sur le serveur, `provider` = identifiant **Lego** (cloudflare, route53, ovh, hetzner, …).
+- Obligatoire pour tout **certificat** wildcard (§4.3 PRD). Un resolver `dns01-<provider>` par provider DNS utilisé sur le serveur, `provider` = identifiant **Lego** (cloudflare, route53, ovh, hetzner, …).
+- **Un `wildcard_domain` sans credential DNS-01 est accepté** (amendement de spec) : le domaine ne sert alors que de **gabarit de nommage** — chaque hôte attribué sous le wildcard reçoit son **propre certificat individuel via HTTP-01** (§7.1, `certResolver: http01` par routeur). Contreparties assumées, à afficher à l'opérateur : chaque hôte doit être joignable publiquement sur le port HTTP du serveur (l'ACME HTTP-01 l'exige), et les limites d'émission de la CA s'appliquent **par hôte** (~50 certificats/domaine enregistré/semaine chez Let's Encrypt) — un usage intensif des previews peut les épuiser, là où un certificat wildcard n'en consomme qu'un.
 - **Credentials** : stockés dans le secret store (chiffrement enveloppe, §23.2 — table `cloud_credentials`, référencée par `certificates.dns_credential_id`, data dictionary §6.7), référencés par `credentials_ref` dans l'IR ; matérialisés à la génération en `/data/akerdock/proxy/acme.env` (**emplacement normatif**, 0600, SFTP) sous les noms de variables attendus par Lego (ex. `CF_DNS_API_TOKEN=…`), injectés au container proxy par `--env-file` (§1.3). Jamais dans `proxy_config_revisions.content`, jamais dans argv (INV-003/012). Rotation d'un credential = régénération du fichier + recréation du container.
 - Un certificat wildcard est demandé via `tls.domains` sur un routeur qui le référence (exemple §5.5).
 

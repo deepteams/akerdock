@@ -8370,9 +8370,13 @@ components:
           nullable: true
           description: >-
             Credential DNS-01 utilisé pour les wildcards de ce serveur
-            (amendement n°21). **Requis** dès qu'un `wildcard_domain` est
-            défini : un wildcard ne peut pas être émis en HTTP-01, la CA n'ayant
-            aucun hôte unique à interroger.
+            (amendement n°21). Optionnel même avec un `wildcard_domain`
+            (amendement) : sans credential, le wildcard n'est qu'un gabarit de
+            nommage et chaque hôte attribué reçoit son propre certificat
+            individuel via HTTP-01 (proxy-contract §7.2) — hôtes joignables
+            publiquement sur le port HTTP requis, limites d'émission de la CA
+            par hôte. Avec credential, un unique certificat wildcard est émis
+            en DNS-01.
         is_build_server:
           type: boolean
           default: false
@@ -8431,9 +8435,13 @@ components:
           nullable: true
           description: >-
             Credential DNS-01 utilisé pour les wildcards de ce serveur
-            (amendement n°21). **Requis** dès qu'un `wildcard_domain` est
-            défini : un wildcard ne peut pas être émis en HTTP-01, la CA n'ayant
-            aucun hôte unique à interroger.
+            (amendement n°21). Optionnel même avec un `wildcard_domain`
+            (amendement) : sans credential, le wildcard n'est qu'un gabarit de
+            nommage et chaque hôte attribué reçoit son propre certificat
+            individuel via HTTP-01 (proxy-contract §7.2) — hôtes joignables
+            publiquement sur le port HTTP requis, limites d'émission de la CA
+            par hôte. Avec credential, un unique certificat wildcard est émis
+            en DNS-01.
         is_build_server:
           type: boolean
         wildcard_domain:
@@ -8509,9 +8517,13 @@ components:
           nullable: true
           description: >-
             Credential DNS-01 utilisé pour les wildcards de ce serveur
-            (amendement n°21). **Requis** dès qu'un `wildcard_domain` est
-            défini : un wildcard ne peut pas être émis en HTTP-01, la CA n'ayant
-            aucun hôte unique à interroger.
+            (amendement n°21). Optionnel même avec un `wildcard_domain`
+            (amendement) : sans credential, le wildcard n'est qu'un gabarit de
+            nommage et chaque hôte attribué reçoit son propre certificat
+            individuel via HTTP-01 (proxy-contract §7.2) — hôtes joignables
+            publiquement sur le port HTTP requis, limites d'émission de la CA
+            par hôte. Avec credential, un unique certificat wildcard est émis
+            en DNS-01.
         is_build_server:
           type: boolean
         is_localhost:

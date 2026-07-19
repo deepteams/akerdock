@@ -3675,7 +3675,7 @@ type Server struct {
 	CreatedAt            *time.Time `json:"created_at,omitempty"`
 	Description          *string    `json:"description,omitempty"`
 
-	// DnsCredentialUuid Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). **Requis** dès qu'un `wildcard_domain` est défini : un wildcard ne peut pas être émis en HTTP-01, la CA n'ayant aucun hôte unique à interroger.
+	// DnsCredentialUuid Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). Optionnel même avec un `wildcard_domain` (amendement) : sans credential, le wildcard n'est qu'un gabarit de nommage et chaque hôte attribué reçoit son propre certificat individuel via HTTP-01 (proxy-contract §7.2) — hôtes joignables publiquement sur le port HTTP requis, limites d'émission de la CA par hôte. Avec credential, un unique certificat wildcard est émis en DNS-01.
 	DnsCredentialUuid *string `json:"dns_credential_uuid,omitempty"`
 
 	// DockerVersion Version de Docker Engine détectée (≥ 24 requise, §3.1).
@@ -3730,7 +3730,7 @@ type ServerStatus string
 type ServerCreate struct {
 	Description *string `json:"description,omitempty"`
 
-	// DnsCredentialUuid Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). **Requis** dès qu'un `wildcard_domain` est défini : un wildcard ne peut pas être émis en HTTP-01, la CA n'ayant aucun hôte unique à interroger.
+	// DnsCredentialUuid Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). Optionnel même avec un `wildcard_domain` (amendement) : sans credential, le wildcard n'est qu'un gabarit de nommage et chaque hôte attribué reçoit son propre certificat individuel via HTTP-01 (proxy-contract §7.2) — hôtes joignables publiquement sur le port HTTP requis, limites d'émission de la CA par hôte. Avec credential, un unique certificat wildcard est émis en DNS-01.
 	DnsCredentialUuid *string `json:"dns_credential_uuid,omitempty"`
 
 	// Host Adresse IP ou FQDN joignable en SSH.
@@ -3810,7 +3810,7 @@ type ServerUpdate struct {
 	CleanupPruneVolumes *bool   `json:"cleanup_prune_volumes,omitempty"`
 	Description         *string `json:"description,omitempty"`
 
-	// DnsCredentialUuid Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). **Requis** dès qu'un `wildcard_domain` est défini : un wildcard ne peut pas être émis en HTTP-01, la CA n'ayant aucun hôte unique à interroger.
+	// DnsCredentialUuid Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). Optionnel même avec un `wildcard_domain` (amendement) : sans credential, le wildcard n'est qu'un gabarit de nommage et chaque hôte attribué reçoit son propre certificat individuel via HTTP-01 (proxy-contract §7.2) — hôtes joignables publiquement sur le port HTTP requis, limites d'émission de la CA par hôte. Avec credential, un unique certificat wildcard est émis en DNS-01.
 	DnsCredentialUuid *string                `json:"dns_credential_uuid,omitempty"`
 	Host              *string                `json:"host,omitempty"`
 	IsBuildServer     *bool                  `json:"is_build_server,omitempty"`

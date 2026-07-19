@@ -318,7 +318,10 @@ const EXPIRY_WARN_DAYS = 14;
                       [disabled]="busy() || proxyType === 'none'"
                     />
                     <span class="akd-field__hint">
-                      Wildcards cannot be validated over HTTP-01 — a DNS-01 credential is required.
+                      With a DNS-01 credential: one wildcard certificate covers every host. Without:
+                      the wildcard is only a naming template — each assigned host gets its own
+                      HTTP-01 certificate (hosts must be publicly reachable on the HTTP port; CA
+                      rate limits apply per host).
                     </span>
                   </div>
                   <div class="akd-field">

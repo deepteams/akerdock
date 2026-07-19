@@ -126,10 +126,12 @@ func (a *API) CreateServer(w http.ResponseWriter, r *http.Request, params api.Cr
 		return
 	}
 
-	// A wildcard cannot be validated over HTTP-01: the CA has no single host to
-	// ask. Accepting a wildcard_domain without a DNS credential would leave
-	// every preview URL serving the self-signed fallback, forever, with nothing
-	// anywhere saying why (proxy-contract §7.2).
+	// A wildcard_domain without a DNS credential is a NAMING template, not a
+	// wildcard certificate: each assigned host gets its own HTTP-01
+	// certificate, per router (proxy-contract §7.2). The trade-offs (public
+	// reachability, per-host CA rate limits) are the operator's to weigh —
+	// refusing the combination here would force a DNS provider on setups that
+	// neither have nor need one.
 	var dnsCredentialID *int64
 	if body.DnsCredentialUuid != nil && *body.DnsCredentialUuid != "" {
 		cred, ok := a.resolveDNSCredential(w, r, id, *body.DnsCredentialUuid)
@@ -140,12 +142,6 @@ func (a *API) CreateServer(w http.ResponseWriter, r *http.Request, params api.Cr
 	}
 
 	var details []api.ErrorDetail
-	if body.WildcardDomain != nil && *body.WildcardDomain != "" && dnsCredentialID == nil {
-		details = append(details, api.ErrorDetail{
-			Field: ptr("dns_credential_uuid"), Code: ptr("required"),
-			Message: "a wildcard domain needs a DNS-01 credential: a wildcard certificate cannot be issued over HTTP-01 (proxy-contract §7.2)",
-		})
-	}
 	if body.Name == "" || len(body.Name) > 255 {
 		details = append(details, api.ErrorDetail{Field: ptr("name"), Code: ptr("required"), Message: "name must be non-empty and at most 255 characters"})
 	}
@@ -337,9 +333,10 @@ func (a *API) UpdateServer(w http.ResponseWriter, r *http.Request, serverUuid ap
 	if connectivityChanged {
 		status = store.ServerStatusPending
 	}
-	// Same rule as at creation, and it must hold on a PATCH too: removing the
-	// credential while a wildcard stands would leave the renewals to fail, and
-	// the failure would surface at expiry (proxy-contract §7.2).
+	// Same rule as at creation: a wildcard without a credential falls back to
+	// per-host HTTP-01 certificates (proxy-contract §7.2). Removing the
+	// credential is therefore allowed — routers switch resolver as their
+	// dynamic config is regenerated, i.e. at the next deployment of each app.
 	if body.DnsCredentialUuid != nil {
 		if *body.DnsCredentialUuid == "" {
 			next.DnsCredentialID = nil
@@ -350,13 +347,6 @@ func (a *API) UpdateServer(w http.ResponseWriter, r *http.Request, serverUuid ap
 			}
 			next.DnsCredentialID = &cred.ID
 		}
-	}
-	if next.WildcardDomain != nil && *next.WildcardDomain != "" && next.DnsCredentialID == nil {
-		httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
-			Field: ptr("dns_credential_uuid"), Code: ptr("required"),
-			Message: "a wildcard domain needs a DNS-01 credential: a wildcard certificate cannot be issued over HTTP-01 (proxy-contract §7.2)",
-		}})
-		return
 	}
 
 	// Automated cleanup settings (§3.7). The cron is validated with the SAME

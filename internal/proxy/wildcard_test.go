@@ -1,6 +1,9 @@
 package proxy
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestUnderWildcard(t *testing.T) {
 	tests := []struct {
@@ -50,5 +53,29 @@ func TestUnderWildcard(t *testing.T) {
 				t.Errorf("underWildcard(%q, %q) = %v, want %v", tt.fqdn, tt.domain, got, tt.want)
 			}
 		})
+	}
+}
+
+// A wildcard_domain WITHOUT a DNS provider is a naming template, not a
+// wildcard certificate (§7.2): every host under it must fall back to its own
+// per-router HTTP-01 certificate, and no tls.domains block may ask the CA for
+// a wildcard it cannot issue that way.
+func TestWildcardWithoutDNSProviderFallsBackToHTTP01(t *testing.T) {
+	out := GenerateDynamic(RouteGroup{
+		AppUUID:        "9f3c2a1e",
+		WildcardDomain: "ad.kedric.fr",
+		DNSProvider:    "",
+		Routes: []Route{
+			{FQDN: "app.ad.kedric.fr", Path: "/", TargetPort: 3000},
+		},
+	}, 1)
+
+	if !strings.Contains(out, "certResolver: http01") {
+		t.Fatalf("expected the per-host http01 resolver, got:\n%s", out)
+	}
+	for _, forbidden := range []string{"domains:", "sans:", "dns01"} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("a wildcard certificate must not be requested without DNS-01 (%q found):\n%s", forbidden, out)
+		}
 	}
 }
