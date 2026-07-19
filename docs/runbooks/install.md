@@ -33,14 +33,16 @@ chmod 0700 /data/akerdock/keys
 
 ### 2. Générer la clé maître de chiffrement (ADR-003, §23.2, §27.3)
 
-Fichier root-only, une ligne par version de clé au format `<version>:<clé base64 32 octets>` **(normatif : spec [instance-config](../specs/instance-config.md) §3)** :
+Une ligne par version de clé au format `<version>:<clé base64 32 octets>` **(normatif : spec [instance-config](../specs/instance-config.md) §3)**. Le fichier est monté en lecture seule dans le conteneur `akerdock`, qui tourne en **nonroot distroless (uid 65532)** : il doit appartenir à cet uid, sinon le démarrage échoue avec `master key file … permission denied` :
 
 ```sh
 umask 077
 printf '1:%s\n' "$(openssl rand -base64 32)" > /data/akerdock/keys/master.key
-chown root:root /data/akerdock/keys/master.key
+chown 65532:65532 /data/akerdock/keys/master.key
 chmod 0600 /data/akerdock/keys/master.key
 ```
+
+(root lit le fichier quelles que soient ses permissions — le backup hors machine reste possible.)
 
 ⚠️ **Point de non-retour différé** : à partir du moment où le premier secret sera stocké, **la perte de ce fichier rend tous les secrets irrécupérables** (ADR-003). Copier immédiatement `master.key` dans un emplacement sûr **hors de la machine** (gestionnaire de mots de passe d'équipe, coffre), **séparé des backups de la base** (un attaquant qui obtient les deux lit tout, §23.1).
 

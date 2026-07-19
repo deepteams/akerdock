@@ -25,6 +25,24 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
+// refuseUndeliverableSession refuses to open a session whose cookie the
+// browser would silently drop: Secure cookies (implied by a configured FQDN)
+// over plain HTTP produce a 200 login followed by nothing but 401s, with no
+// trace of why. Failing HERE, with the reason, is the only honest answer.
+// Returns true when the request was refused.
+func (a *API) refuseUndeliverableSession(w http.ResponseWriter, r *http.Request) bool {
+	if a.Sessions == nil || !a.Sessions.CookiesWouldBeDropped(r) {
+		return false
+	}
+	a.Logger.Warn("login refused: Secure session cookie would be dropped over plain HTTP",
+		"host", r.Host, "ip", r.RemoteAddr)
+	httpapi.WriteError(w, r, http.StatusBadRequest, "https_required",
+		"this instance has a FQDN configured, so its session cookie is marked Secure — "+
+			"but this request came over plain HTTP and the browser would never send the cookie back. "+
+			"Serve the dashboard over HTTPS (or clear the instance FQDN to run plain HTTP).")
+	return true
+}
+
 // Login implements POST /auth/login.
 //
 // Rate limiting matters here more than anywhere: this is the only endpoint that
@@ -33,6 +51,9 @@ type loginRequest struct {
 func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 	if a.Sessions == nil {
 		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "not found")
+		return
+	}
+	if a.refuseUndeliverableSession(w, r) {
 		return
 	}
 	var body loginRequest

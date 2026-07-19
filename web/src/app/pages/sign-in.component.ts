@@ -13,6 +13,8 @@ const OAUTH_ERRORS: Record<string, string> = {
   registration_disabled: 'Registration is disabled on this instance.',
   email_unverified: 'The identity provider reported no verified email for this account.',
   oauth_failed: 'Sign-in through the identity provider failed.',
+  https_required:
+    'This instance expects HTTPS (a FQDN is configured), but you reached it over plain HTTP — the session cookie would be dropped. Use https://, or clear the instance FQDN.',
 };
 
 @Component({

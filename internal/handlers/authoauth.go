@@ -127,6 +127,14 @@ func (a *API) OauthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A browser navigation, not an XHR: the refusal must land on the sign-in
+	// page as a readable error, not as a JSON body nobody renders.
+	if a.Sessions.CookiesWouldBeDropped(r) {
+		a.Logger.Warn("oauth login refused: Secure session cookie would be dropped over plain HTTP",
+			"provider", provider, "host", r.Host)
+		http.Redirect(w, r, "/sign-in?error=https_required", http.StatusSeeOther)
+		return
+	}
 	a.Sessions.SetCookies(w, result.SessionToken, result.Session.CSRFToken)
 	a.Logger.Info("session opened by oauth", "provider", provider, "user", result.Session.Email, "team_id", result.Session.TeamID)
 	http.Redirect(w, r, "/", http.StatusSeeOther)

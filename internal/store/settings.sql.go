@@ -41,3 +41,41 @@ func (q *Queries) SetApiEnabled(ctx context.Context, apiEnabled bool) (InstanceS
 	)
 	return i, err
 }
+
+const setInstanceIdentity = `-- name: SetInstanceIdentity :one
+UPDATE instance_settings
+SET fqdn = $1, acme_email = $2, updated_at = now(), version = version + 1
+WHERE id = 1
+RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded
+`
+
+type SetInstanceIdentityParams struct {
+	Fqdn      *string
+	AcmeEmail *string
+}
+
+// FQDN + contact ACME (§14.2) : la base fait foi après le premier démarrage,
+// c'est donc ici — et nulle part ailleurs — qu'ils se modifient.
+func (q *Queries) SetInstanceIdentity(ctx context.Context, arg SetInstanceIdentityParams) (InstanceSetting, error) {
+	row := q.db.QueryRow(ctx, setInstanceIdentity, arg.Fqdn, arg.AcmeEmail)
+	var i InstanceSetting
+	err := row.Scan(
+		&i.ID,
+		&i.Fqdn,
+		&i.Timezone,
+		&i.RegistrationEnabled,
+		&i.ApiEnabled,
+		&i.DnsValidationServer,
+		&i.TransactionalEmailConfigEnc,
+		&i.AutoUpdateEnabled,
+		&i.AutoUpdateCron,
+		&i.OnboardingCompletedAt,
+		&i.UpdatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+		&i.AcmeEmail,
+		&i.LocalhostSeeded,
+	)
+	return i, err
+}

@@ -305,6 +305,42 @@ func (m *Manager) VerifyCSRF(ctx context.Context, r *http.Request) error {
 	return nil
 }
 
+// CookiesWouldBeDropped says whether the session cookies this manager mints
+// can never come back on requests like this one: a Secure cookie set over
+// plain HTTP is stored by the browser and then silently never sent — the
+// login "succeeds" into a permanent 401 with nothing in the logs. The check
+// recognizes TLS terminated by a fronting proxy through X-Forwarded-Proto.
+//
+// Loopback is exempt on purpose: browsers treat http://localhost as a secure
+// context and DO deliver Secure cookies there, and an SSH tunnel to localhost
+// is THE emergency door when the TLS front of the instance is down — a rule
+// that locked that door would turn a proxy outage into a control-plane
+// lockout.
+func (m *Manager) CookiesWouldBeDropped(r *http.Request) bool {
+	if !m.Secure || r.TLS != nil {
+		return false
+	}
+	if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		return false
+	}
+	return !isLoopbackHost(r.Host)
+}
+
+// isLoopbackHost says whether the requested host is the local machine —
+// localhost, *.localhost, 127.0.0.0/8 or ::1, with or without a port.
+func isLoopbackHost(hostport string) bool {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // SetCookies writes the session and CSRF cookies.
 func (m *Manager) SetCookies(w http.ResponseWriter, token, csrf string) {
 	http.SetCookie(w, &http.Cookie{

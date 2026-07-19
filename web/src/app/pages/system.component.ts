@@ -38,6 +38,50 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
 
       <div class="cols">
         <div class="col">
+          <akd-card title="Instance">
+            <form class="stack" (ngSubmit)="saveInstance()">
+              <div class="akd-field">
+                <label class="akd-field__label" for="inst-fqdn">FQDN</label>
+                <input
+                  id="inst-fqdn"
+                  name="fqdn"
+                  class="akd-input akd-input--mono"
+                  placeholder="deploy.example.com"
+                  [(ngModel)]="instanceFqdn"
+                  [disabled]="busy()"
+                />
+                <span class="akd-field__hint">
+                  A non-empty FQDN means an HTTPS instance: session cookies become Secure (at the
+                  next restart of the binary) and invitation / OAuth URLs are built with https://.
+                  Leave empty to allow plain HTTP — trusted networks only.
+                </span>
+              </div>
+              <div class="akd-field">
+                <label class="akd-field__label" for="inst-acme">ACME contact email</label>
+                <input
+                  id="inst-acme"
+                  name="acmeEmail"
+                  class="akd-input akd-input--mono"
+                  placeholder="ops@example.com"
+                  [(ngModel)]="instanceAcmeEmail"
+                  [disabled]="busy()"
+                />
+                <span class="akd-field__hint">
+                  Required before any certificate is issued — Let's Encrypt refuses without a valid
+                  contact.
+                </span>
+              </div>
+              @if (instanceNotice(); as message) {
+                <p class="akd-muted sm" role="status">{{ message }}</p>
+              }
+              <div>
+                <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
+                  Save instance settings
+                </button>
+              </div>
+            </form>
+          </akd-card>
+
           <akd-card title="Transactional email">
             <div class="stack">
               @if (email(); as em) {
@@ -533,6 +577,10 @@ export class SystemComponent {
   protected oauthDisplayName = '';
   protected oauthEnabled = true;
 
+  protected readonly instanceNotice = signal<string | null>(null);
+  protected instanceFqdn = '';
+  protected instanceAcmeEmail = '';
+
   protected emailKind: 'smtp' | 'resend' = 'smtp';
   protected emailFrom = '';
   protected emailTo = '';
@@ -547,14 +595,41 @@ export class SystemComponent {
     void this.load();
   }
 
+  protected async saveInstance(): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.error.set(null);
+    this.instanceNotice.set(null);
+    try {
+      const updated = await this.api.client().setInstanceSettings({
+        fqdn: this.instanceFqdn.trim() || null,
+        acme_email: this.instanceAcmeEmail.trim() || null,
+      });
+      this.instanceFqdn = updated.fqdn ?? '';
+      this.instanceAcmeEmail = updated.acme_email ?? '';
+      this.instanceNotice.set(
+        updated.fqdn
+          ? 'Saved. Session cookie security follows the FQDN at the next restart of the binary.'
+          : 'Saved — no FQDN: plain-HTTP sign-in is allowed after the next restart of the binary.',
+      );
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
   private async load(): Promise<void> {
     const client = this.api.client();
     try {
-      const [email, encryption, oauth] = await Promise.all([
+      const [instance, email, encryption, oauth] = await Promise.all([
+        client.getInstanceSettings(),
         client.getTransactionalEmail(),
         client.getEncryptionStatus(),
         client.listOauthProviders(),
       ]);
+      this.instanceFqdn = instance.fqdn ?? '';
+      this.instanceAcmeEmail = instance.acme_email ?? '';
       this.email.set(email);
       this.encryption.set(encryption);
       this.oauthConfigs.set(oauth.data);

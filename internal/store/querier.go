@@ -657,6 +657,9 @@ type Querier interface {
 	SetGitSourceAPIURL(ctx context.Context, arg SetGitSourceAPIURLParams) error
 	// First of the two redundant installation signals wins (§2.1 step 7).
 	SetGithubAppInstallation(ctx context.Context, arg SetGithubAppInstallationParams) (int64, error)
+	// FQDN + contact ACME (§14.2) : la base fait foi après le premier démarrage,
+	// c'est donc ici — et nulle part ailleurs — qu'ils se modifient.
+	SetInstanceIdentity(ctx context.Context, arg SetInstanceIdentityParams) (InstanceSetting, error)
 	SetLocalhostSeeded(ctx context.Context) (int64, error)
 	SetNotificationCursor(ctx context.Context, lastOutboxEventID int64) error
 	SetPlanDrillResult(ctx context.Context, arg SetPlanDrillResultParams) error

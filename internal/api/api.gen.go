@@ -3046,6 +3046,25 @@ type HealthStatus struct {
 // HealthStatusStatus Toujours `ok` si le control plane répond.
 type HealthStatusStatus string
 
+// InstanceIdentity defines model for InstanceIdentity.
+type InstanceIdentity struct {
+	// AcmeEmail Contact Let's Encrypt (§4.3). Sans lui, aucun certificat n'est émis.
+	AcmeEmail *string `json:"acme_email,omitempty"`
+
+	// Fqdn Nom d'hôte nu, sans schéma ni chemin (ex. `deploy.example.com`). `null` : instance sans FQDN, cookies non-`Secure`, HTTP simple toléré.
+	Fqdn     *string `json:"fqdn,omitempty"`
+	Timezone *string `json:"timezone,omitempty"`
+}
+
+// InstanceIdentityUpdate defines model for InstanceIdentityUpdate.
+type InstanceIdentityUpdate struct {
+	// AcmeEmail Chaîne vide ou `null` — efface le contact.
+	AcmeEmail *string `json:"acme_email,omitempty"`
+
+	// Fqdn Nom d'hôte nu (`[a-z0-9.-]`, au moins un point). Chaîne vide ou `null` : efface le FQDN.
+	Fqdn *string `json:"fqdn,omitempty"`
+}
+
 // Invitation Invitation d'un membre dans une team.
 type Invitation struct {
 	CreatedAt *time.Time          `json:"created_at,omitempty"`
@@ -5220,6 +5239,9 @@ type UpdateSharedVariableJSONRequestBody = SharedVariableUpdate
 // SetTransactionalEmailJSONRequestBody defines body for SetTransactionalEmail for application/json ContentType.
 type SetTransactionalEmailJSONRequestBody = TransactionalEmailSet
 
+// SetInstanceSettingsJSONRequestBody defines body for SetInstanceSettings for application/json ContentType.
+type SetInstanceSettingsJSONRequestBody = InstanceIdentityUpdate
+
 // SetOauthProviderJSONRequestBody defines body for SetOauthProvider for application/json ContentType.
 type SetOauthProviderJSONRequestBody = OauthProviderSet
 
@@ -5845,6 +5867,12 @@ type ServerInterface interface {
 	// Forcer le re-chiffrement vers la version de clé active
 	// (POST /system/encryption/rotate)
 	RotateEncryption(w http.ResponseWriter, r *http.Request, params RotateEncryptionParams)
+	// Réglages d'identité de l'instance
+	// (GET /system/instance)
+	GetInstanceSettings(w http.ResponseWriter, r *http.Request)
+	// Modifier le FQDN et l'email ACME de l'instance
+	// (PUT /system/instance)
+	SetInstanceSettings(w http.ResponseWriter, r *http.Request)
 	// Fournisseurs OAuth/OIDC configurés pour le login du dashboard
 	// (GET /system/oauth-providers)
 	ListOauthProviders(w http.ResponseWriter, r *http.Request)
@@ -6883,6 +6911,18 @@ func (_ Unimplemented) GetEncryptionStatus(w http.ResponseWriter, r *http.Reques
 // Forcer le re-chiffrement vers la version de clé active
 // (POST /system/encryption/rotate)
 func (_ Unimplemented) RotateEncryption(w http.ResponseWriter, r *http.Request, params RotateEncryptionParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Réglages d'identité de l'instance
+// (GET /system/instance)
+func (_ Unimplemented) GetInstanceSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Modifier le FQDN et l'email ACME de l'instance
+// (PUT /system/instance)
+func (_ Unimplemented) SetInstanceSettings(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -14617,6 +14657,46 @@ func (siw *ServerInterfaceWrapper) RotateEncryption(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetInstanceSettings operation middleware
+func (siw *ServerInterfaceWrapper) GetInstanceSettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetInstanceSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetInstanceSettings operation middleware
+func (siw *ServerInterfaceWrapper) SetInstanceSettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetInstanceSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListOauthProviders operation middleware
 func (siw *ServerInterfaceWrapper) ListOauthProviders(w http.ResponseWriter, r *http.Request) {
 
@@ -16067,6 +16147,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/system/encryption/rotate", wrapper.RotateEncryption)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/system/instance", wrapper.GetInstanceSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/system/instance", wrapper.SetInstanceSettings)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/system/oauth-providers", wrapper.ListOauthProviders)
@@ -31840,6 +31926,169 @@ func (response RotateEncryption429JSONResponse) VisitRotateEncryptionResponse(w 
 	return err
 }
 
+type GetInstanceSettingsRequestObject struct {
+}
+
+type GetInstanceSettingsResponseObject interface {
+	VisitGetInstanceSettingsResponse(w http.ResponseWriter) error
+}
+
+type GetInstanceSettings200JSONResponse InstanceIdentity
+
+func (response GetInstanceSettings200JSONResponse) VisitGetInstanceSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetInstanceSettings401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetInstanceSettings401JSONResponse) VisitGetInstanceSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetInstanceSettings403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetInstanceSettings403JSONResponse) VisitGetInstanceSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetInstanceSettings429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetInstanceSettings429JSONResponse) VisitGetInstanceSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetInstanceSettingsRequestObject struct {
+	Body *SetInstanceSettingsJSONRequestBody
+}
+
+type SetInstanceSettingsResponseObject interface {
+	VisitSetInstanceSettingsResponse(w http.ResponseWriter) error
+}
+
+type SetInstanceSettings200JSONResponse InstanceIdentity
+
+func (response SetInstanceSettings200JSONResponse) VisitSetInstanceSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetInstanceSettings400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetInstanceSettings400JSONResponse) VisitSetInstanceSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetInstanceSettings401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SetInstanceSettings401JSONResponse) VisitSetInstanceSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetInstanceSettings403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SetInstanceSettings403JSONResponse) VisitSetInstanceSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetInstanceSettings422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response SetInstanceSettings422JSONResponse) VisitSetInstanceSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetInstanceSettings429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response SetInstanceSettings429JSONResponse) VisitSetInstanceSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListOauthProvidersRequestObject struct {
 }
 
@@ -34056,6 +34305,12 @@ type StrictServerInterface interface {
 	// Forcer le re-chiffrement vers la version de clé active
 	// (POST /system/encryption/rotate)
 	RotateEncryption(ctx context.Context, request RotateEncryptionRequestObject) (RotateEncryptionResponseObject, error)
+	// Réglages d'identité de l'instance
+	// (GET /system/instance)
+	GetInstanceSettings(ctx context.Context, request GetInstanceSettingsRequestObject) (GetInstanceSettingsResponseObject, error)
+	// Modifier le FQDN et l'email ACME de l'instance
+	// (PUT /system/instance)
+	SetInstanceSettings(ctx context.Context, request SetInstanceSettingsRequestObject) (SetInstanceSettingsResponseObject, error)
 	// Fournisseurs OAuth/OIDC configurés pour le login du dashboard
 	// (GET /system/oauth-providers)
 	ListOauthProviders(ctx context.Context, request ListOauthProvidersRequestObject) (ListOauthProvidersResponseObject, error)
@@ -38773,6 +39028,61 @@ func (sh *strictHandler) RotateEncryption(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RotateEncryptionResponseObject); ok {
 		if err := validResponse.VisitRotateEncryptionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetInstanceSettings operation middleware
+func (sh *strictHandler) GetInstanceSettings(w http.ResponseWriter, r *http.Request) {
+	var request GetInstanceSettingsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetInstanceSettings(ctx, request.(GetInstanceSettingsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetInstanceSettings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetInstanceSettingsResponseObject); ok {
+		if err := validResponse.VisitGetInstanceSettingsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetInstanceSettings operation middleware
+func (sh *strictHandler) SetInstanceSettings(w http.ResponseWriter, r *http.Request) {
+	var request SetInstanceSettingsRequestObject
+
+	var body SetInstanceSettingsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetInstanceSettings(ctx, request.(SetInstanceSettingsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetInstanceSettings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetInstanceSettingsResponseObject); ok {
+		if err := validResponse.VisitSetInstanceSettingsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

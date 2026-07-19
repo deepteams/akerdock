@@ -75,6 +75,18 @@ else
 fi
 [ -s keys/master.key ] || die "keys/master.key exists but is empty — restore it from your backup"
 
+## The akerdock service runs as distroless nonroot (uid 65532) and reads the
+## key over a read-only bind mount: the file must belong to that uid or the
+## boot dies with "permission denied" — better to fail here, where the
+## operator is looking, with the exact command to run.
+owner=$(stat -c %u keys/master.key 2>/dev/null || stat -f %u keys/master.key 2>/dev/null || echo '?')
+if [ "$owner" != 65532 ]; then
+  say "granting the container user (uid 65532, distroless nonroot) read access to keys/master.key"
+  chown 65532:65532 keys/master.key 2>/dev/null \
+    || sudo chown 65532:65532 keys/master.key \
+    || die "keys/master.key is unreadable by the container (distroless nonroot, uid 65532) — run: sudo chown 65532:65532 keys/master.key  and re-run this script"
+fi
+
 ## Instance configuration (.env, instance-config §4). Generated once, then
 ## only the image tag is maintained by this script — everything else is yours.
 GENERATED_ROOT_PASSWORD=""

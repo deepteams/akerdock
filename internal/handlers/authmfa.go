@@ -88,6 +88,9 @@ func (a *API) VerifyMFALogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if a.refuseUndeliverableSession(w, r) {
+		return
+	}
 	a.Sessions.SetCookies(w, token, sess.CSRFToken)
 	a.Logger.Info("session opened after MFA", "user", sess.Email, "team_id", sess.TeamID)
 

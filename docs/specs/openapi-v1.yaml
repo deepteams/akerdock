@@ -269,6 +269,64 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /system/instance:
+    get:
+      tags: [System]
+      operationId: getInstanceSettings
+      summary: Réglages d'identité de l'instance
+      description: >-
+        FQDN et email ACME (§14.2). Les variables d'environnement ne font
+        qu'amorcer ces valeurs au premier démarrage (§6.2) — ensuite c'est ici
+        qu'elles se lisent et se modifient.
+      x-required-permission: root
+      responses:
+        "200":
+          description: Les réglages courants.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceIdentity"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    put:
+      tags: [System]
+      operationId: setInstanceSettings
+      summary: Modifier le FQDN et l'email ACME de l'instance
+      description: >-
+        Un FQDN non vide implique une instance servie en HTTPS : les cookies de
+        session deviennent `Secure` (au prochain redémarrage du binaire) et les
+        URLs publiques (invitations, callbacks OAuth, previews) se construisent
+        en `https://`. Le vider autorise le HTTP simple — réseaux de confiance
+        uniquement.
+      x-required-permission: root
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstanceIdentityUpdate"
+      responses:
+        "200":
+          description: Réglages enregistrés.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceIdentity"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /system/email:
     get:
       tags: [System]
@@ -7870,6 +7928,37 @@ components:
             Obligatoire pour `oidc` et `azure` (ex.
             `https://login.microsoftonline.com/{tenant}/v2.0`), refusé pour
             les fournisseurs à endpoints fixes.
+    InstanceIdentity:
+      type: object
+      required: [timezone]
+      properties:
+        fqdn:
+          type: string
+          nullable: true
+          description: >-
+            Nom d'hôte nu, sans schéma ni chemin (ex. `deploy.example.com`).
+            `null` : instance sans FQDN, cookies non-`Secure`, HTTP simple
+            toléré.
+        acme_email:
+          type: string
+          nullable: true
+          description: Contact Let's Encrypt (§4.3). Sans lui, aucun certificat n'est émis.
+        timezone:
+          type: string
+          readOnly: true
+    InstanceIdentityUpdate:
+      type: object
+      properties:
+        fqdn:
+          type: string
+          nullable: true
+          description: >-
+            Nom d'hôte nu (`[a-z0-9.-]`, au moins un point). Chaîne vide ou
+            `null` : efface le FQDN.
+        acme_email:
+          type: string
+          nullable: true
+          description: Chaîne vide ou `null` — efface le contact.
     TransactionalEmail:
       type: object
       required: [configured]

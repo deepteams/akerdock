@@ -110,6 +110,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/system/instance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Réglages d'identité de l'instance
+         * @description FQDN et email ACME (§14.2). Les variables d'environnement ne font qu'amorcer ces valeurs au premier démarrage (§6.2) — ensuite c'est ici qu'elles se lisent et se modifient.
+         */
+        get: operations["getInstanceSettings"];
+        /**
+         * Modifier le FQDN et l'email ACME de l'instance
+         * @description Un FQDN non vide implique une instance servie en HTTPS : les cookies de session deviennent `Secure` (au prochain redémarrage du binaire) et les URLs publiques (invitations, callbacks OAuth, previews) se construisent en `https://`. Le vider autorise le HTTP simple — réseaux de confiance uniquement.
+         */
+        put: operations["setInstanceSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/system/email": {
         parameters: {
             query?: never;
@@ -3412,6 +3436,19 @@ export interface components {
             /** @description Obligatoire pour `oidc` et `azure` (ex. `https://login.microsoftonline.com/{tenant}/v2.0`), refusé pour les fournisseurs à endpoints fixes. */
             issuer_url?: string;
         };
+        InstanceIdentity: {
+            /** @description Nom d'hôte nu, sans schéma ni chemin (ex. `deploy.example.com`). `null` : instance sans FQDN, cookies non-`Secure`, HTTP simple toléré. */
+            fqdn?: string | null;
+            /** @description Contact Let's Encrypt (§4.3). Sans lui, aucun certificat n'est émis. */
+            acme_email?: string | null;
+            readonly timezone: string;
+        };
+        InstanceIdentityUpdate: {
+            /** @description Nom d'hôte nu (`[a-z0-9.-]`, au moins un point). Chaîne vide ou `null` : efface le FQDN. */
+            fqdn?: string | null;
+            /** @description Chaîne vide ou `null` — efface le contact. */
+            acme_email?: string | null;
+        };
         TransactionalEmail: {
             readonly configured: boolean;
             /** @enum {string|null} */
@@ -5263,6 +5300,58 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getInstanceSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Les réglages courants. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstanceIdentity"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    setInstanceSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstanceIdentityUpdate"];
+            };
+        };
+        responses: {
+            /** @description Réglages enregistrés. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstanceIdentity"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
             429: components["responses"]["TooManyRequests"];
         };
     };

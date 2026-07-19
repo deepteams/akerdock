@@ -338,3 +338,42 @@ func TestTokenAndRequestHelpers(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A Secure cookie set over plain HTTP is stored and then never sent back: the
+// login must be refused before that happens, not diagnosed from a 401 loop.
+func TestCookiesWouldBeDropped(t *testing.T) {
+	plain := httptest.NewRequest(http.MethodPost, "http://manager.example/auth/login", nil)
+	forwarded := httptest.NewRequest(http.MethodPost, "http://manager.example/auth/login", nil)
+	forwarded.Header.Set("X-Forwarded-Proto", "https")
+	tls := httptest.NewRequest(http.MethodPost, "https://manager.example/auth/login", nil)
+
+	insecure := &Manager{Secure: false}
+	secure := &Manager{Secure: true}
+
+	if insecure.CookiesWouldBeDropped(plain) {
+		t.Fatal("non-Secure cookies survive plain HTTP — nothing to refuse")
+	}
+	if !secure.CookiesWouldBeDropped(plain) {
+		t.Fatal("Secure cookie over plain HTTP is undeliverable and must be refused")
+	}
+	if secure.CookiesWouldBeDropped(forwarded) {
+		t.Fatal("X-Forwarded-Proto: https marks TLS terminated upstream — deliverable")
+	}
+	if secure.CookiesWouldBeDropped(tls) {
+		t.Fatal("a direct TLS request is deliverable")
+	}
+
+	// Loopback is the emergency door (ssh -L when the TLS front is down):
+	// browsers deliver Secure cookies on http://localhost, so the guard must
+	// let it through.
+	for _, target := range []string{
+		"http://localhost:8080/auth/login",
+		"http://127.0.0.1:8080/auth/login",
+		"http://[::1]:8080/auth/login",
+		"http://app.localhost/auth/login",
+	} {
+		if secure.CookiesWouldBeDropped(httptest.NewRequest(http.MethodPost, target, nil)) {
+			t.Fatalf("%s is a secure context — the emergency door must stay open", target)
+		}
+	}
+}

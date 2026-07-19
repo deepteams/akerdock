@@ -221,6 +221,9 @@ func (a *API) FinishPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if a.refuseUndeliverableSession(w, r) {
+		return
+	}
 	a.Sessions.SetCookies(w, token, sess.CSRFToken)
 	a.Logger.Info("session opened by passkey", "user", sess.Email, "team_id", sess.TeamID)
 

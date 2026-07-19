@@ -384,6 +384,18 @@ export class AkerDockClient {
     return this.request<Response>('GET', '/version');
   }
 
+  getInstanceSettings() {
+    type Response =
+      paths['/system/instance']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', '/system/instance');
+  }
+
+  setInstanceSettings(body: components['schemas']['InstanceIdentityUpdate']) {
+    type Response =
+      paths['/system/instance']['put']['responses']['200']['content']['application/json'];
+    return this.request<Response>('PUT', '/system/instance', { body });
+  }
+
   enableApi() {
     type Response =
       paths['/system/api/enable']['post']['responses']['200']['content']['application/json'];
