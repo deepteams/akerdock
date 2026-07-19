@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Install or update AkerDock from a source checkout.
 #
 #   git clone https://github.com/deepteams/akerdock.git && cd akerdock && ./install.sh
@@ -22,7 +22,7 @@
 #   AKERDOCK_ROOT_NAME      first root user display name (default Admin)
 #   AKERDOCK_ROOT_PASSWORD  first root user password (default: generated)
 
-set -euo pipefail
+set -eu
 cd "$(dirname "$0")"
 
 say()  { printf '\033[1;34m== %s\033[0m\n' "$*"; }
