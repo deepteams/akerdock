@@ -3,6 +3,7 @@ package githubapp
 import (
 	"context"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,7 +32,11 @@ func NewTokenSource(client *Client, appID int64, privateKeyPEM []byte) *TokenSou
 func scopeKey(installationID int64, repositories []string) string {
 	repos := append([]string(nil), repositories...)
 	sort.Strings(repos)
-	return strings.Join(append([]string{string(rune(installationID))}, repos...), "\x00")
+	// Decimal text is injective for the full int64 range. Converting the id to
+	// a rune collapses every value above unicode.MaxRune to the same
+	// replacement character, which could reuse one installation's token for
+	// another installation.
+	return strings.Join(append([]string{strconv.FormatInt(installationID, 10)}, repos...), "\x00")
 }
 
 // Token returns a valid installation token for the scope, minting one when

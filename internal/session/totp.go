@@ -2,11 +2,11 @@ package session
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -33,7 +33,7 @@ import (
 // phishing-resistant, which TOTP is not. Demanding a TOTP after a passkey
 // would add a WEAKER factor on top of a stronger one.
 type TOTP struct {
-	Store    *store.Queries
+	Store    Store
 	Sessions *Manager
 	Keyring  *envelope.Keyring
 }
@@ -367,7 +367,7 @@ func newRecoveryCodes() (codes, hashes []string, err error) {
 	hashes = make([]string, RecoveryCodeCount)
 	for i := range codes {
 		raw := make([]byte, recoveryCodeBytes)
-		if _, err := rand.Read(raw); err != nil {
+		if _, err := io.ReadFull(randomReader, raw); err != nil {
 			return nil, nil, err
 		}
 		h := hex.EncodeToString(raw)

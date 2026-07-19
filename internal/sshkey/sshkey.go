@@ -9,10 +9,13 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
 )
+
+var randomReader io.Reader = rand.Reader
 
 // Material is the derived view of a private key.
 type Material struct {
@@ -38,7 +41,7 @@ func Parse(privatePEM string) (*Material, error) {
 // GenerateEd25519 creates a fresh ed25519 key without passphrase, used for
 // the instance key (instance-config §6.2).
 func GenerateEd25519(comment string) (*Material, error) {
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	_, priv, err := ed25519.GenerateKey(randomReader)
 	if err != nil {
 		return nil, fmt.Errorf("sshkey: generate: %w", err)
 	}

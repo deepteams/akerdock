@@ -300,12 +300,12 @@ func (c *Client) CreateDeployment(ctx context.Context, token, fullName, ref, env
 		ID int64 `json:"id"`
 	}
 	err := c.do(ctx, http.MethodPost, "/repos/"+fullName+"/deployments", token, map[string]any{
-		"ref":                   ref,
-		"environment":           environment,
-		"transient_environment": true,
+		"ref":                    ref,
+		"environment":            environment,
+		"transient_environment":  true,
 		"production_environment": false,
-		"auto_merge":            false,
-		"required_contexts":     []string{},
+		"auto_merge":             false,
+		"required_contexts":      []string{},
 	}, &out)
 	return out.ID, err
 }

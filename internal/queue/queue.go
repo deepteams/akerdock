@@ -37,12 +37,20 @@ type EnqueueOptions struct {
 	RetryOfID      *int64
 }
 
+type EnqueueStore interface {
+	EnqueueJob(context.Context, store.EnqueueJobParams) (store.Job, error)
+	GetJobByIdempotencyKey(context.Context, *string) (store.Job, error)
+}
+
 // Enqueue inserts a job. When an idempotency key conflicts, the original
 // job is returned instead (INV-004).
-func Enqueue(ctx context.Context, q *store.Queries, opts EnqueueOptions) (store.Job, error) {
+func Enqueue(ctx context.Context, q EnqueueStore, opts EnqueueOptions) (store.Job, error) {
 	// A job queued into a queue nobody consumes is a job that never runs and
 	// never errors — the worst possible failure. Refuse it here, loudly, rather
 	// than let it sit `queued` forever.
+	if opts.Queue == "" {
+		opts.Queue = "default"
+	}
 	if !slices.Contains(KnownQueues, opts.Queue) {
 		return store.Job{}, fmt.Errorf("queue: %q is not consumed by any worker (known: %v)", opts.Queue, KnownQueues)
 	}
@@ -67,10 +75,6 @@ func Enqueue(ctx context.Context, q *store.Queries, opts EnqueueOptions) (store.
 	if maxAttempts <= 0 {
 		maxAttempts = 5
 	}
-	if opts.Queue == "" {
-		opts.Queue = "default"
-	}
-
 	job, err := q.EnqueueJob(ctx, store.EnqueueJobParams{
 		Uuid:           u,
 		Queue:          opts.Queue,

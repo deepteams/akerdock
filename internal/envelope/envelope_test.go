@@ -4,12 +4,17 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+type errorReader struct{}
+
+func (errorReader) Read([]byte) (int, error) { return 0, errors.New("entropy unavailable") }
 
 func keyLineFor(version int) string {
 	key := make([]byte, 32)
@@ -91,6 +96,38 @@ func TestDecryptMissingVersionIsExplicit(t *testing.T) {
 	}
 }
 
+func TestDecryptRejectsShortAndCorruptCiphertext(t *testing.T) {
+	kr, _ := Parse([]byte(keyLineFor(1) + "\n"))
+	if _, err := kr.Decrypt("t", "c", "r", []byte("short")); err == nil || !strings.Contains(err.Error(), "too short") {
+		t.Fatalf("short ciphertext should be rejected, got %v", err)
+	}
+	ct, _ := kr.Encrypt("t", "c", "r", []byte("secret"))
+	ct[len(ct)-1] ^= 0xff
+	if _, err := kr.Decrypt("t", "c", "r", ct); err == nil || !strings.Contains(err.Error(), "decryption") {
+		t.Fatalf("tampered ciphertext should be rejected, got %v", err)
+	}
+}
+
+func TestEncryptReportsEntropyFailure(t *testing.T) {
+	kr, _ := Parse([]byte(keyLineFor(1) + "\n"))
+	old := randomReader
+	randomReader = errorReader{}
+	t.Cleanup(func() { randomReader = old })
+	if _, err := kr.Encrypt("t", "c", "r", []byte("secret")); err == nil || !strings.Contains(err.Error(), "nonce generation") {
+		t.Fatalf("Encrypt should report the entropy failure, got %v", err)
+	}
+}
+
+func TestGCMRejectsMissingOrInvalidKeys(t *testing.T) {
+	kr := &Keyring{keys: map[uint32][]byte{1: []byte("short")}, active: 1}
+	if _, err := kr.gcm(1); err == nil {
+		t.Fatal("an invalid AES key must be rejected")
+	}
+	if _, err := kr.Encrypt("t", "c", "r", nil); err == nil {
+		t.Fatal("Encrypt must surface invalid active key material")
+	}
+}
+
 func TestSelfTest(t *testing.T) {
 	kr, _ := Parse([]byte(keyLineFor(5) + "\n"))
 	if err := kr.SelfTest(); err != nil {
@@ -121,5 +158,25 @@ func TestLoadFilePermissions(t *testing.T) {
 	}
 	if _, _, err := LoadFile(path); err == nil || !strings.Contains(err.Error(), "other") {
 		t.Fatalf("world-readable file must be fatal, got %v", err)
+	}
+}
+
+func TestLoadFileErrors(t *testing.T) {
+	if _, _, err := LoadFile(filepath.Join(t.TempDir(), "missing")); err == nil || !strings.Contains(err.Error(), "expected a 0600 file") {
+		t.Fatalf("missing key file should return an actionable error, got %v", err)
+	}
+
+	dir := filepath.Join(t.TempDir(), "key-dir")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadFile(dir); err == nil || !strings.Contains(err.Error(), "unreadable") {
+		t.Fatalf("a directory cannot be read as a key file, got %v", err)
+	}
+}
+
+func TestParseReportsScannerLimit(t *testing.T) {
+	if _, err := Parse([]byte(strings.Repeat("A", 70<<10))); err == nil || !strings.Contains(err.Error(), "token too long") {
+		t.Fatalf("oversized lines must fail cleanly, got %v", err)
 	}
 }

@@ -74,9 +74,18 @@ func (b *Broker) publish(teamUUID string, ev Event) {
 // instances may run concurrently: the claim uses FOR UPDATE SKIP LOCKED, so
 // each event is published exactly once.
 type Publisher struct {
-	Store  *store.Queries
+	Store  OutboxStore
 	Broker *Broker
 	Logger *slog.Logger
+}
+
+// OutboxStore is the small generated-query surface the event subsystem owns.
+// Keeping the boundary explicit lets the fan-out and replay semantics be
+// tested without booting PostgreSQL; the SQL locking itself stays covered by
+// the store module tests.
+type OutboxStore interface {
+	ClaimUnpublishedOutboxEvents(context.Context, int32) ([]store.OutboxEvent, error)
+	ListOutboxEventsForTeamAfter(context.Context, store.ListOutboxEventsForTeamAfterParams) ([]store.OutboxEvent, error)
 }
 
 const (
@@ -127,7 +136,7 @@ func toEvent(row store.OutboxEvent) Event {
 
 // Replay returns the events a reconnecting subscriber missed, in order
 // (Last-Event-ID resume, ADR-024).
-func Replay(ctx context.Context, q *store.Queries, teamUUID string, after int64, limit int32) ([]Event, error) {
+func Replay(ctx context.Context, q OutboxStore, teamUUID string, after int64, limit int32) ([]Event, error) {
 	u := pguuid.MustParse(teamUUID)
 	rows, err := q.ListOutboxEventsForTeamAfter(ctx, store.ListOutboxEventsForTeamAfterParams{
 		TeamUuid: u, ID: after, Limit: limit,

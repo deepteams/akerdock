@@ -19,22 +19,35 @@ const maxBodyBytes = 1 << 20
 // the same key with the same body returns the original response; the same
 // key with a different body is a 409 idempotency_conflict.
 type Idempotency struct {
-	Store *store.Queries
+	Store IdempotencyStore
+}
+
+type IdempotencyStore interface {
+	ClaimIdempotencyKey(context.Context, store.ClaimIdempotencyKeyParams) (store.ClaimIdempotencyKeyRow, error)
+	CompleteIdempotencyKey(context.Context, store.CompleteIdempotencyKeyParams) error
 }
 
 // capture buffers the response so a successful one can be replayed later.
 type capture struct {
 	http.ResponseWriter
-	status int
-	body   bytes.Buffer
+	status      int
+	body        bytes.Buffer
+	wroteHeader bool
 }
 
 func (c *capture) WriteHeader(status int) {
+	if c.wroteHeader {
+		return
+	}
+	c.wroteHeader = true
 	c.status = status
 	c.ResponseWriter.WriteHeader(status)
 }
 
 func (c *capture) Write(p []byte) (int, error) {
+	if !c.wroteHeader {
+		c.WriteHeader(http.StatusOK)
+	}
 	c.body.Write(p)
 	return c.ResponseWriter.Write(p)
 }
@@ -62,9 +75,13 @@ func (i *Idempotency) Handler(teamID func(*http.Request) (int64, bool)) func(htt
 				return
 			}
 
-			body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
+			body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
 			if err != nil {
 				WriteError(w, r, http.StatusBadRequest, CodeBadRequest, "unreadable body")
+				return
+			}
+			if len(body) > maxBodyBytes {
+				WriteError(w, r, http.StatusRequestEntityTooLarge, CodeBadRequest, "request body too large")
 				return
 			}
 			_ = r.Body.Close()

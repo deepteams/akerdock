@@ -22,7 +22,11 @@ var dist embed.FS
 // Handler serves the SPA. Returns nil when no build is embedded, so the server
 // can run API-only (a worker, or a dev loop against `ng serve`).
 func Handler() http.Handler {
-	sub, err := fs.Sub(dist, "dist")
+	return handler(dist)
+}
+
+func handler(root fs.FS) http.Handler {
+	sub, err := fs.Sub(root, "dist")
 	if err != nil {
 		return nil
 	}

@@ -3,11 +3,17 @@ package gitforge
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // record captures each request the fake forge receives.
 type record struct {
@@ -185,6 +191,26 @@ func TestGiteaUpsertCommentUpdatesInPlace(t *testing.T) {
 	}
 }
 
+func TestGiteaUpsertCommentCreates(t *testing.T) {
+	var records []record
+	srv := httptest.NewServer(capture(t, &records, func(r *http.Request) (int, any) {
+		if r.Method == http.MethodGet {
+			return http.StatusOK, []map[string]any{}
+		}
+		return http.StatusCreated, nil
+	}))
+	defer srv.Close()
+
+	g := &Gitea{BaseURL: srv.URL, Token: "t"}
+	if err := g.UpsertComment(context.Background(), "o/r", 3, "m1", "new"); err != nil {
+		t.Fatal(err)
+	}
+	last := records[len(records)-1]
+	if last.Method != http.MethodPost || last.Path != "/repos/o/r/issues/3/comments" {
+		t.Fatalf("expected comment creation, got %s %s", last.Method, last.Path)
+	}
+}
+
 func TestGiteaAuthorCanWrite(t *testing.T) {
 	cases := map[string]bool{"admin": true, "write": true, "read": false}
 	for perm, want := range cases {
@@ -209,5 +235,63 @@ func TestGiteaRejectsMalformedRepo(t *testing.T) {
 		if err := g.SetCommitStatus(context.Background(), repo, "s", StatusSuccess, ""); err == nil {
 			t.Fatalf("%q: expected an error", repo)
 		}
+	}
+}
+
+func TestForgeInputValidation(t *testing.T) {
+	gitea := &Gitea{BaseURL: "http://unused", Token: "t"}
+	if err := gitea.SetCommitStatus(context.Background(), "o/r", "s", StatusState("unknown"), ""); err == nil {
+		t.Fatal("Gitea should reject an unmapped status")
+	}
+	if err := gitea.UpsertComment(context.Background(), "invalid", 1, "m", "body"); err == nil {
+		t.Fatal("Gitea should validate repositories before listing comments")
+	}
+	if _, err := gitea.AuthorCanWrite(context.Background(), "o/r", "bad user", 0); err == nil {
+		t.Fatal("Gitea should reject unsafe usernames")
+	}
+	if _, err := gitea.AuthorCanWrite(context.Background(), "invalid", "bob", 0); err == nil {
+		t.Fatal("Gitea should reject malformed repositories")
+	}
+
+	gitlab := &GitLab{BaseURL: "http://unused", Token: "t"}
+	if err := gitlab.SetCommitStatus(context.Background(), "1", "s", StatusState("unknown"), ""); err == nil {
+		t.Fatal("GitLab should reject an unmapped status")
+	}
+}
+
+func TestDoJSONFailureModes(t *testing.T) {
+	ctx := context.Background()
+	if _, err := doJSON(ctx, nil, http.MethodPost, "http://unused", nil, make(chan int), nil); err == nil {
+		t.Fatal("unencodable input should fail before making a request")
+	}
+	if _, err := doJSON(ctx, nil, "bad\nmethod", "http://unused", nil, nil, nil); err == nil {
+		t.Fatal("an invalid HTTP method should be rejected")
+	}
+
+	networkFailure := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("network unavailable")
+	})}
+	if _, err := doJSON(ctx, networkFailure, http.MethodGet, "http://forge.invalid", nil, nil, nil); err == nil {
+		t.Fatal("transport failures must be returned")
+	}
+
+	response := func(status int, body string) *http.Client {
+		return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: status,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		})}
+	}
+	if _, err := doJSON(ctx, response(http.StatusUnauthorized, `{"token":"secret"}`), http.MethodGet,
+		"https://forge.invalid/path?access_token=secret", nil, nil, nil); err == nil ||
+		strings.Contains(err.Error(), "access_token") || !strings.Contains(err.Error(), "HTTP 401") {
+		t.Fatalf("non-2xx errors must be redacted and contextual: %v", err)
+	}
+	var out map[string]any
+	if _, err := doJSON(ctx, response(http.StatusOK, "not-json"), http.MethodGet,
+		"https://forge.invalid/path", nil, nil, &out); err == nil || !strings.Contains(err.Error(), "unparsable") {
+		t.Fatalf("malformed response should be explicit, got %v", err)
 	}
 }

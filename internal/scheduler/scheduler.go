@@ -13,11 +13,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/envelope"
-	"github.com/deepteams/akerdock/internal/notify"
+	"github.com/deepteams/akerdock/internal/jobs"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
@@ -39,10 +41,10 @@ type Scheduler struct {
 	// certificates, notifications). Zero falls back to the default.
 	Tick       time.Duration
 	Pool       *pgxpool.Pool
-	Store      *store.Queries
+	Store      SchedulerStore
 	Keyring    *envelope.Keyring
 	Audit      *audit.Recorder
-	Dispatcher *notify.Dispatcher
+	Dispatcher NotificationDispatcher
 	Logger     *slog.Logger
 	// thresholdProbes throttles the §3.7 disk probes (leader-local state:
 	// only the elected leader schedules).
@@ -55,7 +57,78 @@ type Scheduler struct {
 	// control-plane restart — sessions live in-process. Zero falls back to
 	// the default.
 	TerminalMaxDuration time.Duration
+
+	acquireLeader func(context.Context) (leaderConnection, error)
+	dialSSH       func(context.Context, store.Server, string) (remoteClient, error)
 }
+
+type NotificationDispatcher interface {
+	Dispatch(context.Context)
+	FlushDigests(context.Context)
+}
+
+type remoteClient interface {
+	Run(context.Context, string) (*sshexec.Result, error)
+	RunInput(context.Context, string, string) (*sshexec.Result, error)
+	Close() error
+}
+
+// SchedulerStore is the scheduler's database boundary. Scheduling decisions
+// are ordinary unit-testable state machines; only advisory-lock and SQL
+// concurrency guarantees need PostgreSQL module tests.
+type SchedulerStore interface {
+	jobs.PreviewPromotionStore
+	audit.OutboxStore
+
+	ListSchedulableBackupPlans(context.Context) ([]store.ListSchedulableBackupPlansRow, error)
+	CountActiveJobsByLockKey(context.Context, *string) (int64, error)
+	SetBackupPlanSchedule(context.Context, store.SetBackupPlanScheduleParams) error
+	ListCertificatesToAlert(context.Context, int32) ([]store.ListCertificatesToAlertRow, error)
+	MarkCertificateAlerted(context.Context, store.MarkCertificateAlertedParams) error
+	ListCleanupSchedulableServers(context.Context) ([]store.Server, error)
+	SetServerCleanupSchedule(context.Context, store.SetServerCleanupScheduleParams) error
+	ListDrillablePlans(context.Context) ([]store.ListDrillablePlansRow, error)
+	ListUnvalidatedLocalhostServers(context.Context) ([]store.Server, error)
+	ListExpiredPreviews(context.Context) ([]store.Preview, error)
+	ListQueuedPreviews(context.Context) ([]store.Preview, error)
+	GetApplicationByID(context.Context, int64) (store.GetApplicationByIDRow, error)
+	ListSchedulableTasks(context.Context) ([]store.ListSchedulableTasksRow, error)
+	CountRunningTaskExecutions(context.Context, int64) (int64, error)
+	CreateTaskExecution(context.Context, store.CreateTaskExecutionParams) (store.TaskExecution, error)
+	SetScheduledTaskSchedule(context.Context, store.SetScheduledTaskScheduleParams) error
+	PurgeTerminalJobs(context.Context, int32) (int64, error)
+	PurgePublishedOutboxEvents(context.Context) (int64, error)
+	PurgeIdempotencyKeys(context.Context) error
+	PurgeWebhookDeliveries(context.Context) (int64, error)
+	PurgeUptimeResults(context.Context, int32) (int64, error)
+	SweepTerminalSessions(context.Context, int32) (int64, error)
+	PurgeTerminalSessions(context.Context, int32) (int64, error)
+	ListServersWithProxy(context.Context) ([]store.Server, error)
+	ListAppliedProxyRevisions(context.Context, int64) ([]store.ProxyConfigRevision, error)
+	GetPrivateKeyByID(context.Context, int64) (store.PrivateKey, error)
+	ListDueUptimeChecks(context.Context) ([]store.UptimeCheck, error)
+	RecordUptimeResult(context.Context, store.RecordUptimeResultParams) error
+	SetUptimeCheckState(context.Context, store.SetUptimeCheckStateParams) error
+	GetTeamByID(context.Context, int64) (store.Team, error)
+}
+
+type leaderConnection interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	IsClosed() bool
+	Release()
+}
+
+type poolLeaderConnection struct{ connection *pgxpool.Conn }
+
+func (c poolLeaderConnection) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return c.connection.QueryRow(ctx, sql, args...)
+}
+func (c poolLeaderConnection) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	return c.connection.Exec(ctx, sql, args...)
+}
+func (c poolLeaderConnection) IsClosed() bool { return c.connection.Conn().IsClosed() }
+func (c poolLeaderConnection) Release()       { c.connection.Release() }
 
 // Run elects a leader and runs the maintenance loop until ctx is cancelled.
 // Followers keep trying to acquire the lock, so a leader crash is picked up
@@ -79,7 +152,17 @@ func (s *Scheduler) Run(ctx context.Context) {
 // held for as long as that connection lives) and runs the tasks. It returns
 // true when ctx was cancelled.
 func (s *Scheduler) tryLead(ctx context.Context) bool {
-	conn, err := s.Pool.Acquire(ctx)
+	var conn leaderConnection
+	var err error
+	if s.acquireLeader != nil {
+		conn, err = s.acquireLeader(ctx)
+	} else {
+		var pooled *pgxpool.Conn
+		pooled, err = s.Pool.Acquire(ctx)
+		if err == nil {
+			conn = poolLeaderConnection{connection: pooled}
+		}
+	}
 	if err != nil {
 		return ctx.Err() != nil
 	}
@@ -109,7 +192,7 @@ func (s *Scheduler) tryLead(ctx context.Context) bool {
 			return true
 		case <-cron.C:
 			// Losing the connection loses the lock: another instance takes over.
-			if conn.Conn().IsClosed() {
+			if conn.IsClosed() {
 				s.Logger.Warn("scheduler lost its lock connection, stepping down")
 				return false
 			}
@@ -233,8 +316,13 @@ func (s *Scheduler) reconcileServer(ctx context.Context, server store.Server) er
 	if err != nil {
 		return err
 	}
-	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
-		time.Duration(server.SshTimeoutSeconds)*time.Second, hostKeyOf(server))
+	var client remoteClient
+	if s.dialSSH != nil {
+		client, err = s.dialSSH(ctx, server, string(pem))
+	} else {
+		client, err = sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
+			time.Duration(server.SshTimeoutSeconds)*time.Second, hostKeyOf(server))
+	}
 	if err != nil {
 		return err
 	}

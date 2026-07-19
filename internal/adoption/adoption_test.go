@@ -207,12 +207,61 @@ func TestPointer(t *testing.T) {
 	if ParsePointer(nil) != nil || ParsePointer([]byte("null")) != nil {
 		t.Fatal("empty adoption column must parse to nil")
 	}
+	if ParsePointer([]byte(`{`)) != nil || ParsePointer([]byte(`{"scan_uuid":"s"}`)) != nil {
+		t.Fatal("invalid or incomplete adoption pointers must parse to nil")
+	}
 	raw := []byte(`{"container_name":"legacy-web","scan_uuid":"s"}`)
 	if got := ContainerName(raw, "uuid"); got != "legacy-web" {
 		t.Fatalf("ContainerName = %q", got)
 	}
 	if got := ContainerName(nil, "uuid"); got != "uuid" {
 		t.Fatalf("fallback = %q", got)
+	}
+}
+
+func TestParseInspects(t *testing.T) {
+	if got, err := ParseInspects(" \n "); err != nil || got != nil {
+		t.Fatalf("empty inspect output = %#v, %v", got, err)
+	}
+	got, err := ParseInspects(`[{"Id":"abc","Name":"/web"}]`)
+	if err != nil || len(got) != 1 || got[0].ID != "abc" || got[0].Name != "/web" {
+		t.Fatalf("decoded inspect output = %#v, %v", got, err)
+	}
+	if _, err := ParseInspects(`not-json`); err == nil || !strings.Contains(err.Error(), "docker inspect output") {
+		t.Fatalf("malformed inspect output should return a contextual error, got %v", err)
+	}
+}
+
+func TestAdditionalCandidateSafetyBranches(t *testing.T) {
+	local := inspect(t, `{"Id":"local","Name":"/local","Config":{"Image":"sha256:abc","Labels":{}}}`)
+	candidate := BuildCandidates(ScanInput{Containers: []Inspect{local}})[0]
+	if !candidate.Adoptable || !strings.Contains(strings.Join(candidate.Modifications, " "), "image locale") {
+		t.Fatalf("local image warning is missing: %+v", candidate)
+	}
+
+	blocked := inspect(t, `{"Id":"blocked","Name":"/blocked","Config":{"Image":"x","Labels":{}},"HostConfig":{"NetworkMode":"container:peer","Devices":[{"PathOnHost":"/dev/kvm"}]}}`)
+	candidate = BuildCandidates(ScanInput{Containers: []Inspect{blocked}})[0]
+	if candidate.Adoptable || len(candidate.Reasons) != 2 {
+		t.Fatalf("devices and container networking must both block adoption: %+v", candidate)
+	}
+}
+
+func TestStackComposeFailures(t *testing.T) {
+	member := inspect(t, `{"Id":"a","Name":"/app","Config":{"Image":"x","Labels":{"com.docker.compose.project":"p","com.docker.compose.service":"app"}}}`)
+	for _, tc := range []struct {
+		name string
+		file ComposeFile
+		want string
+	}{
+		{name: "read error", file: ComposeFile{Err: "permission denied"}, want: "permission denied"},
+		{name: "invalid yaml", file: ComposeFile{Content: "volumes: ["}, want: "compose invalide"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := BuildCandidates(ScanInput{Containers: []Inspect{member}, ComposeFiles: map[string]ComposeFile{"p": tc.file}})
+			if len(got) != 1 || got[0].Adoptable || !strings.Contains(strings.Join(got[0].Reasons, " "), tc.want) {
+				t.Fatalf("candidate = %+v, want failure containing %q", got, tc.want)
+			}
+		})
 	}
 }
 

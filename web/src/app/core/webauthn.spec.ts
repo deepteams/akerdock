@@ -1,4 +1,11 @@
-import { base64UrlToBuffer, bufferToBase64Url, toCreationOptions, toRequestOptions } from './webauthn';
+import {
+  base64UrlToBuffer,
+  bufferToBase64Url,
+  credentialToJSON,
+  toCreationOptions,
+  toRequestOptions,
+  webAuthnSupported,
+} from './webauthn';
 
 // A silent mismatch in this translation does not error — it produces
 // ceremonies that never verify. Hence tests on the exact byte behaviour.
@@ -67,5 +74,82 @@ describe('request options translation', () => {
     expect(new Uint8Array(pk.challenge as ArrayBuffer)).toEqual(new Uint8Array([4, 5]));
     expect(pk.allowCredentials).toBeUndefined();
     expect(pk.userVerification).toBe('required');
+  });
+
+  it('decodes an explicit allow-list', () => {
+    const options = toRequestOptions({
+      publicKey: {
+        challenge: bufferToBase64Url(new Uint8Array([4, 5]).buffer),
+        allowCredentials: [
+          {
+            id: bufferToBase64Url(new Uint8Array([8, 9]).buffer),
+            type: 'public-key',
+            transports: ['usb'],
+          },
+        ],
+      },
+    });
+    const credential = options.publicKey!.allowCredentials![0];
+    expect(new Uint8Array(credential.id as ArrayBuffer)).toEqual(new Uint8Array([8, 9]));
+    expect(credential.transports).toEqual(['usb']);
+  });
+});
+
+describe('credential serialization', () => {
+  const bytes = (...values: number[]) => new Uint8Array(values).buffer;
+
+  it('uses the browser native serializer when available', () => {
+    const native = { id: 'native' };
+    const credential = { toJSON: () => native } as unknown as PublicKeyCredential;
+    expect(credentialToJSON(credential)).toBe(native);
+  });
+
+  it('serializes an attestation response on older browsers', () => {
+    const credential = {
+      id: 'registration',
+      rawId: bytes(1),
+      type: 'public-key',
+      authenticatorAttachment: null,
+      getClientExtensionResults: () => ({ credProps: true }),
+      response: {
+        clientDataJSON: bytes(2),
+        attestationObject: bytes(3),
+        getTransports: () => ['internal'],
+      },
+    } as unknown as PublicKeyCredential;
+
+    const out = credentialToJSON(credential) as {
+      authenticatorAttachment?: string;
+      response: { attestationObject: string; transports: string[] };
+    };
+    expect(out.authenticatorAttachment).toBeUndefined();
+    expect(out.response.attestationObject).toBe(bufferToBase64Url(bytes(3)));
+    expect(out.response.transports).toEqual(['internal']);
+  });
+
+  it('serializes an assertion response and its optional user handle', () => {
+    const credential = {
+      id: 'login',
+      rawId: bytes(1),
+      type: 'public-key',
+      authenticatorAttachment: 'platform',
+      getClientExtensionResults: () => ({}),
+      response: {
+        clientDataJSON: bytes(2),
+        authenticatorData: bytes(3),
+        signature: bytes(4),
+        userHandle: bytes(5),
+      },
+    } as unknown as PublicKeyCredential;
+
+    const out = credentialToJSON(credential) as {
+      response: { signature: string; userHandle: string | null };
+    };
+    expect(out.response.signature).toBe(bufferToBase64Url(bytes(4)));
+    expect(out.response.userHandle).toBe(bufferToBase64Url(bytes(5)));
+  });
+
+  it('reports WebAuthn support in the headless browser', () => {
+    expect(webAuthnSupported()).toBeTrue();
   });
 });

@@ -1,7 +1,11 @@
 package events
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -10,6 +14,23 @@ import (
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/store"
 )
+
+type fakeOutboxStore struct {
+	claimRows  []store.OutboxEvent
+	claimErr   error
+	replayRows []store.OutboxEvent
+	replayErr  error
+	replayArg  store.ListOutboxEventsForTeamAfterParams
+}
+
+func (f *fakeOutboxStore) ClaimUnpublishedOutboxEvents(context.Context, int32) ([]store.OutboxEvent, error) {
+	return f.claimRows, f.claimErr
+}
+
+func (f *fakeOutboxStore) ListOutboxEventsForTeamAfter(_ context.Context, arg store.ListOutboxEventsForTeamAfterParams) ([]store.OutboxEvent, error) {
+	f.replayArg = arg
+	return f.replayRows, f.replayErr
+}
 
 const (
 	teamA = "11111111-1111-4111-8111-111111111111"
@@ -175,5 +196,71 @@ func TestToEvent(t *testing.T) {
 				t.Errorf("Payload = %q, want %q", got.Payload, tt.want.Payload)
 			}
 		})
+	}
+}
+
+func TestPublisherDrain(t *testing.T) {
+	broker := NewBroker()
+	ch, cancel := broker.Subscribe(teamA)
+	defer cancel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rows := []store.OutboxEvent{{
+		ID:        9,
+		TeamUuid:  pguuid.MustParse(teamA),
+		EventType: "server.updated",
+	}}
+	publisher := &Publisher{
+		Store: &fakeOutboxStore{claimRows: rows}, Broker: broker, Logger: logger,
+	}
+	publisher.drain(context.Background())
+	if got := recv(t, ch); got.Sequence != 9 || got.EventType != "server.updated" {
+		t.Fatalf("published event = %+v", got)
+	}
+
+	publisher.Store = &fakeOutboxStore{claimErr: errors.New("database unavailable")}
+	publisher.drain(context.Background())
+	cancelled, cancelContext := context.WithCancel(context.Background())
+	cancelContext()
+	publisher.drain(cancelled) // a shutdown error is deliberately not logged
+}
+
+func TestPublisherRunStopsWithContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	publisher := &Publisher{
+		Store: &fakeOutboxStore{}, Broker: NewBroker(),
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	done := make(chan struct{})
+	go func() {
+		publisher.Run(ctx)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("publisher did not stop after cancellation")
+	}
+}
+
+func TestReplay(t *testing.T) {
+	row := store.OutboxEvent{
+		ID:        11,
+		TeamUuid:  pguuid.MustParse(teamA),
+		EventType: "application.deployed",
+	}
+	fake := &fakeOutboxStore{replayRows: []store.OutboxEvent{row}}
+	got, err := Replay(context.Background(), fake, teamA, 7, 25)
+	if err != nil || len(got) != 1 || got[0].Sequence != 11 {
+		t.Fatalf("Replay = %+v, %v", got, err)
+	}
+	if fake.replayArg.ID != 7 || fake.replayArg.Limit != 25 ||
+		pguuid.String(fake.replayArg.TeamUuid) != teamA {
+		t.Fatalf("replay query arguments = %+v", fake.replayArg)
+	}
+
+	fake.replayErr = errors.New("query failed")
+	if _, err := Replay(context.Background(), fake, teamA, 7, 25); err == nil {
+		t.Fatal("Replay should return store failures")
 	}
 }

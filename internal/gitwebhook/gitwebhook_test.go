@@ -7,6 +7,44 @@ import (
 
 var secret = []byte("s3cr3t")
 
+func TestProviderMetadataHeaders(t *testing.T) {
+	headers := http.Header{
+		"X-Github-Delivery":   {"gh-delivery"},
+		"X-Gitlab-Event-Uuid": {"gl-delivery"},
+		"X-Gitea-Delivery":    {"gt-delivery"},
+		"X-Github-Event":      {"push"},
+		"X-Gitlab-Event":      {"Push Hook"},
+		"X-Gitea-Event":       {"push-native"},
+	}
+	for _, tc := range []struct {
+		provider Provider
+		delivery string
+		event    string
+	}{
+		{GitHub, "gh-delivery", "push"},
+		{GitLab, "gl-delivery", "Push Hook"},
+		{Gitea, "gt-delivery", "push-native"},
+	} {
+		if !Supported(string(tc.provider)) {
+			t.Errorf("%s should be supported", tc.provider)
+		}
+		if got := DeliveryID(tc.provider, headers); got != tc.delivery {
+			t.Errorf("%s delivery = %q, want %q", tc.provider, got, tc.delivery)
+		}
+		if got := EventType(tc.provider, headers); got != tc.event {
+			t.Errorf("%s event = %q, want %q", tc.provider, got, tc.event)
+		}
+	}
+	if Supported("bitbucket") || DeliveryID("unknown", headers) != "" || EventType("unknown", headers) != "" {
+		t.Fatal("unknown providers must remain unsupported and expose no metadata")
+	}
+
+	headers.Del("X-Gitea-Event")
+	if got := EventType(Gitea, headers); got != "push" {
+		t.Fatalf("Gitea should fall back to the GitHub-compatible event header, got %q", got)
+	}
+}
+
 func TestVerifyGitHub(t *testing.T) {
 	body := []byte(`{"ref":"refs/heads/main"}`)
 	h := http.Header{}
@@ -68,6 +106,19 @@ func TestVerifyGitLab(t *testing.T) {
 	}
 }
 
+func TestSignatureMalformedInputs(t *testing.T) {
+	body := []byte(`{}`)
+	for _, signature := range []string{"deadbeef", "sha256=not-hex"} {
+		h := http.Header{"X-Hub-Signature-256": {signature}}
+		if err := VerifySignature(GitHub, h, body, secret); err == nil {
+			t.Errorf("malformed signature %q was accepted", signature)
+		}
+	}
+	if err := VerifySignature("unknown", http.Header{}, body, secret); err == nil {
+		t.Fatal("an unknown provider must never authenticate")
+	}
+}
+
 func TestParsePushGitHub(t *testing.T) {
 	body := []byte(`{
 	  "ref": "refs/heads/main",
@@ -106,6 +157,29 @@ func TestParsePushGitLab(t *testing.T) {
 	// GitLab has no head_commit: the last one is the head.
 	if push.Message != "head commit" {
 		t.Errorf("message = %q", push.Message)
+	}
+}
+
+func TestParsePushValidationAndDirectGitLabSHA(t *testing.T) {
+	push, err := ParsePush(GitLab, []byte(`{"ref":"refs/heads/main","after":"direct","checkout_sha":"fallback","commits":[]}`))
+	if err != nil || push.Commit != "direct" {
+		t.Fatalf("GitLab after SHA should win: %+v, %v", push, err)
+	}
+	if push.SkipRequested() {
+		t.Fatal("a normal message should not request skipping")
+	}
+
+	for _, tc := range []struct {
+		provider Provider
+		body     []byte
+	}{
+		{GitHub, []byte(`{`)},
+		{GitLab, []byte(`{`)},
+		{"unknown", []byte(`{}`)},
+	} {
+		if _, err := ParsePush(tc.provider, tc.body); err == nil {
+			t.Errorf("%s malformed/unsupported push should fail", tc.provider)
+		}
 	}
 }
 

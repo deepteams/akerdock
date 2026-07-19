@@ -20,13 +20,17 @@ type Step struct {
 
 // StepRecorder persists job steps as the handler progresses.
 type StepRecorder struct {
-	q     *store.Queries
+	q     StepStore
 	jobID int64
 	steps []Step
 }
 
+type StepStore interface {
+	UpdateJobSteps(context.Context, store.UpdateJobStepsParams) error
+}
+
 // NewStepRecorder starts an empty step timeline for a job attempt.
-func NewStepRecorder(q *store.Queries, job store.Job) *StepRecorder {
+func NewStepRecorder(q StepStore, job store.Job) *StepRecorder {
 	return &StepRecorder{q: q, jobID: job.ID}
 }
 

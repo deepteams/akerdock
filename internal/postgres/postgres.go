@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"time"
@@ -19,28 +20,45 @@ import (
 // depends_on: service_healthy window (§6.1 step 2).
 const connectWindow = 30 * time.Second
 
+var (
+	parsePoolConfig = pgxpool.ParseConfig
+	newPool         = pgxpool.NewWithConfig
+	pingPool        = (*pgxpool.Pool).Ping
+	closePool       = (*pgxpool.Pool).Close
+	now             = time.Now
+	after           = time.After
+
+	openMigrationDB  = goose.OpenDBWithDriver
+	closeMigrationDB = (*sql.DB).Close
+	setBaseFS        = goose.SetBaseFS
+	setGooseLogger   = goose.SetLogger
+	setDialect       = goose.SetDialect
+	upMigrations     = goose.UpContext
+	migrationVersion = goose.GetDBVersionContext
+)
+
 // Connect opens a pgx pool, retrying with backoff for at most 30 seconds.
 func Connect(ctx context.Context, dsn string, logger *slog.Logger) (*pgxpool.Pool, error) {
-	cfg, err := pgxpool.ParseConfig(dsn)
+	cfg, err := parsePoolConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("AKERDOCK_DATABASE_URL: unparsable DSN: %w", err)
 	}
-	deadline := time.Now().Add(connectWindow)
+	deadline := now().Add(connectWindow)
 	backoff := 500 * time.Millisecond
 	for {
-		pool, err := pgxpool.NewWithConfig(ctx, cfg)
+		pool, err := newPool(ctx, cfg)
 		if err == nil {
-			if err = pool.Ping(ctx); err == nil {
+			if err = pingPool(pool, ctx); err == nil {
 				return pool, nil
 			}
-			pool.Close()
+			closePool(pool)
 		}
-		if time.Now().After(deadline) || ctx.Err() != nil {
+		if now().After(deadline) || ctx.Err() != nil {
 			return nil, fmt.Errorf("postgres: unreachable after %s: %w", connectWindow, err)
 		}
 		logger.Info("postgres not ready, retrying", "backoff", backoff.String())
 		select {
-		case <-time.After(backoff):
+		case <-after(backoff):
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
@@ -54,21 +72,21 @@ func Connect(ctx context.Context, dsn string, logger *slog.Logger) (*pgxpool.Poo
 // (§6.1 step 3). Each migration runs in its own transaction; a failure stops
 // the process with the database left at the last complete migration.
 func Migrate(ctx context.Context, dsn string, logger *slog.Logger) error {
-	sqlDB, err := goose.OpenDBWithDriver("pgx", dsn)
+	sqlDB, err := openMigrationDB("pgx", dsn)
 	if err != nil {
 		return fmt.Errorf("migrations: open: %w", err)
 	}
-	defer func() { _ = sqlDB.Close() }()
+	defer func() { _ = closeMigrationDB(sqlDB) }()
 
-	goose.SetBaseFS(db.Migrations)
-	goose.SetLogger(goose.NopLogger())
-	if err := goose.SetDialect("postgres"); err != nil {
+	setBaseFS(db.Migrations)
+	setGooseLogger(goose.NopLogger())
+	if err := setDialect("postgres"); err != nil {
 		return err
 	}
-	if err := goose.UpContext(ctx, sqlDB, "migrations"); err != nil {
+	if err := upMigrations(ctx, sqlDB, "migrations"); err != nil {
 		return fmt.Errorf("migrations: %w", err)
 	}
-	version, err := goose.GetDBVersionContext(ctx, sqlDB)
+	version, err := migrationVersion(ctx, sqlDB)
 	if err != nil {
 		return err
 	}

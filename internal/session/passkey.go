@@ -34,9 +34,39 @@ import (
 //     the password entirely, so it must prove the user (PIN, biometric), not
 //     merely that the authenticator was present.
 type Passkeys struct {
-	Store    *store.Queries
+	Store    Store
 	Sessions *Manager
-	WA       *webauthn.WebAuthn
+	WA       passkeyEngine
+}
+
+type passkeyEngine interface {
+	BeginRegistration(webauthn.User, ...webauthn.RegistrationOption) (*protocol.CredentialCreation, *webauthn.SessionData, error)
+	CreateCredential(webauthn.User, webauthn.SessionData, []byte) (*webauthn.Credential, error)
+	BeginDiscoverableLogin(...webauthn.LoginOption) (*protocol.CredentialAssertion, *webauthn.SessionData, error)
+	ValidatePasskeyLogin(webauthn.DiscoverableUserHandler, webauthn.SessionData, []byte) (webauthn.User, *webauthn.Credential, error)
+}
+
+type realPasskeyEngine struct{ engine *webauthn.WebAuthn }
+
+func (e realPasskeyEngine) BeginRegistration(user webauthn.User, opts ...webauthn.RegistrationOption) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
+	return e.engine.BeginRegistration(user, opts...)
+}
+func (e realPasskeyEngine) CreateCredential(user webauthn.User, session webauthn.SessionData, response []byte) (*webauthn.Credential, error) {
+	parsed, err := protocol.ParseCredentialCreationResponseBytes(response)
+	if err != nil {
+		return nil, err
+	}
+	return e.engine.CreateCredential(user, session, parsed)
+}
+func (e realPasskeyEngine) BeginDiscoverableLogin(opts ...webauthn.LoginOption) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
+	return e.engine.BeginDiscoverableLogin(opts...)
+}
+func (e realPasskeyEngine) ValidatePasskeyLogin(handler webauthn.DiscoverableUserHandler, session webauthn.SessionData, response []byte) (webauthn.User, *webauthn.Credential, error) {
+	parsed, err := protocol.ParseCredentialRequestResponseBytes(response)
+	if err != nil {
+		return nil, nil, err
+	}
+	return e.engine.ValidatePasskeyLogin(handler, session, parsed)
 }
 
 // CeremonyLifetime bounds the begin→finish window. Five minutes is generous
@@ -88,7 +118,7 @@ func RelyingParty(fqdn string, port int) (rpID string, origins []string) {
 }
 
 // NewPasskeys builds the WebAuthn engine pinned to the given relying party.
-func NewPasskeys(st *store.Queries, sessions *Manager, rpID, displayName string, origins []string) (*Passkeys, error) {
+func NewPasskeys(st Store, sessions *Manager, rpID, displayName string, origins []string) (*Passkeys, error) {
 	wa, err := webauthn.New(&webauthn.Config{
 		RPID:          rpID,
 		RPDisplayName: displayName,
@@ -106,7 +136,7 @@ func NewPasskeys(st *store.Queries, sessions *Manager, rpID, displayName string,
 	if err != nil {
 		return nil, fmt.Errorf("webauthn config: %w", err)
 	}
-	return &Passkeys{Store: st, Sessions: sessions, WA: wa}, nil
+	return &Passkeys{Store: st, Sessions: sessions, WA: realPasskeyEngine{engine: wa}}, nil
 }
 
 // passkeyUser adapts a user row and its stored credentials to webauthn.User.
@@ -202,11 +232,7 @@ func (p *Passkeys) FinishRegistration(ctx context.Context, userID int64, ceremon
 		return store.PasskeyCredential{}, err
 	}
 
-	parsed, err := protocol.ParseCredentialCreationResponseBytes(response)
-	if err != nil {
-		return store.PasskeyCredential{}, ErrPasskeyRejected
-	}
-	cred, err := p.WA.CreateCredential(pu, *sess, parsed)
+	cred, err := p.WA.CreateCredential(pu, *sess, response)
 	if err != nil {
 		return store.PasskeyCredential{}, ErrPasskeyRejected
 	}
@@ -295,11 +321,6 @@ func (p *Passkeys) FinishStepUp(ctx context.Context, ceremonyToken string, respo
 // step-up: the crypto is identical, only what happens afterwards differs.
 func (p *Passkeys) verifyAssertion(ctx context.Context, sess *webauthn.SessionData, response []byte) (store.GetPasskeyByCredentialIDRow, error) {
 	var zero store.GetPasskeyByCredentialIDRow
-	parsed, err := protocol.ParseCredentialRequestResponseBytes(response)
-	if err != nil {
-		return zero, ErrPasskeyRejected
-	}
-
 	// The handler resolves "which user is this credential" for the library.
 	// The user handle the authenticator stored at enrolment must match the
 	// owner we know for that credential id — a mismatch is an attack, not a
@@ -326,7 +347,7 @@ func (p *Passkeys) verifyAssertion(ctx context.Context, sess *webauthn.SessionDa
 		}, nil
 	}
 
-	_, cred, err := p.WA.ValidatePasskeyLogin(handler, *sess, parsed)
+	_, cred, err := p.WA.ValidatePasskeyLogin(handler, *sess, response)
 	if err != nil {
 		return zero, ErrPasskeyRejected
 	}

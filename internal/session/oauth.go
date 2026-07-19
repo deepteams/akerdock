@@ -30,15 +30,22 @@ import (
 // account's MFA story, and demanding our TOTP after theirs would not add a
 // factor — only a second enrolment of the same kind.
 type OAuth struct {
-	Store    *store.Queries
+	Store    Store
 	Sessions *Manager
 	Keyring  *envelope.Keyring
 	Settings *instance.Cache
-	Client   *oidc.Client
+	Client   OAuthClient
 	// BaseURL is where the provider sends the browser back:
 	// {BaseURL}/auth/oauth/{provider}/callback. Derived from the instance
 	// FQDN — pinned, like the passkey relying party, never from Host.
 	BaseURL string
+}
+
+type OAuthClient interface {
+	Discover(context.Context, string) (*oidc.Endpoints, error)
+	Exchange(context.Context, *oidc.Endpoints, string, string, string, string, string) (*oidc.TokenResponse, error)
+	VerifyIDToken(context.Context, *oidc.Endpoints, string, string, string, time.Time) (*oidc.Identity, error)
+	FetchOAuth2Identity(context.Context, string, *oidc.Endpoints, string) (*oidc.Identity, error)
 }
 
 // StateLifetime bounds the authorize→callback window. Ten minutes, not

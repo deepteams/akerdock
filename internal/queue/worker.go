@@ -35,7 +35,7 @@ type Worker struct {
 	Metrics *telemetry.Metrics
 	Tracer  trace.Tracer
 
-	Store       *store.Queries
+	Store       WorkerStore
 	Concurrency int
 	Queues      []string
 	Logger      *slog.Logger
@@ -43,6 +43,17 @@ type Worker struct {
 	id       string
 	handlers map[string]HandlerFunc
 	wg       sync.WaitGroup
+}
+
+type WorkerStore interface {
+	StepStore
+	PromoteWaitingJobs(context.Context) (int64, error)
+	ReapExpiredLeases(context.Context, int32) ([]store.ReapExpiredLeasesRow, error)
+	DequeueJob(context.Context, store.DequeueJobParams) (store.Job, error)
+	MarkJobRunning(context.Context, store.MarkJobRunningParams) (int64, error)
+	HeartbeatJob(context.Context, store.HeartbeatJobParams) (int64, error)
+	SucceedJob(context.Context, store.SucceedJobParams) (int64, error)
+	FailJob(context.Context, store.FailJobParams) (int64, error)
 }
 
 // maxResumes bounds crash recovery (§2.5): a job whose worker dies is given
@@ -56,8 +67,14 @@ const maxResumes = 3
 // months later that a job type has been silently piling up.
 var KnownQueues = []string{"default", "deploy", "backup", "cleanup", "notify", "maintenance", "webhook", "task"}
 
+var (
+	maintenanceInterval = 5 * time.Second
+	dequeueIdleDelay    = time.Second
+	dequeueErrorDelay   = 2 * time.Second
+)
+
 // NewWorker builds a worker consuming the given logical queues.
-func NewWorker(q *store.Queries, concurrency int, logger *slog.Logger) *Worker {
+func NewWorker(q WorkerStore, concurrency int, logger *slog.Logger) *Worker {
 	hostname, _ := os.Hostname()
 	suffix, _ := pguuid.New()
 	return &Worker{
@@ -83,7 +100,7 @@ func (w *Worker) Run(ctx context.Context) {
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
-		ticker := time.NewTicker(5 * time.Second)
+		ticker := time.NewTicker(maintenanceInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -118,7 +135,7 @@ func (w *Worker) Run(ctx context.Context) {
 				case errors.Is(err, pgx.ErrNoRows):
 					select {
 					case <-ctx.Done():
-					case <-time.After(time.Second):
+					case <-time.After(dequeueIdleDelay):
 					}
 				case err != nil:
 					if ctx.Err() == nil {
@@ -126,7 +143,7 @@ func (w *Worker) Run(ctx context.Context) {
 					}
 					select {
 					case <-ctx.Done():
-					case <-time.After(2 * time.Second):
+					case <-time.After(dequeueErrorDelay):
 					}
 				default:
 					w.process(ctx, job)

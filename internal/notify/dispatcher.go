@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/pguuid"
@@ -22,10 +23,31 @@ import (
 // among others (SSE reads the same table), which is why the cursor lives here
 // and not in the outbox rows.
 type Dispatcher struct {
-	Store   *store.Queries
+	Store   NotificationStore
 	Keyring *envelope.Keyring
 	Sender  *Sender
 	Logger  *slog.Logger
+}
+
+// NotificationStore is the narrow database boundary used by the dispatcher.
+// Keeping it here makes the routing and noise-control rules unit-testable
+// without starting PostgreSQL.
+type NotificationStore interface {
+	GetNotificationCursor(context.Context) (int64, error)
+	ListOutboxEventsAfter(context.Context, store.ListOutboxEventsAfterParams) ([]store.OutboxEvent, error)
+	SetNotificationCursor(context.Context, int64) error
+	ResolveProjectEnvironmentOfResource(context.Context, pgtype.UUID) (store.ResolveProjectEnvironmentOfResourceRow, error)
+	MatchNotificationRules(context.Context, store.MatchNotificationRulesParams) ([]store.MatchNotificationRulesRow, error)
+	CreateNotificationDelivery(context.Context, store.CreateNotificationDeliveryParams) (store.NotificationDelivery, error)
+	FinishNotificationDelivery(context.Context, store.FinishNotificationDeliveryParams) error
+	GetNotificationChannelByID(context.Context, int64) (store.NotificationChannel, error)
+	LastSentDelivery(context.Context, int64) (pgtype.Timestamptz, error)
+	CountSuppressedSince(context.Context, store.CountSuppressedSinceParams) (int64, error)
+	ListDigestRulesDue(context.Context) ([]store.ListDigestRulesDueRow, error)
+	ListPendingDigestDeliveries(context.Context, int64) ([]store.ListPendingDigestDeliveriesRow, error)
+	MarkDigestDeliveriesFailed(context.Context, store.MarkDigestDeliveriesFailedParams) error
+	MarkDigestDeliveriesSent(context.Context, []int64) error
+	SetRuleDigestFlushed(context.Context, int64) error
 }
 
 // batchSize bounds one pass. A backlog is drained over several passes rather

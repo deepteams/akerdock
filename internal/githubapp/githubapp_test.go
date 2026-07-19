@@ -3,6 +3,7 @@ package githubapp
 import (
 	"context"
 	"crypto"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -10,12 +11,20 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func testKeyPEM(t *testing.T) ([]byte, *rsa.PublicKey) {
 	t.Helper()
@@ -68,6 +77,41 @@ func TestAppJWT(t *testing.T) {
 	}
 	if claims.Exp != now.Add(9*time.Minute).Unix() {
 		t.Fatalf("exp must be iat+9min-ish, got %d", claims.Exp)
+	}
+}
+
+func TestAppJWTKeyFormatsAndErrors(t *testing.T) {
+	if _, err := AppJWT(1, []byte("not PEM"), time.Now()); err == nil {
+		t.Fatal("non-PEM key was accepted")
+	}
+	badDER := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("bad")})
+	if _, err := AppJWT(1, badDER, time.Now()); err == nil {
+		t.Fatal("invalid private-key DER was accepted")
+	}
+
+	_, edKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edDER, err := x509.MarshalPKCS8PrivateKey(edKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AppJWT(1, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: edDER}), time.Now()); err == nil ||
+		!strings.Contains(err.Error(), "not RSA") {
+		t.Fatalf("non-RSA PKCS#8 should be rejected, got %v", err)
+	}
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AppJWT(1, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8}), time.Now()); err != nil {
+		t.Fatalf("RSA PKCS#8 should be accepted: %v", err)
 	}
 }
 
@@ -140,10 +184,32 @@ func TestConvertManifestAndTokens(t *testing.T) {
 	if mints != 1 {
 		t.Fatalf("expected 1 mint, got %d", mints)
 	}
+	ts.Invalidate(9, nil)
+	if _, err := ts.Token(context.Background(), 9, nil); err != nil {
+		t.Fatal(err)
+	}
+	if mints != 2 {
+		t.Fatalf("invalidating must force a second mint, got %d", mints)
+	}
 
 	repos, err := client.ListInstallationRepos(context.Background(), token)
 	if err != nil || len(repos) != 1 || repos[0].FullName != "acme/shop" {
 		t.Fatalf("repos: %+v %v", repos, err)
+	}
+}
+
+func TestScopeKeyDoesNotCollideAndDoesNotMutateInput(t *testing.T) {
+	repositories := []string{"z/repo", "a/repo"}
+	first := scopeKey(2_000_000, repositories)
+	second := scopeKey(3_000_000, repositories)
+	if first == second {
+		t.Fatal("large installation IDs collided in the token cache key")
+	}
+	if repositories[0] != "z/repo" {
+		t.Fatalf("scopeKey mutated caller repositories: %v", repositories)
+	}
+	if !strings.Contains(first, "a/repo\x00z/repo") {
+		t.Fatalf("repository scope is not deterministic: %q", first)
 	}
 }
 
@@ -178,5 +244,198 @@ func TestUpsertPRComment(t *testing.T) {
 	}
 	if patched != 1 || posted != 0 {
 		t.Fatalf("expected an in-place update, got patch=%d post=%d", patched, posted)
+	}
+}
+
+func TestPreviewFeedbackEndpoints(t *testing.T) {
+	var calls []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		if got := r.Header.Get("Authorization"); got != "Bearer token" {
+			t.Errorf("authorization = %q", got)
+		}
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/shop/check-runs":
+			_ = json.NewEncoder(w).Encode(CheckRun{ID: 10, Name: "preview", Status: "queued"})
+		case r.Method == http.MethodPatch && r.URL.Path == "/repos/acme/shop/check-runs/10":
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/shop/deployments":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 20})
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/shop/deployments/20/statuses":
+			w.WriteHeader(http.StatusCreated)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	client := &Client{APIURL: server.URL, HTTP: server.Client()}
+
+	check, err := client.CreateCheckRun(context.Background(), "token", "acme/shop", CheckRunInput{Name: "preview", HeadSHA: "abc"})
+	if err != nil || check.ID != 10 {
+		t.Fatalf("check run = %+v, %v", check, err)
+	}
+	if err := client.UpdateCheckRun(context.Background(), "token", "acme/shop", 10, CheckRunInput{Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	deploymentID, err := client.CreateDeployment(context.Background(), "token", "acme/shop", "abc", "preview/pr-1")
+	if err != nil || deploymentID != 20 {
+		t.Fatalf("deployment = %d, %v", deploymentID, err)
+	}
+	if err := client.CreateDeploymentStatus(context.Background(), "token", "acme/shop", 20, "success", "https://preview.example"); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 4 {
+		t.Fatalf("calls = %v", calls)
+	}
+}
+
+func TestCollaboratorPermissions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/repos/acme/shop/collaborators/"), "/permission")
+		switch username {
+		case "writer":
+			_ = json.NewEncoder(w).Encode(map[string]string{"permission": "write"})
+		case "admin":
+			_ = json.NewEncoder(w).Encode(map[string]string{"permission": "admin"})
+		case "reader":
+			_ = json.NewEncoder(w).Encode(map[string]string{"permission": "read"})
+		case "missing":
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer server.Close()
+	client := &Client{APIURL: server.URL, HTTP: server.Client()}
+
+	for _, tc := range []struct {
+		username string
+		want     bool
+		wantErr  bool
+	}{
+		{"writer", true, false},
+		{"admin", true, false},
+		{"reader", false, false},
+		{"missing", false, false},
+		{"broken", false, true},
+	} {
+		got, err := client.CollaboratorCanWrite(context.Background(), "token", "acme/shop", tc.username)
+		if got != tc.want || (err != nil) != tc.wantErr {
+			t.Errorf("%s = %v, %v", tc.username, got, err)
+		}
+	}
+}
+
+func TestPaginationAndCommentCreation(t *testing.T) {
+	var commentPosts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/installation/repositories":
+			page := r.URL.Query().Get("page")
+			if page == "1" {
+				repos := make([]Repo, 100)
+				for i := range repos {
+					repos[i] = Repo{ID: int64(i + 1), FullName: "acme/repo"}
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"total_count": 101, "repositories": repos})
+			} else {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"total_count":  101,
+					"repositories": []Repo{{ID: 101, FullName: "acme/last"}},
+				})
+			}
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/comments"):
+			_ = json.NewEncoder(w).Encode([]any{})
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/comments"):
+			commentPosts++
+			w.WriteHeader(http.StatusCreated)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	client := &Client{APIURL: server.URL, HTTP: server.Client()}
+
+	repositories, err := client.ListInstallationRepos(context.Background(), "token")
+	if err != nil || len(repositories) != 101 || repositories[100].ID != 101 {
+		t.Fatalf("repositories = %d, %v", len(repositories), err)
+	}
+	if err := client.UpsertPRComment(context.Background(), "token", "acme/shop", 1, "preview", "ready"); err != nil {
+		t.Fatal(err)
+	}
+	if commentPosts != 1 {
+		t.Fatalf("comment posts = %d", commentPosts)
+	}
+}
+
+func TestHTTPFailureModesAndAPIError(t *testing.T) {
+	client := &Client{APIURL: "https://api.invalid", HTTP: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("network unavailable")
+	})}}
+	if err := client.do(context.Background(), http.MethodGet, "/x", "", nil, nil); err == nil {
+		t.Fatal("transport error was not returned")
+	}
+	if err := client.do(context.Background(), http.MethodPost, "/x", "", make(chan int), nil); err == nil {
+		t.Fatal("unencodable body was not rejected")
+	}
+	invalid := &Client{APIURL: "://invalid", HTTP: http.DefaultClient}
+	if err := invalid.do(context.Background(), "bad\nmethod", "/x", "", nil, nil); err == nil {
+		t.Fatal("invalid request was not rejected")
+	}
+
+	response := func(status int, body string) *Client {
+		return &Client{
+			APIURL: "https://api.invalid",
+			HTTP: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: status,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(body)),
+				}, nil
+			})},
+		}
+	}
+	err := response(http.StatusNotFound, `{"message":"missing"}`).do(context.Background(), http.MethodGet, "/repos/x", "", nil, nil)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || !apiErr.IsNotFound() || !strings.Contains(apiErr.Error(), "answered 404") {
+		t.Fatalf("API error = %v", err)
+	}
+	var out map[string]any
+	if err := response(http.StatusOK, "not-json").do(context.Background(), http.MethodGet, "/x", "", nil, &out); err == nil {
+		t.Fatal("malformed success response was accepted")
+	}
+	if err := response(http.StatusNoContent, "").do(context.Background(), http.MethodDelete, "/x", "", nil, nil); err != nil {
+		t.Fatalf("bodyless success failed: %v", err)
+	}
+}
+
+func TestBuildDefaultHTTP(t *testing.T) {
+	t.Setenv("AKERDOCK_GITHUB_CA_FILE", "")
+	if got := buildDefaultHTTP(); got != http.DefaultClient {
+		t.Fatal("empty CA setting should use the default client")
+	}
+	t.Setenv("AKERDOCK_GITHUB_CA_FILE", filepath.Join(t.TempDir(), "missing.pem"))
+	if got := buildDefaultHTTP(); got != http.DefaultClient {
+		t.Fatal("missing CA file should use the default client")
+	}
+	invalid := filepath.Join(t.TempDir(), "invalid.pem")
+	if err := os.WriteFile(invalid, []byte("not a certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AKERDOCK_GITHUB_CA_FILE", invalid)
+	if got := buildDefaultHTTP(); got != http.DefaultClient {
+		t.Fatal("invalid CA file should use the default client")
+	}
+
+	tlsServer := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer tlsServer.Close()
+	certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: tlsServer.Certificate().Raw})
+	valid := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(valid, certificate, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AKERDOCK_GITHUB_CA_FILE", valid)
+	if got := buildDefaultHTTP(); got == http.DefaultClient || got.Transport == nil {
+		t.Fatal("valid private CA was not installed")
 	}
 }

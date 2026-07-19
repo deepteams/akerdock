@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -70,12 +71,14 @@ var (
 
 // Manager creates and verifies browser sessions.
 type Manager struct {
-	Store *store.Queries
+	Store Store
 	// Secure marks the cookies Secure. It is derived from the instance FQDN
 	// being https — on a plain-HTTP instance a Secure cookie would simply never
 	// be sent, and the operator would be locked out of their own dashboard.
 	Secure bool
 }
+
+var randomReader io.Reader = rand.Reader
 
 // Session is an authenticated browser session.
 type Session struct {
@@ -361,7 +364,7 @@ func newToken() (token, hash string, err error) {
 
 func randomToken() (string, error) {
 	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
+	if _, err := io.ReadFull(randomReader, raw); err != nil {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(raw), nil

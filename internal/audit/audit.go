@@ -22,9 +22,23 @@ import (
 
 // Recorder writes audit and outbox rows.
 type Recorder struct {
-	Store  *store.Queries
+	Store  AuditStore
 	Logger *slog.Logger
 }
+
+// AuditStore is the generated-query boundary owned by this package. The
+// recorder's formatting, redaction and failure policy are unit-testable
+// independently from PostgreSQL; append-only SQL guarantees stay in the
+// database module suite.
+type AuditStore interface {
+	InsertAuditEvent(context.Context, store.InsertAuditEventParams) error
+}
+
+type OutboxStore interface {
+	InsertOutboxEvent(context.Context, store.InsertOutboxEventParams) error
+}
+
+var newUUID = pguuid.New
 
 // Event is one audited action (§23.4 vocabulary: secret.reveal,
 // server.delete, deployment.rollback, ...).
@@ -142,8 +156,8 @@ func (a *Recorder) System(ctx context.Context, teamID *int64, action, targetKind
 // Outbox publishes a versioned domain event through the transactional
 // outbox (§24.2). q may be a transaction-bound Queries so the event
 // commits atomically with its mutation.
-func (a *Recorder) Outbox(ctx context.Context, q *store.Queries, eventType string, teamUUID, resourceUUID pgtype.UUID, aggregateKey string, payload map[string]any) {
-	u, err := pguuid.New()
+func (a *Recorder) Outbox(ctx context.Context, q OutboxStore, eventType string, teamUUID, resourceUUID pgtype.UUID, aggregateKey string, payload map[string]any) {
+	u, err := newUUID()
 	if err != nil {
 		a.Logger.Error("outbox event lost", "event_type", eventType, "error", err)
 		return

@@ -2,6 +2,8 @@ package s3
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,6 +11,10 @@ import (
 	"testing"
 	"time"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func testClient(endpoint string) *Client {
 	return New(Config{
@@ -54,6 +60,20 @@ func TestPresignShape(t *testing.T) {
 	}
 	if strings.Contains(raw, "wJalrXUtnFEMI") {
 		t.Fatal("the secret key leaked into the presigned URL")
+	}
+}
+
+func TestPresignGetAndDefaultRegion(t *testing.T) {
+	client := New(Config{
+		Endpoint: "https://s3.local", Bucket: "backups",
+		AccessKey: "access", SecretKey: "secret",
+	})
+	raw, err := client.PresignGet("snapshot.sql", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mustQuery(t, raw).Get("X-Amz-Credential"); !strings.Contains(got, "/us-east-1/s3/aws4_request") {
+		t.Fatalf("default region missing from credential scope: %q", got)
 	}
 }
 
@@ -138,6 +158,104 @@ func TestCheckSurfacesS3Error(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "AccessDenied") {
 		t.Fatalf("error = %v, want it to name AccessDenied", err)
 	}
+}
+
+func TestSizeStates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead {
+			t.Errorf("Size used %s, want HEAD", r.Method)
+		}
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/present"):
+			w.Header().Set("Content-Length", "123")
+			w.WriteHeader(http.StatusOK)
+		case strings.HasSuffix(r.URL.Path, "/missing"):
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`<Error><Code>AccessDenied</Code><Message>denied</Message></Error>`))
+		}
+	}))
+	defer srv.Close()
+	client := testClient(srv.URL)
+
+	size, exists, err := client.Size(context.Background(), "present")
+	if err != nil || !exists || size != 123 {
+		t.Fatalf("present object = size %d exists %v err %v", size, exists, err)
+	}
+	size, exists, err = client.Size(context.Background(), "missing")
+	if err != nil || exists || size != 0 {
+		t.Fatalf("missing object = size %d exists %v err %v", size, exists, err)
+	}
+	if _, _, err := client.Size(context.Background(), "denied"); err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("denied HEAD should surface its status, got %v", err)
+	}
+}
+
+func TestClientFailureModes(t *testing.T) {
+	bad := testClient("://invalid")
+	if err := bad.Put(context.Background(), "key", nil); err == nil {
+		t.Fatal("Put should reject an invalid endpoint")
+	}
+	if _, err := bad.Get(context.Background(), "key"); err == nil {
+		t.Fatal("Get should reject an invalid endpoint")
+	}
+	if _, _, err := bad.Size(context.Background(), "key"); err == nil {
+		t.Fatal("Size should reject an invalid endpoint")
+	}
+	if err := bad.Delete(context.Background(), "key"); err == nil {
+		t.Fatal("Delete should reject an invalid endpoint")
+	}
+	if _, err := bad.PresignGet("key", time.Minute); err == nil {
+		t.Fatal("PresignGet should reject an invalid endpoint")
+	}
+
+	transportFailure := testClient("https://s3.invalid")
+	transportFailure.http = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("network unavailable")
+	})}
+	if _, _, err := transportFailure.Size(context.Background(), "key"); err == nil {
+		t.Fatal("Size should return transport errors")
+	}
+	if err := transportFailure.Delete(context.Background(), "key"); err == nil {
+		t.Fatal("Delete should return transport errors")
+	}
+}
+
+func TestCheckDetectsCorruptReadAndDeleteFailure(t *testing.T) {
+	t.Run("different content", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodPut:
+				w.WriteHeader(http.StatusOK)
+			case http.MethodGet:
+				_, _ = io.WriteString(w, "different")
+			}
+		}))
+		defer srv.Close()
+		err := testClient(srv.URL).Check(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "different content") {
+			t.Fatalf("corrupt round trip should fail, got %v", err)
+		}
+	})
+
+	t.Run("delete rejected", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodPut:
+				w.WriteHeader(http.StatusOK)
+			case http.MethodGet:
+				_, _ = io.WriteString(w, "akerdock")
+			case http.MethodDelete:
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+		}))
+		defer srv.Close()
+		err := testClient(srv.URL).Check(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "delete failed") {
+			t.Fatalf("delete failure should be contextual, got %v", err)
+		}
+	})
 }
 
 func readAll(r *http.Request) ([]byte, error) {

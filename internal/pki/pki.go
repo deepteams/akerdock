@@ -20,10 +20,15 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"time"
 )
+
+var randomReader io.Reader = rand.Reader
+var newSerialNumber = serialNumber
+var createCertificate = x509.CreateCertificate
 
 // caLifetime outlives any leaf it signs, by a wide margin: a CA that expires
 // under its own certificates would take every database down at once, and the
@@ -44,11 +49,11 @@ type CA struct {
 
 // NewCA mints a certificate authority for one server.
 func NewCA(serverName string) (*CA, error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), randomReader)
 	if err != nil {
 		return nil, err
 	}
-	serial, err := serialNumber()
+	serial, err := newSerialNumber()
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +68,7 @@ func NewCA(serverName string) (*CA, error) {
 		MaxPathLen:            0, // it signs leaves, never another CA
 		MaxPathLenZero:        true,
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	der, err := createCertificate(randomReader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
 		return nil, err
 	}
@@ -95,11 +100,11 @@ func SignLeaf(ca *CA, commonName string, hosts []string) (*Leaf, error) {
 	if err != nil {
 		return nil, err
 	}
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), randomReader)
 	if err != nil {
 		return nil, err
 	}
-	serial, err := serialNumber()
+	serial, err := newSerialNumber()
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +126,7 @@ func SignLeaf(ca *CA, commonName string, hosts []string) (*Leaf, error) {
 		}
 		tmpl.DNSNames = append(tmpl.DNSNames, h)
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, &key.PublicKey, caKey)
+	der, err := createCertificate(randomReader, tmpl, caCert, &key.PublicKey, caKey)
 	if err != nil {
 		return nil, err
 	}
@@ -136,6 +141,9 @@ func SignLeaf(ca *CA, commonName string, hosts []string) (*Leaf, error) {
 }
 
 func parseCA(ca *CA) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	if ca == nil {
+		return nil, nil, fmt.Errorf("pki: the CA material is missing")
+	}
 	certBlock, _ := pem.Decode(ca.CertPEM)
 	keyBlock, _ := pem.Decode(ca.KeyPEM)
 	if certBlock == nil || keyBlock == nil {
@@ -156,5 +164,5 @@ func serialNumber() (*big.Int, error) {
 	// 128 bits of randomness: serials must be unpredictable, not sequential —
 	// a guessable serial is one of the ingredients of a certificate forgery.
 	limit := new(big.Int).Lsh(big.NewInt(1), 128)
-	return rand.Int(rand.Reader, limit)
+	return rand.Int(randomReader, limit)
 }

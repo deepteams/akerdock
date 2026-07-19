@@ -1,7 +1,7 @@
 GO      ?= go
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: all build test lint generate api-gen sqlc-gen openapi-validate migrate-status e2e clean web
+.PHONY: all build test unit-coverage go-unit-coverage web-unit-coverage lint generate api-gen sqlc-gen openapi-validate migrate-status e2e clean web
 
 all: generate build test
 
@@ -10,6 +10,18 @@ build:
 
 test:
 	$(GO) test ./...
+
+# Fast coverage gates used on pull requests. Angular enforces 90% on
+# statements, branches, functions and lines; Go enforces 90% per unit package
+# and keeps explicit anti-regression floors for the two orchestration
+# boundaries while they are split into smaller policy modules.
+unit-coverage: go-unit-coverage web-unit-coverage
+
+go-unit-coverage:
+	bash scripts/check-go-unit-coverage.sh
+
+web-unit-coverage:
+	npm --prefix web test -- --no-progress
 
 lint:
 	golangci-lint run

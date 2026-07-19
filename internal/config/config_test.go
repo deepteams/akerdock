@@ -185,3 +185,93 @@ func TestInvalidTimezone(t *testing.T) {
 		t.Fatalf("expected timezone error, got %v", err)
 	}
 }
+
+func TestAllSupportedOverrides(t *testing.T) {
+	vars := base()
+	for key, value := range map[string]string{
+		"AKERDOCK_MODE":                  "worker",
+		"AKERDOCK_PORT":                  "9443",
+		"AKERDOCK_ROOT_EMAIL":            "root@example.com",
+		"AKERDOCK_ROOT_NAME":             "  Platform Owner  ",
+		"AKERDOCK_ROOT_PASSWORD":         "a-long-enough-password",
+		"AKERDOCK_TIMEZONE":              "Europe/Paris",
+		"AKERDOCK_LOG_LEVEL":             "warn",
+		"AKERDOCK_LOG_FORMAT":            "text",
+		"AKERDOCK_DATA_DIR":              "/srv/akerdock",
+		"AKERDOCK_WORKER_CONCURRENCY":    "24",
+		"AKERDOCK_SHUTDOWN_TIMEOUT":      "45s",
+		"AKERDOCK_SCHEDULER_TICK":        "2s",
+		"AKERDOCK_RETRY_BASE":            "750ms",
+		"AKERDOCK_TERMINAL_IDLE_TIMEOUT": "20m",
+		"AKERDOCK_TERMINAL_MAX_DURATION": "6h",
+	} {
+		vars[key] = value
+	}
+
+	cfg, _, err := Load(vars, noFile)
+	if err != nil {
+		t.Fatalf("unexpected errors: %v", err)
+	}
+	if cfg.Mode != ModeWorker || cfg.Port != 9443 || cfg.RootName != "Platform Owner" ||
+		cfg.Timezone != "Europe/Paris" || cfg.LogLevel != "warn" || cfg.LogFormat != "text" ||
+		cfg.DataDir != "/srv/akerdock" || cfg.WorkerConcurrency != 24 ||
+		cfg.ShutdownTimeout != 45*time.Second || cfg.SchedulerTick != 2*time.Second ||
+		cfg.RetryBase != 750*time.Millisecond || cfg.TerminalIdleTimeout != 20*time.Minute ||
+		cfg.TerminalMaxDuration != 6*time.Hour {
+		t.Fatalf("overrides not applied: %+v", cfg)
+	}
+}
+
+func TestInvalidOptionalValuesAreCollected(t *testing.T) {
+	vars := base()
+	for key, value := range map[string]string{
+		"AKERDOCK_MODE":                  "sidecar",
+		"AKERDOCK_PORT":                  "not-a-port",
+		"AKERDOCK_ROOT_EMAIL":            "not an email",
+		"AKERDOCK_ROOT_NAME":             strings.Repeat("x", 256),
+		"AKERDOCK_ROOT_PASSWORD":         "too-short",
+		"AKERDOCK_TIMEZONE":              "Mars/Olympus",
+		"AKERDOCK_LOG_LEVEL":             "verbose",
+		"AKERDOCK_LOG_FORMAT":            "xml",
+		"AKERDOCK_WORKER_CONCURRENCY":    "0",
+		"AKERDOCK_SHUTDOWN_TIMEOUT":      "0s",
+		"AKERDOCK_SCHEDULER_TICK":        "never",
+		"AKERDOCK_RETRY_BASE":            "-1s",
+		"AKERDOCK_TERMINAL_IDLE_TIMEOUT": "0",
+		"AKERDOCK_TERMINAL_MAX_DURATION": "-2h",
+	} {
+		vars[key] = value
+	}
+
+	_, _, err := Load(vars, noFile)
+	var errs Errors
+	if !errors.As(err, &errs) {
+		t.Fatalf("expected an exhaustive Errors value, got %v", err)
+	}
+	if len(errs) != 14 {
+		t.Fatalf("expected all 14 invalid values, got %d: %v", len(errs), errs)
+	}
+}
+
+func TestInvalidConfigYAML(t *testing.T) {
+	vars := base()
+	vars["AKERDOCK_CONFIG_FILE"] = "/etc/akerdock.yaml"
+	_, _, err := Load(vars, func(string) ([]byte, error) {
+		return []byte("port: ["), nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid YAML") {
+		t.Fatalf("malformed YAML should be fatal, got %v", err)
+	}
+}
+
+func TestUnknownVariableWithoutSuggestion(t *testing.T) {
+	vars := base()
+	vars["AKERDOCK_COMPLETELY_UNRELATED"] = "x"
+	_, warnings, err := Load(vars, noFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 1 || strings.Contains(warnings[0], "did you mean") {
+		t.Fatalf("distant variables should be warned without a misleading suggestion: %v", warnings)
+	}
+}

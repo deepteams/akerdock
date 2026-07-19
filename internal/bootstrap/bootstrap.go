@@ -23,10 +23,31 @@ import (
 	"github.com/deepteams/akerdock/internal/store"
 )
 
+type BootstrapStore interface {
+	GetInstanceSettings(context.Context) (store.InstanceSetting, error)
+	GetOldestTeamID(context.Context) (int64, error)
+	GetInstancePrivateKey(context.Context) (store.PrivateKey, error)
+	CreateLocalhostServerIfAbsent(context.Context, store.CreateLocalhostServerIfAbsentParams) (int64, error)
+	SetLocalhostSeeded(context.Context) (int64, error)
+	CreatePrivateKey(context.Context, store.CreatePrivateKeyParams) (store.PrivateKey, error)
+	InsertInstanceSettingsIfAbsent(context.Context, store.InsertInstanceSettingsIfAbsentParams) (int64, error)
+	SetAcmeEmailIfAbsent(context.Context, *string) (int64, error)
+	CountUsers(context.Context) (int64, error)
+	CreateUser(context.Context, store.CreateUserParams) (store.User, error)
+	CreatePersonalTeam(context.Context, string) (store.Team, error)
+	AddTeamMember(context.Context, store.AddTeamMemberParams) error
+}
+
+type bootstrapPool interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
 // Run executes the first-start seeding. It is safe to call on every boot.
 func Run(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, keyring *envelope.Keyring, logger *slog.Logger) error {
-	q := store.New(pool)
+	return run(ctx, pool, store.New(pool), cfg, keyring, logger)
+}
 
+func run(ctx context.Context, pool bootstrapPool, q BootstrapStore, cfg *config.Config, keyring *envelope.Keyring, logger *slog.Logger) error {
 	if err := seedInstanceSettings(ctx, q, cfg, logger); err != nil {
 		return err
 	}
@@ -48,7 +69,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config, keyring *e
 // instance_settings.localhost_seeded records the fact, so an operator who
 // deletes the server never finds it resurrected. Until a team exists (UI
 // onboarding not done yet), the seed just waits for a later boot.
-func seedLocalhostServer(ctx context.Context, q *store.Queries, cfg *config.Config, logger *slog.Logger) error {
+func seedLocalhostServer(ctx context.Context, q BootstrapStore, cfg *config.Config, logger *slog.Logger) error {
 	settings, err := q.GetInstanceSettings(ctx)
 	if err != nil {
 		return fmt.Errorf("bootstrap: localhost server: %w", err)
@@ -96,7 +117,7 @@ func seedLocalhostServer(ctx context.Context, q *store.Queries, cfg *config.Conf
 
 // ensureInstanceSSHKey generates the ed25519 instance key on first boot and
 // keeps its public part available on disk for the operator (§6.2).
-func ensureInstanceSSHKey(ctx context.Context, q *store.Queries, cfg *config.Config, keyring *envelope.Keyring, logger *slog.Logger) error {
+func ensureInstanceSSHKey(ctx context.Context, q BootstrapStore, cfg *config.Config, keyring *envelope.Keyring, logger *slog.Logger) error {
 	key, err := q.GetInstancePrivateKey(ctx)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -133,7 +154,10 @@ func ensureInstanceSSHKey(ctx context.Context, q *store.Queries, cfg *config.Con
 	// Idempotent copy of the public key for the operator.
 	sshDir := filepath.Join(cfg.DataDir, "ssh")
 	pubPath := filepath.Join(sshDir, "instance_ed25519.pub")
-	if _, err := os.Stat(pubPath); os.IsNotExist(err) {
+	if _, err := os.Stat(pubPath); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("bootstrap: instance ssh key: inspect public key: %w", err)
+		}
 		if err := os.MkdirAll(sshDir, 0o700); err != nil {
 			return fmt.Errorf("bootstrap: instance ssh key: %w", err)
 		}
@@ -147,7 +171,7 @@ func ensureInstanceSSHKey(ctx context.Context, q *store.Queries, cfg *config.Con
 
 func ptr[T any](v T) *T { return &v }
 
-func seedInstanceSettings(ctx context.Context, q *store.Queries, cfg *config.Config, logger *slog.Logger) error {
+func seedInstanceSettings(ctx context.Context, q BootstrapStore, cfg *config.Config, logger *slog.Logger) error {
 	var fqdn *string
 	if cfg.InstanceFQDN != "" {
 		fqdn = &cfg.InstanceFQDN
@@ -192,7 +216,7 @@ func seedInstanceSettings(ctx context.Context, q *store.Queries, cfg *config.Con
 	return nil
 }
 
-func bootstrapRootUser(ctx context.Context, pool *pgxpool.Pool, q *store.Queries, cfg *config.Config, logger *slog.Logger) error {
+func bootstrapRootUser(ctx context.Context, pool bootstrapPool, q BootstrapStore, cfg *config.Config, logger *slog.Logger) error {
 	count, err := q.CountUsers(ctx)
 	if err != nil {
 		return fmt.Errorf("bootstrap: count users: %w", err)

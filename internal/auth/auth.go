@@ -10,8 +10,11 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"strings"
 )
+
+var randomReader io.Reader = rand.Reader
 
 // Permission is a granular API token permission.
 type Permission string
@@ -93,7 +96,7 @@ const (
 // SHA-256 hash. The clear value is returned exactly once (§10.3).
 func NewToken() (token, prefix, hash string, err error) {
 	raw := make([]byte, tokenRandLen)
-	if _, err := rand.Read(raw); err != nil {
+	if _, err := io.ReadFull(randomReader, raw); err != nil {
 		return "", "", "", fmt.Errorf("auth: token generation: %w", err)
 	}
 	token = tokenScheme + hex.EncodeToString(raw)

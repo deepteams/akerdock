@@ -4,14 +4,15 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/audit"
@@ -43,7 +44,7 @@ type API struct {
 	api.Unimplemented
 
 	Store    *store.Queries
-	Pool     *pgxpool.Pool
+	Pool     handlerPool
 	Settings *instance.Cache
 	Keyring  *envelope.Keyring
 	Audit    *audit.Recorder
@@ -55,6 +56,14 @@ type API struct {
 	// AKERDOCK_TERMINAL_MAX_DURATION; zero falls back to the defaults.
 	TerminalIdleTimeout time.Duration
 	TerminalMaxDuration time.Duration
+}
+
+// handlerPool is the small transaction/health boundary used by the HTTP
+// layer. Keeping the concrete pgx pool behind this interface lets handler
+// tests exercise complete request flows without starting PostgreSQL.
+type handlerPool interface {
+	Begin(context.Context) (pgx.Tx, error)
+	Ping(context.Context) error
 }
 
 // recordAudit appends to the audit trail (§23.4); failures are logged by

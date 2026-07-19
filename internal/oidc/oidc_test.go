@@ -9,13 +9,23 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
+
+type errorReader struct{}
+
+func (errorReader) Read([]byte) (int, error) { return 0, errors.New("entropy unavailable") }
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // fakeIdP is a minimal OpenID provider: discovery, JWKS, and a signing key.
 type fakeIdP struct {
@@ -230,6 +240,27 @@ func TestPKCEChallengeVector(t *testing.T) {
 	}
 }
 
+func TestNewVerifier(t *testing.T) {
+	first, err := NewVerifier()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewVerifier()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second || len(first) != 43 || strings.Contains(first, "=") {
+		t.Fatalf("invalid verifier pair: %q %q", first, second)
+	}
+
+	old := randomReader
+	randomReader = errorReader{}
+	t.Cleanup(func() { randomReader = old })
+	if _, err := NewVerifier(); err == nil {
+		t.Fatal("entropy failure was not returned")
+	}
+}
+
 func TestAuthorizeURL(t *testing.T) {
 	ep := &Endpoints{AuthorizeURL: "https://idp.example/authorize"}
 	u := AuthorizeURL(ep, "client-1", "https://app.example/cb", "state-1", "nonce-1", "verifier-1", []string{"openid", "email"})
@@ -242,6 +273,11 @@ func TestAuthorizeURL(t *testing.T) {
 		if !strings.Contains(u, want) {
 			t.Errorf("authorize URL %q lacks %q", u, want)
 		}
+	}
+	withQuery := AuthorizeURL(&Endpoints{AuthorizeURL: "https://idp.example/authorize?prompt=login"},
+		"client", "https://cb", "state", "nonce", "verifier", nil)
+	if !strings.Contains(withQuery, "?prompt=login&") || !strings.Contains(withQuery, "&response_type=code") {
+		t.Fatalf("existing authorize query was not preserved: %q", withQuery)
 	}
 }
 
@@ -265,6 +301,37 @@ func TestExchangeSendsPKCEAndBasicAuth(t *testing.T) {
 	}
 	if seen.user != "client-1" || seen.verifier != "verifier-1" || seen.grant != "authorization_code" {
 		t.Fatalf("the exchange sent %+v", seen)
+	}
+}
+
+func TestExchangeFailureModes(t *testing.T) {
+	response := func(status int, body string) *Client {
+		return &Client{HTTP: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: status,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		})}}
+	}
+	for _, tc := range []struct {
+		name   string
+		client *Client
+		url    string
+	}{
+		{"transport", &Client{HTTP: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("network unavailable")
+		})}}, "https://idp.invalid/token"},
+		{"provider status", response(http.StatusUnauthorized, `{"error":"invalid_client"}`), "https://idp.invalid/token"},
+		{"malformed JSON", response(http.StatusOK, `not-json`), "https://idp.invalid/token"},
+		{"missing token", response(http.StatusOK, `{}`), "https://idp.invalid/token"},
+		{"invalid URL", New(), "://invalid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := tc.client.Exchange(context.Background(), &Endpoints{TokenURL: tc.url}, "id", "secret", "https://cb", "code", "verifier"); err == nil {
+				t.Fatal("exchange should fail")
+			}
+		})
 	}
 }
 
@@ -310,5 +377,126 @@ func TestGitHubIdentity(t *testing.T) {
 	}
 	if id.Email != "octocat@github.com" || !id.EmailVerified {
 		t.Errorf("email = %q verified=%v, want the primary verified address, normalized", id.Email, id.EmailVerified)
+	}
+}
+
+func TestGitLabAndBitbucketIdentities(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/gitlab", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"id":42,"username":"alice","name":"","email":"Alice@Example.COM"}`)
+	})
+	mux.HandleFunc("/bitbucket", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"uuid":"{abc-123}","display_name":"Bob","username":"bob"}`)
+	})
+	mux.HandleFunc("/bitbucket/emails", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"values":[
+			{"email":"other@example.com","is_primary":false,"is_confirmed":true},
+			{"email":"Bob@Example.COM","is_primary":true,"is_confirmed":true}
+		]}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := New()
+
+	gitlab, err := client.FetchOAuth2Identity(context.Background(), "gitlab", &Endpoints{UserinfoURL: srv.URL + "/gitlab"}, "token")
+	if err != nil || gitlab.Subject != "42" || gitlab.Email != "alice@example.com" ||
+		!gitlab.EmailVerified || gitlab.Name != "alice" {
+		t.Fatalf("GitLab identity = %+v, %v", gitlab, err)
+	}
+	bitbucket, err := client.FetchOAuth2Identity(context.Background(), "bitbucket", &Endpoints{UserinfoURL: srv.URL + "/bitbucket"}, "token")
+	if err != nil || bitbucket.Subject != "abc-123" || bitbucket.Email != "bob@example.com" ||
+		!bitbucket.EmailVerified || bitbucket.Name != "Bob" {
+		t.Fatalf("Bitbucket identity = %+v, %v", bitbucket, err)
+	}
+}
+
+func TestOAuthIdentityFailures(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/empty", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{}`)
+	})
+	mux.HandleFunc("/broken", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	client := New()
+
+	for _, provider := range []string{"github", "gitlab", "bitbucket"} {
+		if _, err := client.FetchOAuth2Identity(context.Background(), provider, &Endpoints{UserinfoURL: srv.URL + "/empty"}, "token"); err == nil {
+			t.Errorf("%s identity without a stable subject was accepted", provider)
+		}
+		if _, err := client.FetchOAuth2Identity(context.Background(), provider, &Endpoints{UserinfoURL: srv.URL + "/broken"}, "token"); err == nil {
+			t.Errorf("%s provider HTTP failure was ignored", provider)
+		}
+	}
+	if _, err := client.FetchOAuth2Identity(context.Background(), "unknown", &Endpoints{}, "token"); err == nil {
+		t.Fatal("unknown OAuth provider was accepted")
+	}
+	if got := firstNonEmpty("", ""); got != "" {
+		t.Fatalf("firstNonEmpty = %q", got)
+	}
+}
+
+func TestDiscoveryAndJSONFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"missing endpoints", http.StatusOK, `{"issuer":"ISSUER"}`},
+		{"malformed", http.StatusOK, `not-json`},
+		{"HTTP error", http.StatusBadGateway, `{}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				body := strings.ReplaceAll(tc.body, "ISSUER", "http://"+r.Host)
+				_, _ = io.WriteString(w, body)
+			}))
+			defer server.Close()
+			if _, err := New().Discover(context.Background(), server.URL); err == nil {
+				t.Fatal("invalid discovery should fail")
+			}
+		})
+	}
+}
+
+func TestAudienceTruthyAndJWKSFailures(t *testing.T) {
+	if audienceContains(nil, "client") || audienceContains(json.RawMessage(`not-json`), "client") {
+		t.Fatal("malformed audience was accepted")
+	}
+	if truthy(json.RawMessage(`false`)) || !truthy(json.RawMessage(`"TRUE"`)) || truthy(json.RawMessage(`"no"`)) ||
+		truthy(json.RawMessage(`not-json`)) {
+		t.Fatal("truthy parsed a value incorrectly")
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"keys":[
+			{"kty":"EC","kid":"wanted","n":"AA","e":"AQAB"},
+			{"kty":"RSA","kid":"other","n":"AA","e":"AQAB"},
+			{"kty":"RSA","kid":"wanted","n":"%%%","e":"AQAB"},
+			{"kty":"RSA","kid":"wanted","n":"AQ","e":"%%%"}
+		]}`)
+	}))
+	defer server.Close()
+	if _, err := New().jwksKey(context.Background(), server.URL, "wanted"); err == nil {
+		t.Fatal("JWKS without usable matching RSA key was accepted")
+	}
+}
+
+func TestVerifyIDTokenMalformedEncodings(t *testing.T) {
+	idp := newFakeIdP(t)
+	ep := discover(t, idp)
+	client := New()
+	for _, token := range []string{
+		"not-a-jwt",
+		"%%%.e30.sig",
+		base64.RawURLEncoding.EncodeToString([]byte(`not-json`)) + ".e30.sig",
+		base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","kid":"missing"}`)) + ".e30.sig",
+	} {
+		if _, err := client.VerifyIDToken(context.Background(), ep, "client", "nonce", token, time.Now()); err == nil {
+			t.Errorf("malformed token %q was accepted", token)
+		}
 	}
 }

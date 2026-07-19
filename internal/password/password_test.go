@@ -1,9 +1,14 @@
 package password
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
+
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("entropy unavailable") }
 
 func TestHashAndVerify(t *testing.T) {
 	phc, err := Hash("a-long-enough-password")
@@ -32,9 +37,29 @@ func TestHashesAreSalted(t *testing.T) {
 }
 
 func TestVerifyRejectsGarbage(t *testing.T) {
-	for _, phc := range []string{"", "$argon2i$v=19$m=1,t=1,p=1$AA$AA", "plainhash"} {
+	for _, phc := range []string{
+		"",
+		"$argon2i$v=19$m=1,t=1,p=1$AA$AA",
+		"plainhash",
+		"$argon2id$v=nope$m=65536,t=3,p=2$AAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAA",
+		"$argon2id$v=19$broken$AAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAA",
+		"$argon2id$v=19$m=4294967295,t=3,p=2$AAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAA",
+		"$argon2id$v=19$m=65536,t=3,p=2$%%%$AAAAAAAAAAAAAAAAAAAAAA",
+		"$argon2id$v=19$m=65536,t=3,p=2$AAAAAAAAAAA$%%%",
+		"$argon2id$v=19$m=65536,t=3,p=2$AA$AAAAAAAAAAAAAAAAAAAAAA",
+	} {
 		if ok, err := Verify("x", phc); ok || err == nil {
 			t.Errorf("garbage %q must be rejected", phc)
 		}
+	}
+}
+
+func TestHashReportsEntropyFailure(t *testing.T) {
+	old := randomReader
+	randomReader = failingReader{}
+	t.Cleanup(func() { randomReader = old })
+
+	if _, err := Hash("a-long-enough-password"); err == nil || !strings.Contains(err.Error(), "salt generation") {
+		t.Fatalf("Hash should report the entropy failure, got %v", err)
 	}
 }

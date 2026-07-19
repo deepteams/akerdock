@@ -237,4 +237,51 @@ func TestEventTypePredicates(t *testing.T) {
 	if !IsCommentEvent(GitHub, "issue_comment") || !IsCommentEvent(GitLab, "Note Hook") || !IsCommentEvent(Gitea, "issue_comment") {
 		t.Fatal("comment predicates")
 	}
+	if IsPullRequestEvent("unknown", "pull_request") || IsCommentEvent("unknown", "issue_comment") {
+		t.Fatal("unknown providers must not match event predicates")
+	}
+}
+
+func TestPullRequestFallbacksAndValidation(t *testing.T) {
+	ev, err := ParsePullRequest(GitHub, []byte(`{
+		"action":"opened",
+		"pull_request":{
+			"number":12,
+			"title":"Draft: pending",
+			"head":{"repo":{"id":1}},
+			"base":{"repo":{"id":1}}
+		},
+		"repository":{"full_name":"fallback/repo"}
+	}`))
+	if err != nil || ev.Number != 12 || ev.RepoReference != "fallback/repo" || !ev.Draft {
+		t.Fatalf("GitHub fallbacks were not applied: %+v, %v", ev, err)
+	}
+
+	for _, tc := range []struct {
+		provider Provider
+		body     []byte
+	}{
+		{GitHub, []byte(`{`)},
+		{GitLab, []byte(`{"object_kind":"push"}`)},
+		{"unknown", []byte(`{}`)},
+	} {
+		if _, err := ParsePullRequest(tc.provider, tc.body); err == nil {
+			t.Errorf("%s malformed/unsupported pull request should fail", tc.provider)
+		}
+	}
+}
+
+func TestCommentValidation(t *testing.T) {
+	for _, tc := range []struct {
+		provider Provider
+		body     []byte
+	}{
+		{GitHub, []byte(`{`)},
+		{GitLab, []byte(`{"object_kind":"push"}`)},
+		{"unknown", []byte(`{}`)},
+	} {
+		if _, err := ParseComment(tc.provider, tc.body); err == nil {
+			t.Errorf("%s malformed/unsupported comment should fail", tc.provider)
+		}
+	}
 }

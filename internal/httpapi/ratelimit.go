@@ -95,13 +95,17 @@ func (l *Limiter) evictLoop() {
 	defer ticker.Stop()
 	for range ticker.C {
 		cutoff := time.Now().Add(-10 * time.Minute)
-		l.mu.Lock()
-		for key, b := range l.buckets {
-			if b.lastSeen.Before(cutoff) {
-				delete(l.buckets, key)
-			}
+		l.evict(cutoff)
+	}
+}
+
+func (l *Limiter) evict(cutoff time.Time) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for key, b := range l.buckets {
+		if b.lastSeen.Before(cutoff) {
+			delete(l.buckets, key)
 		}
-		l.mu.Unlock()
 	}
 }
 

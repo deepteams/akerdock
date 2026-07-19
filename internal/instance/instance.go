@@ -15,15 +15,19 @@ const cacheTTL = 3 * time.Second
 
 // Cache serves instance settings with a small TTL.
 type Cache struct {
-	q *store.Queries
+	q settingsStore
 
 	mu      sync.Mutex
 	value   store.InstanceSetting
 	fetched time.Time
 }
 
+type settingsStore interface {
+	GetInstanceSettings(context.Context) (store.InstanceSetting, error)
+}
+
 // NewCache builds a settings cache over the store.
-func NewCache(q *store.Queries) *Cache {
+func NewCache(q settingsStore) *Cache {
 	return &Cache{q: q}
 }
 

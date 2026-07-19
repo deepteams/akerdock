@@ -40,6 +40,8 @@ import (
 	"time"
 )
 
+var randomReader io.Reader = rand.Reader
+
 // Timeout bounds every call to an identity provider: a slow IdP must delay
 // one login, not pile up handler goroutines.
 const Timeout = 10 * time.Second
@@ -47,11 +49,11 @@ const Timeout = 10 * time.Second
 // Endpoints is what a flow needs to know about a provider, discovered
 // (OIDC) or fixed (OAuth2 profiles).
 type Endpoints struct {
-	Issuer        string
-	AuthorizeURL  string
-	TokenURL      string
-	JWKSURL       string
-	UserinfoURL   string // OAuth2 profiles only
+	Issuer       string
+	AuthorizeURL string
+	TokenURL     string
+	JWKSURL      string
+	UserinfoURL  string // OAuth2 profiles only
 }
 
 // Identity is the verified outcome of a callback: who the provider says
@@ -138,7 +140,7 @@ func (c *Client) Discover(ctx context.Context, issuer string) (*Endpoints, error
 // NewVerifier mints a PKCE code_verifier: 32 random bytes, base64url.
 func NewVerifier() (string, error) {
 	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
+	if _, err := io.ReadFull(randomReader, raw); err != nil {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(raw), nil

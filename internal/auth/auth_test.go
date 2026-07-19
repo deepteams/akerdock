@@ -1,9 +1,14 @@
 package auth
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
+
+type errorReader struct{}
+
+func (errorReader) Read([]byte) (int, error) { return 0, errors.New("entropy unavailable") }
 
 func TestPermissionHierarchy(t *testing.T) {
 	cases := []struct {
@@ -82,5 +87,20 @@ func TestIdentityTeamIsolation(t *testing.T) {
 	}
 	if !member.CanAccessTeam(1) || !root.CanAccessTeam(2) {
 		t.Fatal("own team and root access must be allowed")
+	}
+}
+
+func TestHashEqual(t *testing.T) {
+	if !HashEqual("same", "same") || HashEqual("same", "different") {
+		t.Fatal("HashEqual returned an incorrect result")
+	}
+}
+
+func TestNewTokenEntropyFailure(t *testing.T) {
+	old := randomReader
+	randomReader = errorReader{}
+	t.Cleanup(func() { randomReader = old })
+	if _, _, _, err := NewToken(); err == nil || !strings.Contains(err.Error(), "token generation") {
+		t.Fatalf("NewToken should report entropy failure, got %v", err)
 	}
 }

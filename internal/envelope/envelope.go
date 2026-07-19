@@ -6,9 +6,12 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"io"
 )
 
 const nonceSize = 12
+
+var randomReader io.Reader = rand.Reader
 
 // aad builds the additional authenticated data binding a ciphertext to its
 // row: table || column || row uuid concatenated (data-dictionary §2.7). This
@@ -28,7 +31,7 @@ func (k *Keyring) Encrypt(table, column, rowUUID string, plaintext []byte) ([]by
 	}
 	out := make([]byte, 4+nonceSize, 4+nonceSize+len(plaintext)+gcm.Overhead())
 	binary.BigEndian.PutUint32(out[:4], k.active)
-	if _, err := rand.Read(out[4 : 4+nonceSize]); err != nil {
+	if _, err := io.ReadFull(randomReader, out[4:4+nonceSize]); err != nil {
 		return nil, fmt.Errorf("envelope: nonce generation: %w", err)
 	}
 	return gcm.Seal(out, out[4:4+nonceSize], plaintext, aad(table, column, rowUUID)), nil

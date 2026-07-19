@@ -38,6 +38,25 @@ type PreviewDestroyPayload struct {
 	PreviewID int64 `json:"preview_id"`
 }
 
+// PreviewPromotionStore is the persistence boundary shared by the PR worker
+// and the scheduler's preview queue drain.
+type PreviewPromotionStore interface {
+	queue.EnqueueStore
+	CountLivePreviewsForApplication(context.Context, int64) (int64, error)
+	GetDestinationByID(context.Context, int64) (store.Destination, error)
+	CreateDeployment(context.Context, store.CreateDeploymentParams) (store.Deployment, error)
+	SupersedeObsoletePreviewDeployments(context.Context, store.SupersedeObsoletePreviewDeploymentsParams) ([]int64, error)
+	CancelJobsForDeployments(context.Context, []int64) error
+	ListCancellablePreviewDeploymentIDs(context.Context, store.ListCancellablePreviewDeploymentIDsParams) ([]int64, error)
+	RequestDeploymentJobCancel(context.Context, int64) (int64, error)
+	SetPreviewStatus(context.Context, store.SetPreviewStatusParams) error
+}
+
+type PreviewDestroyQueueStore interface {
+	queue.EnqueueStore
+	SetPreviewStatus(context.Context, store.SetPreviewStatusParams) error
+}
+
 // GithubAppPullRequest is the worker handler.
 type GithubAppPullRequest struct {
 	Store   *store.Queries
@@ -302,7 +321,7 @@ func randomToken(bytes int) (string, error) {
 
 // TryPromotePreview enqueues the preview deployment when the application has
 // capacity (§20.4.3) — shared by the PR job and the scheduler's queue drain.
-func TryPromotePreview(ctx context.Context, q *store.Queries, logger *slog.Logger, app store.GetApplicationByIDRow, preview store.Preview) (bool, string, error) {
+func TryPromotePreview(ctx context.Context, q PreviewPromotionStore, logger *slog.Logger, app store.GetApplicationByIDRow, preview store.Preview) (bool, string, error) {
 	if app.Application.PreviewMaxConcurrent != nil {
 		live, err := q.CountLivePreviewsForApplication(ctx, app.Resource.ID)
 		if err != nil {
@@ -381,7 +400,7 @@ func TryPromotePreview(ctx context.Context, q *store.Queries, logger *slog.Logge
 }
 
 // EnqueuePreviewDestroy queues the teardown of one preview.
-func EnqueuePreviewDestroy(ctx context.Context, q *store.Queries, preview store.Preview) error {
+func EnqueuePreviewDestroy(ctx context.Context, q PreviewDestroyQueueStore, preview store.Preview) error {
 	lockKey := "deploy:preview:" + pguuid.String(preview.Uuid)
 	_, err := queue.Enqueue(ctx, q, queue.EnqueueOptions{
 		Queue:   "deploy",

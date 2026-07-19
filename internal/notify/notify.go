@@ -246,6 +246,11 @@ func New() *Sender {
 // event itself is always included so a webhook consumer gets the structured
 // data, not only a sentence.
 func (s *Sender) Send(ctx context.Context, kind string, cfg Config, e Event) error {
+	// Stored configuration can be old or corrupted. Validate again at the
+	// execution boundary so a nil provider block cannot panic the dispatcher.
+	if err := ValidateConfig(kind, cfg); err != nil {
+		return err
+	}
 	var body any
 	target := cfg.URL
 	headers := map[string]string{}

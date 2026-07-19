@@ -287,6 +287,16 @@ func TestBridgeContextCancelIsRevoked(t *testing.T) {
 	}
 }
 
+func TestBridgeZeroOptionsUseDefaults(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	conn := newFakeConn()
+	pty := newFakePTY()
+	if got := Bridge(ctx, conn, pty, Options{}); got != EndRevoked {
+		t.Fatalf("Bridge() = %s, want %s", got, EndRevoked)
+	}
+}
+
 func TestBridgeHeartbeatFailureIsDisconnect(t *testing.T) {
 	conn, pty := newFakeConn(), newFakePTY()
 	conn.pingErr = errors.New("peer gone")

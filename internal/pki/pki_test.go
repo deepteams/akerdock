@@ -3,10 +3,18 @@ package pki
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
+	"io"
+	"math/big"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
+
+type errorReader struct{}
+
+func (errorReader) Read([]byte) (int, error) { return 0, errors.New("entropy unavailable") }
 
 func parseCertPEM(t *testing.T, certPEM []byte) *x509.Certificate {
 	t.Helper()
@@ -170,8 +178,11 @@ func TestParseCAInvalidPEM(t *testing.T) {
 		name string
 		ca   *CA
 	}{
+		{"missing CA", nil},
 		{"garbage cert PEM", &CA{CertPEM: []byte("not pem at all"), KeyPEM: valid.KeyPEM}},
 		{"garbage key PEM", &CA{CertPEM: valid.CertPEM, KeyPEM: []byte("not pem at all")}},
+		{"invalid cert DER", &CA{CertPEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("bad")}), KeyPEM: valid.KeyPEM}},
+		{"invalid EC key DER", &CA{CertPEM: valid.CertPEM, KeyPEM: pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: []byte("bad")})}},
 		{"empty material", &CA{}},
 	}
 	for _, tt := range tests {
@@ -184,5 +195,75 @@ func TestParseCAInvalidPEM(t *testing.T) {
 				t.Error("SignLeaf succeeded with invalid CA material, want error")
 			}
 		})
+	}
+}
+
+func TestEntropyFailuresAreReported(t *testing.T) {
+	old := randomReader
+	randomReader = errorReader{}
+	t.Cleanup(func() { randomReader = old })
+
+	if _, err := NewCA("server"); err == nil || !strings.Contains(err.Error(), "entropy unavailable") {
+		t.Fatalf("NewCA should surface entropy failure, got %v", err)
+	}
+
+	// SignLeaf parses the CA before generating its own key, so use material
+	// minted before replacing the entropy source.
+	randomReader = old
+	ca, err := NewCA("server")
+	if err != nil {
+		t.Fatal(err)
+	}
+	randomReader = errorReader{}
+	if _, err := SignLeaf(ca, "leaf", nil); err == nil || !strings.Contains(err.Error(), "entropy unavailable") {
+		t.Fatalf("SignLeaf should surface entropy failure, got %v", err)
+	}
+}
+
+func TestSerialFailuresAreReported(t *testing.T) {
+	old := newSerialNumber
+	newSerialNumber = func() (*big.Int, error) {
+		return nil, errors.New("serial unavailable")
+	}
+	t.Cleanup(func() { newSerialNumber = old })
+
+	if _, err := NewCA("server"); err == nil || !strings.Contains(err.Error(), "serial unavailable") {
+		t.Fatalf("NewCA should surface serial generation failure, got %v", err)
+	}
+
+	newSerialNumber = old
+	ca, err := NewCA("server")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newSerialNumber = func() (*big.Int, error) {
+		return nil, errors.New("serial unavailable")
+	}
+	if _, err := SignLeaf(ca, "leaf", nil); err == nil || !strings.Contains(err.Error(), "serial unavailable") {
+		t.Fatalf("SignLeaf should surface serial generation failure, got %v", err)
+	}
+}
+
+func TestCertificateSigningFailuresAreReported(t *testing.T) {
+	old := createCertificate
+	createCertificate = func(io.Reader, *x509.Certificate, *x509.Certificate, any, any) ([]byte, error) {
+		return nil, errors.New("signing unavailable")
+	}
+	t.Cleanup(func() { createCertificate = old })
+
+	if _, err := NewCA("server"); err == nil || !strings.Contains(err.Error(), "signing unavailable") {
+		t.Fatalf("NewCA should surface signing failure, got %v", err)
+	}
+
+	createCertificate = old
+	ca, err := NewCA("server")
+	if err != nil {
+		t.Fatal(err)
+	}
+	createCertificate = func(io.Reader, *x509.Certificate, *x509.Certificate, any, any) ([]byte, error) {
+		return nil, errors.New("signing unavailable")
+	}
+	if _, err := SignLeaf(ca, "leaf", nil); err == nil || !strings.Contains(err.Error(), "signing unavailable") {
+		t.Fatalf("SignLeaf should surface signing failure, got %v", err)
 	}
 }

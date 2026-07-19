@@ -18,12 +18,17 @@ const lastUsedGranularity = 5 * time.Minute
 
 // Middleware authenticates bearer tokens and enforces the api_enabled gate.
 type Middleware struct {
-	Store    *store.Queries
+	Store    TokenStore
 	Settings SettingsSource
 	// Sessions lets the dashboard authenticate with a cookie instead of a
 	// bearer token. Nil disables cookie auth entirely.
 	Sessions SessionAuthenticator
 	Logger   *slog.Logger
+}
+
+type TokenStore interface {
+	GetActiveApiTokensByPrefix(context.Context, string) ([]store.GetActiveApiTokensByPrefixRow, error)
+	TouchApiTokenLastUsed(context.Context, int64) error
 }
 
 // SettingsSource is what the middleware needs from the instance settings
