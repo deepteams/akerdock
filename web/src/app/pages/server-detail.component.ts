@@ -218,15 +218,19 @@ const EXPIRY_WARN_DAYS = 14;
                       Stop
                     </button>
                   }
-                  <button
-                    class="akd-btn akd-btn--secondary akd-btn--sm"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="proxy('restart')"
-                  >
-                    <akd-icon name="refresh-cw" [size]="14" />
-                    Restart
-                  </button>
+                  <!-- Restart drives an existing container: before the first
+                       start there is nothing to restart. -->
+                  @if ((srv.proxy_observed_status ?? 'unknown') !== 'unknown') {
+                    <button
+                      class="akd-btn akd-btn--secondary akd-btn--sm"
+                      type="button"
+                      [disabled]="busy()"
+                      (click)="proxy('restart')"
+                    >
+                      <akd-icon name="refresh-cw" [size]="14" />
+                      Restart
+                    </button>
+                  }
                   <button
                     class="akd-btn akd-btn--ghost akd-btn--sm"
                     type="button"

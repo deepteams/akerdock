@@ -192,7 +192,7 @@ fi
 ## script (a custom AKERDOCK_LOCALHOST_USER is then the operator's business).
 LOCALHOST_USER=$(sed -n 's/^AKERDOCK_LOCALHOST_USER=//p' .env)
 if [ -n "$LOCALHOST_USER" ] && [ "$LOCALHOST_USER" = "$(id -un)" ]; then
-  pubkey=$(docker compose cp akerdock:/data/akerdock/ssh/instance_ed25519.pub - 2>/dev/null | tar -xO 2>/dev/null || true)
+  pubkey=$(docker compose cp akerdock:/var/lib/akerdock/ssh/instance_ed25519.pub - 2>/dev/null | tar -xO 2>/dev/null || true)
   if [ -n "$pubkey" ]; then
     mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
     touch "$HOME/.ssh/authorized_keys" && chmod 600 "$HOME/.ssh/authorized_keys"
@@ -202,7 +202,22 @@ if [ -n "$LOCALHOST_USER" ] && [ "$LOCALHOST_USER" = "$(id -un)" ]; then
     fi
   else
     warn "could not read the instance public key from the container — authorize"
-    warn "/data/akerdock/ssh/instance_ed25519.pub manually to validate the localhost server."
+    warn "/var/lib/akerdock/ssh/instance_ed25519.pub manually to validate the localhost server."
+  fi
+
+  ## The engine writes the proxy layout of every server under /var/lib/akerdock,
+  ## over SSH, as the server's user (deployment-engine §5.1) — on this machine
+  ## that is $LOCALHOST_USER, who typically cannot create a directory at /.
+  ## Prepare it here, once, instead of letting the first proxy start die on
+  ## "mkdir: permission denied" (§20.1).
+  if [ ! -d /var/lib/akerdock ] || [ "$(stat -c %U /var/lib/akerdock 2>/dev/null || stat -f %Su /var/lib/akerdock 2>/dev/null)" != "$LOCALHOST_USER" ]; then
+    say "preparing /var/lib/akerdock for $LOCALHOST_USER (proxy and deployment layout)"
+    if ! { mkdir -p /var/lib/akerdock && chown "$LOCALHOST_USER": /var/lib/akerdock; } 2>/dev/null; then
+      if ! sudo sh -c "mkdir -p /var/lib/akerdock && chown '$LOCALHOST_USER': /var/lib/akerdock" 2>/dev/null; then
+        warn "could not prepare /var/lib/akerdock — the first proxy start on the localhost"
+        warn "server will fail until you run:  sudo mkdir -p /var/lib/akerdock && sudo chown $LOCALHOST_USER: /var/lib/akerdock"
+      fi
+    fi
   fi
 fi
 

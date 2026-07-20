@@ -23,7 +23,7 @@ Queue PostgreSQL (FOR UPDATE SKIP LOCKED, lease + heartbeat)
 Worker : machine à états (§4) — chaque étape = commandes SSH sur le serveur cible
         │
         ▼
-Serveur cible : Docker Engine/BuildKit + proxy (Traefik) + arborescence /data/akerdock/
+Serveur cible : Docker Engine/BuildKit + proxy (Traefik) + arborescence /var/lib/akerdock/
 ```
 
 ### 1.2 Acteurs
@@ -33,7 +33,7 @@ Serveur cible : Docker Engine/BuildKit + proxy (Traefik) + arborescence /data/ak
 | **API (control plane)** | Auth/policy, validation, snapshot versionné de la configuration (INV-014), résolution branche → SHA immuable, création transactionnelle `Deployment` + job + événement outbox, réponse `202` avec `deployment_uuid` | Exécuter une commande distante ; attendre la fin du déploiement |
 | **Queue (PostgreSQL)** | Durabilité des jobs (INV-013), ordre par priorité/date, leases, retries, dead-letter | Logique métier |
 | **Worker** | Acquisition des jobs, verrous et slots, exécution de la machine à états, streaming des logs, compensation, libération garantie des ressources | Servir du trafic HTTP utilisateur ; être source de vérité d'un état |
-| **Serveur cible (via SSH)** | Exécution de git/docker/buildkit, hébergement des containers, du proxy et des fichiers sous `/data/akerdock/` | Contacter le control plane (architecture push, §18.1) |
+| **Serveur cible (via SSH)** | Exécution de git/docker/buildkit, hébergement des containers, du proxy et des fichiers sous `/var/lib/akerdock/` | Contacter le control plane (architecture push, §18.1) |
 | **Proxy (Traefik, P0)** | Routage du trafic, application de la représentation intermédiaire (§27.9) | Décider de la bascule (le worker pilote) |
 
 ### 1.3 Sources de vérité mobilisées (§18.3)
@@ -190,7 +190,7 @@ Les build packs sans étape de build (docker image, rollback) traversent `clonin
 | État | Préconditions | Actions exactes | Effets de bord distants | Timeout | Crash pendant l'état (règle de reprise) | Transition d'échec |
 |---|---|---|---|---|---|---|
 | **queued** | Deployment + job committés ; plafond §3.2 respecté | Attente d'acquisition ; cible du coalescing §3.4 | Aucun | Aucun (borné par `deployment_queue_limit`) | Rien à reprendre (aucun effet) | Annulation → `cancelled` |
-| **preparing** | Verrou §3.1 acquis, slot §3.2 acquis, serveur `ready` | Charger le snapshot de config ; connexion SSH (test `docker info`) ; vérifier espace disque (`df -P /data/akerdock`, seuil min **2 GiB libres (défaut proposé)**) ; créer l'arborescence (§5.1) ; générer et téléverser `build.env`, `runtime.env`, `secrets/` (§5.7) ; exécuter la **pre-deployment command** (§10) ; vérifier le réseau de destination (`docker network inspect`, créer si absent) | Répertoires + fichiers env (0600) ; réseau destination | SSH connect : **10 s** (configurable par serveur, §3.1 PRD) ; état complet : **120 s (défaut proposé)** | Idempotent : tout rejouer (mkdir -p, ré-upload des fichiers, re-exécution de la pre-command — elle DOIT être idempotente, documenté §10) | `failed` ; compensation C1 (§9) |
+| **preparing** | Verrou §3.1 acquis, slot §3.2 acquis, serveur `ready` | Charger le snapshot de config ; connexion SSH (test `docker info`) ; vérifier espace disque (`df -P /var/lib/akerdock`, seuil min **2 GiB libres (défaut proposé)**) ; créer l'arborescence (§5.1) ; générer et téléverser `build.env`, `runtime.env`, `secrets/` (§5.7) ; exécuter la **pre-deployment command** (§10) ; vérifier le réseau de destination (`docker network inspect`, créer si absent) | Répertoires + fichiers env (0600) ; réseau destination | SSH connect : **10 s** (configurable par serveur, §3.1 PRD) ; état complet : **120 s (défaut proposé)** | Idempotent : tout rejouer (mkdir -p, ré-upload des fichiers, re-exécution de la pre-command — elle DOIT être idempotente, documenté §10) | `failed` ; compensation C1 (§9) |
 | **cloning** | Source Git ; credentials valides | Commandes §5.3.1 : clone shallow au SHA exact, submodules/LFS si activés | Répertoire `source/<deployment_uuid>/` | **600 s (défaut proposé)**, configurable par application | Répertoire potentiellement partiel → `rm -rf` du répertoire de ce deployment puis re-clone (idempotent par destruction) | `failed` ; C1 |
 | **building** | Source présente ; plan de build généré | Commandes §5.3.2/§5.4/§5.5/§5.6 selon build pack ; logs streamés (§12.2) ; `--no-cache` si `forced` | Image locale `akerdock/<app_uuid>:<sha12>` avec labels §6 | **3600 s (défaut proposé)**, configurable par application | `docker image inspect akerdock/<app_uuid>:<sha12>` + label `akerdock.deployment_uuid` : si présente et complète → passer à l'état suivant ; sinon relancer le build (le cache BuildKit rend le rejeu peu coûteux) | `failed` (déterministe : pas de retry auto) ; C1 |
 | **pushing** *(optionnel)* | Registry configuré (décision §27.6) ou exigé (build server, multi-serveurs) | `docker tag` + `docker push` (§5.3.3) ; **résolution du digest OCI** et enregistrement dans `DeploymentArtifact` | Image dans le registry | **900 s (défaut proposé)** | Push idempotent (layers dédupliqués) → rejouer ; re-résoudre le digest | `failed` si registry obligatoire ; **sinon** dégradation en mode rétention locale + avertissement **(défaut proposé)** ; C1 |
@@ -209,8 +209,17 @@ Les build packs sans étape de build (docker image, rollback) traversent `clonin
 
 ### 5.1 Arborescence distante (normative)
 
+> **Amendement (19 juillet 2026)** : la racine passe de `/data/akerdock` à
+> **`/var/lib/akerdock`** (conformité FHS — l'état persistant d'un service vit
+> sous `/var/lib`). Migration : au premier bootstrap du proxy sur un serveur
+> portant l'ancien layout, l'engine **déplace** `/data/akerdock` vers
+> `/var/lib/akerdock` (le storage ACME — compte Let's Encrypt et certificats —
+> suit, rien n'est ré-émis) après avoir retiré le container proxy, recréé
+> aussitôt sur le nouveau chemin. Les containers applicatifs déjà lancés
+> conservent leurs bind mounts d'origine jusqu'à leur prochain déploiement.
+
 ```text
-/data/akerdock/                              # racine, 0750, propriétaire = user SSH AkerDock
+/var/lib/akerdock/                              # racine, 0750, propriétaire = user SSH AkerDock
 ├── applications/<app_uuid>/
 │   ├── source/<deployment_uuid>/             # clone jetable par déploiement, purgé en finishing (rétention : dernier + courant)
 │   ├── env/
@@ -225,7 +234,7 @@ Les build packs sans étape de build (docker image, rollback) traversent `clonin
 └── tmp/                                      # espace temporaire, purgé par le cleanup
 ```
 
-**(défaut proposé)** pour l'ensemble de l'arborescence : tout l'état d'un serveur cible vit sous `/data/akerdock`, ce qui rend l'inventaire, le backup et le nettoyage évidents (§14.1 PRD). Tous les fichiers contenant des valeurs de variables sont en mode `0600`, répertoires `0700`.
+**(défaut proposé)** pour l'ensemble de l'arborescence : tout l'état d'un serveur cible vit sous `/var/lib/akerdock`, ce qui rend l'inventaire, le backup et le nettoyage évidents (§14.1 PRD). Tous les fichiers contenant des valeurs de variables sont en mode `0600`, répertoires `0700`.
 
 ### 5.2 Variables : build-time vs runtime (§5.4 PRD, INV-003, INV-012)
 
@@ -248,8 +257,8 @@ Règles :
 Clone shallow **au SHA exact** (un `git clone --depth 1 -b <branche>` suivrait la tête mouvante — interdit) :
 
 ```sh
-mkdir -p /data/akerdock/applications/<app_uuid>/source/<deployment_uuid>
-cd /data/akerdock/applications/<app_uuid>/source/<deployment_uuid>
+mkdir -p /var/lib/akerdock/applications/<app_uuid>/source/<deployment_uuid>
+cd /var/lib/akerdock/applications/<app_uuid>/source/<deployment_uuid>
 git init -q
 git remote add origin <repo_url_sans_credentials>
 git fetch -q --depth 1 origin <commit_sha>
@@ -261,16 +270,16 @@ git lfs install --local && git lfs pull
 ```
 
 Authentification (INV-003, INV-012) — jamais de credential dans l'URL ni dans argv :
-- **Deploy key SSH** : clé téléversée en `keys/deploy_key` (0600), `GIT_SSH_COMMAND="ssh -i /data/akerdock/applications/<app_uuid>/keys/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"` posé dans l'environnement de la session ; fichier supprimé en fin d'état.
-- **Token HTTPS (GitHub App / PAT)** : `git config credential.helper 'store --file=/data/akerdock/applications/<app_uuid>/keys/git_credentials'` avec fichier téléversé par SFTP (0600), supprimé en fin d'état **(défaut proposé)**.
+- **Deploy key SSH** : clé téléversée en `keys/deploy_key` (0600), `GIT_SSH_COMMAND="ssh -i /var/lib/akerdock/applications/<app_uuid>/keys/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"` posé dans l'environnement de la session ; fichier supprimé en fin d'état.
+- **Token HTTPS (GitHub App / PAT)** : `git config credential.helper 'store --file=/var/lib/akerdock/applications/<app_uuid>/keys/git_credentials'` avec fichier téléversé par SFTP (0600), supprimé en fin d'état **(défaut proposé)**.
 
 Le **base directory** (monorepo) ne change pas le clone ; il change le contexte de build (`<clone>/<base_directory>`).
 
 #### 5.3.2 Build (état `building`)
 
 ```sh
-cd /data/akerdock/applications/<app_uuid>/source/<deployment_uuid>/<base_directory>
-set -a; . /data/akerdock/applications/<app_uuid>/env/build.env; set +a
+cd /var/lib/akerdock/applications/<app_uuid>/source/<deployment_uuid>/<base_directory>
+set -a; . /var/lib/akerdock/applications/<app_uuid>/env/build.env; set +a
 DOCKER_BUILDKIT=1 docker build \
   --file <dockerfile_location>            # défaut : ./Dockerfile
   --progress plain \
@@ -282,7 +291,7 @@ DOCKER_BUILDKIT=1 docker build \
   --label akerdock.commit_sha=<commit_sha> \
   --build-arg AKERDOCK_FQDN --build-arg AKERDOCK_BRANCH … \   # build args auto-injectés, désactivables (§5.2 PRD) ; valeurs via env, pas argv
   [--build-arg SOURCE_COMMIT]             # opt-in
-  [--secret id=<NAME>,src=/data/akerdock/applications/<app_uuid>/env/secrets/<NAME>]…
+  [--secret id=<NAME>,src=/var/lib/akerdock/applications/<app_uuid>/env/secrets/<NAME>]…
   [--no-cache]                            # si forced (deploy webhook force=true, §5.5 PRD)
   .
 ```
@@ -313,7 +322,7 @@ docker volume create --label akerdock.managed=true --label akerdock.resource_uui
 docker create \
   --name <app_uuid>-next \
   --network <destination_network> \
-  --env-file /data/akerdock/applications/<app_uuid>/env/runtime.env \
+  --env-file /var/lib/akerdock/applications/<app_uuid>/env/runtime.env \
   --restart unless-stopped \
   --stop-timeout <stop_grace_period> \
   --label akerdock.managed=true \
@@ -355,7 +364,7 @@ Les deux produisent un Dockerfile/plan, puis rejoignent **exactement** le flux `
 
 ```sh
 cd <clone>/<base_directory>
-nixpacks plan . --format json > /data/akerdock/applications/<app_uuid>/source/<deployment_uuid>/.nixpacks-plan.json   # tracé dans les logs de build
+nixpacks plan . --format json > /var/lib/akerdock/applications/<app_uuid>/source/<deployment_uuid>/.nixpacks-plan.json   # tracé dans les logs de build
 nixpacks build . --name akerdock/<app_uuid>:<sha12> \
   --label akerdock.managed=true --label akerdock.resource_uuid=<app_uuid> \
   --label akerdock.deployment_uuid=<deployment_uuid> --label akerdock.commit_sha=<commit_sha> \
@@ -406,7 +415,7 @@ Hors périmètre : voir la spécification Compose (§29.5, à venir). Contrats p
 | Image locale | `akerdock/<app_uuid>:<sha12>` | + tags registry §5.3.3 |
 | Volume | `<app_uuid>_<volume_name>` | Préfixe UUID anti-collision (§8 PRD) |
 | Réseau de destination | nom de la `Destination` (UUID pour les réseaux créés par AkerDock) | Stacks compose : réseau propre nommé par UUID (§9 PRD) |
-| Fichier proxy | `/data/akerdock/proxy/dynamic/<app_uuid>.yaml` | Un fichier par application → application/suppression atomique par ressource |
+| Fichier proxy | `/var/lib/akerdock/proxy/dynamic/<app_uuid>.yaml` | Un fichier par application → application/suppression atomique par ressource |
 
 Tous les noms sont déterministes, dérivés d'UUID stables, sans entrée utilisateur libre (INV-011). Les custom container names restent possibles (§5.3 PRD) mais rendent l'application inéligible au rolling (§7.3).
 
@@ -432,7 +441,7 @@ Les custom labels utilisateur (§5.3 PRD) sont ajoutés après les labels systè
 
 ### 7.1 Représentation du routage
 
-Le routage est généré depuis la **représentation intermédiaire** commune (décision §27.9) et matérialisé en **fichier de configuration dynamique Traefik** par application (`/data/akerdock/proxy/dynamic/<app_uuid>.yaml`), monté dans le container Traefik (provider `file` avec `watch: true`). Les labels de routage restent posés sur les containers pour la parité et le diagnostic, mais **le fichier fait foi** — c'est lui qui permet une bascule atomique et vérifiable (checksum, §18.3) **(défaut proposé, conforme à « fichier/labels proxy » §18.3)**.
+Le routage est généré depuis la **représentation intermédiaire** commune (décision §27.9) et matérialisé en **fichier de configuration dynamique Traefik** par application (`/var/lib/akerdock/proxy/dynamic/<app_uuid>.yaml`), monté dans le container Traefik (provider `file` avec `watch: true`). Les labels de routage restent posés sur les containers pour la parité et le diagnostic, mais **le fichier fait foi** — c'est lui qui permet une bascule atomique et vérifiable (checksum, §18.3) **(défaut proposé, conforme à « fichier/labels proxy » §18.3)**.
 
 ### 7.2 Algorithme de bascule (états `switching` puis `finishing`)
 
@@ -440,7 +449,7 @@ Précondition : candidat `<uuid>-next` `healthy`, post-command OK, verrou strict
 
 1. **Résoudre l'endpoint du candidat** : `docker inspect --format '{{(index .NetworkSettings.Networks "<destination_network>").IPAddress}}' <uuid>-next`. L'IP est stable pour la durée de vie du container : elle sert de cible **transitoire** (le nom `<uuid>-next` disparaîtra au rename, l'IP non).
 2. **Générer** la config dynamique depuis la représentation intermédiaire : routers (domaines, path-based avec priorité au path le plus spécifique, redirection www, middlewares), service → `url: http://<ip_next>:<ports_exposes>`.
-3. **Appliquer atomiquement** : upload SFTP vers `/data/akerdock/proxy/dynamic/.<app_uuid>.yaml.tmp` puis `mv -f` (rename atomique sur le même système de fichiers) ; enregistrer le checksum SHA-256 en base.
+3. **Appliquer atomiquement** : upload SFTP vers `/var/lib/akerdock/proxy/dynamic/.<app_uuid>.yaml.tmp` puis `mv -f` (rename atomique sur le même système de fichiers) ; enregistrer le checksum SHA-256 en base.
 4. **Vérifier** : polling (toutes les 1 s, max **30 s (défaut proposé)**) de l'API locale Traefik (`wget -qO- http://127.0.0.1:8080/api/http/services` exécuté dans le container proxy) jusqu'à voir le nouvel endpoint ; puis requête de fumée à travers le proxy : `curl -fsS -o /dev/null --max-time 5 --resolve <fqdn>:<proxy_port>:127.0.0.1 http://<fqdn><health_path>` **(défaut proposé)**. Échec de vérification → re-pointer le fichier sur l'ancien container (compensation C2) → `failed`. L'ancien container n'a jamais cessé de tourner (INV-005).
 5. **Arrêt gracieux de l'ancien** : `docker stop -t <stop_grace_period> <uuid>` (SIGTERM, puis SIGKILL après le délai) puis `docker rm <uuid>`. L'image de l'ancien n'est **pas** supprimée (rollback §8, INV-006).
 6. **Renommer** : `docker rename <uuid>-next <uuid>`. Le trafic continue de passer par l'IP (étape 2) : aucune fenêtre d'indisponibilité pendant le rename.

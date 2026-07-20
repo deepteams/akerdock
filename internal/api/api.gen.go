@@ -3800,7 +3800,7 @@ type ServerUpdate struct {
 	// CleanupDiskThresholdPct Seuil d'usage disque (%) qui déclenche un nettoyage entre deux crons (§3.7) ; NULL = pas de déclenchement par seuil.
 	CleanupDiskThresholdPct *int `json:"cleanup_disk_threshold_pct,omitempty"`
 
-	// CleanupEnabled Nettoyage disque automatisé (§3.7) — opt-in. Ne cible que les objets gérés et sûrs (cache de build, images dangling, candidats morts, `/data/akerdock/tmp`) ; jamais un objet non géré ou persistant (INV-015), jamais pendant un déploiement.
+	// CleanupEnabled Nettoyage disque automatisé (§3.7) — opt-in. Ne cible que les objets gérés et sûrs (cache de build, images dangling, candidats morts, `/var/lib/akerdock/tmp`) ; jamais un objet non géré ou persistant (INV-015), jamais pendant un déploiement.
 	CleanupEnabled *bool `json:"cleanup_enabled,omitempty"`
 
 	// CleanupPruneNetworks Opt-in — purge des réseaux **gérés** inutilisés (label `akerdock.managed`) ; jamais un réseau non géré (INV-015).

@@ -109,7 +109,7 @@ func (h *ServerCleanup) Execute(ctx context.Context, job store.Job, rec *queue.S
 		// deployments — the live ones are protected by their running state.
 		{"prune_dead_candidates",
 			`ids=$(docker ps -aq --filter status=exited --filter label=akerdock.managed=true | while read -r id; do docker inspect --format '{{.Name}}' "$id" | grep -q -- '-next$' && echo "$id"; done); [ -n "$ids" ] && docker rm $ids || echo none`},
-		{"purge_tmp", "rm -rf /data/akerdock/tmp/* 2>/dev/null; echo done"},
+		{"purge_tmp", "rm -rf /var/lib/akerdock/tmp/* 2>/dev/null; echo done"},
 	}
 	if server.CleanupPruneVolumes {
 		// Anonymous volumes ONLY: `docker volume prune` without --all never
@@ -158,11 +158,11 @@ func (h *ServerCleanup) Execute(ctx context.Context, job store.Job, rec *queue.S
 	}, nil
 }
 
-// diskUsagePct measures the usage of the filesystem holding /data/akerdock —
+// diskUsagePct measures the usage of the filesystem holding /var/lib/akerdock —
 // the sub-tree every AkerDock byte lives under. Best-effort: -1 when the
 // server cannot answer (the prunes still run; only the report degrades).
 func (h *ServerCleanup) diskUsagePct(ctx context.Context, client *sshexec.Client) int {
-	res, err := client.Run(ctx, "df -P /data/akerdock 2>/dev/null | awk 'NR==2 {gsub(/%/,\"\",$5); print $5}'")
+	res, err := client.Run(ctx, "df -P /var/lib/akerdock 2>/dev/null | awk 'NR==2 {gsub(/%/,\"\",$5); print $5}'")
 	if err != nil || res.ExitCode != 0 {
 		return -1
 	}

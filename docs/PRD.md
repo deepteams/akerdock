@@ -89,7 +89,7 @@ Retiré du périmètre produit (ADR-027, réévaluable sur demande avérée). La
 ### 4.1 Reverse proxy
 - **Traefik** (défaut) et **Caddy** (expérimental) ; switch possible par serveur à tout moment (régénération des labels).
 - Configuration **automatique** : la plateforme génère le routage des containers — plusieurs apps par serveur sans gestion manuelle des ports.
-- Config proxy éditable par serveur dans l'UI + fichiers de dynamic config Traefik (`/data/akerdock/proxy/dynamic`).
+- Config proxy éditable par serveur dans l'UI + fichiers de dynamic config Traefik (`/var/lib/akerdock/proxy/dynamic`).
 - **Cycle de vie du proxy** : start / stop / restart du proxy par serveur depuis l'UI, statut visible, logs du proxy consultables ; l'arrêt du proxy coupe tout le trafic entrant du serveur (avertissement explicite) ; notification si l'image du proxy est obsolète (cf. §11).
 - Capacités via labels/middlewares : Basic Auth, rate limiting, IP whitelisting, custom headers, load balancing, dashboard Traefik.
 
@@ -102,7 +102,7 @@ Retiré du périmètre produit (ADR-027, réévaluable sur demande avérée). La
 ### 4.3 SSL/TLS
 - Certificats **Let's Encrypt automatiques** (émission + renouvellement, HTTP-01 par défaut) ; fallback certificat self-signed si l'émission échoue.
 - **Certificats wildcard** via DNS-01 challenge (providers DNS supportés par Lego : Cloudflare, Route 53, OVH, Hetzner…).
-- **Certificats custom** : dépôt dans `/data/akerdock/proxy/certs` + dynamic config.
+- **Certificats custom** : dépôt dans `/var/lib/akerdock/proxy/certs` + dynamic config.
 - Option **Force HTTPS** par application.
 
 ---
@@ -219,7 +219,7 @@ Environnement éphémère déployé automatiquement **pour chaque pull request**
 - **Planification** : expressions cron + alias (`every_minute`, `hourly`, `daily`, `weekly`, `monthly`, `yearly`) ; timeout configurable (défaut 3600 s) ; bouton « Backup Now ».
 
 ### 7.2 Destinations et rétention
-- **Local** (`/data/akerdock/backups/...`) et/ou **S3** (upload via client MinIO `mc`) ; option « S3 only » (suppression du fichier local après upload).
+- **Local** (`/var/lib/akerdock/backups/...`) et/ou **S3** (upload via client MinIO `mc`) ; option « S3 only » (suppression du fichier local après upload).
 - **Rétention séparée local / S3**, trois règles cumulatives : nombre max de backups, ancienneté max (jours), taille totale max (GB) ; 0 = illimité.
 - Notifications succès/échec (y compris « succès local mais échec S3 »).
 
@@ -232,7 +232,7 @@ Environnement éphémère déployé automatiquement **pour chaque pull request**
 - Providers testés : AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO, Backblaze B2, Scaleway, Hetzner, Wasabi, Supabase Storage…
 
 ### 7.5 Backup/restore de l'instance
-- Tout l'état = `/data/akerdock` (config, clés SSH, proxy) + base PostgreSQL interne ; backup planifié de la base avec upload S3 ; procédure de restore documentée (clé maître, clés SSH, `pg_restore`).
+- Tout l'état = `/var/lib/akerdock` (config, clés SSH, proxy) + base PostgreSQL interne ; backup planifié de la base avec upload S3 ; procédure de restore documentée (clé maître, clés SSH, `pg_restore`).
 
 ---
 

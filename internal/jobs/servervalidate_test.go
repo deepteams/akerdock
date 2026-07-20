@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -68,5 +69,25 @@ func TestProxyBootstrapDecision(t *testing.T) {
 				t.Fatalf("a positive decision must not carry a skip reason, got %q", reason)
 			}
 		})
+	}
+}
+
+// The single most common first-start failure is a port already taken by an
+// existing web server: the operator must get the remediation, not a raw
+// Docker bind error.
+func TestPortConflictHint(t *testing.T) {
+	conflict := &sshexec.Result{Stderr: "docker: Error response from daemon: driver failed programming external connectivity on endpoint akerdock-proxy: Bind for 0.0.0.0:80 failed: port is already allocated."}
+	if hint := portConflictHint(conflict, 80, 443); !strings.Contains(hint, "proxy_http_port") || !strings.Contains(hint, "80") {
+		t.Fatalf("the bind conflict must carry its remediation, got %q", hint)
+	}
+	inUse := &sshexec.Result{Stdout: "Error starting userland proxy: listen tcp4 0.0.0.0:443: bind: address already in use"}
+	if hint := portConflictHint(inUse, 8080, 8443); !strings.Contains(hint, "8443") {
+		t.Fatalf("address-already-in-use must carry its remediation, got %q", hint)
+	}
+	if hint := portConflictHint(&sshexec.Result{Stderr: "no space left on device"}, 80, 443); hint != "" {
+		t.Fatalf("an unrelated failure must not claim a port conflict, got %q", hint)
+	}
+	if hint := portConflictHint(nil, 80, 443); hint != "" {
+		t.Fatalf("nil result must yield no hint, got %q", hint)
 	}
 }

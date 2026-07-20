@@ -72,7 +72,7 @@ Ces clés élèvent les privilèges du container sur le serveur. Elles sont **re
 | `devices` | Refusé par défaut |
 | `security_opt` | Refusé par défaut, sauf `no-new-privileges:true` toujours autorisé **(défaut proposé)** |
 | `sysctls` | Allowlist réseau (`net.*` non privilégiés) **(défaut proposé)** ; reste sur politique |
-| bind mount hors racines autorisées (dont `/var/run/docker.sock`, `/`, `/etc`, `/data/akerdock`) | Refusé par défaut (`compose_bind_mount_denied`) ; racines autorisées configurables par serveur **(défaut proposé)** |
+| bind mount hors racines autorisées (dont `/var/run/docker.sock`, `/`, `/etc`, `/var/lib/akerdock`) | Refusé par défaut (`compose_bind_mount_denied`) ; racines autorisées configurables par serveur **(défaut proposé)** |
 | `networks.*.external: true`, `volumes.*.external: true` | Refusé par défaut (`compose_external_object_rejected`) ; autorisable par politique (objets non gérés, INV-015 : jamais touchés par le cleanup) |
 
 ### 1.5 Clés rejetées avec erreur
@@ -134,7 +134,7 @@ Les labels utilisateur (`services.<name>.labels`) sont ajoutés **après** et ne
 ### 2.4 Volumes
 
 - Volume nommé `<vol>` → **`<stack_uuid>_<vol>`** (anti-collision, §8 PRD), créé avec les labels §2.3 : `docker volume create --label … <stack_uuid>_<vol>`. Les références dans tous les services sont réécrites de façon cohérente (un volume partagé entre services du stack reste partagé).
-- Bind mounts : chemins relatifs résolus depuis le clone (build pack compose d'une application) ou depuis `/data/akerdock/services/<stack_uuid>/` **(défaut proposé)** ; chemins absolus soumis à la politique §1.4 ; anti path traversal (§23.3 PRD).
+- Bind mounts : chemins relatifs résolus depuis le clone (build pack compose d'une application) ou depuis `/var/lib/akerdock/services/<stack_uuid>/` **(défaut proposé)** ; chemins absolus soumis à la politique §1.4 ; anti path traversal (§23.3 PRD).
 - File mounts et extensions storage : §5.
 - Chaque volume/bind/file déclaré est synchronisé dans `persistent_storages` (data dictionary §8.7) pour l'UI et le workflow de suppression (§20.6 PRD).
 
@@ -293,7 +293,7 @@ services:
 - **Un domaine par service** : chaque `service_component` peut porter zéro, un ou plusieurs domaines (`domains.service_component_id`, data dictionary §8.4) — FQDN + path + `target_port` optionnel (`domaine:port`, §4.2 PRD).
 - **Port par service** : le port cible du routage est, dans l'ordre : `target_port` du domaine → premier `expose` du service → port du template (`x-akerdock.template.port`, §12) → erreur `compose_routable_port_unresolved` si le service a un domaine mais aucun port déterminable **(défaut proposé)**.
 - **Services sans domaine = privés** : aucune configuration proxy générée, aucun port publié ; joignables uniquement par DNS interne du réseau du stack (alias §2.1) — parité §9 PRD.
-- Génération : chaque composant avec domaine produit une entrée dans la **représentation intermédiaire proxy** (décision §27.9) ; matérialisation Traefik/Caddy, priorités path-based, redirection www, certificats : voir le **contrat proxy (§29.6, à venir)**. Fichier dynamique par ressource : `/data/akerdock/proxy/dynamic/<stack_uuid>.yaml`, sections par composant **(défaut proposé)**.
+- Génération : chaque composant avec domaine produit une entrée dans la **représentation intermédiaire proxy** (décision §27.9) ; matérialisation Traefik/Caddy, priorités path-based, redirection www, certificats : voir le **contrat proxy (§29.6, à venir)**. Fichier dynamique par ressource : `/var/lib/akerdock/proxy/dynamic/<stack_uuid>.yaml`, sections par composant **(défaut proposé)**.
 - `SERVICE_FQDN_<ID>` référencé dans le compose vaut déclaration d'intention de domaine : si le composant n'a pas de domaine configuré, un domaine est généré depuis le wildcard serveur (fallback sslip.io, §4.2 PRD) au premier déploiement.
 
 ---

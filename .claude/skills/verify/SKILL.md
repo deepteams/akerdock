@@ -17,7 +17,7 @@ export AKERDOCK_MASTER_KEY="1:$(openssl rand -base64 32)"
 export AKERDOCK_ROOT_EMAIL=root@example.com AKERDOCK_ROOT_NAME=Root \
   AKERDOCK_ROOT_PASSWORD="a-very-long-verify-password"
 export AKERDOCK_PORT=18475
-export AKERDOCK_DATA_DIR=$(mktemp -d)   # sinon fatal: /data/akerdock non créable
+export AKERDOCK_DATA_DIR=$(mktemp -d)   # sinon fatal: /var/lib/akerdock non créable
 
 go build -o /tmp/akerdock ./cmd/akerdock && /tmp/akerdock
 ```

@@ -25,7 +25,7 @@
 L'instance = **2 services Docker Compose** : l'image `AkerDock` (binaire Go statique, image distroless, modes `all-in-one`/`api`/`worker`) + PostgreSQL. Arborescence sur la machine hôte **(défaut proposé)** :
 
 ```text
-/data/akerdock/                  # racine de l'instance sur l'hôte du control plane
+/var/lib/akerdock/                  # racine de l'instance sur l'hôte du control plane
 ├── docker-compose.yml            # définition des 2 services
 ├── .env                          # configuration non secrète (tag d'image, port…)
 ├── keys/master.key               # clé maître de chiffrement enveloppe (0600, root) — ADR-003
@@ -33,15 +33,15 @@ L'instance = **2 services Docker Compose** : l'image `AkerDock` (binaire Go stat
 └── backups/                      # backups locaux de la base interne (§7.2)
 ```
 
-> Ne pas confondre avec `/data/akerdock/` **sur les serveurs cibles** (arborescence normative §5.1 de la spec deployment-engine : `applications/`, `proxy/`, `backups/`, `tmp/`). Si le serveur `localhost` est utilisé, les deux cohabitent — l'instance vit alors dans un sous-répertoire dédié, ex. `/data/akerdock/instance/` **(défaut proposé)**.
+> Ne pas confondre avec `/var/lib/akerdock/` **sur les serveurs cibles** (arborescence normative §5.1 de la spec deployment-engine : `applications/`, `proxy/`, `backups/`, `tmp/`). Si le serveur `localhost` est utilisé, les deux cohabitent — l'instance vit alors dans un sous-répertoire dédié, ex. `/var/lib/akerdock/instance/` **(défaut proposé)**.
 
 ### Accès aux outils
 
-- **Toutes les commandes `docker compose`** s'exécutent depuis `/data/akerdock/` sur l'hôte du control plane.
+- **Toutes les commandes `docker compose`** s'exécutent depuis `/var/lib/akerdock/` sur l'hôte du control plane.
 - **L'image AkerDock est distroless** (ADR-021) : pas de shell dans le container. Tout diagnostic passe par les logs (`docker compose logs AkerDock`), l'API et `psql` exécuté dans le container PostgreSQL.
 - **psql** :
   ```sh
-  cd /data/akerdock
+  cd /var/lib/akerdock
   docker compose exec postgres psql -U AkerDock AkerDock
   ```
 - **API** : base `https://<fqdn-instance>/api/v1`, auth `Authorization: Bearer $TOKEN`. Rappel : l'API est **désactivée par défaut** (§10.3) — l'activer dans les settings avant un incident, ou passer par l'UI/SQL. Dans les exemples : `export AKD=https://akerdock.example.com/api/v1` et `export TOKEN=akd_…`.

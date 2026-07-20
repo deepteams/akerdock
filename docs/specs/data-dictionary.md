@@ -508,7 +508,7 @@ Stockage objet compatible S3 pour les backups (§7.4). Vérification `ListObject
 
 ### 6.7 `certificates`
 
-**Reflet observé** du sous-système certificats d'un serveur (§4.3, §6.3 ; proxy-contract §7). L'état réel vit sur le serveur — `acme.json` (`/data/akerdock/proxy/acme.json`) et les fichiers de `/data/akerdock/proxy/certs/` — cette table n'est **jamais** une source de vérité : elle est mise à jour par le worker après chaque application de configuration proxy et par la réconciliation périodique (§18.3), à des fins d'inventaire et d'alerte d'expiration (J-30/J-7, proxy-contract §7.3/§7.6). La CA gérée par plateforme pour le SSL des bases (§6.3) n'est pas dupliquée ici : elle reste portée par `servers.ca_cert` / `servers.ca_key_enc` (§6.1). Le matériel de clé privée ne quitte jamais le serveur (jamais en base, proxy-contract §7.3). Suppression : **CASCADE** avec le serveur ; une ligne dont le certificat a disparu du serveur est supprimée par la synchronisation (reflet, pas de tombstone ni de verrou optimiste — table non éditable en UI/API).
+**Reflet observé** du sous-système certificats d'un serveur (§4.3, §6.3 ; proxy-contract §7). L'état réel vit sur le serveur — `acme.json` (`/var/lib/akerdock/proxy/acme.json`) et les fichiers de `/var/lib/akerdock/proxy/certs/` — cette table n'est **jamais** une source de vérité : elle est mise à jour par le worker après chaque application de configuration proxy et par la réconciliation périodique (§18.3), à des fins d'inventaire et d'alerte d'expiration (J-30/J-7, proxy-contract §7.3/§7.6). La CA gérée par plateforme pour le SSL des bases (§6.3) n'est pas dupliquée ici : elle reste portée par `servers.ca_cert` / `servers.ca_key_enc` (§6.1). Le matériel de clé privée ne quitte jamais le serveur (jamais en base, proxy-contract §7.3). Suppression : **CASCADE** avec le serveur ; une ligne dont le certificat a disparu du serveur est supprimée par la synchronisation (reflet, pas de tombstone ni de verrou optimiste — table non éditable en UI/API).
 
 | Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
 |---|---|---|---|---|---|---|
@@ -524,8 +524,8 @@ Stockage objet compatible S3 pour les backups (§7.4). Vérification `ListObject
 | `status` | `certificate_status` | non | `'pending'` | — | non | `pending` = émission en cours (fallback self-signed servi) ; `failed` = échec d'émission/renouvellement (§7.5 proxy-contract). |
 | `last_error` | `text` | oui | — | — | non | Dernière erreur d'émission/renouvellement (cause extraite des logs proxy : challenge, rate limit, CAA…) ; jamais de secret (INV-003). |
 | `dns_provider` | `text` | oui | — | — | non | Identifiant provider **Lego** (`cloudflare`, `route53`…) pour `acme_dns01` (proxy-contract §7.2). |
-| `dns_credential_id` | `bigint` | oui | — | FK `cloud_credentials(id)` ON DELETE RESTRICT | non | Credential DNS-01 (même team, INV-002). Le secret vit dans `cloud_credentials.config_enc` (§6.4) — **aucune colonne secrète ici**. Matérialisé en `/data/akerdock/proxy/acme.env` (0600) à la génération. |
-| `cert_path` | `text` | oui | — | — | non | Chemin distant du certificat sur le serveur (`/data/akerdock/proxy/certs/…` pour `custom`) ; NULL pour ACME (matériel dans `acme.json`). |
+| `dns_credential_id` | `bigint` | oui | — | FK `cloud_credentials(id)` ON DELETE RESTRICT | non | Credential DNS-01 (même team, INV-002). Le secret vit dans `cloud_credentials.config_enc` (§6.4) — **aucune colonne secrète ici**. Matérialisé en `/var/lib/akerdock/proxy/acme.env` (0600) à la génération. |
+| `cert_path` | `text` | oui | — | — | non | Chemin distant du certificat sur le serveur (`/var/lib/akerdock/proxy/certs/…` pour `custom`) ; NULL pour ACME (matériel dans `acme.json`). |
 | `key_path` | `text` | oui | — | — | non | Chemin distant de la clé privée (0600, `custom`) ; le matériel n'est **jamais** rapatrié en base. |
 | `observed_at` | `timestamptz` | oui | — | — | non | Fraîcheur du reflet (§19.2) ; au-delà d'un seuil, l'UI affiche « stale », jamais un faux `issued`. |
 | `created_at` | `timestamptz` | non | `now()` | — | non | — |
@@ -1061,7 +1061,7 @@ Trace de chaque exécution de backup (§7.3, §20.5) : statut, fichier, taille, 
 | `backup_plan_id` | `bigint` | non | — | FK `database_backup_plans(id)` ON DELETE CASCADE, index `(backup_plan_id, created_at DESC)` | non | — |
 | `job_id` | `bigint` | oui | — | FK `jobs(id)` ON DELETE SET NULL | non | Job d'exécution (lease/heartbeat, §21.3). |
 | `status` | `backup_execution_status` | non | `'running'` | — | non | `running` / `succeeded` / `partial` / `failed`. |
-| `filename` | `text` | oui | — | — | non | Chemin local `/data/akerdock/backups/...` (§7.2). |
+| `filename` | `text` | oui | — | — | non | Chemin local `/var/lib/akerdock/backups/...` (§7.2). |
 | `size_bytes` | `bigint` | oui | — | — | non | — |
 | `checksum_sha256` | `text` | oui | — | — | non | Intégrité, vérifiée au restore et lors des drills (§20.5). |
 | `engine_version` | `text` | oui | — | — | non | Version du moteur au moment du dump (§20.5). |

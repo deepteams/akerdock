@@ -52,7 +52,7 @@ Tout le reste a un défaut sûr et documenté. Corollaires : aucun défaut ne pe
 | `AKERDOCK_LOCALHOST_USER` | non | `root` | Utilisateur SSH du serveur `localhost` pré-enregistré (§6.2). `install.sh` y place l'utilisateur qui exécute l'installation. Lue à l'amorçage seulement. | non |
 | `AKERDOCK_LOG_LEVEL` | non | `info` | `debug` \| `info` \| `warn` \| `error`. | non |
 | `AKERDOCK_LOG_FORMAT` | non | `json` | `json` (production, une ligne par événement) \| `text` (lisible, développement). | non |
-| `AKERDOCK_DATA_DIR` | non | `/data/akerdock` | Répertoire de données du processus (§5.2). Dans la distribution compose : volume nommé `akerdock_data`. Créé au démarrage s'il n'existe pas ; non inscriptible = erreur fatale. | non |
+| `AKERDOCK_DATA_DIR` | non | `/var/lib/akerdock` | Répertoire de données du processus (§5.2). Dans la distribution compose : volume nommé `akerdock_data`. Créé au démarrage s'il n'existe pas ; non inscriptible = erreur fatale. | non |
 | `AKERDOCK_WORKER_CONCURRENCY` | non | `10` | Nombre maximal de jobs exécutés en parallèle **par processus** en mode `worker` ou `all-in-one` (entier ≥ 1). Défaut calibré sur le gabarit minimal 2 vCPU / 2 GB (§14.1 PRD) ; les plafonds par serveur et par team (§22.2 PRD) s'appliquent en plus, côté queue. | non |
 | `AKERDOCK_SHUTDOWN_TIMEOUT` | non | `30s` | Délai de drain à l'arrêt gracieux (§6.5) : durée Go (`30s`, `2m`). Doit rester inférieur au `stop_grace_period` du compose (40 s, §4) et à l'expiration de lease des jobs (90 s, deployment-engine §2.5). | non |
 | `AKERDOCK_TERMINAL_IDLE_TIMEOUT` | non | `15m` | Inactivité (aucune frappe) au-delà de laquelle une session terminal web est fermée (§24.4 PRD, ADR-024) : durée Go. La sortie du terminal ne compte pas comme activité — un spinner ne maintient pas un shell root oublié. | non |
@@ -64,7 +64,7 @@ Tout le reste a un défaut sûr et documenté. Corollaires : aucun défaut ne pe
 
 ### 2.2 Variables consommées par le compose (pas par le binaire)
 
-Ces variables vivent dans `/data/akerdock/.env` et sont interpolées par Docker Compose (§4) ; le binaire ne les lit pas :
+Ces variables vivent dans `/var/lib/akerdock/.env` et sont interpolées par Docker Compose (§4) ; le binaire ne les lit pas :
 
 | Nom | Requis | Défaut | Description | Sensible |
 |---|---|---|---|---|
@@ -110,7 +110,7 @@ La **version active** — celle qui chiffre toute nouvelle écriture — est la 
 ### 3.2 Exemple complet
 
 ```text
-# /data/akerdock/keys/master.key — 0600 root:root
+# /var/lib/akerdock/keys/master.key — 0600 root:root
 # v1 : installation 2026-07-11 ; v2 : rotation planifiée 2027-01-15
 1:m4C9Zk0vG8kQ2m1H0cVvXHkq3D3jUj0F3q5m8Q2xX9s=
 2:Zk3q8W1mB7hT4nJ6cR9vY0dL2aP5sG8uK1oE4wI7xN0=
@@ -120,7 +120,7 @@ Ici la version active est **2** ; la version 1 reste présente pour déchiffrer 
 
 ### 3.3 Permissions et emplacement
 
-- Hôte : `/data/akerdock/keys/master.key`, propriétaire `root:root`, mode **`0600`**, répertoire `keys/` en `0700` (§23.2 PRD) ;
+- Hôte : `/var/lib/akerdock/keys/master.key`, propriétaire `root:root`, mode **`0600`**, répertoire `keys/` en `0700` (§23.2 PRD) ;
 - Container : monté **en lecture seule** sur `/run/secrets/master.key` (§4) ;
 - Au démarrage, le binaire vérifie les permissions du fichier : lisible ou inscriptible par « other » = **erreur fatale** ; tout autre écart avec `0600` = avertissement (§7.2).
 
@@ -137,7 +137,7 @@ Ici la version active est **2** ; la version 1 reste présente pour déchiffrer 
 
 ### 4.1 `docker-compose.yml`
 
-Deux services, un seul port publié, volumes nommés, healthchecks sur les deux services, tags épinglés. Fichier de référence, livré avec chaque release à l'emplacement `/data/akerdock/docker-compose.yml` :
+Deux services, un seul port publié, volumes nommés, healthchecks sur les deux services, tags épinglés. Fichier de référence, livré avec chaque release à l'emplacement `/var/lib/akerdock/docker-compose.yml` :
 
 ```yaml
 name: akerdock
@@ -161,7 +161,7 @@ services:
       AKERDOCK_LOCALHOST_USER: ${AKERDOCK_LOCALHOST_USER:-}
     volumes:
       - ./keys/master.key:/run/secrets/master.key:ro
-      - akerdock_data:/data/akerdock
+      - akerdock_data:/var/lib/akerdock
     networks: [akerdock]
     extra_hosts:
       # Fait résoudre host.docker.internal vers la passerelle du réseau compose
@@ -211,14 +211,14 @@ Propriétés garanties (ADR-021) : un seul `docker compose up -d` installe ; l'u
 
 > **Note N1 — identifiants en minuscules.** Le nom de service compose, l'utilisateur et la base PostgreSQL sont `akerdock` (minuscules). Les extraits du runbook [install.md](../runbooks/install.md) écrits avant cette spec utilisent la casse `AkerDock` : c'est la présente spec qui fait foi — les identifiants techniques sont en minuscules (un rôle PostgreSQL en casse mixte créé via `POSTGRES_USER` exigerait des identifiants cités dans chaque commande `psql`/`pg_dump`, source d'erreurs opérateur).
 >
-> **Note N2 — volumes nommés (écart justifié avec install.md).** Le runbook d'installation proposait des bind mounts (`./postgres`, implicitement l'état applicatif sur l'hôte). Cette spec retient les **volumes nommés** `akerdock_pgdata` et `akerdock_data` : gestion des UID/permissions par Docker (l'image distroless tourne non-root, l'image postgres avec son propre UID — les bind mounts imposent des chown manuels), sémantique de sauvegarde claire (l'état restaurable passe par `pg_dump`/`pg_restore`, jamais par une copie de fichiers — ADR-021 « backups PostgreSQL standards »), et volume déplaçable indépendamment du répertoire compose. Les éléments que l'opérateur doit toucher ou exfiltrer restent des fichiers de l'hôte sous `/data/akerdock/` (compose, `.env`, `keys/master.key`, `backups/` — §5.1) : la procédure « 3 pièces » de [control-plane-restore.md](../runbooks/control-plane-restore.md) est inchangée, aucun volume nommé n'a besoin d'être sauvegardé (§5.3).
+> **Note N2 — volumes nommés (écart justifié avec install.md).** Le runbook d'installation proposait des bind mounts (`./postgres`, implicitement l'état applicatif sur l'hôte). Cette spec retient les **volumes nommés** `akerdock_pgdata` et `akerdock_data` : gestion des UID/permissions par Docker (l'image distroless tourne non-root, l'image postgres avec son propre UID — les bind mounts imposent des chown manuels), sémantique de sauvegarde claire (l'état restaurable passe par `pg_dump`/`pg_restore`, jamais par une copie de fichiers — ADR-021 « backups PostgreSQL standards »), et volume déplaçable indépendamment du répertoire compose. Les éléments que l'opérateur doit toucher ou exfiltrer restent des fichiers de l'hôte sous `/var/lib/akerdock/` (compose, `.env`, `keys/master.key`, `backups/` — §5.1) : la procédure « 3 pièces » de [control-plane-restore.md](../runbooks/control-plane-restore.md) est inchangée, aucun volume nommé n'a besoin d'être sauvegardé (§5.3).
 
 ### 4.2 `docker-compose.override.yml` — customisations persistantes
 
-Les personnalisations locales vont dans `/data/akerdock/docker-compose.override.yml`, chargé automatiquement par Compose v2 et **jamais touché par les upgrades** (parité avec le `docker-compose.custom.yml` de la référence, §14.1 PRD) : les releases ne remplacent que `docker-compose.yml`. Exemple documenté :
+Les personnalisations locales vont dans `/var/lib/akerdock/docker-compose.override.yml`, chargé automatiquement par Compose v2 et **jamais touché par les upgrades** (parité avec le `docker-compose.custom.yml` de la référence, §14.1 PRD) : les releases ne remplacent que `docker-compose.yml`. Exemple documenté :
 
 ```yaml
-# /data/akerdock/docker-compose.override.yml — personnalisations locales, survivent aux upgrades
+# /var/lib/akerdock/docker-compose.override.yml — personnalisations locales, survivent aux upgrades
 services:
   akerdock:
     environment:
@@ -241,14 +241,14 @@ Règles : l'override ne doit **ni** changer les images/tags (l'upgrade passe par
 
 ---
 
-## 5. Arborescence `/data/akerdock/` de l'instance
+## 5. Arborescence `/var/lib/akerdock/` de l'instance
 
-Distincte de l'arborescence `/data/akerdock/` **des serveurs cibles** (applications, proxy, sources — deployment-engine §5.1, normative là-bas) : même nom de racine (parité §7.5 PRD, « tout l'état = un répertoire »), contenus différents. Quand l'instance gère aussi son propre hôte comme serveur cible (`localhost`), les deux arborescences coexistent sous la même racine sans collision de sous-répertoires.
+Distincte de l'arborescence `/var/lib/akerdock/` **des serveurs cibles** (applications, proxy, sources — deployment-engine §5.1, normative là-bas) : même nom de racine (parité §7.5 PRD, « tout l'état = un répertoire »), contenus différents. Quand l'instance gère aussi son propre hôte comme serveur cible (`localhost`), les deux arborescences coexistent sous la même racine sans collision de sous-répertoires.
 
 ### 5.1 Sur l'hôte de l'instance
 
 ```text
-/data/akerdock/                          # racine, 0750, root
+/var/lib/akerdock/                          # racine, 0750, root
 ├── docker-compose.yml                   # fichier de référence de la release (§4.1), remplacé à l'upgrade
 ├── docker-compose.override.yml          # optionnel — customisations persistantes (§4.2)
 ├── .env                                 # 0600 — AKERDOCK_TAG, POSTGRES_PASSWORD, AKERDOCK_PORT, AKERDOCK_ROOT_*…
@@ -259,10 +259,10 @@ Distincte de l'arborescence `/data/akerdock/` **des serveurs cibles** (applicati
 
 C'est exactement le périmètre à exfiltrer hors machine : `docker-compose.yml` + override + `.env` + `keys/master.key` (+ les dumps, dont la copie de référence vit sur S3 via le plan `is_instance_backup`) — les « 3 pièces » de [control-plane-restore.md](../runbooks/control-plane-restore.md).
 
-### 5.2 Dans le volume `akerdock_data` (monté sur `AKERDOCK_DATA_DIR`, défaut `/data/akerdock` dans le container)
+### 5.2 Dans le volume `akerdock_data` (monté sur `AKERDOCK_DATA_DIR`, défaut `/var/lib/akerdock` dans le container)
 
 ```text
-/data/akerdock/                          # dans le container = volume nommé akerdock_data
+/var/lib/akerdock/                          # dans le container = volume nommé akerdock_data
 ├── ssh/
 │   └── instance_ed25519.pub             # copie de la clé publique d'instance (§6.2) — la privée est en base, chiffrée
 └── tmp/                                 # espace temporaire du processus (téléchargements, staging), purgé au démarrage

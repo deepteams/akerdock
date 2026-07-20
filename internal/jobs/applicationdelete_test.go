@@ -25,10 +25,10 @@ func TestParseRemnants(t *testing.T) {
 			name: "one entry per section",
 			out: "---containers\napp-web-1\n" +
 				"---volumes\n0195a0b0_data\n" +
-				"---files\n/data/akerdock/applications/0195a0b0\n",
+				"---files\n/var/lib/akerdock/applications/0195a0b0\n",
 			containers: []string{"app-web-1"},
 			volumes:    []string{"0195a0b0_data"},
-			files:      []string{"/data/akerdock/applications/0195a0b0"},
+			files:      []string{"/var/lib/akerdock/applications/0195a0b0"},
 		},
 		{
 			name: "multiple entries and blank lines are skipped",

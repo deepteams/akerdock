@@ -48,12 +48,12 @@ docker run -d \
   -p <proxy_http_port>:<proxy_http_port> \
   -p <proxy_https_port>:<proxy_https_port> \
   [-p <tcp_port>:<tcp_port>]... \                    # routes TCP actives (§2.6, §5.6)
-  -v /data/akerdock/proxy/traefik.yaml:/etc/traefik/traefik.yaml:ro \
-  -v /data/akerdock/proxy/dynamic:/dynamic:ro \
-  -v /data/akerdock/proxy/acme.json:/acme/acme.json \
-  -v /data/akerdock/proxy/certs:/certs:ro \
-  -v /data/akerdock/proxy/auth:/auth:ro \
-  --env-file /data/akerdock/proxy/acme.env \        # credentials DNS-01, 0600, si DNS-01 configuré (§7.2)
+  -v /var/lib/akerdock/proxy/traefik.yaml:/etc/traefik/traefik.yaml:ro \
+  -v /var/lib/akerdock/proxy/dynamic:/dynamic:ro \
+  -v /var/lib/akerdock/proxy/acme.json:/acme/acme.json \
+  -v /var/lib/akerdock/proxy/certs:/certs:ro \
+  -v /var/lib/akerdock/proxy/auth:/auth:ro \
+  --env-file /var/lib/akerdock/proxy/acme.env \        # credentials DNS-01, 0600, si DNS-01 configuré (§7.2)
   --label akerdock.managed=true \
   --label akerdock.type=proxy \
   --label akerdock.team_uuid=<team_uuid_du_serveur> \
@@ -67,10 +67,10 @@ Points normatifs :
 - **Ports d'écoute configurables par serveur** (`proxy_http_port`/`proxy_https_port`, défauts 80/443, décision §27.1) : les entrypoints écoutent directement sur ces ports dans le container et sont publiés à l'identique (`8443:8443`, jamais `8443:443`) — les redirections HTTP→HTTPS émettent ainsi le bon port sans réécriture **(défaut proposé)**.
 - L'API locale du proxy (Traefik `:8080`) n'est **jamais publiée sur l'hôte** : elle n'est accessible que par `docker exec` dans le container (vérification §6.3, conforme deployment-engine §7.2).
 - Le socket Docker n'est **pas** monté dans le proxy : toute la configuration passe par les fichiers (pas de provider docker Traefik ; les labels de parité sont informatifs, §5.1).
-- Arborescence sous `/data/akerdock/proxy/` (extension de deployment-engine §5.1, **(défaut proposé)** — sauf `acme.json` et `acme.env`, dont les emplacements sont **normatifs**, §7.2/§7.5) :
+- Arborescence sous `/var/lib/akerdock/proxy/` (extension de deployment-engine §5.1, **(défaut proposé)** — sauf `acme.json` et `acme.env`, dont les emplacements sont **normatifs**, §7.2/§7.5) :
 
 ```text
-/data/akerdock/proxy/
+/var/lib/akerdock/proxy/
 ├── traefik.yaml              # config statique générée (§5.2) — recréation du container à chaque changement
 ├── dynamic/                  # provider file watch: true
 │   ├── 00-certificates.yaml  # certificats custom (§7.3) — nom réservé
@@ -197,7 +197,7 @@ Notes :
   main: "preview.example.com"
   sans: ["*.preview.example.com"]  # wildcard ⇒ resolver DNS-01 obligatoire (§7.2)
 - id: "corp-example"
-  type: custom                     # fichiers déposés dans /data/akerdock/proxy/certs (§7.3)
+  type: custom                     # fichiers déposés dans /var/lib/akerdock/proxy/certs (§7.3)
   cert_file: "certs/corp.example.com.pem"
   key_file: "certs/corp.example.com.key"
 ```
@@ -273,7 +273,7 @@ La contrepartie n'est générée que si elle n'entre pas en collision avec une l
 
 ### 4.1 Basic auth
 
-- IR `type: basic_auth`, `users_ref` vers le secret store. À la génération, la valeur (format htpasswd, hashes bcrypt) est écrite en `/data/akerdock/proxy/auth/<app_uuid>.htpasswd` (0600, SFTP — INV-003/012) et le middleware référence ce fichier. Les hashes ne transitent **pas** dans `proxy_config_revisions.content` (qui ne contient aucun secret, §11.1 data dictionary) **(défaut proposé)**.
+- IR `type: basic_auth`, `users_ref` vers le secret store. À la génération, la valeur (format htpasswd, hashes bcrypt) est écrite en `/var/lib/akerdock/proxy/auth/<app_uuid>.htpasswd` (0600, SFTP — INV-003/012) et le middleware référence ce fichier. Les hashes ne transitent **pas** dans `proxy_config_revisions.content` (qui ne contient aucun secret, §11.1 data dictionary) **(défaut proposé)**.
 - Traefik : `basicAuth.usersFile: /auth/<app_uuid>.htpasswd`.
 
 ### 4.2 Rate limiting
@@ -317,7 +317,7 @@ Cet ordre est un invariant contractuel testé par fixtures : un client hors whit
 
 ### 5.1 File provider — le fichier fait foi
 
-Conforme à deployment-engine §7.1 : le routage est matérialisé en **un fichier de configuration dynamique par application** — `/data/akerdock/proxy/dynamic/<app_uuid>.yaml` — monté dans le container (provider `file`, `watch: true`). Les **labels de parité** Traefik sont posés sur le container final en `finishing` (deployment-engine §7.2 étape 7) à des fins de diagnostic et de compatibilité d'usage, mais ne sont **jamais lus** par le proxy (pas de provider docker) : le fichier fait foi, c'est lui qui rend la bascule atomique et vérifiable.
+Conforme à deployment-engine §7.1 : le routage est matérialisé en **un fichier de configuration dynamique par application** — `/var/lib/akerdock/proxy/dynamic/<app_uuid>.yaml` — monté dans le container (provider `file`, `watch: true`). Les **labels de parité** Traefik sont posés sur le container final en `finishing` (deployment-engine §7.2 étape 7) à des fins de diagnostic et de compatibilité d'usage, mais ne sont **jamais lus** par le proxy (pas de provider docker) : le fichier fait foi, c'est lui qui rend la bascule atomique et vérifiable.
 
 Conventions de nommage dans les fichiers générés (déterministes, INV-011) :
 
@@ -333,7 +333,7 @@ En-tête obligatoire de chaque fichier généré : `# generated by AkerDock — 
 
 ### 5.2 Configuration statique du proxy
 
-`/data/akerdock/proxy/traefik.yaml`, générée par `GenerateStatic(ir)`. Tout changement (ports, resolvers, entrypoints TCP) crée une révision et **recrée le container** (§1.4) ; les changements de routage passent exclusivement par les fichiers dynamiques (hot reload).
+`/var/lib/akerdock/proxy/traefik.yaml`, générée par `GenerateStatic(ir)`. Tout changement (ports, resolvers, entrypoints TCP) crée une révision et **recrée le container** (§1.4) ; les changements de routage passent exclusivement par les fichiers dynamiques (hot reload).
 
 ```yaml
 # generated by AkerDock — revision 12 — DO NOT EDIT
@@ -383,7 +383,7 @@ accessLog: {}
 Application `9f3c2a1e-7b44-4c1d-9e2a-1f0b8c6d5a01`, `app.example.com`, port interne 3000, `force_https = true`, `redirect_direction = both` sans contrepartie déclarable (pas de `www` généré ici pour la concision). Forme **stable** (`finishing`) ; pendant `switching`, seule l'URL du service diffère (`http://172.18.0.7:3000`, IP du candidat — deployment-engine §7.2).
 
 ```yaml
-# /data/akerdock/proxy/dynamic/9f3c2a1e-7b44-4c1d-9e2a-1f0b8c6d5a01.yaml
+# /var/lib/akerdock/proxy/dynamic/9f3c2a1e-7b44-4c1d-9e2a-1f0b8c6d5a01.yaml
 # generated by AkerDock — revision 41 — DO NOT EDIT
 http:
   routers:
@@ -417,7 +417,7 @@ http:
 Application `b2d15c78-90ab-4cde-8123-456789abcdef` : `shop.example` → port 3000, `shop.example/api` → port 8081 (`domaine:port`), `redirect_direction = non_www`.
 
 ```yaml
-# /data/akerdock/proxy/dynamic/b2d15c78-90ab-4cde-8123-456789abcdef.yaml
+# /var/lib/akerdock/proxy/dynamic/b2d15c78-90ab-4cde-8123-456789abcdef.yaml
 # generated by AkerDock — revision 42 — DO NOT EDIT
 http:
   routers:
@@ -470,7 +470,7 @@ http:
 Preview PR #123 de l'application ci-dessus, container `b2d15c78-…-pr-123`, FQDN `123.preview.example.com`, certificat wildcard `*.preview.example.com` (resolver `dns01-cloudflare`).
 
 ```yaml
-# /data/akerdock/proxy/dynamic/b2d15c78-90ab-4cde-8123-456789abcdef-pr-123.yaml
+# /var/lib/akerdock/proxy/dynamic/b2d15c78-90ab-4cde-8123-456789abcdef-pr-123.yaml
 # generated by AkerDock — revision 43 — DO NOT EDIT
 http:
   routers:
@@ -515,7 +515,7 @@ http:
 PostgreSQL `4e7a9b0c-1122-4334-8556-778899aabbcc`, port interne 5432, `public_port = 15432` (`public_access_mode = tcp_proxy`, §6.2 PRD). Prérequis statique : entrypoint `tcp-15432` (§5.2) + port publié sur le container proxy.
 
 ```yaml
-# /data/akerdock/proxy/dynamic/4e7a9b0c-1122-4334-8556-778899aabbcc.yaml
+# /var/lib/akerdock/proxy/dynamic/4e7a9b0c-1122-4334-8556-778899aabbcc.yaml
 # generated by AkerDock — revision 44 — DO NOT EDIT
 tcp:
   routers:
@@ -548,7 +548,7 @@ Contrat d'application d'un fichier dynamique — identique que l'appelant soit l
 
 1. Génération déterministe du contenu depuis l'IR ; calcul du **SHA-256**.
 2. `INSERT proxy_config_revisions` (`server_id`, `revision` = n+1, `proxy_type`, `content`, `checksum_sha256`, `status = 'generated'`) — le `content` ne contient jamais de secret (§11.1 data dictionary ; les htpasswd passent par fichiers séparés, §4.1).
-3. Upload SFTP vers `/data/akerdock/proxy/dynamic/.<app_uuid>.yaml.tmp` puis `mv -f` vers `<app_uuid>.yaml` — rename atomique sur le même système de fichiers : Traefik ne voit jamais un fichier partiel.
+3. Upload SFTP vers `/var/lib/akerdock/proxy/dynamic/.<app_uuid>.yaml.tmp` puis `mv -f` vers `<app_uuid>.yaml` — rename atomique sur le même système de fichiers : Traefik ne voit jamais un fichier partiel.
 4. Réconciliation de dérive (§18.3) : périodiquement et avant chaque bascule, le checksum du fichier distant est comparé à la dernière révision `applied` ; une dérive (édition manuelle) est signalée et corrigée par ré-application **(défaut proposé)**.
 
 ### 6.3 Attente de prise en compte et vérification
@@ -587,15 +587,15 @@ Conforme deployment-engine §7.2 étape 4 :
 
 - Obligatoire pour tout **certificat** wildcard (§4.3 PRD). Un resolver `dns01-<provider>` par provider DNS utilisé sur le serveur, `provider` = identifiant **Lego** (cloudflare, route53, ovh, hetzner, …).
 - **Un `wildcard_domain` sans credential DNS-01 est accepté** (amendement de spec) : le domaine ne sert alors que de **gabarit de nommage** — chaque hôte attribué sous le wildcard reçoit son **propre certificat individuel via HTTP-01** (§7.1, `certResolver: http01` par routeur). Contreparties assumées, à afficher à l'opérateur : chaque hôte doit être joignable publiquement sur le port HTTP du serveur (l'ACME HTTP-01 l'exige), et les limites d'émission de la CA s'appliquent **par hôte** (~50 certificats/domaine enregistré/semaine chez Let's Encrypt) — un usage intensif des previews peut les épuiser, là où un certificat wildcard n'en consomme qu'un.
-- **Credentials** : stockés dans le secret store (chiffrement enveloppe, §23.2 — table `cloud_credentials`, référencée par `certificates.dns_credential_id`, data dictionary §6.7), référencés par `credentials_ref` dans l'IR ; matérialisés à la génération en `/data/akerdock/proxy/acme.env` (**emplacement normatif**, 0600, SFTP) sous les noms de variables attendus par Lego (ex. `CF_DNS_API_TOKEN=…`), injectés au container proxy par `--env-file` (§1.3). Jamais dans `proxy_config_revisions.content`, jamais dans argv (INV-003/012). Rotation d'un credential = régénération du fichier + recréation du container.
+- **Credentials** : stockés dans le secret store (chiffrement enveloppe, §23.2 — table `cloud_credentials`, référencée par `certificates.dns_credential_id`, data dictionary §6.7), référencés par `credentials_ref` dans l'IR ; matérialisés à la génération en `/var/lib/akerdock/proxy/acme.env` (**emplacement normatif**, 0600, SFTP) sous les noms de variables attendus par Lego (ex. `CF_DNS_API_TOKEN=…`), injectés au container proxy par `--env-file` (§1.3). Jamais dans `proxy_config_revisions.content`, jamais dans argv (INV-003/012). Rotation d'un credential = régénération du fichier + recréation du container.
 - Un certificat wildcard est demandé via `tls.domains` sur un routeur qui le référence (exemple §5.5).
 
 ### 7.3 Certificats custom
 
-- Dépôt (UI/API) des fichiers PEM dans `/data/akerdock/proxy/certs/` (0600 ; la clé privée ne quitte jamais le serveur — pas en base, §11.1 data dictionary), déclarés dans le fichier dynamique réservé :
+- Dépôt (UI/API) des fichiers PEM dans `/var/lib/akerdock/proxy/certs/` (0600 ; la clé privée ne quitte jamais le serveur — pas en base, §11.1 data dictionary), déclarés dans le fichier dynamique réservé :
 
 ```yaml
-# /data/akerdock/proxy/dynamic/00-certificates.yaml
+# /var/lib/akerdock/proxy/dynamic/00-certificates.yaml
 # generated by AkerDock — revision 45 — DO NOT EDIT
 tls:
   certificates:
@@ -611,7 +611,7 @@ tls:
 
 ### 7.5 Stockage et alertes
 
-- Stockage ACME : `/data/akerdock/proxy/acme.json` (**emplacement normatif**, 0600), inclus dans le périmètre de backup de l'instance/du serveur (§7.5 PRD) — sa perte n'est pas grave (ré-émission) mais coûte du rate limit Let's Encrypt.
+- Stockage ACME : `/var/lib/akerdock/proxy/acme.json` (**emplacement normatif**, 0600), inclus dans le périmètre de backup de l'instance/du serveur (§7.5 PRD) — sa perte n'est pas grave (ré-émission) mais coûte du rate limit Let's Encrypt.
 - **Alerte d'échec d'émission** : le control plane surveille l'émission après application d'une route ACME — présence du certificat dans `acme.json` (ou API Traefik) sous **10 min (défaut proposé)** ; sinon, événement `proxy.certificate_issue_failed.v1` (outbox §24.2) → notification (§11 PRD) avec la cause extraite des logs du proxy (échec de challenge, rate limit, CAA…). Le fallback self-signed (§7.4) reste servi entre-temps.
 - Rate limits Let's Encrypt : l'instance utilise le CA de staging dans les E2E DinD (§27.26) ; `ca_url` est configurable dans l'IR (§2.2).
 
@@ -635,7 +635,7 @@ Pourquoi pas le control plane : INV-007 (le control plane ne proxyfie pas le tra
 
 **Endormissement** (control plane, sur TTL d'inactivité §20.4.3 — mesuré sur les access logs du proxy ou les métriques Sentinel) :
 
-1. Générer **deux** variantes du fichier dynamique : la variante « sleeping » (service du RouteGroup → `http://akerdock-waker:8080`, en-tête de requête `X-AkerDock-Wake: <app_uuid>` ajouté par middleware) et la variante « awake » normale, déposée en `/data/akerdock/proxy/dynamic/.<app_uuid>.yaml.awake`.
+1. Générer **deux** variantes du fichier dynamique : la variante « sleeping » (service du RouteGroup → `http://akerdock-waker:8080`, en-tête de requête `X-AkerDock-Wake: <app_uuid>` ajouté par middleware) et la variante « awake » normale, déposée en `/var/lib/akerdock/proxy/dynamic/.<app_uuid>.yaml.awake`.
 2. Appliquer la variante sleeping (§6), puis `docker stop` du container. État désiré : `sleeping`.
 
 **Réveil** (waker, à la première requête) :

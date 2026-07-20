@@ -14,7 +14,7 @@ Sans objet — opération planifiée. Cas d'usage : nouvelle release AkerDock, r
 ## Diagnostic (état avant intervention)
 
 ```sh
-cd /data/akerdock
+cd /var/lib/akerdock
 curl -fsS -H "Authorization: Bearer $TOKEN" "$AKD/version"      # version courante
 docker compose ps
 # Déploiements en cours (préférer attendre qu'ils se terminent) :
@@ -35,14 +35,14 @@ Lire les notes de release : migrations incluses, compatibilité descendante (l'A
 
 1. **Backup préalable** (obligatoire — c'est le point de retour du rollback) :
    ```sh
-   cd /data/akerdock
+   cd /var/lib/akerdock
    docker compose exec -T postgres pg_dump -U AkerDock -Fc AkerDock \
      > backups/pre-upgrade-$(date -u +%Y%m%dT%H%M%SZ).dump
    cp keys/master.key backups/   # avec les mêmes précautions d'accès (0600)
    ```
    Vérifier la taille non nulle et copier le dump hors machine.
 2. **Attendre le calme** : idéalement zéro déploiement en cours (requête ci-dessus). Sinon, accepter que les jobs actifs seront repris après lease (90 s).
-3. **Changer le tag** dans `/data/akerdock/.env` :
+3. **Changer le tag** dans `/var/lib/akerdock/.env` :
    ```sh
    sed -i 's/^AKERDOCK_TAG=.*/AKERDOCK_TAG=v1.1.0/' .env
    ```

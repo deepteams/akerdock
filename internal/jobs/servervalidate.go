@@ -164,7 +164,7 @@ const NixpacksVersion = "1.38.0"
 // nixpacksBin is where the binary lives on a target server. /usr/local/bin is
 // not writable by a non-root deploy user, so it goes under the AkerDock root —
 // the one directory the engine already owns.
-const nixpacksBin = "/data/akerdock/bin/nixpacks"
+const nixpacksBin = "/var/lib/akerdock/bin/nixpacks"
 
 // installNixpacks converges the pinned binary on the server. Idempotent: an
 // already-correct version is left alone, so a re-validation costs nothing.
@@ -180,7 +180,7 @@ func installNixpacks(ctx context.Context, client *sshexec.Client) error {
 	// The release tarball is named by target triple; the binary must match the
 	// server's architecture, not the control plane's.
 	script := fmt.Sprintf(`set -e
-mkdir -p /data/akerdock/bin
+mkdir -p /var/lib/akerdock/bin
 case "$(uname -m)" in
   x86_64) target=x86_64-unknown-linux-musl ;;
   aarch64|arm64) target=aarch64-unknown-linux-musl ;;
@@ -351,24 +351,49 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 	}
 	static := proxy.GenerateStatic(int(server.ProxyHttpPort), int(server.ProxyHttpsPort), email, dnsProvider, ports, server.ID)
 
+	// Legacy layout migration (spec amendment: /data/akerdock → FHS
+	// /var/lib/akerdock): the old directory carries acme.json — the Let's
+	// Encrypt account and every issued certificate — so it is MOVED, never
+	// abandoned. Entry by entry, because another step (nixpacks provisioning,
+	// typically) may already have created the new root: a whole-directory move
+	// would then silently skip, stranding the certificates. The proxy
+	// container is removed first — its bind mounts point into the old path —
+	// and recreated right below against the new one. Running application
+	// containers keep their old mounts alive until their next deployment.
+	legacyMove := "if [ -d /data/akerdock ]; then" +
+		" docker rm -f " + proxy.ContainerName + " >/dev/null 2>&1 || true;" +
+		" mkdir -p /var/lib/akerdock;" +
+		" for e in /data/akerdock/* /data/akerdock/.[!.]*; do" +
+		"   [ -e \"$e\" ] || continue;" +
+		"   [ -e \"/var/lib/akerdock/$(basename \"$e\")\" ] || mv \"$e\" /var/lib/akerdock/;" +
+		" done;" +
+		" rmdir /data/akerdock 2>/dev/null || true; fi && "
 	res, err := client.RunInput(ctx,
-		"mkdir -p /data/akerdock/proxy/dynamic /data/akerdock/proxy/certs /data/akerdock/proxy/auth"+
-			" && umask 077 && touch /data/akerdock/proxy/acme.json"+
-			" && cat > /data/akerdock/proxy/traefik.yaml"+
+		legacyMove+
+			"mkdir -p /var/lib/akerdock/proxy/dynamic /var/lib/akerdock/proxy/certs /var/lib/akerdock/proxy/auth"+
+			" && umask 077 && touch /var/lib/akerdock/proxy/acme.json"+
+			" && cat > /var/lib/akerdock/proxy/traefik.yaml"+
 			fmt.Sprintf(" && (docker network inspect %s >/dev/null 2>&1 || docker network create --label akerdock.managed=true %s)", dest.Network, dest.Network), static)
 	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("proxy layout: %v (exit %d, %s)", err, exitCode(res), stderrOf(res))
+		// The known failure mode of this step is a non-root SSH user that
+		// cannot create /var/lib/akerdock (§3.1: root is the nominal contract,
+		// non-root is experimental) — spell out both exits instead of leaving
+		// a locale-dependent mkdir error alone.
+		return fmt.Errorf("proxy layout: %v (exit %d, %s) — the SSH user must be able to write "+
+			"/var/lib/akerdock: onboard the server as root, or pre-create it for the user "+
+			"(sudo mkdir -p /var/lib/akerdock && sudo chown -R <ssh-user>: /var/lib/akerdock)",
+			err, exitCode(res), stderrOf(res))
 	}
 
 	envFileFlag := ""
 	if acmeEnv != "" {
 		// Written through stdin, with umask 077: the values never reach argv,
 		// and the file is unreadable by anything but root (INV-003).
-		res, err := client.RunInput(ctx, "umask 077 && cat > /data/akerdock/proxy/acme.env", acmeEnv)
+		res, err := client.RunInput(ctx, "umask 077 && cat > /var/lib/akerdock/proxy/acme.env", acmeEnv)
 		if err != nil || res.ExitCode != 0 {
 			return fmt.Errorf("writing the DNS-01 credentials failed")
 		}
-		envFileFlag = "--env-file /data/akerdock/proxy/acme.env "
+		envFileFlag = "--env-file /var/lib/akerdock/proxy/acme.env "
 	}
 
 	tcpPublish := ""
@@ -385,11 +410,11 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 	runCmd := fmt.Sprintf(
 		"docker container inspect %s >/dev/null 2>&1 || docker run -d --name %s --restart unless-stopped --network %s "+
 			"%s%s-p %d:%d -p %d:%d "+
-			"-v /data/akerdock/proxy/traefik.yaml:/etc/traefik/traefik.yaml:ro "+
-			"-v /data/akerdock/proxy/dynamic:/dynamic:ro "+
-			"-v /data/akerdock/proxy/acme.json:/acme/acme.json "+
-			"-v /data/akerdock/proxy/certs:/certs:ro "+
-			"-v /data/akerdock/proxy/auth:/auth:ro "+
+			"-v /var/lib/akerdock/proxy/traefik.yaml:/etc/traefik/traefik.yaml:ro "+
+			"-v /var/lib/akerdock/proxy/dynamic:/dynamic:ro "+
+			"-v /var/lib/akerdock/proxy/acme.json:/acme/acme.json "+
+			"-v /var/lib/akerdock/proxy/certs:/certs:ro "+
+			"-v /var/lib/akerdock/proxy/auth:/auth:ro "+
 			"--label akerdock.managed=true --label akerdock.type=proxy --label akerdock.team_uuid=%s "+
 			"--health-cmd 'traefik healthcheck --ping' --health-interval 5s --health-retries 3 "+
 			"%s",
@@ -398,25 +423,56 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 		team, proxy.Image)
 	res, err = client.Run(ctx, runCmd)
 	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("proxy container: %v (exit %d, %s)", err, exitCode(res), stderrOf(res))
+		return fmt.Errorf("proxy container: %v (exit %d, %s)%s",
+			err, exitCode(res), stderrOf(res), portConflictHint(res, int(server.ProxyHttpPort), int(server.ProxyHttpsPort)))
 	}
 	// Converge and verify: an existing but stopped/Created container is
-	// started, and the bootstrap only succeeds with a running proxy.
+	// started, and the bootstrap only succeeds with a running proxy. The
+	// start's own stderr is kept: on a retry after a failed first run it is
+	// the only place the real cause (a port bind conflict, typically) shows.
+	startRes, err := client.Run(ctx, "docker start "+proxy.ContainerName+" 2>&1 >/dev/null || true")
+	if err != nil {
+		return err
+	}
 	res, err = client.Run(ctx, fmt.Sprintf(
-		"docker start %s >/dev/null 2>&1 || true; sleep 1; docker inspect --format '{{.State.Status}}' %s",
-		proxy.ContainerName, proxy.ContainerName))
+		"sleep 1; docker inspect --format '{{.State.Status}}' %s", proxy.ContainerName))
 	if err != nil {
 		return err
 	}
 	if status := strings.TrimSpace(res.Stdout); status != "running" {
 		logs, _ := client.Run(ctx, "docker logs --tail 20 "+proxy.ContainerName+" 2>&1")
 		detail := ""
-		if logs != nil {
+		switch {
+		case startRes != nil && strings.TrimSpace(startRes.Stdout) != "":
+			detail = " — " + firstLine(startRes.Stdout)
+		case logs != nil && strings.TrimSpace(logs.Stdout) != "":
 			detail = " — " + firstLine(logs.Stdout)
 		}
-		return fmt.Errorf("proxy container is %q, expected running%s", status, detail)
+		hint := portConflictHint(startRes, int(server.ProxyHttpPort), int(server.ProxyHttpsPort))
+		if hint == "" {
+			hint = portConflictHint(res, int(server.ProxyHttpPort), int(server.ProxyHttpsPort))
+		}
+		return fmt.Errorf("proxy container is %q, expected running%s%s", status, detail, hint)
 	}
 	return nil
+}
+
+// portConflictHint recognizes the single most common first-start failure — a
+// process already listening on the proxy ports (an existing nginx/apache, a
+// previous proxy) — and says what to do about it, instead of leaving the
+// operator to decode a Docker bind error.
+func portConflictHint(res *sshexec.Result, httpPort, httpsPort int) string {
+	if res == nil {
+		return ""
+	}
+	combined := res.Stdout + res.Stderr
+	if !strings.Contains(combined, "port is already allocated") &&
+		!strings.Contains(combined, "address already in use") {
+		return ""
+	}
+	return fmt.Sprintf(" — another process already listens on port %d or %d on this server "+
+		"(an existing nginx or apache?): stop it, or change proxy_http_port/proxy_https_port "+
+		"in the server's Proxy settings before starting", httpPort, httpsPort)
 }
 
 func exitCode(res *sshexec.Result) int {

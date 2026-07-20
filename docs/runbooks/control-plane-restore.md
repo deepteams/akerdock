@@ -41,11 +41,11 @@ Provisionner une machine conforme aux prérequis d'[install.md](install.md) (Doc
 ### 2. Reconstituer l'arborescence
 
 ```sh
-mkdir -p /data/akerdock/keys /data/akerdock/postgres /data/akerdock/backups
+mkdir -p /var/lib/akerdock/keys /var/lib/akerdock/postgres /var/lib/akerdock/backups
 # Restaurer les 3 pièces :
-#   /data/akerdock/docker-compose.yml, /data/akerdock/.env  (tag d'image = celui d'avant la perte ⚠️)
-#   /data/akerdock/keys/master.key   (0600 root:root, umask 077)
-chmod 0700 /data/akerdock/keys && chmod 0600 /data/akerdock/keys/master.key
+#   /var/lib/akerdock/docker-compose.yml, /var/lib/akerdock/.env  (tag d'image = celui d'avant la perte ⚠️)
+#   /var/lib/akerdock/keys/master.key   (0600 root:root, umask 077)
+chmod 0700 /var/lib/akerdock/keys && chmod 0600 /var/lib/akerdock/keys/master.key
 ```
 
 ⚠️ Démarrer avec un **tag d'image plus récent** que celui du dump appliquerait des migrations lors du boot : faisable, mais cela mélange restore et upgrade. Restaurer d'abord à l'identique, upgrader ensuite ([upgrade-downgrade.md](upgrade-downgrade.md)).
@@ -53,7 +53,7 @@ chmod 0700 /data/akerdock/keys && chmod 0600 /data/akerdock/keys/master.key
 ### 3. Restaurer la base
 
 ```sh
-cd /data/akerdock
+cd /var/lib/akerdock
 docker compose up -d postgres
 # attendre pg_isready :
 docker compose exec postgres pg_isready -U AkerDock
@@ -94,7 +94,7 @@ Les workloads ont continué à tourner pendant la panne — la base est en retar
      AND r.revision = (SELECT max(revision) FROM proxy_config_revisions WHERE server_id = s.id AND status = 'applied');
    ```
    ```sh
-   ssh <user>@<serveur> "cat /data/akerdock/proxy/dynamic/*.yaml | sha256sum"
+   ssh <user>@<serveur> "cat /var/lib/akerdock/proxy/dynamic/*.yaml | sha256sum"
    ```
    Écart = un déploiement a eu lieu dans la fenêtre RPO ; voir [postgres-failure.md](postgres-failure.md) §D.2 (redéployer la ressource pour réaligner).
 4. **Fenêtre RPO** (déploiements/webhooks/objets perdus) : dérouler intégralement [postgres-failure.md](postgres-failure.md) §D.

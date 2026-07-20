@@ -96,7 +96,7 @@ func (h *PreviewDestroy) Execute(ctx context.Context, job store.Job, rec *queue.
 			"docker volume ls -q --filter label=akerdock.resource_uuid=%s | xargs -r docker volume rm -f >/dev/null 2>&1; "+
 			"docker volume ls -q --filter label=akerdock.preview_uuid=%s | xargs -r docker volume rm -f >/dev/null 2>&1; "+
 			"docker network ls -q --filter label=akerdock.preview_uuid=%s | xargs -r docker network rm >/dev/null 2>&1; "+
-			"rm -rf /data/akerdock/previews/%s",
+			"rm -rf /var/lib/akerdock/previews/%s",
 		previewUUID, previewUUID, previewUUID, previewUUID, previewUUID, previewUUID, previewUUID)
 	if res, err := client.Run(ctx, cmd); err != nil || res.ExitCode != 0 {
 		if err == nil {

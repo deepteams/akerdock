@@ -113,7 +113,7 @@ func (h *CertificateSync) forceRenew(ctx context.Context, rec *queue.StepRecorde
 	// re-evaluates what its routers need and re-issues. The current
 	// certificate keeps serving until the new one is ready (§7.5).
 	res, err := client.Run(ctx, fmt.Sprintf(
-		"cp /data/akerdock/proxy/acme.json /data/akerdock/proxy/acme.json.bak 2>/dev/null; docker restart %s >/dev/null",
+		"cp /var/lib/akerdock/proxy/acme.json /var/lib/akerdock/proxy/acme.json.bak 2>/dev/null; docker restart %s >/dev/null",
 		proxy.ContainerName))
 	if err != nil || res.ExitCode != 0 {
 		msg := "could not restart the proxy to trigger the renewal"
@@ -129,7 +129,7 @@ func (h *CertificateSync) forceRenew(ctx context.Context, rec *queue.StepRecorde
 
 // sync reads acme.json, parses the observed chains and reflects them.
 func (h *CertificateSync) sync(ctx context.Context, client *sshexec.Client, server store.Server) (int, error) {
-	res, err := client.Run(ctx, "cat /data/akerdock/proxy/acme.json 2>/dev/null || echo '{}'")
+	res, err := client.Run(ctx, "cat /var/lib/akerdock/proxy/acme.json 2>/dev/null || echo '{}'")
 	if err != nil {
 		return 0, err
 	}

@@ -115,7 +115,7 @@ func (r jobFlowRow) Scan(dest ...any) error {
 			(index == 5 || index == 7 || index == 11 || index == 17 || index == 18) {
 			switch index {
 			case 5:
-				value := "/data/akerdock/backups/unit.sql.gz"
+				value := "/var/lib/akerdock/backups/unit.sql.gz"
 				*(d.(**string)) = &value
 			case 7:
 				value := "0123456789abcdef"
@@ -476,7 +476,7 @@ func jobCommandOutput(command string) string {
 		return "26.1.0\n"
 	case strings.Contains(command, nixpacksBin+" --version"):
 		return NixpacksVersion + "\n"
-	case strings.Contains(command, "df -P /data/akerdock"):
+	case strings.Contains(command, "df -P /var/lib/akerdock"):
 		return "75\n"
 	case strings.Contains(command, "stat -c %s"):
 		return "128\n0123456789abcdef\n16.0\n"

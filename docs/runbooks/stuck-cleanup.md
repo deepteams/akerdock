@@ -35,7 +35,7 @@
    ```sh
    ssh <user>@<serveur> "ps aux | grep -E 'docker (image|container|volume|network|builder) prune' | grep -v grep"
    ssh <user>@<serveur> "journalctl -u docker --since '-30 min' --no-pager | tail -50"
-   ssh <user>@<serveur> "df -h /data/akerdock && docker system df"
+   ssh <user>@<serveur> "df -h /var/lib/akerdock && docker system df"
    ```
    Un daemon Docker qui ne répond plus (`docker ps` qui pend) est un problème dockerd, pas AkerDock.
 

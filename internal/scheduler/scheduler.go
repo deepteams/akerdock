@@ -329,7 +329,7 @@ func (s *Scheduler) reconcileServer(ctx context.Context, server store.Server) er
 	defer func() { _ = client.Close() }()
 
 	for _, rev := range revisions {
-		path := "/data/akerdock/proxy/dynamic/" + rev.Scope + ".yaml"
+		path := "/var/lib/akerdock/proxy/dynamic/" + rev.Scope + ".yaml"
 		res, err := client.Run(ctx, "cat "+path+" 2>/dev/null || true")
 		if err != nil {
 			return err

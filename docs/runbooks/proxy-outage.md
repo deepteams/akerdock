@@ -30,7 +30,7 @@
    ORDER BY revision DESC LIMIT 5;
    ```
    ```sh
-   ssh <user>@<serveur> "ls -la /data/akerdock/proxy/dynamic/ && sha256sum /data/akerdock/proxy/dynamic/*.yaml"
+   ssh <user>@<serveur> "ls -la /var/lib/akerdock/proxy/dynamic/ && sha256sum /var/lib/akerdock/proxy/dynamic/*.yaml"
    ```
    Un fichier au checksum inconnu de la base = édition manuelle ou corruption ; un fichier YAML invalide est nommé explicitement dans les logs Traefik (`error while parsing dynamic configuration`).
 3. **État désiré vs observé** : `proxy_desired_state` doit être `running` — s'il est `stopped`, quelqu'un a arrêté le proxy volontairement (audit : `action LIKE 'server.proxy%'` dans `audit_events`).
@@ -61,12 +61,12 @@ Le fichier fait foi pour le routage (spec §7.1) ; la base conserve chaque révi
    ```
 2. Sauvegarder l'état corrompu puis appliquer **atomiquement** (même mécanique que le moteur : tmp + `mv -f`, spec §7.2.3) :
    ```sh
-   scp /tmp/proxy-restore.yaml <user>@<serveur>:/data/akerdock/proxy/dynamic/.restore.tmp
-   ssh <user>@<serveur> "cp -a /data/akerdock/proxy/dynamic /data/akerdock/tmp/dynamic-corrupted-\$(date -u +%s) \
-     && mv -f /data/akerdock/proxy/dynamic/.restore.tmp /data/akerdock/proxy/dynamic/<fichier_cible>.yaml"
+   scp /tmp/proxy-restore.yaml <user>@<serveur>:/var/lib/akerdock/proxy/dynamic/.restore.tmp
+   ssh <user>@<serveur> "cp -a /var/lib/akerdock/proxy/dynamic /var/lib/akerdock/tmp/dynamic-corrupted-\$(date -u +%s) \
+     && mv -f /var/lib/akerdock/proxy/dynamic/.restore.tmp /var/lib/akerdock/proxy/dynamic/<fichier_cible>.yaml"
    ```
    Le provider `file` de Traefik (`watch: true`) recharge sans redémarrage.
-   > Si la corruption touche plusieurs applications, alternative plus sûre : **redéployer chaque application concernée** — chaque déploiement régénère son fichier `/data/akerdock/proxy/dynamic/<app_uuid>.yaml` de façon déterministe depuis la représentation intermédiaire (spec §7.2.7).
+   > Si la corruption touche plusieurs applications, alternative plus sûre : **redéployer chaque application concernée** — chaque déploiement régénère son fichier `/var/lib/akerdock/proxy/dynamic/<app_uuid>.yaml` de façon déterministe depuis la représentation intermédiaire (spec §7.2.7).
 3. ⚠️ Ne jamais « corriger à la main » un fichier dynamique et en rester là : la base ne connaîtrait pas ce contenu (checksum divergent) et la prochaine génération l'écrasera. Toute correction manuelle doit converger vers un redéploiement/régénération par AkerDock.
 
 ### C. Redéploiement complet du proxy
@@ -76,7 +76,7 @@ Si le container proxy lui-même est irrécupérable (image corrompue, config sta
 1. ```sh
    ssh <user>@<serveur> "docker stop \$(docker ps -aq --filter label=akerdock.type=proxy) ; docker rm \$(docker ps -aq --filter label=akerdock.type=proxy)"
    ```
-   ⚠️ **Coupure totale du trafic entrant du serveur** entre le `rm` et la fin du re-provisionnement — fenêtre à annoncer. Les certificats et fichiers dynamiques sur `/data/akerdock/proxy/` (bind mount) **survivent** à la suppression du container.
+   ⚠️ **Coupure totale du trafic entrant du serveur** entre le `rm` et la fin du re-provisionnement — fenêtre à annoncer. Les certificats et fichiers dynamiques sur `/var/lib/akerdock/proxy/` (bind mount) **survivent** à la suppression du container.
 2. Relancer la validation du serveur, qui redéploie et vérifie le proxy (workflow d'onboarding §20.1, étape 5) :
    ```sh
    curl -sS -X POST "$AKD/servers/$SERVER_UUID/validate" -H "Authorization: Bearer $TOKEN"
@@ -95,7 +95,7 @@ Si le container proxy lui-même est irrécupérable (image corrompue, config sta
 
 ## Prévention
 
-- Ne jamais éditer `/data/akerdock/proxy/dynamic/` à la main ; l'édition de config proxy passe par l'UI (§4.1), versionnée en `proxy_config_revisions`.
+- Ne jamais éditer `/var/lib/akerdock/proxy/dynamic/` à la main ; l'édition de config proxy passe par l'UI (§4.1), versionnée en `proxy_config_revisions`.
 - Surveiller la notification « proxy obsolète » (§11) et mettre à jour l'image proxy en fenêtre choisie.
 - Activer l'uptime monitoring intégré (§27.17) sur au moins un domaine par serveur : détection en secondes plutôt qu'au premier ticket utilisateur.
 - La rétention des révisions (« purge en conservant les N dernières par serveur », data dictionary §11.1) est votre profondeur de rollback — ne pas la réduire à 1.

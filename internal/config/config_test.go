@@ -26,7 +26,7 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
 	if cfg.Mode != ModeAllInOne || cfg.Port != 8080 || cfg.Timezone != "UTC" ||
-		cfg.LogLevel != "info" || cfg.LogFormat != "json" || cfg.DataDir != "/data/akerdock" ||
+		cfg.LogLevel != "info" || cfg.LogFormat != "json" || cfg.DataDir != "/var/lib/akerdock" ||
 		cfg.WorkerConcurrency != 10 || cfg.ShutdownTimeout != 30*time.Second ||
 		cfg.LocalhostHost != "host.docker.internal" || cfg.LocalhostUser != "root" {
 		t.Fatalf("wrong defaults: %+v", cfg)

@@ -36,7 +36,7 @@ const (
 	DefaultTimezone          = "UTC"
 	DefaultLogLevel          = "info"
 	DefaultLogFormat         = "json"
-	DefaultDataDir           = "/data/akerdock"
+	DefaultDataDir           = "/var/lib/akerdock"
 	DefaultWorkerConcurrency = 10
 	// DefaultSchedulerTick is how often the scheduler looks for due work: cron
 	// backups, expiring certificates, notifications. Lower means more reactive

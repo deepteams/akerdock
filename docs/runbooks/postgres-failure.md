@@ -18,11 +18,11 @@
 ## Diagnostic
 
 ```sh
-cd /data/akerdock
+cd /var/lib/akerdock
 docker compose ps
 docker compose logs --tail 200 postgres
 docker compose exec postgres pg_isready -U AkerDock || echo "PG DOWN"
-df -h /data/akerdock                          # disque plein = cause n°1
+df -h /var/lib/akerdock                          # disque plein = cause n°1
 docker compose exec postgres psql -U AkerDock AkerDock -c "SELECT 1;"   # si PG répond
 ```
 
@@ -42,7 +42,7 @@ WHERE p.is_instance_backup AND be.status IN ('succeeded','partial')
 ORDER BY be.finished_at DESC LIMIT 5;
 ```
 
-Sinon : fichiers locaux `/data/akerdock/backups/…` (§7.2) et/ou bucket S3 du plan (`aws s3 ls s3://<bucket>/<prefix>/ --endpoint-url <endpoint>`).
+Sinon : fichiers locaux `/var/lib/akerdock/backups/…` (§7.2) et/ou bucket S3 du plan (`aws s3 ls s3://<bucket>/<prefix>/ --endpoint-url <endpoint>`).
 
 ## Résolution pas à pas
 
@@ -117,5 +117,5 @@ Tout ce qui s'est passé **entre le backup et la panne** est absent de la base. 
 
 - Plan de backup d'instance **quotidien minimum** avec destination **S3** et vérification d'upload (§7.2, §7.5) ; le statut `partial` (succès local, échec S3) est une alerte à traiter, pas un succès (§20.5).
 - **Restore drills** automatiques (§20.5, §22.3) : un backup jamais restauré n'est pas fiable.
-- Alerte disque sur l'hôte de l'instance (cause n°1 de panne PG) ; dimensionner `/data/akerdock`.
+- Alerte disque sur l'hôte de l'instance (cause n°1 de panne PG) ; dimensionner `/var/lib/akerdock`.
 - Rétention des backups locaux ≠ 0 même avec S3 (restore plus rapide) ; RTO documenté ≤ 2 h (§16.4) — chronométrer le drill.

@@ -1,8 +1,8 @@
 # Runbook — Certificats : échecs ACME, fallback self-signed, expirations, custom, wildcard
 
-> Références : PRD §4.2–4.3 (Let's Encrypt HTTP-01, fallback self-signed, wildcard DNS-01 via Lego, certs custom dans `proxy/certs`, DNS de validation), §14.2 (`dns_validation_server`) ; spec proxy-contract §7 (certificats, §7.6 synchronisation) ; spec deployment-engine §5.1 (`/data/akerdock/proxy/certs/`) ; data dictionary §6.7 (table `certificates`, reflet observé), §11.7 (`instance_settings.dns_validation_server`), §6.1 (`servers.wildcard_domain`, `proxy_http_port`).
+> Références : PRD §4.2–4.3 (Let's Encrypt HTTP-01, fallback self-signed, wildcard DNS-01 via Lego, certs custom dans `proxy/certs`, DNS de validation), §14.2 (`dns_validation_server`) ; spec proxy-contract §7 (certificats, §7.6 synchronisation) ; spec deployment-engine §5.1 (`/var/lib/akerdock/proxy/certs/`) ; data dictionary §6.7 (table `certificates`, reflet observé), §11.7 (`instance_settings.dns_validation_server`), §6.1 (`servers.wildcard_domain`, `proxy_http_port`).
 
-> Note : le control plane maintient un **reflet observé** des certificats (table `certificates`) exposé par l'API : `GET /servers/{uuid}/certificates` (filtre `expiring_within_days`), `GET /certificates/{uuid}`, `POST /certificates/{uuid}/renew` (202 + job audité). Le diagnostic fin passe toujours par le serveur et les logs du proxy. Emplacements **normatifs** (proxy-contract §7.2/§7.5) : storage ACME `/data/akerdock/proxy/acme.json` (0600), credentials DNS-01 `/data/akerdock/proxy/acme.env` (0600).
+> Note : le control plane maintient un **reflet observé** des certificats (table `certificates`) exposé par l'API : `GET /servers/{uuid}/certificates` (filtre `expiring_within_days`), `GET /certificates/{uuid}`, `POST /certificates/{uuid}/renew` (202 + job audité). Le diagnostic fin passe toujours par le serveur et les logs du proxy. Emplacements **normatifs** (proxy-contract §7.2/§7.5) : storage ACME `/var/lib/akerdock/proxy/acme.json` (0600), credentials DNS-01 `/var/lib/akerdock/proxy/acme.env` (0600).
 
 ## Symptômes
 
@@ -59,9 +59,9 @@
    # proxy, resynchronisation du reflet ; 422 pour un certificat custom/self_signed
    ```
    À défaut, redéployer l'application (régénération de la config proxy) ou redémarrer le proxy — Traefik retente l'émission pour les domaines sans certificat valide au démarrage.
-3. Si Traefik a mémorisé un état ACME corrompu : le job `renew` (A.2) fait précisément l'édition ciblée ; à la main (fallback), intervention sur le storage ACME (emplacement **normatif** : `/data/akerdock/proxy/acme.json`) :
+3. Si Traefik a mémorisé un état ACME corrompu : le job `renew` (A.2) fait précisément l'édition ciblée ; à la main (fallback), intervention sur le storage ACME (emplacement **normatif** : `/var/lib/akerdock/proxy/acme.json`) :
    ```sh
-   ssh <user>@<serveur> "cp -a /data/akerdock/proxy/acme.json /data/akerdock/tmp/acme.json.bak-\$(date -u +%s)"
+   ssh <user>@<serveur> "cp -a /var/lib/akerdock/proxy/acme.json /var/lib/akerdock/tmp/acme.json.bak-\$(date -u +%s)"
    # édition ciblée : supprimer uniquement l'entrée du domaine en échec, puis docker restart <proxy>
    ```
    ⚠️ **Supprimer `acme.json` entier force la ré-émission de TOUS les certificats du serveur** → risque direct de rate limit. Toujours une sauvegarde d'abord, et une édition ciblée.
@@ -74,8 +74,8 @@ Un certificat expiré = un **renouvellement** qui échoue depuis des semaines (T
 
 1. Déposer clé + fullchain sur le serveur :
    ```sh
-   scp fullchain.pem privkey.pem <user>@<serveur>:/data/akerdock/proxy/certs/<fqdn>/
-   ssh <user>@<serveur> "chmod 0600 /data/akerdock/proxy/certs/<fqdn>/privkey.pem"
+   scp fullchain.pem privkey.pem <user>@<serveur>:/var/lib/akerdock/proxy/certs/<fqdn>/
+   ssh <user>@<serveur> "chmod 0600 /var/lib/akerdock/proxy/certs/<fqdn>/privkey.pem"
    ```
 2. Référencer via la configuration dynamique gérée par AkerDock (UI du serveur/domaine — la config générée ajoute la section `tls.certificates`).
 3. Vérifications classiques : correspondance clé/cert (`openssl x509 -noout -modulus | openssl md5` vs `openssl rsa -noout -modulus | openssl md5`), **ordre de la chaîne** (leaf d'abord), dates.
@@ -83,7 +83,7 @@ Un certificat expiré = un **renouvellement** qui échoue depuis des semaines (T
 
 ### D. Wildcard via DNS-01 (§4.3)
 
-1. Prérequis : provider DNS supporté par Lego (Cloudflare, Route 53, OVH, Hetzner…) et ses credentials configurés pour le proxy du serveur (matérialisés en `/data/akerdock/proxy/acme.env`, 0600 — emplacement normatif ; référencés via `certificates.dns_credential_id`) ; `servers.wildcard_domain` renseigné (§4.2).
+1. Prérequis : provider DNS supporté par Lego (Cloudflare, Route 53, OVH, Hetzner…) et ses credentials configurés pour le proxy du serveur (matérialisés en `/var/lib/akerdock/proxy/acme.env`, 0600 — emplacement normatif ; référencés via `certificates.dns_credential_id`) ; `servers.wildcard_domain` renseigné (§4.2).
 2. Échec typique : credentials DNS invalides/expirés (les roter → [key-rotation.md](key-rotation.md)) ou propagation lente du TXT. Vérifier le challenge :
    ```sh
    dig +short TXT _acme-challenge.<domaine> @1.1.1.1
@@ -108,4 +108,4 @@ curl -fsS -o /dev/null https://<fqdn>/        # sans -k : la chaîne valide de b
 - Préférer un **wildcard par serveur** (§4.2) quand les sous-domaines prolifèrent : moins d'émissions, moins de rate limits.
 - Ne pas fermer le port 80 « pour la sécurité » sur un serveur en HTTP-01 : le renouvellement en dépend (la redirection Force HTTPS le neutralise fonctionnellement).
 - Toute modification DNS d'un domaine servi = re-vérifier l'émission au prochain renouvellement (poser un rappel).
-- Sauvegarder `/data/akerdock/proxy/` (acme.json + certs custom) dans les backups serveur : en cas de reconstruction, cela évite une ré-émission en masse (rate limits).
+- Sauvegarder `/var/lib/akerdock/proxy/` (acme.json + certs custom) dans les backups serveur : en cas de reconstruction, cela évite une ré-émission en masse (rate limits).

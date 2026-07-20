@@ -138,7 +138,7 @@ func (h *DatabaseRun) provision(ctx context.Context, client *sshexec.Client, row
 			image += ":" + *row.Database.ImageTag
 		}
 	}
-	dir := "/data/akerdock/databases/" + dbUUID
+	dir := "/var/lib/akerdock/databases/" + dbUUID
 	volume := dbUUID + "_data"
 
 	if res, err := client.RunInput(ctx, fmt.Sprintf(
@@ -282,7 +282,7 @@ func (h *DatabaseRun) simple(ctx context.Context, client *sshexec.Client, comman
 // delete removes the container and its files; the data volume survives
 // unless explicitly destroyed (INV-008).
 func (h *DatabaseRun) delete(ctx context.Context, client *sshexec.Client, row store.GetDatabaseByIDRow, dbUUID string, deleteVolumes bool) error {
-	cmd := fmt.Sprintf("docker rm -f %s >/dev/null 2>&1 || true; rm -rf /data/akerdock/databases/%s", dbUUID, dbUUID)
+	cmd := fmt.Sprintf("docker rm -f %s >/dev/null 2>&1 || true; rm -rf /var/lib/akerdock/databases/%s", dbUUID, dbUUID)
 	if deleteVolumes {
 		cmd += fmt.Sprintf("; docker volume ls -q --filter label=akerdock.resource_uuid=%s | xargs -r docker volume rm -f", dbUUID)
 	}
@@ -327,7 +327,7 @@ func (h *DatabaseRun) applyTCPRoute(ctx context.Context, client *sshexec.Client,
 	if !tcpProxied(row.Database) || row.Database.PublicPort == nil {
 		// Not (or no longer) proxied: remove the file, then converge the proxy so
 		// the entrypoint disappears with it.
-		if _, err := client.Run(ctx, "rm -f /data/akerdock/proxy/dynamic/"+dbUUID+".yaml"); err != nil {
+		if _, err := client.Run(ctx, "rm -f /var/lib/akerdock/proxy/dynamic/"+dbUUID+".yaml"); err != nil {
 			return err
 		}
 		return converge()
@@ -338,7 +338,7 @@ func (h *DatabaseRun) applyTCPRoute(ctx context.Context, client *sshexec.Client,
 		ListenPort:   int(*row.Database.PublicPort),
 		TargetPort:   5432,
 	}, int64(row.Resource.Version))
-	res, err := client.RunInput(ctx, "umask 077 && cat > /data/akerdock/proxy/dynamic/"+dbUUID+".yaml", content)
+	res, err := client.RunInput(ctx, "umask 077 && cat > /var/lib/akerdock/proxy/dynamic/"+dbUUID+".yaml", content)
 	if err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("writing the TCP route failed")
 	}

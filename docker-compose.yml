@@ -34,7 +34,7 @@ services:
       AKERDOCK_LOCALHOST_USER: ${AKERDOCK_LOCALHOST_USER:-}
     volumes:
       - ./keys/master.key:/run/secrets/master.key:ro
-      - akerdock_data:/data/akerdock
+      - akerdock_data:/var/lib/akerdock
     networks: [akerdock]
     extra_hosts:
       # Makes host.docker.internal resolve to the host gateway on Linux (it is

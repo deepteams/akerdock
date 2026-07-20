@@ -84,12 +84,25 @@ func (h *ProxyLifecycle) Execute(ctx context.Context, job store.Job, rec *queue.
 		}
 		cmd = "docker start " + proxy.ContainerName + " >/dev/null 2>&1; docker inspect --format '{{.State.Status}}' " + proxy.ContainerName
 		desired = store.ProxyDesiredStateRunning
-	case "stop":
-		cmd = "docker stop -t 10 " + proxy.ContainerName + " >/dev/null 2>&1; docker inspect --format '{{.State.Status}}' " + proxy.ContainerName
-		desired = store.ProxyDesiredStateStopped
-	case "restart":
-		cmd = "docker restart -t 10 " + proxy.ContainerName + " >/dev/null && docker inspect --format '{{.State.Status}}' " + proxy.ContainerName
-		desired = store.ProxyDesiredStateRunning
+	case "stop", "restart":
+		// Stop and restart operate on an EXISTING container: on a proxy that
+		// was never started, "No such container" from the daemon explains
+		// nothing — say what the operator should actually do.
+		if res, err := client.Run(ctx, "docker container inspect "+proxy.ContainerName+" >/dev/null 2>&1"); err != nil {
+			rec.Fail(ctx, err.Error())
+			return nil, err
+		} else if res.ExitCode != 0 {
+			msg := "the proxy container does not exist yet — the first start creates its configuration and the container: press Start"
+			rec.Fail(ctx, msg)
+			return nil, fmt.Errorf("%s", msg)
+		}
+		if payload.Action == "stop" {
+			cmd = "docker stop -t 10 " + proxy.ContainerName + " >/dev/null 2>&1; docker inspect --format '{{.State.Status}}' " + proxy.ContainerName
+			desired = store.ProxyDesiredStateStopped
+		} else {
+			cmd = "docker restart -t 10 " + proxy.ContainerName + " >/dev/null && docker inspect --format '{{.State.Status}}' " + proxy.ContainerName
+			desired = store.ProxyDesiredStateRunning
+		}
 	default:
 		rec.Fail(ctx, "unknown action")
 		return nil, fmt.Errorf("unknown proxy action %q", payload.Action)

@@ -27,8 +27,8 @@ Aucun workload existant n'est affecté : l'instance ne fait que UI + déploiemen
 ### 1. Créer l'arborescence de l'instance
 
 ```sh
-mkdir -p /data/akerdock/keys /data/akerdock/postgres /data/akerdock/backups
-chmod 0700 /data/akerdock/keys
+mkdir -p /var/lib/akerdock/keys /var/lib/akerdock/postgres /var/lib/akerdock/backups
+chmod 0700 /var/lib/akerdock/keys
 ```
 
 ### 2. Générer la clé maître de chiffrement (ADR-003, §23.2, §27.3)
@@ -37,9 +37,9 @@ Une ligne par version de clé au format `<version>:<clé base64 32 octets>` **(n
 
 ```sh
 umask 077
-printf '1:%s\n' "$(openssl rand -base64 32)" > /data/akerdock/keys/master.key
-chown 65532:65532 /data/akerdock/keys/master.key
-chmod 0600 /data/akerdock/keys/master.key
+printf '1:%s\n' "$(openssl rand -base64 32)" > /var/lib/akerdock/keys/master.key
+chown 65532:65532 /var/lib/akerdock/keys/master.key
+chmod 0600 /var/lib/akerdock/keys/master.key
 ```
 
 (root lit le fichier quelles que soient ses permissions — le backup hors machine reste possible.)
@@ -48,10 +48,10 @@ chmod 0600 /data/akerdock/keys/master.key
 
 ### 3. Écrire la configuration
 
-`/data/akerdock/.env` — noms de variables **(normatif : spec [instance-config](../specs/instance-config.md) §2)** :
+`/var/lib/akerdock/.env` — noms de variables **(normatif : spec [instance-config](../specs/instance-config.md) §2)** :
 
 ```sh
-cat > /data/akerdock/.env <<'EOF'
+cat > /var/lib/akerdock/.env <<'EOF'
 AKERDOCK_TAG=v1.0.0                  # tag d'image explicite, jamais "latest"
 AKERDOCK_PORT=8080
 POSTGRES_PASSWORD=<généré: openssl rand -hex 24>
@@ -60,10 +60,10 @@ AKERDOCK_ROOT_EMAIL=admin@example.com
 AKERDOCK_ROOT_NAME=Admin
 AKERDOCK_ROOT_PASSWORD=<mot de passe fort>
 EOF
-chmod 0600 /data/akerdock/.env
+chmod 0600 /var/lib/akerdock/.env
 ```
 
-`/data/akerdock/docker-compose.yml` **(normatif : spec [instance-config](../specs/instance-config.md) §4 — 2 services, un seul port exposé, conforme ADR-021 ; le fichier de référence de la spec utilise les identifiants en minuscules `akerdock` et des volumes nommés)** :
+`/var/lib/akerdock/docker-compose.yml` **(normatif : spec [instance-config](../specs/instance-config.md) §4 — 2 services, un seul port exposé, conforme ADR-021 ; le fichier de référence de la spec utilise les identifiants en minuscules `akerdock` et des volumes nommés)** :
 
 ```yaml
 services:
@@ -105,13 +105,13 @@ services:
 ### 4. Démarrer
 
 ```sh
-cd /data/akerdock
+cd /var/lib/akerdock
 docker compose up -d
 ```
 
 Au premier démarrage, le binaire applique les **migrations SQL versionnées** (ADR-025) puis crée le **premier root user** depuis les variables de bootstrap (§10.2) — la création échoue explicitement si email/nom/mot de passe ne passent pas la validation stricte. Une fois le root créé, retirer `AKERDOCK_ROOT_PASSWORD` du `.env` **(normatif : spec [instance-config](../specs/instance-config.md) §6 — les variables de bootstrap ne sont lues que si aucun utilisateur n'existe, et consommées une seule fois)**.
 
-Dès que la première team existe, le bootstrap pré-enregistre aussi le serveur **`localhost`** (la machine hôte, jointe en SSH via `host.docker.internal` avec la clé d'instance — spec instance-config §6.2). `install.sh` autorise automatiquement la clé publique d'instance pour l'utilisateur qui installe, et le scheduler retente la validation toutes les ~5 minutes (pendant 24 h) : le serveur passe `ready` tout seul, sans action. Prérequis : un serveur SSH actif sur l'hôte. Installation manuelle (sans `install.sh`) : ajouter `/data/akerdock/ssh/instance_ed25519.pub` à l'`authorized_keys` de `AKERDOCK_LOCALHOST_USER`. Supprimé, ce serveur n'est jamais recréé.
+Dès que la première team existe, le bootstrap pré-enregistre aussi le serveur **`localhost`** (la machine hôte, jointe en SSH via `host.docker.internal` avec la clé d'instance — spec instance-config §6.2). `install.sh` autorise automatiquement la clé publique d'instance pour l'utilisateur qui installe, et le scheduler retente la validation toutes les ~5 minutes (pendant 24 h) : le serveur passe `ready` tout seul, sans action. Prérequis : un serveur SSH actif sur l'hôte. Installation manuelle (sans `install.sh`) : ajouter `/var/lib/akerdock/ssh/instance_ed25519.pub` à l'`authorized_keys` de `AKERDOCK_LOCALHOST_USER`. Supprimé, ce serveur n'est jamais recréé.
 
 ### 5. Onboarding et clés SSH
 
@@ -133,7 +133,7 @@ Dès que la première team existe, le bootstrap pré-enregistre aussi le serveur
 ## Vérification post-install
 
 ```sh
-cd /data/akerdock
+cd /var/lib/akerdock
 docker compose ps                                    # 2 services Up, postgres healthy
 docker compose logs --tail 50 AkerDock              # migrations OK, pas d'erreur au boot
 curl -fsS http://localhost:8080/api/v1/health        # healthcheck non authentifié (§12)

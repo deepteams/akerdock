@@ -46,7 +46,7 @@ GROUP BY 1,2 ORDER BY 3 DESC;
 
 1. **Ajouter** une nouvelle version au fichier de clés, **sans supprimer les anciennes** :
    ```sh
-   cd /data/akerdock
+   cd /var/lib/akerdock
    cp keys/master.key keys/master.key.bak-$(date -u +%Y%m%d)
    printf '2:%s\n' "$(openssl rand -base64 32)" >> keys/master.key
    ```

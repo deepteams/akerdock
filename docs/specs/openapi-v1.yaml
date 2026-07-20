@@ -2273,7 +2273,7 @@ paths:
       description: >-
         Déclenche le nettoyage Docker du serveur (§3.7), hors planification.
         Le job ne cible que des objets gérés et sûrs — cache de build, images
-        dangling, candidats de déploiement morts, `/data/akerdock/tmp`, plus
+        dangling, candidats de déploiement morts, `/var/lib/akerdock/tmp`, plus
         les purges opt-in du serveur (volumes anonymes, réseaux gérés) — et
         **jamais** un objet non géré ou persistant (INV-015), ni les images
         de rollback (ADR-006). Il est reporté si un déploiement est en cours
@@ -2587,7 +2587,7 @@ paths:
       description: >-
         Force une nouvelle tentative d'émission/renouvellement ACME :
         sauvegarde puis retrait ciblé de l'entrée du storage ACME
-        (`/data/akerdock/proxy/acme.json`), redémarrage du proxy qui
+        (`/var/lib/akerdock/proxy/acme.json`), redémarrage du proxy qui
         retente l'émission, puis resynchronisation du reflet (statut
         `renewing` pendant l'opération). Opération longue — répond `202`
         avec un job de suivi. `409` (`operation_in_progress`) si un
@@ -3636,7 +3636,7 @@ paths:
       description: >-
         `config` porte les variables d'environnement attendues par Lego
         (`CF_DNS_API_TOKEN`, `AWS_ACCESS_KEY_ID`…). Chiffrées au repos,
-        matérialisées sur le serveur en `/data/akerdock/proxy/acme.env` (0600)
+        matérialisées sur le serveur en `/var/lib/akerdock/proxy/acme.env` (0600)
         et injectées au proxy par `--env-file` — jamais dans un fichier de
         configuration généré, jamais dans `argv` (INV-003).
       x-required-permission: write
@@ -8463,7 +8463,7 @@ components:
           description: >-
             Nettoyage disque automatisé (§3.7) — opt-in. Ne cible que les
             objets gérés et sûrs (cache de build, images dangling, candidats
-            morts, `/data/akerdock/tmp`) ; jamais un objet non géré ou
+            morts, `/var/lib/akerdock/tmp`) ; jamais un objet non géré ou
             persistant (INV-015), jamais pendant un déploiement.
         cleanup_cron:
           type: string

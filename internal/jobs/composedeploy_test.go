@@ -52,7 +52,7 @@ volumes:
 `)
 	r := &deploymentRun{}
 	sp := plan.Services[0]
-	cmd := r.composeCreateCommand(plan, sp, "/data/akerdock/applications/"+composeTestUUID, "--label akerdock.managed=true", "/env/web.sh", []string{"DB_URL"}, "ghcr.io/acme/web:1.2",
+	cmd := r.composeCreateCommand(plan, sp, "/var/lib/akerdock/applications/"+composeTestUUID, "--label akerdock.managed=true", "/env/web.sh", []string{"DB_URL"}, "ghcr.io/acme/web:1.2",
 		composeCreateOpts{Name: sp.ContainerName, Aliases: sp.Aliases, ReplaceOld: true})
 
 	for _, want := range []string{

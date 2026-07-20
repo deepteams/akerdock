@@ -4,7 +4,7 @@
 
 ## Symptômes
 
-- Alerte sécurité (IDS, provider cloud, abuse report), containers/processus inconnus, trafic sortant anormal, métriques Sentinel incohérentes, modification inexpliquée de `/data/akerdock/` sur le serveur.
+- Alerte sécurité (IDS, provider cloud, abuse report), containers/processus inconnus, trafic sortant anormal, métriques Sentinel incohérentes, modification inexpliquée de `/var/lib/akerdock/` sur le serveur.
 - Côté AkerDock : déploiements qui échouent bizarrement sur ce serveur, dérive de checksum proxy, ressources non gérées apparues (`docker ps` sans label `akerdock.managed`).
 
 ## Impact
@@ -12,7 +12,7 @@
 Ce que l'attaquant possède (root sur le serveur cible) :
 
 - **Tous les workloads du serveur** et leurs données (volumes, bases y résidant).
-- **Les secrets distribués au serveur** — et uniquement eux (§23.1, distribution au strict besoin) : fichiers `runtime.env`/`build.env`/`secrets/` sous `/data/akerdock/applications/*/env/` (spec §5.1–5.2), certificats TLS (`/data/akerdock/proxy/`), credentials registry présents dans `/root/.docker/config.json` après `docker login`, token Sentinel du serveur.
+- **Les secrets distribués au serveur** — et uniquement eux (§23.1, distribution au strict besoin) : fichiers `runtime.env`/`build.env`/`secrets/` sous `/var/lib/akerdock/applications/*/env/` (spec §5.1–5.2), certificats TLS (`/var/lib/akerdock/proxy/`), credentials registry présents dans `/root/.docker/config.json` après `docker login`, token Sentinel du serveur.
 - Ce que l'attaquant **ne possède pas** : la base du control plane, la clé maître, les **clés SSH privées** (elles ne quittent jamais le control plane ; seule la clé *publique* est dans `authorized_keys`), les secrets des autres serveurs/teams. L'architecture est push : le serveur n'a aucun credential pour contacter le control plane, hormis le token Sentinel (limité au push de métriques).
 
 ## Diagnostic
@@ -68,7 +68,7 @@ Traiter comme compromis, **à la source** :
 - **Mots de passe des bases** hébergées sur le serveur (`database_credentials`) et de toute base externe dont l'URL figurait dans un `runtime.env` du serveur.
 - **Credentials registry** utilisés par les apps du serveur (rotation côté registry + mise à jour `registry_credentials`).
 - **Credentials S3** des plans de backup exécutés depuis ce serveur (rotation côté provider + mise à jour `s3_storages` ; re-vérification `ListObjectsV2` §7.4).
-- **Certificats TLS** : les clés privées étaient sur le serveur (`/data/akerdock/proxy/certs`, storage ACME) — révoquer les customs, forcer la ré-émission ACME sur le serveur de remplacement ([certificates.md](certificates.md)).
+- **Certificats TLS** : les clés privées étaient sur le serveur (`/var/lib/akerdock/proxy/certs`, storage ACME) — révoquer les customs, forcer la ré-émission ACME sur le serveur de remplacement ([certificates.md](certificates.md)).
 - **CA SSL bases** du serveur (`servers.ca_key_enc`) : régénérer depuis l'UI (§6.3).
 - **Deploy keys Git** : normalement supprimées après clone (spec §5.3.1), mais si une compromission longue est suspectée, les retirer des repos et en générer de nouvelles.
 

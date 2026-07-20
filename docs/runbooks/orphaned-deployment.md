@@ -50,11 +50,11 @@ docker container inspect <app>-next --format '{{.State.Status}} {{if .State.Heal
 docker container inspect <app>      --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} {{index .Config.Labels "akerdock.deployment_uuid"}}' 2>/dev/null
 
 # Vers qui pointe le proxy ? (fichier = source de vérité du routage, spec §7.1)
-grep -A2 'url:' /data/akerdock/proxy/dynamic/<app>.yaml
-sha256sum /data/akerdock/proxy/dynamic/<app>.yaml     # à comparer au checksum enregistré en base
+grep -A2 'url:' /var/lib/akerdock/proxy/dynamic/<app>.yaml
+sha256sum /var/lib/akerdock/proxy/dynamic/<app>.yaml     # à comparer au checksum enregistré en base
 
 # Reste de clone ?
-ls -d /data/akerdock/applications/<app>/source/<deployment_uuid> 2>/dev/null
+ls -d /var/lib/akerdock/applications/<app>/source/<deployment_uuid> 2>/dev/null
 ```
 
 ## Résolution pas à pas
@@ -90,7 +90,7 @@ docker logs --tail 200 <app>-next > /tmp/<deployment_uuid>-next.log 2>&1
 # 3. Supprimer le candidat SEULEMENT :
 docker stop -t 10 <app>-next && docker rm <app>-next
 # 4. Purger le clone du déploiement :
-rm -rf /data/akerdock/applications/<app>/source/<deployment_uuid>
+rm -rf /var/lib/akerdock/applications/<app>/source/<deployment_uuid>
 ```
 
 ⚠️ Interdits absolus pendant la compensation : toucher au container `<app>` (l'ancien), à ses **volumes**, ou aux **images** portant `akerdock.retain=true` (INV-006, spec §9.1).

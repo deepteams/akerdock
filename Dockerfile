@@ -59,7 +59,7 @@ COPY --from=build /akerdock /akerdock
 
 # nonroot (uid 65532) — the data volume is written by this user.
 USER nonroot:nonroot
-WORKDIR /data/akerdock
+WORKDIR /var/lib/akerdock
 
 EXPOSE 8080
 

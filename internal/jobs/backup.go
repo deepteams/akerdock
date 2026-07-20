@@ -44,7 +44,7 @@ type BackupRun struct {
 }
 
 // backupDir is the remote backup root (deployment-engine §5.1).
-const backupDir = "/data/akerdock/backups"
+const backupDir = "/var/lib/akerdock/backups"
 
 // backupTarget abstracts what the job dumps: the container of a managed
 // database, or the database container of a compose stack component

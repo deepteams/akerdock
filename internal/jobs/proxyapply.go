@@ -78,7 +78,7 @@ func (p *ProxyApplier) Apply(ctx context.Context, appUUID, content, expectEndpoi
 // upload writes (or removes) the dynamic file atomically: tmp + mv on the
 // same filesystem, so the proxy never sees a partial file (§6.2).
 func (p *ProxyApplier) upload(ctx context.Context, appUUID, content string) error {
-	path := "/data/akerdock/proxy/dynamic/" + appUUID + ".yaml"
+	path := "/var/lib/akerdock/proxy/dynamic/" + appUUID + ".yaml"
 	var res *sshexec.Result
 	var err error
 	if content == "" {

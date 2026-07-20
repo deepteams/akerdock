@@ -83,7 +83,7 @@ func (h *ApplicationDelete) Execute(ctx context.Context, job store.Job, rec *que
 		"docker ps -aq %s | xargs -r docker rm -f >/dev/null 2>&1; "+
 			"docker rm -f %s %s-next >/dev/null 2>&1; "+
 			"docker network ls -q %s | xargs -r docker network rm >/dev/null 2>&1; "+
-			"rm -rf /data/akerdock/applications/%s /data/akerdock/services/%s",
+			"rm -rf /var/lib/akerdock/applications/%s /var/lib/akerdock/services/%s",
 		byLabel, appUUID, appUUID, byLabel, appUUID, appUUID)
 	if payload.DeleteVolumes {
 		cmd += fmt.Sprintf("; docker volume ls -q --filter label=akerdock.resource_uuid=%s | xargs -r docker volume rm -f", appUUID)
@@ -147,7 +147,7 @@ func (h *ApplicationDelete) recordRemnants(ctx context.Context, client *sshexec.
 	res, err := client.Run(ctx, fmt.Sprintf(
 		"echo '---containers'; docker ps -a --format '{{.Names}}' --filter label=akerdock.resource_uuid=%s; "+
 			"echo '---volumes'; docker volume ls -q --filter label=akerdock.resource_uuid=%s; "+
-			"echo '---files'; ls -d /data/akerdock/applications/%s 2>/dev/null",
+			"echo '---files'; ls -d /var/lib/akerdock/applications/%s 2>/dev/null",
 		appUUID, appUUID, appUUID))
 	if err != nil || res == nil {
 		inventory["error"] = "the server could not be inspected — the remnants are unknown"

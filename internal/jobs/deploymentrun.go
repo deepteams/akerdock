@@ -343,10 +343,10 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	// and routing files all derive from it, which is what lets a preview live
 	// NEXT TO production instead of replacing it.
 	appUUID := resourceUUID
-	appDir := "/data/akerdock/applications/" + appUUID
+	appDir := "/var/lib/akerdock/applications/" + appUUID
 	resourceType := "application"
 	if r.service != nil {
-		appDir = "/data/akerdock/services/" + appUUID
+		appDir = "/var/lib/akerdock/services/" + appUUID
 		resourceType = "service"
 	}
 	previewLabel := ""
@@ -355,7 +355,7 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 			return fmt.Errorf("fork preview without maintainer approval (INV-010)")
 		}
 		appUUID = pguuid.String(r.preview.Uuid)
-		appDir = "/data/akerdock/previews/" + appUUID
+		appDir = "/var/lib/akerdock/previews/" + appUUID
 		previewLabel = " --label akerdock.preview_uuid=" + appUUID
 	}
 	candidate := appUUID + "-next"
@@ -1765,7 +1765,7 @@ func (r *deploymentRun) dialBuildServer(ctx context.Context) error {
 	// The working directory exists on the deployment server because `prepare`
 	// created it there. The build machine has never seen this application, and
 	// the very first thing the build does is write build.env into it.
-	appDir := "/data/akerdock/applications/" + pguuid.String(r.app.Resource.Uuid)
+	appDir := "/var/lib/akerdock/applications/" + pguuid.String(r.app.Resource.Uuid)
 	if res, err := client.Run(ctx, fmt.Sprintf("mkdir -p %s/env && chmod 700 %s %s/env", appDir, appDir, appDir)); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("cannot prepare the working directory on the build server")
 	}

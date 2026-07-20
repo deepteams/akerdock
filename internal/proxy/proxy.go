@@ -157,12 +157,12 @@ func GenerateTCP(t TCPRoute, revision int64) string {
 // neither of them invents the name.
 func TCPEntryPoint(port int) string { return fmt.Sprintf("tcp-%d", port) }
 
-// GenerateStatic renders /data/akerdock/proxy/traefik.yaml (§5.2). Any
+// GenerateStatic renders /var/lib/akerdock/proxy/traefik.yaml (§5.2). Any
 // change to it requires recreating the proxy container (§1.4).
 //
 // dnsProvider is the Lego provider identifier of the server's DNS-01 credential
 // (empty when the server issues no wildcard). The credential itself NEVER
-// appears here: it lives in /data/akerdock/proxy/acme.env (0600), injected into
+// appears here: it lives in /var/lib/akerdock/proxy/acme.env (0600), injected into
 // the container with --env-file, precisely so it cannot end up in a config file
 // that is checksummed, stored as a revision and read back (INV-003).
 func GenerateStatic(httpPort, httpsPort int, acmeEmail, dnsProvider string, tcpPorts []int, revision int64) string {

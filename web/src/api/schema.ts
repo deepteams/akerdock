@@ -978,7 +978,7 @@ export interface paths {
         put?: never;
         /**
          * Lancer un nettoyage disque immédiat
-         * @description Déclenche le nettoyage Docker du serveur (§3.7), hors planification. Le job ne cible que des objets gérés et sûrs — cache de build, images dangling, candidats de déploiement morts, `/data/akerdock/tmp`, plus les purges opt-in du serveur (volumes anonymes, réseaux gérés) — et **jamais** un objet non géré ou persistant (INV-015), ni les images de rollback (ADR-006). Il est reporté si un déploiement est en cours sur le serveur. `409` (`operation_in_progress`) si un nettoyage tourne déjà.
+         * @description Déclenche le nettoyage Docker du serveur (§3.7), hors planification. Le job ne cible que des objets gérés et sûrs — cache de build, images dangling, candidats de déploiement morts, `/var/lib/akerdock/tmp`, plus les purges opt-in du serveur (volumes anonymes, réseaux gérés) — et **jamais** un objet non géré ou persistant (INV-015), ni les images de rollback (ADR-006). Il est reporté si un déploiement est en cours sur le serveur. `409` (`operation_in_progress`) si un nettoyage tourne déjà.
          */
         post: operations["runServerCleanup"];
         delete?: never;
@@ -1143,7 +1143,7 @@ export interface paths {
         put?: never;
         /**
          * Forcer le renouvellement d'un certificat
-         * @description Force une nouvelle tentative d'émission/renouvellement ACME : sauvegarde puis retrait ciblé de l'entrée du storage ACME (`/data/akerdock/proxy/acme.json`), redémarrage du proxy qui retente l'émission, puis resynchronisation du reflet (statut `renewing` pendant l'opération). Opération longue — répond `202` avec un job de suivi. `409` (`operation_in_progress`) si un renouvellement est déjà en cours pour ce certificat ; `422` (`validation_failed`) pour un certificat non renouvelable par la plateforme (`custom`, `self_signed`). Attention aux rate limits Let's Encrypt : chaque échec de validation consomme du quota — corriger la cause (DNS, port 80, credentials DNS-01) avant de rejouer. Action auditée (§23.4).
+         * @description Force une nouvelle tentative d'émission/renouvellement ACME : sauvegarde puis retrait ciblé de l'entrée du storage ACME (`/var/lib/akerdock/proxy/acme.json`), redémarrage du proxy qui retente l'émission, puis resynchronisation du reflet (statut `renewing` pendant l'opération). Opération longue — répond `202` avec un job de suivi. `409` (`operation_in_progress`) si un renouvellement est déjà en cours pour ce certificat ; `422` (`validation_failed`) pour un certificat non renouvelable par la plateforme (`custom`, `self_signed`). Attention aux rate limits Let's Encrypt : chaque échec de validation consomme du quota — corriger la cause (DNS, port 80, credentials DNS-01) avant de rejouer. Action auditée (§23.4).
          */
         post: operations["renewCertificate"];
         delete?: never;
@@ -1608,7 +1608,7 @@ export interface paths {
         put?: never;
         /**
          * Enregistrer un credential DNS-01
-         * @description `config` porte les variables d'environnement attendues par Lego (`CF_DNS_API_TOKEN`, `AWS_ACCESS_KEY_ID`…). Chiffrées au repos, matérialisées sur le serveur en `/data/akerdock/proxy/acme.env` (0600) et injectées au proxy par `--env-file` — jamais dans un fichier de configuration généré, jamais dans `argv` (INV-003).
+         * @description `config` porte les variables d'environnement attendues par Lego (`CF_DNS_API_TOKEN`, `AWS_ACCESS_KEY_ID`…). Chiffrées au repos, matérialisées sur le serveur en `/var/lib/akerdock/proxy/acme.env` (0600) et injectées au proxy par `--env-file` — jamais dans un fichier de configuration généré, jamais dans `argv` (INV-003).
          */
         post: operations["createDnsCredential"];
         delete?: never;
@@ -3686,7 +3686,7 @@ export interface components {
             proxy_type?: "traefik" | "none";
             proxy_http_port?: number;
             proxy_https_port?: number;
-            /** @description Nettoyage disque automatisé (§3.7) — opt-in. Ne cible que les objets gérés et sûrs (cache de build, images dangling, candidats morts, `/data/akerdock/tmp`) ; jamais un objet non géré ou persistant (INV-015), jamais pendant un déploiement. */
+            /** @description Nettoyage disque automatisé (§3.7) — opt-in. Ne cible que les objets gérés et sûrs (cache de build, images dangling, candidats morts, `/var/lib/akerdock/tmp`) ; jamais un objet non géré ou persistant (INV-015), jamais pendant un déploiement. */
             cleanup_enabled?: boolean;
             /** @description Planification cron du nettoyage (§3.7) ; NULL = pas de cron. */
             cleanup_cron?: string | null;
