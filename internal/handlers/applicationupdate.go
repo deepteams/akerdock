@@ -41,8 +41,54 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 
 	// source_type is immutable; per-source fields must match the pack.
 	var details []api.ErrorDetail
-	if body.GitRepository != nil || body.GitBranch != nil || body.BuildPack != nil {
-		details = append(details, api.ErrorDetail{Field: ptr("git_repository"), Code: ptr("not_implemented"), Message: "git applications land with the clone pipeline"})
+	isGit := row.BuildConfig.BuildPack != store.BuildPackImage &&
+		!(row.BuildConfig.BuildPack == store.BuildPackDockerfile && row.BuildConfig.DockerfileContent != nil)
+	gitTouched := body.GitRepository != nil || body.GitBranch != nil || body.BuildPack != nil ||
+		body.BaseDirectory != nil || body.DockerfileLocation != nil || patch.Has("publish_directory") ||
+		body.ComposeFileLocation != nil || body.RawCompose != nil || body.WatchPaths != nil ||
+		body.AutoDeploy != nil
+	var newBuildPack *store.BuildPack
+	if gitTouched && !isGit {
+		details = append(details, api.ErrorDetail{Field: ptr("git_repository"), Code: ptr("invalid"), Message: "git settings only apply to git applications (source_type is immutable)"})
+	} else if gitTouched {
+		// Cross-field validation runs on the EFFECTIVE values — the body merged
+		// over the stored row — exactly like the create-side validation, so a
+		// branch change is validated against the stored URL and vice versa.
+		if body.GitRepository != nil || body.GitBranch != nil {
+			gitURL := deref(row.Application.GitRepositoryUrl)
+			if body.GitRepository != nil {
+				gitURL = *body.GitRepository
+			}
+			branch := deref(row.Application.GitBranch)
+			if body.GitBranch != nil {
+				branch = *body.GitBranch
+			}
+			details = append(details, validateGitSource(gitURL, branch, row.PrivateKeyUuid.Valid)...)
+		}
+		if body.BuildPack != nil {
+			switch *body.BuildPack {
+			case "dockerfile":
+				newBuildPack = ptr(store.BuildPackDockerfile)
+			case "static":
+				newBuildPack = ptr(store.BuildPackStatic)
+			case "nixpacks":
+				newBuildPack = ptr(store.BuildPackNixpacks)
+			case "compose":
+				newBuildPack = ptr(store.BuildPackCompose)
+			default:
+				details = append(details, api.ErrorDetail{Field: ptr("build_pack"), Code: ptr("not_implemented"), Message: "build_pack must be dockerfile, static, nixpacks or compose (railpack lands later)"})
+			}
+		}
+		for field, value := range map[string]*string{
+			"base_directory":        body.BaseDirectory,
+			"dockerfile_location":   body.DockerfileLocation,
+			"publish_directory":     body.PublishDirectory,
+			"compose_file_location": body.ComposeFileLocation,
+		} {
+			if value != nil && !safePathFormat.MatchString(*value) {
+				details = append(details, api.ErrorDetail{Field: ptr(field), Code: ptr("invalid"), Message: "invalid " + field})
+			}
+		}
 	}
 	if body.DockerImage != nil || body.DockerImageTag != nil {
 		if row.BuildConfig.BuildPack != store.BuildPackImage {
@@ -151,6 +197,37 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 	if err := qtx.UpdateBuildConfigSource(r.Context(), buildSource); err != nil {
 		a.internalError(w, r, "update application", err)
 		return
+	}
+	if gitTouched {
+		gitParams := store.UpdateApplicationGitSettingsParams{
+			ID: row.Resource.ID, GitRepositoryUrl: body.GitRepository, GitBranch: body.GitBranch,
+			BaseDirectory: body.BaseDirectory, AutoDeployEnabled: body.AutoDeploy,
+		}
+		if body.WatchPaths != nil {
+			gitParams.SetWatchPaths = true
+			if joined := strings.Join(*body.WatchPaths, "\n"); joined != "" {
+				gitParams.WatchPaths = &joined
+			}
+		}
+		if err := qtx.UpdateApplicationGitSettings(r.Context(), gitParams); err != nil {
+			a.internalError(w, r, "update application", err)
+			return
+		}
+		buildParams := store.UpdateBuildConfigGitPipelineParams{
+			ApplicationID: row.Resource.ID, BuildPack: newBuildPack,
+			DockerfilePath: body.DockerfileLocation, ComposeFilePath: body.ComposeFileLocation,
+			RawCompose: body.RawCompose,
+		}
+		if patch.Has("publish_directory") {
+			buildParams.SetPublishDirectory = true
+			if body.PublishDirectory != nil && *body.PublishDirectory != "" {
+				buildParams.PublishDirectory = body.PublishDirectory
+			}
+		}
+		if err := qtx.UpdateBuildConfigGitPipeline(r.Context(), buildParams); err != nil {
+			a.internalError(w, r, "update application", err)
+			return
+		}
 	}
 	// Preview settings (§20.4): partial like everything else — an omitted
 	// field is untouched, an explicit null clears the bound (TTL, cap).

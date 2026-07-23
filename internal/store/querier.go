@@ -730,8 +730,16 @@ type Querier interface {
 	// both win, whatever the callers do.
 	TouchMfaFactorUsed(ctx context.Context, arg TouchMfaFactorUsedParams) (int64, error)
 	TouchSession(ctx context.Context, id int64) error
+	// Git pipeline settings of a git application (PATCH /applications): a nil
+	// argument leaves the column alone — partial like the rest of the update.
+	// watch_paths carries a set flag because an explicit empty list must CLEAR
+	// the column ("deploy on every push again"), not keep it.
+	UpdateApplicationGitSettings(ctx context.Context, arg UpdateApplicationGitSettingsParams) error
 	UpdateApplicationPreviewSettings(ctx context.Context, arg UpdateApplicationPreviewSettingsParams) error
 	UpdateBackupPlan(ctx context.Context, arg UpdateBackupPlanParams) (int64, error)
+	// Build-pack side of the same PATCH. publish_directory carries a set flag:
+	// an explicit null means "no publish step anymore", a COALESCE would keep it.
+	UpdateBuildConfigGitPipeline(ctx context.Context, arg UpdateBuildConfigGitPipelineParams) error
 	UpdateBuildConfigSource(ctx context.Context, arg UpdateBuildConfigSourceParams) error
 	UpdateDatabasePassword(ctx context.Context, arg UpdateDatabasePasswordParams) error
 	UpdateDatabaseRow(ctx context.Context, arg UpdateDatabaseRowParams) error

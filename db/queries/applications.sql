@@ -6,8 +6,38 @@ VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 -- name: CreateApplicationRow :exec
-INSERT INTO applications (id, git_repository_url, git_branch, base_directory, git_source_id, repository_id)
-VALUES ($1, $2, $3, $4, sqlc.narg(git_source_id), sqlc.narg(repository_id));
+INSERT INTO applications (id, git_repository_url, git_branch, base_directory, git_source_id, repository_id, watch_paths)
+VALUES ($1, $2, $3, $4, sqlc.narg(git_source_id), sqlc.narg(repository_id), sqlc.narg(watch_paths));
+
+-- name: UpdateApplicationGitSettings :exec
+-- Git pipeline settings of a git application (PATCH /applications): a nil
+-- argument leaves the column alone — partial like the rest of the update.
+-- watch_paths carries a set flag because an explicit empty list must CLEAR
+-- the column ("deploy on every push again"), not keep it.
+UPDATE applications SET
+    git_repository_url = COALESCE(sqlc.narg(git_repository_url), git_repository_url),
+    git_branch = COALESCE(sqlc.narg(git_branch), git_branch),
+    base_directory = COALESCE(sqlc.narg(base_directory), base_directory),
+    watch_paths = CASE WHEN sqlc.arg(set_watch_paths)::boolean
+                      THEN sqlc.narg(watch_paths)
+                      ELSE watch_paths END,
+    auto_deploy_enabled = COALESCE(sqlc.narg(auto_deploy_enabled), auto_deploy_enabled),
+    updated_at = now()
+WHERE id = $1;
+
+-- name: UpdateBuildConfigGitPipeline :exec
+-- Build-pack side of the same PATCH. publish_directory carries a set flag:
+-- an explicit null means "no publish step anymore", a COALESCE would keep it.
+UPDATE build_configs SET
+    build_pack = COALESCE(sqlc.narg(build_pack), build_pack),
+    dockerfile_path = COALESCE(sqlc.narg(dockerfile_path), dockerfile_path),
+    publish_directory = CASE WHEN sqlc.arg(set_publish_directory)::boolean
+                            THEN sqlc.narg(publish_directory)
+                            ELSE publish_directory END,
+    compose_file_path = COALESCE(sqlc.narg(compose_file_path), compose_file_path),
+    raw_compose = COALESCE(sqlc.narg(raw_compose), raw_compose),
+    updated_at = now()
+WHERE application_id = $1;
 
 -- name: CreateBuildConfig :exec
 INSERT INTO build_configs (application_id, build_pack, image_name, image_tag, dockerfile_content, dockerfile_path, publish_directory, registry_credential_id, use_build_server, push_enabled, push_registry_credential_id, compose_file_path, raw_compose)

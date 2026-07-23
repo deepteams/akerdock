@@ -58,8 +58,8 @@ func (q *Queries) CountResourcesOnServer(ctx context.Context, serverID int64) (i
 }
 
 const createApplicationRow = `-- name: CreateApplicationRow :exec
-INSERT INTO applications (id, git_repository_url, git_branch, base_directory, git_source_id, repository_id)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO applications (id, git_repository_url, git_branch, base_directory, git_source_id, repository_id, watch_paths)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type CreateApplicationRowParams struct {
@@ -69,6 +69,7 @@ type CreateApplicationRowParams struct {
 	BaseDirectory    string
 	GitSourceID      *int64
 	RepositoryID     *int64
+	WatchPaths       *string
 }
 
 func (q *Queries) CreateApplicationRow(ctx context.Context, arg CreateApplicationRowParams) error {
@@ -79,6 +80,7 @@ func (q *Queries) CreateApplicationRow(ctx context.Context, arg CreateApplicatio
 		arg.BaseDirectory,
 		arg.GitSourceID,
 		arg.RepositoryID,
+		arg.WatchPaths,
 	)
 	return err
 }
@@ -923,6 +925,84 @@ type TagResourceParams struct {
 
 func (q *Queries) TagResource(ctx context.Context, arg TagResourceParams) error {
 	_, err := q.db.Exec(ctx, tagResource, arg.ResourceID, arg.TagID)
+	return err
+}
+
+const updateApplicationGitSettings = `-- name: UpdateApplicationGitSettings :exec
+UPDATE applications SET
+    git_repository_url = COALESCE($2, git_repository_url),
+    git_branch = COALESCE($3, git_branch),
+    base_directory = COALESCE($4, base_directory),
+    watch_paths = CASE WHEN $5::boolean
+                      THEN $6
+                      ELSE watch_paths END,
+    auto_deploy_enabled = COALESCE($7, auto_deploy_enabled),
+    updated_at = now()
+WHERE id = $1
+`
+
+type UpdateApplicationGitSettingsParams struct {
+	ID                int64
+	GitRepositoryUrl  *string
+	GitBranch         *string
+	BaseDirectory     *string
+	SetWatchPaths     bool
+	WatchPaths        *string
+	AutoDeployEnabled *bool
+}
+
+// Git pipeline settings of a git application (PATCH /applications): a nil
+// argument leaves the column alone — partial like the rest of the update.
+// watch_paths carries a set flag because an explicit empty list must CLEAR
+// the column ("deploy on every push again"), not keep it.
+func (q *Queries) UpdateApplicationGitSettings(ctx context.Context, arg UpdateApplicationGitSettingsParams) error {
+	_, err := q.db.Exec(ctx, updateApplicationGitSettings,
+		arg.ID,
+		arg.GitRepositoryUrl,
+		arg.GitBranch,
+		arg.BaseDirectory,
+		arg.SetWatchPaths,
+		arg.WatchPaths,
+		arg.AutoDeployEnabled,
+	)
+	return err
+}
+
+const updateBuildConfigGitPipeline = `-- name: UpdateBuildConfigGitPipeline :exec
+UPDATE build_configs SET
+    build_pack = COALESCE($2, build_pack),
+    dockerfile_path = COALESCE($3, dockerfile_path),
+    publish_directory = CASE WHEN $4::boolean
+                            THEN $5
+                            ELSE publish_directory END,
+    compose_file_path = COALESCE($6, compose_file_path),
+    raw_compose = COALESCE($7, raw_compose),
+    updated_at = now()
+WHERE application_id = $1
+`
+
+type UpdateBuildConfigGitPipelineParams struct {
+	ApplicationID       int64
+	BuildPack           *BuildPack
+	DockerfilePath      *string
+	SetPublishDirectory bool
+	PublishDirectory    *string
+	ComposeFilePath     *string
+	RawCompose          *bool
+}
+
+// Build-pack side of the same PATCH. publish_directory carries a set flag:
+// an explicit null means "no publish step anymore", a COALESCE would keep it.
+func (q *Queries) UpdateBuildConfigGitPipeline(ctx context.Context, arg UpdateBuildConfigGitPipelineParams) error {
+	_, err := q.db.Exec(ctx, updateBuildConfigGitPipeline,
+		arg.ApplicationID,
+		arg.BuildPack,
+		arg.DockerfilePath,
+		arg.SetPublishDirectory,
+		arg.PublishDirectory,
+		arg.ComposeFilePath,
+		arg.RawCompose,
+	)
 	return err
 }
 

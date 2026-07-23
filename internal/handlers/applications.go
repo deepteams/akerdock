@@ -41,6 +41,15 @@ type appRow struct {
 	GitApiUrl *string
 }
 
+// watchPathsToAPI splits the stored newline-joined pattern list back into the
+// API's array form; a NULL or empty column is an absent field, not [""].
+func watchPathsToAPI(stored *string) *[]string {
+	if stored == nil || *stored == "" {
+		return nil
+	}
+	return ptr(strings.Split(*stored, "\n"))
+}
+
 func applicationToAPI(row appRow) api.Application {
 	var sourceType api.ApplicationSourceType
 	switch row.BuildConfig.BuildPack {
@@ -75,6 +84,8 @@ func applicationToAPI(row appRow) api.Application {
 		GitBranch:                     row.Application.GitBranch,
 		BuildPack:                     buildPackToAPI(row.BuildConfig.BuildPack),
 		BaseDirectory:                 ptr(row.Application.BaseDirectory),
+		WatchPaths:                    watchPathsToAPI(row.Application.WatchPaths),
+		AutoDeploy:                    ptr(row.Application.AutoDeployEnabled),
 		DockerfileLocation:            row.BuildConfig.DockerfilePath,
 		PublishDirectory:              row.BuildConfig.PublishDirectory,
 		ComposeFileLocation:           row.BuildConfig.ComposeFilePath,
@@ -178,7 +189,7 @@ func (a *API) CreateApplication(w http.ResponseWriter, r *http.Request, params a
 	var create api.ApplicationCreateBase
 	var details []api.ErrorDetail
 	buildPack := store.BuildPackImage
-	var imageName, imageTag, dockerfileContent, gitURL, gitBranch, dockerfilePath, publishDirectory, composeFilePath *string
+	var imageName, imageTag, dockerfileContent, gitURL, gitBranch, dockerfilePath, publishDirectory, composeFilePath, watchPaths *string
 	rawCompose := false
 	baseDirectory := "/"
 	// Deploy key of a private repository (§5.1): resolved after validation,
@@ -347,6 +358,11 @@ func (a *API) CreateApplication(w http.ResponseWriter, r *http.Request, params a
 				details = append(details, api.ErrorDetail{Field: ptr("dockerfile_location"), Code: ptr("invalid"), Message: "invalid dockerfile_location"})
 			}
 			dockerfilePath = g.DockerfileLocation
+		}
+		if g.WatchPaths != nil {
+			if joined := strings.Join(*g.WatchPaths, "\n"); joined != "" {
+				watchPaths = &joined
+			}
 		}
 	default:
 		httpapi.WriteValidationError(w, r, []api.ErrorDetail{{Field: ptr("source_type"), Code: ptr("required"), Message: "source_type must be docker_image, dockerfile or git"}})
@@ -544,7 +560,7 @@ func (a *API) CreateApplication(w http.ResponseWriter, r *http.Request, params a
 	}
 	if err := qtx.CreateApplicationRow(r.Context(), store.CreateApplicationRowParams{
 		ID: resource.ID, GitRepositoryUrl: gitURL, GitBranch: gitBranch, BaseDirectory: baseDirectory,
-		GitSourceID: gitSourceID, RepositoryID: repositoryID,
+		GitSourceID: gitSourceID, RepositoryID: repositoryID, WatchPaths: watchPaths,
 	}); err != nil {
 		a.internalError(w, r, "create application", err)
 		return
