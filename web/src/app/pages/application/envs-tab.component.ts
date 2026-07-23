@@ -12,6 +12,7 @@ import { CardComponent } from '../../../ui/card/card.component';
 import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
+import { parseDotenv, quoteEnvValue, REDACTED } from './dotenv';
 import type { components } from '../../../api/schema';
 
 type EnvVar = components['schemas']['EnvironmentVariable'];
@@ -69,10 +70,75 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
 
     @if (loading()) {
       <p class="akd-muted">Loading…</p>
-    } @else if (envs().length === 0) {
-      <akd-empty-state icon="key-round" title="No environment variables" />
     } @else {
       <akd-card title="Environment variables" [padded]="false">
+        <div class="toolbar">
+          <button
+            type="button"
+            class="akd-btn akd-btn--sm"
+            [class.akd-btn--secondary]="view() === 'table'"
+            [class.akd-btn--ghost]="view() !== 'table'"
+            (click)="view.set('table')"
+          >
+            Table
+          </button>
+          <button
+            type="button"
+            class="akd-btn akd-btn--sm"
+            [class.akd-btn--secondary]="view() === 'run'"
+            [class.akd-btn--ghost]="view() !== 'run'"
+            (click)="openDev('run')"
+          >
+            Runtime · .env
+          </button>
+          <button
+            type="button"
+            class="akd-btn akd-btn--sm"
+            [class.akd-btn--secondary]="view() === 'build'"
+            [class.akd-btn--ghost]="view() !== 'build'"
+            (click)="openDev('build')"
+          >
+            Build · .env
+          </button>
+        </div>
+        @if (view() !== 'table') {
+          <div class="dev">
+            <p class="akd-muted">
+              One KEY=value per line — paste a whole .env at once. Keeping a
+              "(redacted)" line leaves that secret untouched; removing a line deletes the
+              variable. New variables are created
+              {{ view() === 'build' ? 'as build-time' : 'as runtime' }} and non-secret.
+            </p>
+            <textarea
+              class="akd-textarea akd-mono"
+              name="devText"
+              rows="14"
+              [attr.aria-label]="(view() === 'build' ? 'Build' : 'Runtime') + ' variables as .env'"
+              [(ngModel)]="devText"
+              [disabled]="busy()"
+            ></textarea>
+            <div class="edit-actions">
+              <button
+                class="akd-btn akd-btn--primary akd-btn--sm"
+                type="button"
+                [disabled]="busy()"
+                (click)="applyDev()"
+              >
+                Apply changes
+              </button>
+              <button
+                class="akd-btn akd-btn--secondary akd-btn--sm"
+                type="button"
+                [disabled]="busy()"
+                (click)="view.set('table')"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        } @else if (envs().length === 0) {
+          <akd-empty-state icon="key-round" title="No environment variables" />
+        } @else {
         <table class="akd-table">
           <caption class="sr-only">
             Environment variables of this application
@@ -170,6 +236,7 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
             }
           </tbody>
         </table>
+        }
       </akd-card>
     }
   `,
@@ -198,6 +265,17 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
         gap: var(--space-2);
         justify-content: flex-end;
       }
+      .toolbar {
+        display: flex;
+        gap: var(--space-2);
+        padding: var(--space-3);
+        border-bottom: 1px solid var(--border);
+      }
+      .dev {
+        display: grid;
+        gap: var(--space-3);
+        padding: var(--space-3);
+      }
       .akd-badge + .akd-badge {
         margin-left: var(--space-1);
       }
@@ -214,12 +292,14 @@ export class ApplicationEnvsTabComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
   protected readonly editing = signal<string | null>(null);
+  protected readonly view = signal<'table' | 'run' | 'build'>('table');
 
   protected key = '';
   protected value = '';
   protected isSecret = false;
   protected isBuildTime = false;
   protected editValue = '';
+  protected devText = '';
 
   constructor() {
     effect(() => {
@@ -292,6 +372,84 @@ export class ApplicationEnvsTabComponent {
       });
       this.editing.set(null);
       await this.load(this.uuid());
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** Variables of one dev view: locked ones stay out — they are not editable
+   * anywhere in this tab, so the raw text must not offer to delete them. */
+  private devGroup(mode: 'run' | 'build'): EnvVar[] {
+    return this.envs().filter((env) => !!env.is_build_time === (mode === 'build') && !env.is_locked);
+  }
+
+  protected openDev(mode: 'run' | 'build'): void {
+    this.devText = this.devGroup(mode)
+      .map((env) => `${env.key}=${quoteEnvValue(env.is_redacted ? REDACTED : (env.value ?? ''))}`)
+      .join('\n');
+    this.view.set(mode);
+  }
+
+  protected async applyDev(): Promise<void> {
+    const mode = this.view();
+    if (mode === 'table' || this.busy()) return;
+    const parsed = parseDotenv(this.devText);
+    if (parsed.errors.length > 0) {
+      this.error.set(`Not a valid .env: ${parsed.errors.join(' — ')}`);
+      return;
+    }
+
+    const current = this.devGroup(mode);
+    const byKey = new Map(current.map((env) => [env.key, env]));
+    const creates: { key: string; value: string }[] = [];
+    const updates: { env: EnvVar; value: string }[] = [];
+    for (const [key, value] of parsed.entries) {
+      const existing = byKey.get(key);
+      if (!existing) {
+        creates.push({ key, value });
+      } else if (existing.is_redacted ? value !== REDACTED : value !== (existing.value ?? '')) {
+        updates.push({ env: existing, value });
+      }
+    }
+    const deletes = current.filter((env) => !parsed.entries.has(env.key));
+    if (creates.length === 0 && updates.length === 0 && deletes.length === 0) {
+      this.view.set('table');
+      return;
+    }
+    if (
+      deletes.length > 0 &&
+      !confirm(
+        `${deletes.length} variable(s) removed from the text will be deleted: ` +
+          `${deletes.map((env) => env.key).join(', ')}. Continue?`,
+      )
+    ) {
+      return;
+    }
+
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      for (const c of creates) {
+        await this.api.client().createApplicationEnv(this.uuid(), {
+          key: c.key,
+          value: c.value,
+          is_secret: false,
+          is_build_time: mode === 'build',
+          is_literal: false,
+          is_multiline: c.value.includes('\n'),
+          is_locked: false,
+        });
+      }
+      for (const u of updates) {
+        await this.api.client().updateApplicationEnv(this.uuid(), u.env.uuid, { value: u.value });
+      }
+      for (const d of deletes) {
+        await this.api.client().deleteApplicationEnv(this.uuid(), d.uuid);
+      }
+      await this.load(this.uuid());
+      this.view.set('table');
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
