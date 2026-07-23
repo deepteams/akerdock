@@ -59,3 +59,20 @@ func TestNextCursor(t *testing.T) {
 		t.Fatal("last page must have nil cursor")
 	}
 }
+
+// html_url stores the HOST base, but rows converted before the fix carry the
+// app page URL GitHub returns — the builder must not double the path on them.
+func TestGithubInstallURL(t *testing.T) {
+	cases := map[string]string{
+		"https://github.com":                     "https://github.com/apps/my-app/installations/new",
+		"https://github.com/":                    "https://github.com/apps/my-app/installations/new",
+		"https://ghes.corp.example":              "https://ghes.corp.example/apps/my-app/installations/new",
+		"https://github.com/apps/my-app":         "https://github.com/apps/my-app/installations/new",
+		"https://ghes.corp.example/apps/my-app/": "https://ghes.corp.example/apps/my-app/installations/new",
+	}
+	for htmlURL, want := range cases {
+		if got := githubInstallURL(htmlURL, "my-app"); got != want {
+			t.Errorf("githubInstallURL(%q) = %q, want %q", htmlURL, got, want)
+		}
+	}
+}

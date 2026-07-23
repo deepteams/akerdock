@@ -51,9 +51,22 @@ func githubAppToAPI(row store.GithubApp) api.GithubApp {
 		out.InstallationId = &id
 	}
 	if row.Slug != nil {
-		out.InstallUrl = ptr(strings.TrimRight(row.HtmlUrl, "/") + "/apps/" + *row.Slug + "/installations/new")
+		out.InstallUrl = ptr(githubInstallURL(row.HtmlUrl, *row.Slug))
 	}
 	return out
+}
+
+// githubInstallURL builds the app installation page from the stored html_url.
+// The stored value is the HOST base (https://github.com, or the GHES host) —
+// but rows converted before the fix carry the app page URL GitHub returns
+// (https://github.com/apps/<slug>): appending the path again would double it,
+// so that form is recognized and completed as-is.
+func githubInstallURL(htmlURL, slug string) string {
+	base := strings.TrimRight(htmlURL, "/")
+	if strings.HasSuffix(base, "/apps/"+slug) {
+		return base + "/installations/new"
+	}
+	return base + "/apps/" + slug + "/installations/new"
 }
 
 // instanceBaseURL is where GitHub must call back: the configured FQDN, https.
@@ -367,7 +380,10 @@ func (a *API) GithubManifestCallback(w http.ResponseWriter, r *http.Request) {
 		ID: draft.ID, Name: creds.Name, AppID: ptr(creds.AppID), Slug: ptr(creds.Slug),
 		ClientID: ptr(creds.ClientID), ClientSecretEnc: clientSecret,
 		WebhookSecretEnc: webhookSecret, AppPrivateKeyEnc: privateKey,
-		HtmlUrl: creds.HTMLURL,
+		// The HOST base of the draft, NOT creds.HTMLURL: GitHub returns the
+		// app PAGE (https://github.com/apps/<slug>) there, and everything
+		// downstream builds URLs by appending paths to a host base.
+		HtmlUrl: draft.HtmlUrl,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -390,7 +406,7 @@ func (a *API) GithubManifestCallback(w http.ResponseWriter, r *http.Request) {
 	// Straight to the installation page: installing is the next step, and the
 	// setup callback brings the browser back to the dashboard.
 	if row.Slug != nil {
-		http.Redirect(w, r, strings.TrimRight(row.HtmlUrl, "/")+"/apps/"+*row.Slug+"/installations/new", http.StatusFound)
+		http.Redirect(w, r, githubInstallURL(row.HtmlUrl, *row.Slug), http.StatusFound)
 		return
 	}
 	http.Redirect(w, r, "/github-apps", http.StatusFound)
