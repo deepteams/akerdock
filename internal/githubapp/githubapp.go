@@ -91,8 +91,11 @@ func Manifest(instanceURL, appUUID, name string) map[string]any {
 		},
 		"redirect_url":   base + "/webhooks/github/manifest/callback",
 		"setup_url":      base + "/github-apps/" + appUUID + "/setup",
-		"public":         false,
-		"default_events": []string{"push", "pull_request", "installation_repositories", "issue_comment"},
+		"public": false,
+		// installation/installation_repositories are ALWAYS delivered to a
+		// GitHub App and may not be listed here anymore: GitHub rejects the
+		// manifest with "Default events unsupported" if they appear.
+		"default_events": []string{"push", "pull_request", "issue_comment"},
 		"default_permissions": map[string]string{
 			"contents":      "read",
 			"metadata":      "read",

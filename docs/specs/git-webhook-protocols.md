@@ -143,7 +143,7 @@ Le manifest flow évite toute saisie manuelle (app ID, clé privée, secret) : l
   "redirect_url": "https://<fqdn-instance>/webhooks/github/manifest/callback",
   "setup_url": "https://<fqdn-instance>/…/github-apps/<uuid>/setup",
   "public": false,
-  "default_events": ["push", "pull_request", "installation_repositories", "issue_comment"],
+  "default_events": ["push", "pull_request", "issue_comment"],
   "default_permissions": {
     "contents": "read",
     "metadata": "read",
@@ -200,7 +200,7 @@ Souscrits dans le manifest ; tout autre `X-GitHub-Event` reçu est persisté pui
 | `pull_request` | `labeled`, `unlabeled` | Si `preview_require_label` : label ajouté → deploy, retiré → destruction de la preview **(défaut proposé)** ; sert aussi à l'approbation de fork par label (§2.7) |
 | `issue_comment` | `created` | Commandes `/deploy`, `/destroy` (si activées) et approbation de fork par commentaire ; uniquement si `issue.pull_request` est présent |
 | `installation` | `created`, `deleted`, `suspend`, `unsuspend`, `new_permissions_accepted` | Cycle de vie : renseigne/invalide `installation_id` ; `deleted`/`suspend` → source marquée dégradée + notification (§11) |
-| `installation_repositories` | `added`, `removed` | Resynchronisation du cache `repositories` ; un repo retiré casse l'association des applications liées → notification |
+| `installation_repositories` | `added`, `removed` | Resynchronisation du cache `repositories` ; un repo retiré casse l'association des applications liées → notification. Absent de `default_events` : GitHub livre systématiquement les événements `installation*` à toute App et rejette un manifest qui les déclare (« Default events unsupported ») |
 
 Les actions `edited`, `assigned`, `review_requested`, etc. sont ignorées sans traitement.
 
