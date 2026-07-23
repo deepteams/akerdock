@@ -94,7 +94,12 @@ export type OpenSession = () => Promise<TerminalSessionInfo>;
       .screen {
         margin-top: var(--akd-space-3);
         padding: var(--akd-space-2);
-        min-height: 24rem;
+        /* A FIXED height, never content-driven: the fit addon sizes the rows
+           from this box, and the box must not size itself from the rows — a
+           min-height alone lets xterm grow the box, the observer refit more
+           rows, and the page stretch forever. */
+        height: clamp(20rem, 60vh, 40rem);
+        overflow: hidden;
         border: 1px solid var(--akd-border);
         border-radius: var(--akd-radius-lg);
         /* The log/terminal surface is dark in both themes (design-system §2.6). */
