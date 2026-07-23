@@ -1303,32 +1303,25 @@ func (r *deploymentRun) renderStorages(ctx context.Context, appUUID, imageRef st
 // chownEmptyVolumesScript hands STILL-EMPTY volumes to the image's runtime
 // user. A fresh named volume mounted on a path absent from the image belongs
 // to root — a USER'd image then crash-loops on its first write, a failure
-// every non-root image would hit on every platform that didn't do this. Only
-// empty volumes are touched: data that exists already has an owner, and it is
-// not this function's to change. A named user is resolved through the image's
-// own /etc/passwd (docker create + cp — no shell run in the image, which may
-// not have one). Best-effort by design, hence the trailing `true`: an
-// unresolvable user falls back to today's behavior instead of failing the
-// deployment.
+// every non-root image would hit on every platform that didn't do this.
+//
+// The fix runs INSIDE a throwaway container of the image itself (--user 0),
+// never against /var/lib/docker on the host: a non-root SSH user cannot touch
+// the host path, but anyone who can talk to the daemon can do this — and a
+// named USER resolves against the image's own /etc/passwd for free, since
+// chown executes where that file lives. Only empty volumes are touched: data
+// that exists already has an owner, and it is not this function's to change.
+// Best-effort by design, hence `|| true` and the trailing `true`: an image
+// without /bin/sh (distroless) falls back to today's behavior instead of
+// failing the deployment.
 func chownEmptyVolumesScript(imageRef string, volumes []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "u=$(docker image inspect --format '{{.Config.User}}' %s 2>/dev/null); ", imageRef)
-	b.WriteString("case \"$u\" in ''|root|0|0:*) u=;; esac; ")
-	b.WriteString("if [ -n \"$u\" ]; then uid=${u%%:*}; gid=${u#*:}; [ \"$gid\" = \"$u\" ] && gid=; ")
-	// A named user has no meaning on the host: resolve it to numeric ids in
-	// the image's own /etc/passwd.
-	b.WriteString("case \"$uid\" in *[!0-9]*) ")
-	fmt.Fprintf(&b, "cid=$(docker create %s 2>/dev/null); ", imageRef)
-	b.WriteString("if [ -n \"$cid\" ]; then ")
-	b.WriteString("entry=$(docker cp \"$cid\":/etc/passwd - 2>/dev/null | tar -xO 2>/dev/null | awk -F: -v n=\"$uid\" '$1==n{print $3\":\"$4; exit}'); ")
-	b.WriteString("docker rm -f \"$cid\" >/dev/null 2>&1; ")
-	b.WriteString("uid=${entry%%:*}; gid=${entry#*:}; fi;; esac; ")
-	b.WriteString("case \"$gid\" in ''|*[!0-9]*) gid=$uid;; esac; ")
-	b.WriteString("case \"$uid\" in ''|*[!0-9]*) :;; *) ")
+	b.WriteString("case \"$u\" in ''|root|0|0:*) :;; *) ")
 	fmt.Fprintf(&b, "for v in %s; do ", strings.Join(volumes, " "))
-	b.WriteString("mp=$(docker volume inspect --format '{{.Mountpoint}}' \"$v\" 2>/dev/null); ")
-	b.WriteString("[ -n \"$mp\" ] && [ -z \"$(ls -A \"$mp\" 2>/dev/null)\" ] && chown \"$uid:$gid\" \"$mp\"; ")
-	b.WriteString("done;; esac; fi; true")
+	fmt.Fprintf(&b, "docker run --rm --user 0 --entrypoint /bin/sh -v \"$v\":/akerdock-volume %s "+
+		"-c \"[ -n \\\"\\$(ls -A /akerdock-volume)\\\" ] || chown -- '$u' /akerdock-volume\" >/dev/null 2>&1 || true; ", imageRef)
+	b.WriteString("done;; esac; true")
 	return b.String()
 }
 
