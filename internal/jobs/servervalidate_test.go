@@ -91,3 +91,37 @@ func TestPortConflictHint(t *testing.T) {
 		t.Fatalf("nil result must yield no hint, got %q", hint)
 	}
 }
+
+// The instance FQDN rides the proxy of exactly one server — the localhost
+// server that hosts the instance (PRD §14.2). Every other combination must
+// yield no route, and the content must be stable so bootstrap can compare it
+// with the last applied revision and skip a no-op re-apply.
+func TestControlPlaneRouteContent(t *testing.T) {
+	host := store.Server{ID: 3, IsLocalhost: true}
+	remote := store.Server{ID: 4, IsLocalhost: false}
+
+	content := controlPlaneRouteContent(host, "manager.example.com", 8080)
+	for _, want := range []string{
+		"Host(`manager.example.com`)",
+		"00-control-plane-r0",
+		"http://host.docker.internal:8080",
+		"certResolver: http01",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("control-plane route missing %q\n%s", want, content)
+		}
+	}
+	if content != controlPlaneRouteContent(host, "manager.example.com", 8080) {
+		t.Fatal("content must be deterministic across bootstraps")
+	}
+
+	for name, got := range map[string]string{
+		"remote server": controlPlaneRouteContent(remote, "manager.example.com", 8080),
+		"no FQDN":       controlPlaneRouteContent(host, "", 8080),
+		"unknown port":  controlPlaneRouteContent(host, "manager.example.com", 0),
+	} {
+		if got != "" {
+			t.Errorf("%s: want no route, got\n%s", name, got)
+		}
+	}
+}

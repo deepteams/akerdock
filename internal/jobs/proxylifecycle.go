@@ -37,6 +37,9 @@ type ProxyLifecycle struct {
 	Store   *store.Queries
 	Keyring *envelope.Keyring
 	Logger  *slog.Logger
+	// ControlPlanePort is the published port of this instance (AKERDOCK_PORT),
+	// used to route the instance FQDN on the server that hosts it (§14.2).
+	ControlPlanePort int
 }
 
 // Execute drives the proxy container of one server.
@@ -77,7 +80,7 @@ func (h *ProxyLifecycle) Execute(ctx context.Context, job store.Job, rec *queue.
 		// The container may be gone entirely (a manual `docker rm`, a pruned
 		// host): converging is what "start" means — not `docker start` on a
 		// name that no longer exists.
-		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, server, false); err != nil {
+		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, server, false, h.ControlPlanePort); err != nil {
 			rec.Fail(ctx, err.Error())
 			_ = h.Store.SetProxyObservedStatus(ctx, store.SetProxyObservedStatusParams{ID: server.ID, ProxyObservedStatus: store.ResourceObservedStatusUnhealthy})
 			return nil, err

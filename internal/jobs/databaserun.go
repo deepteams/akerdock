@@ -43,6 +43,9 @@ type DatabaseRun struct {
 	Store   *store.Queries
 	Keyring *envelope.Keyring
 	Logger  *slog.Logger
+	// ControlPlanePort is the published port of this instance (AKERDOCK_PORT),
+	// used to route the instance FQDN on the server that hosts it (§14.2).
+	ControlPlanePort int
 }
 
 // Execute runs one attempt of a database job.
@@ -321,7 +324,7 @@ func (h *DatabaseRun) applyTCPRoute(ctx context.Context, client *sshexec.Client,
 		if run, _ := proxyBootstrapDecision(server); !run {
 			return nil
 		}
-		return bootstrapProxy(ctx, h.Store, h.Keyring, client, server, true)
+		return bootstrapProxy(ctx, h.Store, h.Keyring, client, server, true, h.ControlPlanePort)
 	}
 
 	if !tcpProxied(row.Database) || row.Database.PublicPort == nil {

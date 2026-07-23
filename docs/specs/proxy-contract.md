@@ -534,6 +534,15 @@ tcp:
 - Changer le **port public** : révision statique + recréation du proxy (§2.6) — la base ne redémarre pas ; l'UI annonce l'interruption de quelques secondes du proxy.
 - `idle_timeout_seconds` : appliqué si le provider le supporte ; Traefik v3 n'a pas de timeout d'inactivité par routeur TCP — la valeur y est sans effet (divergence documentée, testée en fixture comme « non garanti ») ; Caddy (layer4) l'applique. Le timeout par défaut de 3600 s reste porté par l'IR pour les providers capables.
 
+### 5.7 Fichier réservé `00-control-plane.yaml` — FQDN de l'instance
+
+Quand le serveur héberge l'instance (`servers.is_localhost`) **et** qu'un FQDN d'instance est configuré (`instance_settings.fqdn`, §14.2 PRD), le bootstrap du proxy converge le fichier réservé `00-control-plane.yaml` : le dashboard est servi derrière le proxy avec certificat automatique (`certResolver: http01`), redirection HTTPS forcée, route unique `Host(<fqdn>) && PathPrefix(/)` vers le control plane.
+
+- Scope de révision : `00-control-plane` — mêmes mécanismes que les applications (révision checksummée §6.2.4, application atomique §6.2, vérification §6.3, réconciliation de drift §18.3). Le nom est réservé : les scopes applicatifs sont des UUIDs, aucune collision possible.
+- Cible : `http://host.docker.internal:<AKERDOCK_PORT>` — le container proxy est lancé avec `--add-host=host.docker.internal:host-gateway` (le control plane est un service compose sur un autre réseau Docker, injoignable par nom de container). Le port est celui publié par le compose de l'instance (instance-config §4).
+- Convergence au bootstrap uniquement (start/validation/recréation du proxy), idempotente : aucune révision n'est créée si le contenu désiré est identique à la dernière révision appliquée. FQDN retiré ou serveur qui n'héberge plus l'instance → retrait du routage (révision vide, §6.5).
+- Retrait du FQDN ou changement de valeur : pris en compte au prochain bootstrap du proxy (redémarrage depuis la page serveur), pas à chaud — le réglage est rare et le redémarrage coûte quelques secondes.
+
 ---
 
 ## 6. Application atomique et vérification

@@ -124,6 +124,30 @@ func GenerateDynamic(rg RouteGroup, revision int64) string {
 // without knowing anything else about the server.
 func DNSResolverName(provider string) string { return "dns01-" + provider }
 
+// ControlPlaneScope is the reserved scope of the dynamic file routing the
+// instance FQDN when the server hosts the instance (§1.3, PRD §14.2). Reserved
+// means no application can ever claim it: scopes of applications are UUIDs.
+const ControlPlaneScope = "00-control-plane"
+
+// ControlPlaneHost is how the proxy container reaches the control plane
+// process of its own host. It only resolves because the container is run with
+// --add-host=host.docker.internal:host-gateway — the control plane is a
+// compose service on another Docker network, unreachable by container name.
+const ControlPlaneHost = "host.docker.internal"
+
+// GenerateControlPlane renders the dynamic file serving the AkerDock
+// dashboard behind the proxy with an automatic certificate (PRD §14.2), so
+// the direct control-plane port can be closed to the outside. Always
+// ForceHTTPS: a login page over clear HTTP is not an operator choice.
+func GenerateControlPlane(fqdn string, port int, revision int64) string {
+	return GenerateDynamic(RouteGroup{
+		AppUUID:    ControlPlaneScope,
+		Endpoint:   ControlPlaneHost,
+		ForceHTTPS: true,
+		Routes:     []Route{{FQDN: fqdn, Path: "/", TargetPort: port}},
+	}, revision)
+}
+
 // TCPRoute exposes a database without publishing a port on its container
 // (§2.6): the database never restarts to change its public port — the proxy
 // does, which costs seconds and touches no data.

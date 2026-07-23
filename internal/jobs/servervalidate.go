@@ -37,6 +37,9 @@ type ServerValidate struct {
 	Store   *store.Queries
 	Keyring *envelope.Keyring
 	Logger  *slog.Logger
+	// ControlPlanePort is the published port of this instance (AKERDOCK_PORT),
+	// used to route the instance FQDN on the server that hosts it (§14.2).
+	ControlPlanePort int
 }
 
 // minDockerMajor is the minimum supported Docker Engine version (§3.1).
@@ -125,7 +128,7 @@ func (h *ServerValidate) Execute(ctx context.Context, job store.Job, rec *queue.
 		rec.Skip(ctx, "bootstrap_proxy", reason)
 	} else {
 		rec.Start(ctx, "bootstrap_proxy")
-		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, server, false); err != nil {
+		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, server, false, h.ControlPlanePort); err != nil {
 			rec.Fail(ctx, "proxy bootstrap failed — retry the validation once the cause is fixed: "+firstLine(err.Error()))
 			return nil, err
 		}
@@ -295,7 +298,7 @@ func proxyBootstrapDecision(server store.Server) (run bool, skipReason string) {
 	}
 }
 
-func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring, client *sshexec.Client, server store.Server, recreate bool) error {
+func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring, client *sshexec.Client, server store.Server, recreate bool, cpPort int) error {
 	h := &ServerValidate{Store: q, Keyring: kr}
 	dest, err := h.Store.GetDefaultDestination(ctx, server.ID)
 	if err != nil {
@@ -415,6 +418,9 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 			"-v /var/lib/akerdock/proxy/acme.json:/acme/acme.json "+
 			"-v /var/lib/akerdock/proxy/certs:/certs:ro "+
 			"-v /var/lib/akerdock/proxy/auth:/auth:ro "+
+			// host-gateway lets the 00-control-plane route reach the control
+			// plane on this host (PRD §14.2) — harmless on every other server.
+			"--add-host=host.docker.internal:host-gateway "+
 			"--label akerdock.managed=true --label akerdock.type=proxy --label akerdock.team_uuid=%s "+
 			"--health-cmd 'traefik healthcheck --ping' --health-interval 5s --health-retries 3 "+
 			"%s",
@@ -454,7 +460,46 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 		}
 		return fmt.Errorf("proxy container is %q, expected running%s%s", status, detail, hint)
 	}
+
+	// Route the instance FQDN through this proxy when the server hosts the
+	// instance (PRD §14.2, proxy-contract §1.3) — and withdraw the route when
+	// the FQDN is removed. Done last: the applier verifies against the Traefik
+	// API of the running container.
+	fqdn := ""
+	if settings.Fqdn != nil {
+		fqdn = *settings.Fqdn
+	}
+	content := controlPlaneRouteContent(server, fqdn, cpPort)
+	last, lastErr := q.GetLastAppliedProxyRevision(ctx, store.GetLastAppliedProxyRevisionParams{
+		ServerID: server.ID, Scope: proxy.ControlPlaneScope,
+	})
+	switch {
+	case lastErr == nil && last.Content == content:
+		// Already converged. Bootstrap runs on every proxy start: re-applying
+		// would pile up one identical revision per start for nothing — file
+		// drift is the reconciler's job (§6.2.4), not this one's.
+		return nil
+	case lastErr != nil && content == "":
+		return nil // never routed, nothing to withdraw
+	}
+	applier := &ProxyApplier{Store: q, Client: client, Server: server, Network: dest.Network}
+	if err := applier.Apply(ctx, proxy.ControlPlaneScope, content, ""); err != nil {
+		return fmt.Errorf("instance FQDN routing (%s): %w", proxy.ControlPlaneScope, err)
+	}
 	return nil
+}
+
+// controlPlaneRouteContent is the desired content of the 00-control-plane
+// dynamic file for this server — empty when the server must not carry the
+// route (it does not host the instance, no FQDN is configured, or the
+// control-plane port is unknown). The revision stamped in the header is the
+// server ID: stable, so identical desired states compare equal across
+// bootstraps.
+func controlPlaneRouteContent(server store.Server, fqdn string, cpPort int) string {
+	if !server.IsLocalhost || fqdn == "" || cpPort <= 0 {
+		return ""
+	}
+	return proxy.GenerateControlPlane(fqdn, cpPort, server.ID)
 }
 
 // portConflictHint recognizes the single most common first-start failure — a
