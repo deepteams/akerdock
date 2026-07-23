@@ -100,6 +100,19 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
           >
             Build · .env
           </button>
+          <span class="spacer"></span>
+          <!-- Masked by DEFAULT: this page must be safe to open during a
+               screen share — revealing is the explicit gesture, never the
+               landing state. -->
+          <button
+            type="button"
+            class="akd-btn akd-btn--ghost akd-btn--sm"
+            [attr.aria-pressed]="revealed()"
+            (click)="revealed.set(!revealed())"
+          >
+            <akd-icon [name]="revealed() ? 'eye-off' : 'eye'" [size]="13" />
+            {{ revealed() ? 'Hide values' : 'Show values' }}
+          </button>
         </div>
         @if (view() !== 'table') {
           <div class="dev">
@@ -185,8 +198,11 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
                     </form>
                   } @else {
                     <!-- A redacted value is redacted for good: the API never returns
-                         it again, so there is no "reveal" to offer here. -->
-                    <span class="akd-mono">{{ env.is_redacted ? '(redacted)' : env.value }}</span>
+                         it again, so there is no "reveal" to offer here. Everything
+                         else is masked until the operator asks to see it. -->
+                    <span class="akd-mono">{{
+                      env.is_redacted ? '(redacted)' : revealed() ? env.value : '••••••••'
+                    }}</span>
                   }
                 </td>
                 <td>
@@ -267,9 +283,13 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
       }
       .toolbar {
         display: flex;
+        align-items: center;
         gap: var(--space-2);
         padding: var(--space-3);
         border-bottom: 1px solid var(--border);
+      }
+      .toolbar .spacer {
+        flex: 1;
       }
       .dev {
         display: grid;
@@ -293,6 +313,8 @@ export class ApplicationEnvsTabComponent {
   protected readonly busy = signal(false);
   protected readonly editing = signal<string | null>(null);
   protected readonly view = signal<'table' | 'run' | 'build'>('table');
+  /** Values are masked on landing — safe to open while screen sharing. */
+  protected readonly revealed = signal(false);
 
   protected key = '';
   protected value = '';
