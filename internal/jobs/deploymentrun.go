@@ -271,15 +271,28 @@ func (r *deploymentRun) step(ctx context.Context, name string, fn func() (*sshex
 	}
 	if err != nil {
 		status = store.DeploymentStepStatusFailed
-		msg := err.Error()
-		if logText == nil {
-			logText = &msg
-		}
+		logText = appendFailure(logText, err)
 	}
 	_ = r.h.Store.FinishDeploymentStep(ctx, store.FinishDeploymentStepParams{
 		ID: stepID, Status: status, ExitCode: exit, Log: logText,
 	})
 	return err
+}
+
+// appendFailure merges the failure into the step log instead of dropping it:
+// the error often carries MORE than the command output — candidateFailure
+// packs the dying container's logs into it, and losing that leaves the
+// operator staring at a bare "restarting" with nothing to debug.
+func appendFailure(logText *string, err error) *string {
+	msg := err.Error()
+	if logText == nil || *logText == "" {
+		return &msg
+	}
+	if strings.Contains(*logText, msg) {
+		return logText
+	}
+	combined := *logText + "\n" + msg
+	return &combined
 }
 
 // streamStep is step() with a live console: fn receives an output sink that
@@ -346,10 +359,7 @@ func (r *deploymentRun) streamStep(ctx context.Context, name string, fn func(onO
 	}
 	if err != nil {
 		status = store.DeploymentStepStatusFailed
-		if logText == nil {
-			msg := err.Error()
-			logText = &msg
-		}
+		logText = appendFailure(logText, err)
 	}
 	_ = r.h.Store.FinishDeploymentStep(ctx, store.FinishDeploymentStepParams{
 		ID: stepID, Status: status, ExitCode: exit, Log: logText,
