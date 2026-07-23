@@ -23,6 +23,10 @@ services:
       AKERDOCK_DATABASE_URL: postgres://akerdock:${POSTGRES_PASSWORD}@postgres:5432/akerdock?sslmode=disable
       AKERDOCK_MASTER_KEY_FILE: /run/secrets/master.key
       AKERDOCK_INSTANCE_FQDN: ${AKERDOCK_INSTANCE_FQDN:-}
+      # The published host port above — the process cannot see its own port
+      # mapping, and the 00-control-plane proxy route must target the host
+      # side of it (proxy-contract §5.7).
+      AKERDOCK_INSTANCE_PORT: ${AKERDOCK_PORT:-8080}
       # Let's Encrypt contact. A wrong address fails silently — the proxy runs,
       # the certificates never come (§4.3).
       AKERDOCK_ACME_EMAIL: ${AKERDOCK_ACME_EMAIL:-}

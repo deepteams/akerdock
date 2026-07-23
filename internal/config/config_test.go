@@ -275,3 +275,41 @@ func TestUnknownVariableWithoutSuggestion(t *testing.T) {
 		t.Fatalf("distant variables should be warned without a misleading suggestion: %v", warnings)
 	}
 }
+
+// The 00-control-plane route must target the port published ON THE HOST
+// (proxy-contract §5.7). Under compose the process listens on 8080 while the
+// host publishes AKERDOCK_PORT — the compose passes the published value via
+// AKERDOCK_INSTANCE_PORT; a binary on the host simply inherits Port.
+func TestInstancePort(t *testing.T) {
+	cfg, _, err := Load(base(), noFile)
+	if err != nil {
+		t.Fatalf("unexpected errors: %v", err)
+	}
+	if cfg.InstancePort != cfg.Port {
+		t.Fatalf("InstancePort must default to Port, got %d vs %d", cfg.InstancePort, cfg.Port)
+	}
+
+	vars := base()
+	vars["AKERDOCK_PORT"] = "9443"
+	cfg, _, err = Load(vars, noFile)
+	if err != nil {
+		t.Fatalf("unexpected errors: %v", err)
+	}
+	if cfg.InstancePort != 9443 {
+		t.Fatalf("InstancePort must follow an overridden Port, got %d", cfg.InstancePort)
+	}
+
+	vars["AKERDOCK_INSTANCE_PORT"] = "9995"
+	cfg, _, err = Load(vars, noFile)
+	if err != nil {
+		t.Fatalf("unexpected errors: %v", err)
+	}
+	if cfg.InstancePort != 9995 || cfg.Port != 9443 {
+		t.Fatalf("AKERDOCK_INSTANCE_PORT must win without touching Port: %+v", cfg)
+	}
+
+	vars["AKERDOCK_INSTANCE_PORT"] = "not-a-port"
+	if _, _, err := Load(vars, noFile); err == nil || !strings.Contains(err.Error(), "AKERDOCK_INSTANCE_PORT") {
+		t.Fatalf("an invalid AKERDOCK_INSTANCE_PORT must be a named fatal error, got %v", err)
+	}
+}

@@ -68,7 +68,14 @@ type Config struct {
 	MasterKey     string
 	Mode          Mode
 	Port          int
-	InstanceFQDN  string
+	// InstancePort is the port at which the instance is reachable ON ITS HOST
+	// — what the 00-control-plane proxy route must target (proxy-contract
+	// §5.7). It differs from Port under the compose distribution, where the
+	// host mapping is `${AKERDOCK_PORT}:8080` and the process itself always
+	// listens on 8080. Defaults to Port, which is correct for a binary
+	// running directly on the host.
+	InstancePort int
+	InstanceFQDN string
 	// ACMEEmail is the Let's Encrypt contact (§4.3). Seeded here, then owned by
 	// instance_settings: an issuance failure is silent, so the address must be
 	// a deliberate choice, never a guess.
@@ -124,6 +131,7 @@ var envKeys = []string{
 	"AKERDOCK_MASTER_KEY",
 	"AKERDOCK_MODE",
 	"AKERDOCK_PORT",
+	"AKERDOCK_INSTANCE_PORT",
 	"AKERDOCK_INSTANCE_FQDN",
 	"AKERDOCK_ACME_EMAIL",
 	"AKERDOCK_SCHEDULER_TICK",
@@ -216,6 +224,15 @@ func Load(vars map[string]string, readFile func(string) ([]byte, error)) (*Confi
 			errs = append(errs, FieldError{"AKERDOCK_PORT", fmt.Sprintf("invalid value %q (expected an integer in 1–65535)", v)})
 		} else {
 			cfg.Port = p
+		}
+	}
+
+	cfg.InstancePort = cfg.Port
+	if v := get("AKERDOCK_INSTANCE_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err != nil || p < 1 || p > 65535 {
+			errs = append(errs, FieldError{"AKERDOCK_INSTANCE_PORT", fmt.Sprintf("invalid value %q (expected an integer in 1–65535)", v)})
+		} else {
+			cfg.InstancePort = p
 		}
 	}
 
