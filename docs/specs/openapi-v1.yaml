@@ -3270,6 +3270,53 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /applications/{application_uuid}/logs:
+    parameters:
+      - $ref: "#/components/parameters/ApplicationUuid"
+    get:
+      tags: [Applications]
+      operationId: getApplicationLogs
+      summary: Logs du container de l'application
+      description: >-
+        Les dernières lignes du container courant de l'application (§5.7) —
+        lecture directe sur le serveur (`docker logs`), jamais stockées.
+        `409` si le container n'existe pas (application jamais déployée ou
+        supprimée) ou si le serveur est injoignable en SSH.
+      x-required-permission: read
+      parameters:
+        - name: lines
+          in: query
+          required: false
+          description: Nombre de lignes de queue (défaut 200, max 2000).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2000
+            default: 200
+      responses:
+        "200":
+          description: Logs du container.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LogLine"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /applications/{application_uuid}/deploy:
     parameters:
       - $ref: "#/components/parameters/ApplicationUuid"

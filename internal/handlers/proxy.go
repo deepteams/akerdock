@@ -122,13 +122,13 @@ func (a *API) GetProxyLogs(w http.ResponseWriter, r *http.Request, serverUuid ap
 		a.internalError(w, r, "proxy logs", err)
 		return
 	}
-	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": proxyLogLines(res.Stdout)})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": containerLogLines(res.Stdout)})
 }
 
-// proxyLogLines renders the container output as the contract's LogLine shape.
+// containerLogLines renders the container output as the contract's LogLine shape.
 // The proxy writes everything to its own stream: there is no per-line channel
 // to recover, so the whole tail is stdout.
-func proxyLogLines(out string) []api.LogLine {
+func containerLogLines(out string) []api.LogLine {
 	raw := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	lines := make([]api.LogLine, 0, len(raw))
 	now := time.Now().UTC()

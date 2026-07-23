@@ -4428,6 +4428,12 @@ type ReplaceApplicationEnvsJSONBody struct {
 	Data []EnvironmentVariableCreate `json:"data"`
 }
 
+// GetApplicationLogsParams defines parameters for GetApplicationLogs.
+type GetApplicationLogsParams struct {
+	// Lines Nombre de lignes de queue (défaut 200, max 2000).
+	Lines *int `form:"lines,omitempty" json:"lines,omitempty"`
+}
+
 // RollbackApplicationJSONBody defines parameters for RollbackApplication.
 type RollbackApplicationJSONBody struct {
 	// DeploymentUuid Déploiement réussi dont l'image doit être redéployée.
@@ -5429,6 +5435,9 @@ type ServerInterface interface {
 	// Modifier une variable d'environnement
 	// (PATCH /applications/{application_uuid}/envs/{env_uuid})
 	UpdateApplicationEnv(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, envUuid EnvUuid)
+	// Logs du container de l'application
+	// (GET /applications/{application_uuid}/logs)
+	GetApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params GetApplicationLogsParams)
 	// Previews de PR d'une application
 	// (GET /applications/{application_uuid}/previews)
 	ListApplicationPreviews(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
@@ -6032,6 +6041,12 @@ func (_ Unimplemented) DeleteApplicationEnv(w http.ResponseWriter, r *http.Reque
 // Modifier une variable d'environnement
 // (PATCH /applications/{application_uuid}/envs/{env_uuid})
 func (_ Unimplemented) UpdateApplicationEnv(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, envUuid EnvUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Logs du container de l'application
+// (GET /applications/{application_uuid}/logs)
+func (_ Unimplemented) GetApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params GetApplicationLogsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -7871,6 +7886,54 @@ func (siw *ServerInterfaceWrapper) UpdateApplicationEnv(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateApplicationEnv(w, r, applicationUuid, envUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetApplicationLogs operation middleware
+func (siw *ServerInterfaceWrapper) GetApplicationLogs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "application_uuid" -------------
+	var applicationUuid ApplicationUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_uuid", chi.URLParam(r, "application_uuid"), &applicationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetApplicationLogsParams
+
+	// ------------- Optional query parameter "lines" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "lines", r.URL.Query(), &params.Lines, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "lines"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "lines", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetApplicationLogs(w, r, applicationUuid, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -15711,6 +15774,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/applications/{application_uuid}/envs/{env_uuid}", wrapper.UpdateApplicationEnv)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/applications/{application_uuid}/logs", wrapper.GetApplicationLogs)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/applications/{application_uuid}/previews", wrapper.ListApplicationPreviews)
 	})
 	r.Group(func(r chi.Router) {
@@ -17861,6 +17927,104 @@ func (response UpdateApplicationEnv422JSONResponse) VisitUpdateApplicationEnvRes
 type UpdateApplicationEnv429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response UpdateApplicationEnv429JSONResponse) VisitUpdateApplicationEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApplicationLogsRequestObject struct {
+	ApplicationUuid ApplicationUuid `json:"application_uuid"`
+	Params          GetApplicationLogsParams
+}
+
+type GetApplicationLogsResponseObject interface {
+	VisitGetApplicationLogsResponse(w http.ResponseWriter) error
+}
+
+type GetApplicationLogs200JSONResponse struct {
+	Data []LogLine `json:"data"`
+}
+
+func (response GetApplicationLogs200JSONResponse) VisitGetApplicationLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApplicationLogs401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetApplicationLogs401JSONResponse) VisitGetApplicationLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApplicationLogs403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetApplicationLogs403JSONResponse) VisitGetApplicationLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApplicationLogs404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetApplicationLogs404JSONResponse) VisitGetApplicationLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApplicationLogs409JSONResponse struct{ ConflictJSONResponse }
+
+func (response GetApplicationLogs409JSONResponse) VisitGetApplicationLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApplicationLogs429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetApplicationLogs429JSONResponse) VisitGetApplicationLogsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -33867,6 +34031,9 @@ type StrictServerInterface interface {
 	// Modifier une variable d'environnement
 	// (PATCH /applications/{application_uuid}/envs/{env_uuid})
 	UpdateApplicationEnv(ctx context.Context, request UpdateApplicationEnvRequestObject) (UpdateApplicationEnvResponseObject, error)
+	// Logs du container de l'application
+	// (GET /applications/{application_uuid}/logs)
+	GetApplicationLogs(ctx context.Context, request GetApplicationLogsRequestObject) (GetApplicationLogsResponseObject, error)
 	// Previews de PR d'une application
 	// (GET /applications/{application_uuid}/previews)
 	ListApplicationPreviews(ctx context.Context, request ListApplicationPreviewsRequestObject) (ListApplicationPreviewsResponseObject, error)
@@ -34873,6 +35040,33 @@ func (sh *strictHandler) UpdateApplicationEnv(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateApplicationEnvResponseObject); ok {
 		if err := validResponse.VisitUpdateApplicationEnvResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetApplicationLogs operation middleware
+func (sh *strictHandler) GetApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params GetApplicationLogsParams) {
+	var request GetApplicationLogsRequestObject
+
+	request.ApplicationUuid = applicationUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetApplicationLogs(ctx, request.(GetApplicationLogsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetApplicationLogs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetApplicationLogsResponseObject); ok {
+		if err := validResponse.VisitGetApplicationLogsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

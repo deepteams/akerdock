@@ -24,6 +24,7 @@ import { ApplicationWebhookTabComponent } from './application/webhook-tab.compon
 import { ApplicationDangerTabComponent } from './application/danger-tab.component';
 import { ApplicationPreviewsTabComponent } from './application/previews-tab.component';
 import { ApplicationTerminalTabComponent } from './application/terminal-tab.component';
+import { ApplicationLogsTabComponent } from './application/logs-tab.component';
 
 type Application = components['schemas']['Application'];
 type Deployment = components['schemas']['Deployment'];
@@ -37,6 +38,7 @@ type TabId =
   | 'storages'
   | 'tasks'
   | 'deployments'
+  | 'logs'
   | 'previews'
   | 'terminal'
   | 'webhook'
@@ -68,6 +70,7 @@ const isGap = (row: Row): row is GapMarker => 'gap' in row;
     ApplicationDangerTabComponent,
     ApplicationPreviewsTabComponent,
     ApplicationTerminalTabComponent,
+    ApplicationLogsTabComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'akd-page' },
@@ -295,6 +298,9 @@ const isGap = (row: Row): row is GapMarker => 'gap' in row;
       @case ('previews') {
         <app-application-previews-tab [uuid]="uuid()" />
       }
+      @case ('logs') {
+        <app-application-logs-tab [uuid]="uuid()" />
+      }
       @case ('terminal') {
         <app-application-terminal-tab [uuid]="uuid()" />
       }
@@ -431,6 +437,7 @@ export class ApplicationDetailComponent {
     { id: 'storages', label: 'Storages' },
     { id: 'tasks', label: 'Scheduled tasks' },
     { id: 'deployments', label: 'Deployments' },
+    { id: 'logs', label: 'Logs' },
     { id: 'previews', label: 'Previews' },
     { id: 'terminal', label: 'Terminal' },
     { id: 'webhook', label: 'Webhook' },

@@ -1425,6 +1425,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/applications/{application_uuid}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Logs du container de l'application
+         * @description Les dernières lignes du container courant de l'application (§5.7) — lecture directe sur le serveur (`docker logs`), jamais stockées. `409` si le container n'existe pas (application jamais déployée ou supprimée) ou si le serveur est injoignable en SSH.
+         */
+        get: operations["getApplicationLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/applications/{application_uuid}/deploy": {
         parameters: {
             query?: never;
@@ -8032,6 +8055,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TerminalSession"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getApplicationLogs: {
+        parameters: {
+            query?: {
+                /** @description Nombre de lignes de queue (défaut 200, max 2000). */
+                lines?: number;
+            };
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Logs du container. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["LogLine"][];
+                    };
                 };
             };
             401: components["responses"]["Unauthorized"];
