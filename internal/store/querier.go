@@ -648,6 +648,10 @@ type Querier interface {
 	SetDeploymentImage(ctx context.Context, arg SetDeploymentImageParams) error
 	SetDeploymentImageDigest(ctx context.Context, arg SetDeploymentImageDigestParams) error
 	SetDeploymentStatus(ctx context.Context, arg SetDeploymentStatusParams) error
+	// Live output of a RUNNING step (docker build, container start): the SSE log
+	// stream polls the steps every second, so refreshing the log as the command
+	// runs is what turns "step build: started … (silence)" into a console.
+	SetDeploymentStepLog(ctx context.Context, arg SetDeploymentStepLogParams) error
 	// Write-only provider API token (INV-003): stored envelope-encrypted, NULL
 	// removes it. Funds the degraded preview feedback and command rights checks
 	// (protocols §3-§6).

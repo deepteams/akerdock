@@ -648,6 +648,23 @@ func (q *Queries) SetDeploymentStatus(ctx context.Context, arg SetDeploymentStat
 	return err
 }
 
+const setDeploymentStepLog = `-- name: SetDeploymentStepLog :exec
+UPDATE deployment_steps SET log = $2 WHERE id = $1
+`
+
+type SetDeploymentStepLogParams struct {
+	ID  int64
+	Log *string
+}
+
+// Live output of a RUNNING step (docker build, container start): the SSE log
+// stream polls the steps every second, so refreshing the log as the command
+// runs is what turns "step build: started … (silence)" into a console.
+func (q *Queries) SetDeploymentStepLog(ctx context.Context, arg SetDeploymentStepLogParams) error {
+	_, err := q.db.Exec(ctx, setDeploymentStepLog, arg.ID, arg.Log)
+	return err
+}
+
 const supersedeQueuedDeployments = `-- name: SupersedeQueuedDeployments :many
 UPDATE deployments SET status = 'superseded', superseded_by_id = $2,
     finished_at = now(), updated_at = now()

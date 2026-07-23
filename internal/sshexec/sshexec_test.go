@@ -279,6 +279,26 @@ func TestRunSuccessInputAndExitStatus(t *testing.T) {
 	}
 }
 
+// RunStream must hand the output to the callback AND still return it in the
+// Result: the stream is a live view, not a replacement for the transcript.
+func TestRunStreamDeliversLiveOutput(t *testing.T) {
+	client := dialTestServer(t, newTestSSHServer(t, false, false), "")
+	var mu sync.Mutex
+	var streamed strings.Builder
+	result, err := client.RunStream(context.Background(), "success", func(chunk string) {
+		mu.Lock()
+		streamed.WriteString(chunk)
+		mu.Unlock()
+	})
+	if err != nil || result.Stdout != "stdout" || result.Stderr != "stderr" {
+		t.Fatalf("RunStream = %#v, %v", result, err)
+	}
+	got := streamed.String()
+	if !strings.Contains(got, "stdout") || !strings.Contains(got, "stderr") {
+		t.Fatalf("callback missed output, streamed %q", got)
+	}
+}
+
 func TestRunCancellationAndProtocolErrors(t *testing.T) {
 	client := dialTestServer(t, newTestSSHServer(t, false, false), "")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)

@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -272,6 +273,81 @@ func (r *deploymentRun) step(ctx context.Context, name string, fn func() (*sshex
 		status = store.DeploymentStepStatusFailed
 		msg := err.Error()
 		if logText == nil {
+			logText = &msg
+		}
+	}
+	_ = r.h.Store.FinishDeploymentStep(ctx, store.FinishDeploymentStepParams{
+		ID: stepID, Status: status, ExitCode: exit, Log: logText,
+	})
+	return err
+}
+
+// streamStep is step() with a live console: fn receives an output sink that
+// refreshes the step's log as the command runs — the SSE stream polls the
+// steps every second, so the browser sees the build output while it happens
+// instead of one silent blob at the end. Writes are throttled to one per
+// second; the closing FinishDeploymentStep records the authoritative
+// interleaved transcript.
+func (r *deploymentRun) streamStep(ctx context.Context, name string, fn func(onOutput func(string)) (*sshexec.Result, error)) error {
+	r.seq++
+	stepID, err := r.h.Store.CreateDeploymentStep(ctx, store.CreateDeploymentStepParams{
+		DeploymentID: r.d.ID, Seq: r.seq, Name: name,
+	})
+	if err != nil {
+		return err
+	}
+
+	var mu sync.Mutex
+	var buf strings.Builder
+	var lastFlush time.Time
+	onOutput := func(chunk string) {
+		mu.Lock()
+		buf.WriteString(chunk)
+		flush := time.Since(lastFlush) >= time.Second
+		var text string
+		if flush {
+			lastFlush = time.Now()
+			// Only up to the last COMPLETE line: the SSE stream assigns each
+			// line a definitive sequence — a line cut mid-flush would be
+			// emitted short and never completed on screen.
+			text = buf.String()
+			if i := strings.LastIndexByte(text, '\n'); i >= 0 {
+				text = strings.TrimSpace(text[:i])
+			} else {
+				text = ""
+			}
+		}
+		mu.Unlock()
+		if flush && text != "" {
+			_ = r.h.Store.SetDeploymentStepLog(ctx, store.SetDeploymentStepLogParams{ID: stepID, Log: &text})
+		}
+	}
+
+	res, err := fn(onOutput)
+	status := store.DeploymentStepStatusSucceeded
+	var exit *int32
+	var logText *string
+	// The streamed transcript preserves stdout/stderr interleaving — better
+	// than the Result's two separated halves when both are non-empty.
+	if combined := strings.TrimSpace(buf.String()); combined != "" {
+		logText = &combined
+	}
+	if res != nil {
+		code := int32(res.ExitCode)
+		exit = &code
+		if logText == nil {
+			if combined := strings.TrimSpace(res.Stdout + "\n" + res.Stderr); combined != "" {
+				logText = &combined
+			}
+		}
+		if res.ExitCode != 0 && err == nil {
+			err = fmt.Errorf("%s: exit code %d: %s", name, res.ExitCode, firstLine(res.Stderr))
+		}
+	}
+	if err != nil {
+		status = store.DeploymentStepStatusFailed
+		if logText == nil {
+			msg := err.Error()
 			logText = &msg
 		}
 	}
@@ -707,11 +783,11 @@ func (r *deploymentRun) buildFromDockerfile(ctx context.Context, appUUID, appDir
 		"mkdir -p %s/env && umask 077 && cat > %s/env/build.env", appDir, appDir), buildEnv); err != nil || res.ExitCode != 0 {
 		return "", fmt.Errorf("uploading build.env failed")
 	}
-	if err := r.step(ctx, "build", func() (*sshexec.Result, error) {
-		return r.bc().RunInput(ctx, fmt.Sprintf(
+	if err := r.streamStep(ctx, "build", func(onOutput func(string)) (*sshexec.Result, error) {
+		return r.bc().RunInputStream(ctx, fmt.Sprintf(
 			"mkdir -p %s && cat > %s/Dockerfile && set -a && . %s/env/build.env && set +a && "+
-				"DOCKER_BUILDKIT=1 docker build%s%s -t %s %s --label akerdock.commit_sha= %s",
-			srcDir, srcDir, appDir, noCache, buildArgs.Flags(), imageRef, labels, srcDir), *dockerfile)
+				"DOCKER_BUILDKIT=1 docker build --progress plain%s%s -t %s %s --label akerdock.commit_sha= %s",
+			srcDir, srcDir, appDir, noCache, buildArgs.Flags(), imageRef, labels, srcDir), *dockerfile, onOutput)
 	}); err != nil {
 		return "", err
 	}
@@ -964,10 +1040,10 @@ func (r *deploymentRun) buildFromGit(ctx context.Context, appUUID, appDir, label
 		if err := r.buildWithNixpacks(ctx, srcDir, baseDir, appDir, imageRef, labels, sha, noCache); err != nil {
 			return "", err
 		}
-	} else if err := r.step(ctx, "build", func() (*sshexec.Result, error) {
-		return r.bc().Run(ctx, fmt.Sprintf(
+	} else if err := r.streamStep(ctx, "build", func(onOutput func(string)) (*sshexec.Result, error) {
+		return r.bc().RunStream(ctx, fmt.Sprintf(
 			"cd %s/%s && set -a && . %s/env/build.env && set +a && DOCKER_BUILDKIT=1 docker build --file %s --progress plain%s%s --tag %s %s --label akerdock.commit_sha=%s .",
-			srcDir, baseDir, appDir, dockerfile, noCache, buildArgs.Flags(), imageRef, labels, sha))
+			srcDir, baseDir, appDir, dockerfile, noCache, buildArgs.Flags(), imageRef, labels, sha), onOutput)
 	}); err != nil {
 		return "", err
 	}
@@ -1493,10 +1569,10 @@ func (r *deploymentRun) buildWithNixpacks(ctx context.Context, srcDir, baseDir, 
 		staticFlags = " --no-error-without-start"
 	}
 
-	if err := r.step(ctx, "build", func() (*sshexec.Result, error) {
-		return r.bc().Run(ctx, fmt.Sprintf(
+	if err := r.streamStep(ctx, "build", func(onOutput func(string)) (*sshexec.Result, error) {
+		return r.bc().RunStream(ctx, fmt.Sprintf(
 			"cd %s/%s && set -a && . %s/env/build.env && set +a && %s build . --name %s %s --label akerdock.commit_sha=%s%s%s",
-			srcDir, baseDir, appDir, nixpacksBin, buildRef, labels, sha, noCache, staticFlags))
+			srcDir, baseDir, appDir, nixpacksBin, buildRef, labels, sha, noCache, staticFlags), onOutput)
 	}); err != nil {
 		return err
 	}

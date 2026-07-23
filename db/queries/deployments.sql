@@ -50,6 +50,12 @@ RETURNING id;
 UPDATE deployment_steps SET status = $2, exit_code = $3, log = $4, finished_at = now()
 WHERE id = $1;
 
+-- name: SetDeploymentStepLog :exec
+-- Live output of a RUNNING step (docker build, container start): the SSE log
+-- stream polls the steps every second, so refreshing the log as the command
+-- runs is what turns "step build: started … (silence)" into a console.
+UPDATE deployment_steps SET log = $2 WHERE id = $1;
+
 -- name: ListDeploymentSteps :many
 SELECT * FROM deployment_steps WHERE deployment_id = $1 ORDER BY seq;
 

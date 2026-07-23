@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -92,16 +93,44 @@ type Result struct {
 
 // Run executes a command in its own session, bounded by ctx.
 func (c *Client) Run(ctx context.Context, command string) (*Result, error) {
-	return c.run(ctx, command, nil)
+	return c.run(ctx, command, nil, nil)
 }
 
 // RunInput executes a command feeding input on stdin — used to upload
 // sensitive file contents without exposing them in argv (INV-003).
 func (c *Client) RunInput(ctx context.Context, command, input string) (*Result, error) {
-	return c.run(ctx, command, strings.NewReader(input))
+	return c.run(ctx, command, strings.NewReader(input), nil)
 }
 
-func (c *Client) run(ctx context.Context, command string, stdin io.Reader) (*Result, error) {
+// RunStream is Run with live output: every chunk the command writes — stdout
+// and stderr interleaved, in arrival order — is also handed to onOutput as it
+// arrives. For long-running commands whose console matters while they run
+// (a docker build, typically), not just once they exit.
+func (c *Client) RunStream(ctx context.Context, command string, onOutput func(string)) (*Result, error) {
+	return c.run(ctx, command, nil, onOutput)
+}
+
+// RunInputStream is RunInput with the live output of RunStream.
+func (c *Client) RunInputStream(ctx context.Context, command, input string, onOutput func(string)) (*Result, error) {
+	return c.run(ctx, command, strings.NewReader(input), onOutput)
+}
+
+// callbackWriter serializes chunks into the onOutput callback: the ssh
+// library pumps stdout and stderr from two goroutines, the callback must not
+// see them concurrently.
+type callbackWriter struct {
+	mu sync.Mutex
+	fn func(string)
+}
+
+func (w *callbackWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	w.fn(string(p))
+	w.mu.Unlock()
+	return len(p), nil
+}
+
+func (c *Client) run(ctx context.Context, command string, stdin io.Reader, onOutput func(string)) (*Result, error) {
 	session, err := c.conn.NewSession()
 	if err != nil {
 		return nil, fmt.Errorf("sshexec: session: %w", err)
@@ -110,6 +139,11 @@ func (c *Client) run(ctx context.Context, command string, stdin io.Reader) (*Res
 
 	var stdout, stderr bytes.Buffer
 	session.Stdout, session.Stderr = &stdout, &stderr
+	if onOutput != nil {
+		tee := &callbackWriter{fn: onOutput}
+		session.Stdout = io.MultiWriter(&stdout, tee)
+		session.Stderr = io.MultiWriter(&stderr, tee)
+	}
 	session.Stdin = stdin
 
 	done := make(chan error, 1)
