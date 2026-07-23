@@ -632,7 +632,7 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	}
 	// Declared volumes are created idempotently before the candidate, and
 	// mounted into it (§5.3.4). Bind mount host directories are created too.
-	mounts, prepare, err := r.renderStorages(ctx, appUUID)
+	mounts, prepare, err := r.renderStorages(ctx, appUUID, runRef)
 	if err != nil {
 		return err
 	}
@@ -1246,13 +1246,17 @@ func DockerVolumeName(resourceUUID, name string) string {
 }
 
 // renderStorages returns the docker create mount flags and the idempotent
-// preparation command for the application's declared storages (§8).
-func (r *deploymentRun) renderStorages(ctx context.Context, appUUID string) (mounts, prepare string, err error) {
+// preparation command for the application's declared storages (§8). imageRef
+// is the image the candidate will run: still-empty volumes are handed to its
+// runtime user, so a non-root image can write its own storage without a
+// custom Dockerfile.
+func (r *deploymentRun) renderStorages(ctx context.Context, appUUID, imageRef string) (mounts, prepare string, err error) {
 	storages, err := r.h.Store.ListStoragesForResource(ctx, r.app.Resource.ID)
 	if err != nil {
 		return "", "", err
 	}
 	var prep []string
+	var volumes []string
 	for _, s := range storages {
 		switch s.Kind {
 		case store.StorageKindVolume:
@@ -1275,6 +1279,7 @@ func (r *deploymentRun) renderStorages(ctx context.Context, appUUID string) (mou
 				"docker volume inspect %s >/dev/null 2>&1 || docker volume create --label akerdock.managed=true --label akerdock.resource_uuid=%s --label akerdock.team_uuid=%s %s >/dev/null",
 				vol, appUUID, r.teamUUID, vol))
 			mounts += fmt.Sprintf(" -v %s:%s", vol, s.MountPath)
+			volumes = append(volumes, vol)
 		case store.StorageKindBind:
 			if s.HostPath == nil {
 				continue
@@ -1289,7 +1294,42 @@ func (r *deploymentRun) renderStorages(ctx context.Context, appUUID string) (mou
 			mounts += fmt.Sprintf(" -v %s:%s", *s.HostPath, s.MountPath)
 		}
 	}
+	if len(volumes) > 0 && imageRef != "" {
+		prep = append(prep, chownEmptyVolumesScript(imageRef, volumes))
+	}
 	return mounts, strings.Join(prep, " && "), nil
+}
+
+// chownEmptyVolumesScript hands STILL-EMPTY volumes to the image's runtime
+// user. A fresh named volume mounted on a path absent from the image belongs
+// to root — a USER'd image then crash-loops on its first write, a failure
+// every non-root image would hit on every platform that didn't do this. Only
+// empty volumes are touched: data that exists already has an owner, and it is
+// not this function's to change. A named user is resolved through the image's
+// own /etc/passwd (docker create + cp — no shell run in the image, which may
+// not have one). Best-effort by design, hence the trailing `true`: an
+// unresolvable user falls back to today's behavior instead of failing the
+// deployment.
+func chownEmptyVolumesScript(imageRef string, volumes []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "u=$(docker image inspect --format '{{.Config.User}}' %s 2>/dev/null); ", imageRef)
+	b.WriteString("case \"$u\" in ''|root|0|0:*) u=;; esac; ")
+	b.WriteString("if [ -n \"$u\" ]; then uid=${u%%:*}; gid=${u#*:}; [ \"$gid\" = \"$u\" ] && gid=; ")
+	// A named user has no meaning on the host: resolve it to numeric ids in
+	// the image's own /etc/passwd.
+	b.WriteString("case \"$uid\" in *[!0-9]*) ")
+	fmt.Fprintf(&b, "cid=$(docker create %s 2>/dev/null); ", imageRef)
+	b.WriteString("if [ -n \"$cid\" ]; then ")
+	b.WriteString("entry=$(docker cp \"$cid\":/etc/passwd - 2>/dev/null | tar -xO 2>/dev/null | awk -F: -v n=\"$uid\" '$1==n{print $3\":\"$4; exit}'); ")
+	b.WriteString("docker rm -f \"$cid\" >/dev/null 2>&1; ")
+	b.WriteString("uid=${entry%%:*}; gid=${entry#*:}; fi;; esac; ")
+	b.WriteString("case \"$gid\" in ''|*[!0-9]*) gid=$uid;; esac; ")
+	b.WriteString("case \"$uid\" in ''|*[!0-9]*) :;; *) ")
+	fmt.Fprintf(&b, "for v in %s; do ", strings.Join(volumes, " "))
+	b.WriteString("mp=$(docker volume inspect --format '{{.Mountpoint}}' \"$v\" 2>/dev/null); ")
+	b.WriteString("[ -n \"$mp\" ] && [ -z \"$(ls -A \"$mp\" 2>/dev/null)\" ] && chown \"$uid:$gid\" \"$mp\"; ")
+	b.WriteString("done;; esac; fi; true")
+	return b.String()
 }
 
 // renderRuntimeEnv decrypts the application's variables into the

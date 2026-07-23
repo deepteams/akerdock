@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"errors"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -28,5 +29,33 @@ func TestAppendFailure(t *testing.T) {
 	full := "some output\n" + err.Error()
 	if got := appendFailure(&full, err); *got != full {
 		t.Fatalf("embedded error must not duplicate, got %q", *got)
+	}
+}
+
+// The chown script must only touch EMPTY volumes, resolve named users through
+// the image's own /etc/passwd, and never fail the step (trailing true). The
+// sh -n pass guards the quoting: this string runs as root on every server.
+func TestChownEmptyVolumesScript(t *testing.T) {
+	script := chownEmptyVolumesScript("akerdock/app:sha", []string{"vol_a", "vol_b"})
+
+	for _, want := range []string{
+		"docker image inspect --format '{{.Config.User}}' akerdock/app:sha",
+		"/etc/passwd",
+		"for v in vol_a vol_b; do",
+		`ls -A`,
+		"chown",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("script missing %q\n%s", want, script)
+		}
+	}
+	if !strings.HasSuffix(script, "true") {
+		t.Fatal("the script must be best-effort: it must end with true")
+	}
+
+	cmd := exec.Command("sh", "-n")
+	cmd.Stdin = strings.NewReader(script)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generated script does not parse: %v\n%s\n%s", err, out, script)
 	}
 }
