@@ -987,6 +987,19 @@ func (r *deploymentRun) containerConfigState(ctx context.Context, name string) (
 	return hash, status == "running"
 }
 
+// composeVolumeSources lists the docker names of the NAMED volumes a service
+// mounts — the ones whose ownership the empty-volume chown may need to fix.
+// Binds and tmpfs are the operator's (or the kernel's) business.
+func composeVolumeSources(sp compose.ServicePlan) []string {
+	var vols []string
+	for _, m := range sp.Mounts {
+		if m.Type == "volume" {
+			vols = append(vols, m.Source)
+		}
+	}
+	return vols
+}
+
 // connectCommands attaches a container to its extra stack networks, and to
 // the destination network when the proxy must reach it (§2.1).
 func (r *deploymentRun) connectCommands(sp compose.ServicePlan, container string, routedComponent bool, shortAliases bool) []string {
@@ -1010,6 +1023,12 @@ func (r *deploymentRun) recreateComposeService(ctx context.Context, plan *compos
 	create := r.composeCreateCommand(plan, sp, appDir, labels, envPath, envKeys, runRef,
 		composeCreateOpts{Name: sp.ContainerName, Aliases: sp.Aliases, ReplaceOld: true})
 	commands := append([]string{create}, r.connectCommands(sp, sp.ContainerName, routedComponent, true)...)
+	// Still-empty volumes are handed to the service image's runtime user
+	// BEFORE the first start — same contract as the single-container packs:
+	// a USER'd image must not crash-loop on its own storage.
+	if vols := composeVolumeSources(sp); len(vols) > 0 {
+		commands = append([]string{chownEmptyVolumesScript(runRef, vols)}, commands...)
+	}
 	commands = append(commands, "docker start "+sp.ContainerName)
 	if err := r.step(ctx, "start_"+sp.Name, func() (*sshexec.Result, error) {
 		return r.client.Run(ctx, strings.Join(commands, " && "))
@@ -1050,6 +1069,10 @@ func (r *deploymentRun) zeroDowntimeReplace(ctx context.Context, plan *compose.P
 		composeCreateOpts{Name: candidate, Aliases: []string{candidate}})
 	commands := append([]string{"docker rm -f " + candidate + " >/dev/null 2>&1 || true", create},
 		r.connectCommands(sp, candidate, true, false)...)
+	// Same empty-volume ownership contract as the recreate path.
+	if vols := composeVolumeSources(sp); len(vols) > 0 {
+		commands = append([]string{chownEmptyVolumesScript(runRef, vols)}, commands...)
+	}
 	commands = append(commands, "docker start "+candidate)
 	if err := r.step(ctx, "start_candidate_"+sp.Name, func() (*sshexec.Result, error) {
 		return r.client.Run(ctx, strings.Join(commands, " && "))

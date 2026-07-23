@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/deepteams/akerdock/internal/compose"
 )
 
 // A failed step must keep BOTH the command output and the error: the error
@@ -57,5 +59,20 @@ func TestChownEmptyVolumesScript(t *testing.T) {
 	cmd.Stdin = strings.NewReader(script)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generated script does not parse: %v\n%s\n%s", err, out, script)
+	}
+}
+
+// Only NAMED volumes get the ownership fix: binds belong to the operator and
+// tmpfs to the kernel.
+func TestComposeVolumeSources(t *testing.T) {
+	sp := compose.ServicePlan{Mounts: []compose.MountPlan{
+		{Type: "volume", Source: "stack_data"},
+		{Type: "bind", Source: "/srv/files"},
+		{Type: "tmpfs", Source: ""},
+		{Type: "volume", Source: "stack_cache"},
+	}}
+	got := composeVolumeSources(sp)
+	if len(got) != 2 || got[0] != "stack_data" || got[1] != "stack_cache" {
+		t.Fatalf("composeVolumeSources = %v", got)
 	}
 }
