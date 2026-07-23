@@ -82,7 +82,7 @@ func (a *API) RollbackApplication(w http.ResponseWriter, r *http.Request, applic
 	})
 	deployment, err := a.Store.CreateRollbackDeployment(r.Context(), store.CreateRollbackDeploymentParams{
 		Uuid: u, ResourceID: row.Resource.ID, Trigger: store.DeploymentTriggerApi,
-		ApiTokenID: ptr(id.TokenID),
+		ApiTokenID: apiTokenRef(id),
 		ImageName:  &artifact.ImageName, ImageTag: artifact.ImageTag, ImageDigest: artifact.ImageDigest,
 		ServerID: row.ServerRowID, ConfigSnapshot: snapshot,
 	})

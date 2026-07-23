@@ -717,6 +717,16 @@ func (a *API) DeployApplication(w http.ResponseWriter, r *http.Request, applicat
 	})
 }
 
+// apiTokenRef is the deployments.api_token_id value for this caller: the
+// token row for bearer callers, NULL for dashboard sessions — TokenID there
+// is a sessions row ID, and the foreign key targets api_tokens.
+func apiTokenRef(id *auth.Identity) *int64 {
+	if id.Session {
+		return nil
+	}
+	return ptr(id.TokenID)
+}
+
 var errQueueFull = &queueFullError{}
 
 type queueFullError struct{}
@@ -755,7 +765,7 @@ func (a *API) enqueueDeploymentWith(r *http.Request, id *auth.Identity, row appR
 	})
 	deployment, err := a.Store.CreateDeployment(r.Context(), store.CreateDeploymentParams{
 		Uuid: u, ResourceID: row.Resource.ID, Trigger: trigger,
-		ApiTokenID: ptr(id.TokenID), ForceRebuild: forceRebuild,
+		ApiTokenID: apiTokenRef(id), ForceRebuild: forceRebuild,
 		ImageName: row.BuildConfig.ImageName, ImageTag: row.BuildConfig.ImageTag,
 		ServerID: row.ServerRowID, ConfigSnapshot: snapshot,
 	})
