@@ -379,7 +379,8 @@ SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_t
        pk.uuid AS private_key_uuid, rc.uuid AS registry_credential_uuid,
        prc.uuid AS push_registry_credential_uuid,
        (gs.api_token_enc IS NOT NULL)::boolean AS git_api_token_set,
-       gs.api_url AS git_api_url
+       gs.api_url AS git_api_url,
+       ga.uuid AS github_app_uuid
 FROM resources r
 JOIN applications a ON a.id = r.id
 JOIN build_configs b ON b.application_id = a.id
@@ -389,6 +390,7 @@ JOIN projects p ON p.id = e.project_id
 JOIN destinations dst ON dst.id = r.destination_id
 JOIN servers srv ON srv.id = dst.server_id
 LEFT JOIN git_sources gs ON gs.id = a.git_source_id
+LEFT JOIN github_apps ga ON ga.id = gs.github_app_id
 LEFT JOIN private_keys pk ON pk.id = gs.private_key_id
 LEFT JOIN registry_credentials rc ON rc.id = b.registry_credential_id
 LEFT JOIN registry_credentials prc ON prc.id = b.push_registry_credential_id
@@ -415,6 +417,7 @@ type GetApplicationByUUIDRow struct {
 	PushRegistryCredentialUuid pgtype.UUID
 	GitApiTokenSet             bool
 	GitApiUrl                  *string
+	GithubAppUuid              pgtype.UUID
 }
 
 func (q *Queries) GetApplicationByUUID(ctx context.Context, arg GetApplicationByUUIDParams) (GetApplicationByUUIDRow, error) {
@@ -526,6 +529,7 @@ func (q *Queries) GetApplicationByUUID(ctx context.Context, arg GetApplicationBy
 		&i.PushRegistryCredentialUuid,
 		&i.GitApiTokenSet,
 		&i.GitApiUrl,
+		&i.GithubAppUuid,
 	)
 	return i, err
 }
@@ -657,12 +661,14 @@ SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_t
        pk.uuid AS private_key_uuid, rc.uuid AS registry_credential_uuid,
        prc.uuid AS push_registry_credential_uuid,
        (gs.api_token_enc IS NOT NULL)::boolean AS git_api_token_set,
-       gs.api_url AS git_api_url
+       gs.api_url AS git_api_url,
+       ga.uuid AS github_app_uuid
 FROM resources r
 JOIN applications a ON a.id = r.id
 JOIN build_configs b ON b.application_id = a.id
 JOIN runtime_configs rt ON rt.application_id = a.id
 LEFT JOIN git_sources gs ON gs.id = a.git_source_id
+LEFT JOIN github_apps ga ON ga.id = gs.github_app_id
 LEFT JOIN private_keys pk ON pk.id = gs.private_key_id
 LEFT JOIN registry_credentials rc ON rc.id = b.registry_credential_id
 LEFT JOIN registry_credentials prc ON prc.id = b.push_registry_credential_id
@@ -697,6 +703,7 @@ type ListApplicationsPageRow struct {
 	PushRegistryCredentialUuid pgtype.UUID
 	GitApiTokenSet             bool
 	GitApiUrl                  *string
+	GithubAppUuid              pgtype.UUID
 }
 
 func (q *Queries) ListApplicationsPage(ctx context.Context, arg ListApplicationsPageParams) ([]ListApplicationsPageRow, error) {
@@ -814,6 +821,7 @@ func (q *Queries) ListApplicationsPage(ctx context.Context, arg ListApplications
 			&i.PushRegistryCredentialUuid,
 			&i.GitApiTokenSet,
 			&i.GitApiUrl,
+			&i.GithubAppUuid,
 		); err != nil {
 			return nil, err
 		}

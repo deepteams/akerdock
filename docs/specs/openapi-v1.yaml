@@ -9601,6 +9601,14 @@ components:
         git_branch:
           type: string
           nullable: true
+        github_app_uuid:
+          type: string
+          nullable: true
+          readOnly: true
+          description: >-
+            (source git) GitHub App qui fournit le dépôt et l'authentification
+            de clone (§5.1) — nul pour une source git manuelle. Lecture seule :
+            le lien est établi à la création.
         pre_deployment_command:
           type: string
           nullable: true

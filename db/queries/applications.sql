@@ -55,7 +55,8 @@ SELECT sqlc.embed(r), sqlc.embed(a), sqlc.embed(b), sqlc.embed(rt),
        pk.uuid AS private_key_uuid, rc.uuid AS registry_credential_uuid,
        prc.uuid AS push_registry_credential_uuid,
        (gs.api_token_enc IS NOT NULL)::boolean AS git_api_token_set,
-       gs.api_url AS git_api_url
+       gs.api_url AS git_api_url,
+       ga.uuid AS github_app_uuid
 FROM resources r
 JOIN applications a ON a.id = r.id
 JOIN build_configs b ON b.application_id = a.id
@@ -65,6 +66,7 @@ JOIN projects p ON p.id = e.project_id
 JOIN destinations dst ON dst.id = r.destination_id
 JOIN servers srv ON srv.id = dst.server_id
 LEFT JOIN git_sources gs ON gs.id = a.git_source_id
+LEFT JOIN github_apps ga ON ga.id = gs.github_app_id
 LEFT JOIN private_keys pk ON pk.id = gs.private_key_id
 LEFT JOIN registry_credentials rc ON rc.id = b.registry_credential_id
 LEFT JOIN registry_credentials prc ON prc.id = b.push_registry_credential_id
@@ -77,12 +79,14 @@ SELECT sqlc.embed(r), sqlc.embed(a), sqlc.embed(b), sqlc.embed(rt),
        pk.uuid AS private_key_uuid, rc.uuid AS registry_credential_uuid,
        prc.uuid AS push_registry_credential_uuid,
        (gs.api_token_enc IS NOT NULL)::boolean AS git_api_token_set,
-       gs.api_url AS git_api_url
+       gs.api_url AS git_api_url,
+       ga.uuid AS github_app_uuid
 FROM resources r
 JOIN applications a ON a.id = r.id
 JOIN build_configs b ON b.application_id = a.id
 JOIN runtime_configs rt ON rt.application_id = a.id
 LEFT JOIN git_sources gs ON gs.id = a.git_source_id
+LEFT JOIN github_apps ga ON ga.id = gs.github_app_id
 LEFT JOIN private_keys pk ON pk.id = gs.private_key_id
 LEFT JOIN registry_credentials rc ON rc.id = b.registry_credential_id
 LEFT JOIN registry_credentials prc ON prc.id = b.push_registry_credential_id

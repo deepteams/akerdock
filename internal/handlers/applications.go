@@ -39,6 +39,9 @@ type appRow struct {
 	GitApiTokenSet bool
 	// GitApiUrl is the git source's self-hosted API endpoint.
 	GitApiUrl *string
+	// GithubAppUuid is set when a GitHub App provides the repository and the
+	// clone authentication — the UI hides the manual git source then.
+	GithubAppUuid pgtype.UUID
 }
 
 // watchPathsToAPI splits the stored newline-joined pattern list back into the
@@ -82,6 +85,7 @@ func applicationToAPI(row appRow) api.Application {
 		Dockerfile:                    row.BuildConfig.DockerfileContent,
 		GitRepository:                 row.Application.GitRepositoryUrl,
 		GitBranch:                     row.Application.GitBranch,
+		GithubAppUuid:                 optionalUUID(row.GithubAppUuid),
 		BuildPack:                     buildPackToAPI(row.BuildConfig.BuildPack),
 		BaseDirectory:                 ptr(row.Application.BaseDirectory),
 		WatchPaths:                    watchPathsToAPI(row.Application.WatchPaths),

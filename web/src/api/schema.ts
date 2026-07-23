@@ -4239,6 +4239,8 @@ export interface components {
             dockerfile?: string | null;
             git_repository?: string | null;
             git_branch?: string | null;
+            /** @description (source git) GitHub App qui fournit le dépôt et l'authentification de clone (§5.1) — nul pour une source git manuelle. Lecture seule : le lien est établi à la création. */
+            readonly github_app_uuid?: string | null;
             pre_deployment_command?: string | null;
             post_deployment_command?: string | null;
             private_key_uuid?: string | null;

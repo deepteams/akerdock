@@ -1983,6 +1983,9 @@ type Application struct {
 	GitBranch     *string `json:"git_branch,omitempty"`
 	GitRepository *string `json:"git_repository,omitempty"`
 
+	// GithubAppUuid (source git) GitHub App qui fournit le dépôt et l'authentification de clone (§5.1) — nul pour une source git manuelle. Lecture seule : le lien est établi à la création.
+	GithubAppUuid *string `json:"github_app_uuid,omitempty"`
+
 	// HealthCheck Health check applicatif (§5.3) — conditionne le routage et le zero-downtime.
 	HealthCheck      *HealthCheckConfig `json:"health_check,omitempty"`
 	LastDeploymentAt *time.Time         `json:"last_deployment_at,omitempty"`

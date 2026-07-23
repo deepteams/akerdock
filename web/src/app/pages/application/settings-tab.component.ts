@@ -48,6 +48,7 @@ type PrivateKey = components['schemas']['PrivateKey'];
         <app-application-config-fields
           [form]="form"
           [sourceType]="application()!.source_type"
+          [githubApp]="!!application()!.github_app_uuid"
           [registries]="registries()"
           [privateKeys]="privateKeys()"
           [busy]="busy()"
