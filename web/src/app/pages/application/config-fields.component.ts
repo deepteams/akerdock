@@ -58,9 +58,13 @@ type PrivateKey = components['schemas']['PrivateKey'];
       </div>
     </fieldset>
 
-    <fieldset class="group">
-      <legend>Source · {{ sourceType() }}</legend>
-      @switch (sourceType()) {
+    <!-- With a GitHub App the source is the picked repository: URL and deploy
+         key would contradict it, so the whole section only exists in manual
+         git mode. -->
+    @if (sourceType() !== 'git' || !githubApp()) {
+      <fieldset class="group">
+        <legend>Source · {{ sourceType() }}</legend>
+        @switch (sourceType()) {
         @case ('docker_image') {
           <div class="akd-field">
             <label class="akd-field__label" for="cf-image"
@@ -135,17 +139,6 @@ type PrivateKey = components['schemas']['PrivateKey'];
             />
           </div>
           <div class="akd-field">
-            <label class="akd-field__label" for="cf-branch">Branch</label>
-            <input
-              id="cf-branch"
-              name="cfBranch"
-              class="akd-input akd-input--mono"
-              placeholder="main"
-              [(ngModel)]="form().gitBranch"
-              [disabled]="busy()"
-            />
-          </div>
-          <div class="akd-field">
             <label class="akd-field__label" for="cf-key">Deploy key (private repositories)</label>
             <div class="akd-select">
               <select
@@ -161,6 +154,28 @@ type PrivateKey = components['schemas']['PrivateKey'];
                 }
               </select>
             </div>
+          </div>
+        }
+      }
+      </fieldset>
+    }
+
+    <!-- Everything about turning the source into an image, GitHub App or not:
+         a separate section, so hiding the manual source leaves it in place. -->
+    @if (sourceType() !== 'docker_image') {
+      <fieldset class="group">
+        <legend>Build</legend>
+        @if (sourceType() === 'git') {
+          <div class="akd-field">
+            <label class="akd-field__label" for="cf-branch">Branch</label>
+            <input
+              id="cf-branch"
+              name="cfBranch"
+              class="akd-input akd-input--mono"
+              placeholder="main"
+              [(ngModel)]="form().gitBranch"
+              [disabled]="busy()"
+            />
           </div>
           <div class="akd-field">
             <label class="akd-field__label" for="cf-buildpack">Build pack</label>
@@ -258,8 +273,6 @@ type PrivateKey = components['schemas']['PrivateKey'];
             ></textarea>
           </div>
         }
-      }
-      @if (sourceType() !== 'docker_image') {
         <label class="akd-check">
           <input
             type="checkbox"
@@ -290,8 +303,8 @@ type PrivateKey = components['schemas']['PrivateKey'];
             </div>
           </div>
         }
-      }
-    </fieldset>
+      </fieldset>
+    }
 
     <fieldset class="group">
       <legend>Routing</legend>
@@ -548,4 +561,8 @@ export class ApplicationConfigFieldsComponent {
   readonly registries = input<RegistryCredential[]>([]);
   readonly privateKeys = input<PrivateKey[]>([]);
   readonly busy = input(false);
+  /** True when a GitHub App provides the source: the manual git source
+   * section (repository URL, deploy key) is hidden — the Build section
+   * (branch, build pack…) stays. */
+  readonly githubApp = input(false);
 }

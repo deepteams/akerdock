@@ -183,6 +183,7 @@ type GitRepository = components['schemas']['GitRepository'];
         <app-application-config-fields
           [form]="form"
           [sourceType]="form.sourceType"
+          [githubApp]="!!form.githubAppUuid"
           [registries]="registries()"
           [privateKeys]="privateKeys()"
           [busy]="busy()"
