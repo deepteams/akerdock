@@ -21,59 +21,121 @@ type LogLine = components['schemas']['LogLine'];
 type ServiceComponent = components['schemas']['ServiceComponent'];
 type Storage = components['schemas']['PersistentStorage'];
 
+type TabId = 'overview' | 'logs' | 'envs' | 'storages' | 'danger';
+
 /**
- * Everything of ONE PR instance in one place (§20.4): where it runs, its
- * containers' consoles, its derived volumes, the preview variable set, and
- * its own danger zone — because debugging a preview through production's
- * pages meant debugging blind.
+ * Everything of ONE PR instance, in the same tabbed layout as the
+ * application page (§20.4): logs of its containers, its derived volumes,
+ * the preview variable set, and its own danger zone — because debugging a
+ * preview through production's pages meant debugging blind.
  */
 @Component({
   selector: 'app-preview-detail',
   standalone: true,
-  imports: [
-    FormsModule,
-    RouterLink,
-    CardComponent,
-    IconComponent,
-    ApplicationEnvsTabComponent,
-  ],
+  imports: [FormsModule, RouterLink, CardComponent, IconComponent, ApplicationEnvsTabComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'akd-page' },
   template: `
-    <div class="head">
-      <a class="akd-btn akd-btn--ghost akd-btn--sm" [routerLink]="['/applications', uuid()]">
-        <akd-icon name="arrow-left" [size]="14" />
-        Application
+    <header class="akd-bar head">
+      <a
+        [routerLink]="['/applications', uuid()]"
+        class="akd-iconbtn akd-iconbtn--bordered"
+        aria-label="Back to the application"
+      >
+        <akd-icon name="arrow-left" [size]="15" />
       </a>
+      <h1 class="name">PR #{{ preview()?.pr_id ?? '…' }}</h1>
       @if (preview(); as p) {
-        <h1 class="title">
-          <span class="akd-badge akd-badge--mono">PR #{{ p.pr_id }}</span>
-          {{ p.source_branch }}
-        </h1>
         <span class="akd-badge">{{ p.status }}</span>
         @if (p.is_fork) {
           <span class="akd-badge akd-badge--accent">fork</span>
         }
-        <span class="spacer"></span>
         @if (p.fqdn) {
-          <a class="akd-btn akd-btn--secondary akd-btn--sm" [href]="'https://' + p.fqdn" target="_blank" rel="noopener">
-            <akd-icon name="external-link" [size]="13" />
+          <a class="akd-mono" [href]="'https://' + p.fqdn" target="_blank" rel="noopener">
             {{ p.fqdn }}
           </a>
         }
+        <span class="spacer"></span>
+        @if (p.source_branch) {
+          <span class="akd-badge akd-badge--mono">{{ p.source_branch }}</span>
+        }
+        @if (p.head_sha; as sha) {
+          <span class="akd-badge akd-badge--mono">{{ sha.slice(0, 12) }}</span>
+        }
       }
-    </div>
+    </header>
 
     @if (error(); as message) {
       <p class="akd-error" role="alert">{{ message }}</p>
     }
 
-    @if (preview(); as p) {
-      <div class="stack">
-        <akd-card title="Logs" [padded]="false">
+    <nav class="akd-tabs" role="tablist" aria-label="Preview sections">
+      @for (t of tabs; track t.id) {
+        <button
+          type="button"
+          class="akd-tab"
+          role="tab"
+          [class.akd-tab--active]="tab() === t.id"
+          [attr.aria-selected]="tab() === t.id"
+          (click)="tab.set(t.id)"
+        >
+          {{ t.label }}
+        </button>
+      }
+    </nav>
+
+    @switch (tab()) {
+      @case ('overview') {
+        @if (preview(); as p) {
+          <akd-card title="Instance">
+            <dl class="facts">
+              <div>
+                <dt>Status</dt>
+                <dd>{{ p.status }}</dd>
+              </div>
+              <div>
+                <dt>Branch</dt>
+                <dd class="akd-mono">{{ p.source_branch ?? '—' }}</dd>
+              </div>
+              <div>
+                <dt>Head</dt>
+                <dd class="akd-mono">{{ p.head_sha ?? '—' }}</dd>
+              </div>
+              <div>
+                <dt>URL</dt>
+                <dd>
+                  @if (p.fqdn) {
+                    <a class="akd-mono" [href]="'https://' + p.fqdn" target="_blank" rel="noopener">{{
+                      p.fqdn
+                    }}</a>
+                  } @else {
+                    —
+                  }
+                </dd>
+              </div>
+              <div>
+                <dt>Last deployed</dt>
+                <dd>{{ p.last_deployed_at ?? '—' }}</dd>
+              </div>
+              <div>
+                <dt>Fork</dt>
+                <dd>{{ p.is_fork ? (p.fork_approved ? 'yes — approved' : 'yes — pending approval') : 'no' }}</dd>
+              </div>
+            </dl>
+          </akd-card>
+        }
+      }
+      @case ('logs') {
+        <akd-card title="Container logs" [padded]="false">
           <div class="toolbar">
             @if (components().length > 0) {
               <div class="akd-select">
-                <select name="component" class="akd-input" [(ngModel)]="component" (ngModelChange)="refreshLogs()">
+                <select
+                  name="component"
+                  class="akd-input"
+                  [(ngModel)]="component"
+                  (ngModelChange)="refreshLogs()"
+                >
                   @for (c of components(); track c.name) {
                     <option [ngValue]="c.name">{{ c.name }}</option>
                   }
@@ -92,7 +154,12 @@ type Storage = components['schemas']['PersistentStorage'];
               Follow (refresh every 3 s)
             </label>
             <span class="spacer"></span>
-            <button class="akd-btn akd-btn--secondary akd-btn--sm" type="button" [disabled]="busy()" (click)="refreshLogs()">
+            <button
+              class="akd-btn akd-btn--secondary akd-btn--sm"
+              type="button"
+              [disabled]="busy()"
+              (click)="refreshLogs()"
+            >
               <akd-icon name="refresh-cw" [size]="13" />
               Refresh
             </button>
@@ -108,13 +175,23 @@ type Storage = components['schemas']['PersistentStorage'];
             <p class="akd-muted pad">Loading…</p>
           }
         </akd-card>
-
-        @if (storages().length > 0) {
-          <akd-card title="Preview storages" [padded]="false">
-            <p class="akd-muted pad">
-              Derived from the application's storages — created empty (or cloned when the
-              volume declares preview_seed), destroyed with the preview.
-            </p>
+      }
+      @case ('envs') {
+        <p class="akd-muted note">
+          The previews set is shared by every preview of the application (INV-010: production
+          values are never inherited). Changes apply on the next preview deployment.
+        </p>
+        <app-application-envs-tab [uuid]="uuid()" />
+      }
+      @case ('storages') {
+        <akd-card title="Preview storages" [padded]="false">
+          <p class="akd-muted pad">
+            Derived from the application's storages — created empty (or cloned when the volume
+            declares preview_seed), destroyed with the preview.
+          </p>
+          @if (storages().length === 0) {
+            <p class="akd-muted pad">No persistent storage declared.</p>
+          } @else {
             <table class="akd-table">
               <thead>
                 <tr>
@@ -131,18 +208,10 @@ type Storage = components['schemas']['PersistentStorage'];
                 }
               </tbody>
             </table>
-          </akd-card>
-        }
-
-        <section>
-          <h2 class="section-title">Environment variables · previews set</h2>
-          <p class="akd-muted">
-            This set is shared by every preview of the application (INV-010: production
-            values are never inherited). Changes apply on the next preview deployment.
-          </p>
-          <app-application-envs-tab [uuid]="uuid()" />
-        </section>
-
+          }
+        </akd-card>
+      }
+      @case ('danger') {
         <akd-card title="Danger zone">
           <div class="danger">
             <div>
@@ -153,14 +222,17 @@ type Storage = components['schemas']['PersistentStorage'];
                 instance.
               </p>
             </div>
-            <button class="akd-btn akd-btn--danger" type="button" [disabled]="busy() || p.status === 'destroyed'" (click)="destroy()">
+            <button
+              class="akd-btn akd-btn--danger"
+              type="button"
+              [disabled]="busy() || preview()?.status === 'destroyed'"
+              (click)="destroy()"
+            >
               Destroy preview
             </button>
           </div>
         </akd-card>
-      </div>
-    } @else if (!error()) {
-      <p class="akd-muted">Loading…</p>
+      }
     }
   `,
   styles: [
@@ -171,23 +243,32 @@ type Storage = components['schemas']['PersistentStorage'];
         gap: var(--space-3);
         margin-bottom: var(--space-4);
       }
-      .title {
+      .name {
         margin: 0;
         font-size: var(--text-lg);
-        display: flex;
-        align-items: center;
-        gap: var(--space-2);
       }
       .spacer {
         flex: 1;
       }
-      .stack {
-        display: grid;
-        gap: var(--space-5);
+      .akd-tabs {
+        margin-bottom: var(--space-4);
       }
-      .section-title {
-        margin: 0 0 var(--space-2);
-        font-size: var(--text-md);
+      .facts {
+        margin: 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+        gap: var(--space-4);
+      }
+      .facts dt {
+        font-size: var(--text-xs);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-3);
+        margin-bottom: var(--space-1);
+      }
+      .facts dd {
+        margin: 0;
+        overflow-wrap: anywhere;
       }
       .toolbar {
         display: flex;
@@ -198,6 +279,9 @@ type Storage = components['schemas']['PersistentStorage'];
       }
       .pad {
         padding: var(--space-3);
+      }
+      .note {
+        margin: 0 0 var(--space-3);
       }
       .log {
         margin: 0;
@@ -226,6 +310,15 @@ export class PreviewDetailComponent {
 
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+
+  protected readonly tabs: readonly { id: TabId; label: string }[] = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'logs', label: 'Logs' },
+    { id: 'envs', label: 'Environment variables' },
+    { id: 'storages', label: 'Storages' },
+    { id: 'danger', label: 'Danger' },
+  ];
+  protected readonly tab = signal<TabId>('overview');
 
   protected readonly preview = signal<Preview | null>(null);
   protected readonly components = signal<ServiceComponent[]>([]);
@@ -314,7 +407,10 @@ export class PreviewDetailComponent {
 
   protected async destroy(): Promise<void> {
     const p = this.preview();
-    if (!p || !confirm(`Destroy the preview of PR #${p.pr_id}? Its containers and volumes will be removed.`)) {
+    if (
+      !p ||
+      !confirm(`Destroy the preview of PR #${p.pr_id}? Its containers and volumes will be removed.`)
+    ) {
       return;
     }
     this.busy.set(true);
