@@ -943,6 +943,14 @@ func (r *deploymentRun) replaceComposeService(ctx context.Context, plan *compose
 	if !r.d.ForceRebuild && !sp.OneShot {
 		currentHash, running := r.containerConfigState(ctx, sp.ContainerName)
 		if currentHash == hash && running {
+			// An unchanged container still converges its NETWORK membership:
+			// network attachments are not part of the create command, so the
+			// hash cannot see them — and becoming routed (a domain added
+			// since the last deployment) must not require a recreate. An
+			// already-connected network errors and is tolerated.
+			for _, connect := range r.connectCommands(sp, sp.ContainerName, routedComponent, true) {
+				_, _ = r.client.Run(ctx, connect+" >/dev/null 2>&1 || true")
+			}
 			r.skipStep(ctx, "start_"+sp.Name, "unchanged since the last deployment (config hash "+hash+")")
 			return nil
 		}
