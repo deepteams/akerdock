@@ -256,6 +256,7 @@ Namespace propre `x-akerdock` **(défaut proposé)**, conforme au mécanisme d'e
 | Hook pré-déploiement | `x-akerdock.pre_deployment_command: <cmd>` | `services.<name>` | Exécuté dans le container **existant** du service, avant tout build et toute mutation (deployment-engine §10) ; sauté si aucun container ne tourne |
 | Hook post-déploiement | `x-akerdock.post_deployment_command: <cmd>` | `services.<name>` | Exécuté dans le **candidat** sain du service, avant sa bascule — un échec supprime le candidat et l'ancien reste routé (C2, INV-005). Exige un service routé et éligible zero-downtime : refusé au déploiement **avant toute mutation** sinon ; refusé à la validation sur un one-shot (`compose_hook_on_one_shot`), averti sans healthcheck déclaré (`compose_hook_without_healthcheck`) |
 | Métadonnées de template en commentaires | `x-akerdock.template` (top-level) | Top-level | §12 |
+| Seed d'une preview par clone du volume de production | `x-akerdock.preview_seed: clone` | `volumes.<name>` (déclaration top-level) | **ADR-029.** Au déploiement d'une **preview**, le volume de la preview encore vide est initialisé par copie (`cp -a`, source en lecture seule) du volume de production `<uuid-app>_<nom>`, dans un conteneur éphémère de l'image du service, avant son premier démarrage. Volume non vide jamais retouché ; volume de production absent → seed sauté ; échec de copie → échec du déploiement de la preview. Refusé sur un volume `external:` et en mode raw (`compose_preview_seed_invalid`). Seule valeur admise : `clone`. |
 
 Exemple :
 

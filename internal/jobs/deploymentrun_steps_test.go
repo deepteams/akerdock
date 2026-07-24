@@ -89,3 +89,34 @@ func TestComposeVolumeSources(t *testing.T) {
 		t.Fatalf("composeVolumeSources = %v", got)
 	}
 }
+
+// The seed script (ADR-029) mounts production READ-ONLY, only fills EMPTY
+// preview volumes, skips a missing production volume without creating it,
+// and — unlike the best-effort chown — lets a copy failure fail the step:
+// the operator declared they want data.
+func TestPreviewSeedScript(t *testing.T) {
+	script := previewSeedScript("postgres:17", [][2]string{
+		{"app_pgdata", "preview_pgdata"},
+	})
+
+	for _, want := range []string{
+		"if docker volume inspect app_pgdata >/dev/null 2>&1; then",
+		"-v app_pgdata:/akerdock-seed-from:ro",
+		"-v preview_pgdata:/akerdock-volume postgres:17",
+		"cp -a /akerdock-seed-from/. /akerdock-volume/",
+		`ls -A /akerdock-volume`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("script missing %q\n%s", want, script)
+		}
+	}
+	if strings.Contains(script, "|| true") {
+		t.Fatal("a failed seed must fail the step — never best-effort")
+	}
+
+	cmd := exec.Command("sh", "-n")
+	cmd.Stdin = strings.NewReader(script)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generated script does not parse: %v\n%s\n%s", err, out, script)
+	}
+}

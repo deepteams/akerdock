@@ -628,3 +628,49 @@ services:
 		t.Fatalf("a post hook without a declared healthcheck must be warned: %v", res.Findings)
 	}
 }
+
+// preview_seed (ADR-029): `clone` on a managed named volume lands in the
+// plan; anything else is a validation error — never a silent ignore, the
+// operator is declaring what a PR instance will contain.
+func TestPreviewSeedVolume(t *testing.T) {
+	base := `
+services:
+  db:
+    image: postgres:17
+    volumes: [pgdata:/var/lib/postgresql/data]
+volumes:
+  pgdata:
+    x-akerdock:
+      preview_seed: clone
+`
+	plan := mustPlan(t, load(t, base))
+	if declared, ok := plan.SeedVolumes[stackUUID+"_pgdata"]; !ok || declared != "pgdata" {
+		t.Fatalf("SeedVolumes = %#v, want the marked volume", plan.SeedVolumes)
+	}
+
+	res := load(t, strings.Replace(base, "preview_seed: clone", "preview_seed: dump", 1))
+	if !hasFinding(res, CodePreviewSeedInvalid, Error) {
+		t.Fatalf("an unknown preview_seed value must be an error, got %v", res.Findings)
+	}
+
+	res = load(t, base, func(in *Input) { in.Raw = true })
+	if !hasFinding(res, CodePreviewSeedInvalid, Error) {
+		t.Fatalf("preview_seed in raw mode must be an error, got %v", res.Findings)
+	}
+
+	external := `
+services:
+  db:
+    image: postgres:17
+    volumes: [pgdata:/var/lib/postgresql/data]
+volumes:
+  pgdata:
+    external: true
+    x-akerdock:
+      preview_seed: clone
+`
+	res = load(t, external, func(in *Input) { in.Policy = Policy{AllowExternalObjects: true} })
+	if !hasFinding(res, CodePreviewSeedInvalid, Error) {
+		t.Fatalf("preview_seed on an external volume must be an error, got %v", res.Findings)
+	}
+}

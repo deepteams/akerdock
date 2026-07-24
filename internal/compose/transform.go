@@ -21,6 +21,11 @@ type Plan struct {
 	ExtraNetworks map[string]string
 	// Volumes maps declared named volumes to their docker names (§2.4).
 	Volumes map[string]string
+	// SeedVolumes maps the docker name of a volume declaring
+	// `x-akerdock: preview_seed: clone` to its DECLARED name (ADR-029): a
+	// preview deployment seeds it, still empty, from the production volume
+	// `<app-uuid>_<declared>` before the mounting service first starts.
+	SeedVolumes map[string]string
 	// ExternalVolumes maps `external: true` volumes to their real docker
 	// names: mounted verbatim, never created, never prefixed. This is how an
 	// adopted stack keeps its data across the normalizing redeployment
@@ -124,6 +129,7 @@ func buildPlan(project *types.Project, in Input, fs *findings) (*Plan, error) {
 		ExtraNetworks:   map[string]string{},
 		Volumes:         map[string]string{},
 		ExternalVolumes: map[string]string{},
+		SeedVolumes:     map[string]string{},
 	}
 
 	for name, network := range project.Networks {
@@ -137,9 +143,22 @@ func buildPlan(project *types.Project, in Input, fs *findings) (*Plan, error) {
 		plan.ExtraNetworks[dockerName] = name
 	}
 	for name, volume := range project.Volumes {
+		seed, seedDeclared := "", false
+		if raw := extensionMap(volume.Extensions); raw != nil {
+			if v, ok := raw["preview_seed"]; ok {
+				seedDeclared = true
+				seed, _ = v.(string)
+			}
+		}
 		if bool(volume.External) {
 			// External = pre-existing: mounted under its real name (the
 			// explicit `name:` or the key), never created or prefixed.
+			if seedDeclared {
+				// An external volume IS production (adoption §20.7): there is
+				// no per-preview copy of it to seed.
+				fs.errf(CodePreviewSeedInvalid, "", "volumes."+name+".x-akerdock.preview_seed",
+					"preview_seed does not apply to an external volume — it is the production object itself (ADR-029)")
+			}
 			dockerName := volume.Name
 			if dockerName == "" {
 				dockerName = name
@@ -152,6 +171,20 @@ func buildPlan(project *types.Project, in Input, fs *findings) (*Plan, error) {
 			dockerName = name
 		}
 		plan.Volumes[name] = dockerName
+		switch {
+		case !seedDeclared:
+		case seed != "clone":
+			fs.errf(CodePreviewSeedInvalid, "", "volumes."+name+".x-akerdock.preview_seed",
+				"preview_seed only accepts \"clone\" (ADR-029)")
+		case in.Raw:
+			// Raw mode keeps compose project-name semantics: the preview and
+			// the production stack would designate the SAME volume — there is
+			// nothing to clone from, only production to corrupt.
+			fs.errf(CodePreviewSeedInvalid, "", "volumes."+name+".x-akerdock.preview_seed",
+				"preview_seed is not available in raw compose mode — volume names are not prefixed there (ADR-029, §9)")
+		default:
+			plan.SeedVolumes[dockerName] = name
+		}
 	}
 
 	order, ok := topologicalOrder(project)

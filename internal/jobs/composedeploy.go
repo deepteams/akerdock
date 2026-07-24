@@ -1000,6 +1000,48 @@ func composeVolumeSources(sp compose.ServicePlan) []string {
 	return vols
 }
 
+// previewSeedScript initializes the still-empty preview volumes of one
+// service from their production counterparts (ADR-029): `cp -a` inside a
+// throwaway container of the service's image, production mounted READ-ONLY.
+// A missing production volume skips the pair (nothing to clone — and `docker
+// run -v` must not create it as a side effect); a failing copy fails the
+// chain deliberately: the operator declared they want data, a silently empty
+// database would betray that.
+func previewSeedScript(imageRef string, pairs [][2]string) string {
+	var b strings.Builder
+	for _, p := range pairs {
+		prod, preview := p[0], p[1]
+		fmt.Fprintf(&b, "if docker volume inspect %s >/dev/null 2>&1; then ", prod)
+		fmt.Fprintf(&b, "docker run --rm --user 0 --entrypoint /bin/sh -v %s:/akerdock-seed-from:ro -v %s:/akerdock-volume %s ",
+			prod, preview, imageRef)
+		b.WriteString(`-c '[ -n "$(ls -A /akerdock-volume)" ] || cp -a /akerdock-seed-from/. /akerdock-volume/'`)
+		b.WriteString("; fi && ")
+	}
+	return strings.TrimSuffix(b.String(), " && ")
+}
+
+// previewSeedPairs matches this service's mounted volumes against the plan's
+// preview_seed declarations and returns (production, preview) docker-name
+// pairs. Empty outside previews: seeding is a PREVIEW contract only.
+func (r *deploymentRun) previewSeedPairs(plan *compose.Plan, sp compose.ServicePlan) [][2]string {
+	if r.preview == nil {
+		return nil
+	}
+	appUUID := pguuid.String(r.app.Resource.Uuid)
+	var pairs [][2]string
+	for _, m := range sp.Mounts {
+		if m.Type != "volume" {
+			continue
+		}
+		declared, ok := plan.SeedVolumes[m.Source]
+		if !ok {
+			continue
+		}
+		pairs = append(pairs, [2]string{appUUID + "_" + declared, m.Source})
+	}
+	return pairs
+}
+
 // connectCommands attaches a container to its extra stack networks, and to
 // the destination network when the proxy must reach it (§2.1).
 func (r *deploymentRun) connectCommands(sp compose.ServicePlan, container string, routedComponent bool, shortAliases bool) []string {
@@ -1028,6 +1070,12 @@ func (r *deploymentRun) recreateComposeService(ctx context.Context, plan *compos
 	// a USER'd image must not crash-loop on its own storage.
 	if vols := composeVolumeSources(sp); len(vols) > 0 {
 		commands = append([]string{chownEmptyVolumesScript(runRef, vols)}, commands...)
+	}
+	// Preview seeding runs FIRST (ADR-029): `cp -a` carries the production
+	// ownership over, so the chown right after sees a non-empty volume and
+	// leaves it alone.
+	if pairs := r.previewSeedPairs(plan, sp); len(pairs) > 0 {
+		commands = append([]string{previewSeedScript(runRef, pairs)}, commands...)
 	}
 	commands = append(commands, "docker start "+sp.ContainerName)
 	if err := r.step(ctx, "start_"+sp.Name, func() (*sshexec.Result, error) {
@@ -1072,6 +1120,10 @@ func (r *deploymentRun) zeroDowntimeReplace(ctx context.Context, plan *compose.P
 	// Same empty-volume ownership contract as the recreate path.
 	if vols := composeVolumeSources(sp); len(vols) > 0 {
 		commands = append([]string{chownEmptyVolumesScript(runRef, vols)}, commands...)
+	}
+	// Same preview seeding contract as the recreate path (ADR-029).
+	if pairs := r.previewSeedPairs(plan, sp); len(pairs) > 0 {
+		commands = append([]string{previewSeedScript(runRef, pairs)}, commands...)
 	}
 	commands = append(commands, "docker start "+candidate)
 	if err := r.step(ctx, "start_candidate_"+sp.Name, func() (*sshexec.Result, error) {

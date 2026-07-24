@@ -37,6 +37,7 @@ const (
 	CodeDependencyCycle            = "compose_dependency_cycle"
 	CodeDependencyNeedsHealthcheck = "compose_dependency_needs_healthcheck"
 	CodeRequiredVariableMissing    = "compose_required_variable_missing"
+	CodePreviewSeedInvalid         = "compose_preview_seed_invalid"
 	CodeVariableUndefined          = "compose_variable_undefined"
 	CodeSharedVariableMissing      = "compose_shared_variable_missing"
 	CodeMagicVariableInvalidType   = "compose_magic_variable_invalid_type"
