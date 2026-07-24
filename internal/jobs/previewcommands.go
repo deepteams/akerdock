@@ -151,3 +151,28 @@ func githubAppRights(client interface {
 		return client.CollaboratorCanWrite(ctx, token, repo, username)
 	}
 }
+
+// DeployPreviewForPR is the platform-side /deploy (§20.4): upserts the
+// preview identity from provider data and promotes it under exactly the same
+// rules as the comment command — fork approval included (INV-010).
+func DeployPreviewForPR(ctx context.Context, q *store.Queries, keyring *envelope.Keyring, logger *slog.Logger,
+	app store.GetApplicationByIDRow, provider store.GitProvider, prID int, branch, sha string, isFork bool, repoRef *string,
+) (store.Preview, bool, string, error) {
+	preview, err := q.UpsertPreview(ctx, store.UpsertPreviewParams{
+		ApplicationID: app.Resource.ID, Provider: provider, PrID: int32(prID),
+		SourceBranch: &branch, HeadSha: &sha, IsFork: isFork, RepoReference: repoRef,
+	})
+	if err != nil {
+		return store.Preview{}, false, "", err
+	}
+	if err := ensurePreviewScaffolding(ctx, q, keyring, app, &preview); err != nil {
+		return preview, false, "", err
+	}
+	if preview.IsFork && !preview.ForkApprovedAt.Valid {
+		// Not an error: the preview identity exists, the approval button is
+		// the next step — the caller surfaces the reason.
+		return preview, false, "fork waiting for maintainer approval (INV-010)", nil
+	}
+	promoted, reason, err := TryPromotePreview(ctx, q, logger, app, preview)
+	return preview, promoted, reason, err
+}

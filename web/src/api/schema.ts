@@ -2050,6 +2050,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/applications/{application_uuid}/pull-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Pull requests ouvertes du dépôt de l'application
+         * @description Lues en direct chez le provider via la GitHub App de la source (§2.2) — jamais stockées. Sert au déclenchement d'une preview depuis la plateforme (§20.4). `409` si la source n'est pas une GitHub App installée.
+         */
+        get: operations["listApplicationPullRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/applications/{application_uuid}/previews": {
         parameters: {
             query?: never;
@@ -2063,7 +2086,11 @@ export interface paths {
         /** Previews de PR d'une application */
         get: operations["listApplicationPreviews"];
         put?: never;
-        post?: never;
+        /**
+         * Déployer la preview d'une PR depuis la plateforme
+         * @description L'équivalent du commentaire `/deploy` (§20.4.7), sans passer par le provider : la PR est relue chez lui (branche, SHA de tête, fork), la preview créée ou relancée, et promue sous les mêmes règles — une PR de fork reste en attente d'approbation (INV-010). `409` si les previews sont désactivées, si la source n'est pas une GitHub App installée, ou si la PR n'est pas ouverte.
+         */
+        post: operations["deployPreviewForPr"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9401,6 +9428,43 @@ export interface operations {
             429: components["responses"]["TooManyRequests"];
         };
     };
+    listApplicationPullRequests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PRs ouvertes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            number: number;
+                            title: string;
+                            branch: string;
+                            head_sha: string;
+                            is_fork: boolean;
+                            draft?: boolean;
+                        }[];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
     listApplicationPreviews: {
         parameters: {
             query?: never;
@@ -9427,6 +9491,40 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    deployPreviewForPr: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    pr_id: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Preview créée ou relancée. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preview"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             429: components["responses"]["TooManyRequests"];
         };
     };

@@ -153,6 +153,20 @@ export class AkerDockClient {
     return this.request<Response>('GET', `/applications/${uuid}`);
   }
 
+  listApplicationPullRequests(uuid: string) {
+    type Response =
+      paths['/applications/{application_uuid}/pull-requests']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/applications/${uuid}/pull-requests`);
+  }
+
+  deployPreviewForPr(uuid: string, prId: number) {
+    type Response =
+      paths['/applications/{application_uuid}/previews']['post']['responses']['202']['content']['application/json'];
+    return this.request<Response>('POST', `/applications/${uuid}/previews`, {
+      body: { pr_id: prId },
+    });
+  }
+
   createPreviewTerminalSession(
     applicationUuid: string,
     previewUuid: string,

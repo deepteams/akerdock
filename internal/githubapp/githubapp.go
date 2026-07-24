@@ -287,6 +287,49 @@ type CheckRunInput struct {
 	} `json:"output,omitempty"`
 }
 
+// PullRequest is one pull request of a repository, as the platform needs it
+// to drive a preview (§20.4): head to deploy, base to talk to, fork status.
+type PullRequest struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	State  string `json:"state"`
+	Draft  bool   `json:"draft"`
+	Head   struct {
+		Ref  string `json:"ref"`
+		SHA  string `json:"sha"`
+		Repo struct {
+			FullName string `json:"full_name"`
+		} `json:"repo"`
+	} `json:"head"`
+	Base struct {
+		Repo struct {
+			FullName string `json:"full_name"`
+		} `json:"repo"`
+	} `json:"base"`
+}
+
+// IsFork reports whether the head lives in another repository than the base.
+func (p PullRequest) IsFork() bool {
+	return p.Head.Repo.FullName != "" && p.Head.Repo.FullName != p.Base.Repo.FullName
+}
+
+// ListOpenPullRequests lists the open PRs of a repository.
+func (c *Client) ListOpenPullRequests(ctx context.Context, token, fullName string) ([]PullRequest, error) {
+	var prs []PullRequest
+	if err := c.do(ctx, http.MethodGet, "/repos/"+fullName+"/pulls?state=open&per_page=100", token, nil, &prs); err != nil {
+		return nil, err
+	}
+	return prs, nil
+}
+
+// GetPullRequest fetches one PR — the deploy path re-reads it instead of
+// trusting a list the browser may have held for minutes.
+func (c *Client) GetPullRequest(ctx context.Context, token, fullName string, number int) (PullRequest, error) {
+	var pr PullRequest
+	err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d", fullName, number), token, nil, &pr)
+	return pr, err
+}
+
 func (c *Client) CreateCheckRun(ctx context.Context, token, fullName string, in CheckRunInput) (CheckRun, error) {
 	var out CheckRun
 	err := c.do(ctx, http.MethodPost, "/repos/"+fullName+"/check-runs", token, in, &out)

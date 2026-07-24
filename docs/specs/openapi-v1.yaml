@@ -4642,6 +4642,57 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /applications/{application_uuid}/pull-requests:
+    parameters:
+      - $ref: "#/components/parameters/ApplicationUuid"
+    get:
+      tags: [Applications]
+      operationId: listApplicationPullRequests
+      summary: Pull requests ouvertes du dépôt de l'application
+      description: >-
+        Lues en direct chez le provider via la GitHub App de la source (§2.2)
+        — jamais stockées. Sert au déclenchement d'une preview depuis la
+        plateforme (§20.4). `409` si la source n'est pas une GitHub App
+        installée.
+      x-required-permission: read
+      responses:
+        "200":
+          description: PRs ouvertes.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [number, title, branch, head_sha, is_fork]
+                      properties:
+                        number:
+                          type: integer
+                        title:
+                          type: string
+                        branch:
+                          type: string
+                        head_sha:
+                          type: string
+                        is_fork:
+                          type: boolean
+                        draft:
+                          type: boolean
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /applications/{application_uuid}/previews:
     parameters:
       - $ref: "#/components/parameters/ApplicationUuid"
@@ -4669,6 +4720,46 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      tags: [Applications]
+      operationId: deployPreviewForPr
+      summary: Déployer la preview d'une PR depuis la plateforme
+      description: >-
+        L'équivalent du commentaire `/deploy` (§20.4.7), sans passer par le
+        provider : la PR est relue chez lui (branche, SHA de tête, fork), la
+        preview créée ou relancée, et promue sous les mêmes règles — une PR
+        de fork reste en attente d'approbation (INV-010). `409` si les
+        previews sont désactivées, si la source n'est pas une GitHub App
+        installée, ou si la PR n'est pas ouverte.
+      x-required-permission: deploy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pr_id]
+              properties:
+                pr_id:
+                  type: integer
+                  minimum: 1
+      responses:
+        "202":
+          description: Preview créée ou relancée.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Preview"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 

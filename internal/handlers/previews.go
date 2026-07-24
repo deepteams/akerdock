@@ -4,14 +4,18 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
+	"github.com/deepteams/akerdock/internal/githubapp"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/jobs"
 	"github.com/deepteams/akerdock/internal/sshexec"
@@ -281,4 +285,137 @@ func (a *API) CreatePreviewTerminalSession(w http.ResponseWriter, r *http.Reques
 		spec.name = fmt.Sprintf("%s · PR #%d · %s", row.Resource.Name, preview.PrID, *params.Component)
 	}
 	a.createTerminalSession(w, r, id, spec)
+}
+
+// githubForApplication resolves the application's GitHub App source and
+// mints an installation token scoped to its repository. The conflict message
+// names the fix — this powers UI actions, not background jobs.
+func (a *API) githubForApplication(ctx context.Context, row appRow) (*githubapp.Client, string, string, error) {
+	if row.Application.GitSourceID == nil || row.Application.RepositoryID == nil {
+		return nil, "", "", fmt.Errorf("this application has no GitHub App source — pull requests are read through the App (§2.2)")
+	}
+	source, err := a.Store.GetGitSourceByID(ctx, *row.Application.GitSourceID)
+	if err != nil || source.GithubAppID == nil {
+		return nil, "", "", fmt.Errorf("this application's git source is not a GitHub App")
+	}
+	app, err := a.Store.GetGithubAppByID(ctx, *source.GithubAppID)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("the GitHub App of this source no longer exists")
+	}
+	if app.AppID == nil || app.InstallationID == nil || app.AppPrivateKeyEnc == nil {
+		return nil, "", "", fmt.Errorf("the GitHub App is not installed yet — finish the installation first")
+	}
+	repo, err := a.Store.GetRepositoryByID(ctx, *row.Application.RepositoryID)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("the application's repository is not known — redeploy once to resync")
+	}
+	pem, err := a.Keyring.Decrypt("github_apps", "app_private_key_enc", uuidString(app.Uuid), app.AppPrivateKeyEnc)
+	if err != nil {
+		return nil, "", "", err
+	}
+	client := &githubapp.Client{APIURL: app.ApiUrl}
+	jwt, err := githubapp.AppJWT(*app.AppID, pem, time.Now())
+	if err != nil {
+		return nil, "", "", err
+	}
+	var repos []string
+	if _, name, ok := strings.Cut(repo.FullName, "/"); ok {
+		repos = []string{name}
+	}
+	token, err := client.InstallationToken(ctx, jwt, *app.InstallationID, repos)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("github installation token: %w", err)
+	}
+	return client, token.Token, repo.FullName, nil
+}
+
+// ListApplicationPullRequests implements GET /applications/{uuid}/pull-requests
+// (permission: read): the repository's open PRs, read live from the provider.
+func (a *API) ListApplicationPullRequests(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid) {
+	id, ok := a.require(w, r, auth.PermRead)
+	if !ok {
+		return
+	}
+	row, ok := a.resolveApplication(w, r, id, applicationUuid)
+	if !ok {
+		return
+	}
+	client, token, fullName, err := a.githubForApplication(r.Context(), appRow(row))
+	if err != nil {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, err.Error())
+		return
+	}
+	prs, err := client.ListOpenPullRequests(r.Context(), token, fullName)
+	if err != nil {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "listing pull requests failed: "+err.Error())
+		return
+	}
+	data := make([]map[string]any, 0, len(prs))
+	for _, pr := range prs {
+		data = append(data, map[string]any{
+			"number": pr.Number, "title": pr.Title, "branch": pr.Head.Ref,
+			"head_sha": pr.Head.SHA, "is_fork": pr.IsFork(), "draft": pr.Draft,
+		})
+	}
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": data})
+}
+
+// DeployPreviewForPr implements POST /applications/{uuid}/previews
+// (permission: deploy): the platform-side /deploy (§20.4.7). The PR is
+// re-read from the provider — never trusted from the browser.
+func (a *API) DeployPreviewForPr(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid) {
+	id, ok := a.require(w, r, auth.PermDeploy)
+	if !ok {
+		return
+	}
+	row, ok := a.resolveApplication(w, r, id, applicationUuid)
+	if !ok {
+		return
+	}
+	if !row.Application.PreviewsEnabled {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "previews are disabled for this application — enable them in Settings first")
+		return
+	}
+	var body struct {
+		PrID int `json:"pr_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.PrID < 1 {
+		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "pr_id is required")
+		return
+	}
+	client, token, fullName, err := a.githubForApplication(r.Context(), appRow(row))
+	if err != nil {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, err.Error())
+		return
+	}
+	pr, err := client.GetPullRequest(r.Context(), token, fullName, body.PrID)
+	if err != nil {
+		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, fmt.Sprintf("PR #%d not found on %s", body.PrID, fullName))
+		return
+	}
+	if pr.State != "open" {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, fmt.Sprintf("PR #%d is %s — only open PRs deploy previews", pr.Number, pr.State))
+		return
+	}
+
+	appRow, err := a.Store.GetApplicationByID(r.Context(), row.Resource.ID)
+	if err != nil {
+		a.internalError(w, r, "deploy preview", err)
+		return
+	}
+	repoRef := fullName
+	preview, _, reason, err := jobs.DeployPreviewForPR(r.Context(), a.Store, a.Keyring, a.Logger,
+		appRow, store.GitProviderGithub, pr.Number, pr.Head.Ref, pr.Head.SHA, pr.IsFork(), &repoRef)
+	if err != nil {
+		a.internalError(w, r, "deploy preview", err)
+		return
+	}
+	a.recordAudit(r, id, "preview.deploy", "application", row.Resource.Uuid)
+	if reason != "" {
+		a.Logger.Info("preview deploy queued with reason", "application", uuidString(row.Resource.Uuid), "pr", pr.Number, "reason", reason)
+	}
+	if refreshed, err := a.Store.GetPreviewByID(r.Context(), preview.ID); err == nil {
+		preview = refreshed
+	}
+	httpapi.WriteJSON(w, http.StatusAccepted, previewToAPI(preview))
 }

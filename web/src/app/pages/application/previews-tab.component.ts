@@ -8,12 +8,19 @@ import {
   untracked,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../../ui/card/card.component';
 import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
+import { ModalComponent } from '../../../ui/modal/modal.component';
+import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
 import type { components } from '../../../api/schema';
 
 type Preview = components['schemas']['Preview'];
+type PullRequestInfo =
+  components['schemas'] extends never
+    ? never
+    : { number: number; title: string; branch: string; head_sha: string; is_fork: boolean; draft?: boolean };
 
 /**
  * PR previews (§20.4): one ephemeral instance per pull request, protected by
@@ -23,12 +30,26 @@ type Preview = components['schemas']['Preview'];
 @Component({
   selector: 'app-application-previews-tab',
   standalone: true,
-  imports: [RouterLink, CardComponent, EmptyStateComponent],
+  imports: [RouterLink, FormsModule, CardComponent, EmptyStateComponent, ModalComponent, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (error(); as message) {
       <p class="akd-error" role="alert">{{ message }}</p>
     }
+
+    <div class="actions-bar">
+      <!-- The platform-side /deploy (§20.4.7): pick any open PR of the
+           repository and give it an instance, without leaving the page. -->
+      <button
+        class="akd-btn akd-btn--primary akd-btn--sm"
+        type="button"
+        [disabled]="busy()"
+        (click)="openDeployModal()"
+      >
+        <akd-icon name="rocket" [size]="14" />
+        Deploy a PR
+      </button>
+    </div>
 
     @if (loading()) {
       <p class="akd-muted">Loading…</p>
@@ -105,7 +126,89 @@ type Preview = components['schemas']['Preview'];
         </table>
       </akd-card>
     }
+
+    <akd-modal [open]="deployOpen()" title="Deploy a pull request preview" (closed)="deployOpen.set(false)">
+      <div class="modal-body">
+        <input
+          class="akd-input"
+          name="prSearch"
+          placeholder="Search by number, title or branch…"
+          [(ngModel)]="prSearch"
+        />
+        @if (prsLoading()) {
+          <p class="akd-muted">Loading open pull requests…</p>
+        } @else if (prsError(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        } @else if (filteredPrs().length === 0) {
+          <p class="akd-muted">No open pull request matches.</p>
+        } @else {
+          <ul class="pr-list">
+            @for (pr of filteredPrs(); track pr.number) {
+              <li>
+                <span class="akd-badge akd-badge--mono">#{{ pr.number }}</span>
+                <span class="pr-title">{{ pr.title }}</span>
+                <span class="akd-mono akd-muted">{{ pr.branch }}</span>
+                @if (pr.is_fork) {
+                  <span class="akd-badge akd-badge--accent">fork</span>
+                }
+                @if (pr.draft) {
+                  <span class="akd-badge">draft</span>
+                }
+                <span class="spacer"></span>
+                <button
+                  class="akd-btn akd-btn--primary akd-btn--sm"
+                  type="button"
+                  [disabled]="busy()"
+                  (click)="deployPr(pr.number)"
+                >
+                  Deploy
+                </button>
+              </li>
+            }
+          </ul>
+        }
+      </div>
+    </akd-modal>
   `,
+  styles: [
+    `
+      .actions-bar {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: var(--space-3);
+      }
+      .modal-body {
+        display: grid;
+        gap: var(--space-3);
+      }
+      .pr-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: var(--space-2);
+        max-height: 50vh;
+        overflow: auto;
+      }
+      .pr-list li {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        padding: var(--space-2);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+      }
+      .pr-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 18rem;
+      }
+      .spacer {
+        flex: 1;
+      }
+    `,
+  ],
 })
 export class ApplicationPreviewsTabComponent {
   readonly uuid = input.required<string>();
@@ -116,6 +219,11 @@ export class ApplicationPreviewsTabComponent {
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
+  protected readonly deployOpen = signal(false);
+  protected readonly prs = signal<PullRequestInfo[]>([]);
+  protected readonly prsLoading = signal(false);
+  protected readonly prsError = signal<string | null>(null);
+  protected prSearch = '';
 
   constructor() {
     effect(() => {
@@ -132,6 +240,44 @@ export class ApplicationPreviewsTabComponent {
       this.error.set(ApiService.describe(err));
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  protected filteredPrs(): PullRequestInfo[] {
+    const q = this.prSearch.trim().toLowerCase();
+    if (!q) return this.prs();
+    return this.prs().filter(
+      (pr) =>
+        String(pr.number).includes(q) ||
+        pr.title.toLowerCase().includes(q) ||
+        pr.branch.toLowerCase().includes(q),
+    );
+  }
+
+  protected openDeployModal(): void {
+    this.deployOpen.set(true);
+    this.prSearch = '';
+    this.prsError.set(null);
+    this.prsLoading.set(true);
+    this.api
+      .client()
+      .listApplicationPullRequests(this.uuid())
+      .then((page) => this.prs.set(page.data))
+      .catch((err) => this.prsError.set(ApiService.describe(err)))
+      .finally(() => this.prsLoading.set(false));
+  }
+
+  protected async deployPr(prNumber: number): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    try {
+      await this.api.client().deployPreviewForPr(this.uuid(), prNumber);
+      this.deployOpen.set(false);
+      await this.load(this.uuid());
+    } catch (err) {
+      this.prsError.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
     }
   }
 
