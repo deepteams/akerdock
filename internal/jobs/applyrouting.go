@@ -277,8 +277,12 @@ func injectPreviewMiddlewares(content, previewUUID string, protection store.Prev
 		// forwardAuth to the control plane (ADR-030): the AkerDock session
 		// decides — whatever login method produced it. No WWW-Authenticate
 		// ever reaches the browser, so the app's own 401s stay its own.
+		// The preview identity travels IN THE ADDRESS: the auth call may
+		// transit other proxies (the panel's own router, typically), which
+		// rewrite X-Forwarded-Host — a query parameter survives every hop.
 		middlewares = append(middlewares, previewUUID+"-auth")
-		extra += fmt.Sprintf("    %s-auth:\n      forwardAuth:\n        address: %q\n", previewUUID, ssoAuthURL)
+		extra += fmt.Sprintf("    %s-auth:\n      forwardAuth:\n        address: %q\n",
+			previewUUID, ssoAuthURL+"?preview="+previewUUID)
 	}
 
 	// Attach the middlewares to the https routers, and define them in the

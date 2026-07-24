@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -54,16 +55,35 @@ func forwardedURL(r *http.Request) (host string, original *url.URL) {
 // otherwise. Never bearer-authenticated: Traefik is the caller.
 func (a *API) PreviewForwardAuth(w http.ResponseWriter, r *http.Request) {
 	host, original := forwardedURL(r)
-	if host == "" {
-		http.Error(w, "missing X-Forwarded-Host", http.StatusBadRequest)
+	// The preview identity comes from the middleware's ADDRESS (?preview=…):
+	// the auth call may transit other proxies — the panel's own router when
+	// the instance FQDN loops back through Traefik — and those rewrite
+	// X-Forwarded-Host. The address query survives every hop (ADR-030).
+	preview, err := store.Preview{}, error(nil)
+	if u := r.URL.Query().Get("preview"); u != "" {
+		var id pgtype.UUID
+		if err := id.Scan(u); err != nil {
+			http.Error(w, "invalid preview reference", http.StatusForbidden)
+			return
+		}
+		preview, err = a.Store.GetPreviewByUUID(r.Context(), id)
+	} else if host != "" {
+		preview, err = a.Store.GetPreviewByHost(r.Context(), host)
+	} else {
+		http.Error(w, "missing preview reference", http.StatusBadRequest)
 		return
 	}
-	preview, err := a.Store.GetPreviewByHost(r.Context(), host)
 	if err != nil {
-		// Not a preview host: nothing to protect here — fail CLOSED anyway,
-		// this endpoint exists only behind preview routers.
+		// Fail CLOSED: this endpoint exists only behind preview routers.
 		http.Error(w, "unknown preview host", http.StatusForbidden)
 		return
+	}
+	// The redirect must land back on the ORIGINAL host. X-Forwarded-Host is
+	// trusted only when it belongs to this preview (primary fqdn or a compose
+	// service's `<service>-<fqdn>`); rewritten by an intermediate proxy, it
+	// falls back to the preview's primary fqdn.
+	if preview.Fqdn != nil && !previewOwnsHost(*preview.Fqdn, host) {
+		original.Host = *preview.Fqdn
 	}
 
 	// A valid cookie is the fast path — one indexed lookup per request.
@@ -165,4 +185,16 @@ func (a *API) PreviewAuthorize(w http.ResponseWriter, r *http.Request) {
 	query.Set(previewTokenParam, token)
 	target.RawQuery = query.Encode()
 	http.Redirect(w, r, target.String(), http.StatusFound)
+}
+
+// previewOwnsHost reports whether host is one of the preview's own hosts:
+// its fqdn, or a compose service's derived `<service>-<fqdn>` (§20.4.1).
+func previewOwnsHost(fqdn, host string) bool {
+	if host == "" || fqdn == "" {
+		return false
+	}
+	if strings.EqualFold(host, fqdn) {
+		return true
+	}
+	return strings.HasSuffix(strings.ToLower(host), "-"+strings.ToLower(fqdn))
 }

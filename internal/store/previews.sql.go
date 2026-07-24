@@ -197,6 +197,37 @@ func (q *Queries) GetPreviewByIdentity(ctx context.Context, arg GetPreviewByIden
 	return i, err
 }
 
+const getPreviewByUUID = `-- name: GetPreviewByUUID :one
+SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference FROM previews WHERE uuid = $1
+`
+
+func (q *Queries) GetPreviewByUUID(ctx context.Context, uuid pgtype.UUID) (Preview, error) {
+	row := q.db.QueryRow(ctx, getPreviewByUUID, uuid)
+	var i Preview
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.ApplicationID,
+		&i.Provider,
+		&i.PrID,
+		&i.SourceBranch,
+		&i.HeadSha,
+		&i.IsFork,
+		&i.ForkApprovedBy,
+		&i.ForkApprovedAt,
+		&i.Fqdn,
+		&i.Status,
+		&i.CleanupError,
+		&i.LastDeployedAt,
+		&i.LastActivityAt,
+		&i.DestroyedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RepoReference,
+	)
+	return i, err
+}
+
 const getPreviewByUUIDForTeam = `-- name: GetPreviewByUUIDForTeam :one
 SELECT p.id, p.uuid, p.application_id, p.provider, p.pr_id, p.source_branch, p.head_sha, p.is_fork, p.fork_approved_by, p.fork_approved_at, p.fqdn, p.status, p.cleanup_error, p.last_deployed_at, p.last_activity_at, p.destroyed_at, p.created_at, p.updated_at, p.repo_reference FROM previews p
 JOIN resources r ON r.id = p.application_id

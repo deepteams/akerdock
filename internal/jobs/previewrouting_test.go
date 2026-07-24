@@ -114,7 +114,7 @@ func TestRenderPreviewRoutingFileSSO(t *testing.T) {
 	}
 	for _, want := range []string{
 		"forwardAuth:",
-		`address: "https://manager.example.com/webhooks/previews/forward-auth"`,
+		"address: \"https://manager.example.com/webhooks/previews/forward-auth?preview=",
 		"-auth",
 		"X-Robots-Tag: noindex",
 	} {

@@ -128,3 +128,6 @@ SELECT * FROM previews
 WHERE fqdn IS NOT NULL AND (fqdn = sqlc.arg(host)::citext OR sqlc.arg(host)::citext LIKE '%-' || fqdn)
 ORDER BY length(fqdn) DESC
 LIMIT 1;
+
+-- name: GetPreviewByUUID :one
+SELECT * FROM previews WHERE uuid = $1;

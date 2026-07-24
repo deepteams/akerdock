@@ -345,6 +345,7 @@ type Querier interface {
 	GetPreviewByHost(ctx context.Context, host string) (Preview, error)
 	GetPreviewByID(ctx context.Context, id int64) (Preview, error)
 	GetPreviewByIdentity(ctx context.Context, arg GetPreviewByIdentityParams) (Preview, error)
+	GetPreviewByUUID(ctx context.Context, uuid pgtype.UUID) (Preview, error)
 	// Team ownership travels through the application chain (INV-002).
 	GetPreviewByUUIDForTeam(ctx context.Context, arg GetPreviewByUUIDForTeamParams) (Preview, error)
 	// The most recent artifact of a successful deployment other than the one
