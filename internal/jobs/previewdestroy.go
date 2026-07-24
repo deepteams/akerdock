@@ -108,6 +108,10 @@ func (h *PreviewDestroy) Execute(ctx context.Context, job store.Job, rec *queue.
 	if err := h.Store.SetPreviewStatus(ctx, store.SetPreviewStatusParams{ID: preview.ID, Status: store.PreviewStatusDestroyed}); err != nil {
 		return nil, err
 	}
+	// The FQDN dies with the instance: a revival (PR reopen, /deploy) derives
+	// a fresh one from the CURRENT url template — keeping the old name would
+	// pin every existing PR to the template of its first deployment forever.
+	_ = h.Store.SetPreviewFqdn(ctx, store.SetPreviewFqdnParams{ID: preview.ID, Fqdn: nil})
 	rec.Succeed(ctx, "preview removed")
 	(&PreviewFeedback{Store: h.Store, Keyring: h.Keyring, Logger: h.Logger}).Notify(ctx, app, preview, "destroyed")
 	h.Logger.Info("preview destroyed", "preview", previewUUID, "pr", preview.PrID)
