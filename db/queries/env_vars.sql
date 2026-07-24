@@ -2,8 +2,8 @@
 -- for the v1 endpoints; the preview set lands with previews.
 
 -- name: CreateEnvVar :one
-INSERT INTO environment_variables (uuid, resource_id, key, value_enc, is_build_time, is_literal, is_multiline, is_locked, is_secret, is_preview)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+INSERT INTO environment_variables (uuid, resource_id, key, value_enc, is_build_time, is_literal, is_multiline, is_locked, is_secret, is_preview, preview_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, sqlc.narg(preview_id))
 RETURNING *;
 
 -- name: GetEnvVarByUUID :one
@@ -19,6 +19,7 @@ WHERE resource_id = $1 AND key = $2 AND is_preview = false;
 -- cannot read them cannot open their own protected preview.
 SELECT * FROM environment_variables
 WHERE resource_id = sqlc.arg(resource_id) AND is_preview = sqlc.arg(is_preview)
+  AND preview_id IS NULL
   AND (sqlc.arg(after_id)::bigint = 0 OR id < sqlc.arg(after_id))
 ORDER BY id DESC
 LIMIT sqlc.arg(page_limit);
@@ -47,11 +48,11 @@ WHERE resource_id = $1 AND is_preview = false AND NOT is_locked
 -- never regenerated while the row exists — the conflict target guarantees it.
 INSERT INTO environment_variables (uuid, resource_id, key, value_enc, is_secret, is_generated)
 VALUES ($1, $2, $3, $4, $5, true)
-ON CONFLICT (resource_id, key, is_preview) DO NOTHING;
+ON CONFLICT (resource_id, key, is_preview, COALESCE(preview_id, 0)) DO NOTHING;
 
 -- name: CreateGeneratedPreviewEnvVar :execrows
 -- Generated secret of the PREVIEW variable set (§20.4.4) — e.g. the basic
 -- auth credential. Same one-shot semantics as the magic variables.
 INSERT INTO environment_variables (uuid, resource_id, key, value_enc, is_secret, is_generated, is_preview)
 VALUES ($1, $2, $3, $4, true, true, true)
-ON CONFLICT (resource_id, key, is_preview) DO NOTHING;
+ON CONFLICT (resource_id, key, is_preview, COALESCE(preview_id, 0)) DO NOTHING;

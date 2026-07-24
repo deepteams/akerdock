@@ -2891,6 +2891,9 @@ type EnvironmentVariable struct {
 	IsLocked    bool       `json:"is_locked"`
 	IsMultiline bool       `json:"is_multiline"`
 
+	// IsPreviewOverride Surcharge dédiée à UNE preview (§20.4) — absente ou false pour les variables des jeux production et previews partagé.
+	IsPreviewOverride *bool `json:"is_preview_override,omitempty"`
+
 	// IsRedacted Vrai si `value` a été masquée (permission insuffisante ou variable verrouillée).
 	IsRedacted *bool `json:"is_redacted,omitempty"`
 
@@ -5172,6 +5175,9 @@ type UpdateApplicationEnvJSONRequestBody = EnvironmentVariableUpdate
 // DeployPreviewForPrJSONRequestBody defines body for DeployPreviewForPr for application/json ContentType.
 type DeployPreviewForPrJSONRequestBody DeployPreviewForPrJSONBody
 
+// CreatePreviewEnvJSONRequestBody defines body for CreatePreviewEnv for application/json ContentType.
+type CreatePreviewEnvJSONRequestBody = EnvironmentVariableCreate
+
 // RollbackApplicationJSONRequestBody defines body for RollbackApplication for application/json ContentType.
 type RollbackApplicationJSONRequestBody RollbackApplicationJSONBody
 
@@ -5488,6 +5494,12 @@ type ServerInterface interface {
 	// Approuver la preview d'une PR de fork
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/approve)
 	ApprovePreviewFork(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string)
+	// Variables effectives d'une preview
+	// (GET /applications/{application_uuid}/previews/{preview_uuid}/envs)
+	ListPreviewEnvs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string)
+	// Créer une variable dédiée à cette preview
+	// (POST /applications/{application_uuid}/previews/{preview_uuid}/envs)
+	CreatePreviewEnv(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string)
 	// Logs des containers d'une preview
 	// (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
 	GetPreviewLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params GetPreviewLogsParams)
@@ -6124,6 +6136,18 @@ func (_ Unimplemented) DestroyPreview(w http.ResponseWriter, r *http.Request, ap
 // Approuver la preview d'une PR de fork
 // (POST /applications/{application_uuid}/previews/{preview_uuid}/approve)
 func (_ Unimplemented) ApprovePreviewFork(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Variables effectives d'une preview
+// (GET /applications/{application_uuid}/previews/{preview_uuid}/envs)
+func (_ Unimplemented) ListPreviewEnvs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Créer une variable dédiée à cette preview
+// (POST /applications/{application_uuid}/previews/{preview_uuid}/envs)
+func (_ Unimplemented) CreatePreviewEnv(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8189,6 +8213,88 @@ func (siw *ServerInterfaceWrapper) ApprovePreviewFork(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ApprovePreviewFork(w, r, applicationUuid, previewUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPreviewEnvs operation middleware
+func (siw *ServerInterfaceWrapper) ListPreviewEnvs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "application_uuid" -------------
+	var applicationUuid ApplicationUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_uuid", chi.URLParam(r, "application_uuid"), &applicationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "preview_uuid" -------------
+	var previewUuid string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "preview_uuid", chi.URLParam(r, "preview_uuid"), &previewUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "preview_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPreviewEnvs(w, r, applicationUuid, previewUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePreviewEnv operation middleware
+func (siw *ServerInterfaceWrapper) CreatePreviewEnv(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "application_uuid" -------------
+	var applicationUuid ApplicationUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_uuid", chi.URLParam(r, "application_uuid"), &applicationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "preview_uuid" -------------
+	var previewUuid string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "preview_uuid", chi.URLParam(r, "preview_uuid"), &previewUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "preview_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePreviewEnv(w, r, applicationUuid, previewUuid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -16146,6 +16252,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/approve", wrapper.ApprovePreviewFork)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/envs", wrapper.ListPreviewEnvs)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/envs", wrapper.CreatePreviewEnv)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/logs", wrapper.GetPreviewLogs)
 	})
 	r.Group(func(r chi.Router) {
@@ -18762,6 +18874,203 @@ func (response ApprovePreviewFork409JSONResponse) VisitApprovePreviewForkRespons
 type ApprovePreviewFork429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response ApprovePreviewFork429JSONResponse) VisitApprovePreviewForkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPreviewEnvsRequestObject struct {
+	ApplicationUuid ApplicationUuid `json:"application_uuid"`
+	PreviewUuid     string          `json:"preview_uuid"`
+}
+
+type ListPreviewEnvsResponseObject interface {
+	VisitListPreviewEnvsResponse(w http.ResponseWriter) error
+}
+
+type ListPreviewEnvs200JSONResponse struct {
+	Data []EnvironmentVariable `json:"data"`
+}
+
+func (response ListPreviewEnvs200JSONResponse) VisitListPreviewEnvsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPreviewEnvs401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListPreviewEnvs401JSONResponse) VisitListPreviewEnvsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPreviewEnvs403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListPreviewEnvs403JSONResponse) VisitListPreviewEnvsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPreviewEnvs404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListPreviewEnvs404JSONResponse) VisitListPreviewEnvsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPreviewEnvs429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListPreviewEnvs429JSONResponse) VisitListPreviewEnvsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewEnvRequestObject struct {
+	ApplicationUuid ApplicationUuid `json:"application_uuid"`
+	PreviewUuid     string          `json:"preview_uuid"`
+	Body            *CreatePreviewEnvJSONRequestBody
+}
+
+type CreatePreviewEnvResponseObject interface {
+	VisitCreatePreviewEnvResponse(w http.ResponseWriter) error
+}
+
+type CreatePreviewEnv201JSONResponse EnvironmentVariable
+
+func (response CreatePreviewEnv201JSONResponse) VisitCreatePreviewEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewEnv401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreatePreviewEnv401JSONResponse) VisitCreatePreviewEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewEnv403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreatePreviewEnv403JSONResponse) VisitCreatePreviewEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewEnv404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreatePreviewEnv404JSONResponse) VisitCreatePreviewEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewEnv409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreatePreviewEnv409JSONResponse) VisitCreatePreviewEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewEnv422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response CreatePreviewEnv422JSONResponse) VisitCreatePreviewEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewEnv429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreatePreviewEnv429JSONResponse) VisitCreatePreviewEnvResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -34905,6 +35214,12 @@ type StrictServerInterface interface {
 	// Approuver la preview d'une PR de fork
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/approve)
 	ApprovePreviewFork(ctx context.Context, request ApprovePreviewForkRequestObject) (ApprovePreviewForkResponseObject, error)
+	// Variables effectives d'une preview
+	// (GET /applications/{application_uuid}/previews/{preview_uuid}/envs)
+	ListPreviewEnvs(ctx context.Context, request ListPreviewEnvsRequestObject) (ListPreviewEnvsResponseObject, error)
+	// Créer une variable dédiée à cette preview
+	// (POST /applications/{application_uuid}/previews/{preview_uuid}/envs)
+	CreatePreviewEnv(ctx context.Context, request CreatePreviewEnvRequestObject) (CreatePreviewEnvResponseObject, error)
 	// Logs des containers d'une preview
 	// (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
 	GetPreviewLogs(ctx context.Context, request GetPreviewLogsRequestObject) (GetPreviewLogsResponseObject, error)
@@ -36054,6 +36369,67 @@ func (sh *strictHandler) ApprovePreviewFork(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ApprovePreviewForkResponseObject); ok {
 		if err := validResponse.VisitApprovePreviewForkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListPreviewEnvs operation middleware
+func (sh *strictHandler) ListPreviewEnvs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
+	var request ListPreviewEnvsRequestObject
+
+	request.ApplicationUuid = applicationUuid
+	request.PreviewUuid = previewUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPreviewEnvs(ctx, request.(ListPreviewEnvsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPreviewEnvs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPreviewEnvsResponseObject); ok {
+		if err := validResponse.VisitListPreviewEnvsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreatePreviewEnv operation middleware
+func (sh *strictHandler) CreatePreviewEnv(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
+	var request CreatePreviewEnvRequestObject
+
+	request.ApplicationUuid = applicationUuid
+	request.PreviewUuid = previewUuid
+
+	var body CreatePreviewEnvJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreatePreviewEnv(ctx, request.(CreatePreviewEnvRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreatePreviewEnv")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreatePreviewEnvResponseObject); ok {
+		if err := validResponse.VisitCreatePreviewEnvResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

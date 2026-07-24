@@ -233,15 +233,22 @@ func (q *Queries) ListExpiredPreviews(ctx context.Context) ([]Preview, error) {
 }
 
 const listPreviewEnvVars = `-- name: ListPreviewEnvVars :many
-SELECT id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at FROM environment_variables
+SELECT DISTINCT ON (key) id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at, preview_id FROM environment_variables
 WHERE resource_id = $1 AND is_preview = true
-ORDER BY key
+  AND (preview_id IS NULL OR preview_id = $2)
+ORDER BY key, (preview_id IS NULL)
 `
 
+type ListPreviewEnvVarsParams struct {
+	ResourceID int64
+	PreviewID  *int64
+}
+
 // The DEDICATED preview variable set (INV-010): production secrets are never
-// copied implicitly.
-func (q *Queries) ListPreviewEnvVars(ctx context.Context, resourceID int64) ([]EnvironmentVariable, error) {
-	rows, err := q.db.Query(ctx, listPreviewEnvVars, resourceID)
+// copied implicitly. Per-PR overrides sit on top: a row carrying THIS
+// preview's id wins over the shared set's same key.
+func (q *Queries) ListPreviewEnvVars(ctx context.Context, arg ListPreviewEnvVarsParams) ([]EnvironmentVariable, error) {
+	rows, err := q.db.Query(ctx, listPreviewEnvVars, arg.ResourceID, arg.PreviewID)
 	if err != nil {
 		return nil, err
 	}
@@ -266,6 +273,7 @@ func (q *Queries) ListPreviewEnvVars(ctx context.Context, resourceID int64) ([]E
 			&i.UpdatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PreviewID,
 		); err != nil {
 			return nil, err
 		}

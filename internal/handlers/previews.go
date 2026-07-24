@@ -419,3 +419,63 @@ func (a *API) DeployPreviewForPr(w http.ResponseWriter, r *http.Request, applica
 	}
 	httpapi.WriteJSON(w, http.StatusAccepted, previewToAPI(preview))
 }
+
+// ListPreviewEnvs implements GET /applications/{uuid}/previews/{uuid}/envs
+// (permission: read): the EFFECTIVE variables of one PR instance — the
+// shared preview set merged with this preview's own overrides, override
+// winning per key (INV-010: production values never appear here).
+func (a *API) ListPreviewEnvs(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string) {
+	id, ok := a.require(w, r, auth.PermRead)
+	if !ok {
+		return
+	}
+	row, ok := a.resolveApplication(w, r, id, applicationUuid)
+	if !ok {
+		return
+	}
+	preview, ok := a.resolvePreview(w, r, id, row.Resource.ID, previewUuid)
+	if !ok {
+		return
+	}
+	rows, err := a.Store.ListPreviewEnvVars(r.Context(), store.ListPreviewEnvVarsParams{
+		ResourceID: row.Resource.ID, PreviewID: &preview.ID,
+	})
+	if err != nil {
+		a.internalError(w, r, "preview envs", err)
+		return
+	}
+	data := make([]api.EnvironmentVariable, 0, len(rows))
+	for _, v := range rows {
+		data = append(data, a.envToAPI(id, v))
+	}
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": data})
+}
+
+// CreatePreviewEnv implements POST /applications/{uuid}/previews/{uuid}/envs
+// (permission: write): a variable dedicated to THIS preview — same key as
+// the shared set means this value wins here, and only here.
+func (a *API) CreatePreviewEnv(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string) {
+	id, ok := a.require(w, r, auth.PermWrite)
+	if !ok {
+		return
+	}
+	row, ok := a.resolveApplication(w, r, id, applicationUuid)
+	if !ok {
+		return
+	}
+	preview, ok := a.resolvePreview(w, r, id, row.Resource.ID, previewUuid)
+	if !ok {
+		return
+	}
+	var body api.EnvironmentVariableCreate
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "invalid JSON body")
+		return
+	}
+	created, err := a.insertEnvVar(r, row.Resource.ID, body, true, &preview.ID)
+	if err != nil {
+		a.writeEnvError(w, r, err)
+		return
+	}
+	httpapi.WriteJSON(w, http.StatusCreated, a.envToAPI(id, created))
+}

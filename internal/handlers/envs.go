@@ -27,17 +27,18 @@ func (a *API) envToAPI(id *auth.Identity, v store.EnvironmentVariable) api.Envir
 		}
 	}
 	return api.EnvironmentVariable{
-		Uuid:        ptr(uuidString(v.Uuid)),
-		Key:         v.Key,
-		Value:       value,
-		IsRedacted:  ptr(value == nil),
-		IsBuildTime: v.IsBuildTime,
-		IsSecret:    ptr(v.IsSecret),
-		IsLiteral:   v.IsLiteral,
-		IsMultiline: v.IsMultiline,
-		IsLocked:    v.IsLocked,
-		CreatedAt:   timePtr(v.CreatedAt),
-		UpdatedAt:   timePtr(v.UpdatedAt),
+		Uuid:              ptr(uuidString(v.Uuid)),
+		IsPreviewOverride: ptr(v.PreviewID != nil),
+		Key:               v.Key,
+		Value:             value,
+		IsRedacted:        ptr(value == nil),
+		IsBuildTime:       v.IsBuildTime,
+		IsSecret:          ptr(v.IsSecret),
+		IsLiteral:         v.IsLiteral,
+		IsMultiline:       v.IsMultiline,
+		IsLocked:          v.IsLocked,
+		CreatedAt:         timePtr(v.CreatedAt),
+		UpdatedAt:         timePtr(v.UpdatedAt),
 	}
 }
 
@@ -103,7 +104,7 @@ func (a *API) CreateApplicationEnv(w http.ResponseWriter, r *http.Request, appli
 	// preview=true writes into the DEDICATED preview set (INV-010): the only
 	// way a PR instance gets its keys — production values are never copied.
 	preview := params.Preview != nil && *params.Preview
-	created, err := a.insertEnvVar(r, row.Resource.ID, body, preview)
+	created, err := a.insertEnvVar(r, row.Resource.ID, body, preview, nil)
 	if err != nil {
 		a.writeEnvError(w, r, err)
 		return
@@ -157,7 +158,7 @@ func (a *API) ReplaceApplicationEnvs(w http.ResponseWriter, r *http.Request, app
 			}
 			continue
 		}
-		if _, err := a.insertEnvVar(r, row.Resource.ID, item, false); err != nil {
+		if _, err := a.insertEnvVar(r, row.Resource.ID, item, false, nil); err != nil {
 			a.writeEnvError(w, r, err)
 			return
 		}
@@ -267,7 +268,7 @@ type envConflictError struct{}
 
 func (e *envConflictError) Error() string { return "duplicate key" }
 
-func (a *API) insertEnvVar(r *http.Request, resourceID int64, item api.EnvironmentVariableCreate, preview bool) (store.EnvironmentVariable, error) {
+func (a *API) insertEnvVar(r *http.Request, resourceID int64, item api.EnvironmentVariableCreate, preview bool, previewID *int64) (store.EnvironmentVariable, error) {
 	if !envKeyFormat.MatchString(item.Key) || len(item.Key) > 255 {
 		return store.EnvironmentVariable{}, &envValidationError{api.ErrorDetail{Field: ptr("key"), Code: ptr("invalid"), Message: "key must match [A-Za-z_][A-Za-z0-9_]* and be at most 255 characters"}}
 	}
@@ -292,6 +293,7 @@ func (a *API) insertEnvVar(r *http.Request, resourceID int64, item api.Environme
 		// mounted by BuildKit and never enters a layer (§5.2, INV-003).
 		IsSecret:  boolOr(item.IsSecret),
 		IsPreview: preview,
+		PreviewID: previewID,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {

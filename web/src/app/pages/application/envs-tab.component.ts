@@ -71,10 +71,14 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
     @if (loading()) {
       <p class="akd-muted">Loading…</p>
     } @else {
-      <akd-card [title]="'Environment variables · ' + set()" [padded]="false">
+      <akd-card
+        [title]="previewUuid() ? 'Environment variables · this PR' : 'Environment variables · ' + set()"
+        [padded]="false"
+      >
         <div class="toolbar">
           <!-- Two DISTINCT sets (INV-010): previews never inherit production —
                this switcher is where a PR instance's keys get defined. -->
+          @if (!previewUuid()) {
           <button
             type="button"
             class="akd-btn akd-btn--sm"
@@ -94,6 +98,7 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
             Previews
           </button>
           <span class="sep"></span>
+          }
           <button
             type="button"
             class="akd-btn akd-btn--sm"
@@ -227,6 +232,9 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
                   }
                 </td>
                 <td>
+                  @if (env.is_preview_override) {
+                    <span class="akd-badge akd-badge--accent">PR override</span>
+                  }
                   @if (env.is_secret) {
                     <span class="akd-badge akd-badge--accent">secret</span>
                   }
@@ -259,14 +267,18 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
                         Edit
                       </button>
                     }
-                    <button
-                      class="akd-btn akd-btn--danger akd-btn--sm"
-                      type="button"
-                      [disabled]="busy()"
-                      (click)="remove(env)"
-                    >
-                      Delete
-                    </button>
+                    @if (!previewUuid() || env.is_preview_override) {
+                      <button
+                        class="akd-btn akd-btn--danger akd-btn--sm"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="remove(env)"
+                      >
+                        {{ previewUuid() && env.is_preview_override ? 'Remove override' : 'Delete' }}
+                      </button>
+                    } @else {
+                      <span class="akd-muted">shared set</span>
+                    }
                   </div>
                 </td>
               </tr>
@@ -330,6 +342,11 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
 })
 export class ApplicationEnvsTabComponent {
   readonly uuid = input.required<string>();
+  /** When set, the tab shows the EFFECTIVE variables of that PR instance
+   * (shared preview set + this PR's overrides) and every mutation targets
+   * the PR: creates become overrides, editing a shared row forks it into an
+   * override, and shared rows cannot be deleted from here. */
+  readonly previewUuid = input<string | undefined>(undefined);
 
   private readonly api = inject(ApiService);
 
@@ -379,10 +396,13 @@ export class ApplicationEnvsTabComponent {
   private async load(uuid: string): Promise<void> {
     this.loading.set(true);
     try {
-      const page = await this.api.client().listApplicationEnvs(uuid, {
-        limit: 100,
-        preview: this.set() === 'previews',
-      });
+      const previewUuid = this.previewUuid();
+      const page = previewUuid
+        ? await this.api.client().listPreviewEnvs(uuid, previewUuid)
+        : await this.api.client().listApplicationEnvs(uuid, {
+            limit: 100,
+            preview: this.set() === 'previews',
+          });
       this.envs.set(page.data);
     } catch (err) {
       this.error.set(ApiService.describe(err));
@@ -396,19 +416,23 @@ export class ApplicationEnvsTabComponent {
     this.busy.set(true);
     this.error.set(null);
     try {
-      await this.api.client().createApplicationEnv(
-        this.uuid(),
-        {
-          key: this.key.trim(),
-          value: this.value,
-          is_secret: this.isSecret,
-          is_build_time: this.isBuildTime,
-          is_literal: false,
-          is_multiline: this.value.includes('\n'),
-          is_locked: false,
-        },
-        { preview: this.set() === 'previews' },
-      );
+      const create = {
+        key: this.key.trim(),
+        value: this.value,
+        is_secret: this.isSecret,
+        is_build_time: this.isBuildTime,
+        is_literal: false,
+        is_multiline: this.value.includes('\n'),
+        is_locked: false,
+      };
+      const previewUuid = this.previewUuid();
+      if (previewUuid) {
+        await this.api.client().createPreviewEnv(this.uuid(), previewUuid, create);
+      } else {
+        await this.api
+          .client()
+          .createApplicationEnv(this.uuid(), create, { preview: this.set() === 'previews' });
+      }
       this.key = '';
       this.value = '';
       this.isSecret = false;
@@ -432,9 +456,24 @@ export class ApplicationEnvsTabComponent {
     this.busy.set(true);
     this.error.set(null);
     try {
-      await this.api.client().updateApplicationEnv(this.uuid(), env.uuid, {
-        value: this.editValue,
-      });
+      const previewUuid = this.previewUuid();
+      if (previewUuid && !env.is_preview_override) {
+        // Forking, not editing: the shared row serves every preview — this
+        // value must live and die with THIS PR only.
+        await this.api.client().createPreviewEnv(this.uuid(), previewUuid, {
+          key: env.key,
+          value: this.editValue,
+          is_secret: env.is_secret ?? false,
+          is_build_time: env.is_build_time,
+          is_literal: env.is_literal,
+          is_multiline: this.editValue.includes('\n'),
+          is_locked: false,
+        });
+      } else {
+        await this.api.client().updateApplicationEnv(this.uuid(), env.uuid, {
+          value: this.editValue,
+        });
+      }
       this.editing.set(null);
       await this.load(this.uuid());
     } catch (err) {
@@ -478,7 +517,12 @@ export class ApplicationEnvsTabComponent {
         updates.push({ env: existing, value });
       }
     }
-    const deletes = current.filter((env) => !parsed.entries.has(env.key));
+    let deletes = current.filter((env) => !parsed.entries.has(env.key));
+    if (this.previewUuid()) {
+      // From the PR page only its own overrides can go — a shared key
+      // missing from the pasted text is not this page's to delete.
+      deletes = deletes.filter((env) => env.is_preview_override);
+    }
     if (creates.length === 0 && updates.length === 0 && deletes.length === 0) {
       this.view.set('table');
       return;
@@ -496,23 +540,39 @@ export class ApplicationEnvsTabComponent {
     this.busy.set(true);
     this.error.set(null);
     try {
+      const previewUuid = this.previewUuid();
       for (const c of creates) {
-        await this.api.client().createApplicationEnv(
-          this.uuid(),
-          {
-            key: c.key,
-            value: c.value,
-            is_secret: false,
-            is_build_time: mode === 'build',
-            is_literal: false,
-            is_multiline: c.value.includes('\n'),
-            is_locked: false,
-          },
-          { preview: this.set() === 'previews' },
-        );
+        const create = {
+          key: c.key,
+          value: c.value,
+          is_secret: false,
+          is_build_time: mode === 'build',
+          is_literal: false,
+          is_multiline: c.value.includes('\n'),
+          is_locked: false,
+        };
+        if (previewUuid) {
+          await this.api.client().createPreviewEnv(this.uuid(), previewUuid, create);
+        } else {
+          await this.api
+            .client()
+            .createApplicationEnv(this.uuid(), create, { preview: this.set() === 'previews' });
+        }
       }
       for (const u of updates) {
-        await this.api.client().updateApplicationEnv(this.uuid(), u.env.uuid, { value: u.value });
+        if (previewUuid && !u.env.is_preview_override) {
+          await this.api.client().createPreviewEnv(this.uuid(), previewUuid, {
+            key: u.env.key,
+            value: u.value,
+            is_secret: u.env.is_secret ?? false,
+            is_build_time: u.env.is_build_time,
+            is_literal: u.env.is_literal,
+            is_multiline: u.value.includes('\n'),
+            is_locked: false,
+          });
+        } else {
+          await this.api.client().updateApplicationEnv(this.uuid(), u.env.uuid, { value: u.value });
+        }
       }
       for (const d of deletes) {
         await this.api.client().deleteApplicationEnv(this.uuid(), d.uuid);

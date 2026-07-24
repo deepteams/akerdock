@@ -167,6 +167,29 @@ export class AkerDockClient {
     });
   }
 
+  listPreviewEnvs(applicationUuid: string, previewUuid: string) {
+    type Response =
+      paths['/applications/{application_uuid}/previews/{preview_uuid}/envs']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>(
+      'GET',
+      `/applications/${applicationUuid}/previews/${previewUuid}/envs`,
+    );
+  }
+
+  createPreviewEnv(
+    applicationUuid: string,
+    previewUuid: string,
+    body: components['schemas']['EnvironmentVariableCreate'],
+  ) {
+    type Response =
+      paths['/applications/{application_uuid}/previews/{preview_uuid}/envs']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>(
+      'POST',
+      `/applications/${applicationUuid}/previews/${previewUuid}/envs`,
+      { body },
+    );
+  }
+
   createPreviewTerminalSession(
     applicationUuid: string,
     previewUuid: string,

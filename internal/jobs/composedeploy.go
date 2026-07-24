@@ -465,7 +465,7 @@ func (r *deploymentRun) plainEnvVars(ctx context.Context) (map[string]string, er
 		// The DEDICATED preview set (INV-010): production secrets and shared
 		// scopes never reach a PR instance — plus the predefined preview
 		// variables (§5.6), so ${AKERDOCK_URL} interpolates in the file too.
-		rows, err := r.h.Store.ListPreviewEnvVars(ctx, r.app.Resource.ID)
+		rows, err := r.h.Store.ListPreviewEnvVars(ctx, store.ListPreviewEnvVarsParams{ResourceID: r.app.Resource.ID, PreviewID: &r.preview.ID})
 		if err != nil {
 			return nil, err
 		}

@@ -4856,6 +4856,80 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /applications/{application_uuid}/previews/{preview_uuid}/envs:
+    parameters:
+      - $ref: "#/components/parameters/ApplicationUuid"
+      - name: preview_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Applications]
+      operationId: listPreviewEnvs
+      summary: Variables effectives d'une preview
+      description: >-
+        Le jeu partagé des previews (INV-010) fusionné avec les surcharges
+        dédiées à CETTE PR — par clé, la surcharge gagne. Chaque ligne dit
+        d'où elle vient (`is_preview_override`).
+      x-required-permission: read
+      responses:
+        "200":
+          description: Variables effectives.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EnvironmentVariable"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      tags: [Applications]
+      operationId: createPreviewEnv
+      summary: Créer une variable dédiée à cette preview
+      description: >-
+        Une surcharge locale à la PR : même clé que le jeu partagé → cette
+        valeur gagne pour cette preview seulement ; clé nouvelle → variable
+        supplémentaire de cette preview. Appliquée au prochain déploiement de
+        la preview.
+      x-required-permission: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnvironmentVariableCreate"
+      responses:
+        "201":
+          description: Surcharge créée.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvironmentVariable"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions:
     parameters:
       - $ref: "#/components/parameters/ApplicationUuid"
@@ -10167,6 +10241,12 @@ components:
         `is_redacted` l'indique.
       required: [uuid, key, is_build_time, is_literal, is_multiline, is_locked, is_redacted, created_at]
       properties:
+        is_preview_override:
+          type: boolean
+          readOnly: true
+          description: >-
+            Surcharge dédiée à UNE preview (§20.4) — absente ou false pour les
+            variables des jeux production et previews partagé.
         uuid:
           type: string
           readOnly: true

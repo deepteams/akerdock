@@ -66,10 +66,12 @@ LIMIT 50;
 
 -- name: ListPreviewEnvVars :many
 -- The DEDICATED preview variable set (INV-010): production secrets are never
--- copied implicitly.
-SELECT * FROM environment_variables
+-- copied implicitly. Per-PR overrides sit on top: a row carrying THIS
+-- preview's id wins over the shared set's same key.
+SELECT DISTINCT ON (key) * FROM environment_variables
 WHERE resource_id = $1 AND is_preview = true
-ORDER BY key;
+  AND (preview_id IS NULL OR preview_id = sqlc.arg(preview_id))
+ORDER BY key, (preview_id IS NULL);
 
 -- name: SupersedeObsoletePreviewDeployments :many
 -- §20.4.7 (opt-in preview_cancel_obsolete_builds): a new commit makes the

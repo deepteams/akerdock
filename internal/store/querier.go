@@ -485,8 +485,9 @@ type Querier interface {
 	// What the digest of this rule stands for.
 	ListPendingDigestDeliveries(ctx context.Context, ruleID int64) ([]ListPendingDigestDeliveriesRow, error)
 	// The DEDICATED preview variable set (INV-010): production secrets are never
-	// copied implicitly.
-	ListPreviewEnvVars(ctx context.Context, resourceID int64) ([]EnvironmentVariable, error)
+	// copied implicitly. Per-PR overrides sit on top: a row carrying THIS
+	// preview's id wins over the shared set's same key.
+	ListPreviewEnvVars(ctx context.Context, arg ListPreviewEnvVarsParams) ([]EnvironmentVariable, error)
 	ListPreviewsForApplication(ctx context.Context, applicationID int64) ([]Preview, error)
 	// Which of these keys are actually referenced — by a server or as an
 	// application's deploy key. Answered in one round trip so a key listing does

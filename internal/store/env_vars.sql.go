@@ -13,9 +13,9 @@ import (
 
 const createEnvVar = `-- name: CreateEnvVar :one
 
-INSERT INTO environment_variables (uuid, resource_id, key, value_enc, is_build_time, is_literal, is_multiline, is_locked, is_secret, is_preview)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-RETURNING id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at
+INSERT INTO environment_variables (uuid, resource_id, key, value_enc, is_build_time, is_literal, is_multiline, is_locked, is_secret, is_preview, preview_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at, preview_id
 `
 
 type CreateEnvVarParams struct {
@@ -29,6 +29,7 @@ type CreateEnvVarParams struct {
 	IsLocked    bool
 	IsSecret    bool
 	IsPreview   bool
+	PreviewID   *int64
 }
 
 // Environment variables (§5.4): the production set (is_preview = false)
@@ -45,6 +46,7 @@ func (q *Queries) CreateEnvVar(ctx context.Context, arg CreateEnvVarParams) (Env
 		arg.IsLocked,
 		arg.IsSecret,
 		arg.IsPreview,
+		arg.PreviewID,
 	)
 	var i EnvironmentVariable
 	err := row.Scan(
@@ -64,6 +66,7 @@ func (q *Queries) CreateEnvVar(ctx context.Context, arg CreateEnvVarParams) (Env
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PreviewID,
 	)
 	return i, err
 }
@@ -71,7 +74,7 @@ func (q *Queries) CreateEnvVar(ctx context.Context, arg CreateEnvVarParams) (Env
 const createGeneratedEnvVar = `-- name: CreateGeneratedEnvVar :execrows
 INSERT INTO environment_variables (uuid, resource_id, key, value_enc, is_secret, is_generated)
 VALUES ($1, $2, $3, $4, $5, true)
-ON CONFLICT (resource_id, key, is_preview) DO NOTHING
+ON CONFLICT (resource_id, key, is_preview, COALESCE(preview_id, 0)) DO NOTHING
 `
 
 type CreateGeneratedEnvVarParams struct {
@@ -101,7 +104,7 @@ func (q *Queries) CreateGeneratedEnvVar(ctx context.Context, arg CreateGenerated
 const createGeneratedPreviewEnvVar = `-- name: CreateGeneratedPreviewEnvVar :execrows
 INSERT INTO environment_variables (uuid, resource_id, key, value_enc, is_secret, is_generated, is_preview)
 VALUES ($1, $2, $3, $4, true, true, true)
-ON CONFLICT (resource_id, key, is_preview) DO NOTHING
+ON CONFLICT (resource_id, key, is_preview, COALESCE(preview_id, 0)) DO NOTHING
 `
 
 type CreateGeneratedPreviewEnvVarParams struct {
@@ -155,7 +158,7 @@ func (q *Queries) DeleteEnvVarsNotInKeys(ctx context.Context, arg DeleteEnvVarsN
 }
 
 const getEnvVarByKey = `-- name: GetEnvVarByKey :one
-SELECT id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at FROM environment_variables
+SELECT id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at, preview_id FROM environment_variables
 WHERE resource_id = $1 AND key = $2 AND is_preview = false
 `
 
@@ -184,12 +187,13 @@ func (q *Queries) GetEnvVarByKey(ctx context.Context, arg GetEnvVarByKeyParams) 
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PreviewID,
 	)
 	return i, err
 }
 
 const getEnvVarByUUID = `-- name: GetEnvVarByUUID :one
-SELECT id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at FROM environment_variables WHERE uuid = $1 AND resource_id = $2
+SELECT id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at, preview_id FROM environment_variables WHERE uuid = $1 AND resource_id = $2
 `
 
 type GetEnvVarByUUIDParams struct {
@@ -217,12 +221,13 @@ func (q *Queries) GetEnvVarByUUID(ctx context.Context, arg GetEnvVarByUUIDParams
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PreviewID,
 	)
 	return i, err
 }
 
 const listEnvVarsForDeploy = `-- name: ListEnvVarsForDeploy :many
-SELECT id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at FROM environment_variables
+SELECT id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at, preview_id FROM environment_variables
 WHERE resource_id = $1 AND is_preview = false
 ORDER BY key
 `
@@ -253,6 +258,7 @@ func (q *Queries) ListEnvVarsForDeploy(ctx context.Context, resourceID int64) ([
 			&i.UpdatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PreviewID,
 		); err != nil {
 			return nil, err
 		}
@@ -265,8 +271,9 @@ func (q *Queries) ListEnvVarsForDeploy(ctx context.Context, resourceID int64) ([
 }
 
 const listEnvVarsPage = `-- name: ListEnvVarsPage :many
-SELECT id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at FROM environment_variables
+SELECT id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at, preview_id FROM environment_variables
 WHERE resource_id = $1 AND is_preview = $2
+  AND preview_id IS NULL
   AND ($3::bigint = 0 OR id < $3)
 ORDER BY id DESC
 LIMIT $4
@@ -313,6 +320,7 @@ func (q *Queries) ListEnvVarsPage(ctx context.Context, arg ListEnvVarsPageParams
 			&i.UpdatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PreviewID,
 		); err != nil {
 			return nil, err
 		}
@@ -328,7 +336,7 @@ const updateEnvVar = `-- name: UpdateEnvVar :one
 UPDATE environment_variables
 SET value_enc = $2, is_build_time = $3, is_literal = $4, is_multiline = $5, is_locked = $6, updated_at = now()
 WHERE id = $1
-RETURNING id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at
+RETURNING id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at, preview_id
 `
 
 type UpdateEnvVarParams struct {
@@ -367,6 +375,7 @@ func (q *Queries) UpdateEnvVar(ctx context.Context, arg UpdateEnvVarParams) (Env
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PreviewID,
 	)
 	return i, err
 }

@@ -212,10 +212,11 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
       }
       @case ('envs') {
         <p class="akd-muted note">
-          The previews set is shared by every preview of the application (INV-010: production
-          values are never inherited). Changes apply on the next preview deployment.
+          The EFFECTIVE variables of this PR: the shared preview set plus this preview's own
+          overrides (INV-010: production values are never inherited). Adding or editing here
+          creates an override for THIS PR only; changes apply on its next deployment.
         </p>
-        <app-application-envs-tab [uuid]="uuid()" />
+        <app-application-envs-tab [uuid]="uuid()" [previewUuid]="previewUuid()" />
       }
       @case ('storages') {
         <akd-card title="Preview storages" [padded]="false">

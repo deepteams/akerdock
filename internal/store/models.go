@@ -2355,6 +2355,7 @@ type EnvironmentVariable struct {
 	UpdatedBy   *int64
 	CreatedAt   pgtype.Timestamptz
 	UpdatedAt   pgtype.Timestamptz
+	PreviewID   *int64
 }
 
 type GitSource struct {

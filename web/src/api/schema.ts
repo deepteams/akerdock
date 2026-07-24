@@ -2145,6 +2145,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/applications/{application_uuid}/previews/{preview_uuid}/envs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Variables effectives d'une preview
+         * @description Le jeu partagé des previews (INV-010) fusionné avec les surcharges dédiées à CETTE PR — par clé, la surcharge gagne. Chaque ligne dit d'où elle vient (`is_preview_override`).
+         */
+        get: operations["listPreviewEnvs"];
+        put?: never;
+        /**
+         * Créer une variable dédiée à cette preview
+         * @description Une surcharge locale à la PR : même clé que le jeu partagé → cette valeur gagne pour cette preview seulement ; clé nouvelle → variable supplémentaire de cette preview. Appliquée au prochain déploiement de la preview.
+         */
+        post: operations["createPreviewEnv"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions": {
         parameters: {
             query?: never;
@@ -4493,6 +4521,8 @@ export interface components {
         };
         /** @description Variable d'environnement d'une application (§5.4). `value` est `null` sans `read:sensitive` ou si `is_locked` (INV-003) — `is_redacted` l'indique. */
         EnvironmentVariable: {
+            /** @description Surcharge dédiée à UNE preview (§20.4) — absente ou false pour les variables des jeux production et previews partagé. */
+            readonly is_preview_override?: boolean;
             readonly uuid: string;
             key: string;
             /** @description Valeur en clair — uniquement avec `read:sensitive` et si non verrouillée. */
@@ -9590,6 +9620,70 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listPreviewEnvs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Variables effectives. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["EnvironmentVariable"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createPreviewEnv: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnvironmentVariableCreate"];
+            };
+        };
+        responses: {
+            /** @description Surcharge créée. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnvironmentVariable"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
             429: components["responses"]["TooManyRequests"];
         };
     };

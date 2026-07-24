@@ -512,7 +512,7 @@ func (a *API) CreateServiceEnv(w http.ResponseWriter, r *http.Request, serviceUu
 		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "invalid JSON body")
 		return
 	}
-	created, err := a.insertEnvVar(r, row.Resource.ID, body, false)
+	created, err := a.insertEnvVar(r, row.Resource.ID, body, false, nil)
 	if err != nil {
 		a.writeEnvError(w, r, err)
 		return

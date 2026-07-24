@@ -114,7 +114,7 @@ func (r *deploymentRun) previewAuthHash(ctx context.Context) string {
 	if r.previewAuth != "" {
 		return r.previewAuth
 	}
-	vars, err := r.h.Store.ListPreviewEnvVars(ctx, r.app.Resource.ID)
+	vars, err := r.h.Store.ListPreviewEnvVars(ctx, store.ListPreviewEnvVarsParams{ResourceID: r.app.Resource.ID, PreviewID: &r.preview.ID})
 	if err != nil {
 		return ""
 	}
@@ -1334,7 +1334,7 @@ func (r *deploymentRun) renderRuntimeEnv(ctx context.Context) (string, []string,
 	if r.preview != nil {
 		// The DEDICATED preview set (INV-010): production secrets are never
 		// copied implicitly into a PR instance.
-		vars, err = r.h.Store.ListPreviewEnvVars(ctx, r.app.Resource.ID)
+		vars, err = r.h.Store.ListPreviewEnvVars(ctx, store.ListPreviewEnvVarsParams{ResourceID: r.app.Resource.ID, PreviewID: &r.preview.ID})
 	} else {
 		vars, err = r.h.Store.ListEnvVarsForDeploy(ctx, r.app.Resource.ID)
 	}
