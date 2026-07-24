@@ -3044,6 +3044,7 @@ type TerminalSession struct {
 	EndReason       *TerminalEndReason
 	CreatedAt       pgtype.Timestamptz
 	TargetComponent *string
+	PreviewID       *int64
 }
 
 type UptimeCheck struct {

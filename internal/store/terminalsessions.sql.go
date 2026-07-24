@@ -19,7 +19,7 @@ WHERE token_hash = $1
   AND claimed_at IS NULL
   AND ended_at IS NULL
   AND token_expires_at > now()
-RETURNING id, uuid, team_id, user_id, target_kind, server_id, resource_id, target_name, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, target_component
+RETURNING id, uuid, team_id, user_id, target_kind, server_id, resource_id, target_name, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, target_component, preview_id
 `
 
 // Single-use attach: the WHERE consumes the token atomically — a replayed
@@ -47,6 +47,7 @@ func (q *Queries) ClaimTerminalSession(ctx context.Context, tokenHash string) (T
 		&i.EndReason,
 		&i.CreatedAt,
 		&i.TargetComponent,
+		&i.PreviewID,
 	)
 	return i, err
 }
@@ -71,12 +72,12 @@ const createTerminalSession = `-- name: CreateTerminalSession :one
 
 INSERT INTO terminal_sessions (
     team_id, user_id, target_kind, server_id, resource_id, target_name,
-    target_component, client_ip, token_hash, token_expires_at
+    target_component, preview_id, client_ip, token_hash, token_expires_at
 ) VALUES (
     $1, $6, $2, $7, $8, $3,
-    $9, $10, $4, $5
+    $9, $10, $11, $4, $5
 )
-RETURNING id, uuid, team_id, user_id, target_kind, server_id, resource_id, target_name, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, target_component
+RETURNING id, uuid, team_id, user_id, target_kind, server_id, resource_id, target_name, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, target_component, preview_id
 `
 
 type CreateTerminalSessionParams struct {
@@ -89,6 +90,7 @@ type CreateTerminalSessionParams struct {
 	ServerID        *int64
 	ResourceID      *int64
 	TargetComponent *string
+	PreviewID       *int64
 	ClientIp        *netip.Addr
 }
 
@@ -104,6 +106,7 @@ func (q *Queries) CreateTerminalSession(ctx context.Context, arg CreateTerminalS
 		arg.ServerID,
 		arg.ResourceID,
 		arg.TargetComponent,
+		arg.PreviewID,
 		arg.ClientIp,
 	)
 	var i TerminalSession
@@ -125,6 +128,7 @@ func (q *Queries) CreateTerminalSession(ctx context.Context, arg CreateTerminalS
 		&i.EndReason,
 		&i.CreatedAt,
 		&i.TargetComponent,
+		&i.PreviewID,
 	)
 	return i, err
 }

@@ -13,6 +13,8 @@ import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { ApplicationEnvsTabComponent } from './application/envs-tab.component';
+import { TerminalComponent } from '../../ui/terminal/terminal.component';
+import type { TerminalSessionInfo } from '../../ui/terminal/protocol';
 import { ApiService } from '../core/api.service';
 import type { components } from '../../api/schema';
 
@@ -21,7 +23,7 @@ type LogLine = components['schemas']['LogLine'];
 type ServiceComponent = components['schemas']['ServiceComponent'];
 type Storage = components['schemas']['PersistentStorage'];
 
-type TabId = 'overview' | 'logs' | 'envs' | 'storages' | 'danger';
+type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
 
 /**
  * Everything of ONE PR instance, in the same tabbed layout as the
@@ -32,7 +34,14 @@ type TabId = 'overview' | 'logs' | 'envs' | 'storages' | 'danger';
 @Component({
   selector: 'app-preview-detail',
   standalone: true,
-  imports: [FormsModule, RouterLink, CardComponent, IconComponent, ApplicationEnvsTabComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    CardComponent,
+    IconComponent,
+    ApplicationEnvsTabComponent,
+    TerminalComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'akd-page' },
   template: `
@@ -176,6 +185,31 @@ type TabId = 'overview' | 'logs' | 'envs' | 'storages' | 'danger';
           }
         </akd-card>
       }
+      @case ('terminal') {
+        <section class="akd-card">
+          <div class="akd-card__header">
+            <h2 class="akd-card__title">Terminal</h2>
+            @if (components().length > 0) {
+              <div class="akd-select">
+                <select name="terminalComponent" class="akd-input" [(ngModel)]="terminalComponent">
+                  @for (c of components(); track c.name) {
+                    <option [ngValue]="c.name">{{ c.name }}</option>
+                  }
+                </select>
+              </div>
+            }
+            <span class="spacer"></span>
+            <span class="akd-muted note-inline">opening and closing are audited · keystrokes are never logged</span>
+          </div>
+          <div class="akd-card__body">
+            <akd-terminal
+              title="Preview shell"
+              hint="Opens a shell in the preview's container — an ephemeral instance, destroyed with the PR."
+              [open]="openTerminalSession"
+            />
+          </div>
+        </section>
+      }
       @case ('envs') {
         <p class="akd-muted note">
           The previews set is shared by every preview of the application (INV-010: production
@@ -283,6 +317,9 @@ type TabId = 'overview' | 'logs' | 'envs' | 'storages' | 'danger';
       .note {
         margin: 0 0 var(--space-3);
       }
+      .note-inline {
+        font-size: var(--text-xs);
+      }
       .log {
         margin: 0;
         padding: var(--space-3);
@@ -314,6 +351,7 @@ export class PreviewDetailComponent {
   protected readonly tabs: readonly { id: TabId; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'logs', label: 'Logs' },
+    { id: 'terminal', label: 'Terminal' },
     { id: 'envs', label: 'Environment variables' },
     { id: 'storages', label: 'Storages' },
     { id: 'danger', label: 'Danger' },
@@ -329,6 +367,7 @@ export class PreviewDetailComponent {
 
   protected lines = 200;
   protected component = '';
+  protected terminalComponent = '';
   protected follow = false;
   private timer: ReturnType<typeof setInterval> | null = null;
 
@@ -360,13 +399,25 @@ export class PreviewDetailComponent {
       this.preview.set(preview);
       this.components.set(comps.data);
       this.storages.set(storages.data);
-      if (comps.data.length > 0) this.component = comps.data[0].name;
+      if (comps.data.length > 0) {
+        this.component = comps.data[0].name;
+        this.terminalComponent = comps.data[0].name;
+      }
     } catch (err) {
       this.error.set(ApiService.describe(err));
       return;
     }
     await this.loadLogs();
   }
+
+  protected readonly openTerminalSession = async (): Promise<TerminalSessionInfo> =>
+    (await this.api
+      .client()
+      .createPreviewTerminalSession(
+        this.uuid(),
+        this.previewUuid(),
+        this.terminalComponent ? { component: this.terminalComponent } : undefined,
+      )) as unknown as TerminalSessionInfo;
 
   protected refreshLogs(): void {
     void this.loadLogs();

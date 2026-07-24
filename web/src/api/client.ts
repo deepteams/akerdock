@@ -153,6 +153,20 @@ export class AkerDockClient {
     return this.request<Response>('GET', `/applications/${uuid}`);
   }
 
+  createPreviewTerminalSession(
+    applicationUuid: string,
+    previewUuid: string,
+    query?: { component?: string },
+  ) {
+    type Response =
+      paths['/applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>(
+      'POST',
+      `/applications/${applicationUuid}/previews/${previewUuid}/terminal-sessions`,
+      { query },
+    );
+  }
+
   destroyPreview(applicationUuid: string, previewUuid: string) {
     return this.request<void>(
       'DELETE',

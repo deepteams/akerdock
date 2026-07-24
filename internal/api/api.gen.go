@@ -4449,6 +4449,12 @@ type GetPreviewLogsParams struct {
 	Component *string `form:"component,omitempty" json:"component,omitempty"`
 }
 
+// CreatePreviewTerminalSessionParams defines parameters for CreatePreviewTerminalSession.
+type CreatePreviewTerminalSessionParams struct {
+	// Component (build pack compose) Nom du service dont ouvrir le shell.
+	Component *string `form:"component,omitempty" json:"component,omitempty"`
+}
+
 // RollbackApplicationJSONBody defines parameters for RollbackApplication.
 type RollbackApplicationJSONBody struct {
 	// DeploymentUuid Déploiement réussi dont l'image doit être redéployée.
@@ -5471,6 +5477,9 @@ type ServerInterface interface {
 	// Logs des containers d'une preview
 	// (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
 	GetPreviewLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params GetPreviewLogsParams)
+	// Ouvrir une session terminal dans un container de la preview
+	// (POST /applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions)
+	CreatePreviewTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params CreatePreviewTerminalSessionParams)
 	// Redémarrer une application
 	// (POST /applications/{application_uuid}/restart)
 	RestartApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
@@ -6098,6 +6107,12 @@ func (_ Unimplemented) ApprovePreviewFork(w http.ResponseWriter, r *http.Request
 // Logs des containers d'une preview
 // (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
 func (_ Unimplemented) GetPreviewLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params GetPreviewLogsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Ouvrir une session terminal dans un container de la preview
+// (POST /applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions)
+func (_ Unimplemented) CreatePreviewTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params CreatePreviewTerminalSessionParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8183,6 +8198,63 @@ func (siw *ServerInterfaceWrapper) GetPreviewLogs(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetPreviewLogs(w, r, applicationUuid, previewUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePreviewTerminalSession operation middleware
+func (siw *ServerInterfaceWrapper) CreatePreviewTerminalSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "application_uuid" -------------
+	var applicationUuid ApplicationUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_uuid", chi.URLParam(r, "application_uuid"), &applicationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "preview_uuid" -------------
+	var previewUuid string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "preview_uuid", chi.URLParam(r, "preview_uuid"), &previewUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "preview_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreatePreviewTerminalSessionParams
+
+	// ------------- Optional query parameter "component" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "component", r.URL.Query(), &params.Component, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "component"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "component", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePreviewTerminalSession(w, r, applicationUuid, previewUuid, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -15981,6 +16053,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/logs", wrapper.GetPreviewLogs)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions", wrapper.CreatePreviewTerminalSession)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/applications/{application_uuid}/restart", wrapper.RestartApplication)
 	})
 	r.Group(func(r chi.Router) {
@@ -18591,6 +18666,103 @@ func (response GetPreviewLogs409JSONResponse) VisitGetPreviewLogsResponse(w http
 type GetPreviewLogs429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response GetPreviewLogs429JSONResponse) VisitGetPreviewLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewTerminalSessionRequestObject struct {
+	ApplicationUuid ApplicationUuid `json:"application_uuid"`
+	PreviewUuid     string          `json:"preview_uuid"`
+	Params          CreatePreviewTerminalSessionParams
+}
+
+type CreatePreviewTerminalSessionResponseObject interface {
+	VisitCreatePreviewTerminalSessionResponse(w http.ResponseWriter) error
+}
+
+type CreatePreviewTerminalSession201JSONResponse TerminalSession
+
+func (response CreatePreviewTerminalSession201JSONResponse) VisitCreatePreviewTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewTerminalSession401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreatePreviewTerminalSession401JSONResponse) VisitCreatePreviewTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewTerminalSession403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreatePreviewTerminalSession403JSONResponse) VisitCreatePreviewTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewTerminalSession404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreatePreviewTerminalSession404JSONResponse) VisitCreatePreviewTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewTerminalSession409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreatePreviewTerminalSession409JSONResponse) VisitCreatePreviewTerminalSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewTerminalSession429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreatePreviewTerminalSession429JSONResponse) VisitCreatePreviewTerminalSessionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -34434,6 +34606,9 @@ type StrictServerInterface interface {
 	// Logs des containers d'une preview
 	// (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
 	GetPreviewLogs(ctx context.Context, request GetPreviewLogsRequestObject) (GetPreviewLogsResponseObject, error)
+	// Ouvrir une session terminal dans un container de la preview
+	// (POST /applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions)
+	CreatePreviewTerminalSession(ctx context.Context, request CreatePreviewTerminalSessionRequestObject) (CreatePreviewTerminalSessionResponseObject, error)
 	// Redémarrer une application
 	// (POST /applications/{application_uuid}/restart)
 	RestartApplication(ctx context.Context, request RestartApplicationRequestObject) (RestartApplicationResponseObject, error)
@@ -35569,6 +35744,34 @@ func (sh *strictHandler) GetPreviewLogs(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetPreviewLogsResponseObject); ok {
 		if err := validResponse.VisitGetPreviewLogsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreatePreviewTerminalSession operation middleware
+func (sh *strictHandler) CreatePreviewTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params CreatePreviewTerminalSessionParams) {
+	var request CreatePreviewTerminalSessionRequestObject
+
+	request.ApplicationUuid = applicationUuid
+	request.PreviewUuid = previewUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreatePreviewTerminalSession(ctx, request.(CreatePreviewTerminalSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreatePreviewTerminalSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreatePreviewTerminalSessionResponseObject); ok {
+		if err := validResponse.VisitCreatePreviewTerminalSessionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

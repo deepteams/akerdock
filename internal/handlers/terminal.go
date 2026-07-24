@@ -176,6 +176,9 @@ type terminalTargetSpec struct {
 	// component names the compose service whose container the shell opens in
 	// — empty for single-container resources (compose-spec §2.2).
 	component string
+	// previewID targets a PREVIEW instance: its containers derive from the
+	// preview uuid, not the resource's (INV-011).
+	previewID *int64
 }
 
 // createTerminalSession is the shared tail: cap check, token mint, audit,
@@ -218,6 +221,7 @@ func (a *API) createTerminalSession(w http.ResponseWriter, r *http.Request, id *
 			}
 			return &target.component
 		}(),
+		PreviewID: target.previewID,
 		ClientIp:       clientAddr(r),
 		TokenHash:      hashTerminalToken(token),
 		TokenExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(terminalTokenTTL), Valid: true},
@@ -335,10 +339,22 @@ func (a *API) terminalConnect(ctx context.Context, row store.TerminalSession) (*
 		// Docker name recorded by our own adopt job from `docker inspect`
 		// (Docker's name charset has no shell metacharacters) (INV-012).
 		container := adoption.ContainerName(res.Adoption, uuidString(res.Uuid))
+		base := uuidString(res.Uuid)
+		if row.PreviewID != nil {
+			// A preview instance: every container derives from the PREVIEW
+			// uuid (INV-011) — and a destroyed preview has no container left
+			// to exec into, say so instead of a raw docker error.
+			preview, err := a.Store.GetPreviewByID(ctx, *row.PreviewID)
+			if err != nil || preview.Status == store.PreviewStatusDestroyed {
+				return nil, "", "the preview no longer exists — it may have been destroyed"
+			}
+			base = uuidString(preview.Uuid)
+			container = base
+		}
 		if row.TargetComponent != nil && *row.TargetComponent != "" {
 			// A compose service's container (compose-spec §2.2). The component
 			// was validated against service_components at session creation.
-			container = uuidString(res.Uuid) + "-" + *row.TargetComponent
+			container = base + "-" + *row.TargetComponent
 		}
 		command = fmt.Sprintf(
 			"docker exec -it -e TERM=xterm-256color %s sh -c 'command -v bash >/dev/null 2>&1 && exec bash || exec sh'",

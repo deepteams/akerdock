@@ -3,10 +3,10 @@
 -- name: CreateTerminalSession :one
 INSERT INTO terminal_sessions (
     team_id, user_id, target_kind, server_id, resource_id, target_name,
-    target_component, client_ip, token_hash, token_expires_at
+    target_component, preview_id, client_ip, token_hash, token_expires_at
 ) VALUES (
     $1, sqlc.narg(user_id), $2, sqlc.narg(server_id), sqlc.narg(resource_id), $3,
-    sqlc.narg(target_component), sqlc.narg(client_ip), $4, $5
+    sqlc.narg(target_component), sqlc.narg(preview_id), sqlc.narg(client_ip), $4, $5
 )
 RETURNING *;
 

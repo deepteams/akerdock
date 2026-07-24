@@ -230,3 +230,55 @@ func (a *API) GetPreviewLogs(w http.ResponseWriter, r *http.Request, application
 	}
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": containerLogLines(res.Stdout)})
 }
+
+// CreatePreviewTerminalSession implements
+// POST /applications/{uuid}/previews/{uuid}/terminal-sessions (permission:
+// write): same contract as the application terminal (§5.7, §24.4), targeting
+// a container of the PREVIEW instance (INV-011).
+func (a *API) CreatePreviewTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string, params api.CreatePreviewTerminalSessionParams) {
+	id, ok := a.require(w, r, auth.PermWrite)
+	if !ok {
+		return
+	}
+	row, ok := a.resolveApplication(w, r, id, applicationUuid)
+	if !ok {
+		return
+	}
+	preview, ok := a.resolvePreview(w, r, id, row.Resource.ID, previewUuid)
+	if !ok {
+		return
+	}
+	if preview.Status == store.PreviewStatusDestroyed || preview.Status == store.PreviewStatusDestroying {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "this preview is destroyed — there is no container to open a shell in")
+		return
+	}
+	spec := terminalTargetSpec{
+		kind:       store.TerminalTargetContainer,
+		serverID:   row.ServerRowID,
+		resourceID: &row.Resource.ID,
+		previewID:  &preview.ID,
+		name:       fmt.Sprintf("%s · PR #%d", row.Resource.Name, preview.PrID),
+	}
+	if params.Component != nil && *params.Component != "" {
+		components, err := a.Store.ListServiceComponents(r.Context(), row.Resource.ID)
+		if err != nil {
+			a.internalError(w, r, "terminal session", err)
+			return
+		}
+		found := false
+		for _, c := range components {
+			if c.Name == *params.Component {
+				found = true
+				break
+			}
+		}
+		if !found {
+			httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound,
+				fmt.Sprintf("unknown component %q — see GET /applications/{uuid}/components", *params.Component))
+			return
+		}
+		spec.component = *params.Component
+		spec.name = fmt.Sprintf("%s · PR #%d · %s", row.Resource.Name, preview.PrID, *params.Component)
+	}
+	a.createTerminalSession(w, r, id, spec)
+}

@@ -2118,6 +2118,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ouvrir une session terminal dans un container de la preview
+         * @description Même contrat que le terminal d'application (§5.7, §24.4) — token court à usage unique, session auditée et bornée — mais la cible est un container de l'INSTANCE de preview (INV-011). `component` désigne le service pour une stack compose ; `404` si le composant est inconnu ; `409` si la preview est détruite.
+         */
+        post: operations["createPreviewTerminalSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/applications/{application_uuid}/previews/{preview_uuid}/approve": {
         parameters: {
             query?: never;
@@ -9460,6 +9484,38 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["LogLine"][];
                     };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createPreviewTerminalSession: {
+        parameters: {
+            query?: {
+                /** @description (build pack compose) Nom du service dont ouvrir le shell. */
+                component?: string;
+            };
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session créée — le token n'est visible que dans cette réponse. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerminalSession"];
                 };
             };
             401: components["responses"]["Unauthorized"];
