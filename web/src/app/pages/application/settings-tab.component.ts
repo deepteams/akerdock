@@ -146,6 +146,7 @@ type PrivateKey = components['schemas']['PrivateKey'];
                       [disabled]="busy()"
                     >
                       <option value="basic_auth">Basic auth (default)</option>
+                      <option value="sso">AkerDock login (SSO — team members only)</option>
                       <option value="none">Public (explicit choice)</option>
                     </select>
                   </div>

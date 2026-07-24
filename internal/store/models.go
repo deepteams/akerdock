@@ -966,6 +966,7 @@ const (
 	PreviewProtectionNone       PreviewProtection = "none"
 	PreviewProtectionBasicAuth  PreviewProtection = "basic_auth"
 	PreviewProtectionSignedLink PreviewProtection = "signed_link"
+	PreviewProtectionSso        PreviewProtection = "sso"
 )
 
 func (e *PreviewProtection) Scan(src interface{}) error {
@@ -2680,6 +2681,15 @@ type Preview struct {
 	CreatedAt      pgtype.Timestamptz
 	UpdatedAt      pgtype.Timestamptz
 	RepoReference  *string
+}
+
+type PreviewAccessToken struct {
+	ID        int64
+	TokenHash string
+	PreviewID int64
+	UserID    *int64
+	ExpiresAt pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
 }
 
 type PrivateKey struct {

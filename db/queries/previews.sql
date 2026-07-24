@@ -109,3 +109,22 @@ UPDATE applications SET
     preview_comment_commands_enabled = COALESCE(sqlc.narg(preview_comment_commands_enabled), preview_comment_commands_enabled),
     preview_cancel_obsolete_builds = COALESCE(sqlc.narg(preview_cancel_obsolete_builds), preview_cancel_obsolete_builds)
 WHERE id = $1;
+
+-- name: CreatePreviewAccessToken :exec
+-- ADR-030: only the HASH is stored — the cookie value never touches the base.
+INSERT INTO preview_access_tokens (token_hash, preview_id, user_id, expires_at)
+VALUES ($1, $2, sqlc.narg(user_id), $3);
+
+-- name: GetPreviewAccessTokenByHash :one
+SELECT * FROM preview_access_tokens WHERE token_hash = $1 AND expires_at > now();
+
+-- name: DeleteExpiredPreviewAccessTokens :exec
+DELETE FROM preview_access_tokens WHERE expires_at <= now();
+
+-- name: GetPreviewByHost :one
+-- Resolves the browser's Host to a preview (ADR-030): the preview's own fqdn,
+-- or a compose service's derived `<service>-<fqdn>` (§20.4.1).
+SELECT * FROM previews
+WHERE fqdn IS NOT NULL AND (fqdn = sqlc.arg(host)::citext OR sqlc.arg(host)::citext LIKE '%-' || fqdn)
+ORDER BY length(fqdn) DESC
+LIMIT 1;

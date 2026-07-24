@@ -9870,7 +9870,7 @@ components:
           description: TTL d'inactivité en minutes ; null = pas de destruction automatique.
         preview_protection:
           type: string
-          enum: [none, basic_auth]
+          enum: [none, basic_auth, sso]
           description: Protection d'accès des URLs de preview (§20.4.4) — basic_auth par défaut.
         preview_fork_approval_enabled:
           type: boolean
@@ -10043,7 +10043,7 @@ components:
           nullable: true
         preview_protection:
           type: string
-          enum: [none, basic_auth]
+          enum: [none, basic_auth, sso]
         preview_fork_approval_enabled:
           type: boolean
         preview_exclude_drafts:

@@ -140,6 +140,7 @@ func (e ApplicationBuildPack) Valid() bool {
 const (
 	ApplicationPreviewProtectionBasicAuth ApplicationPreviewProtection = "basic_auth"
 	ApplicationPreviewProtectionNone      ApplicationPreviewProtection = "none"
+	ApplicationPreviewProtectionSso       ApplicationPreviewProtection = "sso"
 )
 
 // Valid indicates whether the value is a known member of the ApplicationPreviewProtection enum.
@@ -148,6 +149,8 @@ func (e ApplicationPreviewProtection) Valid() bool {
 	case ApplicationPreviewProtectionBasicAuth:
 		return true
 	case ApplicationPreviewProtectionNone:
+		return true
+	case ApplicationPreviewProtectionSso:
 		return true
 	default:
 		return false
@@ -248,6 +251,7 @@ func (e ApplicationUpdateBuildPack) Valid() bool {
 const (
 	ApplicationUpdatePreviewProtectionBasicAuth ApplicationUpdatePreviewProtection = "basic_auth"
 	ApplicationUpdatePreviewProtectionNone      ApplicationUpdatePreviewProtection = "none"
+	ApplicationUpdatePreviewProtectionSso       ApplicationUpdatePreviewProtection = "sso"
 )
 
 // Valid indicates whether the value is a known member of the ApplicationUpdatePreviewProtection enum.
@@ -256,6 +260,8 @@ func (e ApplicationUpdatePreviewProtection) Valid() bool {
 	case ApplicationUpdatePreviewProtectionBasicAuth:
 		return true
 	case ApplicationUpdatePreviewProtectionNone:
+		return true
+	case ApplicationUpdatePreviewProtectionSso:
 		return true
 	default:
 		return false

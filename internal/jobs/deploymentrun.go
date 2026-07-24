@@ -140,6 +140,23 @@ func (r *deploymentRun) previewAuthHash(ctx context.Context) string {
 	return ""
 }
 
+// previewSSOAuthURL is the forwardAuth address of the sso protection
+// (ADR-030) — empty when the application uses another mode, an error naming
+// the missing instance FQDN when sso is asked without one.
+func (r *deploymentRun) previewSSOAuthURL(ctx context.Context) (string, error) {
+	if r.app.Application.PreviewProtection != store.PreviewProtectionSso {
+		return "", nil
+	}
+	settings, err := r.h.Store.GetInstanceSettings(ctx)
+	if err != nil {
+		return "", err
+	}
+	if settings.Fqdn == nil || *settings.Fqdn == "" {
+		return "", fmt.Errorf("preview_protection sso requires the instance FQDN (ADR-030) — set it in the instance settings")
+	}
+	return "https://" + *settings.Fqdn + "/webhooks/previews/forward-auth", nil
+}
+
 // namingIdentity is the base of the Docker names of this run: the preview
 // uuid for a PR instance, the resource uuid otherwise (INV-011).
 func (r *deploymentRun) namingIdentity() string {
@@ -1178,7 +1195,11 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 	var content string
 	var err error
 	if r.preview != nil {
-		content, err = RenderPreviewRoutingFile(r.app, *r.preview, r.d.ID, endpoint, r.previewAuthHash(ctx))
+		ssoURL, ssoErr := r.previewSSOAuthURL(ctx)
+		if ssoErr != nil {
+			return ssoErr
+		}
+		content, err = RenderPreviewRoutingFile(r.app, *r.preview, r.d.ID, endpoint, r.previewAuthHash(ctx), ssoURL)
 	} else {
 		content, err = RenderRoutingFileTo(ctx, r.h.Store, r.app, r.d.ID, endpoint)
 	}

@@ -235,7 +235,7 @@ func appendComponentRoutes(ctx context.Context, q *store.Queries, components []s
 // instance (§20.4.4): its fqdn routes to the preview's own container, behind
 // the application's protection policy — basic auth by default, and always
 // `X-Robots-Tag: noindex`: a preview is not content to index.
-func RenderPreviewRoutingFile(app store.GetApplicationByIDRow, preview store.Preview, revision int64, endpoint, basicAuthHash string) (string, error) {
+func RenderPreviewRoutingFile(app store.GetApplicationByIDRow, preview store.Preview, revision int64, endpoint, basicAuthHash, ssoAuthURL string) (string, error) {
 	if preview.Fqdn == nil || *preview.Fqdn == "" {
 		return "", nil // no fqdn resolved: the preview runs unrouted
 	}
@@ -255,14 +255,14 @@ func RenderPreviewRoutingFile(app store.GetApplicationByIDRow, preview store.Pre
 		Routes: []proxy.Route{{FQDN: *preview.Fqdn, Path: "/", TargetPort: port}},
 	}
 	content := proxy.GenerateDynamic(rg, revision)
-	return injectPreviewMiddlewares(content, previewUUID, app.Application.PreviewProtection, basicAuthHash), nil
+	return injectPreviewMiddlewares(content, previewUUID, app.Application.PreviewProtection, basicAuthHash, ssoAuthURL), nil
 }
 
 // injectPreviewMiddlewares attaches the preview protection to every https
 // router of a generated routing file (§20.4.4): X-Robots-Tag noindex always,
 // basic auth when the application asks for it — shared by the
 // single-container previews and the compose preview stacks.
-func injectPreviewMiddlewares(content, previewUUID string, protection store.PreviewProtection, basicAuthHash string) string {
+func injectPreviewMiddlewares(content, previewUUID string, protection store.PreviewProtection, basicAuthHash, ssoAuthURL string) string {
 	middlewares := []string{previewUUID + "-noindex"}
 	extra := fmt.Sprintf("    %s-noindex:\n      headers:\n        customResponseHeaders:\n          X-Robots-Tag: noindex\n", previewUUID)
 	if protection == store.PreviewProtectionBasicAuth && basicAuthHash != "" {
@@ -272,6 +272,13 @@ func injectPreviewMiddlewares(content, previewUUID string, protection store.Prev
 		// this file in clear text — Traefik gets the bcrypt hash.
 		middlewares = append(middlewares, previewUUID+"-auth")
 		extra += fmt.Sprintf("    %s-auth:\n      basicAuth:\n        users:\n          - %q\n", previewUUID, basicAuthHash)
+	}
+	if protection == store.PreviewProtectionSso && ssoAuthURL != "" {
+		// forwardAuth to the control plane (ADR-030): the AkerDock session
+		// decides — whatever login method produced it. No WWW-Authenticate
+		// ever reaches the browser, so the app's own 401s stay its own.
+		middlewares = append(middlewares, previewUUID+"-auth")
+		extra += fmt.Sprintf("    %s-auth:\n      forwardAuth:\n        address: %q\n", previewUUID, ssoAuthURL)
 	}
 
 	// Attach the middlewares to the https routers, and define them in the

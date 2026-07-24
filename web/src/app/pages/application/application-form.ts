@@ -81,7 +81,7 @@ export interface SettingsForm extends ConfigForm {
   previewUrlTemplate: string;
   previewMaxConcurrent: string;
   previewTtlMinutes: string;
-  previewProtection: 'none' | 'basic_auth';
+  previewProtection: 'none' | 'basic_auth' | 'sso';
   previewForkApprovalEnabled: boolean;
   previewExcludeDrafts: boolean;
   /** PR label required to get a preview; empty = disabled (every PR). */
@@ -190,7 +190,7 @@ export function settingsFromApplication(app: Application): SettingsForm {
     previewUrlTemplate: app.preview_url_template ?? '{{pr_id}}.{{domain}}',
     previewMaxConcurrent: app.preview_max_concurrent != null ? String(app.preview_max_concurrent) : '',
     previewTtlMinutes: app.preview_ttl_minutes != null ? String(app.preview_ttl_minutes) : '',
-    previewProtection: (app.preview_protection as 'none' | 'basic_auth') ?? 'basic_auth',
+    previewProtection: (app.preview_protection as 'none' | 'basic_auth' | 'sso') ?? 'basic_auth',
     previewForkApprovalEnabled: app.preview_fork_approval_enabled ?? false,
     previewExcludeDrafts: app.preview_exclude_drafts ?? false,
     previewRequireLabel: app.preview_require_label ?? '',

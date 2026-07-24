@@ -120,6 +120,12 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 	r.Get("/webhooks/github/apps/{app_uuid}/setup", a.GithubAppSetup)
 	r.Post("/webhooks/github/apps/{app_uuid}", a.ReceiveGithubAppWebhook)
 
+	// Preview SSO (ADR-030): forward-auth is Traefik calling per request,
+	// authorize is a BROWSER redirect authenticated by the panel session —
+	// neither carries a bearer token.
+	r.Get("/webhooks/previews/forward-auth", a.PreviewForwardAuth)
+	r.Get("/webhooks/previews/authorize", a.PreviewAuthorize)
+
 	// Browser authentication (PRD §698). Outside /api/v1 and outside the bearer
 	// middleware: the v1 contract knows nothing of sessions (§10.2), and these
 	// routes exist for the dashboard alone.

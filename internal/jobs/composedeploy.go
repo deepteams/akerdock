@@ -745,8 +745,12 @@ func (r *deploymentRun) applyComposePreviewRouting(ctx context.Context, content 
 	}
 	routingContent := ""
 	if len(rg.Routes) > 0 {
+		ssoURL, err := r.previewSSOAuthURL(ctx)
+		if err != nil {
+			return err
+		}
 		routingContent = injectPreviewMiddlewares(proxy.GenerateDynamic(rg, r.d.ID), appUUID,
-			r.app.Application.PreviewProtection, r.previewAuthHash(ctx))
+			r.app.Application.PreviewProtection, r.previewAuthHash(ctx), ssoURL)
 	}
 	applier := &ProxyApplier{Store: r.h.Store, Client: r.client, Server: r.server, Network: r.dest.Network}
 	return r.step(ctx, "apply_routing", func() (*sshexec.Result, error) {

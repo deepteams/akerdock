@@ -35,7 +35,7 @@ func previewFixture(t *testing.T) (store.GetApplicationByIDRow, store.Preview) {
 // and Traefik would reject the whole file — the preview would never route.
 func TestRenderPreviewRoutingFileIsValidYAML(t *testing.T) {
 	app, preview := previewFixture(t)
-	content, err := RenderPreviewRoutingFile(app, preview, 7, "", "preview:$2y$hash")
+	content, err := RenderPreviewRoutingFile(app, preview, 7, "", "preview:$2y$hash", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestRenderPreviewRoutingFileIsValidYAML(t *testing.T) {
 func TestRenderPreviewRoutingFileWithoutAuth(t *testing.T) {
 	app, preview := previewFixture(t)
 	app.Application.PreviewProtection = store.PreviewProtectionNone
-	content, err := RenderPreviewRoutingFile(app, preview, 7, "", "")
+	content, err := RenderPreviewRoutingFile(app, preview, 7, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,5 +99,34 @@ func TestRenderPreviewRoutingFileWithoutAuth(t *testing.T) {
 	var doc map[string]any
 	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
 		t.Fatalf("invalid YAML: %v\n%s", err, content)
+	}
+}
+
+// sso protection (ADR-030): the https routers must carry a forwardAuth
+// middleware to the control plane — and never a basicAuth one.
+func TestRenderPreviewRoutingFileSSO(t *testing.T) {
+	app, preview := previewFixture(t)
+	app.Application.PreviewProtection = store.PreviewProtectionSso
+	content, err := RenderPreviewRoutingFile(app, preview, 7, "", "",
+		"https://manager.example.com/webhooks/previews/forward-auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"forwardAuth:",
+		`address: "https://manager.example.com/webhooks/previews/forward-auth"`,
+		"-auth",
+		"X-Robots-Tag: noindex",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("sso routing missing %q\n%s", want, content)
+		}
+	}
+	if strings.Contains(content, "basicAuth") {
+		t.Fatal("sso mode must not emit basicAuth")
+	}
+	var parsed map[string]any
+	if err := yaml.Unmarshal([]byte(content), &parsed); err != nil {
+		t.Fatalf("generated routing is not valid YAML: %v\n%s", err, content)
 	}
 }

@@ -42,6 +42,92 @@ func (q *Queries) CountLivePreviewsForApplication(ctx context.Context, applicati
 	return count, err
 }
 
+const createPreviewAccessToken = `-- name: CreatePreviewAccessToken :exec
+INSERT INTO preview_access_tokens (token_hash, preview_id, user_id, expires_at)
+VALUES ($1, $2, $4, $3)
+`
+
+type CreatePreviewAccessTokenParams struct {
+	TokenHash string
+	PreviewID int64
+	ExpiresAt pgtype.Timestamptz
+	UserID    *int64
+}
+
+// ADR-030: only the HASH is stored — the cookie value never touches the base.
+func (q *Queries) CreatePreviewAccessToken(ctx context.Context, arg CreatePreviewAccessTokenParams) error {
+	_, err := q.db.Exec(ctx, createPreviewAccessToken,
+		arg.TokenHash,
+		arg.PreviewID,
+		arg.ExpiresAt,
+		arg.UserID,
+	)
+	return err
+}
+
+const deleteExpiredPreviewAccessTokens = `-- name: DeleteExpiredPreviewAccessTokens :exec
+DELETE FROM preview_access_tokens WHERE expires_at <= now()
+`
+
+func (q *Queries) DeleteExpiredPreviewAccessTokens(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteExpiredPreviewAccessTokens)
+	return err
+}
+
+const getPreviewAccessTokenByHash = `-- name: GetPreviewAccessTokenByHash :one
+SELECT id, token_hash, preview_id, user_id, expires_at, created_at FROM preview_access_tokens WHERE token_hash = $1 AND expires_at > now()
+`
+
+func (q *Queries) GetPreviewAccessTokenByHash(ctx context.Context, tokenHash string) (PreviewAccessToken, error) {
+	row := q.db.QueryRow(ctx, getPreviewAccessTokenByHash, tokenHash)
+	var i PreviewAccessToken
+	err := row.Scan(
+		&i.ID,
+		&i.TokenHash,
+		&i.PreviewID,
+		&i.UserID,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getPreviewByHost = `-- name: GetPreviewByHost :one
+SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference FROM previews
+WHERE fqdn IS NOT NULL AND (fqdn = $1::citext OR $1::citext LIKE '%-' || fqdn)
+ORDER BY length(fqdn) DESC
+LIMIT 1
+`
+
+// Resolves the browser's Host to a preview (ADR-030): the preview's own fqdn,
+// or a compose service's derived `<service>-<fqdn>` (§20.4.1).
+func (q *Queries) GetPreviewByHost(ctx context.Context, host string) (Preview, error) {
+	row := q.db.QueryRow(ctx, getPreviewByHost, host)
+	var i Preview
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.ApplicationID,
+		&i.Provider,
+		&i.PrID,
+		&i.SourceBranch,
+		&i.HeadSha,
+		&i.IsFork,
+		&i.ForkApprovedBy,
+		&i.ForkApprovedAt,
+		&i.Fqdn,
+		&i.Status,
+		&i.CleanupError,
+		&i.LastDeployedAt,
+		&i.LastActivityAt,
+		&i.DestroyedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RepoReference,
+	)
+	return i, err
+}
+
 const getPreviewByID = `-- name: GetPreviewByID :one
 SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference FROM previews WHERE id = $1
 `

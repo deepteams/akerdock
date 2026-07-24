@@ -4354,7 +4354,7 @@ export interface components {
              * @description Protection d'accès des URLs de preview (§20.4.4) — basic_auth par défaut.
              * @enum {string}
              */
-            preview_protection?: "none" | "basic_auth";
+            preview_protection?: "none" | "basic_auth" | "sso";
             /** @description Autorise les previews de forks après approbation d'un mainteneur (INV-010). */
             preview_fork_approval_enabled?: boolean;
             /** @description Les draft PRs ne déclenchent pas de preview (opt-in, ADR-011). */
@@ -4414,7 +4414,7 @@ export interface components {
             preview_max_concurrent?: number | null;
             preview_ttl_minutes?: number | null;
             /** @enum {string} */
-            preview_protection?: "none" | "basic_auth";
+            preview_protection?: "none" | "basic_auth" | "sso";
             preview_fork_approval_enabled?: boolean;
             preview_exclude_drafts?: boolean;
             /** @description Opt-in par label de PR (§20.4.7) ; null = désactivé. */
