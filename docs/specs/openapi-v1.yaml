@@ -2977,9 +2977,21 @@ paths:
       tags: [Applications]
       operationId: createApplicationEnv
       summary: Créer une variable d'environnement
+      description: >-
+        Dans le jeu de PRODUCTION par défaut ; `preview=true` crée la variable
+        dans le jeu dédié des previews (INV-010) — c'est ainsi qu'on fournit
+        aux instances de PR leurs clés (versions de test), sans jamais copier
+        les secrets de production.
       x-required-permission: write
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
+        - name: preview
+          in: query
+          required: false
+          description: Crée la variable dans le jeu des previews au lieu de celui de production.
+          schema:
+            type: boolean
+            default: false
       requestBody:
         required: true
         content:

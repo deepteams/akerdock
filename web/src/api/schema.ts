@@ -1276,7 +1276,10 @@ export interface paths {
          * @description Remplacement complet du jeu de variables (sémantique PUT) — les variables absentes du corps sont SUPPRIMÉES, les présentes sont créées ou mises à jour par `key`. Exception : les variables `is_locked` existantes absentes du corps sont conservées (elles ne peuvent être supprimées qu'unitairement). Équivalent de la vue Developer / éditeur bulk (§5.4).
          */
         put: operations["replaceApplicationEnvs"];
-        /** Créer une variable d'environnement */
+        /**
+         * Créer une variable d'environnement
+         * @description Dans le jeu de PRODUCTION par défaut ; `preview=true` crée la variable dans le jeu dédié des previews (INV-010) — c'est ainsi qu'on fournit aux instances de PR leurs clés (versions de test), sans jamais copier les secrets de production.
+         */
         post: operations["createApplicationEnv"];
         delete?: never;
         options?: never;
@@ -7823,7 +7826,10 @@ export interface operations {
     };
     createApplicationEnv: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Crée la variable dans le jeu des previews au lieu de celui de production. */
+                preview?: boolean;
+            };
             header?: {
                 /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];

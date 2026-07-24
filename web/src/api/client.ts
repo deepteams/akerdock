@@ -892,16 +892,20 @@ export class AkerDockClient {
     return this.request<void>('DELETE', `/applications/${applicationUuid}/storages/${storageUuid}`);
   }
 
-  listApplicationEnvs(uuid: string, query?: { cursor?: string; limit?: number }) {
+  listApplicationEnvs(uuid: string, query?: { cursor?: string; limit?: number; preview?: boolean }) {
     type Response =
       paths['/applications/{application_uuid}/envs']['get']['responses']['200']['content']['application/json'];
     return this.request<Response>('GET', `/applications/${uuid}/envs`, { query });
   }
 
-  createApplicationEnv(uuid: string, body: components['schemas']['EnvironmentVariableCreate']) {
+  createApplicationEnv(
+    uuid: string,
+    body: components['schemas']['EnvironmentVariableCreate'],
+    query?: { preview?: boolean },
+  ) {
     type Response =
       paths['/applications/{application_uuid}/envs']['post']['responses']['201']['content']['application/json'];
-    return this.request<Response>('POST', `/applications/${uuid}/envs`, { body });
+    return this.request<Response>('POST', `/applications/${uuid}/envs`, { body, query });
   }
 
   replaceApplicationEnvs(

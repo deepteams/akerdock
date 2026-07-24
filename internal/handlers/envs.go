@@ -100,7 +100,10 @@ func (a *API) CreateApplicationEnv(w http.ResponseWriter, r *http.Request, appli
 		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "invalid JSON body")
 		return
 	}
-	created, err := a.insertEnvVar(r, row.Resource.ID, body)
+	// preview=true writes into the DEDICATED preview set (INV-010): the only
+	// way a PR instance gets its keys — production values are never copied.
+	preview := params.Preview != nil && *params.Preview
+	created, err := a.insertEnvVar(r, row.Resource.ID, body, preview)
 	if err != nil {
 		a.writeEnvError(w, r, err)
 		return
@@ -154,7 +157,7 @@ func (a *API) ReplaceApplicationEnvs(w http.ResponseWriter, r *http.Request, app
 			}
 			continue
 		}
-		if _, err := a.insertEnvVar(r, row.Resource.ID, item); err != nil {
+		if _, err := a.insertEnvVar(r, row.Resource.ID, item, false); err != nil {
 			a.writeEnvError(w, r, err)
 			return
 		}
@@ -264,7 +267,7 @@ type envConflictError struct{}
 
 func (e *envConflictError) Error() string { return "duplicate key" }
 
-func (a *API) insertEnvVar(r *http.Request, resourceID int64, item api.EnvironmentVariableCreate) (store.EnvironmentVariable, error) {
+func (a *API) insertEnvVar(r *http.Request, resourceID int64, item api.EnvironmentVariableCreate, preview bool) (store.EnvironmentVariable, error) {
 	if !envKeyFormat.MatchString(item.Key) || len(item.Key) > 255 {
 		return store.EnvironmentVariable{}, &envValidationError{api.ErrorDetail{Field: ptr("key"), Code: ptr("invalid"), Message: "key must match [A-Za-z_][A-Za-z0-9_]* and be at most 255 characters"}}
 	}
@@ -287,7 +290,8 @@ func (a *API) insertEnvVar(r *http.Request, resourceID int64, item api.Environme
 		// is_secret decides HOW a build-time variable reaches the build: a plain
 		// one becomes an ARG (and lands in `docker history`), a secret one is
 		// mounted by BuildKit and never enters a layer (§5.2, INV-003).
-		IsSecret: boolOr(item.IsSecret),
+		IsSecret:  boolOr(item.IsSecret),
+		IsPreview: preview,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {

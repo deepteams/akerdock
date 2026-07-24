@@ -71,8 +71,29 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
     @if (loading()) {
       <p class="akd-muted">Loading…</p>
     } @else {
-      <akd-card title="Environment variables" [padded]="false">
+      <akd-card [title]="'Environment variables · ' + set()" [padded]="false">
         <div class="toolbar">
+          <!-- Two DISTINCT sets (INV-010): previews never inherit production —
+               this switcher is where a PR instance's keys get defined. -->
+          <button
+            type="button"
+            class="akd-btn akd-btn--sm"
+            [class.akd-btn--secondary]="set() === 'production'"
+            [class.akd-btn--ghost]="set() !== 'production'"
+            (click)="switchSet('production')"
+          >
+            Production
+          </button>
+          <button
+            type="button"
+            class="akd-btn akd-btn--sm"
+            [class.akd-btn--secondary]="set() === 'previews'"
+            [class.akd-btn--ghost]="set() !== 'previews'"
+            (click)="switchSet('previews')"
+          >
+            Previews
+          </button>
+          <span class="sep"></span>
           <button
             type="button"
             class="akd-btn akd-btn--sm"
@@ -291,6 +312,11 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
       .toolbar .spacer {
         flex: 1;
       }
+      .toolbar .sep {
+        width: 1px;
+        align-self: stretch;
+        background: var(--border);
+      }
       .dev {
         display: grid;
         gap: var(--space-3);
@@ -313,6 +339,9 @@ export class ApplicationEnvsTabComponent {
   protected readonly busy = signal(false);
   protected readonly editing = signal<string | null>(null);
   protected readonly view = signal<'table' | 'run' | 'build'>('table');
+  /** Which variable set is on screen: production, or the previews' own
+   * (INV-010 — a PR instance never inherits production values). */
+  protected readonly set = signal<'production' | 'previews'>('production');
   /** Values are masked on landing — safe to open while screen sharing. */
   protected readonly revealed = signal(false);
 
@@ -340,10 +369,20 @@ export class ApplicationEnvsTabComponent {
     );
   }
 
+  protected switchSet(target: 'production' | 'previews'): void {
+    if (this.set() === target) return;
+    this.set.set(target);
+    this.view.set('table');
+    void this.load(this.uuid());
+  }
+
   private async load(uuid: string): Promise<void> {
     this.loading.set(true);
     try {
-      const page = await this.api.client().listApplicationEnvs(uuid, { limit: 100 });
+      const page = await this.api.client().listApplicationEnvs(uuid, {
+        limit: 100,
+        preview: this.set() === 'previews',
+      });
       this.envs.set(page.data);
     } catch (err) {
       this.error.set(ApiService.describe(err));
@@ -357,15 +396,19 @@ export class ApplicationEnvsTabComponent {
     this.busy.set(true);
     this.error.set(null);
     try {
-      await this.api.client().createApplicationEnv(this.uuid(), {
-        key: this.key.trim(),
-        value: this.value,
-        is_secret: this.isSecret,
-        is_build_time: this.isBuildTime,
-        is_literal: false,
-        is_multiline: this.value.includes('\n'),
-        is_locked: false,
-      });
+      await this.api.client().createApplicationEnv(
+        this.uuid(),
+        {
+          key: this.key.trim(),
+          value: this.value,
+          is_secret: this.isSecret,
+          is_build_time: this.isBuildTime,
+          is_literal: false,
+          is_multiline: this.value.includes('\n'),
+          is_locked: false,
+        },
+        { preview: this.set() === 'previews' },
+      );
       this.key = '';
       this.value = '';
       this.isSecret = false;
@@ -454,15 +497,19 @@ export class ApplicationEnvsTabComponent {
     this.error.set(null);
     try {
       for (const c of creates) {
-        await this.api.client().createApplicationEnv(this.uuid(), {
-          key: c.key,
-          value: c.value,
-          is_secret: false,
-          is_build_time: mode === 'build',
-          is_literal: false,
-          is_multiline: c.value.includes('\n'),
-          is_locked: false,
-        });
+        await this.api.client().createApplicationEnv(
+          this.uuid(),
+          {
+            key: c.key,
+            value: c.value,
+            is_secret: false,
+            is_build_time: mode === 'build',
+            is_literal: false,
+            is_multiline: c.value.includes('\n'),
+            is_locked: false,
+          },
+          { preview: this.set() === 'previews' },
+        );
       }
       for (const u of updates) {
         await this.api.client().updateApplicationEnv(this.uuid(), u.env.uuid, { value: u.value });

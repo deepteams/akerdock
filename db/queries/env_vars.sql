@@ -2,8 +2,8 @@
 -- for the v1 endpoints; the preview set lands with previews.
 
 -- name: CreateEnvVar :one
-INSERT INTO environment_variables (uuid, resource_id, key, value_enc, is_build_time, is_literal, is_multiline, is_locked, is_secret)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO environment_variables (uuid, resource_id, key, value_enc, is_build_time, is_literal, is_multiline, is_locked, is_secret, is_preview)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING *;
 
 -- name: GetEnvVarByUUID :one

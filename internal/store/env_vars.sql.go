@@ -13,8 +13,8 @@ import (
 
 const createEnvVar = `-- name: CreateEnvVar :one
 
-INSERT INTO environment_variables (uuid, resource_id, key, value_enc, is_build_time, is_literal, is_multiline, is_locked, is_secret)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO environment_variables (uuid, resource_id, key, value_enc, is_build_time, is_literal, is_multiline, is_locked, is_secret, is_preview)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at
 `
 
@@ -28,6 +28,7 @@ type CreateEnvVarParams struct {
 	IsMultiline bool
 	IsLocked    bool
 	IsSecret    bool
+	IsPreview   bool
 }
 
 // Environment variables (§5.4): the production set (is_preview = false)
@@ -43,6 +44,7 @@ func (q *Queries) CreateEnvVar(ctx context.Context, arg CreateEnvVarParams) (Env
 		arg.IsMultiline,
 		arg.IsLocked,
 		arg.IsSecret,
+		arg.IsPreview,
 	)
 	var i EnvironmentVariable
 	err := row.Scan(

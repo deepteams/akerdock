@@ -4419,6 +4419,9 @@ type ListApplicationEnvsParams struct {
 
 // CreateApplicationEnvParams defines parameters for CreateApplicationEnv.
 type CreateApplicationEnvParams struct {
+	// Preview Crée la variable dans le jeu des previews au lieu de celui de production.
+	Preview *bool `form:"preview,omitempty" json:"preview,omitempty"`
+
 	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
@@ -7751,6 +7754,19 @@ func (siw *ServerInterfaceWrapper) CreateApplicationEnv(w http.ResponseWriter, r
 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params CreateApplicationEnvParams
+
+	// ------------- Optional query parameter "preview" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "preview", r.URL.Query(), &params.Preview, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "preview"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "preview", Err: err})
+		}
+		return
+	}
 
 	headers := r.Header
 
