@@ -95,6 +95,16 @@ func (a *API) PreviewForwardAuth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Only top-level NAVIGATIONS get the login dance: a fetch/XHR cannot
+	// complete a cross-origin redirect ritual — it only drowns in CORS noise.
+	// A clean 401 lets the app's own code react (and no WWW-Authenticate:
+	// the browser must never open a dialog). Sec-Fetch-Mode is browser-set
+	// and survives proxies, unlike the X-Forwarded-* family.
+	if mode := r.Header.Get("Sec-Fetch-Mode"); mode != "" && mode != "navigate" {
+		http.Error(w, "preview authentication required — open the preview URL in the browser", http.StatusUnauthorized)
+		return
+	}
+
 	settings, err := a.Settings.Get(r.Context())
 	if err != nil || settings.Fqdn == nil || *settings.Fqdn == "" {
 		http.Error(w, "preview sso requires the instance FQDN", http.StatusForbidden)
