@@ -133,16 +133,39 @@ func RenderRoutingFileWithComponentEndpoints(ctx context.Context, q *store.Queri
 			}
 		}
 	}
+	// A compose stack has no container named after the application: routes
+	// must target a COMPONENT container (compose-spec §6). An application-
+	// level domain — the UI's Routing field — is resolved to the stack's web
+	// service deterministically; pointing it at the group endpoint would 502
+	// against a container that does not exist.
+	components, err := q.ListServiceComponents(ctx, app.Resource.ID)
+	if err != nil {
+		return "", err
+	}
 	for _, d := range domains {
 		port := defaultPort
 		if d.TargetPort != nil {
 			port = int(*d.TargetPort)
 		}
-		rg.Routes = append(rg.Routes, proxy.Route{FQDN: d.Fqdn, Path: d.Path, TargetPort: port})
+		route := proxy.Route{FQDN: d.Fqdn, Path: d.Path, TargetPort: port}
+		if len(components) > 0 {
+			c, err := resolveWebComponent(components, d.TargetPort)
+			if err != nil {
+				return "", fmt.Errorf("domain %s: %w", d.Fqdn, err)
+			}
+			if d.TargetPort == nil && c.DefaultRoutePort != nil {
+				route.TargetPort = int(*c.DefaultRoutePort)
+			}
+			route.Endpoint = appUUID + "-" + c.Name
+			if override, ok := componentEndpoints[c.Name]; ok && override != "" {
+				route.Endpoint = override
+			}
+		}
+		rg.Routes = append(rg.Routes, route)
 	}
 	// Compose stacks route per component (compose-spec §6): each domain of a
 	// component targets that component's own container.
-	if err := appendComponentRoutes(ctx, q, app, appUUID, &rg, componentEndpoints); err != nil {
+	if err := appendComponentRoutes(ctx, q, components, appUUID, &rg, componentEndpoints); err != nil {
 		return "", err
 	}
 	if len(rg.Routes) == 0 {
@@ -151,15 +174,35 @@ func RenderRoutingFileWithComponentEndpoints(ctx context.Context, q *store.Queri
 	return proxy.GenerateDynamic(rg, revision), nil
 }
 
+// resolveWebComponent picks the compose service an application-level domain
+// routes to (compose-spec §6): the component whose exposed port matches the
+// domain's target port, or the ONLY component exposing a port. Ambiguity is a
+// deterministic error naming the fix — never a guessed container.
+func resolveWebComponent(components []store.ServiceComponent, targetPort *int32) (store.ServiceComponent, error) {
+	var routable []store.ServiceComponent
+	for _, c := range components {
+		if c.DefaultRoutePort == nil {
+			continue
+		}
+		if targetPort != nil && *c.DefaultRoutePort == *targetPort {
+			return c, nil
+		}
+		routable = append(routable, c)
+	}
+	if len(routable) == 1 {
+		return routable[0], nil
+	}
+	if len(routable) == 0 {
+		return store.ServiceComponent{}, fmt.Errorf("compose_routable_port_unresolved: no service of the stack exposes a port — add `expose` to the web service")
+	}
+	return store.ServiceComponent{}, fmt.Errorf("compose_routable_component_ambiguous: %d services expose ports — set the domain as fqdn:port with the web service's exposed port", len(routable))
+}
+
 // appendComponentRoutes adds the per-component domains of a compose stack.
 // The port resolution order is the domain's target_port, then the component's
 // default (first `expose`, persisted at validation) — a routed component with
 // neither is a deterministic error, never a guessed port (compose-spec §6).
-func appendComponentRoutes(ctx context.Context, q *store.Queries, app store.GetApplicationByIDRow, appUUID string, rg *proxy.RouteGroup, endpointOverrides map[string]string) error {
-	components, err := q.ListServiceComponents(ctx, app.Resource.ID)
-	if err != nil {
-		return err
-	}
+func appendComponentRoutes(ctx context.Context, q *store.Queries, components []store.ServiceComponent, appUUID string, rg *proxy.RouteGroup, endpointOverrides map[string]string) error {
 	for _, c := range components {
 		domains, err := q.ListServiceComponentDomains(ctx, &c.ID)
 		if err != nil {
