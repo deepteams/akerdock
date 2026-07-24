@@ -145,7 +145,7 @@ func run(args []string) int {
 		worker = queue.NewWorker(q, cfg.WorkerConcurrency, logger)
 		worker.Metrics, worker.Tracer = metrics, tel.Tracer
 		worker.Register(jobs.TypeServerValidate, (&jobs.ServerValidate{Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort}).Execute)
-		worker.Register(jobs.TypeDeploymentRun, (&jobs.DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger}).Execute)
+		worker.Register(jobs.TypeDeploymentRun, (&jobs.DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger, ControlPlanePort: cfg.InstancePort}).Execute)
 		worker.Register(jobs.TypeApplicationDelete, (&jobs.ApplicationDelete{Store: q, Keyring: keyring, Logger: logger}).Execute)
 		worker.Register(jobs.TypeApplyRouting, (&jobs.ApplyRouting{Store: q, Keyring: keyring, Logger: logger}).Execute)
 		db := &jobs.DatabaseRun{Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort}

@@ -45,6 +45,11 @@ type DeploymentRun struct {
 	Keyring *envelope.Keyring
 	Audit   *audit.Recorder
 	Logger  *slog.Logger
+	// ControlPlanePort is the published port of this instance (AKERDOCK_INSTANCE_PORT):
+	// on the server that HOSTS the instance, the preview forward-auth talks to
+	// the control plane straight through the Docker host gateway — never the
+	// public hairpin, whose latency taxes every preview request (ADR-030).
+	ControlPlanePort int
 }
 
 // ImageRef and TagRef bound what can reach a remote shell (INV-012); they
@@ -153,6 +158,13 @@ func (r *deploymentRun) previewSSOAuthURL(ctx context.Context) (string, error) {
 	}
 	if settings.Fqdn == nil || *settings.Fqdn == "" {
 		return "", fmt.Errorf("preview_protection sso requires the instance FQDN (ADR-030) — set it in the instance settings")
+	}
+	// The host of the instance reaches its control plane directly through
+	// the Docker host gateway: no DNS, no TLS, no public hairpin — the
+	// forward-auth runs on EVERY preview request, its latency is the
+	// preview's latency. Remote servers keep the public URL.
+	if r.server.IsLocalhost && r.h.ControlPlanePort > 0 {
+		return fmt.Sprintf("http://host.docker.internal:%d/webhooks/previews/forward-auth", r.h.ControlPlanePort), nil
 	}
 	return "https://" + *settings.Fqdn + "/webhooks/previews/forward-auth", nil
 }
