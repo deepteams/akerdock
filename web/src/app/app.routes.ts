@@ -62,6 +62,11 @@ export const routes: Routes = [
           import('./pages/application-detail.component').then((m) => m.ApplicationDetailComponent),
       },
       {
+        path: 'applications/:uuid/previews/:previewUuid',
+        loadComponent: () =>
+          import('./pages/preview-detail.component').then((m) => m.PreviewDetailComponent),
+      },
+      {
         path: 'services',
         loadComponent: () => import('./pages/services.component').then((m) => m.ServicesComponent),
       },

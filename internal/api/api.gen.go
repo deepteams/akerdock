@@ -4440,6 +4440,15 @@ type GetApplicationLogsParams struct {
 	Component *string `form:"component,omitempty" json:"component,omitempty"`
 }
 
+// GetPreviewLogsParams defines parameters for GetPreviewLogs.
+type GetPreviewLogsParams struct {
+	// Lines Nombre de lignes de queue (défaut 200, max 2000).
+	Lines *int `form:"lines,omitempty" json:"lines,omitempty"`
+
+	// Component Nom du service compose dont lire les logs.
+	Component *string `form:"component,omitempty" json:"component,omitempty"`
+}
+
 // RollbackApplicationJSONBody defines parameters for RollbackApplication.
 type RollbackApplicationJSONBody struct {
 	// DeploymentUuid Déploiement réussi dont l'image doit être redéployée.
@@ -5447,9 +5456,15 @@ type ServerInterface interface {
 	// Previews de PR d'une application
 	// (GET /applications/{application_uuid}/previews)
 	ListApplicationPreviews(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
+	// Détruire la preview d'une PR
+	// (DELETE /applications/{application_uuid}/previews/{preview_uuid})
+	DestroyPreview(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string)
 	// Approuver la preview d'une PR de fork
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/approve)
 	ApprovePreviewFork(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string)
+	// Logs des containers d'une preview
+	// (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
+	GetPreviewLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params GetPreviewLogsParams)
 	// Redémarrer une application
 	// (POST /applications/{application_uuid}/restart)
 	RestartApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
@@ -6062,9 +6077,21 @@ func (_ Unimplemented) ListApplicationPreviews(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Détruire la preview d'une PR
+// (DELETE /applications/{application_uuid}/previews/{preview_uuid})
+func (_ Unimplemented) DestroyPreview(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Approuver la preview d'une PR de fork
 // (POST /applications/{application_uuid}/previews/{preview_uuid}/approve)
 func (_ Unimplemented) ApprovePreviewFork(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Logs des containers d'une preview
+// (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
+func (_ Unimplemented) GetPreviewLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params GetPreviewLogsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8007,6 +8034,47 @@ func (siw *ServerInterfaceWrapper) ListApplicationPreviews(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// DestroyPreview operation middleware
+func (siw *ServerInterfaceWrapper) DestroyPreview(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "application_uuid" -------------
+	var applicationUuid ApplicationUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_uuid", chi.URLParam(r, "application_uuid"), &applicationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "preview_uuid" -------------
+	var previewUuid string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "preview_uuid", chi.URLParam(r, "preview_uuid"), &previewUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "preview_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DestroyPreview(w, r, applicationUuid, previewUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ApprovePreviewFork operation middleware
 func (siw *ServerInterfaceWrapper) ApprovePreviewFork(w http.ResponseWriter, r *http.Request) {
 
@@ -8039,6 +8107,76 @@ func (siw *ServerInterfaceWrapper) ApprovePreviewFork(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ApprovePreviewFork(w, r, applicationUuid, previewUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPreviewLogs operation middleware
+func (siw *ServerInterfaceWrapper) GetPreviewLogs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "application_uuid" -------------
+	var applicationUuid ApplicationUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_uuid", chi.URLParam(r, "application_uuid"), &applicationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "preview_uuid" -------------
+	var previewUuid string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "preview_uuid", chi.URLParam(r, "preview_uuid"), &previewUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "preview_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetPreviewLogsParams
+
+	// ------------- Optional query parameter "lines" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "lines", r.URL.Query(), &params.Lines, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "lines"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "lines", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "component" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "component", r.URL.Query(), &params.Component, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "component"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "component", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPreviewLogs(w, r, applicationUuid, previewUuid, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -15812,7 +15950,13 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/applications/{application_uuid}/previews", wrapper.ListApplicationPreviews)
 	})
 	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}", wrapper.DestroyPreview)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/approve", wrapper.ApprovePreviewFork)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/logs", wrapper.GetPreviewLogs)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/applications/{application_uuid}/restart", wrapper.RestartApplication)
@@ -18154,6 +18298,96 @@ func (response ListApplicationPreviews429JSONResponse) VisitListApplicationPrevi
 	return err
 }
 
+type DestroyPreviewRequestObject struct {
+	ApplicationUuid ApplicationUuid `json:"application_uuid"`
+	PreviewUuid     string          `json:"preview_uuid"`
+}
+
+type DestroyPreviewResponseObject interface {
+	VisitDestroyPreviewResponse(w http.ResponseWriter) error
+}
+
+type DestroyPreview202Response struct {
+}
+
+func (response DestroyPreview202Response) VisitDestroyPreviewResponse(w http.ResponseWriter) error {
+	w.WriteHeader(202)
+	return nil
+}
+
+type DestroyPreview401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DestroyPreview401JSONResponse) VisitDestroyPreviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DestroyPreview403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DestroyPreview403JSONResponse) VisitDestroyPreviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DestroyPreview404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DestroyPreview404JSONResponse) VisitDestroyPreviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DestroyPreview409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DestroyPreview409JSONResponse) VisitDestroyPreviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DestroyPreview429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response DestroyPreview429JSONResponse) VisitDestroyPreviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ApprovePreviewForkRequestObject struct {
 	ApplicationUuid ApplicationUuid `json:"application_uuid"`
 	PreviewUuid     string          `json:"preview_uuid"`
@@ -18236,6 +18470,105 @@ func (response ApprovePreviewFork409JSONResponse) VisitApprovePreviewForkRespons
 type ApprovePreviewFork429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response ApprovePreviewFork429JSONResponse) VisitApprovePreviewForkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPreviewLogsRequestObject struct {
+	ApplicationUuid ApplicationUuid `json:"application_uuid"`
+	PreviewUuid     string          `json:"preview_uuid"`
+	Params          GetPreviewLogsParams
+}
+
+type GetPreviewLogsResponseObject interface {
+	VisitGetPreviewLogsResponse(w http.ResponseWriter) error
+}
+
+type GetPreviewLogs200JSONResponse struct {
+	Data []LogLine `json:"data"`
+}
+
+func (response GetPreviewLogs200JSONResponse) VisitGetPreviewLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPreviewLogs401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetPreviewLogs401JSONResponse) VisitGetPreviewLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPreviewLogs403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetPreviewLogs403JSONResponse) VisitGetPreviewLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPreviewLogs404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetPreviewLogs404JSONResponse) VisitGetPreviewLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPreviewLogs409JSONResponse struct{ ConflictJSONResponse }
+
+func (response GetPreviewLogs409JSONResponse) VisitGetPreviewLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPreviewLogs429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetPreviewLogs429JSONResponse) VisitGetPreviewLogsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -34069,9 +34402,15 @@ type StrictServerInterface interface {
 	// Previews de PR d'une application
 	// (GET /applications/{application_uuid}/previews)
 	ListApplicationPreviews(ctx context.Context, request ListApplicationPreviewsRequestObject) (ListApplicationPreviewsResponseObject, error)
+	// Détruire la preview d'une PR
+	// (DELETE /applications/{application_uuid}/previews/{preview_uuid})
+	DestroyPreview(ctx context.Context, request DestroyPreviewRequestObject) (DestroyPreviewResponseObject, error)
 	// Approuver la preview d'une PR de fork
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/approve)
 	ApprovePreviewFork(ctx context.Context, request ApprovePreviewForkRequestObject) (ApprovePreviewForkResponseObject, error)
+	// Logs des containers d'une preview
+	// (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
+	GetPreviewLogs(ctx context.Context, request GetPreviewLogsRequestObject) (GetPreviewLogsResponseObject, error)
 	// Redémarrer une application
 	// (POST /applications/{application_uuid}/restart)
 	RestartApplication(ctx context.Context, request RestartApplicationRequestObject) (RestartApplicationResponseObject, error)
@@ -35132,6 +35471,33 @@ func (sh *strictHandler) ListApplicationPreviews(w http.ResponseWriter, r *http.
 	}
 }
 
+// DestroyPreview operation middleware
+func (sh *strictHandler) DestroyPreview(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
+	var request DestroyPreviewRequestObject
+
+	request.ApplicationUuid = applicationUuid
+	request.PreviewUuid = previewUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DestroyPreview(ctx, request.(DestroyPreviewRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DestroyPreview")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DestroyPreviewResponseObject); ok {
+		if err := validResponse.VisitDestroyPreviewResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ApprovePreviewFork operation middleware
 func (sh *strictHandler) ApprovePreviewFork(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
 	var request ApprovePreviewForkRequestObject
@@ -35152,6 +35518,34 @@ func (sh *strictHandler) ApprovePreviewFork(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ApprovePreviewForkResponseObject); ok {
 		if err := validResponse.VisitApprovePreviewForkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPreviewLogs operation middleware
+func (sh *strictHandler) GetPreviewLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params GetPreviewLogsParams) {
+	var request GetPreviewLogsRequestObject
+
+	request.ApplicationUuid = applicationUuid
+	request.PreviewUuid = previewUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPreviewLogs(ctx, request.(GetPreviewLogsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPreviewLogs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPreviewLogsResponseObject); ok {
+		if err := validResponse.VisitGetPreviewLogsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

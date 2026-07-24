@@ -2070,6 +2070,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/applications/{application_uuid}/previews/{preview_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Détruire la preview d'une PR
+         * @description Détruit l'instance (§20.4.6) : conteneurs, volumes, réseaux et routage de la preview — la production n'est jamais touchée (INV-011). La PR reste ouverte : un `/deploy` ou un push recrée une instance neuve. `409` si la preview est déjà détruite ou en cours de destruction.
+         */
+        delete: operations["destroyPreview"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_uuid}/previews/{preview_uuid}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Logs des containers d'une preview
+         * @description Les dernières lignes d'un container de l'instance de preview — lecture directe sur le serveur (`docker logs`), jamais stockées. Pour une stack compose, `component` désigne le service (obligatoire dès que la stack a des composants). `409` si le container n'existe pas (preview détruite ou jamais démarrée) ; `404` si le composant est inconnu.
+         */
+        get: operations["getPreviewLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/applications/{application_uuid}/previews/{preview_uuid}/approve": {
         parameters: {
             query?: never;
@@ -9352,6 +9400,69 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    destroyPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Destruction enfilée. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getPreviewLogs: {
+        parameters: {
+            query?: {
+                /** @description Nombre de lignes de queue (défaut 200, max 2000). */
+                lines?: number;
+                /** @description Nom du service compose dont lire les logs. */
+                component?: string;
+            };
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Logs du container. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["LogLine"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             429: components["responses"]["TooManyRequests"];
         };
     };

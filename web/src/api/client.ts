@@ -153,6 +153,27 @@ export class AkerDockClient {
     return this.request<Response>('GET', `/applications/${uuid}`);
   }
 
+  destroyPreview(applicationUuid: string, previewUuid: string) {
+    return this.request<void>(
+      'DELETE',
+      `/applications/${applicationUuid}/previews/${previewUuid}`,
+    );
+  }
+
+  getPreviewLogs(
+    applicationUuid: string,
+    previewUuid: string,
+    query?: { lines?: number; component?: string },
+  ) {
+    type Response =
+      paths['/applications/{application_uuid}/previews/{preview_uuid}/logs']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>(
+      'GET',
+      `/applications/${applicationUuid}/previews/${previewUuid}/logs`,
+      { query },
+    );
+  }
+
   getApplicationLogs(uuid: string, query?: { lines?: number; component?: string }) {
     type Response =
       paths['/applications/{application_uuid}/logs']['get']['responses']['200']['content']['application/json'];

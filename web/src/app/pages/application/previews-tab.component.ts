@@ -7,6 +7,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { CardComponent } from '../../../ui/card/card.component';
 import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
 import { ApiService } from '../../core/api.service';
@@ -22,7 +23,7 @@ type Preview = components['schemas']['Preview'];
 @Component({
   selector: 'app-application-previews-tab',
   standalone: true,
-  imports: [CardComponent, EmptyStateComponent],
+  imports: [RouterLink, CardComponent, EmptyStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (error(); as message) {
@@ -56,7 +57,13 @@ type Preview = components['schemas']['Preview'];
             @for (p of previews(); track p.uuid) {
               <tr>
                 <td>
-                  <span class="akd-badge akd-badge--mono">#{{ p.pr_id }}</span>
+                  <!-- The PR badge opens the preview's own page: logs,
+                       storages, preview variables and its danger zone. -->
+                  <a
+                    class="akd-badge akd-badge--mono"
+                    [routerLink]="['/applications', uuid(), 'previews', p.uuid]"
+                    >#{{ p.pr_id }}</a
+                  >
                 </td>
                 <td class="akd-mono">
                   {{ p.source_branch ?? '—' }}
@@ -75,6 +82,12 @@ type Preview = components['schemas']['Preview'];
                   }
                 </td>
                 <td class="right">
+                  <a
+                    class="akd-btn akd-btn--ghost akd-btn--sm"
+                    [routerLink]="['/applications', uuid(), 'previews', p.uuid]"
+                  >
+                    Details
+                  </a>
                   @if (p.is_fork && !p.fork_approved && p.status !== 'destroyed') {
                     <button
                       class="akd-btn akd-btn--primary akd-btn--sm"

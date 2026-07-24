@@ -4660,6 +4660,99 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /applications/{application_uuid}/previews/{preview_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/ApplicationUuid"
+      - name: preview_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [Applications]
+      operationId: destroyPreview
+      summary: Détruire la preview d'une PR
+      description: >-
+        Détruit l'instance (§20.4.6) : conteneurs, volumes, réseaux et routage
+        de la preview — la production n'est jamais touchée (INV-011). La PR
+        reste ouverte : un `/deploy` ou un push recrée une instance neuve.
+        `409` si la preview est déjà détruite ou en cours de destruction.
+      x-required-permission: deploy
+      responses:
+        "202":
+          description: Destruction enfilée.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /applications/{application_uuid}/previews/{preview_uuid}/logs:
+    parameters:
+      - $ref: "#/components/parameters/ApplicationUuid"
+      - name: preview_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Applications]
+      operationId: getPreviewLogs
+      summary: Logs des containers d'une preview
+      description: >-
+        Les dernières lignes d'un container de l'instance de preview —
+        lecture directe sur le serveur (`docker logs`), jamais stockées.
+        Pour une stack compose, `component` désigne le service (obligatoire
+        dès que la stack a des composants). `409` si le container n'existe
+        pas (preview détruite ou jamais démarrée) ; `404` si le composant
+        est inconnu.
+      x-required-permission: read
+      parameters:
+        - name: lines
+          in: query
+          required: false
+          description: Nombre de lignes de queue (défaut 200, max 2000).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2000
+            default: 200
+        - name: component
+          in: query
+          required: false
+          description: Nom du service compose dont lire les logs.
+          schema:
+            type: string
+            maxLength: 63
+      responses:
+        "200":
+          description: Logs du container.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LogLine"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /applications/{application_uuid}/previews/{preview_uuid}/approve:
     parameters:
       - $ref: "#/components/parameters/ApplicationUuid"

@@ -4,7 +4,9 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/jobs"
+	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -103,4 +106,127 @@ func (a *API) ApprovePreviewFork(w http.ResponseWriter, r *http.Request, applica
 		preview = final
 	}
 	httpapi.WriteJSON(w, http.StatusAccepted, previewToAPI(preview))
+}
+
+// resolvePreview loads a preview by uuid, bound to the team and application.
+func (a *API) resolvePreview(w http.ResponseWriter, r *http.Request, id *auth.Identity, appResourceID int64, previewUuid string) (store.Preview, bool) {
+	var u pgtype.UUID
+	if err := u.Scan(previewUuid); err == nil {
+		preview, err := a.Store.GetPreviewByUUIDForTeam(r.Context(), store.GetPreviewByUUIDForTeamParams{Uuid: u, TeamID: id.TeamID})
+		if err == nil && preview.ApplicationID == appResourceID {
+			return preview, true
+		}
+	}
+	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "preview not found")
+	return store.Preview{}, false
+}
+
+// DestroyPreview implements DELETE /applications/{uuid}/previews/{uuid}
+// (permission: deploy): tears the instance down — containers, volumes,
+// networks, routing (§20.4.6). Production is untouched (INV-011); the PR
+// stays open and a /deploy or push recreates a fresh instance.
+func (a *API) DestroyPreview(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string) {
+	id, ok := a.require(w, r, auth.PermDeploy)
+	if !ok {
+		return
+	}
+	row, ok := a.resolveApplication(w, r, id, applicationUuid)
+	if !ok {
+		return
+	}
+	preview, ok := a.resolvePreview(w, r, id, row.Resource.ID, previewUuid)
+	if !ok {
+		return
+	}
+	if preview.Status == store.PreviewStatusDestroyed || preview.Status == store.PreviewStatusDestroying {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "this preview is already destroyed or being destroyed")
+		return
+	}
+	if err := jobs.EnqueuePreviewDestroy(r.Context(), a.Store, preview); err != nil {
+		a.internalError(w, r, "destroy preview", err)
+		return
+	}
+	a.recordAudit(r, id, "preview.destroy", "application", row.Resource.Uuid)
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// GetPreviewLogs implements GET /applications/{uuid}/previews/{uuid}/logs
+// (permission: read): the runtime console of one preview container — the
+// missing half of debugging a PR instance, exactly like the application's
+// Logs tab but against the preview-scoped containers (INV-011 naming).
+func (a *API) GetPreviewLogs(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string, params api.GetPreviewLogsParams) {
+	id, ok := a.require(w, r, auth.PermRead)
+	if !ok {
+		return
+	}
+	row, ok := a.resolveApplication(w, r, id, applicationUuid)
+	if !ok {
+		return
+	}
+	preview, ok := a.resolvePreview(w, r, id, row.Resource.ID, previewUuid)
+	if !ok {
+		return
+	}
+	lines := 200
+	if params.Lines != nil && *params.Lines > 0 && *params.Lines <= 2000 {
+		lines = *params.Lines
+	}
+
+	server, err := a.Store.GetServerByID(r.Context(), row.ServerRowID)
+	if err != nil {
+		a.internalError(w, r, "preview logs", err)
+		return
+	}
+	key, err := a.Store.GetPrivateKeyByID(r.Context(), server.PrivateKeyID)
+	if err != nil {
+		a.internalError(w, r, "preview logs", err)
+		return
+	}
+	pem, err := a.Keyring.Decrypt("private_keys", "private_key_enc", uuidString(key.Uuid), key.PrivateKeyEnc)
+	if err != nil {
+		a.internalError(w, r, "preview logs", err)
+		return
+	}
+	client, err := sshexec.Dial(r.Context(), server.Host, int(server.Port), server.SshUser, string(pem),
+		time.Duration(server.SshTimeoutSeconds)*time.Second, jobs.PinnedHostKey(server))
+	if err != nil {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "the server is not reachable over SSH right now")
+		return
+	}
+	defer func() { _ = client.Close() }()
+
+	// Preview containers derive from the PREVIEW uuid (INV-011): the stack
+	// name for single containers, `<uuid>-<service>` for compose services.
+	container := uuidString(preview.Uuid)
+	if params.Component != nil && *params.Component != "" {
+		components, err := a.Store.ListServiceComponents(r.Context(), row.Resource.ID)
+		if err != nil {
+			a.internalError(w, r, "preview logs", err)
+			return
+		}
+		found := false
+		for _, c := range components {
+			if c.Name == *params.Component {
+				found = true
+				break
+			}
+		}
+		if !found {
+			httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound,
+				fmt.Sprintf("unknown component %q — see GET /applications/{uuid}/components", *params.Component))
+			return
+		}
+		container = container + "-" + *params.Component
+	}
+	res, err := client.Run(r.Context(), fmt.Sprintf("docker logs --tail %d %s 2>&1", lines, container))
+	if err != nil {
+		a.internalError(w, r, "preview logs", err)
+		return
+	}
+	if res.ExitCode != 0 {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict,
+			"the preview container does not exist on the server — the preview may be destroyed or not deployed yet")
+		return
+	}
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": containerLogLines(res.Stdout)})
 }
