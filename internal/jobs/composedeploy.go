@@ -166,8 +166,11 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 		}
 		// The stack's volumes become visible in the Storages tab (§2.4):
 		// mirrored rows, rewritten each deployment — the FILE is the truth.
+		// Best-effort BY CONTRACT: this mirror exists for display, and a
+		// display sync must never fail a deployment.
 		if err := r.syncStackStorages(ctx, plan); err != nil {
-			return err
+			r.h.Logger.Warn("storages mirror sync failed — the Storages tab may be stale",
+				"app", pguuid.String(r.app.Resource.Uuid), "error", err)
 		}
 	}
 
