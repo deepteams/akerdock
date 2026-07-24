@@ -287,6 +287,10 @@ func run(args []string) int {
 		mux.Handle("/webhooks/", apiHandler)
 		mux.Handle("/auth/", apiHandler)
 		mux.Handle("/terminal/", apiHandler)
+		// The preview SSO callback (ADR-030) arrives under the PREVIEW's
+		// host, proxied here by its dedicated router — served by the API,
+		// never by the dashboard.
+		mux.Handle("/.akerdock/", apiHandler)
 		if ui != nil {
 			mux.Handle("/", ui)
 			logger.Info("dashboard embedded and served on /")

@@ -64,6 +64,23 @@ implémentée).
 - **OAuth2-proxy externe** : un composant de plus à opérer — contraire à
   ADR-025 (PostgreSQL seule dépendance).
 
+## Service workers de l'application
+
+Une PWA installe un service worker qui possède l'origine de la preview et
+peut servir son shell en cache sans jamais contacter le serveur — avalant le
+rituel de login. La plateforme ne demande **aucune adaptation aux
+applications** : toute réponse NON authentifiée du forward-auth porte
+`Clear-Site-Data: "cache", "storage"` — le navigateur désinscrit les workers
+et purge les caches de l'origine de la preview, et le chargement suivant
+atteint le réseau. Le trafic authentifié ne voit jamais cet en-tête : une
+PWA au cookie valide garde son worker et son stockage. Coût assumé : aux
+frontières d'authentification (première visite, expiration), le stockage
+local de l'instance de preview est purgé et un rechargement peut être
+nécessaire — acceptable pour une instance de review jetable. Les navigateurs
+sans Clear-Site-Data dégradent vers la purge manuelle. Une application PEUT
+exclure `/.akerdock/**` de son worker pour éliminer même ce rechargement —
+optimisation, jamais une exigence.
+
 ## Conséquences
 
 - Table `preview_access_tokens` (hash seul), deux routes navigateur hors

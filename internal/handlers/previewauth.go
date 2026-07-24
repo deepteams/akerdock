@@ -95,13 +95,23 @@ func (a *API) PreviewForwardAuth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// UNAUTHENTICATED from here on. The app may have installed a service
+	// worker that swallows navigations and serves its cached shell — the
+	// login dance would then never reach this server. Clear-Site-Data makes
+	// the BROWSER evict that worker and its caches for the preview origin
+	// (the auth response is delivered on it): the next load hits the network
+	// and the dance completes — no app has to adapt to the platform.
+	// Authenticated traffic never sees this header: a working PWA keeps its
+	// worker, its caches and its storage untouched.
+	w.Header().Set("Clear-Site-Data", `"cache", "storage"`)
+
 	// Only top-level NAVIGATIONS get the login dance: a fetch/XHR cannot
 	// complete a cross-origin redirect ritual — it only drowns in CORS noise.
 	// A clean 401 lets the app's own code react (and no WWW-Authenticate:
 	// the browser must never open a dialog). Sec-Fetch-Mode is browser-set
 	// and survives proxies, unlike the X-Forwarded-* family.
 	if mode := r.Header.Get("Sec-Fetch-Mode"); mode != "" && mode != "navigate" {
-		http.Error(w, "preview authentication required — open the preview URL in the browser", http.StatusUnauthorized)
+		http.Error(w, "preview authentication required — reload the page", http.StatusUnauthorized)
 		return
 	}
 
