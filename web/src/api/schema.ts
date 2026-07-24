@@ -1437,7 +1437,7 @@ export interface paths {
         };
         /**
          * Logs du container de l'application
-         * @description Les dernières lignes du container courant de l'application (§5.7) — lecture directe sur le serveur (`docker logs`), jamais stockées. `409` si le container n'existe pas (application jamais déployée ou supprimée) ou si le serveur est injoignable en SSH.
+         * @description Les dernières lignes du container courant de l'application (§5.7) — lecture directe sur le serveur (`docker logs`), jamais stockées. Pour une stack compose, `component` désigne le service dont on veut les logs (obligatoire dès que la stack a des composants — le stack n'a pas de container propre). `409` si le container n'existe pas (application jamais déployée ou supprimée) ou si le serveur est injoignable en SSH ; `404` si le composant est inconnu.
          */
         get: operations["getApplicationLogs"];
         put?: never;
@@ -8069,6 +8069,8 @@ export interface operations {
             query?: {
                 /** @description Nombre de lignes de queue (défaut 200, max 2000). */
                 lines?: number;
+                /** @description Nom du service compose (compose-spec §2.2) dont lire les logs. Ignoré pour les autres build packs. */
+                component?: string;
             };
             header?: never;
             path: {

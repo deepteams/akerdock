@@ -4432,6 +4432,9 @@ type ReplaceApplicationEnvsJSONBody struct {
 type GetApplicationLogsParams struct {
 	// Lines Nombre de lignes de queue (défaut 200, max 2000).
 	Lines *int `form:"lines,omitempty" json:"lines,omitempty"`
+
+	// Component Nom du service compose (compose-spec §2.2) dont lire les logs. Ignoré pour les autres build packs.
+	Component *string `form:"component,omitempty" json:"component,omitempty"`
 }
 
 // RollbackApplicationJSONBody defines parameters for RollbackApplication.
@@ -7928,6 +7931,19 @@ func (siw *ServerInterfaceWrapper) GetApplicationLogs(w http.ResponseWriter, r *
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "lines"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "lines", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "component" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "component", r.URL.Query(), &params.Component, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "component"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "component", Err: err})
 		}
 		return
 	}

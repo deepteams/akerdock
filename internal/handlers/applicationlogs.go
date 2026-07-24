@@ -54,8 +54,30 @@ func (a *API) GetApplicationLogs(w http.ResponseWriter, r *http.Request, applica
 	}
 	defer func() { _ = client.Close() }()
 
-	// The container carries the resource UUID as its name (INV-011).
+	// The container carries the resource UUID as its name (INV-011). A
+	// compose stack has no container of its own: `component` picks the
+	// service, and its container is `<uuid>-<service>` (compose-spec §2.2).
 	container := uuidString(row.Resource.Uuid)
+	if params.Component != nil && *params.Component != "" {
+		components, err := a.Store.ListServiceComponents(r.Context(), row.Resource.ID)
+		if err != nil {
+			a.internalError(w, r, "application logs", err)
+			return
+		}
+		found := false
+		for _, c := range components {
+			if c.Name == *params.Component {
+				found = true
+				break
+			}
+		}
+		if !found {
+			httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound,
+				fmt.Sprintf("unknown component %q — see GET /applications/{uuid}/components", *params.Component))
+			return
+		}
+		container = container + "-" + *params.Component
+	}
 	res, err := client.Run(r.Context(), fmt.Sprintf("docker logs --tail %d %s 2>&1", lines, container))
 	if err != nil {
 		a.internalError(w, r, "application logs", err)

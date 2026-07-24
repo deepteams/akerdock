@@ -153,7 +153,7 @@ export class AkerDockClient {
     return this.request<Response>('GET', `/applications/${uuid}`);
   }
 
-  getApplicationLogs(uuid: string, query?: { lines?: number }) {
+  getApplicationLogs(uuid: string, query?: { lines?: number; component?: string }) {
     type Response =
       paths['/applications/{application_uuid}/logs']['get']['responses']['200']['content']['application/json'];
     return this.request<Response>('GET', `/applications/${uuid}/logs`, { query });

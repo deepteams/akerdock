@@ -15,6 +15,7 @@ import { ApiService } from '../../core/api.service';
 import type { components } from '../../../api/schema';
 
 type LogLine = components['schemas']['LogLine'];
+type ServiceComponent = components['schemas']['ServiceComponent'];
 
 /**
  * Runtime console of the application's container (§5.7): the deployment logs
@@ -34,6 +35,21 @@ type LogLine = components['schemas']['LogLine'];
 
     <akd-card title="Container logs" [padded]="false">
       <div class="toolbar">
+        @if (components().length > 0) {
+          <!-- A compose stack is several containers: pick whose console. -->
+          <div class="akd-select">
+            <select
+              name="component"
+              class="akd-input"
+              [(ngModel)]="component"
+              (ngModelChange)="refresh()"
+            >
+              @for (c of components(); track c.name) {
+                <option [ngValue]="c.name">{{ c.name }}</option>
+              }
+            </select>
+          </div>
+        }
         <div class="akd-select">
           <select name="lines" class="akd-input" [(ngModel)]="lines" (ngModelChange)="refresh()">
             <option [ngValue]="200">Last 200 lines</option>
@@ -107,17 +123,35 @@ export class ApplicationLogsTabComponent {
   protected readonly logs = signal<LogLine[] | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
+  /** Compose services of the stack — empty for single-container packs. */
+  protected readonly components = signal<ServiceComponent[]>([]);
 
   protected lines = 200;
+  protected component = '';
   protected follow = false;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     effect(() => {
       const uuid = this.uuid();
-      untracked(() => void this.load(uuid));
+      untracked(() => void this.init(uuid));
     });
     inject(DestroyRef).onDestroy(() => this.stopFollow());
+  }
+
+  /** Components first: a compose stack has no container of its own — the
+   * first fetch must already name a service. */
+  private async init(uuid: string): Promise<void> {
+    try {
+      const page = await this.api.client().listApplicationComponents(uuid);
+      this.components.set(page.data);
+      if (page.data.length > 0) {
+        this.component = page.data[0].name;
+      }
+    } catch {
+      this.components.set([]);
+    }
+    await this.load(uuid);
   }
 
   protected refresh(): void {
@@ -142,7 +176,10 @@ export class ApplicationLogsTabComponent {
     if (this.busy()) return;
     this.busy.set(true);
     try {
-      const page = await this.api.client().getApplicationLogs(uuid, { lines: this.lines });
+      const page = await this.api.client().getApplicationLogs(uuid, {
+        lines: this.lines,
+        ...(this.component ? { component: this.component } : {}),
+      });
       this.logs.set(page.data);
       this.error.set(null);
     } catch (err) {
