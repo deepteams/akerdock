@@ -101,6 +101,10 @@ func (h *ApplicationDelete) Execute(ctx context.Context, job store.Job, rec *que
 	for _, p := range previews {
 		cmd += " /var/lib/akerdock/previews/" + pguuid.String(p.Uuid)
 	}
+	// PREVIEW volumes go unconditionally: they are ephemeral by definition
+	// (§20.4.1) — the delete_volumes choice protects PRODUCTION data only.
+	// The extra label filter is an existence check: both labels must match.
+	cmd += fmt.Sprintf("; docker volume ls -q --filter label=akerdock.resource_uuid=%s --filter label=akerdock.preview_uuid | xargs -r docker volume rm -f >/dev/null 2>&1", appUUID)
 	if payload.DeleteVolumes {
 		cmd += fmt.Sprintf("; docker volume ls -q --filter label=akerdock.resource_uuid=%s | xargs -r docker volume rm -f", appUUID)
 	}
