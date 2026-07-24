@@ -8,7 +8,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
@@ -86,7 +86,7 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
           role="tab"
           [class.akd-tab--active]="tab() === t.id"
           [attr.aria-selected]="tab() === t.id"
-          (click)="tab.set(t.id)"
+          (click)="selectTab(t.id)"
         >
           {{ t.label }}
         </button>
@@ -358,6 +358,21 @@ export class PreviewDetailComponent {
     { id: 'danger', label: 'Danger' },
   ];
   protected readonly tab = signal<TabId>('overview');
+  /** The active tab lives in the URL (?tab=…): a refresh keeps it, and
+   * back/forward walk the tabs — withComponentInputBinding feeds this input
+   * from the query parameter on every navigation. */
+  readonly tabParam = input<string | undefined>(undefined, { alias: 'tab' });
+
+  private readonly activatedRoute = inject(ActivatedRoute);
+
+  protected selectTab(id: TabId): void {
+    if (this.tab() === id) return;
+    void this.router.navigate([], {
+      relativeTo: this.activatedRoute,
+      queryParams: { tab: id === 'overview' ? null : id },
+      queryParamsHandling: 'merge',
+    });
+  }
 
   protected readonly preview = signal<Preview | null>(null);
   protected readonly components = signal<ServiceComponent[]>([]);
@@ -373,6 +388,13 @@ export class PreviewDetailComponent {
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
+    // URL → state: seeds the tab on load and follows back/forward — the
+    // navigation history is the source of truth for which tab is open.
+    effect(() => {
+      const wanted = this.tabParam();
+      const valid = this.tabs.find((t) => t.id === wanted)?.id;
+      this.tab.set(valid ?? this.tabs[0].id);
+    });
     effect(() => {
       const app = this.uuid();
       const preview = this.previewUuid();

@@ -9,7 +9,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { CardComponent } from '../../ui/card/card.component';
@@ -166,7 +166,7 @@ const isGap = (row: Row): row is GapMarker => 'gap' in row;
           role="tab"
           [class.akd-tab--active]="tab() === t.id"
           [attr.aria-selected]="tab() === t.id"
-          (click)="tab.set(t.id)"
+          (click)="selectTab(t.id)"
         >
           {{ t.label }}
           @if (t.id === 'deployments' && deployments().length > 0) {
@@ -444,6 +444,22 @@ export class ApplicationDetailComponent {
     { id: 'danger', label: 'Danger' },
   ];
   protected readonly tab = signal<TabId>('overview');
+  /** The active tab lives in the URL (?tab=…): a refresh keeps it, and
+   * back/forward walk the tabs — withComponentInputBinding feeds this input
+   * from the query parameter on every navigation. */
+  readonly tabParam = input<string | undefined>(undefined, { alias: 'tab' });
+
+  private readonly router = inject(Router);
+  private readonly activatedRoute = inject(ActivatedRoute);
+
+  protected selectTab(id: TabId): void {
+    if (this.tab() === id) return;
+    void this.router.navigate([], {
+      relativeTo: this.activatedRoute,
+      queryParams: { tab: id === 'overview' ? null : id },
+      queryParamsHandling: 'merge',
+    });
+  }
 
   protected readonly application = signal<Application | null>(null);
   protected readonly components = signal<ServiceComponent[]>([]);
@@ -468,6 +484,13 @@ export class ApplicationDetailComponent {
   private source: EventSource | null = null;
 
   constructor() {
+    // URL → state: seeds the tab on load and follows back/forward — the
+    // navigation history is the source of truth for which tab is open.
+    effect(() => {
+      const wanted = this.tabParam();
+      const valid = this.tabs.find((t) => t.id === wanted)?.id;
+      this.tab.set(valid ?? this.tabs[0].id);
+    });
     inject(DestroyRef).onDestroy(() => this.closeStream());
     // The uuid is a route input: it is not readable before the router binds it,
     // so the initial load waits for the effect rather than the constructor.
