@@ -95,16 +95,7 @@ func (a *API) PreviewForwardAuth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// UNAUTHENTICATED from here on. The app may have installed a service
-	// worker that swallows navigations and serves its cached shell — the
-	// login dance would then never reach this server. Clear-Site-Data makes
-	// the BROWSER evict that worker and its caches for the preview origin
-	// (the auth response is delivered on it): the next load hits the network
-	// and the dance completes — no app has to adapt to the platform.
-	// Authenticated traffic never sees this header: a working PWA keeps its
-	// worker, its caches and its storage untouched.
-	w.Header().Set("Clear-Site-Data", `"cache", "storage"`)
-
+	// UNAUTHENTICATED from here on.
 	// Only top-level NAVIGATIONS get the login dance: a fetch/XHR cannot
 	// complete a cross-origin redirect ritual — it only drowns in CORS noise.
 	// A clean 401 lets the app's own code react (and no WWW-Authenticate:
@@ -114,6 +105,13 @@ func (a *API) PreviewForwardAuth(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "preview authentication required — reload the page", http.StatusUnauthorized)
 		return
 	}
+
+	// Best-effort service-worker eviction, on NAVIGATIONS only: Chrome
+	// honors Clear-Site-Data solely on credentialed requests — on anything
+	// else it refuses and logs, which is why the header must never ride the
+	// fetch 401s above. A worker that intercepts navigations and mishandles
+	// redirects still needs fixing in the app; this shortens the damage.
+	w.Header().Set("Clear-Site-Data", `"cache", "storage"`)
 
 	settings, err := a.Settings.Get(r.Context())
 	if err != nil || settings.Fqdn == nil || *settings.Fqdn == "" {
