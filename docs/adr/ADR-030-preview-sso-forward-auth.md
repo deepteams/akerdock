@@ -66,20 +66,22 @@ implémentée).
 
 ## Service workers de l'application
 
-Une PWA installe un service worker qui possède l'origine de la preview et
-peut servir son shell en cache sans jamais contacter le serveur — avalant le
-rituel de login. La plateforme ne demande **aucune adaptation aux
-applications** : toute réponse NON authentifiée du forward-auth porte
-`Clear-Site-Data: "cache", "storage"` — le navigateur désinscrit les workers
-et purge les caches de l'origine de la preview, et le chargement suivant
-atteint le réseau. Le trafic authentifié ne voit jamais cet en-tête : une
-PWA au cookie valide garde son worker et son stockage. Coût assumé : aux
-frontières d'authentification (première visite, expiration), le stockage
-local de l'instance de preview est purgé et un rechargement peut être
-nécessaire — acceptable pour une instance de review jetable. Les navigateurs
-sans Clear-Site-Data dégradent vers la purge manuelle. Une application PEUT
-exclure `/.akerdock/**` de son worker pour éliminer même ce rechargement —
-optimisation, jamais une exigence.
+Une PWA installe un service worker qui possède l'origine de la preview. Un
+worker **correct** est transparent pour ce flux : une réponse redirigée
+(`opaqueredirect`) transmise telle quelle à une navigation est suivie
+nativement par le navigateur, et la danse de login traverse le worker sans
+friction. Un worker qui met en cache ou retraite les réponses redirigées de
+navigation se bloque, lui, derrière **n'importe quel** émetteur de 302
+(OAuth, CDN, load balancer) — pas seulement ce flux ; le corriger relève de
+l'application (règles : ne jamais mettre en cache une réponse
+`redirected`/non-200 comme shell ; idéalement exclure `/.akerdock/**`).
+
+**Décision négative documentée** : la plateforme n'envoie JAMAIS
+`Clear-Site-Data` pour évincer un worker défaillant. Testé et rejeté :
+Chrome le refuse sur les requêtes non credentialisées (manifest, no-cors),
+et sur une navigation transitant par un worker il ordonne l'éviction du
+worker en train de traiter la réponse — un blocage mesuré d'environ 10 s
+par requête, pire que le mal.
 
 ## Conséquences
 
