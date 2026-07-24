@@ -244,6 +244,20 @@ func (q *Queries) CreateRuntimeConfig(ctx context.Context, arg CreateRuntimeConf
 	return err
 }
 
+const deleteComponentDomainsForResource = `-- name: DeleteComponentDomainsForResource :exec
+DELETE FROM domains WHERE service_component_id IN (
+    SELECT id FROM service_components WHERE resource_id = $1
+)
+`
+
+// The compose components' domains (compose-spec §6). Deleted with the
+// application: the (fqdn, path) uniqueness is GLOBAL and hard (INV-002) — a
+// surviving row locks the URL against any future application, forever.
+func (q *Queries) DeleteComponentDomainsForResource(ctx context.Context, resourceID int64) error {
+	_, err := q.db.Exec(ctx, deleteComponentDomainsForResource, resourceID)
+	return err
+}
+
 const deleteDomainsForApplication = `-- name: DeleteDomainsForApplication :exec
 DELETE FROM domains WHERE application_id = $1
 `

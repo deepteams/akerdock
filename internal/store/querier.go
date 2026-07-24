@@ -206,6 +206,10 @@ type Querier interface {
 	CreateWebhookDelivery(ctx context.Context, arg CreateWebhookDeliveryParams) (WebhookDelivery, error)
 	// Incoming Git webhooks (§20.3, INV-009).
 	CreateWebhookEndpoint(ctx context.Context, arg CreateWebhookEndpointParams) (WebhookEndpoint, error)
+	// The compose components' domains (compose-spec §6). Deleted with the
+	// application: the (fqdn, path) uniqueness is GLOBAL and hard (INV-002) — a
+	// surviving row locks the URL against any future application, forever.
+	DeleteComponentDomainsForResource(ctx context.Context, resourceID int64) error
 	DeleteDomainsForApplication(ctx context.Context, applicationID *int64) error
 	DeleteEnvVar(ctx context.Context, id int64) (int64, error)
 	DeleteEnvVarsNotInKeys(ctx context.Context, arg DeleteEnvVarsNotInKeysParams) error

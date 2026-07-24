@@ -177,6 +177,14 @@ WHERE application_id = $1;
 -- name: DeleteDomainsForApplication :exec
 DELETE FROM domains WHERE application_id = $1;
 
+-- name: DeleteComponentDomainsForResource :exec
+-- The compose components' domains (compose-spec §6). Deleted with the
+-- application: the (fqdn, path) uniqueness is GLOBAL and hard (INV-002) — a
+-- surviving row locks the URL against any future application, forever.
+DELETE FROM domains WHERE service_component_id IN (
+    SELECT id FROM service_components WHERE resource_id = $1
+);
+
 -- Tags (§5.4): used by the deploy webhook (?tag=).
 
 -- name: UpsertTag :one

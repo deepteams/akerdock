@@ -68,11 +68,24 @@ func (h *ApplicationDelete) Execute(ctx context.Context, job store.Job, rec *que
 
 	// Routing is removed first and its removal verified through the proxy
 	// API (§6.5, §20.6): the domains detach before the workload disappears.
+	// The PREVIEWS' routing too — their instances die with the application
+	// (label-driven removal below), and a routing file pointing at a dead
+	// container would otherwise survive as a permanent 502.
+	previews, _ := h.Store.ListPreviewsForApplication(ctx, app.Resource.ID)
 	if server.ProxyType == store.ProxyTypeTraefik {
 		applier := &ProxyApplier{Store: h.Store, Client: client, Server: server, Network: dest.Network}
 		if err := applier.Apply(ctx, appUUID, "", ""); err != nil {
 			rec.Fail(ctx, "could not remove the routing — the workload is left untouched, retry once the proxy is healthy")
 			return nil, err
+		}
+		for _, p := range previews {
+			if p.Status == store.PreviewStatusDestroyed {
+				continue
+			}
+			if err := applier.Apply(ctx, pguuid.String(p.Uuid), "", ""); err != nil {
+				rec.Fail(ctx, "could not remove a preview's routing — retry once the proxy is healthy")
+				return nil, err
+			}
 		}
 	}
 	// Removal is label-driven (§2.3): a compose stack has one container per
@@ -85,6 +98,9 @@ func (h *ApplicationDelete) Execute(ctx context.Context, job store.Job, rec *que
 			"docker network ls -q %s | xargs -r docker network rm >/dev/null 2>&1; "+
 			"rm -rf /var/lib/akerdock/applications/%s /var/lib/akerdock/services/%s",
 		byLabel, appUUID, appUUID, byLabel, appUUID, appUUID)
+	for _, p := range previews {
+		cmd += " /var/lib/akerdock/previews/" + pguuid.String(p.Uuid)
+	}
 	if payload.DeleteVolumes {
 		cmd += fmt.Sprintf("; docker volume ls -q --filter label=akerdock.resource_uuid=%s | xargs -r docker volume rm -f", appUUID)
 	}
@@ -105,6 +121,27 @@ func (h *ApplicationDelete) Execute(ctx context.Context, job store.Job, rec *que
 	if _, err := h.Store.SoftDeleteResource(ctx, app.Resource.ID); err != nil {
 		rec.Fail(ctx, err.Error())
 		return nil, err
+	}
+	// The resource is a tombstone, but the domain rows must GO: their
+	// (fqdn, path) uniqueness is global and hard (INV-002) — left behind,
+	// they lock the URL against any future application, forever. Both kinds:
+	// the application's own domains and its compose components' (§6).
+	if err := h.Store.DeleteDomainsForApplication(ctx, &app.Resource.ID); err != nil {
+		rec.Fail(ctx, err.Error())
+		return nil, err
+	}
+	if err := h.Store.DeleteComponentDomainsForResource(ctx, app.Resource.ID); err != nil {
+		rec.Fail(ctx, err.Error())
+		return nil, err
+	}
+	// Preview tombstones: their workloads and routing died above with the
+	// application — the rows must say so, and drop their FQDNs.
+	for _, p := range previews {
+		if p.Status == store.PreviewStatusDestroyed {
+			continue
+		}
+		_ = h.Store.SetPreviewStatus(ctx, store.SetPreviewStatusParams{ID: p.ID, Status: store.PreviewStatusDestroyed})
+		_ = h.Store.SetPreviewFqdn(ctx, store.SetPreviewFqdnParams{ID: p.ID, Fqdn: nil})
 	}
 	rec.Succeed(ctx, "resource tombstoned")
 	h.Logger.Info("application deleted", "app_uuid", appUUID, "volumes_deleted", payload.DeleteVolumes)
