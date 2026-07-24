@@ -789,6 +789,25 @@ func (r *deploymentRun) routedComponents(ctx context.Context, componentIDs map[s
 		}
 		out[name] = len(domains) > 0
 	}
+	// Application-level domains resolve to the stack's web component
+	// (compose-spec §6): that component must join the destination network
+	// too, or the route just fixed would point at a container the proxy
+	// cannot reach — a correct route to an unreachable target is still a 502.
+	appDomains, err := r.h.Store.ListDomainsForApplication(ctx, &r.app.Resource.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(appDomains) > 0 {
+		components, err := r.h.Store.ListServiceComponents(ctx, r.app.Resource.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range appDomains {
+			if c, err := resolveWebComponent(components, d.TargetPort); err == nil {
+				out[c.Name] = true
+			}
+		}
+	}
 	return out, nil
 }
 
