@@ -656,6 +656,33 @@ func (r *deploymentRun) composePreviewRoutes(ctx context.Context, content string
 				}
 			}
 		}
+		// APPLICATION-level domains route to the stack's web component in
+		// production (compose-spec §6): the preview serves that component
+		// too — same resolver, same determinism. Without this, a stack whose
+		// only domain lives on the application deploys its previews green
+		// and unrouted: no route, no certificate, a default-cert dead end.
+		if appDomains, err := r.h.Store.ListDomainsForApplication(ctx, &r.app.Resource.ID); err == nil {
+			for _, d := range appDomains {
+				c, err := resolveWebComponent(components, d.TargetPort)
+				if err != nil {
+					continue
+				}
+				if _, inStack := plans[c.Name]; !inStack {
+					continue
+				}
+				if _, already := ports[c.Name]; already {
+					continue
+				}
+				switch {
+				case d.TargetPort != nil:
+					ports[c.Name] = int(*d.TargetPort)
+				case c.DefaultRoutePort != nil:
+					ports[c.Name] = int(*c.DefaultRoutePort)
+				default:
+					ports[c.Name] = 0
+				}
+			}
+		}
 	}
 
 	served := make([]string, 0, len(ports))
