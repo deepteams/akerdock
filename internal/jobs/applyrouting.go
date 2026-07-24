@@ -255,13 +255,54 @@ func RenderPreviewRoutingFile(app store.GetApplicationByIDRow, preview store.Pre
 		Routes: []proxy.Route{{FQDN: *preview.Fqdn, Path: "/", TargetPort: port}},
 	}
 	content := proxy.GenerateDynamic(rg, revision)
-	return injectPreviewMiddlewares(content, previewUUID, app.Application.PreviewProtection, basicAuthHash, ssoAuthURL), nil
+	content = injectPreviewMiddlewares(content, previewUUID, app.Application.PreviewProtection, basicAuthHash, ssoAuthURL)
+	if app.Application.PreviewProtection == store.PreviewProtectionSso && ssoAuthURL != "" {
+		content = injectPreviewSSOCallback(content, previewUUID, []string{*preview.Fqdn},
+			strings.TrimSuffix(ssoAuthURL, "/webhooks/previews/forward-auth"))
+	}
+	return content, nil
 }
 
 // injectPreviewMiddlewares attaches the preview protection to every https
 // router of a generated routing file (§20.4.4): X-Robots-Tag noindex always,
 // basic auth when the application asks for it — shared by the
 // single-container previews and the compose preview stacks.
+// injectPreviewSSOCallback adds the cookie-bootstrap router of the sso mode
+// (ADR-030): `/.akerdock/preview-callback` on the PREVIEW's own hosts, routed
+// server-side to the control plane (passHostHeader off — the instance's own
+// router must match). The token travels in the REQUEST URL, which survives
+// every proxy hop — unlike the X-Forwarded-* headers, which intermediate
+// entrypoints strip as untrusted. Highest priority and NO auth middleware:
+// the callback is what CREATES the authentication.
+func injectPreviewSSOCallback(content, previewUUID string, hosts []string, instanceURL string) string {
+	if len(hosts) == 0 || instanceURL == "" {
+		return content
+	}
+	rules := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		rules = append(rules, "Host(`"+h+"`)")
+	}
+	router := fmt.Sprintf(
+		"    %s-authcb:\n      entryPoints: [websecure]\n      rule: (%s) && PathPrefix(`/.akerdock/preview-callback`)\n      priority: 1000000\n      service: %s-authcb\n      tls:\n        certResolver: http01\n",
+		previewUUID, strings.Join(rules, " || "), previewUUID)
+	service := fmt.Sprintf(
+		"    %s-authcb:\n      loadBalancer:\n        passHostHeader: false\n        servers:\n          - url: %q\n",
+		previewUUID, instanceURL)
+
+	var out []string
+	for _, line := range strings.Split(content, "\n") {
+		out = append(out, line)
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "routers:" && strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "   ") {
+			out = append(out, strings.TrimRight(router, "\n"))
+		}
+		if trimmed == "services:" && strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "   ") {
+			out = append(out, strings.TrimRight(service, "\n"))
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 func injectPreviewMiddlewares(content, previewUUID string, protection store.PreviewProtection, basicAuthHash, ssoAuthURL string) string {
 	middlewares := []string{previewUUID + "-noindex"}
 	extra := fmt.Sprintf("    %s-noindex:\n      headers:\n        customResponseHeaders:\n          X-Robots-Tag: noindex\n", previewUUID)

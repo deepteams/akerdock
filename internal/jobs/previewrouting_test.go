@@ -117,6 +117,12 @@ func TestRenderPreviewRoutingFileSSO(t *testing.T) {
 		"address: \"https://manager.example.com/webhooks/previews/forward-auth?preview=",
 		"-auth",
 		"X-Robots-Tag: noindex",
+		// The cookie bootstrap router (ADR-030): the preview's own host, the
+		// callback path, proxied server-side to the control plane.
+		"-authcb:",
+		"PathPrefix(`/.akerdock/preview-callback`)",
+		"passHostHeader: false",
+		`url: "https://manager.example.com"`,
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("sso routing missing %q\n%s", want, content)

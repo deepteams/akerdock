@@ -751,6 +751,14 @@ func (r *deploymentRun) applyComposePreviewRouting(ctx context.Context, content 
 		}
 		routingContent = injectPreviewMiddlewares(proxy.GenerateDynamic(rg, r.d.ID), appUUID,
 			r.app.Application.PreviewProtection, r.previewAuthHash(ctx), ssoURL)
+		if r.app.Application.PreviewProtection == store.PreviewProtectionSso && ssoURL != "" {
+			hosts := make([]string, 0, len(rg.Routes))
+			for _, route := range rg.Routes {
+				hosts = append(hosts, route.FQDN)
+			}
+			routingContent = injectPreviewSSOCallback(routingContent, appUUID, hosts,
+				strings.TrimSuffix(ssoURL, "/webhooks/previews/forward-auth"))
+		}
 	}
 	applier := &ProxyApplier{Store: r.h.Store, Client: r.client, Server: r.server, Network: r.dest.Network}
 	return r.step(ctx, "apply_routing", func() (*sshexec.Result, error) {

@@ -33,9 +33,18 @@ Nouveau mode `preview_protection: sso` :
    panel. Là, la SESSION AkerDock fait foi — quelle que soit la méthode de
    login (mot de passe, passkey, OIDC). L'accès est accordé si l'utilisateur
    appartient à la team de l'application (isolation INV-001) ; un token est
-   émis, audité, et le navigateur revient sur la preview avec
-   `?akerdock_preview_token=…`, que le forward-auth échange contre le cookie
-   (302 + Set-Cookie, token retiré de l'URL).
+   émis, audité, et le navigateur est renvoyé sur
+   `https://<host-preview>/.akerdock/preview-callback?token=…&next=<chemin>` —
+   un **routeur dédié** du fichier de routage de la preview (priorité
+   maximale, sans middleware d'auth) proxifie ce chemin côté serveur vers le
+   control plane (`passHostHeader: false`), qui pose le cookie et redirige
+   vers `next` (contraint à un chemin local). Le token voyage dans l'URL de
+   la requête : les query strings survivent à tous les sauts de proxy, les
+   en-têtes `X-Forwarded-*` non (purgés par les entrypoints intermédiaires
+   comme non fiables) — c'est ce qui rend le flux robuste aux topologies en
+   épingle (l'auth de l'instance repassant par son propre proxy).
+   L'identité de la preview voyage de même dans l'**adresse** du middleware
+   forward-auth (`?preview=<uuid>`), jamais déduite d'un `X-Forwarded-Host`.
 4. Le host de la preview est résolu côté serveur (fqdn exact ou
    `<service>-<fqdn>` des stacks compose) — le paramètre `redirect` n'est
    jamais suivi vers un host qui n'est pas celui d'une preview connue

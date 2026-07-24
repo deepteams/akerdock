@@ -125,6 +125,9 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 	// neither carries a bearer token.
 	r.Get("/webhooks/previews/forward-auth", a.PreviewForwardAuth)
 	r.Get("/webhooks/previews/authorize", a.PreviewAuthorize)
+	// The cookie bootstrap of a preview: reached under the PREVIEW's host,
+	// proxied here by its dedicated router (ADR-030).
+	r.Get("/.akerdock/preview-callback", a.PreviewCallback)
 
 	// Browser authentication (PRD §698). Outside /api/v1 and outside the bearer
 	// middleware: the v1 contract knows nothing of sessions (§10.2), and these

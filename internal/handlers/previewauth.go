@@ -95,24 +95,6 @@ func (a *API) PreviewForwardAuth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// One-shot bootstrap: the authorize endpoint sent the browser back with
-	// the token in the query — set the preview-scoped cookie and strip it.
-	query := original.Query()
-	if raw := query.Get(previewTokenParam); raw != "" {
-		token, err := a.Store.GetPreviewAccessTokenByHash(r.Context(), hashPreviewToken(raw))
-		if err == nil && token.PreviewID == preview.ID {
-			http.SetCookie(w, &http.Cookie{
-				Name: previewCookieName, Value: raw, Path: "/",
-				Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
-				Expires: token.ExpiresAt.Time,
-			})
-			query.Del(previewTokenParam)
-			original.RawQuery = query.Encode()
-			http.Redirect(w, r, original.String(), http.StatusFound)
-			return
-		}
-	}
-
 	settings, err := a.Settings.Get(r.Context())
 	if err != nil || settings.Fqdn == nil || *settings.Fqdn == "" {
 		http.Error(w, "preview sso requires the instance FQDN", http.StatusForbidden)
@@ -181,10 +163,48 @@ func (a *API) PreviewAuthorize(w http.ResponseWriter, r *http.Request) {
 	a.recordAudit(r, id, "preview.access", "application", app.Resource.Uuid)
 	a.Logger.Info("preview access granted", "preview", fmt.Sprint(preview.PrID), "host", target.Host)
 
-	query := target.Query()
-	query.Set(previewTokenParam, token)
-	target.RawQuery = query.Encode()
-	http.Redirect(w, r, target.String(), http.StatusFound)
+	// The cookie bootstrap happens on the PREVIEW's own host, through its
+	// dedicated callback router (ADR-030): the token rides the request URL —
+	// query strings survive every proxy hop, X-Forwarded-* headers do not.
+	next := target.EscapedPath()
+	if next == "" {
+		next = "/"
+	}
+	if target.RawQuery != "" {
+		next += "?" + target.RawQuery
+	}
+	callback := url.URL{
+		Scheme: "https", Host: target.Host, Path: "/.akerdock/preview-callback",
+		RawQuery: url.Values{"token": {token}, "next": {next}}.Encode(),
+	}
+	http.Redirect(w, r, callback.String(), http.StatusFound)
+}
+
+// PreviewCallback lands on the PREVIEW host — its dedicated router proxies
+// the path server-side to the control plane — and turns the one-shot token
+// into the preview-scoped cookie. `next` is constrained to a local path:
+// this endpoint never becomes an open redirect.
+func (a *API) PreviewCallback(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("token")
+	if raw == "" {
+		http.Error(w, "missing token", http.StatusBadRequest)
+		return
+	}
+	token, err := a.Store.GetPreviewAccessTokenByHash(r.Context(), hashPreviewToken(raw))
+	if err != nil {
+		http.Error(w, "invalid or expired preview access token — reopen the preview URL", http.StatusForbidden)
+		return
+	}
+	next := r.URL.Query().Get("next")
+	if next == "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") {
+		next = "/"
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: previewCookieName, Value: raw, Path: "/",
+		Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		Expires: token.ExpiresAt.Time,
+	})
+	http.Redirect(w, r, next, http.StatusFound)
 }
 
 // previewOwnsHost reports whether host is one of the preview's own hosts:
