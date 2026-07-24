@@ -36,9 +36,8 @@ interface NavSection {
     <div class="layout" [class.rail]="rail()">
       <aside class="sidebar">
         <a class="brand" routerLink="/">
-          @if (rail()) {
-            <span>A<span class="brand-accent">D</span></span>
-          } @else {
+          <img class="brand-logo" src="logo.png" alt="" aria-hidden="true" />
+          @if (!rail()) {
             <span>Aker<span class="brand-accent">Dock</span></span>
           }
         </a>
@@ -165,9 +164,16 @@ interface NavSection {
         border-right: 1px solid var(--border-1);
         transition: width var(--dur-2) var(--ease-out);
       }
+      .brand-logo {
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        display: block;
+      }
       .brand {
         display: flex;
         align-items: center;
+        gap: 10px;
         padding: 16px;
         border-bottom: 1px solid var(--border-1);
         font: var(--weight-bold) 17px var(--font-display);

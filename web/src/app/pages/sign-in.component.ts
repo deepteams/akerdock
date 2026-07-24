@@ -25,6 +25,7 @@ const OAUTH_ERRORS: Record<string, string> = {
   template: `
     <main class="wrap">
       <div class="panel">
+        <img class="brand-logo" src="logo.png" alt="AkerDock" />
         <h1 class="brand">Aker<span class="brand__accent">Dock</span></h1>
 
         @if (challenge(); as chal) {
@@ -170,6 +171,13 @@ const OAUTH_ERRORS: Record<string, string> = {
         display: grid;
         gap: var(--space-5);
         justify-items: center;
+      }
+      .brand-logo {
+        width: 72px;
+        height: 72px;
+        border-radius: 16px;
+        display: block;
+        margin: 0 auto var(--space-3);
       }
       .brand {
         margin: 0;
