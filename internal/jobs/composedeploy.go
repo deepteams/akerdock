@@ -164,6 +164,11 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 		if componentIDs, err = r.syncComponents(ctx, plan); err != nil {
 			return err
 		}
+		// The stack's volumes become visible in the Storages tab (§2.4):
+		// mirrored rows, rewritten each deployment — the FILE is the truth.
+		if err := r.syncStackStorages(ctx, plan); err != nil {
+			return err
+		}
 	}
 
 	// --- stack objects: network, extra networks, volumes (§2.1, §2.4) -----
@@ -1523,4 +1528,64 @@ func (r *deploymentRun) composeCreateCommand(plan *compose.Plan, sp compose.Serv
 	return fmt.Sprintf(
 		". %s/env/runtime.sh; . %s; %sdocker create --name %s%s%s %s%s >/dev/null",
 		appDir, envPath, replace, opts.Name, flags.String(), envFlags(envKeys), runRef, command)
+}
+
+// syncStackStorages mirrors the stack's named volumes into
+// persistent_storages (compose-spec §2.4): the Storages tab shows what the
+// deployment actually creates, and the preview page derives its per-PR
+// names from the same rows. Mirrored rows are is_generated and rewritten
+// wholesale — the compose FILE is the source of truth, never these rows.
+// Production only: a preview must not rewrite the application's records
+// (INV-010), and its volumes derive from the same declared names anyway.
+func (r *deploymentRun) syncStackStorages(ctx context.Context, plan *compose.Plan) error {
+	if err := r.h.Store.DeleteGeneratedStoragesForResource(ctx, r.app.Resource.ID); err != nil {
+		return err
+	}
+	// First mount wins for display: a volume mounted by several services has
+	// one canonical row, not one per consumer.
+	type volumeRow struct {
+		declared, mountPath string
+		external            *string
+	}
+	dockerToDeclared := map[string]string{}
+	for declared, dockerName := range plan.Volumes {
+		dockerToDeclared[dockerName] = declared
+	}
+	externals := map[string]string{}
+	for declared, dockerName := range plan.ExternalVolumes {
+		dockerToDeclared[dockerName] = declared
+		externals[declared] = dockerName
+	}
+	seen := map[string]bool{}
+	var rows []volumeRow
+	for _, sp := range plan.Services {
+		for _, m := range sp.Mounts {
+			if m.Type != "volume" {
+				continue
+			}
+			declared, ok := dockerToDeclared[m.Source]
+			if !ok || seen[declared] {
+				continue
+			}
+			seen[declared] = true
+			row := volumeRow{declared: declared, mountPath: m.Target}
+			if external, isExternal := externals[declared]; isExternal {
+				row.external = &external
+			}
+			rows = append(rows, row)
+		}
+	}
+	for _, row := range rows {
+		u, err := pguuid.New()
+		if err != nil {
+			return err
+		}
+		if err := r.h.Store.CreateGeneratedStorage(ctx, store.CreateGeneratedStorageParams{
+			Uuid: u, ResourceID: r.app.Resource.ID, Name: &row.declared,
+			MountPath: row.mountPath, ExternalName: row.external,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

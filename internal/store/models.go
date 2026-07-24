@@ -2656,6 +2656,7 @@ type PersistentStorage struct {
 	CreatedAt    pgtype.Timestamptz
 	UpdatedAt    pgtype.Timestamptz
 	ExternalName *string
+	IsGenerated  bool
 }
 
 type Preview struct {

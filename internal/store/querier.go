@@ -143,6 +143,7 @@ type Querier interface {
 	// Generated secret of the PREVIEW variable set (§20.4.4) — e.g. the basic
 	// auth credential. Same one-shot semantics as the magic variables.
 	CreateGeneratedPreviewEnvVar(ctx context.Context, arg CreateGeneratedPreviewEnvVarParams) (int64, error)
+	CreateGeneratedStorage(ctx context.Context, arg CreateGeneratedStorageParams) error
 	CreateGitSource(ctx context.Context, arg CreateGitSourceParams) (GitSource, error)
 	// One git source per converted app: what applications reference (INV-002).
 	CreateGithubAppSource(ctx context.Context, arg CreateGithubAppSourceParams) (GitSource, error)
@@ -213,6 +214,9 @@ type Querier interface {
 	DeleteDomainsForApplication(ctx context.Context, applicationID *int64) error
 	DeleteEnvVar(ctx context.Context, id int64) (int64, error)
 	DeleteEnvVarsNotInKeys(ctx context.Context, arg DeleteEnvVarsNotInKeysParams) error
+	// The compose-mirrored rows (§2.4): rewritten wholesale at each deployment —
+	// the FILE is the source of truth, these rows only make it visible.
+	DeleteGeneratedStoragesForResource(ctx context.Context, resourceID int64) error
 	DeleteGithubApp(ctx context.Context, id int64) (int64, error)
 	// Scoped by user: a session must never unlink someone else's identity.
 	DeleteIdentityForUser(ctx context.Context, arg DeleteIdentityForUserParams) (int64, error)

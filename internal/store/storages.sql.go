@@ -14,7 +14,7 @@ import (
 const createAdoptedStorage = `-- name: CreateAdoptedStorage :one
 INSERT INTO persistent_storages (uuid, resource_id, kind, name, host_path, mount_path, external_name)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, uuid, resource_id, kind, name, host_path, mount_path, content, is_directory, file_mode, owner_uid, group_gid, created_by, updated_by, created_at, updated_at, external_name
+RETURNING id, uuid, resource_id, kind, name, host_path, mount_path, content, is_directory, file_mode, owner_uid, group_gid, created_by, updated_by, created_at, updated_at, external_name, is_generated
 `
 
 type CreateAdoptedStorageParams struct {
@@ -58,15 +58,40 @@ func (q *Queries) CreateAdoptedStorage(ctx context.Context, arg CreateAdoptedSto
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ExternalName,
+		&i.IsGenerated,
 	)
 	return i, err
+}
+
+const createGeneratedStorage = `-- name: CreateGeneratedStorage :exec
+INSERT INTO persistent_storages (uuid, resource_id, kind, name, mount_path, external_name, is_generated)
+VALUES ($1, $2, 'volume', $3, $4, $5, true)
+`
+
+type CreateGeneratedStorageParams struct {
+	Uuid         pgtype.UUID
+	ResourceID   int64
+	Name         *string
+	MountPath    string
+	ExternalName *string
+}
+
+func (q *Queries) CreateGeneratedStorage(ctx context.Context, arg CreateGeneratedStorageParams) error {
+	_, err := q.db.Exec(ctx, createGeneratedStorage,
+		arg.Uuid,
+		arg.ResourceID,
+		arg.Name,
+		arg.MountPath,
+		arg.ExternalName,
+	)
+	return err
 }
 
 const createStorage = `-- name: CreateStorage :one
 
 INSERT INTO persistent_storages (uuid, resource_id, kind, name, host_path, mount_path)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, uuid, resource_id, kind, name, host_path, mount_path, content, is_directory, file_mode, owner_uid, group_gid, created_by, updated_by, created_at, updated_at, external_name
+RETURNING id, uuid, resource_id, kind, name, host_path, mount_path, content, is_directory, file_mode, owner_uid, group_gid, created_by, updated_by, created_at, updated_at, external_name, is_generated
 `
 
 type CreateStorageParams struct {
@@ -107,8 +132,20 @@ func (q *Queries) CreateStorage(ctx context.Context, arg CreateStorageParams) (P
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ExternalName,
+		&i.IsGenerated,
 	)
 	return i, err
+}
+
+const deleteGeneratedStoragesForResource = `-- name: DeleteGeneratedStoragesForResource :exec
+DELETE FROM persistent_storages WHERE resource_id = $1 AND is_generated
+`
+
+// The compose-mirrored rows (§2.4): rewritten wholesale at each deployment —
+// the FILE is the source of truth, these rows only make it visible.
+func (q *Queries) DeleteGeneratedStoragesForResource(ctx context.Context, resourceID int64) error {
+	_, err := q.db.Exec(ctx, deleteGeneratedStoragesForResource, resourceID)
+	return err
 }
 
 const deleteStorage = `-- name: DeleteStorage :execrows
@@ -124,7 +161,7 @@ func (q *Queries) DeleteStorage(ctx context.Context, id int64) (int64, error) {
 }
 
 const getStorageByUUID = `-- name: GetStorageByUUID :one
-SELECT id, uuid, resource_id, kind, name, host_path, mount_path, content, is_directory, file_mode, owner_uid, group_gid, created_by, updated_by, created_at, updated_at, external_name FROM persistent_storages WHERE uuid = $1 AND resource_id = $2
+SELECT id, uuid, resource_id, kind, name, host_path, mount_path, content, is_directory, file_mode, owner_uid, group_gid, created_by, updated_by, created_at, updated_at, external_name, is_generated FROM persistent_storages WHERE uuid = $1 AND resource_id = $2
 `
 
 type GetStorageByUUIDParams struct {
@@ -153,12 +190,13 @@ func (q *Queries) GetStorageByUUID(ctx context.Context, arg GetStorageByUUIDPara
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ExternalName,
+		&i.IsGenerated,
 	)
 	return i, err
 }
 
 const listStoragesForResource = `-- name: ListStoragesForResource :many
-SELECT id, uuid, resource_id, kind, name, host_path, mount_path, content, is_directory, file_mode, owner_uid, group_gid, created_by, updated_by, created_at, updated_at, external_name FROM persistent_storages WHERE resource_id = $1 ORDER BY mount_path
+SELECT id, uuid, resource_id, kind, name, host_path, mount_path, content, is_directory, file_mode, owner_uid, group_gid, created_by, updated_by, created_at, updated_at, external_name, is_generated FROM persistent_storages WHERE resource_id = $1 ORDER BY mount_path
 `
 
 func (q *Queries) ListStoragesForResource(ctx context.Context, resourceID int64) ([]PersistentStorage, error) {
@@ -188,6 +226,7 @@ func (q *Queries) ListStoragesForResource(ctx context.Context, resourceID int64)
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ExternalName,
+			&i.IsGenerated,
 		); err != nil {
 			return nil, err
 		}

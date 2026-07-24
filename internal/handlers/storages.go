@@ -22,12 +22,13 @@ var volumeNameFormat = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
 
 func storageToAPI(s store.PersistentStorage, resourceUUID string) api.PersistentStorage {
 	out := api.PersistentStorage{
-		Uuid:      ptr(uuidString(s.Uuid)),
-		Kind:      api.PersistentStorageKind(s.Kind),
-		Name:      s.Name,
-		HostPath:  s.HostPath,
-		MountPath: s.MountPath,
-		CreatedAt: timePtr(s.CreatedAt),
+		Uuid:        ptr(uuidString(s.Uuid)),
+		Kind:        api.PersistentStorageKind(s.Kind),
+		Name:        s.Name,
+		HostPath:    s.HostPath,
+		MountPath:   s.MountPath,
+		IsGenerated: ptr(s.IsGenerated),
+		CreatedAt:   timePtr(s.CreatedAt),
 	}
 	if s.Kind == store.StorageKindVolume && s.Name != nil {
 		out.DockerVolumeName = ptr(jobs.DockerVolumeName(resourceUUID, *s.Name))

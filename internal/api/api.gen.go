@@ -3323,12 +3323,15 @@ type PersistentStorage struct {
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 
 	// DockerVolumeName Nom Docker réel du volume (`<resource_uuid>_<name>`), déterministe.
-	DockerVolumeName *string               `json:"docker_volume_name,omitempty"`
-	HostPath         *string               `json:"host_path,omitempty"`
-	Kind             PersistentStorageKind `json:"kind"`
-	MountPath        string                `json:"mount_path"`
-	Name             *string               `json:"name,omitempty"`
-	Uuid             *string               `json:"uuid,omitempty"`
+	DockerVolumeName *string `json:"docker_volume_name,omitempty"`
+	HostPath         *string `json:"host_path,omitempty"`
+
+	// IsGenerated Miroir d'un volume déclaré dans le fichier compose (§2.4) — réécrit à chaque déploiement, non éditable : le fichier fait foi.
+	IsGenerated *bool                 `json:"is_generated,omitempty"`
+	Kind        PersistentStorageKind `json:"kind"`
+	MountPath   string                `json:"mount_path"`
+	Name        *string               `json:"name,omitempty"`
+	Uuid        *string               `json:"uuid,omitempty"`
 }
 
 // PersistentStorageKind defines model for PersistentStorage.Kind.

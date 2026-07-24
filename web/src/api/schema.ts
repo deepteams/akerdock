@@ -4445,6 +4445,8 @@ export interface components {
             readonly docker_volume_name?: string | null;
             host_path?: string | null;
             mount_path: string;
+            /** @description Miroir d'un volume déclaré dans le fichier compose (§2.4) — réécrit à chaque déploiement, non éditable : le fichier fait foi. */
+            readonly is_generated?: boolean;
             /** Format: date-time */
             readonly created_at: string;
         };

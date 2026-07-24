@@ -117,6 +117,9 @@ type Storage = components['schemas']['PersistentStorage'];
               <tr>
                 <td>
                   <span class="akd-badge akd-badge--mono">{{ storage.kind }}</span>
+                  @if (storage.is_generated) {
+                    <span class="akd-badge">compose</span>
+                  }
                 </td>
                 <td class="akd-mono">
                   {{
@@ -127,14 +130,20 @@ type Storage = components['schemas']['PersistentStorage'];
                 </td>
                 <td class="akd-mono">{{ storage.mount_path }}</td>
                 <td class="right">
-                  <button
-                    class="akd-btn akd-btn--danger akd-btn--sm"
-                    type="button"
-                    [disabled]="busy()"
-                    (click)="remove(storage)"
-                  >
-                    Delete
-                  </button>
+                  @if (storage.is_generated) {
+                    <!-- A mirror of the compose file: the file is the truth,
+                         deleting the row would only resurrect it next deploy. -->
+                    <span class="akd-muted">declared in compose</span>
+                  } @else {
+                    <button
+                      class="akd-btn akd-btn--danger akd-btn--sm"
+                      type="button"
+                      [disabled]="busy()"
+                      (click)="remove(storage)"
+                    >
+                      Delete
+                    </button>
+                  }
                 </td>
               </tr>
             }

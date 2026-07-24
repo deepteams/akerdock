@@ -10089,6 +10089,12 @@ components:
           nullable: true
         mount_path:
           type: string
+        is_generated:
+          type: boolean
+          readOnly: true
+          description: >-
+            Miroir d'un volume déclaré dans le fichier compose (§2.4) —
+            réécrit à chaque déploiement, non éditable : le fichier fait foi.
         created_at:
           type: string
           format: date-time

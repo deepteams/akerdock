@@ -20,3 +20,12 @@ SELECT * FROM persistent_storages WHERE uuid = $1 AND resource_id = $2;
 
 -- name: DeleteStorage :execrows
 DELETE FROM persistent_storages WHERE id = $1;
+
+-- name: DeleteGeneratedStoragesForResource :exec
+-- The compose-mirrored rows (§2.4): rewritten wholesale at each deployment —
+-- the FILE is the source of truth, these rows only make it visible.
+DELETE FROM persistent_storages WHERE resource_id = $1 AND is_generated;
+
+-- name: CreateGeneratedStorage :exec
+INSERT INTO persistent_storages (uuid, resource_id, kind, name, mount_path, external_name, is_generated)
+VALUES ($1, $2, 'volume', $3, $4, sqlc.narg(external_name), true);
