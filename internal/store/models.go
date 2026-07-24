@@ -3027,22 +3027,23 @@ type TeamMembership struct {
 }
 
 type TerminalSession struct {
-	ID             int64
-	Uuid           pgtype.UUID
-	TeamID         int64
-	UserID         *int64
-	TargetKind     TerminalTarget
-	ServerID       *int64
-	ResourceID     *int64
-	TargetName     string
-	ClientIp       *netip.Addr
-	TokenHash      string
-	TokenExpiresAt pgtype.Timestamptz
-	ClaimedAt      pgtype.Timestamptz
-	StartedAt      pgtype.Timestamptz
-	EndedAt        pgtype.Timestamptz
-	EndReason      *TerminalEndReason
-	CreatedAt      pgtype.Timestamptz
+	ID              int64
+	Uuid            pgtype.UUID
+	TeamID          int64
+	UserID          *int64
+	TargetKind      TerminalTarget
+	ServerID        *int64
+	ResourceID      *int64
+	TargetName      string
+	ClientIp        *netip.Addr
+	TokenHash       string
+	TokenExpiresAt  pgtype.Timestamptz
+	ClaimedAt       pgtype.Timestamptz
+	StartedAt       pgtype.Timestamptz
+	EndedAt         pgtype.Timestamptz
+	EndReason       *TerminalEndReason
+	CreatedAt       pgtype.Timestamptz
+	TargetComponent *string
 }
 
 type UptimeCheck struct {

@@ -650,10 +650,12 @@ export class AkerDockClient {
   // redeemed on the /terminal/ws WebSocket, which lives outside the contract
   // (§27.24) — same origin, `?token=…` in the query string.
 
-  createApplicationTerminalSession(applicationUuid: string) {
+  createApplicationTerminalSession(applicationUuid: string, query?: { component?: string }) {
     type Response =
       paths['/applications/{application_uuid}/terminal-sessions']['post']['responses']['201']['content']['application/json'];
-    return this.request<Response>('POST', `/applications/${applicationUuid}/terminal-sessions`);
+    return this.request<Response>('POST', `/applications/${applicationUuid}/terminal-sessions`, {
+      query,
+    });
   }
 
   createDatabaseTerminalSession(databaseUuid: string) {

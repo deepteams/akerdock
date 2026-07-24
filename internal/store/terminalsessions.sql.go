@@ -19,7 +19,7 @@ WHERE token_hash = $1
   AND claimed_at IS NULL
   AND ended_at IS NULL
   AND token_expires_at > now()
-RETURNING id, uuid, team_id, user_id, target_kind, server_id, resource_id, target_name, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at
+RETURNING id, uuid, team_id, user_id, target_kind, server_id, resource_id, target_name, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, target_component
 `
 
 // Single-use attach: the WHERE consumes the token atomically — a replayed
@@ -46,6 +46,7 @@ func (q *Queries) ClaimTerminalSession(ctx context.Context, tokenHash string) (T
 		&i.EndedAt,
 		&i.EndReason,
 		&i.CreatedAt,
+		&i.TargetComponent,
 	)
 	return i, err
 }
@@ -70,24 +71,25 @@ const createTerminalSession = `-- name: CreateTerminalSession :one
 
 INSERT INTO terminal_sessions (
     team_id, user_id, target_kind, server_id, resource_id, target_name,
-    client_ip, token_hash, token_expires_at
+    target_component, client_ip, token_hash, token_expires_at
 ) VALUES (
     $1, $6, $2, $7, $8, $3,
-    $9, $4, $5
+    $9, $10, $4, $5
 )
-RETURNING id, uuid, team_id, user_id, target_kind, server_id, resource_id, target_name, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at
+RETURNING id, uuid, team_id, user_id, target_kind, server_id, resource_id, target_name, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, target_component
 `
 
 type CreateTerminalSessionParams struct {
-	TeamID         int64
-	TargetKind     TerminalTarget
-	TargetName     string
-	TokenHash      string
-	TokenExpiresAt pgtype.Timestamptz
-	UserID         *int64
-	ServerID       *int64
-	ResourceID     *int64
-	ClientIp       *netip.Addr
+	TeamID          int64
+	TargetKind      TerminalTarget
+	TargetName      string
+	TokenHash       string
+	TokenExpiresAt  pgtype.Timestamptz
+	UserID          *int64
+	ServerID        *int64
+	ResourceID      *int64
+	TargetComponent *string
+	ClientIp        *netip.Addr
 }
 
 // Web terminal sessions (PRD §5.7/§24.4, ADR-024, data-dictionary §10.6).
@@ -101,6 +103,7 @@ func (q *Queries) CreateTerminalSession(ctx context.Context, arg CreateTerminalS
 		arg.UserID,
 		arg.ServerID,
 		arg.ResourceID,
+		arg.TargetComponent,
 		arg.ClientIp,
 	)
 	var i TerminalSession
@@ -121,6 +124,7 @@ func (q *Queries) CreateTerminalSession(ctx context.Context, arg CreateTerminalS
 		&i.EndedAt,
 		&i.EndReason,
 		&i.CreatedAt,
+		&i.TargetComponent,
 	)
 	return i, err
 }

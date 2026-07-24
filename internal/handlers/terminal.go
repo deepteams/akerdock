@@ -53,7 +53,7 @@ const (
 
 // CreateApplicationTerminalSession implements
 // POST /applications/{application_uuid}/terminal-sessions (permission: write).
-func (a *API) CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid) {
+func (a *API) CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.CreateApplicationTerminalSessionParams) {
 	id, ok := a.require(w, r, auth.PermWrite)
 	if !ok {
 		return
@@ -62,12 +62,37 @@ func (a *API) CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Re
 	if !ok {
 		return
 	}
-	a.createTerminalSession(w, r, id, terminalTargetSpec{
+	spec := terminalTargetSpec{
 		kind:       store.TerminalTargetContainer,
 		serverID:   row.ServerRowID,
 		resourceID: &row.Resource.ID,
 		name:       row.Resource.Name,
-	})
+	}
+	// A compose stack has no container of its own (compose-spec §2.2): the
+	// shell opens in ONE service's container, validated here — never a
+	// guessed name at connect time.
+	if params.Component != nil && *params.Component != "" {
+		components, err := a.Store.ListServiceComponents(r.Context(), row.Resource.ID)
+		if err != nil {
+			a.internalError(w, r, "terminal session", err)
+			return
+		}
+		found := false
+		for _, c := range components {
+			if c.Name == *params.Component {
+				found = true
+				break
+			}
+		}
+		if !found {
+			httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound,
+				fmt.Sprintf("unknown component %q — see GET /applications/{uuid}/components", *params.Component))
+			return
+		}
+		spec.component = *params.Component
+		spec.name = row.Resource.Name + " · " + *params.Component
+	}
+	a.createTerminalSession(w, r, id, spec)
 }
 
 // CreateDatabaseTerminalSession implements
@@ -148,6 +173,9 @@ type terminalTargetSpec struct {
 	serverID   int64
 	resourceID *int64
 	name       string
+	// component names the compose service whose container the shell opens in
+	// — empty for single-container resources (compose-spec §2.2).
+	component string
 }
 
 // createTerminalSession is the shared tail: cap check, token mint, audit,
@@ -184,6 +212,12 @@ func (a *API) createTerminalSession(w http.ResponseWriter, r *http.Request, id *
 		ServerID:       &target.serverID,
 		ResourceID:     target.resourceID,
 		TargetName:     target.name,
+		TargetComponent: func() *string {
+			if target.component == "" {
+				return nil
+			}
+			return &target.component
+		}(),
 		ClientIp:       clientAddr(r),
 		TokenHash:      hashTerminalToken(token),
 		TokenExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(terminalTokenTTL), Valid: true},
@@ -300,9 +334,15 @@ func (a *API) terminalConnect(ctx context.Context, row store.TerminalSession) (*
 		// adopted resource awaiting normalization (§20.7), the original
 		// Docker name recorded by our own adopt job from `docker inspect`
 		// (Docker's name charset has no shell metacharacters) (INV-012).
+		container := adoption.ContainerName(res.Adoption, uuidString(res.Uuid))
+		if row.TargetComponent != nil && *row.TargetComponent != "" {
+			// A compose service's container (compose-spec §2.2). The component
+			// was validated against service_components at session creation.
+			container = uuidString(res.Uuid) + "-" + *row.TargetComponent
+		}
 		command = fmt.Sprintf(
 			"docker exec -it -e TERM=xterm-256color %s sh -c 'command -v bash >/dev/null 2>&1 && exec bash || exec sh'",
-			adoption.ContainerName(res.Adoption, uuidString(res.Uuid)))
+			container)
 	}
 
 	key, err := a.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)

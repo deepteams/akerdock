@@ -3252,6 +3252,18 @@ paths:
       tags: [Applications]
       operationId: createApplicationTerminalSession
       summary: Ouvrir une session terminal dans le container de l'application
+      parameters:
+        - name: component
+          in: query
+          required: false
+          description: >-
+            (build pack compose) Nom du service dont ouvrir le shell — la
+            stack n'a pas de container propre (compose-spec §2.2). `404` si
+            le composant est inconnu ; obligatoire dès que la stack a des
+            composants.
+          schema:
+            type: string
+            maxLength: 63
       description: >-
         Crée une session terminal (§5.7, §24.4) vers le container courant de
         l'application et renvoie un **token court à usage unique** à présenter

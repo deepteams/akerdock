@@ -4485,6 +4485,12 @@ type CreateApplicationStorageParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// CreateApplicationTerminalSessionParams defines parameters for CreateApplicationTerminalSession.
+type CreateApplicationTerminalSessionParams struct {
+	// Component (build pack compose) Nom du service dont ouvrir le shell — la stack n'a pas de container propre (compose-spec §2.2). `404` si le composant est inconnu ; obligatoire dès que la stack a des composants.
+	Component *string `form:"component,omitempty" json:"component,omitempty"`
+}
+
 // DeleteWebhookEndpointParams defines parameters for DeleteWebhookEndpoint.
 type DeleteWebhookEndpointParams struct {
 	Provider DeleteWebhookEndpointParamsProvider `form:"provider" json:"provider"`
@@ -5494,7 +5500,7 @@ type ServerInterface interface {
 	DeleteApplicationStorage(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, storageUuid StorageUuid)
 	// Ouvrir une session terminal dans le container de l'application
 	// (POST /applications/{application_uuid}/terminal-sessions)
-	CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
+	CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationTerminalSessionParams)
 	// Supprimer l'endpoint de webhook Git
 	// (DELETE /applications/{application_uuid}/webhook-endpoint)
 	DeleteWebhookEndpoint(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params DeleteWebhookEndpointParams)
@@ -6151,7 +6157,7 @@ func (_ Unimplemented) DeleteApplicationStorage(w http.ResponseWriter, r *http.R
 
 // Ouvrir une session terminal dans le container de l'application
 // (POST /applications/{application_uuid}/terminal-sessions)
-func (_ Unimplemented) CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
+func (_ Unimplemented) CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationTerminalSessionParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8605,8 +8611,24 @@ func (siw *ServerInterfaceWrapper) CreateApplicationTerminalSession(w http.Respo
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateApplicationTerminalSessionParams
+
+	// ------------- Optional query parameter "component" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "component", r.URL.Query(), &params.Component, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "component"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "component", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateApplicationTerminalSession(w, r, applicationUuid)
+		siw.Handler.CreateApplicationTerminalSession(w, r, applicationUuid, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -19491,6 +19513,7 @@ func (response DeleteApplicationStorage429JSONResponse) VisitDeleteApplicationSt
 
 type CreateApplicationTerminalSessionRequestObject struct {
 	ApplicationUuid ApplicationUuid `json:"application_uuid"`
+	Params          CreateApplicationTerminalSessionParams
 }
 
 type CreateApplicationTerminalSessionResponseObject interface {
@@ -35817,10 +35840,11 @@ func (sh *strictHandler) DeleteApplicationStorage(w http.ResponseWriter, r *http
 }
 
 // CreateApplicationTerminalSession operation middleware
-func (sh *strictHandler) CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
+func (sh *strictHandler) CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationTerminalSessionParams) {
 	var request CreateApplicationTerminalSessionRequestObject
 
 	request.ApplicationUuid = applicationUuid
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.CreateApplicationTerminalSession(ctx, request.(CreateApplicationTerminalSessionRequestObject))

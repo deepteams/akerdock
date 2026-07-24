@@ -8092,7 +8092,10 @@ export interface operations {
     };
     createApplicationTerminalSession: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description (build pack compose) Nom du service dont ouvrir le shell — la stack n'a pas de container propre (compose-spec §2.2). `404` si le composant est inconnu ; obligatoire dès que la stack a des composants. */
+                component?: string;
+            };
             header?: never;
             path: {
                 /** @description UUID de l'application. */
