@@ -7,6 +7,10 @@ type SourceType = components['schemas']['Application']['source_type'];
 type RegistryCredential = components['schemas']['RegistryCredential'];
 type PrivateKey = components['schemas']['PrivateKey'];
 
+/** The navigable sections of the config form (settings left menu). */
+export type ConfigSection =
+  'general' | 'source' | 'build' | 'routing' | 'hooks' | 'health' | 'resources';
+
 /**
  * Every configurable field of an application, in one place: the create page
  * and the settings tab render the SAME fields, so an operator never meets a
@@ -20,149 +24,151 @@ type PrivateKey = components['schemas']['PrivateKey'];
   imports: [FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <fieldset class="group">
-      <legend>General</legend>
-      <div class="akd-field">
-        <label class="akd-field__label" for="cf-name">Name</label>
-        <input
-          id="cf-name"
-          name="cfName"
-          class="akd-input"
-          required
-          [(ngModel)]="form().name"
-          [disabled]="busy()"
-        />
-      </div>
-      <div class="akd-field">
-        <label class="akd-field__label" for="cf-description">Description</label>
-        <input
-          id="cf-description"
-          name="cfDescription"
-          class="akd-input"
-          [(ngModel)]="form().description"
-          [disabled]="busy()"
-        />
-      </div>
-      <div class="akd-field">
-        <label class="akd-field__label" for="cf-tags"
-          >Tags (comma-separated, usable by the deploy webhook)</label
-        >
-        <input
-          id="cf-tags"
-          name="cfTags"
-          class="akd-input"
-          placeholder="web, prod"
-          [(ngModel)]="form().tags"
-          [disabled]="busy()"
-        />
-      </div>
-    </fieldset>
+    @if (show('general')) {
+      <fieldset class="group">
+        <legend>General</legend>
+        <div class="akd-field">
+          <label class="akd-field__label" for="cf-name">Name</label>
+          <input
+            id="cf-name"
+            name="cfName"
+            class="akd-input"
+            required
+            [(ngModel)]="form().name"
+            [disabled]="busy()"
+          />
+        </div>
+        <div class="akd-field">
+          <label class="akd-field__label" for="cf-description">Description</label>
+          <input
+            id="cf-description"
+            name="cfDescription"
+            class="akd-input"
+            [(ngModel)]="form().description"
+            [disabled]="busy()"
+          />
+        </div>
+        <div class="akd-field">
+          <label class="akd-field__label" for="cf-tags"
+            >Tags (comma-separated, usable by the deploy webhook)</label
+          >
+          <input
+            id="cf-tags"
+            name="cfTags"
+            class="akd-input"
+            placeholder="web, prod"
+            [(ngModel)]="form().tags"
+            [disabled]="busy()"
+          />
+        </div>
+      </fieldset>
+    }
 
     <!-- With a GitHub App the source is the picked repository: URL and deploy
          key would contradict it, so the whole section only exists in manual
          git mode. -->
-    @if (sourceType() !== 'git' || !githubApp()) {
+    @if (show('source') && (sourceType() !== 'git' || !githubApp())) {
       <fieldset class="group">
         <legend>Source · {{ sourceType() }}</legend>
         @switch (sourceType()) {
-        @case ('docker_image') {
-          <div class="akd-field">
-            <label class="akd-field__label" for="cf-image"
-              >Docker image (registry included if not Docker Hub)</label
-            >
-            <input
-              id="cf-image"
-              name="cfImage"
-              class="akd-input akd-input--mono"
-              placeholder="ghcr.io/acme/app"
-              [(ngModel)]="form().dockerImage"
-              [disabled]="busy()"
-            />
-          </div>
-          <div class="akd-field">
-            <label class="akd-field__label" for="cf-image-tag">Tag</label>
-            <input
-              id="cf-image-tag"
-              name="cfImageTag"
-              class="akd-input akd-input--mono"
-              placeholder="latest"
-              [(ngModel)]="form().dockerImageTag"
-              [disabled]="busy()"
-            />
-          </div>
-          <div class="akd-field">
-            <label class="akd-field__label" for="cf-registry">Private registry credential</label>
-            <div class="akd-select">
-              <select
-                id="cf-registry"
-                name="cfRegistry"
-                class="akd-input"
-                [(ngModel)]="form().registryCredentialUuid"
-                [disabled]="busy()"
+          @case ('docker_image') {
+            <div class="akd-field">
+              <label class="akd-field__label" for="cf-image"
+                >Docker image (registry included if not Docker Hub)</label
               >
-                <option value="">None (public image)</option>
-                @for (registry of registries(); track registry.uuid) {
-                  <option [value]="registry.uuid">
-                    {{ registry.name }} ({{ registry.registry_url }})
-                  </option>
-                }
-              </select>
-            </div>
-          </div>
-        }
-        @case ('dockerfile') {
-          <div class="akd-field">
-            <label class="akd-field__label" for="cf-dockerfile">Dockerfile</label>
-            <textarea
-              id="cf-dockerfile"
-              name="cfDockerfile"
-              class="akd-textarea akd-mono"
-              rows="10"
-              placeholder="FROM nginx:alpine&#10;COPY . /usr/share/nginx/html"
-              [(ngModel)]="form().dockerfile"
-              [disabled]="busy()"
-            ></textarea>
-          </div>
-        }
-        @case ('git') {
-          <div class="akd-field">
-            <label class="akd-field__label" for="cf-repo"
-              >Repository URL (HTTPS public, or SSH with a deploy key)</label
-            >
-            <input
-              id="cf-repo"
-              name="cfRepo"
-              class="akd-input akd-input--mono"
-              placeholder="https://github.com/acme/app"
-              [(ngModel)]="form().gitRepository"
-              [disabled]="busy()"
-            />
-          </div>
-          <div class="akd-field">
-            <label class="akd-field__label" for="cf-key">Deploy key (private repositories)</label>
-            <div class="akd-select">
-              <select
-                id="cf-key"
-                name="cfKey"
-                class="akd-input"
-                [(ngModel)]="form().privateKeyUuid"
+              <input
+                id="cf-image"
+                name="cfImage"
+                class="akd-input akd-input--mono"
+                placeholder="ghcr.io/acme/app"
+                [(ngModel)]="form().dockerImage"
                 [disabled]="busy()"
-              >
-                <option value="">None (public repository)</option>
-                @for (key of privateKeys(); track key.uuid) {
-                  <option [value]="key.uuid">{{ key.name }}</option>
-                }
-              </select>
+              />
             </div>
-          </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="cf-image-tag">Tag</label>
+              <input
+                id="cf-image-tag"
+                name="cfImageTag"
+                class="akd-input akd-input--mono"
+                placeholder="latest"
+                [(ngModel)]="form().dockerImageTag"
+                [disabled]="busy()"
+              />
+            </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="cf-registry">Private registry credential</label>
+              <div class="akd-select">
+                <select
+                  id="cf-registry"
+                  name="cfRegistry"
+                  class="akd-input"
+                  [(ngModel)]="form().registryCredentialUuid"
+                  [disabled]="busy()"
+                >
+                  <option value="">None (public image)</option>
+                  @for (registry of registries(); track registry.uuid) {
+                    <option [value]="registry.uuid">
+                      {{ registry.name }} ({{ registry.registry_url }})
+                    </option>
+                  }
+                </select>
+              </div>
+            </div>
+          }
+          @case ('dockerfile') {
+            <div class="akd-field">
+              <label class="akd-field__label" for="cf-dockerfile">Dockerfile</label>
+              <textarea
+                id="cf-dockerfile"
+                name="cfDockerfile"
+                class="akd-textarea akd-mono"
+                rows="10"
+                placeholder="FROM nginx:alpine&#10;COPY . /usr/share/nginx/html"
+                [(ngModel)]="form().dockerfile"
+                [disabled]="busy()"
+              ></textarea>
+            </div>
+          }
+          @case ('git') {
+            <div class="akd-field">
+              <label class="akd-field__label" for="cf-repo"
+                >Repository URL (HTTPS public, or SSH with a deploy key)</label
+              >
+              <input
+                id="cf-repo"
+                name="cfRepo"
+                class="akd-input akd-input--mono"
+                placeholder="https://github.com/acme/app"
+                [(ngModel)]="form().gitRepository"
+                [disabled]="busy()"
+              />
+            </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="cf-key">Deploy key (private repositories)</label>
+              <div class="akd-select">
+                <select
+                  id="cf-key"
+                  name="cfKey"
+                  class="akd-input"
+                  [(ngModel)]="form().privateKeyUuid"
+                  [disabled]="busy()"
+                >
+                  <option value="">None (public repository)</option>
+                  @for (key of privateKeys(); track key.uuid) {
+                    <option [value]="key.uuid">{{ key.name }}</option>
+                  }
+                </select>
+              </div>
+            </div>
+          }
         }
-      }
       </fieldset>
     }
 
     <!-- Everything about turning the source into an image, GitHub App or not:
          a separate section, so hiding the manual source leaves it in place. -->
-    @if (sourceType() !== 'docker_image') {
+    @if (show('build') && sourceType() !== 'docker_image') {
       <fieldset class="group">
         <legend>Build</legend>
         @if (sourceType() === 'git') {
@@ -306,227 +312,235 @@ type PrivateKey = components['schemas']['PrivateKey'];
       </fieldset>
     }
 
-    <fieldset class="group">
-      <legend>Routing</legend>
-      <div class="akd-field">
-        <label class="akd-field__label" for="cf-domains"
-          >Domains (one per line — fqdn, fqdn:port or fqdn/path)</label
-        >
-        <textarea
-          id="cf-domains"
-          name="cfDomains"
-          class="akd-textarea akd-mono"
-          rows="3"
-          placeholder="app.example.com"
-          [(ngModel)]="form().domains"
-          [disabled]="busy()"
-        ></textarea>
-      </div>
-      <div class="akd-field">
-        <label class="akd-field__label" for="cf-ports"
-          >Exposed ports (comma-separated, e.g. 3000)</label
-        >
-        <input
-          id="cf-ports"
-          name="cfPorts"
-          class="akd-input akd-input--mono"
-          [(ngModel)]="form().portsExposes"
-          [disabled]="busy()"
-        />
-      </div>
-    </fieldset>
-
-    <fieldset class="group">
-      <legend>Deployment hooks</legend>
-      <div class="akd-field">
-        <label class="akd-field__label" for="cf-pre">
-          Pre-deployment command (runs in the EXISTING container; a failure aborts before any
-          mutation)
-        </label>
-        <input
-          id="cf-pre"
-          name="cfPre"
-          class="akd-input akd-input--mono"
-          [(ngModel)]="form().preDeploymentCommand"
-          [disabled]="busy()"
-        />
-      </div>
-      <div class="akd-field">
-        <label class="akd-field__label" for="cf-post">
-          Post-deployment command (runs in the healthy candidate before the switch)
-        </label>
-        <input
-          id="cf-post"
-          name="cfPost"
-          class="akd-input akd-input--mono"
-          [(ngModel)]="form().postDeploymentCommand"
-          [disabled]="busy()"
-        />
-      </div>
-    </fieldset>
-
-    <fieldset class="group">
-      <legend>Health check</legend>
-      <label class="akd-check">
-        <input
-          type="checkbox"
-          name="cfHcEnabled"
-          [(ngModel)]="form().hcEnabled"
-          [disabled]="busy()"
-        />
-        Enabled (gates routing and zero-downtime switches)
-      </label>
-      @if (form().hcEnabled) {
-        <div class="grid">
-          <div class="akd-field">
-            <label class="akd-field__label" for="cf-hc-path">Path</label>
-            <input
-              id="cf-hc-path"
-              name="cfHcPath"
-              class="akd-input akd-input--mono"
-              placeholder="/"
-              [(ngModel)]="form().hcPath"
-              [disabled]="busy()"
-            />
-          </div>
-          <div class="akd-field">
-            <label class="akd-field__label" for="cf-hc-port">Port (default: first exposed)</label>
-            <input
-              id="cf-hc-port"
-              name="cfHcPort"
-              class="akd-input akd-input--mono"
-              inputmode="numeric"
-              [(ngModel)]="form().hcPort"
-              [disabled]="busy()"
-            />
-          </div>
-          <div class="akd-field">
-            <label class="akd-field__label" for="cf-hc-method">Method</label>
-            <input
-              id="cf-hc-method"
-              name="cfHcMethod"
-              class="akd-input akd-input--mono"
-              placeholder="GET"
-              [(ngModel)]="form().hcMethod"
-              [disabled]="busy()"
-            />
-          </div>
-          <div class="akd-field">
-            <label class="akd-field__label" for="cf-hc-interval">Interval (s)</label>
-            <input
-              id="cf-hc-interval"
-              name="cfHcInterval"
-              class="akd-input akd-input--mono"
-              inputmode="numeric"
-              [(ngModel)]="form().hcIntervalSeconds"
-              [disabled]="busy()"
-            />
-          </div>
-          <div class="akd-field">
-            <label class="akd-field__label" for="cf-hc-timeout">Timeout (s)</label>
-            <input
-              id="cf-hc-timeout"
-              name="cfHcTimeout"
-              class="akd-input akd-input--mono"
-              inputmode="numeric"
-              [(ngModel)]="form().hcTimeoutSeconds"
-              [disabled]="busy()"
-            />
-          </div>
-          <div class="akd-field">
-            <label class="akd-field__label" for="cf-hc-retries">Retries</label>
-            <input
-              id="cf-hc-retries"
-              name="cfHcRetries"
-              class="akd-input akd-input--mono"
-              inputmode="numeric"
-              [(ngModel)]="form().hcRetries"
-              [disabled]="busy()"
-            />
-          </div>
-          <div class="akd-field">
-            <label class="akd-field__label" for="cf-hc-start">Start period (s)</label>
-            <input
-              id="cf-hc-start"
-              name="cfHcStart"
-              class="akd-input akd-input--mono"
-              inputmode="numeric"
-              [(ngModel)]="form().hcStartPeriodSeconds"
-              [disabled]="busy()"
-            />
-          </div>
-        </div>
-      }
-    </fieldset>
-
-    <fieldset class="group">
-      <legend>Resource limits</legend>
-      <div class="grid">
+    @if (show('routing')) {
+      <fieldset class="group">
+        <legend>Routing</legend>
         <div class="akd-field">
-          <label class="akd-field__label" for="cf-mem"
-            >Memory limit (e.g. 512m, 2g — empty = unlimited)</label
+          <label class="akd-field__label" for="cf-domains"
+            >Domains (one per line — fqdn, fqdn:port or fqdn/path)</label
+          >
+          <textarea
+            id="cf-domains"
+            name="cfDomains"
+            class="akd-textarea akd-mono"
+            rows="3"
+            placeholder="app.example.com"
+            [(ngModel)]="form().domains"
+            [disabled]="busy()"
+          ></textarea>
+        </div>
+        <div class="akd-field">
+          <label class="akd-field__label" for="cf-ports"
+            >Exposed ports (comma-separated, e.g. 3000)</label
           >
           <input
-            id="cf-mem"
-            name="cfMem"
+            id="cf-ports"
+            name="cfPorts"
             class="akd-input akd-input--mono"
-            [(ngModel)]="form().memoryLimit"
+            [(ngModel)]="form().portsExposes"
+            [disabled]="busy()"
+          />
+        </div>
+      </fieldset>
+    }
+
+    @if (show('hooks')) {
+      <fieldset class="group">
+        <legend>Deployment hooks</legend>
+        <div class="akd-field">
+          <label class="akd-field__label" for="cf-pre">
+            Pre-deployment command (runs in the EXISTING container; a failure aborts before any
+            mutation)
+          </label>
+          <input
+            id="cf-pre"
+            name="cfPre"
+            class="akd-input akd-input--mono"
+            [(ngModel)]="form().preDeploymentCommand"
             [disabled]="busy()"
           />
         </div>
         <div class="akd-field">
-          <label class="akd-field__label" for="cf-mem-res">Memory reservation</label>
+          <label class="akd-field__label" for="cf-post">
+            Post-deployment command (runs in the healthy candidate before the switch)
+          </label>
           <input
-            id="cf-mem-res"
-            name="cfMemRes"
+            id="cf-post"
+            name="cfPost"
             class="akd-input akd-input--mono"
-            [(ngModel)]="form().memoryReservation"
+            [(ngModel)]="form().postDeploymentCommand"
             [disabled]="busy()"
           />
         </div>
-        <div class="akd-field">
-          <label class="akd-field__label" for="cf-mem-swap">Memory swap</label>
+      </fieldset>
+    }
+
+    @if (show('health')) {
+      <fieldset class="group">
+        <legend>Health check</legend>
+        <label class="akd-check">
           <input
-            id="cf-mem-swap"
-            name="cfMemSwap"
-            class="akd-input akd-input--mono"
-            [(ngModel)]="form().memorySwap"
+            type="checkbox"
+            name="cfHcEnabled"
+            [(ngModel)]="form().hcEnabled"
             [disabled]="busy()"
           />
+          Enabled (gates routing and zero-downtime switches)
+        </label>
+        @if (form().hcEnabled) {
+          <div class="grid">
+            <div class="akd-field">
+              <label class="akd-field__label" for="cf-hc-path">Path</label>
+              <input
+                id="cf-hc-path"
+                name="cfHcPath"
+                class="akd-input akd-input--mono"
+                placeholder="/"
+                [(ngModel)]="form().hcPath"
+                [disabled]="busy()"
+              />
+            </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="cf-hc-port">Port (default: first exposed)</label>
+              <input
+                id="cf-hc-port"
+                name="cfHcPort"
+                class="akd-input akd-input--mono"
+                inputmode="numeric"
+                [(ngModel)]="form().hcPort"
+                [disabled]="busy()"
+              />
+            </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="cf-hc-method">Method</label>
+              <input
+                id="cf-hc-method"
+                name="cfHcMethod"
+                class="akd-input akd-input--mono"
+                placeholder="GET"
+                [(ngModel)]="form().hcMethod"
+                [disabled]="busy()"
+              />
+            </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="cf-hc-interval">Interval (s)</label>
+              <input
+                id="cf-hc-interval"
+                name="cfHcInterval"
+                class="akd-input akd-input--mono"
+                inputmode="numeric"
+                [(ngModel)]="form().hcIntervalSeconds"
+                [disabled]="busy()"
+              />
+            </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="cf-hc-timeout">Timeout (s)</label>
+              <input
+                id="cf-hc-timeout"
+                name="cfHcTimeout"
+                class="akd-input akd-input--mono"
+                inputmode="numeric"
+                [(ngModel)]="form().hcTimeoutSeconds"
+                [disabled]="busy()"
+              />
+            </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="cf-hc-retries">Retries</label>
+              <input
+                id="cf-hc-retries"
+                name="cfHcRetries"
+                class="akd-input akd-input--mono"
+                inputmode="numeric"
+                [(ngModel)]="form().hcRetries"
+                [disabled]="busy()"
+              />
+            </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="cf-hc-start">Start period (s)</label>
+              <input
+                id="cf-hc-start"
+                name="cfHcStart"
+                class="akd-input akd-input--mono"
+                inputmode="numeric"
+                [(ngModel)]="form().hcStartPeriodSeconds"
+                [disabled]="busy()"
+              />
+            </div>
+          </div>
+        }
+      </fieldset>
+    }
+
+    @if (show('resources')) {
+      <fieldset class="group">
+        <legend>Resource limits</legend>
+        <div class="grid">
+          <div class="akd-field">
+            <label class="akd-field__label" for="cf-mem"
+              >Memory limit (e.g. 512m, 2g — empty = unlimited)</label
+            >
+            <input
+              id="cf-mem"
+              name="cfMem"
+              class="akd-input akd-input--mono"
+              [(ngModel)]="form().memoryLimit"
+              [disabled]="busy()"
+            />
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="cf-mem-res">Memory reservation</label>
+            <input
+              id="cf-mem-res"
+              name="cfMemRes"
+              class="akd-input akd-input--mono"
+              [(ngModel)]="form().memoryReservation"
+              [disabled]="busy()"
+            />
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="cf-mem-swap">Memory swap</label>
+            <input
+              id="cf-mem-swap"
+              name="cfMemSwap"
+              class="akd-input akd-input--mono"
+              [(ngModel)]="form().memorySwap"
+              [disabled]="busy()"
+            />
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="cf-cpu">CPU limit (e.g. 0.5, 2)</label>
+            <input
+              id="cf-cpu"
+              name="cfCpu"
+              class="akd-input akd-input--mono"
+              [(ngModel)]="form().cpuLimit"
+              [disabled]="busy()"
+            />
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="cf-cpu-shares">CPU shares</label>
+            <input
+              id="cf-cpu-shares"
+              name="cfCpuShares"
+              class="akd-input akd-input--mono"
+              inputmode="numeric"
+              [(ngModel)]="form().cpuShares"
+              [disabled]="busy()"
+            />
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="cf-cpu-set">CPU set (e.g. 0-2)</label>
+            <input
+              id="cf-cpu-set"
+              name="cfCpuSet"
+              class="akd-input akd-input--mono"
+              [(ngModel)]="form().cpuSet"
+              [disabled]="busy()"
+            />
+          </div>
         </div>
-        <div class="akd-field">
-          <label class="akd-field__label" for="cf-cpu">CPU limit (e.g. 0.5, 2)</label>
-          <input
-            id="cf-cpu"
-            name="cfCpu"
-            class="akd-input akd-input--mono"
-            [(ngModel)]="form().cpuLimit"
-            [disabled]="busy()"
-          />
-        </div>
-        <div class="akd-field">
-          <label class="akd-field__label" for="cf-cpu-shares">CPU shares</label>
-          <input
-            id="cf-cpu-shares"
-            name="cfCpuShares"
-            class="akd-input akd-input--mono"
-            inputmode="numeric"
-            [(ngModel)]="form().cpuShares"
-            [disabled]="busy()"
-          />
-        </div>
-        <div class="akd-field">
-          <label class="akd-field__label" for="cf-cpu-set">CPU set (e.g. 0-2)</label>
-          <input
-            id="cf-cpu-set"
-            name="cfCpuSet"
-            class="akd-input akd-input--mono"
-            [(ngModel)]="form().cpuSet"
-            [disabled]="busy()"
-          />
-        </div>
-      </div>
-    </fieldset>
+      </fieldset>
+    }
   `,
   styles: [
     `
@@ -565,4 +579,12 @@ export class ApplicationConfigFieldsComponent {
    * section (repository URL, deploy key) is hidden — the Build section
    * (branch, build pack…) stays. */
   readonly githubApp = input(false);
+  /** When set, render ONLY this section (the settings tab drives a left menu);
+   * undefined renders every section stacked (the create page). */
+  readonly section = input<ConfigSection | undefined>(undefined);
+
+  protected show(id: ConfigSection): boolean {
+    const only = this.section();
+    return only === undefined || only === id;
+  }
 }
