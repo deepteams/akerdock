@@ -53,7 +53,7 @@ métier : elle consomme l'API publique (§18.2 PRD), rien d'autre.
 | `akerdock logs REF [--component C] [-n LINES] [-f] [--deployment [UUID]]` | Logs conteneur (snapshot ou `-f` streaming) ou logs d'un déploiement. |
 | `akerdock shell REF [--component C]` | Shell interactif dans le conteneur (§6). |
 | `akerdock port-forward REF [LOCAL:]REMOTE [--component C] [--pr N]` | Tunnel TCP (§7) ; `--pr N` cible l'instance de preview de la PR N au lieu de la production. |
-| `akerdock db REF [--component C]` | Confort : ouvre un forward et lance le client local du moteur détecté (§8). |
+| `akerdock db REF [--component C] [--pr N]` | Confort : ouvre un forward et lance le client local du moteur détecté (§8) ; accepte une base autonome (`db/…`) ou un **service base d'un stack compose** (`app/… -c C`), `--pr N` visant la preview. |
 
 **Flags globaux.** `--context NAME` ; `-o table|json` (`json` = objets API bruts, pour le
 scripting) ; `--quiet`. `NO_COLOR` respecté. **Codes de sortie** : `0` succès, `1` erreur,
@@ -119,12 +119,18 @@ connexions réseau sortantes) vers le port `5432` du conteneur cible, via le man
 
 ## 8. Console typée (`akerdock db`)
 
-Confort au-dessus du §7. `akerdock db
-REF` détecte le moteur de la ressource (postgres / mysql / redis / mongo), ouvre un
-port-forward éphémère et lance le client local correspondant (`psql`, `mysql`, `redis-cli`,
-`mongosh`) préconfiguré avec les identifiants de la ressource. Si le client local est absent,
-la CLI imprime la commande de connexion et laisse le forward ouvert. La CLI **NE stocke ni ne
-relaie** de mot de passe en clair au-delà du lancement du processus enfant.
+Confort au-dessus du §7. `akerdock db REF` détecte le moteur de la ressource (postgres /
+mysql / redis / mongo), ouvre un port-forward éphémère et lance le client local correspondant
+(`psql`, `mysql`, `redis-cli`, `mongosh`) préconfiguré avec les identifiants de la ressource.
+
+**Cibles.** Une base autonome (`db/<nom>`) **ou** un service base d'un stack compose
+(`app/<nom> -c <service>`, moteur lu depuis le composant, §9.2) ; `--pr N` vise le service de
+l'instance de preview de la PR N. Pour un service compose, les identifiants sont lus au mieux
+depuis les **variables magiques générées** (`SERVICE_USER_<ID>` / `SERVICE_PASSWORD_<ID>`,
+§5.4) : sans `read:sensitive` elles sont expurgées (`value: null`), la CLI imprime alors la
+commande de connexion et laisse le forward ouvert plutôt que de lancer un client sans
+identifiant. Si le client local est absent, même repli. La CLI **NE stocke ni ne relaie** de
+mot de passe en clair au-delà du lancement du processus enfant.
 
 ## 9. Sécurité (delta au threat-model)
 
