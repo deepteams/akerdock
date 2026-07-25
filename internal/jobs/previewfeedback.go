@@ -89,6 +89,9 @@ func (f *PreviewFeedback) notifyGithubApp(ctx context.Context, source store.GitS
 		line = "❌ Preview deployment failed for `" + shortSHA(preview.HeadSha) + "` — see the deployment logs in AkerDock."
 	case "destroyed":
 		line = "🧹 Preview destroyed."
+		case "awaiting_manual_deploy":
+			line = "⏸️ Preview reserved for `" + shortSHA(preview.HeadSha) +
+				"` — auto-deploy on open is off. Deploy it with `/deploy` or from AkerDock."
 	default:
 		return
 	}

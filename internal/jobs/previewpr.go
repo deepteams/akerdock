@@ -223,6 +223,16 @@ func HandlePreviewPREvent(ctx context.Context, q *store.Queries, keyring *envelo
 		if event.IsFork && !preview.ForkApprovedAt.Valid {
 			return "fork waiting for maintainer approval (INV-010)", nil
 		}
+		// Manual-first policy (preview_deploy_on_open=false): the webhook never
+		// initiates the FIRST deployment — it only reserves the preview (URL and
+		// credential are already settled above). A human deploys it from AkerDock
+		// or with /deploy; once it is engaged (deploying/active/failed), later
+		// pushes keep updating it here as usual.
+		if !app.Application.PreviewDeployOnOpen && !previewEngaged(preview) {
+			feedback := &PreviewFeedback{Store: q, Keyring: keyring, Logger: logger}
+			feedback.Notify(ctx, app, preview, "awaiting_manual_deploy")
+			return "awaiting manual deploy (preview_deploy_on_open=false)", nil
+		}
 		promoted, reason, err := TryPromotePreview(ctx, q, logger, app, preview)
 		if err != nil {
 			return "", err
@@ -236,6 +246,20 @@ func HandlePreviewPREvent(ctx context.Context, q *store.Queries, keyring *envelo
 		return "deployment queued", nil
 	default:
 		return "action " + event.Action + " not handled", nil
+	}
+}
+
+// previewEngaged reports whether a deployment has already been triggered for
+// this preview: a fresh row sits at the default 'queued' status with no deploy
+// timestamp, while any promotion moves it to deploying/active (or failed on a
+// bad build). Used by the manual-first policy to tell "never deployed" (gate
+// the webhook) from "already live" (let pushes keep updating it).
+func previewEngaged(p store.Preview) bool {
+	switch p.Status {
+	case store.PreviewStatusDeploying, store.PreviewStatusActive, store.PreviewStatusFailed:
+		return true
+	default:
+		return p.LastDeployedAt.Valid
 	}
 }
 

@@ -733,6 +733,7 @@ Extension 1—1 de `resources` (`resource_type = 'application'`) : identité de 
 | `preview_require_label` | `text` | oui | — | — | non | Opt-in par label de PR (§20.4.7) ; NULL = désactivé. |
 | `preview_comment_commands_enabled` | `boolean` | non | `false` | — | non | Commandes `/deploy`, `/destroy` en commentaire (§20.4.7). |
 | `preview_exclude_drafts` | `boolean` | non | `false` | — | non | §20.4.7. |
+| `preview_deploy_on_open` | `boolean` | non | `true` | — | non | Auto-déploiement à l'ouverture d'une PR ; `false` = premier déploiement manuel (UI ou `/deploy`), §20.4.7. |
 | `preview_cancel_obsolete_builds` | `boolean` | non | `false` | — | non | Annulation du build de preview rendu obsolète (§20.4.7). |
 | `rollback_on_degraded_health` | `boolean` | non | `false` | — | non | Rollback auto opt-in après bascule (§20.8). |
 | `bake_time_seconds` | `integer` | oui | — | CHECK `> 0` | non | Fenêtre d'observation post-bascule (§20.8). |

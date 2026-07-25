@@ -2064,6 +2064,7 @@ type Application struct {
 	BakeTimeSeconds               *int32
 	CreatedAt                     pgtype.Timestamptz
 	UpdatedAt                     pgtype.Timestamptz
+	PreviewDeployOnOpen           bool
 }
 
 type AuditEvent struct {

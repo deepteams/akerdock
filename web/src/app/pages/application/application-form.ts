@@ -84,6 +84,9 @@ export interface SettingsForm extends ConfigForm {
   previewProtection: 'none' | 'basic_auth' | 'sso';
   previewForkApprovalEnabled: boolean;
   previewExcludeDrafts: boolean;
+  /** Auto-deploy the preview when a PR opens (default); false = first deploy
+   * is manual (AkerDock UI or /deploy), pushes update it afterwards. */
+  previewDeployOnOpen: boolean;
   /** PR label required to get a preview; empty = disabled (every PR). */
   previewRequireLabel: string;
   previewCommentCommandsEnabled: boolean;
@@ -188,11 +191,13 @@ export function settingsFromApplication(app: Application): SettingsForm {
     autoDeploy: app.auto_deploy ?? false,
     previewsEnabled: app.previews_enabled ?? false,
     previewUrlTemplate: app.preview_url_template ?? '{{pr_id}}.{{domain}}',
-    previewMaxConcurrent: app.preview_max_concurrent != null ? String(app.preview_max_concurrent) : '',
+    previewMaxConcurrent:
+      app.preview_max_concurrent != null ? String(app.preview_max_concurrent) : '',
     previewTtlMinutes: app.preview_ttl_minutes != null ? String(app.preview_ttl_minutes) : '',
     previewProtection: (app.preview_protection as 'none' | 'basic_auth' | 'sso') ?? 'basic_auth',
     previewForkApprovalEnabled: app.preview_fork_approval_enabled ?? false,
     previewExcludeDrafts: app.preview_exclude_drafts ?? false,
+    previewDeployOnOpen: app.preview_deploy_on_open ?? true,
     previewRequireLabel: app.preview_require_label ?? '',
     previewCommentCommandsEnabled: app.preview_comment_commands_enabled ?? false,
     previewCancelObsoleteBuilds: app.preview_cancel_obsolete_builds ?? false,
@@ -331,6 +336,7 @@ export function settingsToUpdate(form: SettingsForm, sourceType: SourceType): Ap
       update.preview_protection = form.previewProtection;
       update.preview_fork_approval_enabled = form.previewForkApprovalEnabled;
       update.preview_exclude_drafts = form.previewExcludeDrafts;
+      update.preview_deploy_on_open = form.previewDeployOnOpen;
       update.preview_require_label = orNull(form.previewRequireLabel);
       update.preview_comment_commands_enabled = form.previewCommentCommandsEnabled;
       update.preview_cancel_obsolete_builds = form.previewCancelObsoleteBuilds;

@@ -173,6 +173,18 @@ describe('settingsFromApplication / settingsToUpdate round trip', () => {
     expect(update.preview_cancel_obsolete_builds).toBeTrue();
   });
 
+  it('defaults preview_deploy_on_open to true and round-trips it when off', () => {
+    // Absent from the API (older instance) reads as the historical behaviour.
+    const on = settingsFromApplication(anApplication({ source_type: 'git' }));
+    expect(on.previewDeployOnOpen).toBeTrue();
+
+    const off = settingsFromApplication(
+      anApplication({ source_type: 'git', preview_deploy_on_open: false }),
+    );
+    expect(off.previewDeployOnOpen).toBeFalse();
+    expect(settingsToUpdate(off, 'git').preview_deploy_on_open).toBeFalse();
+  });
+
   it('sends null for a blank required label — disabled, not the string ""', () => {
     const form = settingsFromApplication(anApplication({ source_type: 'git' }));
     form.previewRequireLabel = '  ';

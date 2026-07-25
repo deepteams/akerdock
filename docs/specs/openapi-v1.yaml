@@ -10118,6 +10118,14 @@ components:
         preview_exclude_drafts:
           type: boolean
           description: Les draft PRs ne déclenchent pas de preview (opt-in, ADR-011).
+        preview_deploy_on_open:
+          type: boolean
+          description: >-
+            Auto-déploiement à l'ouverture d'une PR (§20.4.7, défaut true). Si
+            false, l'ouverture réserve seulement la preview (URL, credential) :
+            le PREMIER déploiement doit être déclenché manuellement (UI AkerDock
+            ou commande `/deploy`). Une fois déployée, les push suivants la
+            mettent à jour normalement.
         preview_require_label:
           type: string
           nullable: true
@@ -10288,6 +10296,11 @@ components:
           type: boolean
         preview_exclude_drafts:
           type: boolean
+        preview_deploy_on_open:
+          type: boolean
+          description: >-
+            Auto-déploiement à l'ouverture d'une PR (défaut true) ; false =
+            premier déploiement manuel (UI ou `/deploy`), §20.4.7.
         preview_require_label:
           type: string
           nullable: true

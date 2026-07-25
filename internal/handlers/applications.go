@@ -105,6 +105,7 @@ func applicationToAPI(row appRow) api.Application {
 		PreviewProtection:             ptr(api.ApplicationPreviewProtection(row.Application.PreviewProtection)),
 		PreviewForkApprovalEnabled:    ptr(row.Application.PreviewForkApprovalEnabled),
 		PreviewExcludeDrafts:          ptr(row.Application.PreviewExcludeDrafts),
+		PreviewDeployOnOpen:           ptr(row.Application.PreviewDeployOnOpen),
 		PreviewRequireLabel:           row.Application.PreviewRequireLabel,
 		PreviewCommentCommandsEnabled: ptr(row.Application.PreviewCommentCommandsEnabled),
 		PreviewCancelObsoleteBuilds:   ptr(row.Application.PreviewCancelObsoleteBuilds),

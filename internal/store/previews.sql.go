@@ -582,9 +582,10 @@ UPDATE applications SET
     preview_protection = COALESCE($8, preview_protection),
     preview_fork_approval_enabled = COALESCE($9, preview_fork_approval_enabled),
     preview_exclude_drafts = COALESCE($10, preview_exclude_drafts),
-    preview_require_label = CASE WHEN $11::boolean THEN $12 ELSE preview_require_label END,
-    preview_comment_commands_enabled = COALESCE($13, preview_comment_commands_enabled),
-    preview_cancel_obsolete_builds = COALESCE($14, preview_cancel_obsolete_builds)
+    preview_deploy_on_open = COALESCE($11, preview_deploy_on_open),
+    preview_require_label = CASE WHEN $12::boolean THEN $13 ELSE preview_require_label END,
+    preview_comment_commands_enabled = COALESCE($14, preview_comment_commands_enabled),
+    preview_cancel_obsolete_builds = COALESCE($15, preview_cancel_obsolete_builds)
 WHERE id = $1
 `
 
@@ -599,6 +600,7 @@ type UpdateApplicationPreviewSettingsParams struct {
 	PreviewProtection             *PreviewProtection
 	PreviewForkApprovalEnabled    *bool
 	PreviewExcludeDrafts          *bool
+	PreviewDeployOnOpen           *bool
 	SetRequireLabel               bool
 	PreviewRequireLabel           *string
 	PreviewCommentCommandsEnabled *bool
@@ -617,6 +619,7 @@ func (q *Queries) UpdateApplicationPreviewSettings(ctx context.Context, arg Upda
 		arg.PreviewProtection,
 		arg.PreviewForkApprovalEnabled,
 		arg.PreviewExcludeDrafts,
+		arg.PreviewDeployOnOpen,
 		arg.SetRequireLabel,
 		arg.PreviewRequireLabel,
 		arg.PreviewCommentCommandsEnabled,

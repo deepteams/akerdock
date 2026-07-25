@@ -2266,6 +2266,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/applications/{application_uuid}/previews/{preview_uuid}/port-forwards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ouvrir un tunnel TCP vers un container de la preview
+         * @description Même contrat que le port-forward d'application (ADR-032), mais la cible est un container de l'INSTANCE de preview (INV-011). `409` si la preview est détruite ; `404` si le composant est inconnu.
+         */
+        post: operations["createPreviewPortForward"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/applications/{application_uuid}/previews/{preview_uuid}/approve": {
         parameters: {
             query?: never;
@@ -4450,6 +4474,8 @@ export interface components {
             preview_fork_approval_enabled?: boolean;
             /** @description Les draft PRs ne déclenchent pas de preview (opt-in, ADR-011). */
             preview_exclude_drafts?: boolean;
+            /** @description Auto-déploiement à l'ouverture d'une PR (§20.4.7, défaut true). Si false, l'ouverture réserve seulement la preview (URL, credential) : le PREMIER déploiement doit être déclenché manuellement (UI AkerDock ou commande `/deploy`). Une fois déployée, les push suivants la mettent à jour normalement. */
+            preview_deploy_on_open?: boolean;
             /** @description Opt-in par label (§20.4.7, ADR-011) : la PR doit porter ce label pour obtenir une preview ; null = désactivé (comportement de parité). */
             preview_require_label?: string | null;
             /** @description Commandes en commentaire de PR `/deploy` et `/destroy` (§20.4.7, opt-in). Les droits de l'auteur sont vérifiés côté serveur via l'API du provider — un token API est requis pour les webhooks manuels (protocols §2.7d, §3-§6). */
@@ -4508,6 +4534,8 @@ export interface components {
             preview_protection?: "none" | "basic_auth" | "sso";
             preview_fork_approval_enabled?: boolean;
             preview_exclude_drafts?: boolean;
+            /** @description Auto-déploiement à l'ouverture d'une PR (défaut true) ; false = premier déploiement manuel (UI ou `/deploy`), §20.4.7. */
+            preview_deploy_on_open?: boolean;
             /** @description Opt-in par label de PR (§20.4.7) ; null = désactivé. */
             preview_require_label?: string | null;
             /** @description Commandes `/deploy` `/destroy` en commentaire (§20.4.7). */
@@ -9902,6 +9930,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TerminalSession"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createPreviewPortForward: {
+        parameters: {
+            query?: {
+                /** @description (build pack compose) Service dont on cible le container. */
+                component?: string;
+            };
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PortForwardCreate"];
+            };
+        };
+        responses: {
+            /** @description Session créée — le token n'est visible que dans cette réponse. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortForwardSession"];
                 };
             };
             401: components["responses"]["Unauthorized"];

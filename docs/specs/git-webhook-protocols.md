@@ -194,7 +194,7 @@ Souscrits dans le manifest ; tout autre `X-GitHub-Event` reçu est persisté pui
 | `X-GitHub-Event` | Actions traitées | Effet |
 |---|---|---|
 | `push` | — | Auto-deploy de la branche suivie (pipeline §1.2) ; `ref`, `before`, `after`, `commits[]` (plafonné à 20 — §1.8), `head_commit` |
-| `pull_request` | `opened`, `synchronize`, `reopened` | Création/redeploy de preview (§20.4) ; head SHA = `pull_request.head.sha` ; fork si `pull_request.head.repo.id ≠ pull_request.base.repo.id` |
+| `pull_request` | `opened`, `synchronize`, `reopened` | Création/redeploy de preview (§20.4) ; head SHA = `pull_request.head.sha` ; fork si `pull_request.head.repo.id ≠ pull_request.base.repo.id`. Si `preview_deploy_on_open = false`, une preview jamais déployée n'est que **réservée** (URL, credential) et attend un déploiement manuel (UI ou `/deploy`) ; une fois engagée (deploying/active/failed), les push suivants la mettent à jour normalement |
 | `pull_request` | `closed` | Cleanup de la preview (merge ou fermeture — `pull_request.merged` distingue) ; annulation des builds de preview en cours pour cette PR |
 | `pull_request` | `ready_for_review`, `converted_to_draft` | Si `preview_exclude_drafts` : sortie de draft → deploy ; passage en draft → pas de nouveau deploy **(défaut proposé : la preview existante n'est pas détruite)** |
 | `pull_request` | `labeled`, `unlabeled` | Si `preview_require_label` : label ajouté → deploy, retiré → destruction de la preview **(défaut proposé)** ; sert aussi à l'approbation de fork par label (§2.7) |

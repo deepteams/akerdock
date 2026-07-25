@@ -206,6 +206,24 @@ type SettingsSection = ConfigSection | 'deploys' | 'previews';
                         <span class="switch__label">Skip draft pull requests</span>
                       </span>
                     </label>
+                    <label class="switch">
+                      <input
+                        type="checkbox"
+                        class="akd-switch"
+                        name="previewDeployOnOpen"
+                        [(ngModel)]="form.previewDeployOnOpen"
+                        [disabled]="busy()"
+                      />
+                      <span>
+                        <span class="switch__label">Auto-deploy when a PR opens</span>
+                        <span class="switch__desc">
+                          On by default. Turn off to only reserve the preview (URL, access
+                          credential) when a PR opens — the first deployment is then manual (the
+                          Previews tab, or a /deploy comment), and pushes keep updating it
+                          afterwards.
+                        </span>
+                      </span>
+                    </label>
                     <div class="akd-field">
                       <label class="akd-field__label" for="pv-label">
                         Required PR label (empty = every PR gets a preview)
@@ -456,6 +474,7 @@ export class ApplicationSettingsTabComponent {
     previewProtection: 'basic_auth',
     previewForkApprovalEnabled: false,
     previewExcludeDrafts: false,
+    previewDeployOnOpen: true,
     previewRequireLabel: '',
     previewCommentCommandsEnabled: false,
     previewCancelObsoleteBuilds: false,

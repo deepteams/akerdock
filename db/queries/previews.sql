@@ -105,6 +105,7 @@ UPDATE applications SET
     preview_protection = COALESCE(sqlc.narg(preview_protection), preview_protection),
     preview_fork_approval_enabled = COALESCE(sqlc.narg(preview_fork_approval_enabled), preview_fork_approval_enabled),
     preview_exclude_drafts = COALESCE(sqlc.narg(preview_exclude_drafts), preview_exclude_drafts),
+    preview_deploy_on_open = COALESCE(sqlc.narg(preview_deploy_on_open), preview_deploy_on_open),
     preview_require_label = CASE WHEN sqlc.arg(set_require_label)::boolean THEN sqlc.narg(preview_require_label) ELSE preview_require_label END,
     preview_comment_commands_enabled = COALESCE(sqlc.narg(preview_comment_commands_enabled), preview_comment_commands_enabled),
     preview_cancel_obsolete_builds = COALESCE(sqlc.narg(preview_cancel_obsolete_builds), preview_cancel_obsolete_builds)

@@ -234,6 +234,7 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 	if body.PreviewsEnabled != nil || body.PreviewUrlTemplate != nil || patch.Has("preview_max_concurrent") ||
 		patch.Has("preview_ttl_minutes") || body.PreviewProtection != nil ||
 		body.PreviewForkApprovalEnabled != nil || body.PreviewExcludeDrafts != nil ||
+		body.PreviewDeployOnOpen != nil ||
 		patch.Has("preview_require_label") || body.PreviewCommentCommandsEnabled != nil ||
 		body.PreviewCancelObsoleteBuilds != nil {
 		params := store.UpdateApplicationPreviewSettingsParams{
@@ -242,6 +243,7 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 			PreviewUrlTemplate:            body.PreviewUrlTemplate,
 			PreviewForkApprovalEnabled:    body.PreviewForkApprovalEnabled,
 			PreviewExcludeDrafts:          body.PreviewExcludeDrafts,
+			PreviewDeployOnOpen:           body.PreviewDeployOnOpen,
 			PreviewCommentCommandsEnabled: body.PreviewCommentCommandsEnabled,
 			PreviewCancelObsoleteBuilds:   body.PreviewCancelObsoleteBuilds,
 		}

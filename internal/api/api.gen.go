@@ -2016,11 +2016,14 @@ type Application struct {
 	PreviewCancelObsoleteBuilds *bool `json:"preview_cancel_obsolete_builds,omitempty"`
 
 	// PreviewCommentCommandsEnabled Commandes `/deploy` `/destroy` en commentaire (§20.4.7).
-	PreviewCommentCommandsEnabled *bool                         `json:"preview_comment_commands_enabled,omitempty"`
-	PreviewExcludeDrafts          *bool                         `json:"preview_exclude_drafts,omitempty"`
-	PreviewForkApprovalEnabled    *bool                         `json:"preview_fork_approval_enabled,omitempty"`
-	PreviewMaxConcurrent          *int                          `json:"preview_max_concurrent,omitempty"`
-	PreviewProtection             *ApplicationPreviewProtection `json:"preview_protection,omitempty"`
+	PreviewCommentCommandsEnabled *bool `json:"preview_comment_commands_enabled,omitempty"`
+
+	// PreviewDeployOnOpen Auto-déploiement à l'ouverture d'une PR (défaut true) ; false = premier déploiement manuel (UI ou `/deploy`), §20.4.7.
+	PreviewDeployOnOpen        *bool                         `json:"preview_deploy_on_open,omitempty"`
+	PreviewExcludeDrafts       *bool                         `json:"preview_exclude_drafts,omitempty"`
+	PreviewForkApprovalEnabled *bool                         `json:"preview_fork_approval_enabled,omitempty"`
+	PreviewMaxConcurrent       *int                          `json:"preview_max_concurrent,omitempty"`
+	PreviewProtection          *ApplicationPreviewProtection `json:"preview_protection,omitempty"`
 
 	// PreviewRequireLabel Opt-in par label de PR (§20.4.7) ; null = désactivé.
 	PreviewRequireLabel        *string `json:"preview_require_label,omitempty"`
@@ -2357,6 +2360,9 @@ type ApplicationUpdate struct {
 
 	// PreviewCommentCommandsEnabled Commandes en commentaire de PR `/deploy` et `/destroy` (§20.4.7, opt-in). Les droits de l'auteur sont vérifiés côté serveur via l'API du provider — un token API est requis pour les webhooks manuels (protocols §2.7d, §3-§6).
 	PreviewCommentCommandsEnabled *bool `json:"preview_comment_commands_enabled,omitempty"`
+
+	// PreviewDeployOnOpen Auto-déploiement à l'ouverture d'une PR (§20.4.7, défaut true). Si false, l'ouverture réserve seulement la preview (URL, credential) : le PREMIER déploiement doit être déclenché manuellement (UI AkerDock ou commande `/deploy`). Une fois déployée, les push suivants la mettent à jour normalement.
+	PreviewDeployOnOpen *bool `json:"preview_deploy_on_open,omitempty"`
 
 	// PreviewExcludeDrafts Les draft PRs ne déclenchent pas de preview (opt-in, ADR-011).
 	PreviewExcludeDrafts *bool `json:"preview_exclude_drafts,omitempty"`
