@@ -2161,6 +2161,21 @@ type Certificate struct {
 	ExpiryAlertedAt        pgtype.Timestamptz
 }
 
+type CliAuthorizationCode struct {
+	ID            int64
+	RequestIDHash string
+	Challenge     string
+	UserCode      string
+	Status        string
+	UserID        *int64
+	TeamID        *int64
+	Permissions   []string
+	ClientName    *string
+	ClientIp      *netip.Addr
+	ExpiresAt     pgtype.Timestamptz
+	CreatedAt     pgtype.Timestamptz
+}
+
 type CloudCredential struct {
 	ID        int64
 	Uuid      pgtype.UUID
@@ -2659,6 +2674,27 @@ type PersistentStorage struct {
 	UpdatedAt    pgtype.Timestamptz
 	ExternalName *string
 	IsGenerated  bool
+}
+
+type PortForwardSession struct {
+	ID              int64
+	Uuid            pgtype.UUID
+	TeamID          int64
+	UserID          *int64
+	ServerID        *int64
+	ResourceID      *int64
+	PreviewID       *int64
+	TargetName      string
+	TargetComponent *string
+	TargetPort      int32
+	ClientIp        *netip.Addr
+	TokenHash       string
+	TokenExpiresAt  pgtype.Timestamptz
+	ClaimedAt       pgtype.Timestamptz
+	StartedAt       pgtype.Timestamptz
+	EndedAt         pgtype.Timestamptz
+	EndReason       *TerminalEndReason
+	CreatedAt       pgtype.Timestamptz
 }
 
 type Preview struct {

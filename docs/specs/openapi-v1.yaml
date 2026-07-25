@@ -22,6 +22,12 @@
 #     création de session terminal, elle, est dans cette v1 :
 #     POST .../terminal-sessions), MCP, config-as-code (export/apply §24.5),
 #     log drains, Sentinel
+#   - Le flux WebSocket du tunnel TCP du CLI (`/tunnel/ws`, sous-protocole
+#     akerdock-tunnel-v1, ADR-032) — la CRÉATION de session (.../port-forwards)
+#     est, elle, dans cette v1 ; le protocole du flux est normatif dans
+#     docs/specs/cli.md §7
+#   - Les endpoints d'authentification du CLI (`/auth/cli/start|approve|token`,
+#     ADR-031) — hors contrat comme /auth/*, normatifs dans docs/specs/cli.md §5
 #   - Gestion des sessions/login (UI uniquement, §10.2)
 #
 # Décisions structurantes appliquées (§27) :
@@ -3294,6 +3300,89 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /applications/{application_uuid}/port-forwards:
+    parameters:
+      - $ref: "#/components/parameters/ApplicationUuid"
+    post:
+      tags: [Applications]
+      operationId: createApplicationPortForward
+      summary: Ouvrir un tunnel TCP vers un container de l'application
+      parameters:
+        - name: component
+          in: query
+          required: false
+          description: (build pack compose) Service dont on cible le container.
+          schema:
+            type: string
+            maxLength: 63
+      description: >-
+        Crée une session de tunnel TCP (ADR-032) vers `port` du container
+        courant et renvoie un **token à usage unique** à présenter sur
+        `/tunnel/ws` (hors OpenAPI). Bornée à la team, auditée, idle/max/
+        heartbeat/teardown comme le terminal (§24.4). `409` si la team atteint
+        `port_forward_limit`.
+      x-required-permission: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PortForwardCreate"
+      responses:
+        "201":
+          description: Session créée — le token n'est visible que dans cette réponse.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortForwardSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /databases/{database_uuid}/port-forwards:
+    parameters:
+      - $ref: "#/components/parameters/DatabaseUuid"
+    post:
+      tags: [Databases]
+      operationId: createDatabasePortForward
+      summary: Ouvrir un tunnel TCP vers une base de données
+      description: >-
+        Crée une session de tunnel TCP (ADR-032) vers `port` du container de la
+        base et renvoie un **token à usage unique** à présenter sur
+        `/tunnel/ws` (hors OpenAPI). Mêmes garanties que le terminal (§24.4).
+        `409` si la team atteint `port_forward_limit`.
+      x-required-permission: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PortForwardCreate"
+      responses:
+        "201":
+          description: Session créée — le token n'est visible que dans cette réponse.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortForwardSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /applications/{application_uuid}/logs:
     parameters:
       - $ref: "#/components/parameters/ApplicationUuid"
@@ -3342,6 +3431,54 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/LogLine"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /applications/{application_uuid}/logs/stream:
+    parameters:
+      - $ref: "#/components/parameters/ApplicationUuid"
+    get:
+      tags: [Applications]
+      operationId: streamApplicationLogs
+      summary: Flux SSE des logs runtime du container
+      description: >-
+        Streaming des logs runtime en **Server-Sent Events** (ADR-024,
+        `text/event-stream`), reprise par `Last-Event-ID` (§27.24). Alimente
+        `akerdock logs -f`. Mêmes règles de cible que le snapshot
+        (`component` obligatoire dès que la stack a des composants). `409` si
+        le container n'existe pas ou le serveur est injoignable ; `404` si le
+        composant est inconnu. Le corps ci-dessous décrit l'événement `log` ;
+        le framing SSE lui-même n'est pas exprimable en OpenAPI.
+      x-required-permission: read
+      parameters:
+        - name: component
+          in: query
+          required: false
+          description: Nom du service compose dont streamer les logs.
+          schema:
+            type: string
+            maxLength: 63
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: Reprise après coupure — dernier `id` d'événement reçu (§27.24).
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Flux SSE ouvert ; chaque événement `log` porte une `LogLine`.
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/LogLine"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -7830,6 +7967,54 @@ components:
         max_duration_seconds:
           type: integer
           description: Durée maximum d'une session, quelle que soit l'activité.
+
+    PortForwardCreate:
+      type: object
+      required: [port]
+      description: >-
+        Demande d'ouverture d'un tunnel TCP vers un container de la ressource
+        (ADR-032). La cible (container, port) est **figée et autorisée à la
+        création** ; le tunnel lui-même passe par le WebSocket `websocket_path`
+        (hors OpenAPI). `component` désigne le service pour une stack compose.
+      properties:
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+          description: Port interne du container cible.
+
+    PortForwardSession:
+      type: object
+      required:
+        [uuid, port, websocket_path, token, token_expires_at]
+      description: >-
+        Session de tunnel TCP (ADR-032). Même contrat de token que le terminal
+        (§24.4) : token d'attache **à usage unique**, renvoyé une seule fois,
+        seul son hash est stocké (§23.2). Bornée à la team, auditée à
+        l'ouverture et à la fermeture, idle timeout / durée maximum / heartbeat
+        / teardown garanti. `409` si la team atteint son plafond
+        (`port_forward_limit`).
+      properties:
+        uuid:
+          type: string
+        port:
+          type: integer
+          description: Port interne du container cible, figé à la création.
+        websocket_path:
+          type: string
+          description: >-
+            Chemin du WebSocket à ouvrir sur la **même origine** que l'API,
+            token en query string (`?token=…`). Sous-protocole
+            `akerdock-tunnel-v1`, hors OpenAPI (§27.24, ADR-032).
+        token:
+          type: string
+          description: >-
+            Token d'attache à usage unique, renvoyé uniquement ici, jamais
+            relu — seul son hash est stocké (§23.2, §24.4).
+        token_expires_at:
+          type: string
+          format: date-time
+          description: Expiration (courte) du token d'attache, pas de la session.
 
     AdoptionScanAccepted:
       allOf:

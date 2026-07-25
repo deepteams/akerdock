@@ -63,6 +63,6 @@ WORKDIR /var/lib/akerdock
 
 EXPOSE 8080
 
-# The four modes of ADR-021: all-in-one (default), api, worker, scheduler.
+# The four modes of ADR-021 via `serve` (ADR-033): all-in-one (default), api, worker, scheduler.
 ENTRYPOINT ["/akerdock"]
-CMD ["all-in-one"]
+CMD ["serve", "all-in-one"]

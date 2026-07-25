@@ -180,11 +180,22 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 		r.Get("/auth/identities", a.ListIdentities)
 		r.Delete("/auth/identities/{identity_uuid}", a.DeleteIdentity)
 
+		// CLI login (ADR-031) — out of contract like the rest of /auth.
+		// start/token answer without a credential (behind the per-IP limiter);
+		// approve/request require the panel session (+ CSRF on approve).
+		r.Post("/auth/cli/start", a.CliAuthStart)
+		r.Get("/auth/cli/request", a.CliAuthRequest)
+		r.Post("/auth/cli/approve", a.CliAuthApprove)
+		r.Post("/auth/cli/token", a.CliAuthToken)
+
 		// The terminal WebSocket (§24.4, ADR-024) — outside the contract like
 		// /auth: authenticated by its single-use attach token, minted by the
 		// POST .../terminal-sessions operations. Behind the same per-IP
 		// limiter: this endpoint too answers without a bearer credential.
 		r.Get("/terminal/ws", a.TerminalWebSocket)
+		// The CLI TCP tunnel WebSocket (ADR-032), same contract as the
+		// terminal: single-use attach token minted by POST .../port-forwards.
+		r.Get("/tunnel/ws", a.TunnelWebSocket)
 	})
 
 	return api.HandlerWithOptions(a, api.ChiServerOptions{

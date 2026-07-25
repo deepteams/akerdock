@@ -1,11 +1,10 @@
-// Command akerdock is the AkerDock control plane.
-//
-// Per ADR-021 it ships as a single static binary. The run mode comes from
-// the first CLI argument, falling back to AKERDOCK_MODE (instance-config
-// §2.1): all-in-one (default), api, worker or scheduler. The extra
-// "healthcheck" subcommand performs a local health probe with exit code
-// 0/1 — it is the compose healthcheck, since the distroless image has no
-// shell (§6.6).
+// Command akerdock is both the AkerDock control plane and its local CLI
+// (ADR-033). The command tree is Cobra: `serve <mode>` runs the server
+// (all-in-one/api/worker/scheduler, falling back to AKERDOCK_MODE), the
+// distroless compose probe is `healthcheck`, and the client subcommands
+// (login, ls, logs, shell, port-forward…) live in internal/cli. A legacy
+// bare mode (`akerdock all-in-one`) is still accepted, with a deprecation
+// warning, for one release.
 package main
 
 import (
@@ -21,11 +20,13 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/spf13/cobra"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/bootstrap"
+	"github.com/deepteams/akerdock/internal/cli"
 	"github.com/deepteams/akerdock/internal/config"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/events"
@@ -36,9 +37,9 @@ import (
 	"github.com/deepteams/akerdock/internal/notify"
 	"github.com/deepteams/akerdock/internal/postgres"
 
+	"github.com/deepteams/akerdock/internal/oidc"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/scheduler"
-	"github.com/deepteams/akerdock/internal/oidc"
 	"github.com/deepteams/akerdock/internal/session"
 	"github.com/deepteams/akerdock/internal/store"
 	"github.com/deepteams/akerdock/internal/telemetry"
@@ -48,23 +49,88 @@ import (
 // version is set at build time via -ldflags "-X main.version=...".
 var version = "dev"
 
-func main() {
-	os.Exit(run(os.Args[1:]))
+// serverModes are the run modes accepted both by `serve <mode>` and, for one
+// release, as a bare legacy argument (`akerdock all-in-one`).
+var serverModes = map[string]bool{
+	string(config.ModeAllInOne): true, string(config.ModeAPI): true,
+	string(config.ModeWorker): true, string(config.ModeScheduler): true,
 }
 
-func run(args []string) int {
-	if len(args) > 0 && (args[0] == "-version" || args[0] == "--version" || args[0] == "version") {
-		fmt.Println(version)
-		return 0
+func main() {
+	// Legacy fallback (ADR-033): a bare server mode as the first argument is
+	// rewritten to `serve <mode>` with a deprecation warning, so existing
+	// compose files and runbooks keep working until the next major.
+	args := os.Args[1:]
+	if len(args) > 0 && serverModes[args[0]] {
+		fmt.Fprintf(os.Stderr,
+			"warning: `akerdock %s` is deprecated — use `akerdock serve %s` (ADR-033)\n", args[0], args[0])
+		os.Args = append([]string{os.Args[0], "serve"}, args...)
 	}
-	if len(args) > 0 && args[0] == "healthcheck" {
-		return healthcheck()
+	if err := rootCommand().Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+// rootCommand assembles the Cobra tree: server commands here, client
+// subcommands from internal/cli.
+func rootCommand() *cobra.Command {
+	root := &cobra.Command{
+		Use:           "akerdock",
+		Short:         "AkerDock — control plane and local CLI",
+		Version:       version,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 
+	serve := &cobra.Command{
+		Use:       "serve [all-in-one|api|worker|scheduler]",
+		Short:     "Run the control plane (mode falls back to AKERDOCK_MODE)",
+		Args:      cobra.MaximumNArgs(1),
+		ValidArgs: []string{"all-in-one", "api", "worker", "scheduler"},
+		RunE: func(_ *cobra.Command, args []string) error {
+			mode := ""
+			if len(args) == 1 {
+				mode = args[0]
+			}
+			if code := serveRun(mode); code != 0 {
+				return fmt.Errorf("server exited with code %d", code)
+			}
+			return nil
+		},
+	}
+
+	healthcheckCmd := &cobra.Command{
+		Use:   "healthcheck",
+		Short: "Probe the local health endpoint (compose healthcheck)",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			if code := healthcheck(); code != 0 {
+				return fmt.Errorf("unhealthy")
+			}
+			return nil
+		},
+	}
+
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "Print the version",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			fmt.Println(version)
+			return nil
+		},
+	}
+
+	root.AddCommand(serve, healthcheckCmd, versionCmd)
+	cli.AddCommands(root, version)
+	return root
+}
+
+// serveRun boots the control plane in the given mode ("" = AKERDOCK_MODE or
+// the default). Returns a process exit code.
+func serveRun(mode string) int {
 	vars := environMap()
-	// The first CLI argument takes precedence over AKERDOCK_MODE (§2.1).
-	if len(args) > 0 {
-		vars["AKERDOCK_MODE"] = args[0]
+	// An explicit `serve <mode>` argument takes precedence over AKERDOCK_MODE (§2.1).
+	if mode != "" {
+		vars["AKERDOCK_MODE"] = mode
 	}
 
 	cfg, warnings, err := config.Load(vars, os.ReadFile)
@@ -287,6 +353,9 @@ func run(args []string) int {
 		mux.Handle("/webhooks/", apiHandler)
 		mux.Handle("/auth/", apiHandler)
 		mux.Handle("/terminal/", apiHandler)
+		// The CLI TCP tunnel WebSocket (ADR-032), like /terminal/ws: outside
+		// the OpenAPI contract, served by the API.
+		mux.Handle("/tunnel/", apiHandler)
 		// The preview SSO callback (ADR-030) arrives under the PREVIEW's
 		// host, proxied here by its dedicated router — served by the API,
 		// never by the dashboard.

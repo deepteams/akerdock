@@ -182,6 +182,17 @@ flowchart TB
 | **D** | Sessions terminal laissées ouvertes indéfiniment | Idle timeout (la **sortie** ne compte pas comme activité) et durée max configurables, kill du pty garanti à la déconnexion/expiration ; balayage des lignes orphelines après un crash du control plane (§24.4) ; **cap de sessions concurrentes par team** (les tokens encore réclamables comptent) | — (conforme) |
 | **E** | Ouverture d'un terminal root sans droit / sur une autre team | Isolation team (une autre team reçoit `404`, jamais `403`) ; terminal container = permission `write` ; terminal **serveur** = terminal root : **double contrôle** — step-up passkey récent pour une session navigateur, permission `root` pour un token API (rbac §5, §10.4) | — (conforme ; le step-up s'appuie sur le passkey, le MFA TOTP restant à venir) |
 
+### 3.3bis CLI locale : login et tunnel TCP (ADR-031, ADR-032)
+
+| STRIDE | Scénario concret | Contrôle existant | Contrôle manquant |
+|---|---|---|---|
+| **S** | Phishing de la page de consentement : un attaquant pousse la victime à approuver *sa* demande de login | Le **code de confirmation** est généré par la CLI et affiché des deux côtés ; l'utilisateur doit confronter `user_code` terminal ↔ navigateur avant d'approuver (ADR-031) ; approbation en POST+CSRF sous session | Notification à l'utilisateur lors de la frappe d'un nouveau token CLI **(défaut proposé)** |
+| **T** | Interception du code d'autorisation (URL, historique, logs de proxy) pour obtenir un token | **PKCE** : le token n'est délivré qu'à l'échange vérifiant `SHA-256(verifier)==challenge` ; le `verifier` ne quitte jamais le process CLI ; code mono-usage hashé, TTL 10 min (ADR-031) | — (conforme) |
+| **R** | Impossible d'attribuer l'émission d'un token CLI | `start`/`approve`/`token` audités (acteur, IP, team, permissions), token nommé `cli — <user>@<host>`, listé et révocable (§23.4, ADR-031) | — (conforme) |
+| **I** | Fuite du token au repos sur le poste | Fichier `~/.akerdock/credentials.yaml` en `0600`, TTL 30 j, révocable | Trousseau OS — **DEVRAIT v1.x**, écart assumé (binaire statique ADR-021, ADR-031) au lieu du « défaut proposé » keychain |
+| **D** | Tunnels laissés ouverts / saturation | Token d'attache mono-usage TTL 60 s, idle 15 min, durée max 4 h, heartbeat, teardown garanti, **cap par team** `port_forward_limit`, 32 streams/session (ADR-032) | — (conforme) |
+| **E** | Tunnel/shell vers un container d'une autre team ou non autorisé | Frappe du token contrainte aux permissions de la session (⊆) ; ouverture de port-forward = `write` sur la ressource ; isolation team (`404`) ; cible **figée et autorisée au mint** (ADR-032) | Frontière au grain de la **ressource, pas du port** — assumé et documenté (cf. terminal `docker exec`) |
+
 ### 3.4 Workers SSH (transport distant)
 
 | STRIDE | Scénario concret | Contrôle existant | Contrôle manquant |

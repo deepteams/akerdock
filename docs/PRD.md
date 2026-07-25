@@ -291,7 +291,7 @@ Environnement éphémère déployé automatiquement **pour chaque pull request**
 
 - **REST API** `/api/v1` (OpenAPI 3.1, Bearer) : CRUD applications, databases (+ backups), services, servers (+ validation, domaines et ressources), projects/environments, teams, GitHub Apps, private keys, variables d'env (dont bulk), deployments (trigger/liste/logs/cancel), deploy par UUID/tag ; liste transverse des ressources ; endpoints système (healthcheck non authentifié, version, enable/disable de l'API).
 - **Webhooks entrants** : endpoints dédiés GitHub/GitLab/Bitbucket/Gitea (signature vérifiée, auto-deploy, previews) + deploy webhook générique par ressource pour CI custom.
-- **CLI officielle** (Go) : multi-instances, gestion servers/projects/resources/deployments (streaming des logs), domaines, clés, databases et backups.
+- **CLI officielle** (Go, binaire unique, Cobra — ADR-033) : multi-instances (contextes), gestion servers/projects/resources/deployments (streaming des logs), domaines, clés, databases et backups. **v1 « debug »** (spec `docs/specs/cli.md`, ADR-031/032) : `login` par navigateur sans ouvrir de port (poll+code+PKCE, SSO compris), listing, logs (snapshot et `-f`), shell dans un container, **port-forward TCP** vers une ressource sans l'exposer, console typée ; le client ne parle qu'au manager sur 80/443 et traverse proxy/LB. Le déploiement depuis le poste (`akerdock up`, §27.18, ADR-018) relève de v2.
 - **Serveur MCP intégré** : activation au niveau instance, transport Streamable HTTP sur `/mcp`, authentification par token API, scoping par team et 10 outils read-only (`overview`, list/get servers, projects, applications, databases et services), pagination 50 par défaut/100 maximum. Les opérations d'écriture ne font pas partie de v4.1.2.
 - **Terraform** : providers communautaires uniquement (pas d'officiel).
 
@@ -840,6 +840,7 @@ La colonne « Sections » renvoie aux exigences de ce document qui définissent 
 | Déploiement coordonné + auto-rollback | §20.8, §27.16 | P2 | À faire | Tests unitaires graphe, hooks et rollback |
 | Fiabilité compose (zero-downtime, limits) | §27.15 | P2 | À faire | Tests de commandes/états + fixtures cgroups ciblées |
 | Uptime monitoring intégré | §27.17 | P2 | Conforme | Tests module des checks, seuils et alerting |
+| CLI locale (debug : login navigateur, contextes, ls/logs/shell/port-forward) | §12, §5.7 | P2 | À faire | Tests module (login poll+PKCE, mux tunnel, REF/contextes) + validation manuelle shell/forward (ADR-031/032/033) |
 | CLI deploy local (`akerdock up`) | §12, §27.18 | P2 | À faire | Tests module du push local + validation manuelle ciblée |
 | Notifications : routage/agrégation | §11, §27.19 | P2 | À faire | Tests flapping/débounce + heures calmes |
 | Observabilité/terminal | §3.8, §5.7, §13 | P2 | À faire | Charge + auth + reconnect |

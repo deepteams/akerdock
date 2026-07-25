@@ -1215,6 +1215,57 @@ Session terminal web (xterm.js → WebSocket → SSH/PTY, §5.7, §24.4). Ouvert
 
 ---
 
+### 10.7 `port_forward_sessions`
+
+Session de tunnel TCP du CLI (ADR-032) : WebSocket multiplexée → canal SSH `direct-tcpip`
+vers un container. Même contrat que `terminal_sessions` — token d'attache à usage unique
+hashé (§23.2), ouverture/fermeture auditées, purge par rétention, cibles en `SET NULL` avec
+libellé snapshot. La cible (container, port) est **figée à la création**.
+
+| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+|---|---|---|---|---|---|---|
+| `id` | `bigint` | non | identity | PK | non | — |
+| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
+| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE CASCADE, index | non | Bornée à la team active. |
+| `user_id` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
+| `server_id` | `bigint` | oui | — | FK `servers(id)` ON DELETE SET NULL | non | Serveur atteint par SSH. |
+| `resource_id` | `bigint` | oui | — | FK `resources(id)` ON DELETE SET NULL | non | Ressource ciblée. |
+| `target_name` | `text` | non | — | — | non | Snapshot `<container>:<port>` (survit aux suppressions). |
+| `target_port` | `integer` | non | — | CHECK 1–65535 | non | Port interne figé à la création. |
+| `client_ip` | `inet` | oui | — | — | non | — |
+| `token_hash` | `text` | non | — | UNIQUE | non (hash SHA-256) | Hash du token d'attache ; le token clair n'est jamais stocké (§23.2). |
+| `token_expires_at` | `timestamptz` | non | — | — | non | Expiration du token d'attache (courte). |
+| `claimed_at` | `timestamptz` | oui | — | — | non | Consommation par l'upgrade WebSocket — usage unique. |
+| `started_at` | `timestamptz` | non | `now()` | — | non | — |
+| `ended_at` | `timestamptz` | oui | — | — | non | Teardown garanti à la déconnexion/expiration. |
+| `end_reason` | `terminal_end_reason` | oui | — | — | non | Réutilise l'enum : user_close / idle_timeout / max_duration / disconnect / revoked. |
+| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+
+---
+
+### 10.8 `cli_authorization_codes`
+
+Demandes d'authentification du CLI en cours (ADR-031, flux poll+code+PKCE). Éphémères
+(TTL 10 min), purgées après consommation ou expiration. Seuls des **hash** sont stockés ;
+ni le `verifier`, ni le token frappé n'y figurent.
+
+| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+|---|---|---|---|---|---|---|
+| `id` | `bigint` | non | identity | PK | non | — |
+| `request_id_hash` | `text` | non | — | UNIQUE | non (hash SHA-256) | Hash de l'identifiant de demande porté par la CLI. |
+| `challenge` | `text` | non | — | — | non | `base64url(SHA-256(verifier))` (PKCE) — public par conception. |
+| `user_code` | `text` | non | — | — | non | Code court confronté par l'utilisateur (anti-phishing). |
+| `status` | `text` | non | `'pending'` | — | non | pending / approved / consumed. |
+| `user_id` | `bigint` | oui | — | FK `users(id)` ON DELETE CASCADE | non | Rempli à l'approbation. |
+| `team_id` | `bigint` | oui | — | FK `teams(id)` ON DELETE CASCADE | non | Team choisie à l'approbation. |
+| `permissions` | `text[]` | oui | — | — | non | Permissions approuvées (⊆ session). |
+| `client_name` | `text` | oui | — | — | non | `<user>@<host>` fourni par la CLI (rendu inerte à l'affichage). |
+| `client_ip` | `inet` | oui | — | — | non | — |
+| `expires_at` | `timestamptz` | non | — | — | non | TTL court (défaut 10 min). |
+| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+
+---
+
 ## 11. Agrégat Plateforme et tables techniques
 
 ### 11.1 `proxy_config_revisions`

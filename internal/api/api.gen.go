@@ -3364,6 +3364,28 @@ type PersistentStorageCreate struct {
 // PersistentStorageCreateKind Volume Docker nommé (recommandé) ou bind mount d'un répertoire hôte (§8).
 type PersistentStorageCreateKind string
 
+// PortForwardCreate Demande d'ouverture d'un tunnel TCP vers un container de la ressource (ADR-032). La cible (container, port) est **figée et autorisée à la création** ; le tunnel lui-même passe par le WebSocket `websocket_path` (hors OpenAPI). `component` désigne le service pour une stack compose.
+type PortForwardCreate struct {
+	// Port Port interne du container cible.
+	Port int `json:"port"`
+}
+
+// PortForwardSession Session de tunnel TCP (ADR-032). Même contrat de token que le terminal (§24.4) : token d'attache **à usage unique**, renvoyé une seule fois, seul son hash est stocké (§23.2). Bornée à la team, auditée à l'ouverture et à la fermeture, idle timeout / durée maximum / heartbeat / teardown garanti. `409` si la team atteint son plafond (`port_forward_limit`).
+type PortForwardSession struct {
+	// Port Port interne du container cible, figé à la création.
+	Port int `json:"port"`
+
+	// Token Token d'attache à usage unique, renvoyé uniquement ici, jamais relu — seul son hash est stocké (§23.2, §24.4).
+	Token string `json:"token"`
+
+	// TokenExpiresAt Expiration (courte) du token d'attache, pas de la session.
+	TokenExpiresAt time.Time `json:"token_expires_at"`
+	Uuid           string    `json:"uuid"`
+
+	// WebsocketPath Chemin du WebSocket à ouvrir sur la **même origine** que l'API, token en query string (`?token=…`). Sous-protocole `akerdock-tunnel-v1`, hors OpenAPI (§27.24, ADR-032).
+	WebsocketPath string `json:"websocket_path"`
+}
+
 // Preview Environnement éphémère d'une PR (§20.4, data dictionary §8.9).
 type Preview struct {
 	CreatedAt      *time.Time     `json:"created_at,omitempty"`
@@ -4452,6 +4474,21 @@ type GetApplicationLogsParams struct {
 	Component *string `form:"component,omitempty" json:"component,omitempty"`
 }
 
+// StreamApplicationLogsParams defines parameters for StreamApplicationLogs.
+type StreamApplicationLogsParams struct {
+	// Component Nom du service compose dont streamer les logs.
+	Component *string `form:"component,omitempty" json:"component,omitempty"`
+
+	// LastEventID Reprise après coupure — dernier `id` d'événement reçu (§27.24).
+	LastEventID *string `json:"Last-Event-ID,omitempty"`
+}
+
+// CreateApplicationPortForwardParams defines parameters for CreateApplicationPortForward.
+type CreateApplicationPortForwardParams struct {
+	// Component (build pack compose) Service dont on cible le container.
+	Component *string `form:"component,omitempty" json:"component,omitempty"`
+}
+
 // DeployPreviewForPrJSONBody defines parameters for DeployPreviewForPr.
 type DeployPreviewForPrJSONBody struct {
 	PrId int `json:"pr_id"`
@@ -5178,6 +5215,9 @@ type ReplaceApplicationEnvsJSONRequestBody ReplaceApplicationEnvsJSONBody
 // UpdateApplicationEnvJSONRequestBody defines body for UpdateApplicationEnv for application/json ContentType.
 type UpdateApplicationEnvJSONRequestBody = EnvironmentVariableUpdate
 
+// CreateApplicationPortForwardJSONRequestBody defines body for CreateApplicationPortForward for application/json ContentType.
+type CreateApplicationPortForwardJSONRequestBody = PortForwardCreate
+
 // DeployPreviewForPrJSONRequestBody defines body for DeployPreviewForPr for application/json ContentType.
 type DeployPreviewForPrJSONRequestBody DeployPreviewForPrJSONBody
 
@@ -5210,6 +5250,9 @@ type UpdateBackupPlanJSONRequestBody = BackupPlanUpdate
 
 // RestoreBackupExecutionJSONRequestBody defines body for RestoreBackupExecution for application/json ContentType.
 type RestoreBackupExecutionJSONRequestBody = RestoreRequest
+
+// CreateDatabasePortForwardJSONRequestBody defines body for CreateDatabasePortForward for application/json ContentType.
+type CreateDatabasePortForwardJSONRequestBody = PortForwardCreate
 
 // CreateDnsCredentialJSONRequestBody defines body for CreateDnsCredential for application/json ContentType.
 type CreateDnsCredentialJSONRequestBody = DnsCredentialCreate
@@ -5488,6 +5531,12 @@ type ServerInterface interface {
 	// Logs du container de l'application
 	// (GET /applications/{application_uuid}/logs)
 	GetApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params GetApplicationLogsParams)
+	// Flux SSE des logs runtime du container
+	// (GET /applications/{application_uuid}/logs/stream)
+	StreamApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params StreamApplicationLogsParams)
+	// Ouvrir un tunnel TCP vers un container de l'application
+	// (POST /applications/{application_uuid}/port-forwards)
+	CreateApplicationPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationPortForwardParams)
 	// Previews de PR d'une application
 	// (GET /applications/{application_uuid}/previews)
 	ListApplicationPreviews(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
@@ -5602,6 +5651,9 @@ type ServerInterface interface {
 	// Restaurer une base depuis une exécution de backup
 	// (POST /databases/{database_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore)
 	RestoreBackupExecution(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid, executionUuid ExecutionUuid, params RestoreBackupExecutionParams)
+	// Ouvrir un tunnel TCP vers une base de données
+	// (POST /databases/{database_uuid}/port-forwards)
+	CreateDatabasePortForward(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid)
 	// Redémarrer une base
 	// (POST /databases/{database_uuid}/restart)
 	RestartDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid)
@@ -6121,6 +6173,18 @@ func (_ Unimplemented) GetApplicationLogs(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Flux SSE des logs runtime du container
+// (GET /applications/{application_uuid}/logs/stream)
+func (_ Unimplemented) StreamApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params StreamApplicationLogsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Ouvrir un tunnel TCP vers un container de l'application
+// (POST /applications/{application_uuid}/port-forwards)
+func (_ Unimplemented) CreateApplicationPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationPortForwardParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Previews de PR d'une application
 // (GET /applications/{application_uuid}/previews)
 func (_ Unimplemented) ListApplicationPreviews(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
@@ -6346,6 +6410,12 @@ func (_ Unimplemented) ListBackupExecutions(w http.ResponseWriter, r *http.Reque
 // Restaurer une base depuis une exécution de backup
 // (POST /databases/{database_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore)
 func (_ Unimplemented) RestoreBackupExecution(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid, executionUuid ExecutionUuid, params RestoreBackupExecutionParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Ouvrir un tunnel TCP vers une base de données
+// (POST /databases/{database_uuid}/port-forwards)
+func (_ Unimplemented) CreateDatabasePortForward(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8073,6 +8143,123 @@ func (siw *ServerInterfaceWrapper) GetApplicationLogs(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetApplicationLogs(w, r, applicationUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StreamApplicationLogs operation middleware
+func (siw *ServerInterfaceWrapper) StreamApplicationLogs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "application_uuid" -------------
+	var applicationUuid ApplicationUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_uuid", chi.URLParam(r, "application_uuid"), &applicationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params StreamApplicationLogsParams
+
+	// ------------- Optional query parameter "component" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "component", r.URL.Query(), &params.Component, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "component"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "component", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Last-Event-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Last-Event-ID")]; found {
+		var LastEventID string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Last-Event-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Last-Event-ID", valueList[0], &LastEventID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Last-Event-ID", Err: err})
+			return
+		}
+
+		params.LastEventID = &LastEventID
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StreamApplicationLogs(w, r, applicationUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateApplicationPortForward operation middleware
+func (siw *ServerInterfaceWrapper) CreateApplicationPortForward(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "application_uuid" -------------
+	var applicationUuid ApplicationUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_uuid", chi.URLParam(r, "application_uuid"), &applicationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateApplicationPortForwardParams
+
+	// ------------- Optional query parameter "component" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "component", r.URL.Query(), &params.Component, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "component"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "component", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateApplicationPortForward(w, r, applicationUuid, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9951,6 +10138,38 @@ func (siw *ServerInterfaceWrapper) RestoreBackupExecution(w http.ResponseWriter,
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RestoreBackupExecution(w, r, databaseUuid, backupPlanUuid, executionUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateDatabasePortForward operation middleware
+func (siw *ServerInterfaceWrapper) CreateDatabasePortForward(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "database_uuid" -------------
+	var databaseUuid DatabaseUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "database_uuid", chi.URLParam(r, "database_uuid"), &databaseUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "database_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateDatabasePortForward(w, r, databaseUuid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -16246,6 +16465,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/applications/{application_uuid}/logs", wrapper.GetApplicationLogs)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/applications/{application_uuid}/logs/stream", wrapper.StreamApplicationLogs)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/applications/{application_uuid}/port-forwards", wrapper.CreateApplicationPortForward)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/applications/{application_uuid}/previews", wrapper.ListApplicationPreviews)
 	})
 	r.Group(func(r chi.Router) {
@@ -16358,6 +16583,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/databases/{database_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore", wrapper.RestoreBackupExecution)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/databases/{database_uuid}/port-forwards", wrapper.CreateDatabasePortForward)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/databases/{database_uuid}/restart", wrapper.RestartDatabase)
@@ -18515,6 +18743,228 @@ func (response GetApplicationLogs409JSONResponse) VisitGetApplicationLogsRespons
 type GetApplicationLogs429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response GetApplicationLogs429JSONResponse) VisitGetApplicationLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StreamApplicationLogsRequestObject struct {
+	ApplicationUuid ApplicationUuid `json:"application_uuid"`
+	Params          StreamApplicationLogsParams
+}
+
+type StreamApplicationLogsResponseObject interface {
+	VisitStreamApplicationLogsResponse(w http.ResponseWriter) error
+}
+
+type StreamApplicationLogs200TexteventStreamResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response StreamApplicationLogs200TexteventStreamResponse) VisitStreamApplicationLogsResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		// If w doesn't support flushing, fall back to io.Copy.
+		_, err := io.Copy(w, response.Body)
+		return err
+	}
+	// text/event-stream messages are typically small; use a
+	// modest buffer and flush after each chunk so clients see
+	// events immediately instead of waiting on OS buffering.
+	buf := make([]byte, 4096)
+	for {
+		n, err := response.Body.Read(buf)
+		if n > 0 {
+			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+				return writeErr
+			}
+			flusher.Flush()
+		}
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+	}
+}
+
+type StreamApplicationLogs401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response StreamApplicationLogs401JSONResponse) VisitStreamApplicationLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StreamApplicationLogs403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response StreamApplicationLogs403JSONResponse) VisitStreamApplicationLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StreamApplicationLogs404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response StreamApplicationLogs404JSONResponse) VisitStreamApplicationLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StreamApplicationLogs409JSONResponse struct{ ConflictJSONResponse }
+
+func (response StreamApplicationLogs409JSONResponse) VisitStreamApplicationLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StreamApplicationLogs429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response StreamApplicationLogs429JSONResponse) VisitStreamApplicationLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApplicationPortForwardRequestObject struct {
+	ApplicationUuid ApplicationUuid `json:"application_uuid"`
+	Params          CreateApplicationPortForwardParams
+	Body            *CreateApplicationPortForwardJSONRequestBody
+}
+
+type CreateApplicationPortForwardResponseObject interface {
+	VisitCreateApplicationPortForwardResponse(w http.ResponseWriter) error
+}
+
+type CreateApplicationPortForward201JSONResponse PortForwardSession
+
+func (response CreateApplicationPortForward201JSONResponse) VisitCreateApplicationPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApplicationPortForward401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateApplicationPortForward401JSONResponse) VisitCreateApplicationPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApplicationPortForward403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateApplicationPortForward403JSONResponse) VisitCreateApplicationPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApplicationPortForward404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateApplicationPortForward404JSONResponse) VisitCreateApplicationPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApplicationPortForward409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateApplicationPortForward409JSONResponse) VisitCreateApplicationPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateApplicationPortForward429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateApplicationPortForward429JSONResponse) VisitCreateApplicationPortForwardResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -22349,6 +22799,102 @@ func (response RestoreBackupExecution422JSONResponse) VisitRestoreBackupExecutio
 type RestoreBackupExecution429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response RestoreBackupExecution429JSONResponse) VisitRestoreBackupExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDatabasePortForwardRequestObject struct {
+	DatabaseUuid DatabaseUuid `json:"database_uuid"`
+	Body         *CreateDatabasePortForwardJSONRequestBody
+}
+
+type CreateDatabasePortForwardResponseObject interface {
+	VisitCreateDatabasePortForwardResponse(w http.ResponseWriter) error
+}
+
+type CreateDatabasePortForward201JSONResponse PortForwardSession
+
+func (response CreateDatabasePortForward201JSONResponse) VisitCreateDatabasePortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDatabasePortForward401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateDatabasePortForward401JSONResponse) VisitCreateDatabasePortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDatabasePortForward403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateDatabasePortForward403JSONResponse) VisitCreateDatabasePortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDatabasePortForward404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateDatabasePortForward404JSONResponse) VisitCreateDatabasePortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDatabasePortForward409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateDatabasePortForward409JSONResponse) VisitCreateDatabasePortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDatabasePortForward429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateDatabasePortForward429JSONResponse) VisitCreateDatabasePortForwardResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -35208,6 +35754,12 @@ type StrictServerInterface interface {
 	// Logs du container de l'application
 	// (GET /applications/{application_uuid}/logs)
 	GetApplicationLogs(ctx context.Context, request GetApplicationLogsRequestObject) (GetApplicationLogsResponseObject, error)
+	// Flux SSE des logs runtime du container
+	// (GET /applications/{application_uuid}/logs/stream)
+	StreamApplicationLogs(ctx context.Context, request StreamApplicationLogsRequestObject) (StreamApplicationLogsResponseObject, error)
+	// Ouvrir un tunnel TCP vers un container de l'application
+	// (POST /applications/{application_uuid}/port-forwards)
+	CreateApplicationPortForward(ctx context.Context, request CreateApplicationPortForwardRequestObject) (CreateApplicationPortForwardResponseObject, error)
 	// Previews de PR d'une application
 	// (GET /applications/{application_uuid}/previews)
 	ListApplicationPreviews(ctx context.Context, request ListApplicationPreviewsRequestObject) (ListApplicationPreviewsResponseObject, error)
@@ -35322,6 +35874,9 @@ type StrictServerInterface interface {
 	// Restaurer une base depuis une exécution de backup
 	// (POST /databases/{database_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore)
 	RestoreBackupExecution(ctx context.Context, request RestoreBackupExecutionRequestObject) (RestoreBackupExecutionResponseObject, error)
+	// Ouvrir un tunnel TCP vers une base de données
+	// (POST /databases/{database_uuid}/port-forwards)
+	CreateDatabasePortForward(ctx context.Context, request CreateDatabasePortForwardRequestObject) (CreateDatabasePortForwardResponseObject, error)
 	// Redémarrer une base
 	// (POST /databases/{database_uuid}/restart)
 	RestartDatabase(ctx context.Context, request RestartDatabaseRequestObject) (RestartDatabaseResponseObject, error)
@@ -36262,6 +36817,67 @@ func (sh *strictHandler) GetApplicationLogs(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetApplicationLogsResponseObject); ok {
 		if err := validResponse.VisitGetApplicationLogsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StreamApplicationLogs operation middleware
+func (sh *strictHandler) StreamApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params StreamApplicationLogsParams) {
+	var request StreamApplicationLogsRequestObject
+
+	request.ApplicationUuid = applicationUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StreamApplicationLogs(ctx, request.(StreamApplicationLogsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StreamApplicationLogs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StreamApplicationLogsResponseObject); ok {
+		if err := validResponse.VisitStreamApplicationLogsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateApplicationPortForward operation middleware
+func (sh *strictHandler) CreateApplicationPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationPortForwardParams) {
+	var request CreateApplicationPortForwardRequestObject
+
+	request.ApplicationUuid = applicationUuid
+	request.Params = params
+
+	var body CreateApplicationPortForwardJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateApplicationPortForward(ctx, request.(CreateApplicationPortForwardRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateApplicationPortForward")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateApplicationPortForwardResponseObject); ok {
+		if err := validResponse.VisitCreateApplicationPortForwardResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -37365,6 +37981,39 @@ func (sh *strictHandler) RestoreBackupExecution(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RestoreBackupExecutionResponseObject); ok {
 		if err := validResponse.VisitRestoreBackupExecutionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateDatabasePortForward operation middleware
+func (sh *strictHandler) CreateDatabasePortForward(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid) {
+	var request CreateDatabasePortForwardRequestObject
+
+	request.DatabaseUuid = databaseUuid
+
+	var body CreateDatabasePortForwardJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateDatabasePortForward(ctx, request.(CreateDatabasePortForwardRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateDatabasePortForward")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateDatabasePortForwardResponseObject); ok {
+		if err := validResponse.VisitCreateDatabasePortForwardResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

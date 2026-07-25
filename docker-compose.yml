@@ -15,7 +15,7 @@ name: akerdock
 services:
   akerdock:
     image: ghcr.io/deepteams/akerdock:${AKERDOCK_TAG:?an explicit image tag is required (never latest)}
-    command: ["all-in-one"]              # all-in-one | api | worker | scheduler (§18.2)
+    command: ["serve", "all-in-one"]    # serve all-in-one | api | worker | scheduler (§18.2, ADR-033)
     restart: unless-stopped
     ports:
       - "${AKERDOCK_PORT:-8080}:8080"    # the single published port of the control plane (§27.1)

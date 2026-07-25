@@ -57,7 +57,7 @@ Familles de domaines :
 | `config` | Config-as-code (export/apply) |
 | `instance` | Réglages instance (root uniquement) |
 
-### 1.2 Liste complète des permissions (71)
+### 1.2 Liste complète des permissions (72)
 
 > Convention : `read`/`view`/`list` = lecture non sensible ; `read:sensitive` = révélation de
 > secret (INV-003) ; `manage`/`create`/`update`/`delete` = mutation ; `deploy`/actions
@@ -173,6 +173,7 @@ Familles de domaines :
 | 56 | `templates:manage` | Enregistrer/synchroniser des repos de templates (§27.10) | `write` |
 | 57 | `terminal:open` | Ouvrir un terminal container/serveur (non-root) | `write` |
 | 58 | `terminal:root` | Ouvrir un terminal **root** (double contrôle §5) | `write` |
+| 72 | `port-forwards:open` | Ouvrir un tunnel TCP vers un container d'une ressource (CLI, ADR-032) — frontière au grain de la ressource | `write` |
 | 59 | `logs:read` | Logs runtime des containers | `read` |
 | 60 | `logs:manage` | Configurer les log drains | `write` |
 | 61 | `metrics:read` | Métriques serveur/ressource, uptime | `read` |
@@ -189,7 +190,7 @@ Familles de domaines :
 | 67 | `instance:audit` | Audit global inter-team | `root` |
 | 71 | `instance:encryption` | État du chiffrement au repos et rotation forcée de la clé maître (re-chiffrement — ADR-003) | `root` |
 
-> **Total : 71 permissions granulaires** (dont 3 exclusivement `instance:*` réservées au root
+> **Total : 72 permissions granulaires** (dont 3 exclusivement `instance:*` réservées au root
 > d'instance, hors modèle de rôle de team). Le socle « produit team » couvre 68 permissions,
 > soit dans la fourchette cible §29.7 (~40-60) élargie pour couvrir tout le périmètre du PRD.
 
@@ -265,6 +266,7 @@ Familles de domaines :
 | templates:manage | ● | ● | ● | ○ |
 | terminal:open | ● | ● | ● | ○ |
 | terminal:root | ● | ● | ○ | ○ |
+| port-forwards:open | ● | ● | ● | ○ |
 | logs:read | ● | ● | ● | ● |
 | logs:manage | ● | ● | ● | ○ |
 | metrics:read | ● | ● | ● | ● |

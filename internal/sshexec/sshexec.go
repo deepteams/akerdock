@@ -167,5 +167,18 @@ func (c *Client) run(ctx context.Context, command string, stdin io.Reader, onOut
 	}
 }
 
+// DialTCP opens a TCP connection to addr (host:port) FROM the server, over a
+// dedicated SSH `direct-tcpip` channel on this connection (ADR-032). The SSH
+// transport multiplexes channels natively, so many concurrent tunnels share
+// one connection. Used by the CLI port-forward to reach a container's port,
+// which is dialable from the server host even without a published port.
+func (c *Client) DialTCP(addr string) (net.Conn, error) {
+	conn, err := c.conn.Dial("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("sshexec: dial %s: %w", addr, err)
+	}
+	return conn, nil
+}
+
 // Close terminates the connection.
 func (c *Client) Close() error { return c.conn.Close() }

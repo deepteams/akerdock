@@ -22,6 +22,14 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/sign-in.component').then((m) => m.SignInComponent),
   },
   {
+    // CLI login consent (ADR-031): full-screen, guarded so the panel session
+    // is established (any login method) before the user approves.
+    path: 'cli/authorize',
+    canActivate: [authenticated],
+    loadComponent: () =>
+      import('./pages/cli-authorize.component').then((m) => m.CliAuthorizeComponent),
+  },
+  {
     // Everything else lives inside the shell: one sidebar naming every
     // capability, one guard in front of all of them.
     path: '',
