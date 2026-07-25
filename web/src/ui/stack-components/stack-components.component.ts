@@ -69,30 +69,32 @@ function enginePort(engine: string | null | undefined): number | null {
   imports: [CardComponent, IconComponent, StatusBadgeComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <akd-card title="Stack components" [padded]="false">
-      <div class="comp">
-        <!-- One tab per compose service: its state and the actions that apply to
-             it live in its own panel, instead of a flat list to cross-reference. -->
-        <nav class="comp__tabs" role="tablist" aria-label="Stack components">
-          @for (c of components(); track c.uuid) {
-            <button
-              type="button"
-              role="tab"
-              class="comp__tab"
-              [class.comp__tab--active]="active() === c.name"
-              [attr.aria-selected]="active() === c.name"
-              (click)="active.set(c.name)"
-            >
-              <span class="akd-mono comp__tab-name">{{ c.name }}</span>
-              <akd-status-badge domain="resource" [state]="c.observed_status" />
-            </button>
-          }
-        </nav>
+    <akd-card [title]="single() ? 'Instance' : 'Stack components'" [padded]="false">
+      <div class="comp" [class.comp--single]="single()">
+        <!-- One tab per compose service; hidden for a single-container app,
+             where there is only the instance itself to show. -->
+        @if (!single()) {
+          <nav class="comp__tabs" role="tablist" aria-label="Stack components">
+            @for (c of components(); track c.uuid) {
+              <button
+                type="button"
+                role="tab"
+                class="comp__tab"
+                [class.comp__tab--active]="active() === c.name"
+                [attr.aria-selected]="active() === c.name"
+                (click)="active.set(c.name)"
+              >
+                <span class="akd-mono comp__tab-name">{{ c.name }}</span>
+                <akd-status-badge domain="resource" [state]="c.observed_status" />
+              </button>
+            }
+          </nav>
+        }
 
         @if (activeComp(); as c) {
           <div class="comp__panel" role="tabpanel">
             <header class="comp__head">
-              <span class="akd-mono comp__title">{{ c.name }}</span>
+              <span class="akd-mono comp__title">{{ single() ? appName() : c.name }}</span>
               <akd-status-badge domain="resource" [state]="c.observed_status" />
               @if (c.is_database) {
                 <span class="akd-badge akd-badge--mono">db: {{ c.database_engine }}</span>
@@ -161,7 +163,7 @@ function enginePort(engine: string | null | undefined): number | null {
               <button
                 class="akd-btn akd-btn--secondary akd-btn--sm"
                 type="button"
-                (click)="open.emit({ target: 'logs', component: c.name })"
+                (click)="open.emit({ target: 'logs', component: emitName(c) })"
               >
                 <akd-icon name="scroll-text" [size]="13" />
                 Logs
@@ -169,7 +171,7 @@ function enginePort(engine: string | null | undefined): number | null {
               <button
                 class="akd-btn akd-btn--secondary akd-btn--sm"
                 type="button"
-                (click)="open.emit({ target: 'terminal', component: c.name })"
+                (click)="open.emit({ target: 'terminal', component: emitName(c) })"
               >
                 <akd-icon name="terminal" [size]="13" />
                 Shell
@@ -232,6 +234,10 @@ function enginePort(engine: string | null | undefined): number | null {
         display: grid;
         grid-template-columns: minmax(11rem, 15rem) 1fr;
         align-items: stretch;
+      }
+      /* Single-container app: no rail, the panel spans the card. */
+      .comp--single {
+        grid-template-columns: 1fr;
       }
       .comp__tabs {
         display: flex;
@@ -404,6 +410,10 @@ export class StackComponentsComponent {
   /** Live per-service stats, keyed by component name (ADR-034). The host page
    * polls and feeds fresh snapshots; empty = the feature is not wired here. */
   readonly metrics = input<Record<string, ComponentMetric>>({});
+  /** Single-container build pack (docker image / dockerfile / nixpacks /
+   * static): no compose services, so the rail is hidden and CLI commands drop
+   * the `-c <service>` flag — the container is the app itself. */
+  readonly single = input<boolean>(false);
   readonly open = output<StackComponentAction>();
 
   /** Which service's panel is open; kept valid as the list changes. */
@@ -489,15 +499,25 @@ export class StackComponentsComponent {
     return pr ? ` --pr ${pr}` : '';
   }
 
+  /** `-c <service>` for a compose service; nothing for a single container. */
+  private componentFlag(c: ServiceComponent): string {
+    return this.single() ? '' : ` -c ${c.name}`;
+  }
+
+  /** Component name emitted upward: empty for a single container (no -c). */
+  protected emitName(c: ServiceComponent): string {
+    return this.single() ? '' : c.name;
+  }
+
   /** Confort console for a database service (cli.md §8). */
   protected dbConsoleCmd(c: ServiceComponent): string {
-    return `akerdock db ${this.appRef()} -c ${c.name}${this.prSuffix()}`;
+    return `akerdock db ${this.appRef()}${this.componentFlag(c)}${this.prSuffix()}`;
   }
 
   /** TCP tunnel through the manager to this service (cli.md §7). */
   protected portForwardCmd(c: ServiceComponent): string {
     const port = enginePort(c.database_engine) ?? '<PORT>';
-    return `akerdock port-forward ${this.appRef()} ${port}:${port} -c ${c.name}${this.prSuffix()}`;
+    return `akerdock port-forward ${this.appRef()} ${port}:${port}${this.componentFlag(c)}${this.prSuffix()}`;
   }
 
   protected async copy(value: string): Promise<void> {

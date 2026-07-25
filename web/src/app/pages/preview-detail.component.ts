@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  computed,
   effect,
   inject,
   input,
@@ -151,7 +152,17 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
             </dl>
           </akd-card>
 
-          @if (components().length > 0) {
+          @if (single()) {
+            <akd-stack-components
+              class="stack"
+              [single]="true"
+              [components]="singleComponent()"
+              [appName]="appName()"
+              [pr]="p.pr_id"
+              [metrics]="metrics()"
+              (open)="onComponentAction($event)"
+            />
+          } @else if (components().length > 0) {
             <akd-stack-components
               class="stack"
               [components]="components()"
@@ -441,7 +452,26 @@ export class PreviewDetailComponent {
   protected readonly preview = signal<Preview | null>(null);
   /** Name of the parent application — the CLI ref is `app/<name>`. */
   protected readonly appName = signal<string>('');
+  /** Build pack of the parent app — single-container unless 'compose'. */
+  protected readonly appBuildPack = signal<string | null>(null);
   protected readonly components = signal<ServiceComponent[]>([]);
+
+  /** A single-container preview (no compose services): show one instance panel. */
+  protected readonly single = computed(() => !!this.preview() && this.appBuildPack() !== 'compose');
+  protected readonly singleComponent = computed<ServiceComponent[]>(() => {
+    const p = this.preview();
+    if (!p || !this.single()) return [];
+    return [
+      {
+        uuid: p.uuid,
+        name: this.appName() || 'app',
+        observed_status: p.status === 'active' ? 'running' : 'stopped',
+        is_database: false,
+        exclude_from_hc: false,
+        created_at: p.created_at ?? '',
+      } as unknown as ServiceComponent,
+    ];
+  });
   /** Live per-service stats (ADR-034), polled while the overview is open. */
   protected readonly metrics = signal<Record<string, ComponentMetric>>({});
   protected readonly storages = signal<Storage[]>([]);
@@ -468,21 +498,24 @@ export class PreviewDetailComponent {
       const preview = this.previewUuid();
       untracked(() => void this.init(app, preview));
     });
-    // Live metrics: poll only while the overview of a compose stack is visible.
+    // Live metrics: poll only while the overview shows an instance panel.
     effect((onCleanup) => {
       const app = this.uuid();
       const preview = this.previewUuid();
-      const visible = this.tab() === 'overview' && this.components().length > 0;
-      if (!visible) {
+      const hasPanel = this.single() ? !!this.preview() : this.components().length > 0;
+      if (this.tab() !== 'overview' || !hasPanel) {
         this.metrics.set({});
         return;
       }
+      const fallback = this.appName() || 'app';
       let stopped = false;
       const poll = async () => {
         try {
           const page = await this.api.client().getPreviewMetrics(app, preview);
           if (!stopped) {
-            this.metrics.set(Object.fromEntries(page.data.map((m) => [m.component!, m])));
+            this.metrics.set(
+              Object.fromEntries(page.data.map((m) => [m.component || fallback, m])),
+            );
           }
         } catch {
           // Transient — keep the last snapshot on screen.
@@ -516,6 +549,7 @@ export class PreviewDetailComponent {
         return;
       }
       this.appName.set(application.name);
+      this.appBuildPack.set(application.build_pack ?? null);
       this.preview.set(preview);
       this.components.set(comps.data);
       this.storages.set(storages.data);

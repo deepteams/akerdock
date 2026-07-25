@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
@@ -202,10 +203,23 @@ type TabId =
             </div>
           </section>
 
-          @if (components().length > 0) {
+          @if (app.build_pack === 'compose') {
+            @if (components().length > 0) {
+              <akd-stack-components
+                class="components"
+                [components]="components()"
+                [appName]="app.name"
+                [metrics]="metrics()"
+                (open)="onComponentAction($event)"
+              />
+            }
+          } @else {
+            <!-- Single-container build pack: one instance panel (state, logs,
+                 shell, port-forward, live stats) — same helpers as a stack. -->
             <akd-stack-components
               class="components"
-              [components]="components()"
+              [single]="true"
+              [components]="singleComponent()"
               [appName]="app.name"
               [metrics]="metrics()"
               (open)="onComponentAction($event)"
@@ -327,7 +341,8 @@ export class ApplicationDetailComponent {
     }
     void this.router.navigate([], {
       relativeTo: this.activatedRoute,
-      queryParams: { tab: action.target, component: action.component },
+      // A single container has no compose service: omit the component param.
+      queryParams: { tab: action.target, component: action.component || null },
       queryParamsHandling: 'merge',
     });
   }
@@ -341,6 +356,25 @@ export class ApplicationDetailComponent {
   /** Live per-service stats (ADR-034), keyed by component name — polled only
    * while the overview tab of a compose stack is open. */
   protected readonly metrics = signal<Record<string, ComponentMetric>>({});
+
+  /** Whether the app is a single-container build pack (no compose services). */
+  private readonly single = computed(() => this.application()?.build_pack !== 'compose');
+
+  /** The synthesized one-entry list that drives the single-container panel. */
+  protected readonly singleComponent = computed<ServiceComponent[]>(() => {
+    const app = this.application();
+    if (!app || !this.single()) return [];
+    return [
+      {
+        uuid: app.uuid,
+        name: app.name,
+        observed_status: app.observed_status,
+        is_database: false,
+        exclude_from_hc: false,
+        created_at: app.created_at,
+      } as unknown as ServiceComponent,
+    ];
+  });
 
   constructor() {
     // URL → state: seeds the tab on load and follows back/forward — the
@@ -356,21 +390,28 @@ export class ApplicationDetailComponent {
       const uuid = this.uuid();
       untracked(() => void this.load(uuid));
     });
-    // Live metrics: poll only while the overview of a compose stack is visible,
-    // and stop (releasing the SSH round-trip) as soon as it is not.
+    // Live metrics: poll only while the overview shows an instance panel — a
+    // compose stack with components, or a single-container app — and stop
+    // (releasing the SSH round-trip) as soon as it is not.
     effect((onCleanup) => {
       const uuid = this.uuid();
-      const visible = this.tab() === 'overview' && this.components().length > 0;
-      if (!visible) {
+      const app = this.application();
+      const hasPanel = this.single() ? !!app : this.components().length > 0;
+      if (this.tab() !== 'overview' || !hasPanel) {
         this.metrics.set({});
         return;
       }
+      // For a single container the backend reports an empty component name; key
+      // it under the synthesized app name so the panel and sparkline line up.
+      const fallback = app?.name ?? 'app';
       let stopped = false;
       const poll = async () => {
         try {
           const page = await this.api.client().getApplicationMetrics(uuid);
           if (!stopped) {
-            this.metrics.set(Object.fromEntries(page.data.map((m) => [m.component!, m])));
+            this.metrics.set(
+              Object.fromEntries(page.data.map((m) => [m.component || fallback, m])),
+            );
           }
         } catch {
           // Transient (server unreachable) — keep the last snapshot on screen.

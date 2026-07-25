@@ -63,12 +63,6 @@ func (a *API) writeComponentMetrics(w http.ResponseWriter, r *http.Request, serv
 		a.internalError(w, r, "metrics", err)
 		return
 	}
-	// Non-compose resources have no per-service breakdown to report.
-	if len(components) == 0 {
-		httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": []api.ComponentMetric{}})
-		return
-	}
-
 	server, err := a.Store.GetServerByID(r.Context(), serverID)
 	if err != nil {
 		a.internalError(w, r, "metrics", err)
@@ -105,19 +99,32 @@ func (a *API) writeComponentMetrics(w http.ResponseWriter, r *http.Request, serv
 	}
 	byName := parseDockerStats(res.Stdout)
 
-	out := make([]api.ComponentMetric, 0, len(components))
-	for _, c := range components {
-		m := api.ComponentMetric{Component: ptr(c.Name), Running: ptr(false)}
-		if s, found := byName[base+"-"+c.Name]; found {
-			m.Running = ptr(true)
-			m.CpuPercent = s.cpu
-			m.MemoryBytes = s.memBytes
-			m.MemoryLimitBytes = s.memLimit
-			m.MemoryPercent = s.memPercent
+	out := make([]api.ComponentMetric, 0, len(components)+1)
+	if len(components) == 0 {
+		// Single-container build pack (docker image / dockerfile / nixpacks /
+		// static): the container IS the resource uuid (INV-011), reported under
+		// an empty component name — "the app itself".
+		out = append(out, componentStat(byName, base, ""))
+	} else {
+		for _, c := range components {
+			out = append(out, componentStat(byName, base+"-"+c.Name, c.Name))
 		}
-		out = append(out, m)
 	}
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": out})
+}
+
+// componentStat maps one container's stats onto a ComponentMetric; a missing
+// container (stopped) yields running=false with nil numbers.
+func componentStat(byName map[string]dockerStat, container, component string) api.ComponentMetric {
+	m := api.ComponentMetric{Component: ptr(component), Running: ptr(false)}
+	if s, found := byName[container]; found {
+		m.Running = ptr(true)
+		m.CpuPercent = s.cpu
+		m.MemoryBytes = s.memBytes
+		m.MemoryLimitBytes = s.memLimit
+		m.MemoryPercent = s.memPercent
+	}
+	return m
 }
 
 // dockerStat holds the parsed numbers of one `docker stats` row.
