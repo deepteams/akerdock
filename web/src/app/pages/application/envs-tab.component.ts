@@ -9,7 +9,6 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../../ui/card/card.component';
-import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
 import { parseDotenv, quoteEnvValue, REDACTED } from './dotenv';
@@ -20,84 +19,45 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
 @Component({
   selector: 'app-application-envs-tab',
   standalone: true,
-  imports: [FormsModule, CardComponent, EmptyStateComponent, IconComponent],
+  imports: [FormsModule, CardComponent, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (error(); as message) {
       <p class="akd-error" role="alert">{{ message }}</p>
     }
 
-    <akd-card title="Add variable" class="create">
-      <form class="form" (ngSubmit)="create()">
-        <div class="akd-field">
-          <label class="akd-field__label" for="ev-key">Key</label>
-          <input
-            id="ev-key"
-            name="key"
-            class="akd-input akd-input--mono"
-            required
-            [(ngModel)]="key"
-            [disabled]="busy()"
-          />
-        </div>
-        <div class="akd-field">
-          <label class="akd-field__label" for="ev-value">Value</label>
-          <textarea
-            id="ev-value"
-            name="value"
-            class="akd-textarea"
-            rows="3"
-            [(ngModel)]="value"
-            [disabled]="busy()"
-          ></textarea>
-        </div>
-        <label class="akd-check">
-          <input type="checkbox" name="isSecret" [(ngModel)]="isSecret" [disabled]="busy()" />
-          Secret (redacted after write; passed as a BuildKit secret, never a build arg)
-        </label>
-        <label class="akd-check">
-          <input type="checkbox" name="isBuildTime" [(ngModel)]="isBuildTime" [disabled]="busy()" />
-          Available at build time
-        </label>
-        <div>
-          <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy() || !key.trim()">
-            <akd-icon name="plus" [size]="15" />
-            Add variable
-          </button>
-        </div>
-      </form>
-    </akd-card>
-
     @if (loading()) {
       <p class="akd-muted">Loading…</p>
     } @else {
       <akd-card
-        [title]="previewUuid() ? 'Environment variables · this PR' : 'Environment variables · ' + set()"
+        [title]="
+          previewUuid() ? 'Environment variables · this PR' : 'Environment variables · ' + set()
+        "
         [padded]="false"
       >
         <div class="toolbar">
           <!-- Two DISTINCT sets (INV-010): previews never inherit production —
                this switcher is where a PR instance's keys get defined. -->
           @if (!previewUuid()) {
-          <button
-            type="button"
-            class="akd-btn akd-btn--sm"
-            [class.akd-btn--secondary]="set() === 'production'"
-            [class.akd-btn--ghost]="set() !== 'production'"
-            (click)="switchSet('production')"
-          >
-            Production
-          </button>
-          <button
-            type="button"
-            class="akd-btn akd-btn--sm"
-            [class.akd-btn--secondary]="set() === 'previews'"
-            [class.akd-btn--ghost]="set() !== 'previews'"
-            (click)="switchSet('previews')"
-          >
-            Previews
-          </button>
-          <span class="sep"></span>
+            <button
+              type="button"
+              class="akd-btn akd-btn--sm"
+              [class.akd-btn--secondary]="set() === 'production'"
+              [class.akd-btn--ghost]="set() !== 'production'"
+              (click)="switchSet('production')"
+            >
+              Production
+            </button>
+            <button
+              type="button"
+              class="akd-btn akd-btn--sm"
+              [class.akd-btn--secondary]="set() === 'previews'"
+              [class.akd-btn--ghost]="set() !== 'previews'"
+              (click)="switchSet('previews')"
+            >
+              Previews
+            </button>
+            <span class="sep"></span>
           }
           <button
             type="button"
@@ -143,9 +103,9 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
         @if (view() !== 'table') {
           <div class="dev">
             <p class="akd-muted">
-              One KEY=value per line — paste a whole .env at once. Keeping a
-              "(redacted)" line leaves that secret untouched; removing a line deletes the
-              variable. New variables are created
+              One KEY=value per line — paste a whole .env at once. Keeping a "(redacted)" line
+              leaves that secret untouched; removing a line deletes the variable. New variables are
+              created
               {{ view() === 'build' ? 'as build-time' : 'as runtime' }} and non-secret.
             </p>
             <textarea
@@ -175,130 +135,198 @@ type EnvVar = components['schemas']['EnvironmentVariable'];
               </button>
             </div>
           </div>
-        } @else if (envs().length === 0) {
-          <akd-empty-state icon="key-round" title="No environment variables" />
         } @else {
-        <table class="akd-table">
-          <caption class="sr-only">
-            Environment variables of this application
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col">Key</th>
-              <th scope="col">Value</th>
-              <th scope="col">Flags</th>
-              <th scope="col" class="right"><span class="sr-only">Actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (env of envs(); track env.uuid) {
+          <table class="akd-table">
+            <caption class="sr-only">
+              Environment variables of this application
+            </caption>
+            <thead>
               <tr>
-                <td class="akd-mono">{{ env.key }}</td>
-                <td>
-                  @if (editing() === env.uuid) {
-                    <form class="edit" (ngSubmit)="saveEdit(env)">
-                      <textarea
-                        class="akd-textarea"
-                        name="editValue"
-                        rows="2"
-                        [attr.aria-label]="'New value for ' + env.key"
-                        [(ngModel)]="editValue"
-                        [disabled]="busy()"
-                      ></textarea>
-                      <div class="edit-actions">
-                        <button
-                          class="akd-btn akd-btn--primary akd-btn--sm"
-                          type="submit"
+                <th scope="col">Key</th>
+                <th scope="col">Value</th>
+                <th scope="col">Flags</th>
+                <th scope="col" class="right"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (env of envs(); track env.uuid) {
+                <tr>
+                  <td class="akd-mono">{{ env.key }}</td>
+                  <td>
+                    @if (editing() === env.uuid) {
+                      <form class="edit" (ngSubmit)="saveEdit(env)">
+                        <textarea
+                          class="akd-textarea"
+                          name="editValue"
+                          rows="2"
+                          [attr.aria-label]="'New value for ' + env.key"
+                          [(ngModel)]="editValue"
                           [disabled]="busy()"
-                        >
-                          Save
-                        </button>
-                        <button
-                          class="akd-btn akd-btn--secondary akd-btn--sm"
-                          type="button"
-                          (click)="editing.set(null)"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </form>
-                  } @else {
-                    <!-- A redacted value is redacted for good: the API never returns
+                        ></textarea>
+                        <div class="edit-actions">
+                          <button
+                            class="akd-btn akd-btn--primary akd-btn--sm"
+                            type="submit"
+                            [disabled]="busy()"
+                          >
+                            Save
+                          </button>
+                          <button
+                            class="akd-btn akd-btn--secondary akd-btn--sm"
+                            type="button"
+                            (click)="editing.set(null)"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    } @else {
+                      <!-- A redacted value is redacted for good: the API never returns
                          it again, so there is no "reveal" to offer here. Everything
                          else is masked until the operator asks to see it. -->
-                    <span class="akd-mono">{{
-                      env.is_redacted ? '(redacted)' : revealed() ? env.value : '••••••••'
-                    }}</span>
-                  }
+                      <span class="akd-mono">{{
+                        env.is_redacted ? '(redacted)' : revealed() ? env.value : '••••••••'
+                      }}</span>
+                    }
+                  </td>
+                  <td>
+                    @if (env.is_preview_override) {
+                      <span class="akd-badge akd-badge--accent">PR override</span>
+                    }
+                    @if (env.is_secret) {
+                      <span class="akd-badge akd-badge--accent">secret</span>
+                    }
+                    @if (env.is_build_time) {
+                      <span class="akd-badge akd-badge--mono">build</span>
+                    }
+                    @if (env.is_literal) {
+                      <span class="akd-badge">literal</span>
+                    }
+                    @if (env.is_multiline) {
+                      <span class="akd-badge">multiline</span>
+                    }
+                    @if (env.is_locked) {
+                      <span class="akd-badge">locked</span>
+                    }
+                    @if (!hasFlags(env)) {
+                      <span class="akd-muted">—</span>
+                    }
+                  </td>
+                  <td class="right">
+                    <div class="row-actions">
+                      @if (!env.is_locked) {
+                        <button
+                          class="akd-btn akd-btn--ghost akd-btn--sm"
+                          type="button"
+                          [disabled]="busy()"
+                          (click)="startEdit(env)"
+                        >
+                          <akd-icon name="pencil" [size]="13" />
+                          Edit
+                        </button>
+                      }
+                      @if (!previewUuid() || env.is_preview_override) {
+                        <button
+                          class="akd-btn akd-btn--danger akd-btn--sm"
+                          type="button"
+                          [disabled]="busy()"
+                          (click)="remove(env)"
+                        >
+                          {{
+                            previewUuid() && env.is_preview_override ? 'Remove override' : 'Delete'
+                          }}
+                        </button>
+                      } @else {
+                        <span class="akd-muted">shared set</span>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              }
+              <!-- The last row IS the creator: add a variable in place, or paste a
+                 whole .env from the Runtime/Build views above. -->
+              <tr class="add-row">
+                <td>
+                  <input
+                    class="akd-input akd-input--mono"
+                    name="newKey"
+                    placeholder="NEW_KEY"
+                    aria-label="New variable key"
+                    [(ngModel)]="key"
+                    [disabled]="busy()"
+                    (keydown.enter)="create()"
+                  />
                 </td>
                 <td>
-                  @if (env.is_preview_override) {
-                    <span class="akd-badge akd-badge--accent">PR override</span>
-                  }
-                  @if (env.is_secret) {
-                    <span class="akd-badge akd-badge--accent">secret</span>
-                  }
-                  @if (env.is_build_time) {
-                    <span class="akd-badge akd-badge--mono">build</span>
-                  }
-                  @if (env.is_literal) {
-                    <span class="akd-badge">literal</span>
-                  }
-                  @if (env.is_multiline) {
-                    <span class="akd-badge">multiline</span>
-                  }
-                  @if (env.is_locked) {
-                    <span class="akd-badge">locked</span>
-                  }
-                  @if (!hasFlags(env)) {
-                    <span class="akd-muted">—</span>
-                  }
+                  <input
+                    class="akd-input akd-input--mono"
+                    name="newValue"
+                    placeholder="value"
+                    aria-label="New variable value"
+                    [(ngModel)]="value"
+                    [disabled]="busy()"
+                    (keydown.enter)="create()"
+                  />
                 </td>
-                <td class="right">
-                  <div class="row-actions">
-                    @if (!env.is_locked) {
-                      <button
-                        class="akd-btn akd-btn--ghost akd-btn--sm"
-                        type="button"
+                <td>
+                  <div class="add-flags">
+                    <label
+                      class="akd-check"
+                      title="Redacted after write; passed as a BuildKit secret, never a build arg"
+                    >
+                      <input
+                        type="checkbox"
+                        name="newSecret"
+                        [(ngModel)]="isSecret"
                         [disabled]="busy()"
-                        (click)="startEdit(env)"
-                      >
-                        <akd-icon name="pencil" [size]="13" />
-                        Edit
-                      </button>
-                    }
-                    @if (!previewUuid() || env.is_preview_override) {
-                      <button
-                        class="akd-btn akd-btn--danger akd-btn--sm"
-                        type="button"
+                      />
+                      secret
+                    </label>
+                    <label class="akd-check" title="Available at build time">
+                      <input
+                        type="checkbox"
+                        name="newBuild"
+                        [(ngModel)]="isBuildTime"
                         [disabled]="busy()"
-                        (click)="remove(env)"
-                      >
-                        {{ previewUuid() && env.is_preview_override ? 'Remove override' : 'Delete' }}
-                      </button>
-                    } @else {
-                      <span class="akd-muted">shared set</span>
-                    }
+                      />
+                      build
+                    </label>
                   </div>
                 </td>
+                <td class="right">
+                  <button
+                    class="akd-btn akd-btn--primary akd-btn--sm"
+                    type="button"
+                    [disabled]="busy() || !key.trim()"
+                    (click)="create()"
+                  >
+                    <akd-icon name="plus" [size]="13" />
+                    Add
+                  </button>
+                </td>
               </tr>
-            }
-          </tbody>
-        </table>
+            </tbody>
+          </table>
         }
       </akd-card>
     }
   `,
   styles: [
     `
-      .create {
-        display: block;
-        margin-bottom: var(--space-5);
-        max-width: 40rem;
+      .add-row td {
+        vertical-align: middle;
       }
-      .form {
-        display: grid;
+      .add-row .akd-input {
+        width: 100%;
+      }
+      .add-flags {
+        display: flex;
+        flex-wrap: wrap;
         gap: var(--space-3);
+      }
+      .add-flags .akd-check {
+        font-size: var(--text-xs);
+        white-space: nowrap;
       }
       .edit {
         display: grid;
@@ -486,7 +514,9 @@ export class ApplicationEnvsTabComponent {
   /** Variables of one dev view: locked ones stay out — they are not editable
    * anywhere in this tab, so the raw text must not offer to delete them. */
   private devGroup(mode: 'run' | 'build'): EnvVar[] {
-    return this.envs().filter((env) => !!env.is_build_time === (mode === 'build') && !env.is_locked);
+    return this.envs().filter(
+      (env) => !!env.is_build_time === (mode === 'build') && !env.is_locked,
+    );
   }
 
   protected openDev(mode: 'run' | 'build'): void {
