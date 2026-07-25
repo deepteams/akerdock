@@ -33,9 +33,10 @@ func (a *API) instanceIdentity(r *http.Request) (api.InstanceIdentity, error) {
 		return api.InstanceIdentity{}, err
 	}
 	return api.InstanceIdentity{
-		Fqdn:      settings.Fqdn,
-		AcmeEmail: settings.AcmeEmail,
-		Timezone:  ptr(settings.Timezone),
+		Fqdn:       settings.Fqdn,
+		AcmeEmail:  settings.AcmeEmail,
+		Timezone:   ptr(settings.Timezone),
+		ApiEnabled: ptr(settings.ApiEnabled),
 	}, nil
 }
 

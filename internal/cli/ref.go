@@ -66,3 +66,29 @@ func (c *Client) resolve(ctx context.Context, r ref) (resource, error) {
 		return resource{}, fmt.Errorf("several %s named %q — use the UUID", r.kind, r.name)
 	}
 }
+
+// previewInfo is the subset of a preview the CLI needs to target it.
+type previewInfo struct {
+	Uuid   string `json:"uuid"`
+	PrID   int    `json:"pr_id"`
+	Status string `json:"status"`
+}
+
+// resolvePreview finds the preview of an application by PR number.
+func (c *Client) resolvePreview(ctx context.Context, appUUID string, pr int) (previewInfo, error) {
+	var page struct {
+		Data []previewInfo `json:"data"`
+	}
+	if err := c.do(ctx, "GET", "/applications/"+appUUID+"/previews", nil, nil, &page); err != nil {
+		return previewInfo{}, err
+	}
+	for _, p := range page.Data {
+		if p.PrID == pr {
+			if p.Status == "destroyed" {
+				return previewInfo{}, fmt.Errorf("preview of PR #%d is destroyed — reopen or /deploy it first", pr)
+			}
+			return p, nil
+		}
+	}
+	return previewInfo{}, fmt.Errorf("no preview for PR #%d on this application", pr)
+}

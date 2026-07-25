@@ -55,6 +55,7 @@ func hashPortForwardToken(token string) string {
 type portForwardSpec struct {
 	serverID   int64
 	resourceID *int64
+	previewID  *int64
 	name       string
 	component  *string
 	port       int
@@ -107,6 +108,43 @@ func (a *API) CreateDatabasePortForward(w http.ResponseWriter, r *http.Request, 
 	a.createPortForward(w, r, id, portForwardSpec{
 		serverID: dest.ServerID, resourceID: &row.Resource.ID, name: row.Resource.Name, port: body.Port,
 	})
+}
+
+// CreatePreviewPortForward implements
+// POST /applications/{uuid}/previews/{uuid}/port-forwards (ADR-032): a tunnel
+// into a PR preview's container.
+func (a *API) CreatePreviewPortForward(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string, params api.CreatePreviewPortForwardParams) {
+	id, ok := a.require(w, r, auth.PermWrite)
+	if !ok {
+		return
+	}
+	row, ok := a.resolveApplication(w, r, id, applicationUuid)
+	if !ok {
+		return
+	}
+	preview, ok := a.resolvePreview(w, r, id, row.Resource.ID, previewUuid)
+	if !ok {
+		return
+	}
+	if preview.Status == store.PreviewStatusDestroyed || preview.Status == store.PreviewStatusDestroying {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "this preview is destroyed")
+		return
+	}
+	body, ok := decodePortForwardBody(w, r)
+	if !ok {
+		return
+	}
+	spec := portForwardSpec{
+		serverID: row.ServerRowID, resourceID: &row.Resource.ID, previewID: &preview.ID,
+		name: fmt.Sprintf("%s · PR #%d", row.Resource.Name, preview.PrID), port: body.Port,
+	}
+	if params.Component != nil && *params.Component != "" {
+		if !a.componentExists(w, r, row.Resource.ID, *params.Component) {
+			return
+		}
+		spec.component = params.Component
+	}
+	a.createPortForward(w, r, id, spec)
 }
 
 func decodePortForwardBody(w http.ResponseWriter, r *http.Request) (api.PortForwardCreate, bool) {
@@ -164,6 +202,7 @@ func (a *API) createPortForward(w http.ResponseWriter, r *http.Request, id *auth
 		UserID:          userID,
 		ServerID:        &spec.serverID,
 		ResourceID:      spec.resourceID,
+		PreviewID:       spec.previewID,
 		TargetName:      spec.name,
 		TargetComponent: spec.component,
 		TargetPort:      int32(spec.port),
@@ -233,9 +272,20 @@ func (a *API) tunnelTarget(ctx context.Context, row store.PortForwardSession) (*
 	if err != nil {
 		return nil, "", "the target resource no longer exists"
 	}
-	container := adoption.ContainerName(res.Adoption, uuidString(res.Uuid))
+	// A preview instance names its containers after the PREVIEW uuid, not the
+	// resource's (INV-011); a destroyed preview has nothing to dial.
+	base := uuidString(res.Uuid)
+	container := adoption.ContainerName(res.Adoption, base)
+	if row.PreviewID != nil {
+		preview, err := a.Store.GetPreviewByID(ctx, *row.PreviewID)
+		if err != nil || preview.Status == store.PreviewStatusDestroyed {
+			return nil, "", "the preview no longer exists — it may have been destroyed"
+		}
+		base = uuidString(preview.Uuid)
+		container = base
+	}
 	if row.TargetComponent != nil && *row.TargetComponent != "" {
-		container = uuidString(res.Uuid) + "-" + *row.TargetComponent
+		container = base + "-" + *row.TargetComponent
 	}
 
 	key, err := a.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)

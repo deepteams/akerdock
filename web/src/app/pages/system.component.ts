@@ -241,33 +241,21 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
 
           <akd-card title="API access">
             <div class="stack">
-              @if (apiEnabled(); as state) {
-                <p class="akd-muted sm" role="status">
-                  The API is now {{ state === 'enabled' ? 'enabled' : 'disabled' }}.
-                </p>
-              }
+              <label class="switch-row">
+                <input
+                  type="checkbox"
+                  class="akd-switch"
+                  name="apiEnabled"
+                  [(ngModel)]="apiOn"
+                  [disabled]="busy()"
+                  (ngModelChange)="toggleApi($event)"
+                />
+                Public API enabled
+              </label>
               <p class="akd-muted sm">
-                Disabling refuses every API call immediately — tokens, scripts, CI, and this
-                dashboard's own requests included. Only re-enabling stays reachable, from this page.
+                When off, token, script and CI calls are refused immediately. The dashboard
+                keeps working (its session is exempt), so you can turn it back on here.
               </p>
-              <div class="actions">
-                <button
-                  class="akd-btn akd-btn--primary"
-                  type="button"
-                  [disabled]="busy()"
-                  (click)="enableApi()"
-                >
-                  Enable API
-                </button>
-                <button
-                  class="akd-btn akd-btn--danger"
-                  type="button"
-                  [disabled]="busy()"
-                  (click)="disableApi()"
-                >
-                  Disable API
-                </button>
-              </div>
             </div>
           </akd-card>
         </div>
@@ -564,7 +552,7 @@ export class SystemComponent {
 
   protected readonly email = signal<TransactionalEmail | null>(null);
   protected readonly encryption = signal<EncryptionStatus | null>(null);
-  protected readonly apiEnabled = signal<'enabled' | 'disabled' | null>(null);
+  protected apiOn = true;
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
 
@@ -630,6 +618,7 @@ export class SystemComponent {
       ]);
       this.instanceFqdn = instance.fqdn ?? '';
       this.instanceAcmeEmail = instance.acme_email ?? '';
+      this.apiOn = instance.api_enabled ?? true;
       this.email.set(email);
       this.encryption.set(encryption);
       this.oauthConfigs.set(oauth.data);
@@ -786,35 +775,23 @@ export class SystemComponent {
     this.oauthConfigs.set(res.data);
   }
 
-  protected async enableApi(): Promise<void> {
-    this.busy.set(true);
-    this.error.set(null);
-    try {
-      const state = await this.api.client().enableApi();
-      this.apiEnabled.set(state.api_enabled ? 'enabled' : 'disabled');
-    } catch (err) {
-      this.error.set(ApiService.describe(err));
-    } finally {
-      this.busy.set(false);
-    }
-  }
-
-  protected async disableApi(): Promise<void> {
-    // The gate covers the dashboard's own calls too (only /system/api/enable
-    // is exempt) — the confirmation has to say so.
-    if (
-      !confirm(
-        'Disable the API? Every call is refused immediately — scripts, CI and this dashboard included. Only the "Enable API" button on this page keeps working.',
-      )
-    ) {
+  // toggleApi flips the public-API gate. Turning it off is confirmed; the
+  // dashboard stays reachable (its session is exempt), so this is recoverable.
+  protected async toggleApi(next: boolean): Promise<void> {
+    if (!next && !confirm(
+      'Disable the public API? Token, script and CI calls are refused immediately. ' +
+        'The dashboard keeps working, so you can re-enable it here.',
+    )) {
+      this.apiOn = true; // revert the switch, user declined
       return;
     }
     this.busy.set(true);
     this.error.set(null);
     try {
-      const state = await this.api.client().disableApi();
-      this.apiEnabled.set(state.api_enabled ? 'enabled' : 'disabled');
+      const state = next ? await this.api.client().enableApi() : await this.api.client().disableApi();
+      this.apiOn = state.api_enabled;
     } catch (err) {
+      this.apiOn = !next; // revert on failure
       this.error.set(ApiService.describe(err));
     } finally {
       this.busy.set(false);

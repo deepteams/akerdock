@@ -25,10 +25,14 @@ var forwardPath = map[string]string{
 
 func portForwardCmd() *cobra.Command {
 	var component string
+	var pr int
 	cmd := &cobra.Command{
 		Use:   "port-forward REF [LOCAL:]REMOTE",
 		Short: "Tunnel a local port to a container port through the manager",
-		Args:  cobra.ExactArgs(2),
+		Example: "  akerdock port-forward db/pg 15432:5432\n" +
+			"  akerdock port-forward app/varuna 15432:5432 -c postgres\n" +
+			"  akerdock port-forward app/varuna 15432:5432 -c postgres --pr 8   # a PR preview",
+		Args: usageArgs(2, "port-forward <type/name> [LOCAL:]REMOTE", "port-forward db/pg 15432:5432"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, _, err := newClient(flags.context)
 			if err != nil {
@@ -42,18 +46,31 @@ func portForwardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			basePath, ok := forwardPath[r.kind]
-			if !ok {
-				return fmt.Errorf("port-forward does not support %q", r.kind)
-			}
 			res, err := c.resolve(cmd.Context(), r)
 			if err != nil {
 				return err
+			}
+			// A PR preview: the tunnel targets the preview instance's container.
+			if pr > 0 {
+				if r.kind != "apps" {
+					return fmt.Errorf("--pr only applies to an app/… reference")
+				}
+				preview, err := c.resolvePreview(cmd.Context(), res.Uuid, pr)
+				if err != nil {
+					return err
+				}
+				mint := "/applications/" + res.Uuid + "/previews/" + preview.Uuid + "/port-forwards"
+				return c.runPortForward(cmd.Context(), mint, component, localPort, remotePort)
+			}
+			basePath, ok := forwardPath[r.kind]
+			if !ok {
+				return fmt.Errorf("port-forward does not support %q", r.kind)
 			}
 			return c.runPortForward(cmd.Context(), basePath+"/"+res.Uuid+"/port-forwards", component, localPort, remotePort)
 		},
 	}
 	cmd.Flags().StringVarP(&component, "component", "c", "", "compose service to target")
+	cmd.Flags().IntVar(&pr, "pr", 0, "target the preview of this PR number instead of production")
 	return cmd
 }
 

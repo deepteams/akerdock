@@ -67,6 +67,9 @@ func main() {
 		os.Args = append([]string{os.Args[0], "serve"}, args...)
 	}
 	if err := rootCommand().Execute(); err != nil {
+		// SilenceErrors keeps Cobra from double-printing usage on a runtime
+		// failure; we print the error ourselves so it is never swallowed.
+		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }

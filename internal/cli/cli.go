@@ -9,6 +9,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// usageArgs enforces an exact argument count with an actionable message and an
+// example, instead of Cobra's terse "accepts N arg(s), received M".
+func usageArgs(n int, usage, example string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) == n {
+			return nil
+		}
+		return fmt.Errorf("usage: akerdock %s\n  example: akerdock %s", usage, example)
+	}
+}
+
 // persistent flags shared by every client command.
 type globalFlags struct {
 	context string

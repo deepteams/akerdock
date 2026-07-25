@@ -57,9 +57,10 @@ var engines = map[string]engineClient{
 func dbCmd() *cobra.Command {
 	var component string
 	cmd := &cobra.Command{
-		Use:   "db REF",
-		Short: "Open a database console (port-forward + local client)",
-		Args:  cobra.ExactArgs(1),
+		Use:     "db REF",
+		Short:   "Open a database console (port-forward + local client)",
+		Example: "  akerdock db db/pg",
+		Args:    usageArgs(1, "db <db/name>", "db db/pg"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, _, err := newClient(flags.context)
 			if err != nil {

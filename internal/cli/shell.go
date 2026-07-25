@@ -20,9 +20,10 @@ import (
 func shellCmd() *cobra.Command {
 	var component string
 	cmd := &cobra.Command{
-		Use:   "shell REF",
-		Short: "Open an interactive shell in a container",
-		Args:  cobra.ExactArgs(1),
+		Use:     "shell REF",
+		Short:   "Open an interactive shell in a container",
+		Example: "  akerdock shell app/varuna\n  akerdock shell app/varuna -c postgres",
+		Args:    usageArgs(1, "shell <type/name>", "shell app/varuna"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, _, err := newClient(flags.context)
 			if err != nil {

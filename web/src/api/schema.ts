@@ -1428,6 +1428,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/applications/{application_uuid}/port-forwards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ouvrir un tunnel TCP vers un container de l'application
+         * @description Crée une session de tunnel TCP (ADR-032) vers `port` du container courant et renvoie un **token à usage unique** à présenter sur `/tunnel/ws` (hors OpenAPI). Bornée à la team, auditée, idle/max/ heartbeat/teardown comme le terminal (§24.4). `409` si la team atteint `port_forward_limit`.
+         */
+        post: operations["createApplicationPortForward"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/databases/{database_uuid}/port-forwards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la base de données. */
+                database_uuid: components["parameters"]["DatabaseUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ouvrir un tunnel TCP vers une base de données
+         * @description Crée une session de tunnel TCP (ADR-032) vers `port` du container de la base et renvoie un **token à usage unique** à présenter sur `/tunnel/ws` (hors OpenAPI). Mêmes garanties que le terminal (§24.4). `409` si la team atteint `port_forward_limit`.
+         */
+        post: operations["createDatabasePortForward"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/applications/{application_uuid}/logs": {
         parameters: {
             query?: never;
@@ -1443,6 +1489,29 @@ export interface paths {
          * @description Les dernières lignes du container courant de l'application (§5.7) — lecture directe sur le serveur (`docker logs`), jamais stockées. Pour une stack compose, `component` désigne le service dont on veut les logs (obligatoire dès que la stack a des composants — le stack n'a pas de container propre). `409` si le container n'existe pas (application jamais déployée ou supprimée) ou si le serveur est injoignable en SSH ; `404` si le composant est inconnu.
          */
         get: operations["getApplicationLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_uuid}/logs/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Flux SSE des logs runtime du container
+         * @description Streaming des logs runtime en **Server-Sent Events** (ADR-024, `text/event-stream`), reprise par `Last-Event-ID` (§27.24). Alimente `akerdock logs -f`. Mêmes règles de cible que le snapshot (`component` obligatoire dès que la stack a des composants). `409` si le container n'existe pas ou le serveur est injoignable ; `404` si le composant est inconnu. Le corps ci-dessous décrit l'événement `log` ; le framing SSE lui-même n'est pas exprimable en OpenAPI.
+         */
+        get: operations["streamApplicationLogs"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3369,6 +3438,26 @@ export interface components {
             /** @description Durée maximum d'une session, quelle que soit l'activité. */
             max_duration_seconds: number;
         };
+        /** @description Demande d'ouverture d'un tunnel TCP vers un container de la ressource (ADR-032). La cible (container, port) est **figée et autorisée à la création** ; le tunnel lui-même passe par le WebSocket `websocket_path` (hors OpenAPI). `component` désigne le service pour une stack compose. */
+        PortForwardCreate: {
+            /** @description Port interne du container cible. */
+            port: number;
+        };
+        /** @description Session de tunnel TCP (ADR-032). Même contrat de token que le terminal (§24.4) : token d'attache **à usage unique**, renvoyé une seule fois, seul son hash est stocké (§23.2). Bornée à la team, auditée à l'ouverture et à la fermeture, idle timeout / durée maximum / heartbeat / teardown garanti. `409` si la team atteint son plafond (`port_forward_limit`). */
+        PortForwardSession: {
+            uuid: string;
+            /** @description Port interne du container cible, figé à la création. */
+            port: number;
+            /** @description Chemin du WebSocket à ouvrir sur la **même origine** que l'API, token en query string (`?token=…`). Sous-protocole `akerdock-tunnel-v1`, hors OpenAPI (§27.24, ADR-032). */
+            websocket_path: string;
+            /** @description Token d'attache à usage unique, renvoyé uniquement ici, jamais relu — seul son hash est stocké (§23.2, §24.4). */
+            token: string;
+            /**
+             * Format: date-time
+             * @description Expiration (courte) du token d'attache, pas de la session.
+             */
+            token_expires_at: string;
+        };
         /** @description Réponse d'un scan d'adoption — job de suivi + scan créé. */
         AdoptionScanAccepted: components["schemas"]["JobAccepted"] & {
             /** @description UUID du scan créé, à lire une fois le job terminé. */
@@ -3595,6 +3684,8 @@ export interface components {
             /** @description Contact Let's Encrypt (§4.3). Sans lui, aucun certificat n'est émis. */
             acme_email?: string | null;
             readonly timezone: string;
+            /** @description État du verrou de l'API publique (§10.3). Les sessions du dashboard sont exemptées ; basculer via POST /system/api/enable|disable. */
+            readonly api_enabled?: boolean;
         };
         InstanceIdentityUpdate: {
             /** @description Nom d'hôte nu (`[a-z0-9.-]`, au moins un point). Chaîne vide ou `null` : efface le FQDN. */
@@ -8204,6 +8295,73 @@ export interface operations {
             429: components["responses"]["TooManyRequests"];
         };
     };
+    createApplicationPortForward: {
+        parameters: {
+            query?: {
+                /** @description (build pack compose) Service dont on cible le container. */
+                component?: string;
+            };
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PortForwardCreate"];
+            };
+        };
+        responses: {
+            /** @description Session créée — le token n'est visible que dans cette réponse. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortForwardSession"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createDatabasePortForward: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la base de données. */
+                database_uuid: components["parameters"]["DatabaseUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PortForwardCreate"];
+            };
+        };
+        responses: {
+            /** @description Session créée — le token n'est visible que dans cette réponse. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortForwardSession"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
     getApplicationLogs: {
         parameters: {
             query?: {
@@ -8230,6 +8388,40 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["LogLine"][];
                     };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    streamApplicationLogs: {
+        parameters: {
+            query?: {
+                /** @description Nom du service compose dont streamer les logs. */
+                component?: string;
+            };
+            header?: {
+                /** @description Reprise après coupure — dernier `id` d'événement reçu (§27.24). */
+                "Last-Event-ID"?: string;
+            };
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Flux SSE ouvert ; chaque événement `log` porte une `LogLine`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["LogLine"];
                 };
             };
             401: components["responses"]["Unauthorized"];

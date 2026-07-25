@@ -52,7 +52,7 @@ métier : elle consomme l'API publique (§18.2 PRD), rien d'autre.
 | `akerdock ls [apps\|databases\|services\|previews\|servers]` | Listing ; défaut : liste transverse des ressources. |
 | `akerdock logs REF [--component C] [-n LINES] [-f] [--deployment [UUID]]` | Logs conteneur (snapshot ou `-f` streaming) ou logs d'un déploiement. |
 | `akerdock shell REF [--component C]` | Shell interactif dans le conteneur (§6). |
-| `akerdock port-forward REF [LOCAL:]REMOTE [--component C]` | Tunnel TCP (§7). |
+| `akerdock port-forward REF [LOCAL:]REMOTE [--component C] [--pr N]` | Tunnel TCP (§7) ; `--pr N` cible l'instance de preview de la PR N au lieu de la production. |
 | `akerdock db REF [--component C]` | Confort : ouvre un forward et lance le client local du moteur détecté (§8). |
 
 **Flags globaux.** `--context NAME` ; `-o table|json` (`json` = objets API bruts, pour le

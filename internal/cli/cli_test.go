@@ -11,14 +11,14 @@ func TestParseRef(t *testing.T) {
 		kind, name string
 		ok         bool
 	}{
-		"app/varuna":     {"apps", "varuna", true},
-		"db/pg":          {"databases", "pg", true},
-		"svc/stack":      {"services", "stack", true},
-		"preview/12":     {"previews", "12", true},
-		"database/x":     {"databases", "x", true},
-		"nope/x":         {"", "", false},
-		"varuna":         {"", "", false},
-		"app/":           {"", "", false},
+		"app/varuna": {"apps", "varuna", true},
+		"db/pg":      {"databases", "pg", true},
+		"svc/stack":  {"services", "stack", true},
+		"preview/12": {"previews", "12", true},
+		"database/x": {"databases", "x", true},
+		"nope/x":     {"", "", false},
+		"varuna":     {"", "", false},
+		"app/":       {"", "", false},
 	}
 	for in, want := range cases {
 		r, err := parseRef(in)

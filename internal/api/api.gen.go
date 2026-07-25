@@ -3063,6 +3063,9 @@ type InstanceIdentity struct {
 	// AcmeEmail Contact Let's Encrypt (§4.3). Sans lui, aucun certificat n'est émis.
 	AcmeEmail *string `json:"acme_email,omitempty"`
 
+	// ApiEnabled État du verrou de l'API publique (§10.3). Les sessions du dashboard sont exemptées ; basculer via POST /system/api/enable|disable.
+	ApiEnabled *bool `json:"api_enabled,omitempty"`
+
 	// Fqdn Nom d'hôte nu, sans schéma ni chemin (ex. `deploy.example.com`). `null` : instance sans FQDN, cookies non-`Secure`, HTTP simple toléré.
 	Fqdn     *string `json:"fqdn,omitempty"`
 	Timezone *string `json:"timezone,omitempty"`
@@ -4503,6 +4506,12 @@ type GetPreviewLogsParams struct {
 	Component *string `form:"component,omitempty" json:"component,omitempty"`
 }
 
+// CreatePreviewPortForwardParams defines parameters for CreatePreviewPortForward.
+type CreatePreviewPortForwardParams struct {
+	// Component (build pack compose) Service dont on cible le container.
+	Component *string `form:"component,omitempty" json:"component,omitempty"`
+}
+
 // CreatePreviewTerminalSessionParams defines parameters for CreatePreviewTerminalSession.
 type CreatePreviewTerminalSessionParams struct {
 	// Component (build pack compose) Nom du service dont ouvrir le shell.
@@ -5224,6 +5233,9 @@ type DeployPreviewForPrJSONRequestBody DeployPreviewForPrJSONBody
 // CreatePreviewEnvJSONRequestBody defines body for CreatePreviewEnv for application/json ContentType.
 type CreatePreviewEnvJSONRequestBody = EnvironmentVariableCreate
 
+// CreatePreviewPortForwardJSONRequestBody defines body for CreatePreviewPortForward for application/json ContentType.
+type CreatePreviewPortForwardJSONRequestBody = PortForwardCreate
+
 // RollbackApplicationJSONRequestBody defines body for RollbackApplication for application/json ContentType.
 type RollbackApplicationJSONRequestBody RollbackApplicationJSONBody
 
@@ -5558,6 +5570,9 @@ type ServerInterface interface {
 	// Logs des containers d'une preview
 	// (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
 	GetPreviewLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params GetPreviewLogsParams)
+	// Ouvrir un tunnel TCP vers un container de la preview
+	// (POST /applications/{application_uuid}/previews/{preview_uuid}/port-forwards)
+	CreatePreviewPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params CreatePreviewPortForwardParams)
 	// Ouvrir une session terminal dans un container de la preview
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions)
 	CreatePreviewTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params CreatePreviewTerminalSessionParams)
@@ -6224,6 +6239,12 @@ func (_ Unimplemented) CreatePreviewEnv(w http.ResponseWriter, r *http.Request, 
 // Logs des containers d'une preview
 // (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
 func (_ Unimplemented) GetPreviewLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params GetPreviewLogsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Ouvrir un tunnel TCP vers un container de la preview
+// (POST /applications/{application_uuid}/previews/{preview_uuid}/port-forwards)
+func (_ Unimplemented) CreatePreviewPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params CreatePreviewPortForwardParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8558,6 +8579,63 @@ func (siw *ServerInterfaceWrapper) GetPreviewLogs(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetPreviewLogs(w, r, applicationUuid, previewUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePreviewPortForward operation middleware
+func (siw *ServerInterfaceWrapper) CreatePreviewPortForward(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "application_uuid" -------------
+	var applicationUuid ApplicationUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_uuid", chi.URLParam(r, "application_uuid"), &applicationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "preview_uuid" -------------
+	var previewUuid string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "preview_uuid", chi.URLParam(r, "preview_uuid"), &previewUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "preview_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreatePreviewPortForwardParams
+
+	// ------------- Optional query parameter "component" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "component", r.URL.Query(), &params.Component, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "component"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "component", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePreviewPortForward(w, r, applicationUuid, previewUuid, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -16492,6 +16570,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/logs", wrapper.GetPreviewLogs)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/port-forwards", wrapper.CreatePreviewPortForward)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions", wrapper.CreatePreviewTerminalSession)
 	})
 	r.Group(func(r chi.Router) {
@@ -19626,6 +19707,104 @@ func (response GetPreviewLogs409JSONResponse) VisitGetPreviewLogsResponse(w http
 type GetPreviewLogs429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response GetPreviewLogs429JSONResponse) VisitGetPreviewLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewPortForwardRequestObject struct {
+	ApplicationUuid ApplicationUuid `json:"application_uuid"`
+	PreviewUuid     string          `json:"preview_uuid"`
+	Params          CreatePreviewPortForwardParams
+	Body            *CreatePreviewPortForwardJSONRequestBody
+}
+
+type CreatePreviewPortForwardResponseObject interface {
+	VisitCreatePreviewPortForwardResponse(w http.ResponseWriter) error
+}
+
+type CreatePreviewPortForward201JSONResponse PortForwardSession
+
+func (response CreatePreviewPortForward201JSONResponse) VisitCreatePreviewPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewPortForward401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreatePreviewPortForward401JSONResponse) VisitCreatePreviewPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewPortForward403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreatePreviewPortForward403JSONResponse) VisitCreatePreviewPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewPortForward404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreatePreviewPortForward404JSONResponse) VisitCreatePreviewPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewPortForward409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreatePreviewPortForward409JSONResponse) VisitCreatePreviewPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePreviewPortForward429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreatePreviewPortForward429JSONResponse) VisitCreatePreviewPortForwardResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -35781,6 +35960,9 @@ type StrictServerInterface interface {
 	// Logs des containers d'une preview
 	// (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
 	GetPreviewLogs(ctx context.Context, request GetPreviewLogsRequestObject) (GetPreviewLogsResponseObject, error)
+	// Ouvrir un tunnel TCP vers un container de la preview
+	// (POST /applications/{application_uuid}/previews/{preview_uuid}/port-forwards)
+	CreatePreviewPortForward(ctx context.Context, request CreatePreviewPortForwardRequestObject) (CreatePreviewPortForwardResponseObject, error)
 	// Ouvrir une session terminal dans un container de la preview
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions)
 	CreatePreviewTerminalSession(ctx context.Context, request CreatePreviewTerminalSessionRequestObject) (CreatePreviewTerminalSessionResponseObject, error)
@@ -37080,6 +37262,41 @@ func (sh *strictHandler) GetPreviewLogs(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetPreviewLogsResponseObject); ok {
 		if err := validResponse.VisitGetPreviewLogsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreatePreviewPortForward operation middleware
+func (sh *strictHandler) CreatePreviewPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params CreatePreviewPortForwardParams) {
+	var request CreatePreviewPortForwardRequestObject
+
+	request.ApplicationUuid = applicationUuid
+	request.PreviewUuid = previewUuid
+	request.Params = params
+
+	var body CreatePreviewPortForwardJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreatePreviewPortForward(ctx, request.(CreatePreviewPortForwardRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreatePreviewPortForward")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreatePreviewPortForwardResponseObject); ok {
+		if err := validResponse.VisitCreatePreviewPortForwardResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
