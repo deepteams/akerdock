@@ -302,7 +302,7 @@ Environnement éphémère déployé automatiquement **pour chaque pull request**
 - Build logs temps réel ; logs applicatifs par container ; terminal web.
 - **Log drains** par serveur puis par ressource : Axiom, New Relic, config **Fluent Bit custom**.
 - Métriques CPU/RAM serveur + containers (Sentinel) avec historique.
-- Canal d'**audit structuré** pour les requêtes API et événements webhook ; corrélation avec acteur/token, team, cible, résultat et identifiant de requête, sans journaliser les secrets.
+- Canal d'**audit structuré** pour les requêtes API et événements webhook ; corrélation avec acteur/token, team, cible, résultat et identifiant de requête, sans journaliser les secrets. Ce goulot d'audit est aussi le point d'instrumentation OTLP : chaque action émet un compteur `akerdock.actions.total{action, actor, result}` et un span-event sur la trace active — traces, métriques et logs étant activables/désactivables signal par signal dans la config d'instance (§14.2, ADR-008). Les jobs (déploiements, backups, cleanup, sync Git, notifications…) portent chacun leur span + métrique de durée/issue, et chaque requête API sa propre span serveur.
 - Health checks applicatifs ; surveillance de joignabilité des serveurs avec notifications ; alertes disque.
 - Pas d'APM. L'**uptime monitoring intégré** est décidé par ADR-017 : checks HTTP/TCP simples exécutés hors du workload, historique et alerting via les canaux existants — le périmètre s'arrête au up/down et à la latence (Uptime Kuma & co restent disponibles en one-click pour les besoins avancés).
 

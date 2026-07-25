@@ -280,6 +280,10 @@ type Metrics struct {
 	JobDuration       metric.Float64Histogram
 	DeploymentsTotal  metric.Int64Counter
 	DeploymentLatency metric.Float64Histogram
+	// ActionsTotal counts every audited action (the chokepoint every mutation
+	// passes through), by action name, actor kind and result — the product-wide
+	// "what happened" counter.
+	ActionsTotal metric.Int64Counter
 }
 
 // NewMetrics builds the instruments. Errors are folded into no-ops rather than
@@ -293,10 +297,26 @@ func NewMetrics(m metric.Meter) *Metrics {
 		metric.WithDescription("Deployments that reached a terminal state, by status"))
 	deployDur, _ := m.Float64Histogram("akerdock.deployment.duration",
 		metric.WithDescription("Deployment wall-clock time"), metric.WithUnit("s"))
+	actions, _ := m.Int64Counter("akerdock.actions.total",
+		metric.WithDescription("Audited actions, by action, actor and result"))
 	return &Metrics{
 		JobsCompleted: jobs, JobDuration: jobDur,
 		DeploymentsTotal: deploys, DeploymentLatency: deployDur,
+		ActionsTotal: actions,
 	}
+}
+
+// RecordAction reports one audited action — the single instrument behind
+// "instrument every AkerDock action", fed from the audit chokepoint.
+func (m *Metrics) RecordAction(ctx context.Context, action, actor, result string) {
+	if m == nil || m.ActionsTotal == nil {
+		return
+	}
+	m.ActionsTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("action", action),
+		attribute.String("actor", actor),
+		attribute.String("result", result),
+	))
 }
 
 // RecordJob reports one terminal job.

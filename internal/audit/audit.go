@@ -14,16 +14,38 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgtype"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/store"
+	"github.com/deepteams/akerdock/internal/telemetry"
 )
 
 // Recorder writes audit and outbox rows.
 type Recorder struct {
 	Store  AuditStore
 	Logger *slog.Logger
+	// Metrics is optional: the audit trail is the chokepoint every action
+	// crosses, so recording a counter + span event here instruments the whole
+	// product from one place. Nil disables telemetry, never the audit row.
+	Metrics *telemetry.Metrics
+}
+
+// telemetry emits the OTLP side of one audited action: a product-wide counter
+// and an event on whatever span is active (the HTTP request span, or a job
+// span). Governed by the signal toggles of the OTLP config — with metrics or
+// traces off, the corresponding side is a no-op.
+func (a *Recorder) telemetry(ctx context.Context, action, actor, result string) {
+	a.Metrics.RecordAction(ctx, action, actor, result)
+	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
+		span.AddEvent("akerdock.action", trace.WithAttributes(
+			attribute.String("action", action),
+			attribute.String("actor", actor),
+			attribute.String("result", result),
+		))
+	}
 }
 
 // AuditStore is the generated-query boundary owned by this package. The
@@ -58,6 +80,7 @@ func (a *Recorder) Record(r *http.Request, id *auth.Identity, ev Event) {
 	if ev.Result == "" {
 		ev.Result = store.AuditResultSuccess
 	}
+	a.telemetry(r.Context(), ev.Action, "token", string(ev.Result))
 	var actorUUID pgtype.UUID
 	_ = actorUUID.Scan(id.TokenUUID)
 	var teamID *int64
@@ -141,6 +164,7 @@ func (a *Recorder) System(ctx context.Context, teamID *int64, action, targetKind
 	if result == "" {
 		result = store.AuditResultSuccess
 	}
+	a.telemetry(ctx, action, "system", string(result))
 	if err := a.Store.InsertAuditEvent(ctx, store.InsertAuditEventParams{
 		TeamID:     teamID,
 		ActorKind:  store.ActorKindSystem,

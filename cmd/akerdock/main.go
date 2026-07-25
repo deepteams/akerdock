@@ -207,7 +207,7 @@ func serveRun(mode string) int {
 		logger = slog.New(multiHandler{baseHandler, otelslog.NewHandler(telemetry.ScopeName())})
 	}
 
-	recorder := &audit.Recorder{Store: q, Logger: logger}
+	recorder := &audit.Recorder{Store: q, Logger: logger, Metrics: metrics}
 	broker := events.NewBroker()
 	// The outbox publisher runs wherever the API serves SSE, and in workers
 	// (a worker-only deployment still has to publish its events).

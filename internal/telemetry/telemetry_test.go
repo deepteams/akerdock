@@ -135,14 +135,17 @@ func TestInitPrometheusAndMetrics(t *testing.T) {
 	metrics := NewMetrics(got.Meter)
 	metrics.RecordJob(context.Background(), "deploy", "succeeded", 1.25)
 	metrics.RecordDeployment(context.Background(), "succeeded", 2.5)
+	metrics.RecordAction(context.Background(), "application.deploy", "token", "success")
 	var nilMetrics *Metrics
 	nilMetrics.RecordJob(context.Background(), "ignored", "ignored", 0)
 	nilMetrics.RecordDeployment(context.Background(), "ignored", 0)
+	nilMetrics.RecordAction(context.Background(), "ignored", "ignored", "ignored")
 
 	rec := httptest.NewRecorder()
 	got.PromHandler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "akerdock_jobs_completed") ||
-		!strings.Contains(rec.Body.String(), "akerdock_deployments_total") {
+		!strings.Contains(rec.Body.String(), "akerdock_deployments_total") ||
+		!strings.Contains(rec.Body.String(), "akerdock_actions_total") {
 		t.Fatalf("metrics response = %d %q", rec.Code, rec.Body.String())
 	}
 }
