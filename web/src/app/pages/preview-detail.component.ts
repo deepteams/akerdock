@@ -12,6 +12,10 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
+import {
+  StackComponentsComponent,
+  type StackComponentAction,
+} from '../../ui/stack-components/stack-components.component';
 import { ApplicationEnvsTabComponent } from './application/envs-tab.component';
 import { TerminalComponent } from '../../ui/terminal/terminal.component';
 import type { TerminalSessionInfo } from '../../ui/terminal/protocol';
@@ -39,6 +43,7 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
     RouterLink,
     CardComponent,
     IconComponent,
+    StackComponentsComponent,
     ApplicationEnvsTabComponent,
     TerminalComponent,
   ],
@@ -114,9 +119,13 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
                 <dt>URL</dt>
                 <dd>
                   @if (p.fqdn) {
-                    <a class="akd-mono" [href]="'https://' + p.fqdn" target="_blank" rel="noopener">{{
-                      p.fqdn
-                    }}</a>
+                    <a
+                      class="akd-mono"
+                      [href]="'https://' + p.fqdn"
+                      target="_blank"
+                      rel="noopener"
+                      >{{ p.fqdn }}</a
+                    >
                   } @else {
                     —
                   }
@@ -128,10 +137,28 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
               </div>
               <div>
                 <dt>Fork</dt>
-                <dd>{{ p.is_fork ? (p.fork_approved ? 'yes — approved' : 'yes — pending approval') : 'no' }}</dd>
+                <dd>
+                  {{
+                    p.is_fork
+                      ? p.fork_approved
+                        ? 'yes — approved'
+                        : 'yes — pending approval'
+                      : 'no'
+                  }}
+                </dd>
               </div>
             </dl>
           </akd-card>
+
+          @if (components().length > 0) {
+            <akd-stack-components
+              class="stack"
+              [components]="components()"
+              [appName]="appName()"
+              [pr]="p.pr_id"
+              (open)="onComponentAction($event)"
+            />
+          }
         }
       }
       @case ('logs') {
@@ -152,14 +179,24 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
               </div>
             }
             <div class="akd-select">
-              <select name="lines" class="akd-input" [(ngModel)]="lines" (ngModelChange)="refreshLogs()">
+              <select
+                name="lines"
+                class="akd-input"
+                [(ngModel)]="lines"
+                (ngModelChange)="refreshLogs()"
+              >
                 <option [ngValue]="200">Last 200 lines</option>
                 <option [ngValue]="500">Last 500 lines</option>
                 <option [ngValue]="2000">Last 2000 lines</option>
               </select>
             </div>
             <label class="akd-check">
-              <input type="checkbox" name="follow" [(ngModel)]="follow" (ngModelChange)="onFollow()" />
+              <input
+                type="checkbox"
+                name="follow"
+                [(ngModel)]="follow"
+                (ngModelChange)="onFollow()"
+              />
               Follow (refresh every 3 s)
             </label>
             <span class="spacer"></span>
@@ -177,7 +214,9 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
             @if (logLines.length === 0) {
               <p class="akd-muted pad">The container has not written anything yet.</p>
             } @else {
-              <pre class="log"><code>@for (line of logLines; track line.sequence) {{{ line.message }}
+              <pre
+                class="log"
+              ><code>@for (line of logLines; track line.sequence) {{{ line.message }}
 }</code></pre>
             }
           } @else if (busy()) {
@@ -199,7 +238,9 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
               </div>
             }
             <span class="spacer"></span>
-            <span class="akd-muted note-inline">opening and closing are audited · keystrokes are never logged</span>
+            <span class="akd-muted note-inline"
+              >opening and closing are audited · keystrokes are never logged</span
+            >
           </div>
           <div class="akd-card__body">
             <akd-terminal
@@ -213,8 +254,8 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
       @case ('envs') {
         <p class="akd-muted note">
           The EFFECTIVE variables of this PR: the shared preview set plus this preview's own
-          overrides (INV-010: production values are never inherited). Adding or editing here
-          creates an override for THIS PR only; changes apply on its next deployment.
+          overrides (INV-010: production values are never inherited). Adding or editing here creates
+          an override for THIS PR only; changes apply on its next deployment.
         </p>
         <app-application-envs-tab [uuid]="uuid()" [previewUuid]="previewUuid()" />
       }
@@ -252,9 +293,8 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
             <div>
               <strong>Destroy this preview</strong>
               <p class="akd-muted">
-                Removes its containers, volumes, networks and routing. Production is never
-                touched. The PR stays open — a /deploy comment or a push recreates a fresh
-                instance.
+                Removes its containers, volumes, networks and routing. Production is never touched.
+                The PR stays open — a /deploy comment or a push recreates a fresh instance.
               </p>
             </div>
             <button
@@ -287,6 +327,10 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
       }
       .akd-tabs {
         margin-bottom: var(--space-4);
+      }
+      .stack {
+        display: block;
+        margin-top: var(--space-5);
       }
       .facts {
         margin: 0;
@@ -374,7 +418,27 @@ export class PreviewDetailComponent {
     });
   }
 
+  /** A stack-components action: open that service's logs/shell/volumes here. */
+  protected onComponentAction(action: StackComponentAction): void {
+    switch (action.target) {
+      case 'logs':
+        this.component = action.component;
+        this.selectTab('logs');
+        this.refreshLogs();
+        break;
+      case 'terminal':
+        this.terminalComponent = action.component;
+        this.selectTab('terminal');
+        break;
+      case 'storages':
+        this.selectTab('storages');
+        break;
+    }
+  }
+
   protected readonly preview = signal<Preview | null>(null);
+  /** Name of the parent application — the CLI ref is `app/<name>`. */
+  protected readonly appName = signal<string>('');
   protected readonly components = signal<ServiceComponent[]>([]);
   protected readonly storages = signal<Storage[]>([]);
   protected readonly logs = signal<LogLine[] | null>(null);
@@ -409,7 +473,8 @@ export class PreviewDetailComponent {
 
   private async init(app: string, previewUuid: string): Promise<void> {
     try {
-      const [previews, comps, storages] = await Promise.all([
+      const [application, previews, comps, storages] = await Promise.all([
+        this.api.client().getApplication(app),
         this.api.client().listApplicationPreviews(app),
         this.api.client().listApplicationComponents(app),
         this.api.client().listApplicationStorages(app),
@@ -419,6 +484,7 @@ export class PreviewDetailComponent {
         this.error.set('Preview not found — it may have been removed.');
         return;
       }
+      this.appName.set(application.name);
       this.preview.set(preview);
       this.components.set(comps.data);
       this.storages.set(storages.data);

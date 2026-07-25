@@ -13,6 +13,10 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { CardComponent } from '../../ui/card/card.component';
+import {
+  StackComponentsComponent,
+  type StackComponentAction,
+} from '../../ui/stack-components/stack-components.component';
 import { ApiService } from '../core/api.service';
 import type { components } from '../../api/schema';
 import { ApplicationSettingsTabComponent } from './application/settings-tab.component';
@@ -53,27 +57,6 @@ type Row = LogLine | GapMarker;
 
 const isGap = (row: Row): row is GapMarker => 'gap' in row;
 
-/** Default listen port of a database engine, for a ready-to-run port-forward. */
-function enginePort(engine: string | null | undefined): number | null {
-  switch (engine) {
-    case 'postgresql':
-      return 5432;
-    case 'mysql':
-    case 'mariadb':
-      return 3306;
-    case 'mongodb':
-      return 27017;
-    case 'redis':
-    case 'keydb':
-    case 'dragonfly':
-      return 6379;
-    case 'clickhouse':
-      return 9000;
-    default:
-      return null;
-  }
-}
-
 @Component({
   selector: 'app-application-detail',
   standalone: true,
@@ -81,6 +64,7 @@ function enginePort(engine: string | null | undefined): number | null {
     StatusBadgeComponent,
     IconComponent,
     CardComponent,
+    StackComponentsComponent,
     RouterLink,
     ApplicationSettingsTabComponent,
     ApplicationEnvsTabComponent,
@@ -230,123 +214,12 @@ function enginePort(engine: string | null | undefined): number | null {
           </section>
 
           @if (components().length > 0) {
-            <akd-card title="Stack components" class="components" [padded]="false">
-              <div class="comp">
-                <!-- One tab per compose service: its state and the actions that
-                     apply to it (logs, shell, tunnel) live in its own panel,
-                     instead of a flat list the operator has to cross-reference. -->
-                <nav class="comp__tabs" role="tablist" aria-label="Stack components">
-                  @for (c of components(); track c.uuid) {
-                    <button
-                      type="button"
-                      role="tab"
-                      class="comp__tab"
-                      [class.comp__tab--active]="activeComponent() === c.name"
-                      [attr.aria-selected]="activeComponent() === c.name"
-                      (click)="activeComponent.set(c.name)"
-                    >
-                      <span class="akd-mono comp__tab-name">{{ c.name }}</span>
-                      <akd-status-badge domain="resource" [state]="c.observed_status" />
-                    </button>
-                  }
-                </nav>
-
-                @if (activeComp(); as c) {
-                  <div class="comp__panel" role="tabpanel">
-                    <header class="comp__head">
-                      <span class="akd-mono comp__title">{{ c.name }}</span>
-                      <akd-status-badge domain="resource" [state]="c.observed_status" />
-                      @if (c.is_database) {
-                        <span class="akd-badge akd-badge--mono">db: {{ c.database_engine }}</span>
-                      }
-                      @if (c.exclude_from_hc) {
-                        <span class="akd-badge">one-shot</span>
-                      }
-                    </header>
-
-                    @if (c.image || c.observed_at) {
-                      <dl class="comp__meta">
-                        @if (c.image) {
-                          <div>
-                            <dt>Image</dt>
-                            <dd class="akd-mono">{{ c.image }}</dd>
-                          </div>
-                        }
-                        @if (c.observed_at) {
-                          <div>
-                            <dt>Last seen</dt>
-                            <dd>{{ c.observed_at }}</dd>
-                          </div>
-                        }
-                      </dl>
-                    }
-
-                    <div class="comp__actions">
-                      <button
-                        class="akd-btn akd-btn--secondary akd-btn--sm"
-                        type="button"
-                        (click)="openComponent('logs', c.name)"
-                      >
-                        <akd-icon name="scroll-text" [size]="13" />
-                        Logs
-                      </button>
-                      <button
-                        class="akd-btn akd-btn--secondary akd-btn--sm"
-                        type="button"
-                        (click)="openComponent('terminal', c.name)"
-                      >
-                        <akd-icon name="terminal" [size]="13" />
-                        Shell
-                      </button>
-                      @if (c.is_database) {
-                        <button
-                          class="akd-btn akd-btn--secondary akd-btn--sm"
-                          type="button"
-                          (click)="selectTab('storages')"
-                        >
-                          <akd-icon name="hard-drive" [size]="13" />
-                          Volumes
-                        </button>
-                      }
-                    </div>
-
-                    <!-- Reach this container from your machine without exposing it
-                         (CLI tunnels through the manager — cli.md §7). -->
-                    <div class="comp__cli">
-                      @if (c.is_database) {
-                        <span class="comp__cli-label">Open a console</span>
-                        <div class="comp__cmd">
-                          <code class="akd-mono">{{ dbConsoleCmd(c) }}</code>
-                          <button
-                            class="akd-btn akd-btn--ghost akd-btn--sm"
-                            type="button"
-                            title="Copy"
-                            (click)="copy(dbConsoleCmd(c))"
-                          >
-                            <akd-icon name="copy" [size]="13" />
-                          </button>
-                        </div>
-                      }
-                      <span class="comp__cli-label">Forward a port</span>
-                      <div class="comp__cmd">
-                        <code class="akd-mono">{{ portForwardCmd(c) }}</code>
-                        <button
-                          class="akd-btn akd-btn--ghost akd-btn--sm"
-                          type="button"
-                          title="Copy"
-                          (click)="copy(portForwardCmd(c))"
-                        >
-                          <akd-icon name="copy" [size]="13" />
-                        </button>
-                      </div>
-                      @if (notice(); as text) {
-                        <span class="comp__notice">{{ text }}</span>
-                      }
-                    </div>
-                  </div>
-                }
-              </div>
-            </akd-card>
+            <akd-stack-components
+              class="components"
+              [components]="components()"
+              [appName]="app.name"
+              (open)="onComponentAction($event)"
+            />
           }
         }
 
@@ -461,134 +334,6 @@ function enginePort(engine: string | null | undefined): number | null {
         display: block;
         margin-bottom: var(--space-5);
       }
-      /* Left rail of services, right panel for the selected one; stacks on
-         narrow screens (the rail becomes a horizontal strip). */
-      .comp {
-        display: grid;
-        grid-template-columns: minmax(11rem, 15rem) 1fr;
-        align-items: stretch;
-      }
-      .comp__tabs {
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-1);
-        padding: var(--space-3);
-        border-right: 1px solid var(--border-1);
-      }
-      .comp__tab {
-        display: flex;
-        align-items: center;
-        gap: var(--space-2);
-        width: 100%;
-        padding: var(--space-2) var(--space-3);
-        border: 0;
-        border-radius: var(--radius-2);
-        background: transparent;
-        color: var(--text-1);
-        cursor: pointer;
-        text-align: left;
-        font: inherit;
-      }
-      .comp__tab:hover {
-        background: var(--bg-2);
-      }
-      .comp__tab:focus-visible {
-        outline: none;
-        box-shadow: var(--ring-focus);
-      }
-      .comp__tab--active {
-        background: var(--bg-2);
-      }
-      .comp__tab-name {
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: var(--text-sm);
-      }
-      .comp__panel {
-        padding: var(--space-4) var(--space-5);
-        display: grid;
-        gap: var(--space-4);
-        align-content: start;
-      }
-      .comp__head {
-        display: flex;
-        align-items: center;
-        gap: var(--space-3);
-        flex-wrap: wrap;
-      }
-      .comp__title {
-        font-size: var(--text-base);
-      }
-      .comp__meta {
-        display: grid;
-        gap: var(--space-2);
-        margin: 0;
-        font-size: var(--text-sm);
-      }
-      .comp__meta > div {
-        display: flex;
-        gap: var(--space-3);
-      }
-      .comp__meta dt {
-        min-width: 5.5rem;
-        color: var(--text-3);
-      }
-      .comp__meta dd {
-        margin: 0;
-        overflow-wrap: anywhere;
-      }
-      .comp__actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: var(--space-2);
-      }
-      .comp__cli {
-        display: grid;
-        gap: var(--space-2);
-        padding-top: var(--space-3);
-        border-top: 1px solid var(--border-1);
-      }
-      .comp__cli-label {
-        font-size: var(--text-xs);
-        color: var(--text-3);
-      }
-      .comp__cmd {
-        display: flex;
-        align-items: center;
-        gap: var(--space-2);
-      }
-      .comp__cmd code {
-        flex: 1;
-        padding: var(--space-2) var(--space-3);
-        border-radius: var(--radius-2);
-        background: var(--surface-2);
-        font-size: var(--text-xs);
-        overflow-x: auto;
-        white-space: nowrap;
-      }
-      .comp__notice {
-        font-size: var(--text-xs);
-        color: var(--text-success, var(--text-2));
-      }
-      @media (max-width: 48rem) {
-        .comp {
-          grid-template-columns: 1fr;
-        }
-        .comp__tabs {
-          flex-direction: row;
-          flex-wrap: wrap;
-          border-right: 0;
-          border-bottom: 1px solid var(--border-1);
-        }
-        .comp__tab {
-          width: auto;
-        }
-        .comp__tab-name {
-          flex: 0 1 auto;
-        }
-      }
       .split {
         display: grid;
         grid-template-columns: minmax(16rem, 24rem) 1fr;
@@ -699,25 +444,21 @@ export class ApplicationDetailComponent {
     });
   }
 
-  /** Jump to the logs/terminal tab with this compose service preselected. */
-  protected openComponent(tab: 'logs' | 'terminal', component: string): void {
+  /** A stack-components action: deep-link to that service's logs/shell/volumes. */
+  protected onComponentAction(action: StackComponentAction): void {
+    if (action.target === 'storages') {
+      this.selectTab('storages');
+      return;
+    }
     void this.router.navigate([], {
       relativeTo: this.activatedRoute,
-      queryParams: { tab, component },
+      queryParams: { tab: action.target, component: action.component },
       queryParamsHandling: 'merge',
     });
   }
 
   protected readonly application = signal<Application | null>(null);
   protected readonly components = signal<ServiceComponent[]>([]);
-  /** Which stack component's panel is open in the overview. */
-  protected readonly activeComponent = signal<string | null>(null);
-  protected readonly activeComp = computed(
-    () => this.components().find((c) => c.name === this.activeComponent()) ?? null,
-  );
-  /** Transient "copied" feedback under the CLI commands. */
-  protected readonly notice = signal<string | null>(null);
-  private noticeTimer: ReturnType<typeof setTimeout> | null = null;
   protected readonly deployments = signal<Deployment[]>([]);
   protected readonly serverName = signal<string | null>(null);
   protected readonly selected = signal<string | null>(null);
@@ -746,10 +487,7 @@ export class ApplicationDetailComponent {
       const valid = this.tabs.find((t) => t.id === wanted)?.id;
       this.tab.set(valid ?? this.tabs[0].id);
     });
-    inject(DestroyRef).onDestroy(() => {
-      this.closeStream();
-      if (this.noticeTimer !== null) clearTimeout(this.noticeTimer);
-    });
+    inject(DestroyRef).onDestroy(() => this.closeStream());
     // The uuid is a route input: it is not readable before the router binds it,
     // so the initial load waits for the effect rather than the constructor.
     effect(() => {
@@ -781,7 +519,7 @@ export class ApplicationDetailComponent {
         client.listApplicationComponents(uuid),
       ]);
       this.application.set(app);
-      this.setComponents(comps.data);
+      this.components.set(comps.data);
       this.deployments.set(page.data);
       void this.loadServerName(app.server_uuid);
       // The newest deployment is the one an operator is here to watch.
@@ -850,51 +588,11 @@ export class ApplicationDetailComponent {
         this.api.client().listApplicationComponents(this.uuid()),
       ]);
       this.application.set(app);
-      this.setComponents(comps.data);
+      this.components.set(comps.data);
       this.deployments.set(page.data);
     } catch {
       // A failed refresh must not wipe what is already on screen.
     }
-  }
-
-  /** Sets the components and keeps the open panel valid (or opens the first). */
-  private setComponents(comps: ServiceComponent[]): void {
-    this.components.set(comps);
-    const current = this.activeComponent();
-    if (!current || !comps.some((c) => c.name === current)) {
-      this.activeComponent.set(comps[0]?.name ?? null);
-    }
-  }
-
-  /** CLI reference of this app: `app/<name>` (falls back to the UUID). */
-  private appRef(): string {
-    return 'app/' + (this.application()?.name ?? this.uuid());
-  }
-
-  /** Confort console for a database service (cli.md §8). */
-  protected dbConsoleCmd(c: ServiceComponent): string {
-    return `akerdock db ${this.appRef()} -c ${c.name}`;
-  }
-
-  /** TCP tunnel through the manager to this service (cli.md §7). */
-  protected portForwardCmd(c: ServiceComponent): string {
-    const port = enginePort(c.database_engine) ?? '<PORT>';
-    return `akerdock port-forward ${this.appRef()} ${port}:${port} -c ${c.name}`;
-  }
-
-  protected async copy(value: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(value);
-      this.flashNotice('Copied to clipboard.');
-    } catch {
-      this.flashNotice('Copy failed — select and copy manually.');
-    }
-  }
-
-  private flashNotice(text: string): void {
-    this.notice.set(text);
-    if (this.noticeTimer !== null) clearTimeout(this.noticeTimer);
-    this.noticeTimer = setTimeout(() => this.notice.set(null), 2500);
   }
 
   /**
