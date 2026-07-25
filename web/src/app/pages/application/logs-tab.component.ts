@@ -117,6 +117,8 @@ type ServiceComponent = components['schemas']['ServiceComponent'];
 })
 export class ApplicationLogsTabComponent {
   readonly uuid = input.required<string>();
+  /** Compose service to open on load — set when the overview deep-links here. */
+  readonly preselect = input<string>('');
 
   private readonly api = inject(ApiService);
 
@@ -146,7 +148,10 @@ export class ApplicationLogsTabComponent {
       const page = await this.api.client().listApplicationComponents(uuid);
       this.components.set(page.data);
       if (page.data.length > 0) {
-        this.component = page.data[0].name;
+        // Honour the component the overview deep-linked to, else the first one.
+        const wanted = this.preselect();
+        const match = page.data.find((c) => c.name === wanted);
+        this.component = match ? match.name : page.data[0].name;
       }
     } catch {
       this.components.set([]);
