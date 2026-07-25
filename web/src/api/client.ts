@@ -270,6 +270,22 @@ export class AkerDockClient {
     return this.request<Response>('GET', `/applications/${uuid}/components`);
   }
 
+  /** Live CPU/RAM snapshot per compose service (ADR-034) — never stored. */
+  getApplicationMetrics(uuid: string) {
+    type Response =
+      paths['/applications/{application_uuid}/metrics']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/applications/${uuid}/metrics`);
+  }
+
+  getPreviewMetrics(applicationUuid: string, previewUuid: string) {
+    type Response =
+      paths['/applications/{application_uuid}/previews/{preview_uuid}/metrics']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>(
+      'GET',
+      `/applications/${applicationUuid}/previews/${previewUuid}/metrics`,
+    );
+  }
+
   /** PR previews of an application (§20.4). */
   listApplicationPreviews(uuid: string) {
     type Response =

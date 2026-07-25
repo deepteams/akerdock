@@ -25,6 +25,7 @@ import type { components } from '../../api/schema';
 type Preview = components['schemas']['Preview'];
 type LogLine = components['schemas']['LogLine'];
 type ServiceComponent = components['schemas']['ServiceComponent'];
+type ComponentMetric = components['schemas']['ComponentMetric'];
 type Storage = components['schemas']['PersistentStorage'];
 
 type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
@@ -156,6 +157,7 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
               [components]="components()"
               [appName]="appName()"
               [pr]="p.pr_id"
+              [metrics]="metrics()"
               (open)="onComponentAction($event)"
             />
           }
@@ -440,6 +442,8 @@ export class PreviewDetailComponent {
   /** Name of the parent application — the CLI ref is `app/<name>`. */
   protected readonly appName = signal<string>('');
   protected readonly components = signal<ServiceComponent[]>([]);
+  /** Live per-service stats (ADR-034), polled while the overview is open. */
+  protected readonly metrics = signal<Record<string, ComponentMetric>>({});
   protected readonly storages = signal<Storage[]>([]);
   protected readonly logs = signal<LogLine[] | null>(null);
   protected readonly error = signal<string | null>(null);
@@ -463,6 +467,33 @@ export class PreviewDetailComponent {
       const app = this.uuid();
       const preview = this.previewUuid();
       untracked(() => void this.init(app, preview));
+    });
+    // Live metrics: poll only while the overview of a compose stack is visible.
+    effect((onCleanup) => {
+      const app = this.uuid();
+      const preview = this.previewUuid();
+      const visible = this.tab() === 'overview' && this.components().length > 0;
+      if (!visible) {
+        this.metrics.set({});
+        return;
+      }
+      let stopped = false;
+      const poll = async () => {
+        try {
+          const page = await this.api.client().getPreviewMetrics(app, preview);
+          if (!stopped) {
+            this.metrics.set(Object.fromEntries(page.data.map((m) => [m.component!, m])));
+          }
+        } catch {
+          // Transient — keep the last snapshot on screen.
+        }
+      };
+      void poll();
+      const timer = setInterval(poll, 4000);
+      onCleanup(() => {
+        stopped = true;
+        clearInterval(timer);
+      });
     });
     inject(DestroyRef).onDestroy(() => this.stopFollow());
   }

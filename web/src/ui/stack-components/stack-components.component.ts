@@ -16,11 +16,24 @@ import { StatusBadgeComponent } from '../status-badge/status-badge.component';
 import type { components } from '../../api/schema';
 
 type ServiceComponent = components['schemas']['ServiceComponent'];
+type ComponentMetric = components['schemas']['ComponentMetric'];
 
 /** Where a component action deep-links to, carried up to the host page. */
 export interface StackComponentAction {
   target: 'logs' | 'terminal' | 'storages';
   component: string;
+}
+
+/** Human-readable byte size (binary units), e.g. 26843546 → "25.6 MiB". */
+function fmtBytes(n: number): string {
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let v = n;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v < 10 && i > 0 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
 }
 
 /** Default listen port of a database engine, for a ready-to-run port-forward. */
@@ -104,6 +117,44 @@ function enginePort(engine: string | null | undefined): number | null {
                   </div>
                 }
               </dl>
+            }
+
+            <!-- Live CPU/RAM, read on demand via docker stats (ADR-034). -->
+            @if (hasMetrics()) {
+              @if (activeMetric(); as m) {
+                <div class="usage">
+                  <div class="usage__row">
+                    <div class="usage__head">
+                      <span class="usage__label">CPU</span>
+                      <span class="akd-mono">{{ cpuLabel(m) }}</span>
+                    </div>
+                    <div class="bar">
+                      <div class="bar__fill" [style.width.%]="barWidth(m.cpu_percent)"></div>
+                    </div>
+                  </div>
+                  <div class="usage__row">
+                    <div class="usage__head">
+                      <span class="usage__label">Memory</span>
+                      <span class="akd-mono">{{ memLabel(m) }}</span>
+                    </div>
+                    <div class="bar">
+                      <div class="bar__fill" [style.width.%]="barWidth(m.memory_percent)"></div>
+                    </div>
+                  </div>
+                  @if (sparkPoints(); as pts) {
+                    <svg
+                      class="spark"
+                      viewBox="0 0 100 24"
+                      preserveAspectRatio="none"
+                      aria-hidden="true"
+                    >
+                      <polyline [attr.points]="pts" />
+                    </svg>
+                  }
+                </div>
+              } @else {
+                <p class="usage__empty akd-muted">No live stats — the container is not running.</p>
+              }
             }
 
             <div class="comp__actions">
@@ -258,6 +309,44 @@ function enginePort(engine: string | null | undefined): number | null {
         flex-wrap: wrap;
         gap: var(--space-2);
       }
+      .usage {
+        display: grid;
+        gap: var(--space-2);
+      }
+      .usage__head {
+        display: flex;
+        justify-content: space-between;
+        font-size: var(--text-xs);
+      }
+      .usage__label {
+        color: var(--text-3);
+      }
+      .bar {
+        height: 6px;
+        border-radius: var(--radius-1, 3px);
+        background: var(--surface-2);
+        overflow: hidden;
+      }
+      .bar__fill {
+        height: 100%;
+        background: var(--accent);
+        transition: width var(--dur-1, 150ms) var(--ease-out, ease);
+      }
+      .spark {
+        width: 100%;
+        height: 28px;
+        margin-top: var(--space-1);
+      }
+      .spark polyline {
+        fill: none;
+        stroke: var(--accent);
+        stroke-width: 1.5;
+        vector-effect: non-scaling-stroke;
+      }
+      .usage__empty {
+        font-size: var(--text-sm);
+        margin: 0;
+      }
       .comp__cli {
         display: grid;
         gap: var(--space-2);
@@ -312,6 +401,9 @@ export class StackComponentsComponent {
   readonly appName = input<string>('');
   /** When set, the target is a PR preview: commands carry `--pr N`. */
   readonly pr = input<number | undefined>(undefined);
+  /** Live per-service stats, keyed by component name (ADR-034). The host page
+   * polls and feeds fresh snapshots; empty = the feature is not wired here. */
+  readonly metrics = input<Record<string, ComponentMetric>>({});
   readonly open = output<StackComponentAction>();
 
   /** Which service's panel is open; kept valid as the list changes. */
@@ -319,6 +411,27 @@ export class StackComponentsComponent {
   protected readonly activeComp = computed(
     () => this.components().find((c) => c.name === this.active()) ?? null,
   );
+
+  /** True once the host feeds any snapshot — gates the whole usage block. */
+  protected readonly hasMetrics = computed(() => Object.keys(this.metrics()).length > 0);
+  protected readonly activeMetric = computed<ComponentMetric | null>(
+    () => this.metrics()[this.active() ?? ''] ?? null,
+  );
+
+  /** A short CPU history per service, appended on each snapshot, for a live
+   * sparkline (kept in memory only — nothing is stored, ADR-034). */
+  private readonly SPARK_LEN = 40;
+  private readonly cpuHistory = signal<Map<string, number[]>>(new Map());
+  /** SVG polyline points for the active service's CPU trend, or '' if too few. */
+  protected readonly sparkPoints = computed(() => {
+    const series = this.cpuHistory().get(this.active() ?? '') ?? [];
+    if (series.length < 2) return '';
+    const max = Math.max(...series, 1);
+    const n = series.length;
+    return series
+      .map((v, i) => `${((i / (n - 1)) * 100).toFixed(1)},${(24 - (v / max) * 24).toFixed(1)}`)
+      .join(' ');
+  });
 
   protected readonly notice = signal<string | null>(null);
   private noticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -331,9 +444,40 @@ export class StackComponentsComponent {
         this.active.set(comps[0]?.name ?? null);
       }
     });
+    // Each new snapshot appends every service's CPU to its ring buffer.
+    effect(() => {
+      const snap = this.metrics();
+      untracked(() => {
+        const next = new Map(this.cpuHistory());
+        for (const [name, m] of Object.entries(snap)) {
+          if (m.cpu_percent == null) continue;
+          const series = [...(next.get(name) ?? []), m.cpu_percent];
+          if (series.length > this.SPARK_LEN) series.splice(0, series.length - this.SPARK_LEN);
+          next.set(name, series);
+        }
+        this.cpuHistory.set(next);
+      });
+    });
     inject(DestroyRef).onDestroy(() => {
       if (this.noticeTimer !== null) clearTimeout(this.noticeTimer);
     });
+  }
+
+  /** Bar fill for a percentage that can exceed 100 (multi-core CPU). */
+  protected barWidth(pct: number | null | undefined): number {
+    if (pct == null) return 0;
+    return Math.max(0, Math.min(100, pct));
+  }
+
+  protected cpuLabel(m: ComponentMetric): string {
+    return m.cpu_percent == null ? '—' : `${m.cpu_percent.toFixed(1)}%`;
+  }
+
+  protected memLabel(m: ComponentMetric): string {
+    if (m.memory_bytes == null) return '—';
+    const used = fmtBytes(m.memory_bytes);
+    const pct = m.memory_percent == null ? '' : ` · ${m.memory_percent.toFixed(0)}%`;
+    return m.memory_limit_bytes ? `${used} / ${fmtBytes(m.memory_limit_bytes)}${pct}` : used;
   }
 
   private appRef(): string {

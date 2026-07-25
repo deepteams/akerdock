@@ -31,6 +31,7 @@ import { ApplicationLogsTabComponent } from './application/logs-tab.component';
 type Application = components['schemas']['Application'];
 type Deployment = components['schemas']['Deployment'];
 type ServiceComponent = components['schemas']['ServiceComponent'];
+type ComponentMetric = components['schemas']['ComponentMetric'];
 
 type TabId =
   | 'overview'
@@ -206,6 +207,7 @@ type TabId =
               class="components"
               [components]="components()"
               [appName]="app.name"
+              [metrics]="metrics()"
               (open)="onComponentAction($event)"
             />
           }
@@ -336,6 +338,9 @@ export class ApplicationDetailComponent {
   protected readonly serverName = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
+  /** Live per-service stats (ADR-034), keyed by component name — polled only
+   * while the overview tab of a compose stack is open. */
+  protected readonly metrics = signal<Record<string, ComponentMetric>>({});
 
   constructor() {
     // URL → state: seeds the tab on load and follows back/forward — the
@@ -350,6 +355,33 @@ export class ApplicationDetailComponent {
     effect(() => {
       const uuid = this.uuid();
       untracked(() => void this.load(uuid));
+    });
+    // Live metrics: poll only while the overview of a compose stack is visible,
+    // and stop (releasing the SSH round-trip) as soon as it is not.
+    effect((onCleanup) => {
+      const uuid = this.uuid();
+      const visible = this.tab() === 'overview' && this.components().length > 0;
+      if (!visible) {
+        this.metrics.set({});
+        return;
+      }
+      let stopped = false;
+      const poll = async () => {
+        try {
+          const page = await this.api.client().getApplicationMetrics(uuid);
+          if (!stopped) {
+            this.metrics.set(Object.fromEntries(page.data.map((m) => [m.component!, m])));
+          }
+        } catch {
+          // Transient (server unreachable) — keep the last snapshot on screen.
+        }
+      };
+      void poll();
+      const timer = setInterval(poll, 4000);
+      onCleanup(() => {
+        stopped = true;
+        clearInterval(timer);
+      });
     });
   }
 

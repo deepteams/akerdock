@@ -4774,6 +4774,43 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /applications/{application_uuid}/metrics:
+    parameters:
+      - $ref: "#/components/parameters/ApplicationUuid"
+    get:
+      tags: [Applications]
+      operationId: getApplicationMetrics
+      summary: Métriques live par composant
+      description: >-
+        Instantané CPU/RAM par service du stack, lu à la demande via `docker
+        stats` sur la connexion runtime (ADR-034) — jamais stocké. Le client
+        rafraîchit périodiquement pour tracer une tendance côté navigateur.
+        Vide pour les build packs non-compose.
+      x-required-permission: read
+      responses:
+        "200":
+          description: Métriques instantanées.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ComponentMetric"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /applications/{application_uuid}/components:
     parameters:
       - $ref: "#/components/parameters/ApplicationUuid"
@@ -5131,6 +5168,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TerminalSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /applications/{application_uuid}/previews/{preview_uuid}/metrics:
+    parameters:
+      - $ref: "#/components/parameters/ApplicationUuid"
+      - name: preview_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Applications]
+      operationId: getPreviewMetrics
+      summary: Métriques live par composant d'une preview
+      description: >-
+        Comme `getApplicationMetrics` mais pour les containers de l'INSTANCE de
+        preview (INV-011), lus à la demande via `docker stats` (ADR-034). `409`
+        si la preview est détruite.
+      x-required-permission: read
+      responses:
+        "200":
+          description: Métriques instantanées.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ComponentMetric"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -10003,6 +10081,47 @@ components:
         created_at:
           type: string
           format: date-time
+          readOnly: true
+
+    ComponentMetric:
+      type: object
+      description: >-
+        Instantané de consommation d'un service du stack (ADR-034) — lu à la
+        demande, jamais stocké. `null` sur un champ = la mesure n'a pas pu être
+        lue (container arrêté ou sans limite).
+      required: [component]
+      properties:
+        component:
+          type: string
+          description: Nom du service compose.
+          readOnly: true
+        running:
+          type: boolean
+          description: Faux si aucun container vivant pour ce service.
+          readOnly: true
+        cpu_percent:
+          type: number
+          format: double
+          nullable: true
+          description: Pourcentage CPU instantané (peut dépasser 100 sur plusieurs cœurs).
+          readOnly: true
+        memory_bytes:
+          type: integer
+          format: int64
+          nullable: true
+          description: Mémoire utilisée en octets.
+          readOnly: true
+        memory_limit_bytes:
+          type: integer
+          format: int64
+          nullable: true
+          description: Limite mémoire en octets ; null si illimitée.
+          readOnly: true
+        memory_percent:
+          type: number
+          format: double
+          nullable: true
+          description: Mémoire utilisée en pourcentage de la limite.
           readOnly: true
 
     ApplicationCreateRequest:

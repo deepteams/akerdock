@@ -2616,6 +2616,27 @@ type CertificateKind string
 // CertificateStatus Statut observé du certificat. `pending` = émission en cours (le fallback self-signed est servi entre-temps) ; `renewing` = renouvellement en cours ; `failed` = échec d'émission ou de renouvellement (voir `last_error`).
 type CertificateStatus string
 
+// ComponentMetric Instantané de consommation d'un service du stack (ADR-034) — lu à la demande, jamais stocké. `null` sur un champ = la mesure n'a pas pu être lue (container arrêté ou sans limite).
+type ComponentMetric struct {
+	// Component Nom du service compose.
+	Component *string `json:"component,omitempty"`
+
+	// CpuPercent Pourcentage CPU instantané (peut dépasser 100 sur plusieurs cœurs).
+	CpuPercent *float64 `json:"cpu_percent,omitempty"`
+
+	// MemoryBytes Mémoire utilisée en octets.
+	MemoryBytes *int64 `json:"memory_bytes,omitempty"`
+
+	// MemoryLimitBytes Limite mémoire en octets ; null si illimitée.
+	MemoryLimitBytes *int64 `json:"memory_limit_bytes,omitempty"`
+
+	// MemoryPercent Mémoire utilisée en pourcentage de la limite.
+	MemoryPercent *float64 `json:"memory_percent,omitempty"`
+
+	// Running Faux si aucun container vivant pour ce service.
+	Running *bool `json:"running,omitempty"`
+}
+
 // Database Base de données managée (§6, v1 — PostgreSQL). Les champs `postgres_password`, `internal_url` et `external_url` contiennent des credentials — `null` sans `read:sensitive` (INV-003), `is_redacted` l'indique.
 type Database struct {
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
@@ -5552,6 +5573,9 @@ type ServerInterface interface {
 	// Flux SSE des logs runtime du container
 	// (GET /applications/{application_uuid}/logs/stream)
 	StreamApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params StreamApplicationLogsParams)
+	// Métriques live par composant
+	// (GET /applications/{application_uuid}/metrics)
+	GetApplicationMetrics(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
 	// Ouvrir un tunnel TCP vers un container de l'application
 	// (POST /applications/{application_uuid}/port-forwards)
 	CreateApplicationPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationPortForwardParams)
@@ -5576,6 +5600,9 @@ type ServerInterface interface {
 	// Logs des containers d'une preview
 	// (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
 	GetPreviewLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params GetPreviewLogsParams)
+	// Métriques live par composant d'une preview
+	// (GET /applications/{application_uuid}/previews/{preview_uuid}/metrics)
+	GetPreviewMetrics(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string)
 	// Ouvrir un tunnel TCP vers un container de la preview
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/port-forwards)
 	CreatePreviewPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params CreatePreviewPortForwardParams)
@@ -6203,6 +6230,12 @@ func (_ Unimplemented) StreamApplicationLogs(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Métriques live par composant
+// (GET /applications/{application_uuid}/metrics)
+func (_ Unimplemented) GetApplicationMetrics(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Ouvrir un tunnel TCP vers un container de l'application
 // (POST /applications/{application_uuid}/port-forwards)
 func (_ Unimplemented) CreateApplicationPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationPortForwardParams) {
@@ -6248,6 +6281,12 @@ func (_ Unimplemented) CreatePreviewEnv(w http.ResponseWriter, r *http.Request, 
 // Logs des containers d'une preview
 // (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
 func (_ Unimplemented) GetPreviewLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params GetPreviewLogsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Métriques live par composant d'une preview
+// (GET /applications/{application_uuid}/previews/{preview_uuid}/metrics)
+func (_ Unimplemented) GetPreviewMetrics(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8257,6 +8296,38 @@ func (siw *ServerInterfaceWrapper) StreamApplicationLogs(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
+// GetApplicationMetrics operation middleware
+func (siw *ServerInterfaceWrapper) GetApplicationMetrics(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "application_uuid" -------------
+	var applicationUuid ApplicationUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_uuid", chi.URLParam(r, "application_uuid"), &applicationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetApplicationMetrics(w, r, applicationUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CreateApplicationPortForward operation middleware
 func (siw *ServerInterfaceWrapper) CreateApplicationPortForward(w http.ResponseWriter, r *http.Request) {
 
@@ -8594,6 +8665,47 @@ func (siw *ServerInterfaceWrapper) GetPreviewLogs(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetPreviewLogs(w, r, applicationUuid, previewUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPreviewMetrics operation middleware
+func (siw *ServerInterfaceWrapper) GetPreviewMetrics(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "application_uuid" -------------
+	var applicationUuid ApplicationUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_uuid", chi.URLParam(r, "application_uuid"), &applicationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "preview_uuid" -------------
+	var previewUuid string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "preview_uuid", chi.URLParam(r, "preview_uuid"), &previewUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "preview_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPreviewMetrics(w, r, applicationUuid, previewUuid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -16602,6 +16714,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/applications/{application_uuid}/logs/stream", wrapper.StreamApplicationLogs)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/applications/{application_uuid}/metrics", wrapper.GetApplicationMetrics)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/applications/{application_uuid}/port-forwards", wrapper.CreateApplicationPortForward)
 	})
 	r.Group(func(r chi.Router) {
@@ -16624,6 +16739,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/logs", wrapper.GetPreviewLogs)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/metrics", wrapper.GetPreviewMetrics)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/port-forwards", wrapper.CreatePreviewPortForward)
@@ -19022,6 +19140,103 @@ func (response StreamApplicationLogs429JSONResponse) VisitStreamApplicationLogsR
 	return err
 }
 
+type GetApplicationMetricsRequestObject struct {
+	ApplicationUuid ApplicationUuid `json:"application_uuid"`
+}
+
+type GetApplicationMetricsResponseObject interface {
+	VisitGetApplicationMetricsResponse(w http.ResponseWriter) error
+}
+
+type GetApplicationMetrics200JSONResponse struct {
+	Data []ComponentMetric `json:"data"`
+}
+
+func (response GetApplicationMetrics200JSONResponse) VisitGetApplicationMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApplicationMetrics401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetApplicationMetrics401JSONResponse) VisitGetApplicationMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApplicationMetrics403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetApplicationMetrics403JSONResponse) VisitGetApplicationMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApplicationMetrics404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetApplicationMetrics404JSONResponse) VisitGetApplicationMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApplicationMetrics409JSONResponse struct{ ConflictJSONResponse }
+
+func (response GetApplicationMetrics409JSONResponse) VisitGetApplicationMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetApplicationMetrics429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetApplicationMetrics429JSONResponse) VisitGetApplicationMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateApplicationPortForwardRequestObject struct {
 	ApplicationUuid ApplicationUuid `json:"application_uuid"`
 	Params          CreateApplicationPortForwardParams
@@ -19766,6 +19981,104 @@ func (response GetPreviewLogs409JSONResponse) VisitGetPreviewLogsResponse(w http
 type GetPreviewLogs429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response GetPreviewLogs429JSONResponse) VisitGetPreviewLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPreviewMetricsRequestObject struct {
+	ApplicationUuid ApplicationUuid `json:"application_uuid"`
+	PreviewUuid     string          `json:"preview_uuid"`
+}
+
+type GetPreviewMetricsResponseObject interface {
+	VisitGetPreviewMetricsResponse(w http.ResponseWriter) error
+}
+
+type GetPreviewMetrics200JSONResponse struct {
+	Data []ComponentMetric `json:"data"`
+}
+
+func (response GetPreviewMetrics200JSONResponse) VisitGetPreviewMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPreviewMetrics401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetPreviewMetrics401JSONResponse) VisitGetPreviewMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPreviewMetrics403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetPreviewMetrics403JSONResponse) VisitGetPreviewMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPreviewMetrics404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetPreviewMetrics404JSONResponse) VisitGetPreviewMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPreviewMetrics409JSONResponse struct{ ConflictJSONResponse }
+
+func (response GetPreviewMetrics409JSONResponse) VisitGetPreviewMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPreviewMetrics429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetPreviewMetrics429JSONResponse) VisitGetPreviewMetricsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -36077,6 +36390,9 @@ type StrictServerInterface interface {
 	// Flux SSE des logs runtime du container
 	// (GET /applications/{application_uuid}/logs/stream)
 	StreamApplicationLogs(ctx context.Context, request StreamApplicationLogsRequestObject) (StreamApplicationLogsResponseObject, error)
+	// Métriques live par composant
+	// (GET /applications/{application_uuid}/metrics)
+	GetApplicationMetrics(ctx context.Context, request GetApplicationMetricsRequestObject) (GetApplicationMetricsResponseObject, error)
 	// Ouvrir un tunnel TCP vers un container de l'application
 	// (POST /applications/{application_uuid}/port-forwards)
 	CreateApplicationPortForward(ctx context.Context, request CreateApplicationPortForwardRequestObject) (CreateApplicationPortForwardResponseObject, error)
@@ -36101,6 +36417,9 @@ type StrictServerInterface interface {
 	// Logs des containers d'une preview
 	// (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
 	GetPreviewLogs(ctx context.Context, request GetPreviewLogsRequestObject) (GetPreviewLogsResponseObject, error)
+	// Métriques live par composant d'une preview
+	// (GET /applications/{application_uuid}/previews/{preview_uuid}/metrics)
+	GetPreviewMetrics(ctx context.Context, request GetPreviewMetricsRequestObject) (GetPreviewMetricsResponseObject, error)
 	// Ouvrir un tunnel TCP vers un container de la preview
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/port-forwards)
 	CreatePreviewPortForward(ctx context.Context, request CreatePreviewPortForwardRequestObject) (CreatePreviewPortForwardResponseObject, error)
@@ -37177,6 +37496,32 @@ func (sh *strictHandler) StreamApplicationLogs(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// GetApplicationMetrics operation middleware
+func (sh *strictHandler) GetApplicationMetrics(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
+	var request GetApplicationMetricsRequestObject
+
+	request.ApplicationUuid = applicationUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetApplicationMetrics(ctx, request.(GetApplicationMetricsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetApplicationMetrics")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetApplicationMetricsResponseObject); ok {
+		if err := validResponse.VisitGetApplicationMetricsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // CreateApplicationPortForward operation middleware
 func (sh *strictHandler) CreateApplicationPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationPortForwardParams) {
 	var request CreateApplicationPortForwardRequestObject
@@ -37406,6 +37751,33 @@ func (sh *strictHandler) GetPreviewLogs(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetPreviewLogsResponseObject); ok {
 		if err := validResponse.VisitGetPreviewLogsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPreviewMetrics operation middleware
+func (sh *strictHandler) GetPreviewMetrics(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
+	var request GetPreviewMetricsRequestObject
+
+	request.ApplicationUuid = applicationUuid
+	request.PreviewUuid = previewUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPreviewMetrics(ctx, request.(GetPreviewMetricsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPreviewMetrics")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPreviewMetricsResponseObject); ok {
+		if err := validResponse.VisitGetPreviewMetricsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

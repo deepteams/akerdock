@@ -2121,6 +2121,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/applications/{application_uuid}/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Métriques live par composant
+         * @description Instantané CPU/RAM par service du stack, lu à la demande via `docker stats` sur la connexion runtime (ADR-034) — jamais stocké. Le client rafraîchit périodiquement pour tracer une tendance côté navigateur. Vide pour les build packs non-compose.
+         */
+        get: operations["getApplicationMetrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/applications/{application_uuid}/components": {
         parameters: {
             query?: never;
@@ -2285,6 +2308,30 @@ export interface paths {
          * @description Même contrat que le terminal d'application (§5.7, §24.4) — token court à usage unique, session auditée et bornée — mais la cible est un container de l'INSTANCE de preview (INV-011). `component` désigne le service pour une stack compose ; `404` si le composant est inconnu ; `409` si la preview est détruite.
          */
         post: operations["createPreviewTerminalSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_uuid}/previews/{preview_uuid}/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Métriques live par composant d'une preview
+         * @description Comme `getApplicationMetrics` mais pour les containers de l'INSTANCE de preview (INV-011), lus à la demande via `docker stats` (ADR-034). `409` si la preview est détruite.
+         */
+        get: operations["getPreviewMetrics"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4431,6 +4478,33 @@ export interface components {
             readonly observed_at?: string | null;
             /** Format: date-time */
             readonly created_at: string;
+        };
+        /** @description Instantané de consommation d'un service du stack (ADR-034) — lu à la demande, jamais stocké. `null` sur un champ = la mesure n'a pas pu être lue (container arrêté ou sans limite). */
+        ComponentMetric: {
+            /** @description Nom du service compose. */
+            readonly component: string;
+            /** @description Faux si aucun container vivant pour ce service. */
+            readonly running?: boolean;
+            /**
+             * Format: double
+             * @description Pourcentage CPU instantané (peut dépasser 100 sur plusieurs cœurs).
+             */
+            readonly cpu_percent?: number | null;
+            /**
+             * Format: int64
+             * @description Mémoire utilisée en octets.
+             */
+            readonly memory_bytes?: number | null;
+            /**
+             * Format: int64
+             * @description Limite mémoire en octets ; null si illimitée.
+             */
+            readonly memory_limit_bytes?: number | null;
+            /**
+             * Format: double
+             * @description Mémoire utilisée en pourcentage de la limite.
+             */
+            readonly memory_percent?: number | null;
         };
         /** @description Corps de création d'application — discriminé par `source_type`. */
         ApplicationCreateRequest: components["schemas"]["ApplicationCreateDockerImage"] | components["schemas"]["ApplicationCreateDockerfile"] | components["schemas"]["ApplicationCreateGit"];
@@ -9705,6 +9779,36 @@ export interface operations {
             429: components["responses"]["TooManyRequests"];
         };
     };
+    getApplicationMetrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Métriques instantanées. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ComponentMetric"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
     listApplicationComponents: {
         parameters: {
             query?: never;
@@ -9984,6 +10088,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TerminalSession"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getPreviewMetrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Métriques instantanées. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ComponentMetric"][];
+                    };
                 };
             };
             401: components["responses"]["Unauthorized"];
