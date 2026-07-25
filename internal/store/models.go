@@ -2472,6 +2472,7 @@ type InstanceSetting struct {
 	Version                     int32
 	AcmeEmail                   *string
 	LocalhostSeeded             bool
+	OtlpConfigEnc               []byte
 }
 
 type Invitation struct {

@@ -320,6 +320,7 @@ Environnement éphémère déployé automatiquement **pour chaque pull request**
 - **Timezone de l'instance** configurable (affichage et crons de maintenance de la plateforme).
 - Inscription publique on/off, API on/off (cf. §10), serveur DNS de validation custom (cf. §4.2).
 - **Email transactionnel de l'instance** (SMTP ou Resend) : invitations, réinitialisation de mot de passe, email de test ; les teams peuvent réutiliser cette configuration système pour leurs notifications au lieu d'un SMTP propre.
+- **Export OTLP distant** (ADR-008/§27.8) : endpoint, protocole (HTTP/gRPC), en-têtes d'auth (chiffrés au repos) et choix des signaux (traces, métriques, logs) vers un collector OpenTelemetry ; configuré ici, chiffré, appliqué au prochain redémarrage du binaire. À défaut, repli sur les variables `OTEL_*`.
 - **Onboarding guidé** au premier démarrage : création du root user, première team, premier serveur (localhost ou distant) et première ressource.
 
 ### 14.3 Mises à jour

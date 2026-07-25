@@ -9,6 +9,8 @@ type TransactionalEmail = components['schemas']['TransactionalEmail'];
 type TransactionalEmailSet = components['schemas']['TransactionalEmailSet'];
 type EncryptionStatus = components['schemas']['EncryptionStatus'];
 type OauthProviderConfig = components['schemas']['OauthProviderConfig'];
+type TelemetryConfig = components['schemas']['TelemetryConfig'];
+type TelemetryConfigSet = components['schemas']['TelemetryConfigSet'];
 
 /** The six providers of §10.2, in display order. oidc/azure need an issuer. */
 const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = [
@@ -253,10 +255,123 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
                 Public API enabled
               </label>
               <p class="akd-muted sm">
-                When off, token, script and CI calls are refused immediately. The dashboard
-                keeps working (its session is exempt), so you can turn it back on here.
+                When off, token, script and CI calls are refused immediately. The dashboard keeps
+                working (its session is exempt), so you can turn it back on here.
               </p>
             </div>
+          </akd-card>
+
+          <akd-card title="Remote telemetry (OTLP)">
+            <form class="stack" (ngSubmit)="saveTelemetry()">
+              <p class="akd-muted sm">
+                Ship traces, metrics and logs to an OpenTelemetry collector (ADR-008).
+                @if (telemetry()?.configured) {
+                  <span class="akd-badge akd-badge--accent">configured</span>
+                }
+                Takes effect at the next restart.
+              </p>
+              <div class="akd-field">
+                <label class="akd-field__label" for="otlp-endpoint">Collector endpoint</label>
+                <input
+                  id="otlp-endpoint"
+                  name="otlpEndpoint"
+                  class="akd-input akd-input--mono"
+                  placeholder="https://otel.example.com:4318"
+                  [(ngModel)]="otlpEndpoint"
+                  [disabled]="busy()"
+                />
+                <span class="akd-field__hint"
+                  >Empty disables the export. The URL scheme decides TLS.</span
+                >
+              </div>
+              <div class="akd-field">
+                <label class="akd-field__label" for="otlp-protocol">Protocol</label>
+                <div class="akd-select">
+                  <select
+                    id="otlp-protocol"
+                    name="otlpProtocol"
+                    class="akd-input"
+                    [(ngModel)]="otlpProtocol"
+                    [disabled]="busy()"
+                  >
+                    <option value="http">HTTP/protobuf (:4318)</option>
+                    <option value="grpc">gRPC (:4317)</option>
+                  </select>
+                </div>
+              </div>
+              <fieldset class="signals">
+                <legend class="akd-field__label">Signals</legend>
+                <label class="akd-check">
+                  <input
+                    type="checkbox"
+                    name="otlpTraces"
+                    [(ngModel)]="otlpTraces"
+                    [disabled]="busy()"
+                  />
+                  Traces
+                </label>
+                <label class="akd-check">
+                  <input
+                    type="checkbox"
+                    name="otlpMetrics"
+                    [(ngModel)]="otlpMetrics"
+                    [disabled]="busy()"
+                  />
+                  Metrics
+                </label>
+                <label class="akd-check">
+                  <input
+                    type="checkbox"
+                    name="otlpLogs"
+                    [(ngModel)]="otlpLogs"
+                    [disabled]="busy()"
+                  />
+                  Logs
+                </label>
+              </fieldset>
+              <div class="akd-field">
+                <label class="akd-field__label" for="otlp-headers">
+                  Auth headers (one <code>key=value</code> per line)
+                  @if (telemetry()?.headers_set) {
+                    <span class="akd-muted">— headers are configured (hidden)</span>
+                  }
+                </label>
+                <textarea
+                  id="otlp-headers"
+                  name="otlpHeaders"
+                  class="akd-textarea akd-mono"
+                  rows="3"
+                  autocomplete="off"
+                  [placeholder]="
+                    telemetry()?.headers_set
+                      ? 'leave blank to keep the stored headers'
+                      : 'authorization=Bearer …'
+                  "
+                  [(ngModel)]="otlpHeaders"
+                  [disabled]="busy()"
+                ></textarea>
+                <span class="akd-field__hint">
+                  Write-only: encrypted at rest, never returned. Fill to replace; leave blank to
+                  keep.
+                </span>
+              </div>
+              @if (telemetry()?.headers_set) {
+                <label class="akd-check">
+                  <input
+                    type="checkbox"
+                    name="otlpClearHeaders"
+                    [(ngModel)]="otlpClearHeaders"
+                    [disabled]="busy()"
+                  />
+                  Clear the stored auth headers
+                </label>
+              }
+              <div>
+                <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
+                  {{ busy() ? 'Saving…' : 'Save telemetry' }}
+                </button>
+              </div>
+            </form>
           </akd-card>
         </div>
 
@@ -475,6 +590,18 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
   `,
   styles: [
     `
+      .signals {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-3);
+        border: 0;
+        margin: 0;
+        padding: 0;
+      }
+      .signals legend {
+        padding: 0;
+        margin-bottom: var(--space-1);
+      }
       .cols {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -579,6 +706,15 @@ export class SystemComponent {
   protected smtpEncryption: 'starttls' | 'tls' | 'none' = 'starttls';
   protected resendApiKey = '';
 
+  protected readonly telemetry = signal<TelemetryConfig | null>(null);
+  protected otlpEndpoint = '';
+  protected otlpProtocol: 'http' | 'grpc' = 'http';
+  protected otlpTraces = true;
+  protected otlpMetrics = true;
+  protected otlpLogs = true;
+  protected otlpHeaders = '';
+  protected otlpClearHeaders = false;
+
   constructor() {
     void this.load();
   }
@@ -610,11 +746,12 @@ export class SystemComponent {
   private async load(): Promise<void> {
     const client = this.api.client();
     try {
-      const [instance, email, encryption, oauth] = await Promise.all([
+      const [instance, email, encryption, oauth, telemetry] = await Promise.all([
         client.getInstanceSettings(),
         client.getTransactionalEmail(),
         client.getEncryptionStatus(),
         client.listOauthProviders(),
+        client.getTelemetry(),
       ]);
       this.instanceFqdn = instance.fqdn ?? '';
       this.instanceAcmeEmail = instance.acme_email ?? '';
@@ -624,6 +761,13 @@ export class SystemComponent {
       this.oauthConfigs.set(oauth.data);
       if (email.kind) this.emailKind = email.kind;
       if (email.from) this.emailFrom = email.from;
+      this.telemetry.set(telemetry);
+      this.otlpEndpoint = telemetry.endpoint ?? '';
+      this.otlpProtocol = telemetry.protocol === 'grpc' ? 'grpc' : 'http';
+      // Signals default to on for a fresh (unconfigured) instance.
+      this.otlpTraces = telemetry.configured ? !!telemetry.traces : true;
+      this.otlpMetrics = telemetry.configured ? !!telemetry.metrics : true;
+      this.otlpLogs = telemetry.configured ? !!telemetry.logs : true;
     } catch (err) {
       this.error.set(ApiService.describe(err));
     }
@@ -775,20 +919,68 @@ export class SystemComponent {
     this.oauthConfigs.set(res.data);
   }
 
+  protected async saveTelemetry(): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      const body: TelemetryConfigSet = {
+        endpoint: this.otlpEndpoint.trim(),
+        protocol: this.otlpProtocol,
+        traces: this.otlpTraces,
+        metrics: this.otlpMetrics,
+        logs: this.otlpLogs,
+      };
+      // Headers are write-only: send parsed lines to replace, an empty object to
+      // clear, and omit the field entirely to keep whatever is stored.
+      const parsed = this.parseHeaders(this.otlpHeaders);
+      if (Object.keys(parsed).length > 0) {
+        body.headers = parsed;
+      } else if (this.otlpClearHeaders) {
+        body.headers = {};
+      }
+      const updated = await this.api.client().setTelemetry(body);
+      this.telemetry.set(updated);
+      this.otlpHeaders = '';
+      this.otlpClearHeaders = false;
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** Parse "key=value" lines into a header map, ignoring blanks and comments. */
+  private parseHeaders(text: string): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq > 0) out[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+    }
+    return out;
+  }
+
   // toggleApi flips the public-API gate. Turning it off is confirmed; the
   // dashboard stays reachable (its session is exempt), so this is recoverable.
   protected async toggleApi(next: boolean): Promise<void> {
-    if (!next && !confirm(
-      'Disable the public API? Token, script and CI calls are refused immediately. ' +
-        'The dashboard keeps working, so you can re-enable it here.',
-    )) {
+    if (
+      !next &&
+      !confirm(
+        'Disable the public API? Token, script and CI calls are refused immediately. ' +
+          'The dashboard keeps working, so you can re-enable it here.',
+      )
+    ) {
       this.apiOn = true; // revert the switch, user declined
       return;
     }
     this.busy.set(true);
     this.error.set(null);
     try {
-      const state = next ? await this.api.client().enableApi() : await this.api.client().disableApi();
+      const state = next
+        ? await this.api.client().enableApi()
+        : await this.api.client().disableApi();
       this.apiOn = state.api_enabled;
     } catch (err) {
       this.apiOn = !next; // revert on failure

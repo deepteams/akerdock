@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/deepteams/akerdock/internal/audit"
@@ -142,7 +143,8 @@ func serveRun(mode string) int {
 		return 1
 	}
 
-	logger := newLogger(cfg)
+	baseHandler := loggerHandler(cfg)
+	logger := slog.New(baseHandler)
 	logger.Info("akerdock starting", "version", version, "mode", string(cfg.Mode), "port", cfg.Port)
 	for _, w := range warnings {
 		logger.Warn(w)
@@ -154,12 +156,6 @@ func serveRun(mode string) int {
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	// Traces and metrics go to OTLP or nowhere (ADR-008): with no
-	// OTEL_EXPORTER_OTLP_ENDPOINT the providers are no-ops, so every
-	// instrumented call site below stays unconditional.
-	tel := telemetry.Init(ctx, version, logger)
-	defer tel.Shutdown(context.WithoutCancel(ctx))
-	metrics := telemetry.NewMetrics(tel.Meter)
 	queue.RetryBase = cfg.RetryBase
 	defer stop()
 
@@ -190,6 +186,27 @@ func serveRun(mode string) int {
 
 	q := store.New(pool)
 	settings := instance.NewCache(q)
+
+	// Telemetry is initialized here — AFTER the DB and keyring — so the OTLP
+	// export config stored in the instance settings (encrypted, §14.2) can be
+	// read; it falls back to the OTEL_* environment otherwise. A change to the
+	// stored config takes effect at the next restart (ADR-008/§27.8).
+	otlp := telemetry.EnvConfig()
+	if st, err := settings.Get(ctx); err == nil {
+		if stored, ok := handlers.DecodeOtlpConfig(st.OtlpConfigEnc, keyring); ok {
+			stored.PromEnabled = otlp.PromEnabled // the /metrics scrape stays env-driven
+			otlp = stored
+		}
+	}
+	tel := telemetry.Init(ctx, version, otlp, logger)
+	defer tel.Shutdown(context.WithoutCancel(ctx))
+	metrics := telemetry.NewMetrics(tel.Meter)
+	// With the LoggerProvider now set (if any), fan logs to the OTLP bridge too;
+	// the bridge captures the provider at construction, hence after Init.
+	if tel.Enabled() {
+		logger = slog.New(multiHandler{baseHandler, otelslog.NewHandler(telemetry.ScopeName())})
+	}
+
 	recorder := &audit.Recorder{Store: q, Logger: logger}
 	broker := events.NewBroker()
 	// The outbox publisher runs wherever the API serves SSE, and in workers
@@ -461,7 +478,7 @@ func healthcheck() int {
 	return 0
 }
 
-func newLogger(cfg *config.Config) *slog.Logger {
+func loggerHandler(cfg *config.Config) slog.Handler {
 	var level slog.Level
 	switch cfg.LogLevel {
 	case "debug":
@@ -474,13 +491,49 @@ func newLogger(cfg *config.Config) *slog.Logger {
 		level = slog.LevelInfo
 	}
 	opts := &slog.HandlerOptions{Level: level}
-	var handler slog.Handler
 	if cfg.LogFormat == "text" {
-		handler = slog.NewTextHandler(os.Stderr, opts)
-	} else {
-		handler = slog.NewJSONHandler(os.Stderr, opts)
+		return slog.NewTextHandler(os.Stderr, opts)
 	}
-	return slog.New(handler)
+	return slog.NewJSONHandler(os.Stderr, opts)
+}
+
+// multiHandler fans one slog record out to several handlers — here the local
+// stderr handler and the OTLP log bridge, so logs stay on the console AND ship
+// to the collector once its LoggerProvider is set.
+type multiHandler []slog.Handler
+
+func (m multiHandler) Enabled(ctx context.Context, l slog.Level) bool {
+	for _, h := range m {
+		if h.Enabled(ctx, l) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m multiHandler) Handle(ctx context.Context, r slog.Record) error {
+	for _, h := range m {
+		if h.Enabled(ctx, r.Level) {
+			_ = h.Handle(ctx, r.Clone())
+		}
+	}
+	return nil
+}
+
+func (m multiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	out := make(multiHandler, len(m))
+	for i, h := range m {
+		out[i] = h.WithAttrs(attrs)
+	}
+	return out
+}
+
+func (m multiHandler) WithGroup(name string) slog.Handler {
+	out := make(multiHandler, len(m))
+	for i, h := range m {
+		out[i] = h.WithGroup(name)
+	}
+	return out
 }
 
 func environMap() map[string]string {

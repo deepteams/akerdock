@@ -115,10 +115,8 @@ func preserveProviders(t *testing.T) {
 
 func TestInitDisabledUsesNoopProviders(t *testing.T) {
 	preserveProviders(t)
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	t.Setenv("AKERDOCK_METRICS_ENABLED", "")
 
-	got := Init(context.Background(), "test", telemetryLogger())
+	got := Init(context.Background(), "test", Config{}, telemetryLogger())
 	if got.Enabled() || got.Tracer == nil || got.Meter == nil || got.PromHandler != nil {
 		t.Fatalf("disabled telemetry = %+v", got)
 	}
@@ -127,10 +125,8 @@ func TestInitDisabledUsesNoopProviders(t *testing.T) {
 
 func TestInitPrometheusAndMetrics(t *testing.T) {
 	preserveProviders(t)
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-	t.Setenv("AKERDOCK_METRICS_ENABLED", "true")
 
-	got := Init(context.Background(), "test", telemetryLogger())
+	got := Init(context.Background(), "test", Config{PromEnabled: true}, telemetryLogger())
 	defer got.Shutdown(context.Background())
 	if !got.Enabled() || got.PromHandler == nil {
 		t.Fatalf("Prometheus telemetry not enabled: %+v", got)
@@ -153,17 +149,36 @@ func TestInitPrometheusAndMetrics(t *testing.T) {
 
 func TestInitOTLPHTTP(t *testing.T) {
 	preserveProviders(t)
-	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:1")
-	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
-	t.Setenv("AKERDOCK_METRICS_ENABLED", "")
 
-	got := Init(context.Background(), "test", telemetryLogger())
-	if !got.Enabled() || got.Tracer == nil || got.Meter == nil || len(got.shutdown) < 2 {
+	cfg := Config{Endpoint: "http://127.0.0.1:1", Protocol: "http", Traces: true, Metrics: true, Logs: true}
+	got := Init(context.Background(), "test", cfg, telemetryLogger())
+	if !got.Enabled() || got.Tracer == nil || got.Meter == nil || len(got.shutdown) < 3 {
 		t.Fatalf("OTLP providers were not built: %+v", got)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	got.Shutdown(ctx)
+}
+
+func TestEnvConfig(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://collector.example:4318")
+	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+	t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=Bearer x, x-tenant=acme")
+	t.Setenv("AKERDOCK_METRICS_ENABLED", "true")
+
+	cfg := EnvConfig()
+	if cfg.Endpoint != "https://collector.example:4318" || cfg.Protocol != "grpc" {
+		t.Fatalf("endpoint/protocol = %q/%q", cfg.Endpoint, cfg.Protocol)
+	}
+	if cfg.Headers["authorization"] != "Bearer x" || cfg.Headers["x-tenant"] != "acme" {
+		t.Fatalf("headers = %v", cfg.Headers)
+	}
+	if !cfg.Traces || !cfg.Metrics || !cfg.Logs || !cfg.PromEnabled {
+		t.Fatalf("signals off: %+v", cfg)
+	}
+	if parseHeaders("") != nil || parseHeaders("nokey") != nil {
+		t.Fatal("expected nil headers for empty/invalid input")
+	}
 }
 
 func TestShutdownCallsEveryProvider(t *testing.T) {

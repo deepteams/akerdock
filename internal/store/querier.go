@@ -702,6 +702,7 @@ type Querier interface {
 	SetInstanceIdentity(ctx context.Context, arg SetInstanceIdentityParams) (InstanceSetting, error)
 	SetLocalhostSeeded(ctx context.Context) (int64, error)
 	SetNotificationCursor(ctx context.Context, lastOutboxEventID int64) error
+	SetOtlpConfig(ctx context.Context, otlpConfigEnc []byte) error
 	SetPlanDrillResult(ctx context.Context, arg SetPlanDrillResultParams) error
 	SetPreviewDeployed(ctx context.Context, id int64) error
 	SetPreviewFqdn(ctx context.Context, arg SetPreviewFqdnParams) error

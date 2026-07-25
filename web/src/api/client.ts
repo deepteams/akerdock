@@ -539,6 +539,18 @@ export class AkerDockClient {
     return this.request<Response>('POST', '/system/encryption/rotate');
   }
 
+  getTelemetry() {
+    type Response =
+      paths['/system/telemetry']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', '/system/telemetry');
+  }
+
+  setTelemetry(body: components['schemas']['TelemetryConfigSet']) {
+    type Response =
+      paths['/system/telemetry']['put']['responses']['200']['content']['application/json'];
+    return this.request<Response>('PUT', '/system/telemetry', { body });
+  }
+
   // --- teams (members, invitations, tokens) ------------------------------------
 
   listTeams(query?: { cursor?: string; limit?: number }) {

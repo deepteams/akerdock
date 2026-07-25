@@ -388,6 +388,62 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /system/telemetry:
+    get:
+      tags: [System]
+      operationId: getTelemetry
+      summary: Configuration de l'export OTLP distant
+      description: >-
+        Export OpenTelemetry (§14.2, ADR-008/§27.8) : où partent traces,
+        métriques et logs. Les en-têtes d'auth ne sont **jamais** renvoyés —
+        seulement le fait qu'ils existent.
+      x-required-permission: root
+      responses:
+        "200":
+          description: L'état de la configuration.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemetryConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    put:
+      tags: [System]
+      operationId: setTelemetry
+      summary: Configurer l'export OTLP distant
+      description: >-
+        Enregistre où exporter traces/métriques/logs. **Prend effet au prochain
+        redémarrage** du binaire (la télémétrie s'initialise une fois au boot).
+        Un `endpoint` vide désactive l'export.
+      x-required-permission: root
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TelemetryConfigSet"
+      responses:
+        "200":
+          description: Configuration enregistrée.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemetryConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /system/encryption:
     get:
       tags: [System]
@@ -8720,6 +8776,70 @@ components:
           $ref: "#/components/schemas/SmtpConfig"
         resend:
           $ref: "#/components/schemas/ResendConfig"
+
+    TelemetryConfig:
+      type: object
+      description: État de l'export OTLP (§14.2, ADR-008). Les en-têtes ne sont jamais renvoyés.
+      required: [configured]
+      properties:
+        configured:
+          type: boolean
+          readOnly: true
+        endpoint:
+          type: string
+          nullable: true
+          description: URL du collector OTLP (le schéma décide du TLS).
+          readOnly: true
+        protocol:
+          type: string
+          enum: [http, grpc, null]
+          nullable: true
+          readOnly: true
+        traces:
+          type: boolean
+          readOnly: true
+        metrics:
+          type: boolean
+          readOnly: true
+        logs:
+          type: boolean
+          readOnly: true
+        headers_set:
+          type: boolean
+          description: Vrai si des en-têtes d'auth sont enregistrés (jamais leur valeur).
+          readOnly: true
+
+    TelemetryConfigSet:
+      type: object
+      description: >-
+        Configuration de l'export OTLP. `endpoint` vide désactive l'export.
+        Prend effet au prochain redémarrage.
+      required: [endpoint]
+      properties:
+        endpoint:
+          type: string
+          description: URL du collector OTLP ; vide = export désactivé.
+        protocol:
+          type: string
+          enum: [http, grpc]
+          default: http
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: >-
+            En-têtes d'auth envoyés à chaque export (write-only, chiffrés au
+            repos, jamais renvoyés). Omis = conserver les en-têtes existants ;
+            objet vide `{}` = les effacer.
+        traces:
+          type: boolean
+          default: true
+        metrics:
+          type: boolean
+          default: true
+        logs:
+          type: boolean
+          default: true
 
     SmtpConfig:
       type: object

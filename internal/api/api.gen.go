@@ -1498,6 +1498,45 @@ func (e TeamMemberRole) Valid() bool {
 	}
 }
 
+// Defines values for TelemetryConfigProtocol.
+const (
+	TelemetryConfigProtocolGrpc        TelemetryConfigProtocol = "grpc"
+	TelemetryConfigProtocolHttp        TelemetryConfigProtocol = "http"
+	TelemetryConfigProtocolLessThannil TelemetryConfigProtocol = "<nil>"
+)
+
+// Valid indicates whether the value is a known member of the TelemetryConfigProtocol enum.
+func (e TelemetryConfigProtocol) Valid() bool {
+	switch e {
+	case TelemetryConfigProtocolGrpc:
+		return true
+	case TelemetryConfigProtocolHttp:
+		return true
+	case TelemetryConfigProtocolLessThannil:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TelemetryConfigSetProtocol.
+const (
+	TelemetryConfigSetProtocolGrpc TelemetryConfigSetProtocol = "grpc"
+	TelemetryConfigSetProtocolHttp TelemetryConfigSetProtocol = "http"
+)
+
+// Valid indicates whether the value is a known member of the TelemetryConfigSetProtocol enum.
+func (e TelemetryConfigSetProtocol) Valid() bool {
+	switch e {
+	case TelemetryConfigSetProtocolGrpc:
+		return true
+	case TelemetryConfigSetProtocolHttp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TerminalSessionTargetKind.
 const (
 	TerminalSessionTargetKindContainer TerminalSessionTargetKind = "container"
@@ -1539,16 +1578,16 @@ func (e TransactionalEmailKind) Valid() bool {
 
 // Defines values for TransactionalEmailSetKind.
 const (
-	Resend TransactionalEmailSetKind = "resend"
-	Smtp   TransactionalEmailSetKind = "smtp"
+	TransactionalEmailSetKindResend TransactionalEmailSetKind = "resend"
+	TransactionalEmailSetKindSmtp   TransactionalEmailSetKind = "smtp"
 )
 
 // Valid indicates whether the value is a known member of the TransactionalEmailSetKind enum.
 func (e TransactionalEmailSetKind) Valid() bool {
 	switch e {
-	case Resend:
+	case TransactionalEmailSetKindResend:
 		return true
-	case Smtp:
+	case TransactionalEmailSetKindSmtp:
 		return true
 	default:
 		return false
@@ -1596,16 +1635,16 @@ func (e UptimeCheckStatus) Valid() bool {
 
 // Defines values for UptimeCheckCreateKind.
 const (
-	UptimeCheckCreateKindHttp UptimeCheckCreateKind = "http"
-	UptimeCheckCreateKindTcp  UptimeCheckCreateKind = "tcp"
+	Http UptimeCheckCreateKind = "http"
+	Tcp  UptimeCheckCreateKind = "tcp"
 )
 
 // Valid indicates whether the value is a known member of the UptimeCheckCreateKind enum.
 func (e UptimeCheckCreateKind) Valid() bool {
 	switch e {
-	case UptimeCheckCreateKindHttp:
+	case Http:
 		return true
-	case UptimeCheckCreateKindTcp:
+	case Tcp:
 		return true
 	default:
 		return false
@@ -4093,6 +4132,40 @@ type TelegramConfig struct {
 	TopicId  *string `json:"topic_id,omitempty"`
 }
 
+// TelemetryConfig État de l'export OTLP (§14.2, ADR-008). Les en-têtes ne sont jamais renvoyés.
+type TelemetryConfig struct {
+	Configured *bool `json:"configured,omitempty"`
+
+	// Endpoint URL du collector OTLP (le schéma décide du TLS).
+	Endpoint *string `json:"endpoint,omitempty"`
+
+	// HeadersSet Vrai si des en-têtes d'auth sont enregistrés (jamais leur valeur).
+	HeadersSet *bool                    `json:"headers_set,omitempty"`
+	Logs       *bool                    `json:"logs,omitempty"`
+	Metrics    *bool                    `json:"metrics,omitempty"`
+	Protocol   *TelemetryConfigProtocol `json:"protocol,omitempty"`
+	Traces     *bool                    `json:"traces,omitempty"`
+}
+
+// TelemetryConfigProtocol defines model for TelemetryConfig.Protocol.
+type TelemetryConfigProtocol string
+
+// TelemetryConfigSet Configuration de l'export OTLP. `endpoint` vide désactive l'export. Prend effet au prochain redémarrage.
+type TelemetryConfigSet struct {
+	// Endpoint URL du collector OTLP ; vide = export désactivé.
+	Endpoint string `json:"endpoint"`
+
+	// Headers En-têtes d'auth envoyés à chaque export (write-only, chiffrés au repos, jamais renvoyés). Omis = conserver les en-têtes existants ; objet vide `{}` = les effacer.
+	Headers  *map[string]string          `json:"headers,omitempty"`
+	Logs     *bool                       `json:"logs,omitempty"`
+	Metrics  *bool                       `json:"metrics,omitempty"`
+	Protocol *TelemetryConfigSetProtocol `json:"protocol,omitempty"`
+	Traces   *bool                       `json:"traces,omitempty"`
+}
+
+// TelemetryConfigSetProtocol defines model for TelemetryConfigSet.Protocol.
+type TelemetryConfigSetProtocol string
+
 // TerminalSession defines model for TerminalSession.
 type TerminalSession struct {
 	// IdleTimeoutSeconds Inactivité (aucune frappe) au-delà de laquelle la session est fermée.
@@ -5386,6 +5459,9 @@ type SetInstanceSettingsJSONRequestBody = InstanceIdentityUpdate
 // SetOauthProviderJSONRequestBody defines body for SetOauthProvider for application/json ContentType.
 type SetOauthProviderJSONRequestBody = OauthProviderSet
 
+// SetTelemetryJSONRequestBody defines body for SetTelemetry for application/json ContentType.
+type SetTelemetryJSONRequestBody = TelemetryConfigSet
+
 // CreateTeamInvitationJSONRequestBody defines body for CreateTeamInvitation for application/json ContentType.
 type CreateTeamInvitationJSONRequestBody = InvitationCreate
 
@@ -6065,6 +6141,12 @@ type ServerInterface interface {
 	// Configurer un fournisseur OAuth/OIDC
 	// (PUT /system/oauth-providers/{oauth_provider})
 	SetOauthProvider(w http.ResponseWriter, r *http.Request, oauthProvider SetOauthProviderParamsOauthProvider)
+	// Configuration de l'export OTLP distant
+	// (GET /system/telemetry)
+	GetTelemetry(w http.ResponseWriter, r *http.Request)
+	// Configurer l'export OTLP distant
+	// (PUT /system/telemetry)
+	SetTelemetry(w http.ResponseWriter, r *http.Request)
 	// Lister les teams accessibles
 	// (GET /teams)
 	ListTeams(w http.ResponseWriter, r *http.Request, params ListTeamsParams)
@@ -7211,6 +7293,18 @@ func (_ Unimplemented) DeleteOauthProvider(w http.ResponseWriter, r *http.Reques
 // Configurer un fournisseur OAuth/OIDC
 // (PUT /system/oauth-providers/{oauth_provider})
 func (_ Unimplemented) SetOauthProvider(w http.ResponseWriter, r *http.Request, oauthProvider SetOauthProviderParamsOauthProvider) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Configuration de l'export OTLP distant
+// (GET /system/telemetry)
+func (_ Unimplemented) GetTelemetry(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Configurer l'export OTLP distant
+// (PUT /system/telemetry)
+func (_ Unimplemented) SetTelemetry(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -15740,6 +15834,46 @@ func (siw *ServerInterfaceWrapper) SetOauthProvider(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetTelemetry operation middleware
+func (siw *ServerInterfaceWrapper) GetTelemetry(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTelemetry(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetTelemetry operation middleware
+func (siw *ServerInterfaceWrapper) SetTelemetry(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetTelemetry(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTeams operation middleware
 func (siw *ServerInterfaceWrapper) ListTeams(w http.ResponseWriter, r *http.Request) {
 
@@ -17204,6 +17338,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/system/oauth-providers/{oauth_provider}", wrapper.SetOauthProvider)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/system/telemetry", wrapper.GetTelemetry)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/system/telemetry", wrapper.SetTelemetry)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams", wrapper.ListTeams)
@@ -34768,6 +34908,169 @@ func (response SetOauthProvider429JSONResponse) VisitSetOauthProviderResponse(w 
 	return err
 }
 
+type GetTelemetryRequestObject struct {
+}
+
+type GetTelemetryResponseObject interface {
+	VisitGetTelemetryResponse(w http.ResponseWriter) error
+}
+
+type GetTelemetry200JSONResponse TelemetryConfig
+
+func (response GetTelemetry200JSONResponse) VisitGetTelemetryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTelemetry401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetTelemetry401JSONResponse) VisitGetTelemetryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTelemetry403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetTelemetry403JSONResponse) VisitGetTelemetryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTelemetry429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetTelemetry429JSONResponse) VisitGetTelemetryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTelemetryRequestObject struct {
+	Body *SetTelemetryJSONRequestBody
+}
+
+type SetTelemetryResponseObject interface {
+	VisitSetTelemetryResponse(w http.ResponseWriter) error
+}
+
+type SetTelemetry200JSONResponse TelemetryConfig
+
+func (response SetTelemetry200JSONResponse) VisitSetTelemetryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTelemetry400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetTelemetry400JSONResponse) VisitSetTelemetryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTelemetry401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SetTelemetry401JSONResponse) VisitSetTelemetryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTelemetry403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SetTelemetry403JSONResponse) VisitSetTelemetryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTelemetry422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response SetTelemetry422JSONResponse) VisitSetTelemetryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetTelemetry429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response SetTelemetry429JSONResponse) VisitSetTelemetryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTeamsRequestObject struct {
 	Params ListTeamsParams
 }
@@ -36882,6 +37185,12 @@ type StrictServerInterface interface {
 	// Configurer un fournisseur OAuth/OIDC
 	// (PUT /system/oauth-providers/{oauth_provider})
 	SetOauthProvider(ctx context.Context, request SetOauthProviderRequestObject) (SetOauthProviderResponseObject, error)
+	// Configuration de l'export OTLP distant
+	// (GET /system/telemetry)
+	GetTelemetry(ctx context.Context, request GetTelemetryRequestObject) (GetTelemetryResponseObject, error)
+	// Configurer l'export OTLP distant
+	// (PUT /system/telemetry)
+	SetTelemetry(ctx context.Context, request SetTelemetryRequestObject) (SetTelemetryResponseObject, error)
 	// Lister les teams accessibles
 	// (GET /teams)
 	ListTeams(ctx context.Context, request ListTeamsRequestObject) (ListTeamsResponseObject, error)
@@ -42144,6 +42453,61 @@ func (sh *strictHandler) SetOauthProvider(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetOauthProviderResponseObject); ok {
 		if err := validResponse.VisitSetOauthProviderResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTelemetry operation middleware
+func (sh *strictHandler) GetTelemetry(w http.ResponseWriter, r *http.Request) {
+	var request GetTelemetryRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTelemetry(ctx, request.(GetTelemetryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTelemetry")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTelemetryResponseObject); ok {
+		if err := validResponse.VisitGetTelemetryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetTelemetry operation middleware
+func (sh *strictHandler) SetTelemetry(w http.ResponseWriter, r *http.Request) {
+	var request SetTelemetryRequestObject
+
+	var body SetTelemetryJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetTelemetry(ctx, request.(SetTelemetryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetTelemetry")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetTelemetryResponseObject); ok {
+		if err := validResponse.VisitSetTelemetryResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -158,6 +158,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/system/telemetry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Configuration de l'export OTLP distant
+         * @description Export OpenTelemetry (§14.2, ADR-008/§27.8) : où partent traces, métriques et logs. Les en-têtes d'auth ne sont **jamais** renvoyés — seulement le fait qu'ils existent.
+         */
+        get: operations["getTelemetry"];
+        /**
+         * Configurer l'export OTLP distant
+         * @description Enregistre où exporter traces/métriques/logs. **Prend effet au prochain redémarrage** du binaire (la télémétrie s'initialise une fois au boot). Un `endpoint` vide désactive l'export.
+         */
+        put: operations["setTelemetry"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/system/encryption": {
         parameters: {
             query?: never;
@@ -3801,6 +3825,39 @@ export interface components {
             smtp?: components["schemas"]["SmtpConfig"];
             resend?: components["schemas"]["ResendConfig"];
         };
+        /** @description État de l'export OTLP (§14.2, ADR-008). Les en-têtes ne sont jamais renvoyés. */
+        TelemetryConfig: {
+            readonly configured: boolean;
+            /** @description URL du collector OTLP (le schéma décide du TLS). */
+            readonly endpoint?: string | null;
+            /** @enum {string|null} */
+            readonly protocol?: "http" | "grpc" | null;
+            readonly traces?: boolean;
+            readonly metrics?: boolean;
+            readonly logs?: boolean;
+            /** @description Vrai si des en-têtes d'auth sont enregistrés (jamais leur valeur). */
+            readonly headers_set?: boolean;
+        };
+        /** @description Configuration de l'export OTLP. `endpoint` vide désactive l'export. Prend effet au prochain redémarrage. */
+        TelemetryConfigSet: {
+            /** @description URL du collector OTLP ; vide = export désactivé. */
+            endpoint: string;
+            /**
+             * @default http
+             * @enum {string}
+             */
+            protocol: "http" | "grpc";
+            /** @description En-têtes d'auth envoyés à chaque export (write-only, chiffrés au repos, jamais renvoyés). Omis = conserver les en-têtes existants ; objet vide `{}` = les effacer. */
+            headers?: {
+                [key: string]: string;
+            };
+            /** @default true */
+            traces: boolean;
+            /** @default true */
+            metrics: boolean;
+            /** @default true */
+            logs: boolean;
+        };
         /** @description Configuration SMTP (amendement n°18). Le mot de passe est chiffré au repos et jamais renvoyé (INV-003). */
         SmtpConfig: {
             host: string;
@@ -5775,6 +5832,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TransactionalEmail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getTelemetry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description L'état de la configuration. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelemetryConfig"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    setTelemetry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TelemetryConfigSet"];
+            };
+        };
+        responses: {
+            /** @description Configuration enregistrée. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelemetryConfig"];
                 };
             };
             400: components["responses"]["BadRequest"];

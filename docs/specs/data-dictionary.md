@@ -1400,6 +1400,7 @@ Réglages d'instance (§14.2) — **ajout au §19.1**, impliqué par les feature
 | `api_enabled` | `boolean` | non | `false` | — | non | API désactivée par défaut (§10.3). |
 | `dns_validation_server` | `text` | non | `'1.1.1.1'` | — | non | DNS de validation custom (§4.2, §14.2). |
 | `transactional_email_config_enc` | `bytea` | oui | — | — | **oui** | SMTP/Resend de l'instance (invitations, reset — §14.2), chiffré enveloppe. |
+| `otlp_config_enc` | `bytea` | oui | — | — | **oui** | Export OTLP distant (endpoint, protocole, en-têtes d'auth, signaux — §14.2, ADR-008), chiffré enveloppe ; lu au boot, appliqué au prochain redémarrage. |
 | `auto_update_enabled` | `boolean` | non | `true` | — | non | Vérification périodique, désactivable (§14.3). |
 | `auto_update_cron` | `text` | oui | — | CHECK validation cron | non | Cron d'auto-update configurable (§14.3). |
 | `onboarding_completed_at` | `timestamptz` | oui | — | — | non | Assistant premier démarrage (§14.2, §25.1). |
@@ -1461,6 +1462,7 @@ Queue durable PostgreSQL (décision §27.2), machine à états §21.3 : lease av
 | `servers.log_drain_config_enc` | Tokens des log drains |
 | `notification_channels.config_enc` | Tokens/credentials des canaux |
 | `instance_settings.transactional_email_config_enc` | SMTP/Resend de l'instance |
+| `instance_settings.otlp_config_enc` | Endpoint + en-têtes d'auth de l'export OTLP |
 
 Hashés (irréversibles, jamais chiffrés car jamais restitués) : `users.password_hash` (Argon2id), `api_tokens.token_hash`, `sessions.token_hash`, `invitations.token_hash`, `servers.sentinel_token_hash`, `mfa_factors.recovery_code_hashes` (SHA-256, avec préfixe d'identification pour les tokens API — §23.2).
 
