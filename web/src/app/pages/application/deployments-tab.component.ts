@@ -7,6 +7,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
+import { Router } from '@angular/router';
 import { SlicePipe } from '@angular/common';
 import { StatusBadgeComponent } from '../../../ui/status-badge/status-badge.component';
 import { CardComponent } from '../../../ui/card/card.component';
@@ -58,7 +59,14 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
           </thead>
           <tbody>
             @for (d of deployments(); track d.uuid) {
-              <tr>
+              <tr
+                class="clickable"
+                tabindex="0"
+                role="link"
+                [attr.aria-label]="'Open build logs of the deployment created ' + d.created_at"
+                (click)="open(d)"
+                (keydown.enter)="open(d)"
+              >
                 <td>
                   @if (d.commit_sha) {
                     <span class="akd-badge akd-badge--mono">{{ d.commit_sha | slice: 0 : 8 }}</span>
@@ -76,7 +84,17 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
                 </td>
                 <td class="akd-muted">{{ d.created_at }}</td>
                 <td class="right">
-                  <div class="row-actions">
+                  <!-- Actions must not trigger the row's navigation. -->
+                  <div class="row-actions" (click)="$event.stopPropagation()">
+                    <button
+                      class="akd-btn akd-btn--ghost akd-btn--sm"
+                      type="button"
+                      (click)="open(d)"
+                      aria-label="View build logs"
+                    >
+                      <akd-icon name="scroll-text" [size]="13" />
+                      Logs
+                    </button>
                     @if (cancellable(d)) {
                       <button
                         class="akd-btn akd-btn--danger akd-btn--sm"
@@ -117,6 +135,16 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
       .commit-msg {
         font-size: var(--text-sm);
       }
+      .clickable {
+        cursor: pointer;
+      }
+      .clickable:hover {
+        background: var(--bg-2);
+      }
+      .clickable:focus-visible {
+        outline: none;
+        box-shadow: var(--ring-focus);
+      }
     `,
   ],
 })
@@ -124,6 +152,7 @@ export class ApplicationDeploymentsTabComponent {
   readonly uuid = input.required<string>();
 
   private readonly api = inject(ApiService);
+  private readonly router = inject(Router);
 
   protected readonly deployments = signal<Deployment[]>([]);
   protected readonly loading = signal(true);
@@ -136,6 +165,11 @@ export class ApplicationDeploymentsTabComponent {
       const uuid = this.uuid();
       untracked(() => void this.load(uuid));
     });
+  }
+
+  /** Open the deployment's own page (its build logs live there now). */
+  protected open(d: Deployment): void {
+    void this.router.navigate(['/applications', this.uuid(), 'deployments', d.uuid]);
   }
 
   protected cancellable(d: Deployment): boolean {
