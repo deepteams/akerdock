@@ -653,6 +653,9 @@ type Querier interface {
 	RevokeSession(ctx context.Context, id int64) error
 	RotateDatabaseCredentialEnc(ctx context.Context, arg RotateDatabaseCredentialEncParams) error
 	RotateEnvVarEnc(ctx context.Context, arg RotateEnvVarEncParams) error
+	// Regenerate the link of a still-pending invitation: rotate the token hash and
+	// push the expiry out. Returns nothing if the invitation is not pending.
+	RotateInvitation(ctx context.Context, arg RotateInvitationParams) (Invitation, error)
 	RotateNotificationChannelEnc(ctx context.Context, arg RotateNotificationChannelEncParams) error
 	RotatePrivateKeyEnc(ctx context.Context, arg RotatePrivateKeyEncParams) error
 	RotateS3StorageEnc(ctx context.Context, arg RotateS3StorageEncParams) error

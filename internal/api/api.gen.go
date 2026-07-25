@@ -6053,6 +6053,9 @@ type ServerInterface interface {
 	// Révoquer une invitation
 	// (DELETE /teams/{team_uuid}/invitations/{invitation_uuid})
 	RevokeTeamInvitation(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, invitationUuid InvitationUuid)
+	// Régénérer le lien d'une invitation
+	// (POST /teams/{team_uuid}/invitations/{invitation_uuid}/resend)
+	ResendTeamInvitation(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, invitationUuid InvitationUuid)
 	// Lister les membres d'une team
 	// (GET /teams/{team_uuid}/members)
 	ListTeamMembers(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamMembersParams)
@@ -7199,6 +7202,12 @@ func (_ Unimplemented) CreateTeamInvitation(w http.ResponseWriter, r *http.Reque
 // Révoquer une invitation
 // (DELETE /teams/{team_uuid}/invitations/{invitation_uuid})
 func (_ Unimplemented) RevokeTeamInvitation(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, invitationUuid InvitationUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Régénérer le lien d'une invitation
+// (POST /teams/{team_uuid}/invitations/{invitation_uuid}/resend)
+func (_ Unimplemented) ResendTeamInvitation(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, invitationUuid InvitationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -15861,6 +15870,47 @@ func (siw *ServerInterfaceWrapper) RevokeTeamInvitation(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// ResendTeamInvitation operation middleware
+func (siw *ServerInterfaceWrapper) ResendTeamInvitation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "team_uuid" -------------
+	var teamUuid TeamUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "invitation_uuid" -------------
+	var invitationUuid InvitationUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "invitation_uuid", chi.URLParam(r, "invitation_uuid"), &invitationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "invitation_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResendTeamInvitation(w, r, teamUuid, invitationUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTeamMembers operation middleware
 func (siw *ServerInterfaceWrapper) ListTeamMembers(w http.ResponseWriter, r *http.Request) {
 
@@ -17051,6 +17101,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/teams/{team_uuid}/invitations/{invitation_uuid}", wrapper.RevokeTeamInvitation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/teams/{team_uuid}/invitations/{invitation_uuid}/resend", wrapper.ResendTeamInvitation)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{team_uuid}/members", wrapper.ListTeamMembers)
@@ -34859,6 +34912,88 @@ func (response RevokeTeamInvitation429JSONResponse) VisitRevokeTeamInvitationRes
 	return err
 }
 
+type ResendTeamInvitationRequestObject struct {
+	TeamUuid       TeamUuid       `json:"team_uuid"`
+	InvitationUuid InvitationUuid `json:"invitation_uuid"`
+}
+
+type ResendTeamInvitationResponseObject interface {
+	VisitResendTeamInvitationResponse(w http.ResponseWriter) error
+}
+
+type ResendTeamInvitation200JSONResponse Invitation
+
+func (response ResendTeamInvitation200JSONResponse) VisitResendTeamInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResendTeamInvitation401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ResendTeamInvitation401JSONResponse) VisitResendTeamInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResendTeamInvitation403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ResendTeamInvitation403JSONResponse) VisitResendTeamInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResendTeamInvitation404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ResendTeamInvitation404JSONResponse) VisitResendTeamInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResendTeamInvitation429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ResendTeamInvitation429JSONResponse) VisitResendTeamInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTeamMembersRequestObject struct {
 	TeamUuid TeamUuid `json:"team_uuid"`
 	Params   ListTeamMembersParams
@@ -36443,6 +36578,9 @@ type StrictServerInterface interface {
 	// Révoquer une invitation
 	// (DELETE /teams/{team_uuid}/invitations/{invitation_uuid})
 	RevokeTeamInvitation(ctx context.Context, request RevokeTeamInvitationRequestObject) (RevokeTeamInvitationResponseObject, error)
+	// Régénérer le lien d'une invitation
+	// (POST /teams/{team_uuid}/invitations/{invitation_uuid}/resend)
+	ResendTeamInvitation(ctx context.Context, request ResendTeamInvitationRequestObject) (ResendTeamInvitationResponseObject, error)
 	// Lister les membres d'une team
 	// (GET /teams/{team_uuid}/members)
 	ListTeamMembers(ctx context.Context, request ListTeamMembersRequestObject) (ListTeamMembersResponseObject, error)
@@ -41774,6 +41912,33 @@ func (sh *strictHandler) RevokeTeamInvitation(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RevokeTeamInvitationResponseObject); ok {
 		if err := validResponse.VisitRevokeTeamInvitationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResendTeamInvitation operation middleware
+func (sh *strictHandler) ResendTeamInvitation(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, invitationUuid InvitationUuid) {
+	var request ResendTeamInvitationRequestObject
+
+	request.TeamUuid = teamUuid
+	request.InvitationUuid = invitationUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResendTeamInvitation(ctx, request.(ResendTeamInvitationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResendTeamInvitation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResendTeamInvitationResponseObject); ok {
+		if err := validResponse.VisitResendTeamInvitationResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

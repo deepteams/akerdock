@@ -205,10 +205,7 @@ export class AkerDockClient {
   }
 
   destroyPreview(applicationUuid: string, previewUuid: string) {
-    return this.request<void>(
-      'DELETE',
-      `/applications/${applicationUuid}/previews/${previewUuid}`,
-    );
+    return this.request<void>('DELETE', `/applications/${applicationUuid}/previews/${previewUuid}`);
   }
 
   getPreviewLogs(
@@ -559,6 +556,15 @@ export class AkerDockClient {
 
   revokeTeamInvitation(teamUuid: string, invitationUuid: string) {
     return this.request<void>('DELETE', `/teams/${teamUuid}/invitations/${invitationUuid}`);
+  }
+
+  resendTeamInvitation(teamUuid: string, invitationUuid: string) {
+    type Response =
+      paths['/teams/{team_uuid}/invitations/{invitation_uuid}/resend']['post']['responses']['200']['content']['application/json'];
+    return this.request<Response>(
+      'POST',
+      `/teams/${teamUuid}/invitations/${invitationUuid}/resend`,
+    );
   }
 
   listApiTokens(uuid: string, query?: { cursor?: string; limit?: number }) {
@@ -966,7 +972,10 @@ export class AkerDockClient {
     return this.request<void>('DELETE', `/applications/${applicationUuid}/storages/${storageUuid}`);
   }
 
-  listApplicationEnvs(uuid: string, query?: { cursor?: string; limit?: number; preview?: boolean }) {
+  listApplicationEnvs(
+    uuid: string,
+    query?: { cursor?: string; limit?: number; preview?: boolean },
+  ) {
     type Response =
       paths['/applications/{application_uuid}/envs']['get']['responses']['200']['content']['application/json'];
     return this.request<Response>('GET', `/applications/${uuid}/envs`, { query });

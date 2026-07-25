@@ -262,3 +262,44 @@ func (q *Queries) RevokeInvitation(ctx context.Context, arg RevokeInvitationPara
 	}
 	return result.RowsAffected(), nil
 }
+
+const rotateInvitation = `-- name: RotateInvitation :one
+UPDATE invitations
+SET token_hash = $1, expires_at = $2
+WHERE uuid = $3 AND team_id = $4
+  AND accepted_at IS NULL AND revoked_at IS NULL
+RETURNING id, uuid, team_id, email, role, token_hash, invited_by, expires_at, accepted_at, revoked_at, created_at
+`
+
+type RotateInvitationParams struct {
+	TokenHash string
+	ExpiresAt pgtype.Timestamptz
+	Uuid      pgtype.UUID
+	TeamID    int64
+}
+
+// Regenerate the link of a still-pending invitation: rotate the token hash and
+// push the expiry out. Returns nothing if the invitation is not pending.
+func (q *Queries) RotateInvitation(ctx context.Context, arg RotateInvitationParams) (Invitation, error) {
+	row := q.db.QueryRow(ctx, rotateInvitation,
+		arg.TokenHash,
+		arg.ExpiresAt,
+		arg.Uuid,
+		arg.TeamID,
+	)
+	var i Invitation
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.TeamID,
+		&i.Email,
+		&i.Role,
+		&i.TokenHash,
+		&i.InvitedBy,
+		&i.ExpiresAt,
+		&i.AcceptedAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}

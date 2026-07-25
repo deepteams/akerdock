@@ -12,7 +12,14 @@ import {
 } from '../core/api.service';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
+import { ModalComponent } from '../../ui/modal/modal.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
+import type { components } from '../../api/schema';
+
+type ApiToken = components['schemas']['ApiToken'];
+type ApiTokenPermission = components['schemas']['ApiTokenPermission'];
+
+const PERMISSIONS: ApiTokenPermission[] = ['read', 'read:sensitive', 'write', 'deploy', 'root'];
 
 /**
  * Personal settings: passkey enrolment and revocation, linked identities and
@@ -27,7 +34,14 @@ import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.compone
 @Component({
   selector: 'app-security',
   standalone: true,
-  imports: [FormsModule, SlicePipe, CardComponent, IconComponent, StatusBadgeComponent],
+  imports: [
+    FormsModule,
+    SlicePipe,
+    CardComponent,
+    IconComponent,
+    ModalComponent,
+    StatusBadgeComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
@@ -339,7 +353,151 @@ import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.compone
             }
           </akd-card>
         </div>
+
+        <akd-card title="API tokens" [padded]="false">
+          <button
+            card-actions
+            class="akd-btn akd-btn--secondary akd-btn--sm"
+            type="button"
+            (click)="openToken()"
+          >
+            <akd-icon name="plus" [size]="13" />
+            New token
+          </button>
+          <p class="akd-muted sm pad">
+            Personal access tokens for the CLI and the API, scoped to your current team. The value
+            is shown once at creation — only its hash is stored.
+          </p>
+          @if (tokens().length > 0) {
+            <table class="akd-table">
+              <caption class="sr-only">
+                Your API tokens
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Token</th>
+                  <th scope="col">Permissions</th>
+                  <th scope="col">Last used</th>
+                  <th scope="col"><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (token of tokens(); track token.uuid) {
+                  <tr>
+                    <td>
+                      <span class="member-id">
+                        <span class="token-name akd-mono">{{ token.name }}</span>
+                        <span class="sub-mono">{{ token.token_prefix }}…</span>
+                      </span>
+                    </td>
+                    <td>
+                      <span
+                        class="akd-badge akd-badge--mono"
+                        [class.akd-badge--danger]="token.permissions.includes('root')"
+                      >
+                        {{ token.permissions.join(' · ') }}
+                      </span>
+                    </td>
+                    <td class="akd-muted">
+                      {{ token.last_used_at ? (token.last_used_at | slice: 0 : 10) : 'never' }}
+                    </td>
+                    <td class="right">
+                      <button
+                        class="akd-iconbtn"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="revokeToken(token)"
+                        aria-label="Revoke token"
+                      >
+                        <akd-icon name="trash-2" [size]="15" />
+                      </button>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </akd-card>
       </div>
+
+      <akd-modal [open]="tokenOpen()" title="Create an API token" (closed)="tokenOpen.set(false)">
+        @if (error(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        }
+        @if (tokenValue(); as value) {
+          <div class="modal-stack">
+            <span>
+              Token created. The value below is shown <strong>once</strong> — only its hash is
+              stored.
+            </span>
+            <div class="secret-line">
+              <code>{{ value }}</code>
+              <button
+                class="akd-iconbtn akd-iconbtn--bordered"
+                type="button"
+                (click)="copyToken(value)"
+                aria-label="Copy token"
+              >
+                <akd-icon [name]="tokenCopied() ? 'check' : 'copy'" [size]="15" />
+              </button>
+            </div>
+          </div>
+        } @else {
+          <form id="token-form" class="modal-stack" (ngSubmit)="createToken()">
+            <div class="akd-field">
+              <label class="akd-field__label" for="tok-name">Name</label>
+              <input
+                id="tok-name"
+                name="name"
+                class="akd-input akd-input--mono"
+                placeholder="e.g. laptop-cli"
+                [(ngModel)]="tokenName"
+                [disabled]="busy()"
+                required
+              />
+            </div>
+            <fieldset class="perms">
+              <legend class="akd-field__label">Permissions</legend>
+              @for (perm of permissions; track perm) {
+                <label class="akd-check">
+                  <input
+                    type="checkbox"
+                    [name]="'perm-' + perm"
+                    [(ngModel)]="tokenPerms[perm]"
+                    [disabled]="busy()"
+                  />
+                  <span class="akd-mono">{{ perm }}</span>
+                </label>
+              }
+            </fieldset>
+          </form>
+        }
+        <div modal-footer>
+          @if (tokenValue()) {
+            <button class="akd-btn akd-btn--ghost" type="button" (click)="tokenOpen.set(false)">
+              Close
+            </button>
+          } @else {
+            <button
+              class="akd-btn akd-btn--ghost"
+              type="button"
+              (click)="tokenOpen.set(false)"
+              [disabled]="busy()"
+            >
+              Cancel
+            </button>
+            <button
+              class="akd-btn akd-btn--primary"
+              type="submit"
+              form="token-form"
+              [disabled]="busy() || !tokenName.trim()"
+            >
+              <akd-icon name="key" [size]="15" />
+              {{ busy() ? 'Creating…' : 'Create token' }}
+            </button>
+          }
+        </div>
+      </akd-modal>
     </div>
   `,
   styles: [
@@ -394,6 +552,50 @@ import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.compone
       .right {
         text-align: right;
       }
+      .member-id {
+        display: grid;
+      }
+      .token-name {
+        font-weight: var(--weight-medium);
+      }
+      .sub-mono {
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+        color: var(--text-3);
+      }
+      .modal-stack {
+        display: grid;
+        gap: var(--space-4);
+      }
+      .secret-line {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        background: var(--bg-inset);
+        border: 1px dashed var(--accent-border);
+        border-radius: var(--radius-2);
+        padding: var(--space-2) var(--space-3);
+      }
+      .secret-line code {
+        flex: 1;
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+        color: var(--text-1);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .perms {
+        display: grid;
+        gap: var(--space-2);
+        margin: 0;
+        padding: 0;
+        border: 0;
+      }
+      .perms legend {
+        padding: 0;
+        margin-bottom: var(--space-1);
+      }
     `,
   ],
 })
@@ -410,6 +612,22 @@ export class SecurityComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly adding = signal(false);
   protected name = '';
+
+  // API tokens (scoped to the current team, minted per operator).
+  protected readonly permissions = PERMISSIONS;
+  protected readonly tokens = signal<ApiToken[]>([]);
+  protected readonly tokenOpen = signal(false);
+  protected readonly tokenValue = signal<string | null>(null);
+  protected readonly tokenCopied = signal(false);
+  protected tokenName = '';
+  protected tokenPerms: Record<ApiTokenPermission, boolean> = {
+    read: true,
+    'read:sensitive': false,
+    write: false,
+    deploy: false,
+    root: false,
+  };
+  private readonly teamUuid = this.api.currentUser()?.teamUuid ?? null;
 
   protected readonly mfa = signal<MfaStatus | null>(null);
   // A setup in progress: the secret is on screen, waiting for its first code.
@@ -445,10 +663,80 @@ export class SecurityComponent {
       this.mfa.set(mfa);
       this.identities.set(identities);
       this.oauthButtons.set(providers);
+      await this.loadTokens();
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  private async loadTokens(): Promise<void> {
+    if (!this.teamUuid) return;
+    const page = await this.api.client().listApiTokens(this.teamUuid, { limit: 100 });
+    this.tokens.set(page.data);
+  }
+
+  protected openToken(): void {
+    this.tokenValue.set(null);
+    this.tokenCopied.set(false);
+    this.tokenOpen.set(true);
+  }
+
+  protected async createToken(): Promise<void> {
+    if (!this.teamUuid || !this.tokenName.trim()) return;
+    const permissions = PERMISSIONS.filter((p) => this.tokenPerms[p]);
+    if (permissions.length === 0) {
+      this.error.set('Select at least one permission.');
+      return;
+    }
+    this.busy.set(true);
+    this.error.set(null);
+    this.tokenValue.set(null);
+    try {
+      const created = await this.api.client().createApiToken(this.teamUuid, {
+        name: this.tokenName.trim(),
+        permissions,
+        ip_allowlist: [],
+      });
+      this.tokenValue.set(created.token);
+      this.tokenName = '';
+      await this.loadTokens();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async revokeToken(token: ApiToken): Promise<void> {
+    if (!this.teamUuid) return;
+    if (
+      !confirm(
+        `Revoke the token "${token.name}"? Every script or CLI session using it stops working immediately.`,
+      )
+    ) {
+      return;
+    }
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.client().revokeApiToken(this.teamUuid, token.uuid);
+      await this.loadTokens();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async copyToken(value: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(value);
+      this.tokenCopied.set(true);
+      setTimeout(() => this.tokenCopied.set(false), 2000);
+    } catch {
+      // Clipboard may be unavailable — the secret stays selectable in the box.
     }
   }
 

@@ -5,11 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/mail"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -192,6 +194,63 @@ func (a *API) RevokeTeamInvitation(w http.ResponseWriter, r *http.Request, teamU
 	}
 	a.recordAudit(r, id, "invitation.revoke", "invitation", u)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ResendTeamInvitation implements POST
+// /teams/{team_uuid}/invitations/{invitation_uuid}/resend (permission: write):
+// it rotates the link token (invalidating the previous link), pushes the expiry
+// out, re-sends the email when a relay is configured, and returns the fresh link
+// once — only its hash is stored, exactly like creation.
+func (a *API) ResendTeamInvitation(w http.ResponseWriter, r *http.Request, teamUuid api.TeamUuid, invitationUuid api.InvitationUuid) {
+	id, ok := a.require(w, r, auth.PermWrite)
+	if !ok {
+		return
+	}
+	team, ok := a.resolveTeam(w, r, id, teamUuid)
+	if !ok {
+		return
+	}
+	var u pgtype.UUID
+	if err := u.Scan(invitationUuid); err != nil {
+		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "invitation not found")
+		return
+	}
+
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		a.internalError(w, r, "resend invitation", err)
+		return
+	}
+	token := hex.EncodeToString(raw)
+	sum := sha256.Sum256([]byte(token))
+
+	inv, err := a.Store.RotateInvitation(r.Context(), store.RotateInvitationParams{
+		Uuid: u, TeamID: team.ID,
+		TokenHash: hex.EncodeToString(sum[:]),
+		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(defaultInvitationHours * time.Hour), Valid: true},
+	})
+	if err != nil {
+		// Only a still-pending invitation can be regenerated (an accepted or
+		// revoked one matches no row) — that is a 404, not a server error.
+		if errors.Is(err, pgx.ErrNoRows) {
+			httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "no pending invitation to regenerate")
+			return
+		}
+		a.internalError(w, r, "resend invitation", err)
+		return
+	}
+
+	inviteURL := ptr("/invitations/accept?token=" + token)
+	if settings, err := a.Settings.Get(r.Context()); err == nil && settings.Fqdn != nil && *settings.Fqdn != "" {
+		inviteURL = ptr("https://" + *settings.Fqdn + "/invitations/accept?token=" + token)
+	}
+
+	// Same contract as creation: the mail is an addition, the link always comes
+	// back in the response (§23.2).
+	a.mailInvitation(r, inv.Email, *inviteURL)
+
+	a.recordAudit(r, id, "invitation.regenerate", "invitation", inv.Uuid)
+	httpapi.WriteJSON(w, http.StatusOK, invitationToAPI(inv, inviteURL))
 }
 
 // mailInvitation sends the invite link through the instance's transactional

@@ -1,5 +1,5 @@
 import { SlicePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
 import { CardComponent } from '../../ui/card/card.component';
@@ -10,21 +10,24 @@ import type { components } from '../../api/schema';
 type Team = components['schemas']['Team'];
 type TeamMember = components['schemas']['TeamMember'];
 type Invitation = components['schemas']['Invitation'];
-type ApiToken = components['schemas']['ApiToken'];
-type ApiTokenPermission = components['schemas']['ApiTokenPermission'];
 
-const PERMISSIONS: ApiTokenPermission[] = ['read', 'read:sensitive', 'write', 'deploy', 'root'];
+type TeamTab = 'members' | 'pending' | 'canceled';
 
 /**
- * Team members page (design kit: MembersScreen). Invitations and API tokens
- * are created in modals; their one-time secrets (invite link, token value)
- * stay in the modal until it is closed — only their hash survives server-side.
+ * Team members page (design kit: MembersScreen). Members, still-open
+ * invitations and closed ones (revoked/expired) each get their own tab.
+ * Invitations are created in a modal; the one-time invite link stays in the
+ * modal until it is closed — only its hash survives server-side. API tokens
+ * live in Personal settings (they are minted per operator, not per team page).
  */
 @Component({
   selector: 'app-team',
   standalone: true,
   imports: [FormsModule, SlicePipe, CardComponent, IconComponent, ModalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // Any click outside an open row menu dismisses it (the toggle stops
+  // propagation so opening one does not immediately close it).
+  host: { '(document:click)': 'closeMenus()' },
   template: `
     <div class="akd-page">
       <header class="akd-bar">
@@ -42,6 +45,9 @@ const PERMISSIONS: ApiTokenPermission[] = ['read', 'read:sensitive', 'write', 'd
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
+      @if (notice(); as message) {
+        <p class="akd-muted" role="status">{{ message }}</p>
+      }
 
       @if (team()?.description; as description) {
         <p class="akd-muted desc">{{ description }}</p>
@@ -50,63 +56,171 @@ const PERMISSIONS: ApiTokenPermission[] = ['read', 'read:sensitive', 'write', 'd
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
       } @else {
-        <div class="stack">
-          <akd-card title="Members" [padded]="false">
-            <span card-actions class="akd-badge akd-badge--mono">
-              {{ members().length }} members
-            </span>
-            @if (members().length === 0) {
-              <p class="akd-muted pad">No members.</p>
-            } @else {
-              <table class="akd-table">
-                <caption class="sr-only">
-                  Members of this team
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Member</th>
-                    <th scope="col">Role</th>
-                    <th scope="col">Joined</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (member of members(); track member.user_uuid) {
-                    <tr>
-                      <td>
-                        <span class="member-cell">
-                          <span class="avatar" aria-hidden="true">{{ initials(member) }}</span>
-                          <span class="member-id">
-                            <span class="member-name">{{ member.name ?? member.email }}</span>
-                            @if (member.name) {
-                              <span class="sub-mono">{{ member.email }}</span>
-                            }
-                          </span>
-                        </span>
-                      </td>
-                      <td>
-                        <span
-                          class="akd-badge akd-badge--mono"
-                          [class.akd-badge--accent]="member.role === 'owner'"
-                        >
-                          {{ member.role }}
-                        </span>
-                      </td>
-                      <td class="akd-muted">{{ member.joined_at | slice: 0 : 10 }}</td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
+        <nav class="akd-tabs" role="tablist" aria-label="Team sections">
+          <button
+            type="button"
+            class="akd-tab"
+            role="tab"
+            [class.akd-tab--active]="tab() === 'members'"
+            [attr.aria-selected]="tab() === 'members'"
+            (click)="tab.set('members')"
+          >
+            Members
+            <span class="akd-tab__count">{{ members().length }}</span>
+          </button>
+          <button
+            type="button"
+            class="akd-tab"
+            role="tab"
+            [class.akd-tab--active]="tab() === 'pending'"
+            [attr.aria-selected]="tab() === 'pending'"
+            (click)="tab.set('pending')"
+          >
+            Pending invitations
+            @if (pending().length > 0) {
+              <span class="akd-tab__count">{{ pending().length }}</span>
             }
-          </akd-card>
+          </button>
+          <button
+            type="button"
+            class="akd-tab"
+            role="tab"
+            [class.akd-tab--active]="tab() === 'canceled'"
+            [attr.aria-selected]="tab() === 'canceled'"
+            (click)="tab.set('canceled')"
+          >
+            Canceled
+            @if (canceled().length > 0) {
+              <span class="akd-tab__count">{{ canceled().length }}</span>
+            }
+          </button>
+        </nav>
 
-          <div class="grid2">
-            <akd-card title="Pending invitations" [padded]="false">
-              @if (invitations().length === 0) {
-                <p class="akd-muted pad">No invitations.</p>
+        @switch (tab()) {
+          @case ('members') {
+            <akd-card title="Members" [padded]="false">
+              @if (members().length === 0) {
+                <p class="akd-muted pad">No members.</p>
               } @else {
                 <table class="akd-table">
                   <caption class="sr-only">
-                    Pending and past invitations
+                    Members of this team
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Member</th>
+                      <th scope="col">Role</th>
+                      <th scope="col">Joined</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (member of members(); track member.user_uuid) {
+                      <tr>
+                        <td>
+                          <span class="member-cell">
+                            <span class="avatar" aria-hidden="true">{{ initials(member) }}</span>
+                            <span class="member-id">
+                              <span class="member-name">{{ member.name ?? member.email }}</span>
+                              @if (member.name) {
+                                <span class="sub-mono">{{ member.email }}</span>
+                              }
+                            </span>
+                          </span>
+                        </td>
+                        <td>
+                          <span
+                            class="akd-badge akd-badge--mono"
+                            [class.akd-badge--accent]="member.role === 'owner'"
+                          >
+                            {{ member.role }}
+                          </span>
+                        </td>
+                        <td class="akd-muted">{{ member.joined_at | slice: 0 : 10 }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+            </akd-card>
+          }
+
+          @case ('pending') {
+            <akd-card title="Pending invitations" [padded]="false">
+              @if (pending().length === 0) {
+                <p class="akd-muted pad">No pending invitations.</p>
+              } @else {
+                <table class="akd-table">
+                  <caption class="sr-only">
+                    Invitations still open
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Email</th>
+                      <th scope="col">Role</th>
+                      <th scope="col">Expires</th>
+                      <th scope="col"><span class="sr-only">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (inv of pending(); track inv.uuid) {
+                      <tr>
+                        <td class="akd-mono">{{ inv.email }}</td>
+                        <td>
+                          <span class="akd-badge akd-badge--mono">{{ inv.role }}</span>
+                        </td>
+                        <td class="akd-muted">{{ inv.expires_at | slice: 0 : 10 }}</td>
+                        <td class="right">
+                          <div class="menu">
+                            <button
+                              class="akd-iconbtn"
+                              type="button"
+                              [disabled]="busy()"
+                              [attr.aria-expanded]="menuFor() === inv.uuid"
+                              aria-label="Invitation actions"
+                              (click)="toggleMenu(inv.uuid, $event)"
+                            >
+                              <akd-icon name="more-horizontal" [size]="15" />
+                            </button>
+                            @if (menuFor() === inv.uuid) {
+                              <div class="menu__list" role="menu">
+                                <button
+                                  class="menu__item"
+                                  type="button"
+                                  role="menuitem"
+                                  (click)="copyInviteLink(inv)"
+                                >
+                                  <akd-icon name="copy" [size]="14" />
+                                  Copy invitation link
+                                </button>
+                                <button
+                                  class="menu__item menu__item--danger"
+                                  type="button"
+                                  role="menuitem"
+                                  (click)="revokeInvitation(inv)"
+                                >
+                                  <akd-icon name="x" [size]="14" />
+                                  Cancel invitation
+                                </button>
+                              </div>
+                            }
+                          </div>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+            </akd-card>
+          }
+
+          @case ('canceled') {
+            <akd-card title="Canceled invitations" [padded]="false">
+              @if (canceled().length === 0) {
+                <p class="akd-muted pad">No canceled or expired invitations.</p>
+              } @else {
+                <table class="akd-table">
+                  <caption class="sr-only">
+                    Revoked or expired invitations
                   </caption>
                   <thead>
                     <tr>
@@ -114,11 +228,10 @@ const PERMISSIONS: ApiTokenPermission[] = ['read', 'read:sensitive', 'write', 'd
                       <th scope="col">Role</th>
                       <th scope="col">Status</th>
                       <th scope="col">Expires</th>
-                      <th scope="col"><span class="sr-only">Actions</span></th>
                     </tr>
                   </thead>
                   <tbody>
-                    @for (inv of invitations(); track inv.uuid) {
+                    @for (inv of canceled(); track inv.uuid) {
                       <tr>
                         <td class="akd-mono">{{ inv.email }}</td>
                         <td>
@@ -128,95 +241,19 @@ const PERMISSIONS: ApiTokenPermission[] = ['read', 'read:sensitive', 'write', 'd
                           <span class="akd-badge akd-badge--mono">{{ inv.status }}</span>
                         </td>
                         <td class="akd-muted">{{ inv.expires_at | slice: 0 : 10 }}</td>
-                        <td class="right">
-                          @if (inv.status === 'pending') {
-                            <button
-                              class="akd-iconbtn"
-                              type="button"
-                              [disabled]="busy()"
-                              (click)="revokeInvitation(inv)"
-                              aria-label="Revoke invitation"
-                            >
-                              <akd-icon name="x" [size]="15" />
-                            </button>
-                          }
-                        </td>
                       </tr>
                     }
                   </tbody>
                 </table>
               }
             </akd-card>
+          }
+        }
 
-            <akd-card title="API tokens" [padded]="false">
-              <button
-                card-actions
-                class="akd-btn akd-btn--secondary akd-btn--sm"
-                type="button"
-                (click)="openToken()"
-              >
-                <akd-icon name="plus" [size]="13" />
-                New token
-              </button>
-              @if (tokens().length === 0) {
-                <p class="akd-muted pad">No API tokens.</p>
-              } @else {
-                <table class="akd-table">
-                  <caption class="sr-only">
-                    API tokens of this team
-                  </caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Token</th>
-                      <th scope="col">Permissions</th>
-                      <th scope="col">Last used</th>
-                      <th scope="col"><span class="sr-only">Actions</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (token of tokens(); track token.uuid) {
-                      <tr>
-                        <td>
-                          <span class="member-id">
-                            <span class="member-name akd-mono">{{ token.name }}</span>
-                            <span class="sub-mono">{{ token.token_prefix }}…</span>
-                          </span>
-                        </td>
-                        <td>
-                          <span
-                            class="akd-badge akd-badge--mono"
-                            [class.akd-badge--danger]="token.permissions.includes('root')"
-                          >
-                            {{ token.permissions.join(' · ') }}
-                          </span>
-                        </td>
-                        <td class="akd-muted">
-                          {{ token.last_used_at ? (token.last_used_at | slice: 0 : 10) : 'never' }}
-                        </td>
-                        <td class="right">
-                          <button
-                            class="akd-iconbtn"
-                            type="button"
-                            [disabled]="busy()"
-                            (click)="revokeToken(token)"
-                            aria-label="Revoke token"
-                          >
-                            <akd-icon name="trash-2" [size]="15" />
-                          </button>
-                        </td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              }
-            </akd-card>
-          </div>
-
-          <p class="footnote">
-            Invitation links and token secrets are shown once — only their SHA-256 is stored. Email
-            delivery is an addition: the link stays in the response even without a configured relay.
-          </p>
-        </div>
+        <p class="footnote">
+          Invitation links are shown once — only their SHA-256 is stored. Email delivery is an
+          addition: the link stays in the response even without a configured relay.
+        </p>
       }
 
       <akd-modal [open]="inviteOpen()" title="Invite a member" (closed)="inviteOpen.set(false)">
@@ -303,85 +340,6 @@ const PERMISSIONS: ApiTokenPermission[] = ['read', 'read:sensitive', 'write', 'd
           }
         </div>
       </akd-modal>
-
-      <akd-modal [open]="tokenOpen()" title="Create an API token" (closed)="tokenOpen.set(false)">
-        @if (error(); as message) {
-          <p class="akd-error" role="alert">{{ message }}</p>
-        }
-        @if (tokenValue(); as value) {
-          <div class="modal-stack">
-            <span>
-              Token created. The value below is shown <strong>once</strong> — only its hash is
-              stored.
-            </span>
-            <div class="secret-line">
-              <code>{{ value }}</code>
-              <button
-                class="akd-iconbtn akd-iconbtn--bordered"
-                type="button"
-                (click)="copy(value)"
-                aria-label="Copy token"
-              >
-                <akd-icon [name]="copied() ? 'check' : 'copy'" [size]="15" />
-              </button>
-            </div>
-          </div>
-        } @else {
-          <form id="token-form" class="modal-stack" (ngSubmit)="createToken()">
-            <div class="akd-field">
-              <label class="akd-field__label" for="tok-name">Name</label>
-              <input
-                id="tok-name"
-                name="name"
-                class="akd-input akd-input--mono"
-                placeholder="e.g. ci-github-actions"
-                [(ngModel)]="tokenName"
-                [disabled]="busy()"
-                required
-              />
-            </div>
-            <fieldset class="perms">
-              <legend class="akd-field__label">Permissions</legend>
-              @for (perm of permissions; track perm) {
-                <label class="akd-check">
-                  <input
-                    type="checkbox"
-                    [name]="'perm-' + perm"
-                    [(ngModel)]="tokenPerms[perm]"
-                    [disabled]="busy()"
-                  />
-                  <span class="akd-mono">{{ perm }}</span>
-                </label>
-              }
-            </fieldset>
-          </form>
-        }
-        <div modal-footer>
-          @if (tokenValue()) {
-            <button class="akd-btn akd-btn--ghost" type="button" (click)="tokenOpen.set(false)">
-              Close
-            </button>
-          } @else {
-            <button
-              class="akd-btn akd-btn--ghost"
-              type="button"
-              (click)="tokenOpen.set(false)"
-              [disabled]="busy()"
-            >
-              Cancel
-            </button>
-            <button
-              class="akd-btn akd-btn--primary"
-              type="submit"
-              form="token-form"
-              [disabled]="busy() || !tokenName.trim()"
-            >
-              <akd-icon name="key" [size]="15" />
-              {{ busy() ? 'Creating…' : 'Create token' }}
-            </button>
-          }
-        </div>
-      </akd-modal>
     </div>
   `,
   styles: [
@@ -393,27 +351,12 @@ const PERMISSIONS: ApiTokenPermission[] = ['read', 'read:sensitive', 'write', 'd
         margin: 0 0 var(--space-4);
         font-size: var(--text-sm);
       }
-      .stack {
-        display: grid;
-        gap: var(--space-5);
-      }
-      .grid2 {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: var(--space-5);
-        align-items: start;
-      }
-      @media (max-width: 960px) {
-        .grid2 {
-          grid-template-columns: 1fr;
-        }
-      }
       .pad {
         padding: var(--space-5);
         margin: 0;
       }
       .footnote {
-        margin: 0;
+        margin: var(--space-5) 0 0;
         font-size: var(--text-xs);
         color: var(--text-3);
       }
@@ -445,6 +388,50 @@ const PERMISSIONS: ApiTokenPermission[] = ['read', 'read:sensitive', 'write', 'd
         font-size: var(--text-xs);
         color: var(--text-3);
       }
+      .menu {
+        position: relative;
+        display: inline-block;
+      }
+      .menu__list {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        margin-top: 4px;
+        min-width: 200px;
+        background: var(--bg-3);
+        border: 1px solid var(--border-2);
+        border-radius: var(--radius-3);
+        box-shadow: var(--shadow-2);
+        padding: 4px;
+        z-index: 50;
+        display: grid;
+        gap: 2px;
+        animation: akd-slide-in var(--dur-1) var(--ease-out);
+      }
+      .menu__item {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        width: 100%;
+        padding: var(--space-2) var(--space-3);
+        border: 0;
+        border-radius: var(--radius-2);
+        background: transparent;
+        color: var(--text-1);
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .menu__item:hover {
+        background: var(--bg-2);
+      }
+      .menu__item:focus-visible {
+        outline: none;
+        box-shadow: var(--ring-focus);
+      }
+      .menu__item--danger {
+        color: var(--danger, var(--text-1));
+      }
       .modal-stack {
         display: grid;
         gap: var(--space-4);
@@ -470,50 +457,42 @@ const PERMISSIONS: ApiTokenPermission[] = ['read', 'read:sensitive', 'write', 'd
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .perms {
-        display: grid;
-        gap: var(--space-2);
-        margin: 0;
-        padding: 0;
-        border: 0;
-      }
-      .perms legend {
-        padding: 0;
-        margin-bottom: var(--space-1);
-      }
     `,
   ],
 })
 export class TeamComponent {
   private readonly api = inject(ApiService);
 
-  protected readonly permissions = PERMISSIONS;
+  protected readonly tab = signal<TeamTab>('members');
   protected readonly team = signal<Team | null>(null);
   protected readonly members = signal<TeamMember[]>([]);
   protected readonly invitations = signal<Invitation[]>([]);
-  protected readonly tokens = signal<ApiToken[]>([]);
   protected readonly loading = signal(true);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly inviteOpen = signal(false);
-  protected readonly tokenOpen = signal(false);
   protected readonly copied = signal(false);
+  /** UUID of the invitation whose row menu is open, or null. */
+  protected readonly menuFor = signal<string | null>(null);
+  /** Transient status line (link copied / email re-sent). */
+  protected readonly notice = signal<string | null>(null);
+  private noticeTimer: ReturnType<typeof setTimeout> | null = null;
   /** One-time invitation link — the server never returns it again. */
   protected readonly inviteLink = signal<string | null>(null);
   protected readonly inviteSent = signal<string | null>(null);
-  /** One-time token value — only its hash survives on the server. */
-  protected readonly tokenValue = signal<string | null>(null);
+
+  /** Still open — the only invitations that can be acted on. */
+  protected readonly pending = computed(() =>
+    this.invitations().filter((inv) => inv.status === 'pending'),
+  );
+  /** Closed for good: revoked by an admin or timed out. Accepted ones are not
+   * shown — the person is in Members. */
+  protected readonly canceled = computed(() =>
+    this.invitations().filter((inv) => inv.status === 'revoked' || inv.status === 'expired'),
+  );
 
   protected inviteEmail = '';
   protected inviteRole: 'member' | 'admin' = 'member';
-  protected tokenName = '';
-  protected tokenPerms: Record<ApiTokenPermission, boolean> = {
-    read: true,
-    'read:sensitive': false,
-    write: false,
-    deploy: false,
-    root: false,
-  };
 
   private readonly teamUuid = this.api.currentUser()?.teamUuid ?? null;
 
@@ -539,17 +518,52 @@ export class TeamComponent {
     );
   }
 
+  protected toggleMenu(uuid: string, event: Event): void {
+    // Stop the document listener from closing what this click just opened.
+    event.stopPropagation();
+    this.menuFor.set(this.menuFor() === uuid ? null : uuid);
+  }
+
+  protected closeMenus(): void {
+    this.menuFor.set(null);
+  }
+
+  private flashNotice(text: string): void {
+    this.notice.set(text);
+    if (this.noticeTimer !== null) clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => this.notice.set(null), 4000);
+  }
+
+  /** Regenerate the invitation's link and copy the fresh one — the previous
+   * link is invalidated, and the email is re-sent when a relay is configured. */
+  protected async copyInviteLink(inv: Invitation): Promise<void> {
+    this.menuFor.set(null);
+    if (!this.teamUuid) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      const refreshed = await this.api.client().resendTeamInvitation(this.teamUuid, inv.uuid);
+      if (refreshed.invite_url) {
+        await navigator.clipboard.writeText(refreshed.invite_url);
+        this.flashNotice(
+          `New invitation link for ${inv.email} copied — the previous link no longer works.`,
+        );
+      } else {
+        this.flashNotice(`Invitation email re-sent to ${inv.email}.`);
+      }
+      await this.load(this.teamUuid);
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
   protected openInvite(): void {
     this.inviteLink.set(null);
     this.inviteSent.set(null);
     this.copied.set(false);
     this.inviteOpen.set(true);
-  }
-
-  protected openToken(): void {
-    this.tokenValue.set(null);
-    this.copied.set(false);
-    this.tokenOpen.set(true);
   }
 
   protected async copy(value: string): Promise<void> {
@@ -565,16 +579,14 @@ export class TeamComponent {
   private async load(teamUuid: string): Promise<void> {
     try {
       const client = this.api.client();
-      const [team, members, invitations, tokens] = await Promise.all([
+      const [team, members, invitations] = await Promise.all([
         client.getTeam(teamUuid),
         client.listTeamMembers(teamUuid, { limit: 100 }),
         client.listTeamInvitations(teamUuid, { limit: 100 }),
-        client.listApiTokens(teamUuid, { limit: 100 }),
       ]);
       this.team.set(team);
       this.members.set(members.data);
       this.invitations.set(invitations.data);
-      this.tokens.set(tokens.data);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -611,59 +623,13 @@ export class TeamComponent {
   }
 
   protected async revokeInvitation(inv: Invitation): Promise<void> {
+    this.menuFor.set(null);
     if (!this.teamUuid) return;
-    if (!confirm(`Revoke the invitation for ${inv.email}? Its link stops working.`)) return;
+    if (!confirm(`Cancel the invitation for ${inv.email}? Its link stops working.`)) return;
     this.busy.set(true);
     this.error.set(null);
     try {
       await this.api.client().revokeTeamInvitation(this.teamUuid, inv.uuid);
-      await this.load(this.teamUuid);
-    } catch (err) {
-      this.error.set(ApiService.describe(err));
-    } finally {
-      this.busy.set(false);
-    }
-  }
-
-  protected async createToken(): Promise<void> {
-    if (!this.teamUuid || !this.tokenName.trim()) return;
-    const permissions = PERMISSIONS.filter((p) => this.tokenPerms[p]);
-    if (permissions.length === 0) {
-      this.error.set('Select at least one permission.');
-      return;
-    }
-    this.busy.set(true);
-    this.error.set(null);
-    this.tokenValue.set(null);
-    try {
-      const created = await this.api.client().createApiToken(this.teamUuid, {
-        name: this.tokenName.trim(),
-        permissions,
-        ip_allowlist: [],
-      });
-      this.tokenValue.set(created.token);
-      this.tokenName = '';
-      await this.load(this.teamUuid);
-    } catch (err) {
-      this.error.set(ApiService.describe(err));
-    } finally {
-      this.busy.set(false);
-    }
-  }
-
-  protected async revokeToken(token: ApiToken): Promise<void> {
-    if (!this.teamUuid) return;
-    if (
-      !confirm(
-        `Revoke the token "${token.name}"? Every script or CI job using it stops working immediately.`,
-      )
-    ) {
-      return;
-    }
-    this.busy.set(true);
-    this.error.set(null);
-    try {
-      await this.api.client().revokeApiToken(this.teamUuid, token.uuid);
       await this.load(this.teamUuid);
     } catch (err) {
       this.error.set(ApiService.describe(err));

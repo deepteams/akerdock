@@ -351,6 +351,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/teams/{team_uuid}/invitations/{invitation_uuid}/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+                /** @description UUID de l'invitation. */
+                invitation_uuid: components["parameters"]["InvitationUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Régénérer le lien d'une invitation
+         * @description Régénère le lien d'une invitation en attente : le jeton précédent est invalidé (rotation), l'expiration est repoussée, et l'email est renvoyé si l'email transactionnel de l'instance est configuré. Le nouveau lien est renvoyé dans la réponse (une seule fois — seul son hash est stocké).
+         */
+        post: operations["resendTeamInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams/{team_uuid}/tokens": {
         parameters: {
             query?: never;
@@ -6007,6 +6032,35 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    resendTeamInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+                /** @description UUID de l'invitation. */
+                invitation_uuid: components["parameters"]["InvitationUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invitation régénérée. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invitation"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["TooManyRequests"];
         };
     };

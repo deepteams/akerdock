@@ -41,3 +41,12 @@ LIMIT sqlc.arg(page_limit);
 -- name: RevokeInvitation :execrows
 UPDATE invitations SET revoked_at = now()
 WHERE uuid = $1 AND team_id = $2 AND accepted_at IS NULL AND revoked_at IS NULL;
+
+-- name: RotateInvitation :one
+-- Regenerate the link of a still-pending invitation: rotate the token hash and
+-- push the expiry out. Returns nothing if the invitation is not pending.
+UPDATE invitations
+SET token_hash = sqlc.arg(token_hash), expires_at = sqlc.arg(expires_at)
+WHERE uuid = sqlc.arg(uuid) AND team_id = sqlc.arg(team_id)
+  AND accepted_at IS NULL AND revoked_at IS NULL
+RETURNING *;

@@ -737,6 +737,36 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /teams/{team_uuid}/invitations/{invitation_uuid}/resend:
+    parameters:
+      - $ref: "#/components/parameters/TeamUuid"
+      - $ref: "#/components/parameters/InvitationUuid"
+    post:
+      tags: [Teams]
+      operationId: resendTeamInvitation
+      summary: Régénérer le lien d'une invitation
+      description: >-
+        Régénère le lien d'une invitation en attente : le jeton précédent est
+        invalidé (rotation), l'expiration est repoussée, et l'email est renvoyé
+        si l'email transactionnel de l'instance est configuré. Le nouveau lien
+        est renvoyé dans la réponse (une seule fois — seul son hash est stocké).
+      x-required-permission: write
+      responses:
+        "200":
+          description: Invitation régénérée.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invitation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /teams/{team_uuid}/tokens:
     parameters:
       - $ref: "#/components/parameters/TeamUuid"
