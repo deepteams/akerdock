@@ -572,7 +572,7 @@ func generatePassword() (string, error) {
 // database it connects to. The CA's private key is another matter entirely: it
 // stays encrypted in the control plane and is never returned, by any path.
 func (a *API) GetServerCA(w http.ResponseWriter, r *http.Request, serverUuid api.ServerUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermServersRead)
 	if !ok {
 		return
 	}

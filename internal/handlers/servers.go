@@ -82,7 +82,7 @@ func (a *API) privateKeyUUIDByID(r *http.Request, keyID int64) string {
 
 // ListServers implements GET /servers (permission: read).
 func (a *API) ListServers(w http.ResponseWriter, r *http.Request, params api.ListServersParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermServersRead)
 	if !ok {
 		return
 	}
@@ -116,7 +116,7 @@ func (a *API) ListServers(w http.ResponseWriter, r *http.Request, params api.Lis
 // CreateServer implements POST /servers (permission: write): registers the
 // server in pending status; validation is a separate 202 job (§20.1).
 func (a *API) CreateServer(w http.ResponseWriter, r *http.Request, params api.CreateServerParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermServersManage)
 	if !ok {
 		return
 	}
@@ -233,7 +233,7 @@ func (a *API) CreateServer(w http.ResponseWriter, r *http.Request, params api.Cr
 
 // GetServer implements GET /servers/{server_uuid} (permission: read).
 func (a *API) GetServer(w http.ResponseWriter, r *http.Request, serverUuid api.ServerUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermServersRead)
 	if !ok {
 		return
 	}
@@ -249,7 +249,7 @@ func (a *API) GetServer(w http.ResponseWriter, r *http.Request, serverUuid api.S
 // Sensitive PATCH — If-Match mandatory; changing host, port, user or key
 // puts the server back in pending (revalidation required).
 func (a *API) UpdateServer(w http.ResponseWriter, r *http.Request, serverUuid api.ServerUuid, params api.UpdateServerParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermServersManage)
 	if !ok {
 		return
 	}
@@ -431,7 +431,7 @@ func (a *API) UpdateServer(w http.ResponseWriter, r *http.Request, serverUuid ap
 // write). INV-008: removes the server from AkerDock, never destroys the
 // machine. Refused once resources are deployed on it (with resources).
 func (a *API) DeleteServer(w http.ResponseWriter, r *http.Request, serverUuid api.ServerUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermServersManage)
 	if !ok {
 		return
 	}
@@ -458,7 +458,7 @@ func (a *API) DeleteServer(w http.ResponseWriter, r *http.Request, serverUuid ap
 // ValidateServer implements POST /servers/{server_uuid}/validate
 // (permission: write): long operation — 202 with a tracking job (§20.1).
 func (a *API) ValidateServer(w http.ResponseWriter, r *http.Request, serverUuid api.ServerUuid, params api.ValidateServerParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermServersManage)
 	if !ok {
 		return
 	}

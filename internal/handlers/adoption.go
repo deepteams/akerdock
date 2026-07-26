@@ -21,7 +21,7 @@ import (
 // CreateAdoptionScan implements POST /servers/{uuid}/adoption-scans
 // (permission: write): 202 + job, plus the scan uuid to read afterwards.
 func (a *API) CreateAdoptionScan(w http.ResponseWriter, r *http.Request, serverUuid api.ServerUuid, params api.CreateAdoptionScanParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermResourcesAdopt)
 	if !ok {
 		return
 	}
@@ -71,7 +71,7 @@ func (a *API) CreateAdoptionScan(w http.ResponseWriter, r *http.Request, serverU
 // ListAdoptionScans implements GET /servers/{uuid}/adoption-scans
 // (permission: read).
 func (a *API) ListAdoptionScans(w http.ResponseWriter, r *http.Request, serverUuid api.ServerUuid, params api.ListAdoptionScansParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermResourcesRead)
 	if !ok {
 		return
 	}

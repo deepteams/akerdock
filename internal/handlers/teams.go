@@ -26,7 +26,7 @@ func teamToAPI(t store.Team) api.Team {
 // team-scoped so the list usually has one entry; a root token lists every
 // team of the instance.
 func (a *API) ListTeams(w http.ResponseWriter, r *http.Request, params api.ListTeamsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermTeamRead)
 	if !ok {
 		return
 	}
@@ -69,7 +69,7 @@ func (a *API) ListTeams(w http.ResponseWriter, r *http.Request, params api.ListT
 
 // GetTeam implements GET /teams/{team_uuid} (permission: read).
 func (a *API) GetTeam(w http.ResponseWriter, r *http.Request, teamUuid api.TeamUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermTeamRead)
 	if !ok {
 		return
 	}
@@ -83,7 +83,7 @@ func (a *API) GetTeam(w http.ResponseWriter, r *http.Request, teamUuid api.TeamU
 // UpdateTeam implements PATCH /teams/{team_uuid} (permission: write): partial
 // update of the team's name and description.
 func (a *API) UpdateTeam(w http.ResponseWriter, r *http.Request, teamUuid api.TeamUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermTeamManage)
 	if !ok {
 		return
 	}
@@ -117,7 +117,7 @@ func (a *API) UpdateTeam(w http.ResponseWriter, r *http.Request, teamUuid api.Te
 
 // ListTeamMembers implements GET /teams/{team_uuid}/members (permission: read).
 func (a *API) ListTeamMembers(w http.ResponseWriter, r *http.Request, teamUuid api.TeamUuid, params api.ListTeamMembersParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermMembersRead)
 	if !ok {
 		return
 	}

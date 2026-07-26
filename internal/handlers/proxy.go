@@ -22,7 +22,7 @@ import (
 // ProxyLifecycle implements POST /servers/{server_uuid}/proxy/{action}
 // (permission: write) — 202 + job.
 func (a *API) ProxyLifecycle(w http.ResponseWriter, r *http.Request, serverUuid api.ServerUuid, action string) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermServersProxy)
 	if !ok {
 		return
 	}
@@ -82,7 +82,7 @@ func (a *API) ProxyLifecycle(w http.ResponseWriter, r *http.Request, serverUuid 
 // GetProxyLogs implements GET /servers/{server_uuid}/proxy/logs (permission:
 // read): read straight off the server, never stored.
 func (a *API) GetProxyLogs(w http.ResponseWriter, r *http.Request, serverUuid api.ServerUuid, params api.GetProxyLogsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermServersRead)
 	if !ok {
 		return
 	}

@@ -37,7 +37,7 @@ func tokenToAPI(t store.ApiToken) api.ApiToken {
 // ListApiTokens implements GET /teams/{team_uuid}/tokens (permission:
 // read). Metadata only — the token value is never returned (§10.3).
 func (a *API) ListApiTokens(w http.ResponseWriter, r *http.Request, teamUuid api.TeamUuid, params api.ListApiTokensParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermTokensRead)
 	if !ok {
 		return
 	}
@@ -77,7 +77,7 @@ func (a *API) ListApiTokens(w http.ResponseWriter, r *http.Request, teamUuid api
 // write). Anti privilege escalation: a token cannot grant a permission it
 // does not hold itself (§10.3).
 func (a *API) CreateApiToken(w http.ResponseWriter, r *http.Request, teamUuid api.TeamUuid, params api.CreateApiTokenParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermTokensCreate)
 	if !ok {
 		return
 	}
@@ -175,7 +175,7 @@ func (a *API) CreateApiToken(w http.ResponseWriter, r *http.Request, teamUuid ap
 // RevokeApiToken implements DELETE /teams/{team_uuid}/tokens/{token_uuid}
 // (permission: write). Immediate and final; a token may revoke itself.
 func (a *API) RevokeApiToken(w http.ResponseWriter, r *http.Request, teamUuid api.TeamUuid, tokenUuid api.TokenUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermTokensRevoke)
 	if !ok {
 		return
 	}

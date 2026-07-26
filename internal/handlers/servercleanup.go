@@ -14,7 +14,7 @@ import (
 // write): the manual trigger of the §3.7 cleanup — 202 + job. The job itself
 // enforces the safety rules (INV-015, never during a deployment).
 func (a *API) RunServerCleanup(w http.ResponseWriter, r *http.Request, serverUuid api.ServerUuid, params api.RunServerCleanupParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermServersMaintain)
 	if !ok {
 		return
 	}

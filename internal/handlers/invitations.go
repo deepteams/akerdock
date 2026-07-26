@@ -57,7 +57,7 @@ func invitationToAPI(inv store.Invitation, inviteURL *string) api.Invitation {
 // ListTeamInvitations implements GET /teams/{team_uuid}/invitations
 // (permission: read).
 func (a *API) ListTeamInvitations(w http.ResponseWriter, r *http.Request, teamUuid api.TeamUuid, params api.ListTeamInvitationsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermMembersRead)
 	if !ok {
 		return
 	}
@@ -96,7 +96,7 @@ func (a *API) ListTeamInvitations(w http.ResponseWriter, r *http.Request, teamUu
 // (permission: write). Without transactional email configured, the invite
 // link is returned in the response for manual delivery.
 func (a *API) CreateTeamInvitation(w http.ResponseWriter, r *http.Request, teamUuid api.TeamUuid, params api.CreateTeamInvitationParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermInvitationsManage)
 	if !ok {
 		return
 	}
@@ -170,7 +170,7 @@ func (a *API) CreateTeamInvitation(w http.ResponseWriter, r *http.Request, teamU
 // /teams/{team_uuid}/invitations/{invitation_uuid} (permission: write): the
 // link becomes immediately invalid.
 func (a *API) RevokeTeamInvitation(w http.ResponseWriter, r *http.Request, teamUuid api.TeamUuid, invitationUuid api.InvitationUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermInvitationsManage)
 	if !ok {
 		return
 	}
@@ -202,7 +202,7 @@ func (a *API) RevokeTeamInvitation(w http.ResponseWriter, r *http.Request, teamU
 // out, re-sends the email when a relay is configured, and returns the fresh link
 // once — only its hash is stored, exactly like creation.
 func (a *API) ResendTeamInvitation(w http.ResponseWriter, r *http.Request, teamUuid api.TeamUuid, invitationUuid api.InvitationUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermInvitationsManage)
 	if !ok {
 		return
 	}

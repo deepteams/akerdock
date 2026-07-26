@@ -64,7 +64,7 @@ func (a *API) resolveEnvironment(w http.ResponseWriter, r *http.Request, project
 // ListEnvironments implements GET /projects/{project_uuid}/environments
 // (permission: read).
 func (a *API) ListEnvironments(w http.ResponseWriter, r *http.Request, projectUuid api.ProjectUuid, params api.ListEnvironmentsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermEnvironmentsRead)
 	if !ok {
 		return
 	}
@@ -108,7 +108,7 @@ func (a *API) ListEnvironments(w http.ResponseWriter, r *http.Request, projectUu
 // CreateEnvironment implements POST /projects/{project_uuid}/environments
 // (permission: write).
 func (a *API) CreateEnvironment(w http.ResponseWriter, r *http.Request, projectUuid api.ProjectUuid, params api.CreateEnvironmentParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermEnvironmentsManage)
 	if !ok {
 		return
 	}
@@ -144,7 +144,7 @@ func (a *API) CreateEnvironment(w http.ResponseWriter, r *http.Request, projectU
 // GetEnvironment implements GET
 // /projects/{project_uuid}/environments/{environment_uuid} (permission: read).
 func (a *API) GetEnvironment(w http.ResponseWriter, r *http.Request, projectUuid api.ProjectUuid, environmentUuid api.EnvironmentUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermEnvironmentsRead)
 	if !ok {
 		return
 	}
@@ -163,7 +163,7 @@ func (a *API) GetEnvironment(w http.ResponseWriter, r *http.Request, projectUuid
 // UpdateEnvironment implements PATCH
 // /projects/{project_uuid}/environments/{environment_uuid} (permission: write).
 func (a *API) UpdateEnvironment(w http.ResponseWriter, r *http.Request, projectUuid api.ProjectUuid, environmentUuid api.EnvironmentUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermEnvironmentsManage)
 	if !ok {
 		return
 	}
@@ -219,7 +219,7 @@ func (a *API) UpdateEnvironment(w http.ResponseWriter, r *http.Request, projectU
 // write). Refused with 409 once the environment contains resources (§19.2)
 // — enforced when the resources table lands.
 func (a *API) DeleteEnvironment(w http.ResponseWriter, r *http.Request, projectUuid api.ProjectUuid, environmentUuid api.EnvironmentUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermEnvironmentsManage)
 	if !ok {
 		return
 	}

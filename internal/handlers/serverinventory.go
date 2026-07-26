@@ -14,7 +14,7 @@ import (
 // (permission: read): the managed resources deployed on the server.
 // Unmanaged Docker objects never appear here (INV-015).
 func (a *API) ListServerResources(w http.ResponseWriter, r *http.Request, serverUuid api.ServerUuid, params api.ListServerResourcesParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermServersRead)
 	if !ok {
 		return
 	}
@@ -60,7 +60,7 @@ func (a *API) ListServerResources(w http.ResponseWriter, r *http.Request, server
 // (permission: read): the domains routed by this server's proxy, grouped
 // by resource.
 func (a *API) ListServerDomains(w http.ResponseWriter, r *http.Request, serverUuid api.ServerUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermServersRead)
 	if !ok {
 		return
 	}

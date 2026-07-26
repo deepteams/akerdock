@@ -611,7 +611,7 @@ paths:
         Liste les teams accessibles au token. Un token étant scopé par team,
         la liste contient en général une seule entrée (plusieurs pour un
         token `root` d'instance).
-      x-required-permission: read
+      x-required-permission: team:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -644,7 +644,7 @@ paths:
       tags: [Teams]
       operationId: getTeam
       summary: Détail d'une team
-      x-required-permission: read
+      x-required-permission: team:read
       responses:
         "200":
           description: La team.
@@ -665,7 +665,7 @@ paths:
       operationId: updateTeam
       summary: Modifier une team
       description: Met à jour le nom et la description de la team (mise à jour partielle).
-      x-required-permission: write
+      x-required-permission: team:manage
       requestBody:
         required: true
         content:
@@ -699,7 +699,7 @@ paths:
       tags: [Teams]
       operationId: listTeamMembers
       summary: Lister les membres d'une team
-      x-required-permission: read
+      x-required-permission: members:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -734,7 +734,7 @@ paths:
       tags: [Teams]
       operationId: listTeamInvitations
       summary: Lister les invitations
-      x-required-permission: read
+      x-required-permission: members:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -769,7 +769,7 @@ paths:
         Crée une invitation par email. L'envoi effectif requiert l'email
         transactionnel de l'instance (§14.2) ; à défaut, le lien d'invitation
         est retourné dans la ressource pour transmission manuelle.
-      x-required-permission: write
+      x-required-permission: invitations:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -809,7 +809,7 @@ paths:
       operationId: revokeTeamInvitation
       summary: Révoquer une invitation
       description: Révoque une invitation en attente. Le lien devient immédiatement invalide.
-      x-required-permission: write
+      x-required-permission: invitations:manage
       responses:
         "204":
           description: Invitation révoquée.
@@ -837,7 +837,7 @@ paths:
         invalidé (rotation), l'expiration est repoussée, et l'email est renvoyé
         si l'email transactionnel de l'instance est configuré. Le nouveau lien
         est renvoyé dans la réponse (une seule fois — seul son hash est stocké).
-      x-required-permission: write
+      x-required-permission: invitations:manage
       responses:
         "200":
           description: Invitation régénérée.
@@ -865,7 +865,7 @@ paths:
         Liste les métadonnées des tokens API de la team. La valeur du token
         n'est JAMAIS renvoyée (seul le préfixe d'identification l'est) — elle
         n'est visible qu'une seule fois, à la création (§10.3).
-      x-required-permission: read
+      x-required-permission: tokens:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -902,7 +902,7 @@ paths:
         récupérable. Anti-élévation de privilèges : un token ne peut pas
         créer un token portant des permissions qu'il ne possède pas lui-même
         (sinon `403`).
-      x-required-permission: write
+      x-required-permission: tokens:create
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -944,7 +944,7 @@ paths:
       description: >-
         Révocation immédiate et définitive. Un token peut se révoquer
         lui-même. L'opération est auditée (§23.4).
-      x-required-permission: write
+      x-required-permission: tokens:revoke
       responses:
         "204":
           description: Token révoqué.
@@ -965,7 +965,7 @@ paths:
       tags: [Projects]
       operationId: listProjects
       summary: Lister les projets
-      x-required-permission: read
+      x-required-permission: projects:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -998,7 +998,7 @@ paths:
         Crée un projet dans la team courante. Un environnement `production`
         est créé par défaut (§2). Le slug doit être unique dans la team
         (§19.2).
-      x-required-permission: write
+      x-required-permission: projects:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -1037,7 +1037,7 @@ paths:
       tags: [Projects]
       operationId: getProject
       summary: Détail d'un projet
-      x-required-permission: read
+      x-required-permission: projects:read
       responses:
         "200":
           description: Le projet (avec ses environnements résumés).
@@ -1060,7 +1060,7 @@ paths:
       tags: [Projects]
       operationId: updateProject
       summary: Modifier un projet
-      x-required-permission: write
+      x-required-permission: projects:manage
       requestBody:
         required: true
         content:
@@ -1099,7 +1099,7 @@ paths:
         Supprime un projet vide. Refusé avec `409` (`dependency_exists`) tant
         qu'un environnement du projet contient des ressources (§19.2) —
         aucune cascade silencieuse.
-      x-required-permission: write
+      x-required-permission: projects:manage
       responses:
         "204":
           description: Projet supprimé.
@@ -1121,7 +1121,7 @@ paths:
       tags: [Projects]
       operationId: listEnvironments
       summary: Lister les environnements d'un projet
-      x-required-permission: read
+      x-required-permission: environments:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -1153,7 +1153,7 @@ paths:
       operationId: createEnvironment
       summary: Créer un environnement
       description: Le slug doit être unique dans le projet (§19.2).
-      x-required-permission: write
+      x-required-permission: environments:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -1195,7 +1195,7 @@ paths:
       tags: [Projects]
       operationId: getEnvironment
       summary: Détail d'un environnement
-      x-required-permission: read
+      x-required-permission: environments:read
       responses:
         "200":
           description: L'environnement.
@@ -1218,7 +1218,7 @@ paths:
       tags: [Projects]
       operationId: updateEnvironment
       summary: Modifier un environnement
-      x-required-permission: write
+      x-required-permission: environments:manage
       requestBody:
         required: true
         content:
@@ -1256,7 +1256,7 @@ paths:
       description: >-
         Supprime un environnement vide. Refusé avec `409`
         (`dependency_exists`) tant qu'il contient des ressources (§19.2).
-      x-required-permission: write
+      x-required-permission: environments:manage
       responses:
         "204":
           description: Environnement supprimé.
@@ -2000,7 +2000,7 @@ paths:
       tags: [Servers]
       operationId: listServers
       summary: Lister les serveurs
-      x-required-permission: read
+      x-required-permission: servers:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -2032,7 +2032,7 @@ paths:
         référencée doit appartenir à la même team (INV-002). La validation
         effective (connectivité, Docker, prérequis) se déclenche via
         `POST /servers/{uuid}/validate`.
-      x-required-permission: write
+      x-required-permission: servers:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -2071,7 +2071,7 @@ paths:
       tags: [Servers]
       operationId: getServer
       summary: Détail d'un serveur
-      x-required-permission: read
+      x-required-permission: servers:read
       responses:
         "200":
           description: Le serveur (états désiré et observé, §21.2).
@@ -2098,7 +2098,7 @@ paths:
         PATCH sensible — `If-Match` obligatoire. Changer l'adresse, le port,
         l'utilisateur ou la clé repasse le serveur en `pending` et requiert
         une nouvelle validation.
-      x-required-permission: write
+      x-required-permission: servers:manage
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
@@ -2139,7 +2139,7 @@ paths:
         Retire le serveur de AkerDock (INV-008 — ne détruit jamais la
         machine). Refusé avec `409` (`dependency_exists`) tant que des
         ressources y sont déployées.
-      x-required-permission: write
+      x-required-permission: servers:manage
       responses:
         "204":
           description: Serveur retiré.
@@ -2167,7 +2167,7 @@ paths:
         qu'un client doit connaître pour vérifier la base à laquelle il se
         connecte. La clé privée, elle, ne quitte jamais l'instance (chiffrée au
         repos) et n'est jamais renvoyée.
-      x-required-permission: read
+      x-required-permission: servers:read
       responses:
         "200":
           description: Le certificat de la CA, en PEM.
@@ -2201,7 +2201,7 @@ paths:
         Opération longue — répond `202` avec un job de suivi. Chaque étape
         du job est visible et rejouable ; chaque échec produit une erreur
         distincte avec remédiation.
-      x-required-permission: write
+      x-required-permission: servers:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
@@ -2233,7 +2233,7 @@ paths:
         Inventaire des ressources gérées déployées sur ce serveur
         (applications et bases). Les ressources non gérées découvertes sur
         le serveur ne figurent pas ici (INV-015).
-      x-required-permission: read
+      x-required-permission: servers:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -2283,7 +2283,7 @@ paths:
         persisté : un `stop` explicite n'est pas « réparé » par la
         réconciliation. `409` si le serveur n'a pas de proxy géré
         (`proxy_type: none`).
-      x-required-permission: write
+      x-required-permission: servers:proxy
       responses:
         "202":
           description: Action acceptée — suivre le job.
@@ -2312,7 +2312,7 @@ paths:
       description: >-
         Les dernières lignes du container de proxy (§3) — lecture directe sur
         le serveur, jamais stockées. `409` si le serveur n'a pas de proxy géré.
-      x-required-permission: read
+      x-required-permission: servers:read
       parameters:
         - name: lines
           in: query
@@ -2402,7 +2402,7 @@ paths:
         de rollback (ADR-006). Il est reporté si un déploiement est en cours
         sur le serveur. `409` (`operation_in_progress`) si un nettoyage
         tourne déjà.
-      x-required-permission: write
+      x-required-permission: servers:maintain
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
@@ -2440,7 +2440,7 @@ paths:
         Opération longue — répond `202` avec un job de suivi et l'UUID du scan
         à interroger. `409` (`operation_in_progress`) si un scan de ce serveur
         est déjà en cours.
-      x-required-permission: write
+      x-required-permission: resources:adopt
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
@@ -2467,7 +2467,7 @@ paths:
       description: >-
         Historique des scans d'adoption du serveur (§20.7), du plus récent au
         plus ancien.
-      x-required-permission: read
+      x-required-permission: resources:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -2582,7 +2582,7 @@ paths:
       operationId: listServerDomains
       summary: Lister les domaines servis par un serveur
       description: Domaines routés par le proxy du serveur, groupés par ressource.
-      x-required-permission: read
+      x-required-permission: servers:read
       responses:
         "200":
           description: Domaines par ressource.

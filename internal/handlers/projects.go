@@ -49,7 +49,7 @@ func (a *API) resolveProject(w http.ResponseWriter, r *http.Request, id *auth.Id
 
 // ListProjects implements GET /projects (permission: read).
 func (a *API) ListProjects(w http.ResponseWriter, r *http.Request, params api.ListProjectsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermProjectsRead)
 	if !ok {
 		return
 	}
@@ -83,7 +83,7 @@ func (a *API) ListProjects(w http.ResponseWriter, r *http.Request, params api.Li
 // CreateProject implements POST /projects (permission: write): creates the
 // project plus its default production environment in one transaction (§2).
 func (a *API) CreateProject(w http.ResponseWriter, r *http.Request, params api.CreateProjectParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermProjectsManage)
 	if !ok {
 		return
 	}
@@ -134,7 +134,7 @@ func (a *API) CreateProject(w http.ResponseWriter, r *http.Request, params api.C
 
 // GetProject implements GET /projects/{project_uuid} (permission: read).
 func (a *API) GetProject(w http.ResponseWriter, r *http.Request, projectUuid api.ProjectUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermProjectsRead)
 	if !ok {
 		return
 	}
@@ -155,7 +155,7 @@ func (a *API) GetProject(w http.ResponseWriter, r *http.Request, projectUuid api
 // write) with optimistic concurrency: If-Match, when present, must match
 // the current version. The slug is stable — renaming does not change it.
 func (a *API) UpdateProject(w http.ResponseWriter, r *http.Request, projectUuid api.ProjectUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermProjectsManage)
 	if !ok {
 		return
 	}
@@ -212,7 +212,7 @@ func (a *API) UpdateProject(w http.ResponseWriter, r *http.Request, projectUuid 
 // once environments contain resources (§19.2) — enforced when the
 // resources table lands.
 func (a *API) DeleteProject(w http.ResponseWriter, r *http.Request, projectUuid api.ProjectUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermProjectsManage)
 	if !ok {
 		return
 	}
