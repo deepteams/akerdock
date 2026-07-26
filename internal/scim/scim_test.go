@@ -34,6 +34,32 @@ func TestDisplayNameOr(t *testing.T) {
 	}
 }
 
+func TestParseGroupID(t *testing.T) {
+	if sys, custom := ParseGroupID("role:admin"); sys != "admin" || custom != "" {
+		t.Errorf("role id = %q/%q", sys, custom)
+	}
+	if sys, custom := ParseGroupID("11111111-1111-1111-1111-111111111111"); sys != "" || custom != "11111111-1111-1111-1111-111111111111" {
+		t.Errorf("custom id = %q/%q", sys, custom)
+	}
+}
+
+func TestMemberValuesFromOp(t *testing.T) {
+	// Azure-style value array.
+	arr := MemberValuesFromOp(PatchOperation{Op: "add", Path: "members", Value: []byte(`[{"value":"u1"},{"value":"u2"}]`)})
+	if len(arr) != 2 || arr[0] != "u1" || arr[1] != "u2" {
+		t.Errorf("value array = %v", arr)
+	}
+	// Okta-style filter path on remove.
+	rm := MemberValuesFromOp(PatchOperation{Op: "remove", Path: `members[value eq "u9"]`})
+	if len(rm) != 1 || rm[0] != "u9" {
+		t.Errorf("filter path = %v", rm)
+	}
+	// Nothing extractable.
+	if got := MemberValuesFromOp(PatchOperation{Op: "replace", Path: "displayName", Value: []byte(`"x"`)}); got != nil {
+		t.Errorf("unexpected members = %v", got)
+	}
+}
+
 func TestErrorAndListShapes(t *testing.T) {
 	raw, _ := json.Marshal(NewError(404, "nope"))
 	var e map[string]any

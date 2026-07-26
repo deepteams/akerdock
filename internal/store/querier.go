@@ -631,7 +631,8 @@ type Querier interface {
 	ListTCPProxyPorts(ctx context.Context, serverID int64) ([]*int32, error)
 	ListTagsForResource(ctx context.Context, resourceID int64) ([]string, error)
 	ListTaskExecutionsPage(ctx context.Context, arg ListTaskExecutionsPageParams) ([]TaskExecution, error)
-	// SCIM Users list (paginated by index is emulated in Go from this set).
+	// SCIM Users/Groups source: every member with its effective role (system role,
+	// or the custom role uuid when set) so groups (=roles) can be assembled in Go.
 	ListTeamMembersForScim(ctx context.Context, teamID int64) ([]ListTeamMembersForScimRow, error)
 	ListTeamMembersPage(ctx context.Context, arg ListTeamMembersPageParams) ([]ListTeamMembersPageRow, error)
 	ListTeamsPage(ctx context.Context, arg ListTeamsPageParams) ([]Team, error)

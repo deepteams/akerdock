@@ -192,23 +192,28 @@ func (q *Queries) ListScimTokensPage(ctx context.Context, teamID int64) ([]ScimT
 
 const listTeamMembersForScim = `-- name: ListTeamMembersForScim :many
 SELECT m.role, m.external_id, m.created_at AS joined_at,
-       u.uuid AS user_uuid, u.email, u.name
+       u.uuid AS user_uuid, u.email, u.name,
+       cr.uuid AS custom_role_uuid, cr.name AS custom_role_name
 FROM team_memberships m
 JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL
+LEFT JOIN custom_roles cr ON cr.id = m.custom_role_id
 WHERE m.team_id = $1
 ORDER BY m.id DESC
 `
 
 type ListTeamMembersForScimRow struct {
-	Role       TeamRole
-	ExternalID *string
-	JoinedAt   pgtype.Timestamptz
-	UserUuid   pgtype.UUID
-	Email      string
-	Name       string
+	Role           TeamRole
+	ExternalID     *string
+	JoinedAt       pgtype.Timestamptz
+	UserUuid       pgtype.UUID
+	Email          string
+	Name           string
+	CustomRoleUuid pgtype.UUID
+	CustomRoleName *string
 }
 
-// SCIM Users list (paginated by index is emulated in Go from this set).
+// SCIM Users/Groups source: every member with its effective role (system role,
+// or the custom role uuid when set) so groups (=roles) can be assembled in Go.
 func (q *Queries) ListTeamMembersForScim(ctx context.Context, teamID int64) ([]ListTeamMembersForScimRow, error) {
 	rows, err := q.db.Query(ctx, listTeamMembersForScim, teamID)
 	if err != nil {
@@ -225,6 +230,8 @@ func (q *Queries) ListTeamMembersForScim(ctx context.Context, teamID int64) ([]L
 			&i.UserUuid,
 			&i.Email,
 			&i.Name,
+			&i.CustomRoleUuid,
+			&i.CustomRoleName,
 		); err != nil {
 			return nil, err
 		}

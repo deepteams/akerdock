@@ -222,6 +222,10 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 		r.Put("/scim/v2/Users/{id}", a.ScimReplaceUser)
 		r.Patch("/scim/v2/Users/{id}", a.ScimPatchUser)
 		r.Delete("/scim/v2/Users/{id}", a.ScimDeleteUser)
+		r.Get("/scim/v2/Groups", a.ScimListGroups)
+		r.Post("/scim/v2/Groups", a.ScimCreateGroup)
+		r.Get("/scim/v2/Groups/{id}", a.ScimGetGroup)
+		r.Patch("/scim/v2/Groups/{id}", a.ScimPatchGroup)
 
 		r.Get("/terminal/ws", a.TerminalWebSocket)
 		// The CLI TCP tunnel WebSocket (ADR-032), same contract as the

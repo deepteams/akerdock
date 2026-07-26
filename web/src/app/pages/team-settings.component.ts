@@ -1,3 +1,4 @@
+import { SlicePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
@@ -9,7 +10,9 @@ import type { components } from '../../api/schema';
 type SharedVariable = components['schemas']['SharedVariable'];
 type Scope = SharedVariable['scope'];
 type Team = components['schemas']['Team'];
-type SettingsTab = 'variables' | 'config' | 'audit';
+type ScimToken = components['schemas']['ScimToken'];
+type ScimTokenCreated = components['schemas']['ScimTokenCreated'];
+type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning';
 
 /**
  * Team-level settings. Two tabs: Variables — the team-scoped shared variables
@@ -20,7 +23,7 @@ type SettingsTab = 'variables' | 'config' | 'audit';
 @Component({
   selector: 'app-team-settings',
   standalone: true,
-  imports: [FormsModule, AuditLogComponent, CardComponent, IconComponent],
+  imports: [FormsModule, SlicePipe, AuditLogComponent, CardComponent, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
@@ -65,6 +68,18 @@ type SettingsTab = 'variables' | 'config' | 'audit';
             (click)="active.set('audit')"
           >
             Audit
+          </button>
+        }
+        @if (canProvision()) {
+          <button
+            type="button"
+            class="akd-tab"
+            role="tab"
+            [class.akd-tab--active]="active() === 'provisioning'"
+            [attr.aria-selected]="active() === 'provisioning'"
+            (click)="openProvisioning()"
+          >
+            Provisioning
           </button>
         }
       </nav>
@@ -176,6 +191,69 @@ type SettingsTab = 'variables' | 'config' | 'audit';
         </p>
       } @else if (active() === 'audit') {
         <akd-audit-log [fetch]="fetchAudit" exportName="team-audit" />
+      } @else if (active() === 'provisioning') {
+        <akd-card title="SCIM provisioning">
+          <div class="stack">
+            <p class="akd-muted sm">
+              Provision and deprovision members automatically from your identity provider (Okta,
+              Azure AD, Google). Configure the base URL below and a token as the bearer credential.
+            </p>
+            @if (createdToken(); as created) {
+              <div class="secret">
+                <p class="sm">
+                  Token created — copied once. Configure your IdP with:
+                </p>
+                <div class="kv"><span class="k">SCIM base URL</span><code>{{ created.scim_base_url }}</code></div>
+                <div class="kv"><span class="k">Token</span><code>{{ created.token }}</code></div>
+              </div>
+            }
+            <form class="inline" (ngSubmit)="createScim()">
+              <input
+                class="akd-input"
+                name="scimName"
+                placeholder="Token name (e.g. okta-prod)"
+                [(ngModel)]="scimName"
+                [disabled]="busy()"
+              />
+              <button class="akd-btn akd-btn--primary akd-btn--sm" type="submit" [disabled]="busy() || !scimName.trim()">
+                Create token
+              </button>
+            </form>
+
+            @if (scimTokens().length === 0) {
+              <p class="akd-muted sm">No SCIM tokens.</p>
+            } @else {
+              <table class="akd-table">
+                <caption class="sr-only">SCIM tokens</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Last used</th>
+                    <th scope="col" class="right"><span class="sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (tok of scimTokens(); track tok.uuid) {
+                    <tr>
+                      <td>{{ tok.name }}</td>
+                      <td class="akd-muted">{{ tok.last_used_at ? (tok.last_used_at | slice: 0 : 10) : 'never' }}</td>
+                      <td class="right">
+                        <button
+                          class="akd-btn akd-btn--danger akd-btn--sm"
+                          type="button"
+                          [disabled]="busy()"
+                          (click)="revokeScim(tok)"
+                        >
+                          Revoke
+                        </button>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            }
+          </div>
+        </akd-card>
       } @else {
         <akd-card title="Team" class="cfg">
           <form class="cfgform" (ngSubmit)="saveConfig()">
@@ -250,6 +328,45 @@ type SettingsTab = 'variables' | 'config' | 'audit';
         font-family: var(--font-mono);
         font-size: var(--text-xs);
       }
+      .stack {
+        display: grid;
+        gap: var(--space-4);
+      }
+      .sm {
+        font-size: var(--text-sm);
+        margin: 0;
+      }
+      .inline {
+        display: flex;
+        gap: var(--space-2);
+        align-items: center;
+      }
+      .inline .akd-input {
+        max-width: 24rem;
+      }
+      .secret {
+        display: grid;
+        gap: var(--space-2);
+        padding: var(--space-3);
+        border: 1px dashed var(--accent-border);
+        border-radius: var(--radius-2);
+        background: var(--bg-inset);
+      }
+      .kv {
+        display: flex;
+        gap: var(--space-3);
+        align-items: baseline;
+      }
+      .kv .k {
+        min-width: 8rem;
+        color: var(--text-3);
+        font-size: var(--text-xs);
+      }
+      .kv code {
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+        word-break: break-all;
+      }
     `,
   ],
 })
@@ -273,6 +390,15 @@ export class TeamSettingsComponent {
     return this.api.client().listTeamAudit(teamUuid, query);
   };
 
+  // Provisioning tab (SCIM), gated by members:manage.
+  protected readonly canProvision = computed(() =>
+    (this.api.currentUser()?.permissions ?? []).some((p) => p === 'members:manage' || p === 'root'),
+  );
+  protected readonly scimTokens = signal<ScimToken[]>([]);
+  protected readonly createdToken = signal<ScimTokenCreated | null>(null);
+  private scimLoaded = false;
+  protected scimName = '';
+
   protected key = '';
   protected value = '';
   protected secret = false;
@@ -282,6 +408,56 @@ export class TeamSettingsComponent {
 
   constructor() {
     void this.load();
+  }
+
+  protected openProvisioning(): void {
+    this.active.set('provisioning');
+    if (this.scimLoaded) return;
+    this.scimLoaded = true;
+    void this.loadScim();
+  }
+
+  private async loadScim(): Promise<void> {
+    const teamUuid = this.api.currentUser()?.teamUuid;
+    if (!teamUuid) return;
+    try {
+      const page = await this.api.client().listScimTokens(teamUuid);
+      this.scimTokens.set(page.data);
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    }
+  }
+
+  protected async createScim(): Promise<void> {
+    const teamUuid = this.api.currentUser()?.teamUuid;
+    if (!teamUuid || !this.scimName.trim() || this.busy()) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      const created = await this.api.client().createScimToken(teamUuid, { name: this.scimName.trim() });
+      this.createdToken.set(created);
+      this.scimName = '';
+      await this.loadScim();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async revokeScim(token: ScimToken): Promise<void> {
+    const teamUuid = this.api.currentUser()?.teamUuid;
+    if (!teamUuid || !confirm(`Revoke the SCIM token "${token.name}"? Provisioning with it stops immediately.`)) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.client().revokeScimToken(teamUuid, token.uuid);
+      await this.loadScim();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
   }
 
   protected reference(variable: SharedVariable): string {

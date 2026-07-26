@@ -701,6 +701,22 @@ export class AkerDockClient {
     });
   }
 
+  listScimTokens(uuid: string) {
+    type Response =
+      paths['/teams/{team_uuid}/scim-tokens']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/teams/${uuid}/scim-tokens`);
+  }
+
+  createScimToken(uuid: string, body: components['schemas']['ScimTokenCreate']) {
+    type Response =
+      paths['/teams/{team_uuid}/scim-tokens']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', `/teams/${uuid}/scim-tokens`, { body });
+  }
+
+  revokeScimToken(teamUuid: string, tokenUuid: string) {
+    return this.request<void>('DELETE', `/teams/${teamUuid}/scim-tokens/${tokenUuid}`);
+  }
+
   // --- projects (+ environments) ------------------------------------------------
 
   listProjects(query?: { cursor?: string; limit?: number }) {

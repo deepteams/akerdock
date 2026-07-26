@@ -303,6 +303,222 @@ func derefStr(s *string) string {
 	return *s
 }
 
+// --- SCIM Groups (roles as virtual groups) ------------------------------------
+
+// systemRoleGroups are the built-in roles exposed as SCIM groups.
+var systemRoleGroups = []store.TeamRole{store.TeamRoleAdmin, store.TeamRoleMember, store.TeamRoleReviewer}
+
+// scimGroups assembles the team's roles as SCIM groups, each populated with the
+// members currently holding that role (custom-role members group under the
+// custom role, everyone else under their system role).
+func (a *API) scimGroups(ctx context.Context, teamID int64) ([]scim.Group, error) {
+	members, err := a.Store.ListTeamMembersForScim(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	customRoles, err := a.Store.ListCustomRolesPage(ctx, store.ListCustomRolesPageParams{TeamID: teamID, AfterID: 0, PageLimit: 200})
+	if err != nil {
+		return nil, err
+	}
+
+	groups := make([]scim.Group, 0, len(systemRoleGroups)+len(customRoles))
+	index := map[string]int{}
+	add := func(id, name string) {
+		index[id] = len(groups)
+		groups = append(groups, scim.Group{
+			Schemas: []string{scim.SchemaGroup}, ID: id, DisplayName: name,
+			Members: []scim.GroupMember{},
+			Meta:    &scim.Meta{ResourceType: "Group", Location: "/scim/v2/Groups/" + id},
+		})
+	}
+	for _, role := range systemRoleGroups {
+		add(scim.SystemRoleGroupID(string(role)), string(role))
+	}
+	for _, cr := range customRoles {
+		add(uuidString(cr.Uuid), cr.Name)
+	}
+
+	for _, m := range members {
+		id := scim.SystemRoleGroupID(string(m.Role))
+		if m.CustomRoleUuid.Valid {
+			id = uuidString(m.CustomRoleUuid)
+		}
+		if i, ok := index[id]; ok {
+			groups[i].Members = append(groups[i].Members, scim.GroupMember{Value: uuidString(m.UserUuid), Display: m.Email})
+		}
+	}
+	return groups, nil
+}
+
+// ScimListGroups implements GET /scim/v2/Groups.
+func (a *API) ScimListGroups(w http.ResponseWriter, r *http.Request) {
+	team, ok := a.scimTeam(w, r)
+	if !ok {
+		return
+	}
+	groups, err := a.scimGroups(r.Context(), team.TeamID)
+	if err != nil {
+		scimError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	wanted := scimFilterDisplayName(r.URL.Query().Get("filter"))
+	resources := make([]any, 0, len(groups))
+	for _, g := range groups {
+		if wanted != "" && !strings.EqualFold(g.DisplayName, wanted) {
+			continue
+		}
+		resources = append(resources, g)
+	}
+	writeSCIM(w, http.StatusOK, scim.NewListResponse(resources, 1))
+}
+
+// ScimGetGroup implements GET /scim/v2/Groups/{id}.
+func (a *API) ScimGetGroup(w http.ResponseWriter, r *http.Request) {
+	team, ok := a.scimTeam(w, r)
+	if !ok {
+		return
+	}
+	groups, err := a.scimGroups(r.Context(), team.TeamID)
+	if err != nil {
+		scimError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	id := chi.URLParam(r, "id")
+	for _, g := range groups {
+		if g.ID == id {
+			writeSCIM(w, http.StatusOK, g)
+			return
+		}
+	}
+	scimError(w, http.StatusNotFound, "group not found")
+}
+
+// ScimCreateGroup implements POST /scim/v2/Groups: roles are managed in
+// AkerDock, not created via SCIM — so this only ACKNOWLEDGES a group whose
+// displayName matches an existing role (idempotent), and refuses the rest.
+func (a *API) ScimCreateGroup(w http.ResponseWriter, r *http.Request) {
+	team, ok := a.scimTeam(w, r)
+	if !ok {
+		return
+	}
+	var body scim.Group
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		scimError(w, http.StatusBadRequest, "invalid SCIM body")
+		return
+	}
+	groups, err := a.scimGroups(r.Context(), team.TeamID)
+	if err != nil {
+		scimError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	for _, g := range groups {
+		if strings.EqualFold(g.DisplayName, body.DisplayName) {
+			writeSCIM(w, http.StatusOK, g)
+			return
+		}
+	}
+	scimError(w, http.StatusBadRequest, "roles are managed in AkerDock; no role matches this group name")
+}
+
+// ScimPatchGroup implements PATCH /scim/v2/Groups/{id}: the IdP's assign/unassign
+// path. add/replace member → set the member's role to this group; remove → reset
+// to the default member role.
+func (a *API) ScimPatchGroup(w http.ResponseWriter, r *http.Request) {
+	team, ok := a.scimTeam(w, r)
+	if !ok {
+		return
+	}
+	groupID := chi.URLParam(r, "id")
+	if !a.scimGroupExists(r.Context(), team.TeamID, groupID) {
+		scimError(w, http.StatusNotFound, "group not found")
+		return
+	}
+	var patch scim.PatchRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&patch); err != nil {
+		scimError(w, http.StatusBadRequest, "invalid SCIM body")
+		return
+	}
+	for _, op := range patch.Operations {
+		if op.Path != "members" && !strings.HasPrefix(op.Path, "members[") {
+			continue
+		}
+		grant := !strings.EqualFold(op.Op, "remove")
+		for _, member := range scim.MemberValuesFromOp(op) {
+			a.scimSetMemberRole(r.Context(), team.TeamID, member, groupID, grant)
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *API) scimGroupExists(ctx context.Context, teamID int64, id string) bool {
+	groups, err := a.scimGroups(ctx, teamID)
+	if err != nil {
+		return false
+	}
+	for _, g := range groups {
+		if g.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// scimSetMemberRole applies a group assignment: grant sets the member's role to
+// the group's role; !grant resets to the default member role. Guards against
+// demoting the last admin (anti-lockout). Best-effort; logs on error.
+func (a *API) scimSetMemberRole(ctx context.Context, teamID int64, userUUID, groupID string, grant bool) {
+	var uid pgtype.UUID
+	if uid.Scan(userUUID) != nil {
+		return
+	}
+	params := store.UpdateTeamMemberRoleParams{TeamID: teamID, UserUuid: uid, Role: store.TeamRoleMember}
+	if grant {
+		sys, custom := scim.ParseGroupID(groupID)
+		switch {
+		case custom != "":
+			var cu pgtype.UUID
+			if cu.Scan(custom) != nil {
+				return
+			}
+			role, err := a.Store.GetCustomRoleByUUID(ctx, store.GetCustomRoleByUUIDParams{Uuid: cu, TeamID: teamID})
+			if err != nil {
+				return
+			}
+			params.CustomRoleID = &role.ID
+		case sys == string(store.TeamRoleAdmin) || sys == string(store.TeamRoleMember) || sys == string(store.TeamRoleReviewer):
+			params.Role = store.TeamRole(sys)
+		default:
+			return // unknown group
+		}
+	} else if a.scimWouldOrphanLastAdmin(ctx, teamID, uid) {
+		a.Logger.Warn("scim: refused to demote the last admin", "team_id", teamID)
+		return
+	}
+	if _, err := a.Store.UpdateTeamMemberRole(ctx, params); err != nil {
+		a.Logger.Error("scim: set member role", "error", err)
+	}
+}
+
+// scimWouldOrphanLastAdmin reports whether resetting this member would remove the
+// team's last admin.
+func (a *API) scimWouldOrphanLastAdmin(ctx context.Context, teamID int64, userUUID pgtype.UUID) bool {
+	m, err := a.Store.GetScimMember(ctx, store.GetScimMemberParams{TeamID: teamID, Uuid: userUUID})
+	if err != nil || m.Role != store.TeamRoleAdmin {
+		return false
+	}
+	admins, err := a.Store.CountTeamAdmins(ctx, teamID)
+	return err == nil && admins <= 1
+}
+
+// scimFilterDisplayName extracts x from `displayName eq "x"`.
+func scimFilterDisplayName(filter string) string {
+	filter = strings.TrimSpace(filter)
+	if !strings.HasPrefix(strings.ToLower(filter), "displayname eq ") {
+		return ""
+	}
+	return strings.Trim(strings.TrimSpace(filter[len("displayName eq "):]), `"`)
+}
+
 // --- SCIM token management (in /api/v1, session/token authenticated) ----------
 
 func scimTokenToAPI(t store.ScimToken) api.ScimToken {

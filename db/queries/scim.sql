@@ -58,10 +58,13 @@ UPDATE api_tokens SET revoked_at = now()
 WHERE team_id = $1 AND created_by = $2 AND revoked_at IS NULL;
 
 -- name: ListTeamMembersForScim :many
--- SCIM Users list (paginated by index is emulated in Go from this set).
+-- SCIM Users/Groups source: every member with its effective role (system role,
+-- or the custom role uuid when set) so groups (=roles) can be assembled in Go.
 SELECT m.role, m.external_id, m.created_at AS joined_at,
-       u.uuid AS user_uuid, u.email, u.name
+       u.uuid AS user_uuid, u.email, u.name,
+       cr.uuid AS custom_role_uuid, cr.name AS custom_role_name
 FROM team_memberships m
 JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL
+LEFT JOIN custom_roles cr ON cr.id = m.custom_role_id
 WHERE m.team_id = $1
 ORDER BY m.id DESC;

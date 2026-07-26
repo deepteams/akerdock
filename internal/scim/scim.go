@@ -153,6 +153,88 @@ type PatchOperation struct {
 	Value json.RawMessage `json:"value,omitempty"`
 }
 
+// Group is a SCIM core Group resource. AkerDock exposes ROLES as virtual groups:
+// a group maps to a team role, its members are the members holding that role.
+type Group struct {
+	Schemas     []string      `json:"schemas"`
+	ID          string        `json:"id"`
+	DisplayName string        `json:"displayName"`
+	Members     []GroupMember `json:"members"`
+	Meta        *Meta         `json:"meta,omitempty"`
+}
+
+// GroupMember references a user in a group.
+type GroupMember struct {
+	Value   string `json:"value"`
+	Display string `json:"display,omitempty"`
+}
+
+// SchemaGroup is the SCIM core Group URN.
+const SchemaGroup = "urn:ietf:params:scim:schemas:core:2.0:Group"
+
+// SystemRoleGroupID is the stable group id for a built-in role (e.g.
+// "role:admin"). Custom roles use their UUID as the group id instead.
+func SystemRoleGroupID(role string) string { return "role:" + role }
+
+// ParseGroupID splits a group id into either a system role name ("role:admin" →
+// "admin") or a custom-role id (any other value, returned as customID).
+func ParseGroupID(id string) (systemRole, customID string) {
+	if rest, ok := stripPrefix(id, "role:"); ok {
+		return rest, ""
+	}
+	return "", id
+}
+
+func stripPrefix(s, p string) (string, bool) {
+	if len(s) >= len(p) && s[:len(p)] == p {
+		return s[len(p):], true
+	}
+	return "", false
+}
+
+// MemberValuesFromOp extracts the user ids a PATCH operation adds or removes
+// from a group, handling both shapes IdPs send:
+//   - value array:  {op, path:"members", value:[{"value":"id"}, …]}
+//   - filter path:  {op:"remove", path:`members[value eq "id"]`}
+func MemberValuesFromOp(op PatchOperation) []string {
+	if id, ok := memberIDFromFilterPath(op.Path); ok {
+		return []string{id}
+	}
+	var arr []GroupMember
+	if json.Unmarshal(op.Value, &arr) == nil && len(arr) > 0 {
+		out := make([]string, 0, len(arr))
+		for _, m := range arr {
+			if m.Value != "" {
+				out = append(out, m.Value)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// memberIDFromFilterPath reads `members[value eq "X"]` → X.
+func memberIDFromFilterPath(path string) (string, bool) {
+	rest, ok := stripPrefix(path, "members[value eq ")
+	if !ok {
+		return "", false
+	}
+	rest = trimSpace(rest)
+	rest = trimSuffix(rest, "]")
+	rest = trimSpace(rest)
+	if len(rest) >= 2 && rest[0] == '"' && rest[len(rest)-1] == '"' {
+		return rest[1 : len(rest)-1], true
+	}
+	return "", false
+}
+
+func trimSuffix(s, suf string) string {
+	if len(s) >= len(suf) && s[len(s)-len(suf):] == suf {
+		return s[:len(s)-len(suf)]
+	}
+	return s
+}
+
 // ServiceProviderConfig advertises supported features (RFC 7643 §5). IdPs fetch
 // it before provisioning; we advertise a modest, honest set.
 func ServiceProviderConfig() map[string]any {
