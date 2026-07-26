@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, effect, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { IconComponent } from '../../../ui/icon/icon.component';
 import type { components } from '../../../api/schema';
 import type { ConfigForm } from './application-form';
 
@@ -7,9 +8,64 @@ type SourceType = components['schemas']['Application']['source_type'];
 type RegistryCredential = components['schemas']['RegistryCredential'];
 type PrivateKey = components['schemas']['PrivateKey'];
 
+/** One editable routing row: FQDN(s) sharing a target container port. */
+interface RouteRow {
+  domains: string;
+  port: string;
+}
+
 /** The navigable sections of the config form (settings left menu). */
 export type ConfigSection =
   'general' | 'source' | 'build' | 'routing' | 'hooks' | 'health' | 'resources';
+
+/** Splits "host/path" into host and (leading-slash) path. */
+function splitPath(s: string): { host: string; path: string } {
+  const i = s.indexOf('/');
+  return i >= 0 ? { host: s.slice(0, i), path: s.slice(i) } : { host: s, path: '' };
+}
+
+/** Splits "host:port" into name and port (port only if it is all digits). */
+function splitPort(host: string): { name: string; port: string } {
+  const i = host.lastIndexOf(':');
+  if (i > 0 && /^\d+$/.test(host.slice(i + 1))) {
+    return { name: host.slice(0, i), port: host.slice(i + 1) };
+  }
+  return { name: host, port: '' };
+}
+
+/** Parses the newline `domains` string into rows, grouping FQDNs by target
+ * port so a shared port reads as one row of comma-separated domains. */
+export function parseDomainRows(text: string): RouteRow[] {
+  const byPort = new Map<string, string[]>();
+  for (const raw of text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)) {
+    const { host, path } = splitPath(raw);
+    const { name, port } = splitPort(host);
+    const list = byPort.get(port) ?? [];
+    list.push(name + path);
+    byPort.set(port, list);
+  }
+  return [...byPort.entries()].map(([port, domains]) => ({ domains: domains.join(', '), port }));
+}
+
+/** Serializes rows back to the `domains` contract: one `fqdn[:port][/path]`
+ * per line. Blank rows and blank domains are dropped. */
+export function serializeDomainRows(rows: RouteRow[]): string {
+  const lines: string[] = [];
+  for (const row of rows) {
+    const port = row.port.trim();
+    for (const d of row.domains
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)) {
+      const { host, path } = splitPath(d);
+      lines.push(host + (port ? ':' + port : '') + path);
+    }
+  }
+  return lines.join('\n');
+}
 
 /**
  * Every configurable field of an application, in one place: the create page
@@ -21,7 +77,7 @@ export type ConfigSection =
 @Component({
   selector: 'app-application-config-fields',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (show('general')) {
@@ -316,18 +372,69 @@ export type ConfigSection =
       <fieldset class="group">
         <legend>Routing</legend>
         <div class="akd-field">
-          <label class="akd-field__label" for="cf-domains"
-            >Domains (one per line — fqdn, fqdn:port or fqdn/path)</label
-          >
-          <textarea
-            id="cf-domains"
-            name="cfDomains"
-            class="akd-textarea akd-mono"
-            rows="3"
-            placeholder="app.example.com"
-            [(ngModel)]="form().domains"
+          <span class="akd-field__label">Domains</span>
+          <table class="akd-table routes">
+            <thead>
+              <tr>
+                <th scope="col">Domain(s)</th>
+                <th scope="col" class="port-col">Port</th>
+                <th scope="col" class="right"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of routeRows(); track $index) {
+                <tr>
+                  <td>
+                    <input
+                      class="akd-input akd-input--mono"
+                      [ngModel]="row.domains"
+                      (ngModelChange)="updateRow($index, 'domains', $event)"
+                      [ngModelOptions]="{ standalone: true }"
+                      [disabled]="busy()"
+                      placeholder="app.example.com, www.example.com"
+                      aria-label="Domains for this route"
+                    />
+                  </td>
+                  <td class="port-col">
+                    <input
+                      class="akd-input akd-input--mono"
+                      inputmode="numeric"
+                      [ngModel]="row.port"
+                      (ngModelChange)="updateRow($index, 'port', $event)"
+                      [ngModelOptions]="{ standalone: true }"
+                      [disabled]="busy()"
+                      placeholder="default"
+                      aria-label="Target port for this route"
+                    />
+                  </td>
+                  <td class="right">
+                    <button
+                      class="akd-iconbtn"
+                      type="button"
+                      [disabled]="busy()"
+                      (click)="removeRow($index)"
+                      aria-label="Remove route"
+                    >
+                      <akd-icon name="trash-2" [size]="15" />
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+          <button
+            class="akd-btn akd-btn--secondary akd-btn--sm add-route"
+            type="button"
             [disabled]="busy()"
-          ></textarea>
+            (click)="addRow()"
+          >
+            <akd-icon name="plus" [size]="13" />
+            Add domain
+          </button>
+          <span class="akd-field__hint">
+            One row per target: one or more FQDNs (comma-separated) routed to the same container
+            port. Empty port = the default exposed port. A path is kept (fqdn/path).
+          </span>
         </div>
         <div class="akd-field">
           <label class="akd-field__label" for="cf-ports"
@@ -566,6 +673,22 @@ export type ConfigSection =
         grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
         gap: var(--space-3);
       }
+      .routes {
+        margin-bottom: var(--space-2);
+      }
+      .routes .port-col {
+        width: 8rem;
+      }
+      .routes .right {
+        width: 3rem;
+        text-align: right;
+      }
+      .routes td {
+        vertical-align: middle;
+      }
+      .add-route {
+        justify-self: start;
+      }
     `,
   ],
 })
@@ -582,6 +705,42 @@ export class ApplicationConfigFieldsComponent {
   /** When set, render ONLY this section (the settings tab drives a left menu);
    * undefined renders every section stacked (the create page). */
   readonly section = input<ConfigSection | undefined>(undefined);
+
+  /** The routing table's working state, derived from `form().domains` and
+   * serialized back into it on every edit — the parent's contract (a newline
+   * string) is untouched. */
+  protected readonly routeRows = signal<RouteRow[]>([{ domains: '', port: '' }]);
+
+  constructor() {
+    // Re-seed the table when the parent hands a new form object (settings load,
+    // a save). Reads the object reference, not `.domains`, so writing back below
+    // (a mutation of the same object) does not loop.
+    effect(() => {
+      const parsed = parseDomainRows(this.form().domains);
+      this.routeRows.set(parsed.length > 0 ? parsed : [{ domains: '', port: '' }]);
+    });
+  }
+
+  protected updateRow(index: number, field: keyof RouteRow, value: string): void {
+    const rows = this.routeRows().map((r, i) => (i === index ? { ...r, [field]: value } : r));
+    this.routeRows.set(rows);
+    this.syncDomains(rows);
+  }
+
+  protected addRow(): void {
+    this.routeRows.set([...this.routeRows(), { domains: '', port: '' }]);
+  }
+
+  protected removeRow(index: number): void {
+    const rows = this.routeRows().filter((_, i) => i !== index);
+    const next = rows.length > 0 ? rows : [{ domains: '', port: '' }];
+    this.routeRows.set(next);
+    this.syncDomains(next);
+  }
+
+  private syncDomains(rows: RouteRow[]): void {
+    this.form().domains = serializeDomainRows(rows);
+  }
 
   protected show(id: ConfigSection): boolean {
     const only = this.section();
