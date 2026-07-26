@@ -35,7 +35,16 @@ func (a *API) OauthProviders(w http.ResponseWriter, r *http.Request) {
 		a.internalError(w, r, "oauth providers", err)
 		return
 	}
-	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": providers})
+	// The sign-in page needs to know whether to show the password form: in
+	// SSO-only mode (password_login_disabled) it must offer providers alone.
+	passwordDisabled := false
+	if settings, err := a.Settings.Get(r.Context()); err == nil {
+		passwordDisabled = settings.PasswordLoginDisabled
+	}
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
+		"data":                    providers,
+		"password_login_disabled": passwordDisabled,
+	})
 }
 
 // StartOauth implements POST /auth/oauth/{oauth_provider}/start: mints the

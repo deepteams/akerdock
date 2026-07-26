@@ -1088,6 +1088,95 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /teams/{team_uuid}/scim-tokens:
+    parameters:
+      - $ref: "#/components/parameters/TeamUuid"
+    get:
+      tags: [Teams]
+      operationId: listScimTokens
+      summary: Lister les tokens SCIM d'une team
+      description: >-
+        Les tokens SCIM (ADR-038 bis) authentifient le provisioning/déprovisioning
+        depuis l'IdP, scopés à cette team. La valeur du token n'est jamais
+        renvoyée après la création.
+      x-required-permission: members:manage
+      responses:
+        "200":
+          description: Tokens SCIM.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ScimToken"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      tags: [Teams]
+      operationId: createScimToken
+      summary: Créer un token SCIM
+      description: La valeur claire n'est renvoyée qu'ici, une seule fois (§23.2).
+      x-required-permission: members:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScimTokenCreate"
+      responses:
+        "201":
+          description: Token créé — la valeur claire est dans `token`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScimTokenCreated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /teams/{team_uuid}/scim-tokens/{scim_token_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/TeamUuid"
+      - name: scim_token_uuid
+        in: path
+        required: true
+        description: UUID du token SCIM (jamais sa valeur).
+        schema:
+          type: string
+    delete:
+      tags: [Teams]
+      operationId: revokeScimToken
+      summary: Révoquer un token SCIM
+      x-required-permission: members:manage
+      responses:
+        "204":
+          description: Token révoqué.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /teams/{team_uuid}/invitations:
     parameters:
       - $ref: "#/components/parameters/TeamUuid"
@@ -8375,6 +8464,49 @@ components:
           format: date-time
           readOnly: true
 
+    ScimToken:
+      type: object
+      required: [uuid, name, created_at]
+      properties:
+        uuid:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ScimTokenCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          description: Nom lisible du token (ex. okta-prod).
+
+    ScimTokenCreated:
+      type: object
+      required: [uuid, name, token, scim_base_url, created_at]
+      properties:
+        uuid:
+          type: string
+        name:
+          type: string
+        token:
+          type: string
+          description: Valeur claire — affichée une seule fois (§23.2).
+        scim_base_url:
+          type: string
+          description: URL de base SCIM à configurer dans l'IdP (…/scim/v2).
+        created_at:
+          type: string
+          format: date-time
+
     AuditEvent:
       type: object
       description: >-
@@ -9378,6 +9510,13 @@ components:
             Quand vrai, la double authentification est obligatoire : un
             utilisateur sans facteur confirmé est forcé de l'enrôler avant de
             pouvoir utiliser l'instance (§10.2).
+        password_login_disabled:
+          type: boolean
+          readOnly: true
+          description: >-
+            SSO obligatoire (§10.2) : quand vrai, le login par mot de passe est
+            refusé (sauf l'administrateur d'instance) — seuls les providers OIDC
+            authentifient.
     InstanceIdentityUpdate:
       type: object
       properties:
@@ -9395,6 +9534,12 @@ components:
           type: boolean
           nullable: true
           description: Active/désactive l'obligation de double authentification (§10.2). Absent = inchangé.
+        password_login_disabled:
+          type: boolean
+          nullable: true
+          description: >-
+            Active/désactive le mode SSO obligatoire (§10.2). Refusé si aucun
+            provider OIDC n'est activé. Absent = inchangé.
     TransactionalEmail:
       type: object
       required: [configured]

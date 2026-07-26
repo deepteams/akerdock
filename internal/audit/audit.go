@@ -141,6 +141,44 @@ func (a *Recorder) Record(r *http.Request, id *auth.Identity, ev Event) {
 	if err := a.Store.InsertAuditEvent(r.Context(), params); err != nil {
 		a.Logger.Error("audit event lost", "action", ev.Action, "error", err)
 	}
+	a.securityAlert(r.Context(), id.TeamUUID, ev)
+}
+
+// sensitiveActions maps a high-signal audited action to the security event type
+// routed through the notification pipeline (ADR-019, SOC2 CC7.2). Kept to the
+// team-scoped actions an operator wants to hear about immediately.
+var sensitiveActions = map[string]string{
+	"secret.reveal":      "security.secret_revealed.v1",
+	"role.create":        "security.rbac_changed.v1",
+	"role.update":        "security.rbac_changed.v1",
+	"role.delete":        "security.rbac_changed.v1",
+	"member.role.update": "security.rbac_changed.v1",
+	"token.create":       "security.token_changed.v1",
+	"token.revoke":       "security.token_changed.v1",
+	"backup.restore":     "security.backup_restored.v1",
+}
+
+// securityAlert turns a sensitive audited action into a security.* outbox event
+// so the existing notification rules deliver it (a team configures a rule on the
+// event type). Best-effort: it never fails the audited action, and it no-ops
+// when the store has no outbox (some tests).
+func (a *Recorder) securityAlert(ctx context.Context, teamUUID string, ev Event) {
+	eventType, ok := sensitiveActions[ev.Action]
+	if !ok {
+		return
+	}
+	outboxStore, ok := a.Store.(OutboxStore)
+	if !ok || teamUUID == "" {
+		return
+	}
+	var team pgtype.UUID
+	if team.Scan(teamUUID) != nil {
+		return
+	}
+	a.Outbox(ctx, outboxStore, eventType, team, ev.TargetUUID, ev.Action, map[string]any{
+		"action": ev.Action,
+		"result": string(ev.Result),
+	})
 }
 
 // RecordAuth writes an audit event for an authentication attempt — login,

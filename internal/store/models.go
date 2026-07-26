@@ -2494,6 +2494,7 @@ type InstanceSetting struct {
 	LocalhostSeeded             bool
 	OtlpConfigEnc               []byte
 	MfaRequired                 bool
+	PasswordLoginDisabled       bool
 }
 
 type Invitation struct {
@@ -2941,6 +2942,18 @@ type ScheduledTask struct {
 	Version         int32
 }
 
+type ScimToken struct {
+	ID         int64
+	Uuid       pgtype.UUID
+	TeamID     int64
+	Name       string
+	TokenHash  string
+	CreatedBy  *int64
+	LastUsedAt pgtype.Timestamptz
+	RevokedAt  pgtype.Timestamptz
+	CreatedAt  pgtype.Timestamptz
+}
+
 type Server struct {
 	ID                           int64
 	Uuid                         pgtype.UUID
@@ -3101,6 +3114,7 @@ type TeamMembership struct {
 	CreatedAt    pgtype.Timestamptz
 	UpdatedAt    pgtype.Timestamptz
 	CustomRoleID *int64
+	ExternalID   *string
 }
 
 type TerminalSession struct {

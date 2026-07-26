@@ -34,9 +34,10 @@ func (a *API) instanceIdentity(r *http.Request) (api.InstanceIdentity, error) {
 	return api.InstanceIdentity{
 		Fqdn:        settings.Fqdn,
 		AcmeEmail:   settings.AcmeEmail,
-		Timezone:    ptr(settings.Timezone),
-		ApiEnabled:  ptr(settings.ApiEnabled),
-		MfaRequired: ptr(settings.MfaRequired),
+		Timezone:              ptr(settings.Timezone),
+		ApiEnabled:            ptr(settings.ApiEnabled),
+		MfaRequired:           ptr(settings.MfaRequired),
+		PasswordLoginDisabled: ptr(settings.PasswordLoginDisabled),
 	}, nil
 }
 
@@ -90,6 +91,22 @@ func (a *API) SetInstanceSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		a.recordAudit(r, id, "instance.mfa_required_updated", "instance", pgtype.UUID{})
 	}
+	// SSO-only mode: enabling it with no OIDC provider would lock everyone but
+	// the instance root out — refuse it.
+	if body.PasswordLoginDisabled != nil {
+		if *body.PasswordLoginDisabled && !a.hasEnabledOAuthProvider(r) {
+			httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+				Field: ptr("password_login_disabled"), Code: ptr("no_provider"),
+				Message: "enable at least one OIDC provider before disabling password login",
+			}})
+			return
+		}
+		if _, err := a.Store.SetPasswordLoginDisabled(r.Context(), *body.PasswordLoginDisabled); err != nil {
+			a.internalError(w, r, "set instance settings", err)
+			return
+		}
+		a.recordAudit(r, id, "instance.password_login_disabled_updated", "instance", pgtype.UUID{})
+	}
 	a.Settings.Invalidate()
 	a.recordAudit(r, id, "instance.identity_updated", "instance", pgtype.UUID{})
 
@@ -99,6 +116,16 @@ func (a *API) SetInstanceSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.WriteJSON(w, http.StatusOK, out)
+}
+
+// hasEnabledOAuthProvider reports whether at least one OIDC provider is
+// configured and enabled — the precondition for SSO-only mode.
+func (a *API) hasEnabledOAuthProvider(r *http.Request) bool {
+	if a.OAuth == nil {
+		return false
+	}
+	providers, err := a.OAuth.EnabledProviders(r.Context())
+	return err == nil && len(providers) > 0
 }
 
 // normalizeFqdn turns the request field into the stored value: nil or empty

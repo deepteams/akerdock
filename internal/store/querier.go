@@ -216,6 +216,9 @@ type Querier interface {
 	// backup plans: the cron expression alone cannot tell whether an occurrence
 	// has already fired.
 	CreateScheduledTask(ctx context.Context, arg CreateScheduledTaskParams) (ScheduledTask, error)
+	// SCIM 2.0 provisioning (ADR-038 bis). A SCIM token is scoped to one team; the
+	// endpoints authenticate with it and act only within that team.
+	CreateScimToken(ctx context.Context, arg CreateScimTokenParams) (ScimToken, error)
 	// Servers (§3, state machine §21.2).
 	CreateServer(ctx context.Context, arg CreateServerParams) (Server, error)
 	// Compose stacks and their components (compose-spec.md, data-dictionary §9).
@@ -399,6 +402,11 @@ type Querier interface {
 	GetS3StorageByUUID(ctx context.Context, arg GetS3StorageByUUIDParams) (S3Storage, error)
 	GetScheduledTaskByID(ctx context.Context, id int64) (GetScheduledTaskByIDRow, error)
 	GetScheduledTaskByUUID(ctx context.Context, arg GetScheduledTaskByUUIDParams) (GetScheduledTaskByUUIDRow, error)
+	// A team member by user UUID (the SCIM resource id), with the internal user id
+	// needed to revoke sessions on deprovision.
+	GetScimMember(ctx context.Context, arg GetScimMemberParams) (GetScimMemberRow, error)
+	// Resolves a bearer SCIM token to its team; unrevoked only.
+	GetScimTokenByHash(ctx context.Context, tokenHash string) (GetScimTokenByHashRow, error)
 	GetServerByID(ctx context.Context, id int64) (Server, error)
 	GetServerByUUID(ctx context.Context, arg GetServerByUUIDParams) (Server, error)
 	GetServiceByID(ctx context.Context, id int64) (Service, error)
@@ -415,6 +423,8 @@ type Querier interface {
 	// ordering, opaque cursor carrying the last seen internal id.
 	GetTeamByID(ctx context.Context, id int64) (Team, error)
 	GetTeamByUUID(ctx context.Context, uuid pgtype.UUID) (Team, error)
+	// Idempotent match for a SCIM-provisioned member (the IdP's externalId).
+	GetTeamMemberByExternalID(ctx context.Context, arg GetTeamMemberByExternalIDParams) (GetTeamMemberByExternalIDRow, error)
 	// Member role management (ADR-038).
 	GetTeamMemberByUUID(ctx context.Context, arg GetTeamMemberByUUIDParams) (GetTeamMemberByUUIDRow, error)
 	// The team a session acts in, with its role and public UUID (the dashboard
@@ -591,6 +601,7 @@ type Querier interface {
 	// seeded, so it cannot be filtered out here.
 	ListSchedulableTasks(ctx context.Context) ([]ListSchedulableTasksRow, error)
 	ListScheduledTasksPage(ctx context.Context, arg ListScheduledTasksPageParams) ([]ListScheduledTasksPageRow, error)
+	ListScimTokensPage(ctx context.Context, teamID int64) ([]ScimToken, error)
 	ListServerDomains(ctx context.Context, serverID int64) ([]ListServerDomainsRow, error)
 	// Server inventory (§3): only managed resources appear here (INV-015).
 	ListServerResourcesPage(ctx context.Context, arg ListServerResourcesPageParams) ([]ListServerResourcesPageRow, error)
@@ -620,6 +631,8 @@ type Querier interface {
 	ListTCPProxyPorts(ctx context.Context, serverID int64) ([]*int32, error)
 	ListTagsForResource(ctx context.Context, resourceID int64) ([]string, error)
 	ListTaskExecutionsPage(ctx context.Context, arg ListTaskExecutionsPageParams) ([]TaskExecution, error)
+	// SCIM Users list (paginated by index is emulated in Go from this set).
+	ListTeamMembersForScim(ctx context.Context, teamID int64) ([]ListTeamMembersForScimRow, error)
 	ListTeamMembersPage(ctx context.Context, arg ListTeamMembersPageParams) ([]ListTeamMembersPageRow, error)
 	ListTeamsPage(ctx context.Context, arg ListTeamsPageParams) ([]Team, error)
 	// The seeded localhost server, while it has never passed a validation
@@ -695,6 +708,9 @@ type Querier interface {
 	RecordFailedLogin(ctx context.Context, arg RecordFailedLoginParams) (RecordFailedLoginRow, error)
 	RecordServerFacts(ctx context.Context, arg RecordServerFactsParams) error
 	RecordUptimeResult(ctx context.Context, arg RecordUptimeResultParams) error
+	// Deprovision: drop the membership (the account and its sessions are handled
+	// separately). Team-scoped by the member's user UUID.
+	RemoveTeamMemberByUUID(ctx context.Context, arg RemoveTeamMemberByUUIDParams) (int64, error)
 	// Deliberate re-pin, on an explicit re-validation of a rebuilt server.
 	RepinServerHostKey(ctx context.Context, arg RepinServerHostKeyParams) error
 	ReplaceMfaRecoveryCodes(ctx context.Context, arg ReplaceMfaRecoveryCodesParams) (int64, error)
@@ -707,7 +723,10 @@ type Querier interface {
 	// leaves old sessions alive has reset nothing.
 	RevokeAllSessionsOfUser(ctx context.Context, userID int64) (int64, error)
 	RevokeApiTokenByUUID(ctx context.Context, arg RevokeApiTokenByUUIDParams) (int64, error)
+	// Deprovision: revoke every API token the user holds in this team.
+	RevokeApiTokensForUserInTeam(ctx context.Context, arg RevokeApiTokensForUserInTeamParams) (int64, error)
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)
+	RevokeScimToken(ctx context.Context, arg RevokeScimTokenParams) (int64, error)
 	RevokeSession(ctx context.Context, id int64) error
 	RotateDatabaseCredentialEnc(ctx context.Context, arg RotateDatabaseCredentialEncParams) error
 	RotateEnvVarEnc(ctx context.Context, arg RotateEnvVarEncParams) error
@@ -761,9 +780,11 @@ type Querier interface {
 	// c'est donc ici — et nulle part ailleurs — qu'ils se modifient.
 	SetInstanceIdentity(ctx context.Context, arg SetInstanceIdentityParams) (InstanceSetting, error)
 	SetLocalhostSeeded(ctx context.Context) (int64, error)
+	SetMembershipExternalID(ctx context.Context, arg SetMembershipExternalIDParams) error
 	SetMfaRequired(ctx context.Context, mfaRequired bool) (InstanceSetting, error)
 	SetNotificationCursor(ctx context.Context, lastOutboxEventID int64) error
 	SetOtlpConfig(ctx context.Context, otlpConfigEnc []byte) error
+	SetPasswordLoginDisabled(ctx context.Context, passwordLoginDisabled bool) (InstanceSetting, error)
 	SetPlanDrillResult(ctx context.Context, arg SetPlanDrillResultParams) error
 	// Back to the running state after a waker-driven wake; clears the expiry warning
 	// so an active preview is never mistaken for one about to be reaped.
@@ -834,6 +855,7 @@ type Querier interface {
 	// Enforced in SQL so two concurrent verifications of the same code cannot
 	// both win, whatever the callers do.
 	TouchMfaFactorUsed(ctx context.Context, arg TouchMfaFactorUsedParams) (int64, error)
+	TouchScimTokenUsed(ctx context.Context, id int64) error
 	TouchSession(ctx context.Context, id int64) error
 	// Git pipeline settings of a git application (PATCH /applications): a nil
 	// argument leaves the column alone — partial like the rest of the update.

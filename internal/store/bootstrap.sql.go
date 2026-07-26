@@ -90,7 +90,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 }
 
 const getInstanceSettings = `-- name: GetInstanceSettings :one
-SELECT id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required FROM instance_settings WHERE id = 1
+SELECT id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled FROM instance_settings WHERE id = 1
 `
 
 func (q *Queries) GetInstanceSettings(ctx context.Context) (InstanceSetting, error) {
@@ -115,6 +115,7 @@ func (q *Queries) GetInstanceSettings(ctx context.Context) (InstanceSetting, err
 		&i.LocalhostSeeded,
 		&i.OtlpConfigEnc,
 		&i.MfaRequired,
+		&i.PasswordLoginDisabled,
 	)
 	return i, err
 }

@@ -67,6 +67,9 @@ const (
 var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrAccountLocked      = errors.New("account temporarily locked after too many failed attempts")
+	// ErrPasswordLoginDisabled is returned when the instance is in SSO-only mode
+	// (password_login_disabled) and a non-root user tries to sign in by password.
+	ErrPasswordLoginDisabled = errors.New("password login is disabled on this instance — sign in with SSO")
 )
 
 // Manager creates and verifies browser sessions.
@@ -113,6 +116,13 @@ func (m *Manager) Login(ctx context.Context, r *http.Request, email, plaintext s
 
 	if user.LockedUntil.Valid && user.LockedUntil.Time.After(time.Now()) {
 		return nil, "", ErrAccountLocked
+	}
+
+	// SSO-only mode (§10.2): the instance can disable password login entirely.
+	// The instance root is exempt — an escape hatch so a misconfigured OIDC can
+	// never lock the platform administrator out of their own instance.
+	if settings, err := m.Store.GetInstanceSettings(ctx); err == nil && settings.PasswordLoginDisabled && !user.IsRoot {
+		return nil, "", ErrPasswordLoginDisabled
 	}
 
 	// password_hash is nullable: an account created through OAuth has no password

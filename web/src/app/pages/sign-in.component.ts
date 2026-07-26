@@ -89,43 +89,47 @@ const OAUTH_ERRORS: Record<string, string> = {
               <p class="akd-error" role="alert">{{ message }}</p>
             }
 
-            <div class="akd-field">
-              <label class="akd-field__label" for="email">Email</label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                class="akd-input"
-                autocomplete="username"
-                [(ngModel)]="email"
-                [disabled]="busy()"
-                required
-              />
-            </div>
+            @if (!passwordDisabled()) {
+              <div class="akd-field">
+                <label class="akd-field__label" for="email">Email</label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  class="akd-input"
+                  autocomplete="username"
+                  [(ngModel)]="email"
+                  [disabled]="busy()"
+                  required
+                />
+              </div>
 
-            <div class="akd-field">
-              <label class="akd-field__label" for="password">Password</label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                class="akd-input"
-                autocomplete="current-password"
-                [(ngModel)]="password"
-                [disabled]="busy()"
-                required
-              />
-            </div>
+              <div class="akd-field">
+                <label class="akd-field__label" for="password">Password</label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  class="akd-input"
+                  autocomplete="current-password"
+                  [(ngModel)]="password"
+                  [disabled]="busy()"
+                  required
+                />
+              </div>
 
-            <button
-              class="akd-btn akd-btn--primary wide"
-              type="submit"
-              [disabled]="busy() || !email || !password"
-            >
-              {{ busy() ? 'Signing in…' : 'Sign in' }}
-            </button>
+              <button
+                class="akd-btn akd-btn--primary wide"
+                type="submit"
+                [disabled]="busy() || !email || !password"
+              >
+                {{ busy() ? 'Signing in…' : 'Sign in' }}
+              </button>
+            } @else {
+              <p class="hint hint--small">This instance requires single sign-on.</p>
+            }
 
-            @if (passkeysAvailable || providers().length > 0) {
+            @if (!passwordDisabled() && (passkeysAvailable || providers().length > 0)) {
               <div class="divider" aria-hidden="true"><span>or</span></div>
             }
             @if (passkeysAvailable) {
@@ -245,6 +249,8 @@ const OAUTH_ERRORS: Record<string, string> = {
 })
 export class SignInComponent {
   private readonly api = inject(ApiService);
+  /** SSO-only mode: hide the password form, offer providers/passkeys only. */
+  protected readonly passwordDisabled = this.api.passwordLoginDisabled;
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 

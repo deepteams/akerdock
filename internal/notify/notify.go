@@ -70,6 +70,10 @@ func SeverityOf(eventType string) Severity {
 		strings.HasSuffix(base, ".unreachable"),
 		strings.HasSuffix(base, ".dead_letter"):
 		return SeverityCritical
+	// Security events (ADR-019 detection): a reveal/RBAC change/restore is not a
+	// failure but must reach whoever watches the instance — warn at least.
+	case strings.HasPrefix(base, "security."):
+		return SeverityWarning
 	case strings.HasSuffix(base, ".cancelled"),
 		strings.HasSuffix(base, ".degraded"),
 		strings.HasSuffix(base, ".partial"),

@@ -65,6 +65,28 @@ func TestRecordEnrichesRequestAndActor(t *testing.T) {
 	}
 }
 
+func TestRecordEmitsSecurityAlert(t *testing.T) {
+	storeFake := &fakeStore{}
+	recorder := testRecorder(storeFake)
+	req := httptest.NewRequest(http.MethodPost, "/secret/reveal", nil)
+	id := &auth.Identity{TokenUUID: "11111111-1111-4111-8111-111111111111", TeamUUID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"}
+
+	// A sensitive action emits a security.* outbox event…
+	recorder.Record(req, id, Event{Action: "secret.reveal", Result: store.AuditResultSuccess})
+	if len(storeFake.outboxParams) != 1 {
+		t.Fatalf("outbox events = %d, want 1", len(storeFake.outboxParams))
+	}
+	if storeFake.outboxParams[0].EventType != "security.secret_revealed.v1" {
+		t.Errorf("event type = %q", storeFake.outboxParams[0].EventType)
+	}
+
+	// …a routine action does not.
+	recorder.Record(req, id, Event{Action: "application.update", Result: store.AuditResultSuccess})
+	if len(storeFake.outboxParams) != 1 {
+		t.Errorf("a routine action emitted a security alert: %d", len(storeFake.outboxParams))
+	}
+}
+
 func TestRecordAuthSuccess(t *testing.T) {
 	storeFake := &fakeStore{}
 	recorder := testRecorder(storeFake)

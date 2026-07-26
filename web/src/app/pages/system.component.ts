@@ -100,6 +100,16 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
                   instance.
                 </span>
               </div>
+              <div class="akd-field">
+                <label class="akd-check">
+                  <input type="checkbox" name="ssoOnly" [(ngModel)]="instancePasswordLoginDisabled" [disabled]="busy()" />
+                  Require SSO (disable password login)
+                </label>
+                <span class="akd-field__hint">
+                  Only OIDC providers may sign in. Needs at least one enabled provider; the instance
+                  administrator can always fall back to a password.
+                </span>
+              </div>
               @if (instanceNotice(); as message) {
                 <p class="akd-muted sm" role="status">{{ message }}</p>
               }
@@ -752,6 +762,7 @@ export class SystemComponent {
   protected instanceFqdn = '';
   protected instanceAcmeEmail = '';
   protected instanceMfaRequired = false;
+  protected instancePasswordLoginDisabled = false;
 
   protected emailKind: 'smtp' | 'resend' = 'smtp';
   protected emailFrom = '';
@@ -786,10 +797,12 @@ export class SystemComponent {
         fqdn: this.instanceFqdn.trim() || null,
         acme_email: this.instanceAcmeEmail.trim() || null,
         mfa_required: this.instanceMfaRequired,
+        password_login_disabled: this.instancePasswordLoginDisabled,
       });
       this.instanceFqdn = updated.fqdn ?? '';
       this.instanceAcmeEmail = updated.acme_email ?? '';
       this.instanceMfaRequired = updated.mfa_required ?? false;
+      this.instancePasswordLoginDisabled = updated.password_login_disabled ?? false;
       this.instanceNotice.set(
         updated.fqdn
           ? 'Saved. Session cookie security follows the FQDN at the next restart of the binary.'
@@ -815,6 +828,7 @@ export class SystemComponent {
       this.instanceFqdn = instance.fqdn ?? '';
       this.instanceAcmeEmail = instance.acme_email ?? '';
       this.instanceMfaRequired = instance.mfa_required ?? false;
+      this.instancePasswordLoginDisabled = instance.password_login_disabled ?? false;
       this.apiOn = instance.api_enabled ?? true;
       this.email.set(email);
       this.encryption.set(encryption);

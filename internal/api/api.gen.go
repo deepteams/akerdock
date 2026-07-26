@@ -3426,8 +3426,11 @@ type InstanceIdentity struct {
 	Fqdn *string `json:"fqdn,omitempty"`
 
 	// MfaRequired Quand vrai, la double authentification est obligatoire : un utilisateur sans facteur confirmé est forcé de l'enrôler avant de pouvoir utiliser l'instance (§10.2).
-	MfaRequired *bool   `json:"mfa_required,omitempty"`
-	Timezone    *string `json:"timezone,omitempty"`
+	MfaRequired *bool `json:"mfa_required,omitempty"`
+
+	// PasswordLoginDisabled SSO obligatoire (§10.2) : quand vrai, le login par mot de passe est refusé (sauf l'administrateur d'instance) — seuls les providers OIDC authentifient.
+	PasswordLoginDisabled *bool   `json:"password_login_disabled,omitempty"`
+	Timezone              *string `json:"timezone,omitempty"`
 }
 
 // InstanceIdentityUpdate defines model for InstanceIdentityUpdate.
@@ -3440,6 +3443,9 @@ type InstanceIdentityUpdate struct {
 
 	// MfaRequired Active/désactive l'obligation de double authentification (§10.2). Absent = inchangé.
 	MfaRequired *bool `json:"mfa_required,omitempty"`
+
+	// PasswordLoginDisabled Active/désactive le mode SSO obligatoire (§10.2). Refusé si aucun provider OIDC n'est activé. Absent = inchangé.
+	PasswordLoginDisabled *bool `json:"password_login_disabled,omitempty"`
 }
 
 // Invitation Invitation d'un membre dans une team.
@@ -4122,6 +4128,33 @@ type ScheduledTaskUpdate struct {
 	OverlapPolicy  *TaskOverlapPolicy `json:"overlap_policy,omitempty"`
 	TimeoutSeconds *int               `json:"timeout_seconds,omitempty"`
 	Timezone       *string            `json:"timezone,omitempty"`
+}
+
+// ScimToken defines model for ScimToken.
+type ScimToken struct {
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	Name       string     `json:"name"`
+	Uuid       string     `json:"uuid"`
+}
+
+// ScimTokenCreate defines model for ScimTokenCreate.
+type ScimTokenCreate struct {
+	// Name Nom lisible du token (ex. okta-prod).
+	Name string `json:"name"`
+}
+
+// ScimTokenCreated defines model for ScimTokenCreated.
+type ScimTokenCreated struct {
+	CreatedAt time.Time `json:"created_at"`
+	Name      string    `json:"name"`
+
+	// ScimBaseUrl URL de base SCIM à configurer dans l'IdP (…/scim/v2).
+	ScimBaseUrl string `json:"scim_base_url"`
+
+	// Token Valeur claire — affichée une seule fois (§23.2).
+	Token string `json:"token"`
+	Uuid  string `json:"uuid"`
 }
 
 // Server Serveur cible SSH (§3) — états du cycle de vie §21.2.
@@ -5910,6 +5943,9 @@ type CreateTeamRoleJSONRequestBody = CustomRoleCreate
 // UpdateTeamRoleJSONRequestBody defines body for UpdateTeamRole for application/json ContentType.
 type UpdateTeamRoleJSONRequestBody = CustomRoleUpdate
 
+// CreateScimTokenJSONRequestBody defines body for CreateScimToken for application/json ContentType.
+type CreateScimTokenJSONRequestBody = ScimTokenCreate
+
 // CreateApiTokenJSONRequestBody defines body for CreateApiToken for application/json ContentType.
 type CreateApiTokenJSONRequestBody = ApiTokenCreate
 
@@ -6646,6 +6682,15 @@ type ServerInterface interface {
 	// Modifier un rôle custom
 	// (PATCH /teams/{team_uuid}/roles/{role_uuid})
 	UpdateTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid)
+	// Lister les tokens SCIM d'une team
+	// (GET /teams/{team_uuid}/scim-tokens)
+	ListScimTokens(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid)
+	// Créer un token SCIM
+	// (POST /teams/{team_uuid}/scim-tokens)
+	CreateScimToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid)
+	// Révoquer un token SCIM
+	// (DELETE /teams/{team_uuid}/scim-tokens/{scim_token_uuid})
+	RevokeScimToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, scimTokenUuid string)
 	// Lister les tokens API
 	// (GET /teams/{team_uuid}/tokens)
 	ListApiTokens(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListApiTokensParams)
@@ -7891,6 +7936,24 @@ func (_ Unimplemented) GetTeamRole(w http.ResponseWriter, r *http.Request, teamU
 // Modifier un rôle custom
 // (PATCH /teams/{team_uuid}/roles/{role_uuid})
 func (_ Unimplemented) UpdateTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Lister les tokens SCIM d'une team
+// (GET /teams/{team_uuid}/scim-tokens)
+func (_ Unimplemented) ListScimTokens(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Créer un token SCIM
+// (POST /teams/{team_uuid}/scim-tokens)
+func (_ Unimplemented) CreateScimToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Révoquer un token SCIM
+// (DELETE /teams/{team_uuid}/scim-tokens/{scim_token_uuid})
+func (_ Unimplemented) RevokeScimToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, scimTokenUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -17368,6 +17431,111 @@ func (siw *ServerInterfaceWrapper) UpdateTeamRole(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ListScimTokens operation middleware
+func (siw *ServerInterfaceWrapper) ListScimTokens(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "team_uuid" -------------
+	var teamUuid TeamUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListScimTokens(w, r, teamUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateScimToken operation middleware
+func (siw *ServerInterfaceWrapper) CreateScimToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "team_uuid" -------------
+	var teamUuid TeamUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateScimToken(w, r, teamUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeScimToken operation middleware
+func (siw *ServerInterfaceWrapper) RevokeScimToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "team_uuid" -------------
+	var teamUuid TeamUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "scim_token_uuid" -------------
+	var scimTokenUuid string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "scim_token_uuid", chi.URLParam(r, "scim_token_uuid"), &scimTokenUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scim_token_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeScimToken(w, r, teamUuid, scimTokenUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListApiTokens operation middleware
 func (siw *ServerInterfaceWrapper) ListApiTokens(w http.ResponseWriter, r *http.Request) {
 
@@ -18548,6 +18716,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/teams/{team_uuid}/roles/{role_uuid}", wrapper.UpdateTeamRole)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{team_uuid}/scim-tokens", wrapper.ListScimTokens)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/teams/{team_uuid}/scim-tokens", wrapper.CreateScimToken)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/teams/{team_uuid}/scim-tokens/{scim_token_uuid}", wrapper.RevokeScimToken)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{team_uuid}/tokens", wrapper.ListApiTokens)
@@ -37962,6 +38139,261 @@ func (response UpdateTeamRole429JSONResponse) VisitUpdateTeamRoleResponse(w http
 	return err
 }
 
+type ListScimTokensRequestObject struct {
+	TeamUuid TeamUuid `json:"team_uuid"`
+}
+
+type ListScimTokensResponseObject interface {
+	VisitListScimTokensResponse(w http.ResponseWriter) error
+}
+
+type ListScimTokens200JSONResponse struct {
+	Data []ScimToken `json:"data"`
+}
+
+func (response ListScimTokens200JSONResponse) VisitListScimTokensResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListScimTokens401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListScimTokens401JSONResponse) VisitListScimTokensResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListScimTokens403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListScimTokens403JSONResponse) VisitListScimTokensResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListScimTokens404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListScimTokens404JSONResponse) VisitListScimTokensResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListScimTokens429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListScimTokens429JSONResponse) VisitListScimTokensResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateScimTokenRequestObject struct {
+	TeamUuid TeamUuid `json:"team_uuid"`
+	Body     *CreateScimTokenJSONRequestBody
+}
+
+type CreateScimTokenResponseObject interface {
+	VisitCreateScimTokenResponse(w http.ResponseWriter) error
+}
+
+type CreateScimToken201JSONResponse ScimTokenCreated
+
+func (response CreateScimToken201JSONResponse) VisitCreateScimTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateScimToken400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateScimToken400JSONResponse) VisitCreateScimTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateScimToken401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateScimToken401JSONResponse) VisitCreateScimTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateScimToken403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateScimToken403JSONResponse) VisitCreateScimTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateScimToken404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateScimToken404JSONResponse) VisitCreateScimTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateScimToken429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateScimToken429JSONResponse) VisitCreateScimTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeScimTokenRequestObject struct {
+	TeamUuid      TeamUuid `json:"team_uuid"`
+	ScimTokenUuid string   `json:"scim_token_uuid"`
+}
+
+type RevokeScimTokenResponseObject interface {
+	VisitRevokeScimTokenResponse(w http.ResponseWriter) error
+}
+
+type RevokeScimToken204Response struct {
+}
+
+func (response RevokeScimToken204Response) VisitRevokeScimTokenResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeScimToken401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RevokeScimToken401JSONResponse) VisitRevokeScimTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeScimToken403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RevokeScimToken403JSONResponse) VisitRevokeScimTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeScimToken404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RevokeScimToken404JSONResponse) VisitRevokeScimTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeScimToken429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response RevokeScimToken429JSONResponse) VisitRevokeScimTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListApiTokensRequestObject struct {
 	TeamUuid TeamUuid `json:"team_uuid"`
 	Params   ListApiTokensParams
@@ -39510,6 +39942,15 @@ type StrictServerInterface interface {
 	// Modifier un rôle custom
 	// (PATCH /teams/{team_uuid}/roles/{role_uuid})
 	UpdateTeamRole(ctx context.Context, request UpdateTeamRoleRequestObject) (UpdateTeamRoleResponseObject, error)
+	// Lister les tokens SCIM d'une team
+	// (GET /teams/{team_uuid}/scim-tokens)
+	ListScimTokens(ctx context.Context, request ListScimTokensRequestObject) (ListScimTokensResponseObject, error)
+	// Créer un token SCIM
+	// (POST /teams/{team_uuid}/scim-tokens)
+	CreateScimToken(ctx context.Context, request CreateScimTokenRequestObject) (CreateScimTokenResponseObject, error)
+	// Révoquer un token SCIM
+	// (DELETE /teams/{team_uuid}/scim-tokens/{scim_token_uuid})
+	RevokeScimToken(ctx context.Context, request RevokeScimTokenRequestObject) (RevokeScimTokenResponseObject, error)
 	// Lister les tokens API
 	// (GET /teams/{team_uuid}/tokens)
 	ListApiTokens(ctx context.Context, request ListApiTokensRequestObject) (ListApiTokensResponseObject, error)
@@ -45319,6 +45760,92 @@ func (sh *strictHandler) UpdateTeamRole(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateTeamRoleResponseObject); ok {
 		if err := validResponse.VisitUpdateTeamRoleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListScimTokens operation middleware
+func (sh *strictHandler) ListScimTokens(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
+	var request ListScimTokensRequestObject
+
+	request.TeamUuid = teamUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListScimTokens(ctx, request.(ListScimTokensRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListScimTokens")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListScimTokensResponseObject); ok {
+		if err := validResponse.VisitListScimTokensResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateScimToken operation middleware
+func (sh *strictHandler) CreateScimToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
+	var request CreateScimTokenRequestObject
+
+	request.TeamUuid = teamUuid
+
+	var body CreateScimTokenJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateScimToken(ctx, request.(CreateScimTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateScimToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateScimTokenResponseObject); ok {
+		if err := validResponse.VisitCreateScimTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeScimToken operation middleware
+func (sh *strictHandler) RevokeScimToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, scimTokenUuid string) {
+	var request RevokeScimTokenRequestObject
+
+	request.TeamUuid = teamUuid
+	request.ScimTokenUuid = scimTokenUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeScimToken(ctx, request.(RevokeScimTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeScimToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeScimTokenResponseObject); ok {
+		if err := validResponse.VisitRevokeScimTokenResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -213,6 +213,16 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 		// /auth: authenticated by its single-use attach token, minted by the
 		// POST .../terminal-sessions operations. Behind the same per-IP
 		// limiter: this endpoint too answers without a bearer credential.
+		// SCIM 2.0 provisioning (ADR-038 bis) — outside /api/v1 like /auth: it
+		// speaks the SCIM dialect and authenticates with a per-team SCIM token.
+		r.Get("/scim/v2/ServiceProviderConfig", a.ScimServiceProviderConfig)
+		r.Get("/scim/v2/Users", a.ScimListUsers)
+		r.Post("/scim/v2/Users", a.ScimCreateUser)
+		r.Get("/scim/v2/Users/{id}", a.ScimGetUser)
+		r.Put("/scim/v2/Users/{id}", a.ScimReplaceUser)
+		r.Patch("/scim/v2/Users/{id}", a.ScimPatchUser)
+		r.Delete("/scim/v2/Users/{id}", a.ScimDeleteUser)
+
 		r.Get("/terminal/ws", a.TerminalWebSocket)
 		// The CLI TCP tunnel WebSocket (ADR-032), same contract as the
 		// terminal: single-use attach token minted by POST .../port-forwards.

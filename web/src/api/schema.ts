@@ -466,6 +466,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/teams/{team_uuid}/scim-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Lister les tokens SCIM d'une team
+         * @description Les tokens SCIM (ADR-038 bis) authentifient le provisioning/déprovisioning depuis l'IdP, scopés à cette team. La valeur du token n'est jamais renvoyée après la création.
+         */
+        get: operations["listScimTokens"];
+        put?: never;
+        /**
+         * Créer un token SCIM
+         * @description La valeur claire n'est renvoyée qu'ici, une seule fois (§23.2).
+         */
+        post: operations["createScimToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{team_uuid}/scim-tokens/{scim_token_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+                /** @description UUID du token SCIM (jamais sa valeur). */
+                scim_token_uuid: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Révoquer un token SCIM */
+        delete: operations["revokeScimToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams/{team_uuid}/invitations": {
         parameters: {
             query?: never;
@@ -3610,6 +3659,28 @@ export interface components {
             /** Format: date-time */
             readonly created_at: string;
         };
+        ScimToken: {
+            uuid: string;
+            name: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            last_used_at?: string | null;
+        };
+        ScimTokenCreate: {
+            /** @description Nom lisible du token (ex. okta-prod). */
+            name: string;
+        };
+        ScimTokenCreated: {
+            uuid: string;
+            name: string;
+            /** @description Valeur claire — affichée une seule fois (§23.2). */
+            token: string;
+            /** @description URL de base SCIM à configurer dans l'IdP (…/scim/v2). */
+            scim_base_url: string;
+            /** Format: date-time */
+            created_at: string;
+        };
         /** @description Une entrée du journal d'audit append-only (§23.4). Les valeurs sensibles ne sont jamais présentes : un champ modifié apparaît dans `diff` comme `{changed:true, redacted:true}` (INV-003). */
         AuditEvent: {
             uuid: string;
@@ -4059,6 +4130,8 @@ export interface components {
             readonly api_enabled?: boolean;
             /** @description Quand vrai, la double authentification est obligatoire : un utilisateur sans facteur confirmé est forcé de l'enrôler avant de pouvoir utiliser l'instance (§10.2). */
             readonly mfa_required?: boolean;
+            /** @description SSO obligatoire (§10.2) : quand vrai, le login par mot de passe est refusé (sauf l'administrateur d'instance) — seuls les providers OIDC authentifient. */
+            readonly password_login_disabled?: boolean;
         };
         InstanceIdentityUpdate: {
             /** @description Nom d'hôte nu (`[a-z0-9.-]`, au moins un point). Chaîne vide ou `null` : efface le FQDN. */
@@ -4067,6 +4140,8 @@ export interface components {
             acme_email?: string | null;
             /** @description Active/désactive l'obligation de double authentification (§10.2). Absent = inchangé. */
             mfa_required?: boolean | null;
+            /** @description Active/désactive le mode SSO obligatoire (§10.2). Refusé si aucun provider OIDC n'est activé. Absent = inchangé. */
+            password_login_disabled?: boolean | null;
         };
         TransactionalEmail: {
             readonly configured: boolean;
@@ -6755,6 +6830,94 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listScimTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tokens SCIM. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ScimToken"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createScimToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScimTokenCreate"];
+            };
+        };
+        responses: {
+            /** @description Token créé — la valeur claire est dans `token`. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScimTokenCreated"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    revokeScimToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+                /** @description UUID du token SCIM (jamais sa valeur). */
+                scim_token_uuid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Token révoqué. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];

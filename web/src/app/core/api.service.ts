@@ -78,8 +78,12 @@ export class ApiService {
   private readonly router = inject(Router);
   private readonly user = signal<CurrentUser | null>(null);
   private readonly csrf = signal<string | null>(null);
+  private readonly passwordDisabled = signal(false);
 
   readonly currentUser = this.user.asReadonly();
+  /** SSO-only mode: the sign-in page hides the password form. Set by
+   * oauthProviders(). */
+  readonly passwordLoginDisabled = this.passwordDisabled.asReadonly();
   readonly isAuthenticated = computed(() => this.user() !== null);
 
   readonly client = computed(
@@ -308,7 +312,11 @@ export class ApiService {
   async oauthProviders(): Promise<OauthProviderButton[]> {
     const res = await fetch('/auth/oauth/providers', { credentials: 'same-origin' });
     if (!res.ok) return [];
-    const body = (await res.json()) as { data: OauthProviderButton[] };
+    const body = (await res.json()) as {
+      data: OauthProviderButton[];
+      password_login_disabled?: boolean;
+    };
+    this.passwordDisabled.set(body.password_login_disabled ?? false);
     return body.data;
   }
 

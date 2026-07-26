@@ -81,6 +81,10 @@ func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, r, http.StatusTooManyRequests, "account_locked",
 			"too many failed attempts — try again later")
 		return
+	case errors.Is(err, session.ErrPasswordLoginDisabled):
+		httpapi.WriteError(w, r, http.StatusForbidden, "password_login_disabled",
+			"password login is disabled on this instance — sign in with SSO")
+		return
 	case errors.Is(err, session.ErrInvalidCredentials):
 		// One message for a wrong email AND a wrong password: anything else
 		// turns this endpoint into an account-enumeration oracle.

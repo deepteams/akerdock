@@ -14,7 +14,7 @@ const setApiEnabled = `-- name: SetApiEnabled :one
 UPDATE instance_settings
 SET api_enabled = $1, updated_at = now(), version = version + 1
 WHERE id = 1
-RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required
+RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled
 `
 
 // Instance settings mutations (§14.2).
@@ -40,6 +40,7 @@ func (q *Queries) SetApiEnabled(ctx context.Context, apiEnabled bool) (InstanceS
 		&i.LocalhostSeeded,
 		&i.OtlpConfigEnc,
 		&i.MfaRequired,
+		&i.PasswordLoginDisabled,
 	)
 	return i, err
 }
@@ -48,7 +49,7 @@ const setInstanceIdentity = `-- name: SetInstanceIdentity :one
 UPDATE instance_settings
 SET fqdn = $1, acme_email = $2, updated_at = now(), version = version + 1
 WHERE id = 1
-RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required
+RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled
 `
 
 type SetInstanceIdentityParams struct {
@@ -80,6 +81,7 @@ func (q *Queries) SetInstanceIdentity(ctx context.Context, arg SetInstanceIdenti
 		&i.LocalhostSeeded,
 		&i.OtlpConfigEnc,
 		&i.MfaRequired,
+		&i.PasswordLoginDisabled,
 	)
 	return i, err
 }
@@ -88,7 +90,7 @@ const setMfaRequired = `-- name: SetMfaRequired :one
 UPDATE instance_settings
 SET mfa_required = $1, updated_at = now(), version = version + 1
 WHERE id = 1
-RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required
+RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled
 `
 
 func (q *Queries) SetMfaRequired(ctx context.Context, mfaRequired bool) (InstanceSetting, error) {
@@ -113,6 +115,41 @@ func (q *Queries) SetMfaRequired(ctx context.Context, mfaRequired bool) (Instanc
 		&i.LocalhostSeeded,
 		&i.OtlpConfigEnc,
 		&i.MfaRequired,
+		&i.PasswordLoginDisabled,
+	)
+	return i, err
+}
+
+const setPasswordLoginDisabled = `-- name: SetPasswordLoginDisabled :one
+UPDATE instance_settings
+SET password_login_disabled = $1, updated_at = now(), version = version + 1
+WHERE id = 1
+RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled
+`
+
+func (q *Queries) SetPasswordLoginDisabled(ctx context.Context, passwordLoginDisabled bool) (InstanceSetting, error) {
+	row := q.db.QueryRow(ctx, setPasswordLoginDisabled, passwordLoginDisabled)
+	var i InstanceSetting
+	err := row.Scan(
+		&i.ID,
+		&i.Fqdn,
+		&i.Timezone,
+		&i.RegistrationEnabled,
+		&i.ApiEnabled,
+		&i.DnsValidationServer,
+		&i.TransactionalEmailConfigEnc,
+		&i.AutoUpdateEnabled,
+		&i.AutoUpdateCron,
+		&i.OnboardingCompletedAt,
+		&i.UpdatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+		&i.AcmeEmail,
+		&i.LocalhostSeeded,
+		&i.OtlpConfigEnc,
+		&i.MfaRequired,
+		&i.PasswordLoginDisabled,
 	)
 	return i, err
 }
