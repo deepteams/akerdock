@@ -109,21 +109,6 @@ jobs:
           name: sbom
           path: sbom.cdx.json
 
-  # ADR-028: exactly one assembled-product journey. Pull requests are gated by
-  # fast unit/module tests; the expensive DinD proof runs after merge to main
-  # (or explicitly on demand) and again before a release.
-  e2e:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    name: e2e (complete journey)
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Run the complete E2E journey
-        run: make e2e
-
   # The dashboard: type-checked against the generated contract (a spec drift
   # breaks HERE, not in a user's browser), unit-tested, and the Storybook
   # catalogue must build — it is the design system's source of truth for the
@@ -145,15 +130,3 @@ jobs:
         run: npm --prefix web test
       - name: Build the Storybook catalogue
         run: npm --prefix web run build-storybook
-
-  # The artefact an operator actually installs: the distroless image and the
-  # reference compose file. A binary that passes E2E but ships in an image that
-  # cannot start has not shipped. Keep this Docker-heavy packaging check out of
-  # the pull-request feedback loop too; the release workflow repeats it.
-  dist:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Smoke-test the distribution
-        run: bash scripts/dist-smoke.sh

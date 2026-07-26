@@ -287,6 +287,97 @@ describe('createFormProblem', () => {
   });
 });
 
+describe('settingsFromApplication — preview route table seeding', () => {
+  it('maps an existing route table, stringifying a port and blanking a null one', () => {
+    const form = settingsFromApplication(
+      anApplication({
+        source_type: 'git',
+        preview_url_templates: [
+          { host: 'api-pr{{pr_id}}.ad.kedric.fr', port: 8080 },
+          { host: 'pr{{pr_id}}.ad.kedric.fr', port: null },
+        ],
+      }),
+    );
+    expect(form.previewUrlTemplates).toEqual([
+      { host: 'api-pr{{pr_id}}.ad.kedric.fr', port: '8080' },
+      { host: 'pr{{pr_id}}.ad.kedric.fr', port: '' },
+    ]);
+  });
+
+  it('yields an empty table when the app has neither a route table nor a legacy template', () => {
+    // anApplication carries no preview_url_template: the ternary must fall to [].
+    expect(settingsFromApplication(anApplication({ source_type: 'git' })).previewUrlTemplates).toEqual(
+      [],
+    );
+  });
+});
+
+describe('settingsToUpdate — build-pack specifics', () => {
+  it('keeps an explicit docker image tag instead of defaulting to latest', () => {
+    const form = settingsFromApplication(
+      anApplication({ docker_image: 'nginx', docker_image_tag: 'v2' }),
+    );
+    expect(settingsToUpdate(form, 'docker_image').docker_image_tag).toBe('v2');
+  });
+
+  it('writes the compose file location and raw flag for a compose build pack', () => {
+    const form = settingsFromApplication(
+      anApplication({
+        source_type: 'git',
+        build_pack: 'compose',
+        compose_file_location: '/stack/docker-compose.yml',
+        raw_compose: true,
+      }),
+    );
+    const update = settingsToUpdate(form, 'git');
+    expect(update.compose_file_location).toBe('/stack/docker-compose.yml');
+    expect(update.raw_compose).toBeTrue();
+  });
+});
+
+describe('createFormProblem — required-field guards', () => {
+  function completeDockerForm() {
+    const form = emptyCreateForm();
+    form.name = 'shop';
+    form.projectUuid = 'p-1';
+    form.environmentUuid = 'e-1';
+    form.serverUuid = 's-1';
+    form.dockerImage = 'nginx';
+    return form;
+  }
+
+  it('reports a blank name first', () => {
+    const form = completeDockerForm();
+    form.name = '   ';
+    expect(createFormProblem(form)).toContain('Name');
+  });
+
+  it('reports a missing project', () => {
+    const form = completeDockerForm();
+    form.projectUuid = '';
+    expect(createFormProblem(form)).toContain('project');
+  });
+
+  it('reports a missing server', () => {
+    const form = completeDockerForm();
+    form.serverUuid = '';
+    expect(createFormProblem(form)).toContain('server');
+  });
+
+  it('reports a blank docker image', () => {
+    const form = completeDockerForm();
+    form.dockerImage = '   ';
+    expect(createFormProblem(form)).toContain('Docker image');
+  });
+
+  it('reports missing dockerfile content', () => {
+    const form = completeDockerForm();
+    form.sourceType = 'dockerfile';
+    form.dockerfile = '  ';
+    expect(createFormProblem(form)).toContain('Dockerfile');
+  });
+});
+
 describe('createRequestFromForm', () => {
   it('builds a docker_image request with the tag defaulted to latest', () => {
     const form = emptyCreateForm();
