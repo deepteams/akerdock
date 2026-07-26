@@ -104,7 +104,7 @@ func (a *API) resolveS3Storage(w http.ResponseWriter, r *http.Request, id *auth.
 
 // ListS3Storages implements GET /s3-storages (permission: read).
 func (a *API) ListS3Storages(w http.ResponseWriter, r *http.Request, params api.ListS3StoragesParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermCloudRead)
 	if !ok {
 		return
 	}
@@ -138,7 +138,7 @@ func (a *API) ListS3Storages(w http.ResponseWriter, r *http.Request, params api.
 // CreateS3Storage implements POST /s3-storages (permission: write). The
 // connectivity is verified before the storage is announced as usable (§20.5).
 func (a *API) CreateS3Storage(w http.ResponseWriter, r *http.Request, params api.CreateS3StorageParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermCloudManage)
 	if !ok {
 		return
 	}
@@ -211,7 +211,7 @@ func (a *API) CreateS3Storage(w http.ResponseWriter, r *http.Request, params api
 
 // GetS3Storage implements GET /s3-storages/{uuid} (permission: read).
 func (a *API) GetS3Storage(w http.ResponseWriter, r *http.Request, s3StorageUuid api.S3StorageUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermCloudRead)
 	if !ok {
 		return
 	}
@@ -226,7 +226,7 @@ func (a *API) GetS3Storage(w http.ResponseWriter, r *http.Request, s3StorageUuid
 // UpdateS3Storage implements PATCH /s3-storages/{uuid} (permission: write).
 // Sensitive PATCH — If-Match mandatory (§24.1); the connectivity is rechecked.
 func (a *API) UpdateS3Storage(w http.ResponseWriter, r *http.Request, s3StorageUuid api.S3StorageUuid, params api.UpdateS3StorageParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermCloudManage)
 	if !ok {
 		return
 	}
@@ -327,7 +327,7 @@ func (a *API) UpdateS3Storage(w http.ResponseWriter, r *http.Request, s3StorageU
 // DeleteS3Storage implements DELETE /s3-storages/{uuid} (permission: write).
 // The objects already in the bucket are never touched (INV-008).
 func (a *API) DeleteS3Storage(w http.ResponseWriter, r *http.Request, s3StorageUuid api.S3StorageUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermCloudManage)
 	if !ok {
 		return
 	}
@@ -353,7 +353,7 @@ func (a *API) DeleteS3Storage(w http.ResponseWriter, r *http.Request, s3StorageU
 // ValidateS3Storage implements POST /s3-storages/{uuid}/validate (permission:
 // write): replays the round trip and refreshes is_usable.
 func (a *API) ValidateS3Storage(w http.ResponseWriter, r *http.Request, s3StorageUuid api.S3StorageUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermCloudManage)
 	if !ok {
 		return
 	}

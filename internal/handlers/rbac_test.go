@@ -159,6 +159,17 @@ func isReadLevel(perm string) bool {
 	return ok && socle == auth.PermRead
 }
 
+// isInstanceScoped reports whether a permission is instance-root-only (coarse
+// `root` or a granular `instance:*` whose socle is root) — enforced by
+// requireInstanceRoot, never by a team-scoped `root` permission (ADR-038).
+func isInstanceScoped(perm string) bool {
+	if perm == string(auth.PermRoot) {
+		return true
+	}
+	socle, ok := auth.Catalog[perm]
+	return ok && socle == auth.PermRoot
+}
+
 // Every operation's x-required-permission must be a coarse scope or a known
 // granular permission from the catalogue — catches a typo in the contract
 // during the ADR-038 migration (a bogus permission would make an endpoint
@@ -217,7 +228,7 @@ func TestRootTokenIsNeverRefused(t *testing.T) {
 		// TestInstanceSettingsRequireInstanceRootSession instead. Other
 		// root-permission endpoints (e.g. OIDC provider management) are NOT
 		// instance-gated and must still accept a root token.
-		if strings.HasPrefix(op.path, "/system") && op.permission == string(auth.PermRoot) {
+		if isInstanceScoped(op.permission) {
 			continue
 		}
 		t.Run(op.id, func(t *testing.T) {
@@ -254,7 +265,7 @@ func TestInstanceSettingsRequireInstanceRootSession(t *testing.T) {
 		Permissions: []string{string(auth.PermRoot)},
 	}
 	for _, op := range contractOperations(t) {
-		if !strings.HasPrefix(op.path, "/system") || op.permission != string(auth.PermRoot) {
+		if !isInstanceScoped(op.permission) {
 			continue
 		}
 		t.Run(op.id, func(t *testing.T) {

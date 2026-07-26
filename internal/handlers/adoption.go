@@ -111,7 +111,7 @@ func (a *API) ListAdoptionScans(w http.ResponseWriter, r *http.Request, serverUu
 
 // GetAdoptionScan implements GET /adoption-scans/{uuid} (permission: read).
 func (a *API) GetAdoptionScan(w http.ResponseWriter, r *http.Request, adoptionScanUuid api.AdoptionScanUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermResourcesRead)
 	if !ok {
 		return
 	}
@@ -128,7 +128,7 @@ func (a *API) GetAdoptionScan(w http.ResponseWriter, r *http.Request, adoptionSc
 // AdoptResources implements POST /adoption-scans/{uuid}/adopt (permission:
 // write): 202 + job — the adoption itself never restarts a workload (§20.7).
 func (a *API) AdoptResources(w http.ResponseWriter, r *http.Request, adoptionScanUuid api.AdoptionScanUuid, params api.AdoptResourcesParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermResourcesAdopt)
 	if !ok {
 		return
 	}

@@ -39,7 +39,7 @@ func storageToAPI(s store.PersistentStorage, resourceUUID string) api.Persistent
 // ListApplicationStorages implements GET /applications/{uuid}/storages
 // (permission: read).
 func (a *API) ListApplicationStorages(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermApplicationsRead)
 	if !ok {
 		return
 	}
@@ -66,7 +66,7 @@ func (a *API) ListApplicationStorages(w http.ResponseWriter, r *http.Request, ap
 // (permission: write). The remote volume is created idempotently at the
 // next deployment.
 func (a *API) CreateApplicationStorage(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.CreateApplicationStorageParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermStoragesManage)
 	if !ok {
 		return
 	}
@@ -129,7 +129,7 @@ func (a *API) CreateApplicationStorage(w http.ResponseWriter, r *http.Request, a
 // /applications/{uuid}/storages/{storage_uuid} (permission: write). The
 // remote data is never destroyed by this call (INV-008).
 func (a *API) DeleteApplicationStorage(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, storageUuid api.StorageUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermStoragesManage)
 	if !ok {
 		return
 	}

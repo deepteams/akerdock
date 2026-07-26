@@ -208,7 +208,7 @@ func (a *API) CreateScheduledTask(w http.ResponseWriter, r *http.Request, applic
 
 // GetScheduledTask implements GET /scheduled-tasks/{task_uuid}.
 func (a *API) GetScheduledTask(w http.ResponseWriter, r *http.Request, taskUuid api.TaskUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermApplicationsRead)
 	if !ok {
 		return
 	}

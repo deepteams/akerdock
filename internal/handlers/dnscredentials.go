@@ -54,7 +54,7 @@ func (a *API) resolveDNSCredential(w http.ResponseWriter, r *http.Request, id *a
 
 // ListDnsCredentials implements GET /dns-credentials.
 func (a *API) ListDnsCredentials(w http.ResponseWriter, r *http.Request, params api.ListDnsCredentialsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermServersRead)
 	if !ok {
 		return
 	}
@@ -88,7 +88,7 @@ func (a *API) ListDnsCredentials(w http.ResponseWriter, r *http.Request, params 
 
 // CreateDnsCredential implements POST /dns-credentials.
 func (a *API) CreateDnsCredential(w http.ResponseWriter, r *http.Request, params api.CreateDnsCredentialParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermServersManage)
 	if !ok {
 		return
 	}
@@ -165,7 +165,7 @@ func (a *API) CreateDnsCredential(w http.ResponseWriter, r *http.Request, params
 
 // GetDnsCredential implements GET /dns-credentials/{uuid}.
 func (a *API) GetDnsCredential(w http.ResponseWriter, r *http.Request, dnsCredentialUuid string) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermServersRead)
 	if !ok {
 		return
 	}
@@ -179,7 +179,7 @@ func (a *API) GetDnsCredential(w http.ResponseWriter, r *http.Request, dnsCreden
 
 // DeleteDnsCredential implements DELETE /dns-credentials/{uuid}.
 func (a *API) DeleteDnsCredential(w http.ResponseWriter, r *http.Request, dnsCredentialUuid string) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermServersManage)
 	if !ok {
 		return
 	}

@@ -81,7 +81,7 @@ func (a *API) instanceBaseURL(r *http.Request) (string, bool) {
 // CreateGithubApp implements POST /github-apps (permission: write) —
 // manifest flow step 1 (§2.1): draft + one-shot state + manifest to submit.
 func (a *API) CreateGithubApp(w http.ResponseWriter, r *http.Request) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermSourcesManage)
 	if !ok {
 		return
 	}
@@ -172,7 +172,7 @@ func (a *API) CreateGithubApp(w http.ResponseWriter, r *http.Request) {
 
 // ListGithubApps implements GET /github-apps (permission: read).
 func (a *API) ListGithubApps(w http.ResponseWriter, r *http.Request, params api.ListGithubAppsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermSourcesRead)
 	if !ok {
 		return
 	}
@@ -213,7 +213,7 @@ func (a *API) resolveGithubApp(w http.ResponseWriter, r *http.Request, id *auth.
 
 // GetGithubApp implements GET /github-apps/{github_app_uuid}.
 func (a *API) GetGithubApp(w http.ResponseWriter, r *http.Request, githubAppUuid api.GithubAppUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermSourcesRead)
 	if !ok {
 		return
 	}
@@ -226,7 +226,7 @@ func (a *API) GetGithubApp(w http.ResponseWriter, r *http.Request, githubAppUuid
 
 // DeleteGithubApp implements DELETE /github-apps/{github_app_uuid}.
 func (a *API) DeleteGithubApp(w http.ResponseWriter, r *http.Request, githubAppUuid api.GithubAppUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermSourcesManage)
 	if !ok {
 		return
 	}
@@ -262,7 +262,7 @@ func (a *API) githubClientFor(row store.GithubApp) (*githubapp.Client, *githubap
 // ListGithubAppRepositories implements GET /github-apps/{uuid}/repositories:
 // the discovery cache, resynchronized from GitHub on demand (§2.1 step 8).
 func (a *API) ListGithubAppRepositories(w http.ResponseWriter, r *http.Request, githubAppUuid api.GithubAppUuid, params api.ListGithubAppRepositoriesParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermSourcesRead)
 	if !ok {
 		return
 	}

@@ -36,7 +36,7 @@ func certificateToAPI(c store.Certificate, serverUUID string) api.Certificate {
 // (permission: read): the certificates served by this server's proxy —
 // an observed reflection (§18.3), synchronized from the server.
 func (a *API) ListServerCertificates(w http.ResponseWriter, r *http.Request, serverUuid api.ServerUuid, params api.ListServerCertificatesParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermCertificatesRead)
 	if !ok {
 		return
 	}
@@ -83,7 +83,7 @@ func (a *API) ListServerCertificates(w http.ResponseWriter, r *http.Request, ser
 // GetCertificate implements GET /certificates/{certificate_uuid}
 // (permission: read).
 func (a *API) GetCertificate(w http.ResponseWriter, r *http.Request, certificateUuid api.CertificateUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermCertificatesRead)
 	if !ok {
 		return
 	}
@@ -98,7 +98,7 @@ func (a *API) GetCertificate(w http.ResponseWriter, r *http.Request, certificate
 // write): forces a re-issuance — 202 + job. The current certificate keeps
 // serving until the new one is ready (proxy-contract §7.5).
 func (a *API) RenewCertificate(w http.ResponseWriter, r *http.Request, certificateUuid api.CertificateUuid, params api.RenewCertificateParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermCertificatesRenew)
 	if !ok {
 		return
 	}

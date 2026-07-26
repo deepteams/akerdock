@@ -63,7 +63,7 @@ type portForwardSpec struct {
 
 // CreateApplicationPortForward implements POST /applications/{uuid}/port-forwards.
 func (a *API) CreateApplicationPortForward(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.CreateApplicationPortForwardParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermTerminalOpen)
 	if !ok {
 		return
 	}
@@ -88,7 +88,7 @@ func (a *API) CreateApplicationPortForward(w http.ResponseWriter, r *http.Reques
 
 // CreateDatabasePortForward implements POST /databases/{uuid}/port-forwards.
 func (a *API) CreateDatabasePortForward(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermTerminalOpen)
 	if !ok {
 		return
 	}
@@ -114,7 +114,7 @@ func (a *API) CreateDatabasePortForward(w http.ResponseWriter, r *http.Request, 
 // POST /applications/{uuid}/previews/{uuid}/port-forwards (ADR-032): a tunnel
 // into a PR preview's container.
 func (a *API) CreatePreviewPortForward(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string, params api.CreatePreviewPortForwardParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermTerminalOpen)
 	if !ok {
 		return
 	}

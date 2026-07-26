@@ -74,6 +74,38 @@ const (
 	PermLogsRead    Permission = "logs:read"
 	PermMetricsRead Permission = "metrics:read"
 	PermJobsManage  Permission = "jobs:manage"
+
+	PermNotificationsRead   Permission = "notifications:read"
+	PermNotificationsManage Permission = "notifications:manage"
+
+	PermCloudRead   Permission = "cloud:read"
+	PermCloudManage Permission = "cloud:manage"
+
+	PermCertificatesRead  Permission = "certificates:read"
+	PermCertificatesRenew Permission = "certificates:renew"
+
+	PermStoragesManage Permission = "storages:manage"
+
+	PermKeysRead   Permission = "keys:read"
+	PermKeysManage Permission = "keys:manage"
+
+	PermSourcesRead    Permission = "sources:read"
+	PermSourcesManage  Permission = "sources:manage"
+	PermRegistriesManage Permission = "registries:manage"
+
+	PermTerminalOpen Permission = "terminal:open"
+	PermTerminalRoot Permission = "terminal:root"
+
+	PermAuditRead    Permission = "audit:read"
+	PermUptimeRead   Permission = "uptime:read"
+	PermUptimeManage Permission = "uptime:manage"
+
+	// Instance-scoped permissions (root d'instance uniquement, hors modèle de
+	// team). Enforcement passes through requireInstanceRoot; these name the
+	// operations' x-required-permission for the contract/rbac-matrix.
+	PermInstanceManage     Permission = "instance:manage"
+	PermInstanceAudit      Permission = "instance:audit"
+	PermInstanceEncryption Permission = "instance:encryption"
 )
 
 // Catalog maps every granular permission to its coarse socle.
@@ -123,7 +155,9 @@ var Catalog = map[string]Permission{
 	"terminal:open": PermWrite, "terminal:root": PermWrite,
 	// Observability
 	"logs:read": PermRead, "logs:manage": PermWrite,
-	"metrics:read": PermRead, "audit:read": PermRead, "notifications:manage": PermWrite,
+	"metrics:read": PermRead, "audit:read": PermRead,
+	"uptime:read": PermRead, "uptime:manage": PermWrite,
+	"notifications:read": PermRead, "notifications:manage": PermWrite,
 	// Config as code
 	"config:export": PermRead, "config:apply": PermWrite,
 	// Instance (root d'instance uniquement — hors modèle de team, ADR-038 §1)

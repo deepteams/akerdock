@@ -148,7 +148,7 @@ func truncatedPayload(body []byte) []byte {
 // (permission: write). The secret is generated here and returned exactly once:
 // it has to be pasted into the forge's UI, and it is never readable again.
 func (a *API) CreateWebhookEndpoint(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermSourcesManage)
 	if !ok {
 		return
 	}
@@ -217,7 +217,7 @@ func (a *API) CreateWebhookEndpoint(w http.ResponseWriter, r *http.Request, appl
 // DeleteWebhookEndpoint implements DELETE
 // /applications/{uuid}/webhook-endpoint (permission: write).
 func (a *API) DeleteWebhookEndpoint(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.DeleteWebhookEndpointParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermSourcesManage)
 	if !ok {
 		return
 	}

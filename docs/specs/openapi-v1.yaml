@@ -211,7 +211,7 @@ paths:
         Reprise native par `Last-Event-ID` — les événements manqués sont
         rejoués depuis la séquence indiquée. Un commentaire `: keepalive`
         est émis périodiquement pour tenir la connexion ouverte.
-      x-required-permission: read
+      x-required-permission: audit:read
       parameters:
         - $ref: "#/components/parameters/LastEventId"
       responses:
@@ -237,7 +237,7 @@ paths:
       description: >-
         Active l'API publique de l'instance. Réservé aux tokens `root`
         (§10.3 — l'API est désactivée par défaut).
-      x-required-permission: root
+      x-required-permission: instance:manage
       responses:
         "200":
           description: État de l'API après activation.
@@ -260,7 +260,7 @@ paths:
       description: >-
         Désactive l'API publique. Après cet appel, seuls `GET /health` et la
         réactivation via l'UI restent disponibles.
-      x-required-permission: root
+      x-required-permission: instance:manage
       responses:
         "200":
           description: État de l'API après désactivation.
@@ -284,7 +284,7 @@ paths:
         FQDN et email ACME (§14.2). Les variables d'environnement ne font
         qu'amorcer ces valeurs au premier démarrage (§6.2) — ensuite c'est ici
         qu'elles se lisent et se modifient.
-      x-required-permission: root
+      x-required-permission: instance:manage
       responses:
         "200":
           description: Les réglages courants.
@@ -308,7 +308,7 @@ paths:
         URLs publiques (invitations, callbacks OAuth, previews) se construisent
         en `https://`. Le vider autorise le HTTP simple — réseaux de confiance
         uniquement.
-      x-required-permission: root
+      x-required-permission: instance:manage
       requestBody:
         required: true
         content:
@@ -342,7 +342,7 @@ paths:
         Email transactionnel (§14.2, amendement n°20) : celui qui porte les
         invitations. Les credentials ne sont **jamais** renvoyés — seulement le
         fait qu'ils existent.
-      x-required-permission: root
+      x-required-permission: instance:manage
       responses:
         "200":
           description: L'état de la configuration.
@@ -363,7 +363,7 @@ paths:
       description: >-
         La configuration est **vérifiée avant d'être acceptée** : un relais
         injoignable est refusé ici, pas découvert à la première invitation.
-      x-required-permission: root
+      x-required-permission: instance:manage
       requestBody:
         required: true
         content:
@@ -397,7 +397,7 @@ paths:
         Export OpenTelemetry (§14.2, ADR-008/§27.8) : où partent traces,
         métriques et logs. Les en-têtes d'auth ne sont **jamais** renvoyés —
         seulement le fait qu'ils existent.
-      x-required-permission: root
+      x-required-permission: instance:manage
       responses:
         "200":
           description: L'état de la configuration.
@@ -419,7 +419,7 @@ paths:
         Enregistre où exporter traces/métriques/logs. **Prend effet au prochain
         redémarrage** du binaire (la télémétrie s'initialise une fois au boot).
         Un `endpoint` vide désactive l'export.
-      x-required-permission: root
+      x-required-permission: instance:manage
       requestBody:
         required: true
         content:
@@ -457,7 +457,7 @@ paths:
         ancienne version ne peut être retirée du fichier de clés que
         lorsqu'elle n'est plus référencée par aucune ligne. Ne contient
         jamais de matériel de clé. Réservé aux tokens `root`.
-      x-required-permission: root
+      x-required-permission: instance:encryption
       responses:
         "200":
           description: État du chiffrement.
@@ -486,7 +486,7 @@ paths:
         avec un job de suivi ; `409` (`operation_in_progress`) si un
         re-chiffrement est déjà en cours. Action auditée (§23.4). Réservé
         aux tokens `root`.
-      x-required-permission: root
+      x-required-permission: instance:encryption
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
@@ -516,7 +516,7 @@ paths:
         client secret n'est **jamais** renvoyé (INV-003) — seulement le fait
         qu'un fournisseur est configuré et activé. Le flux de login lui-même
         vit hors de ce contrat (`/auth/oauth/*`, UI uniquement — §10.2).
-      x-required-permission: root
+      x-required-permission: instance:manage
       responses:
         "200":
           description: Les fournisseurs configurés.
@@ -549,7 +549,7 @@ paths:
         `azure` (découverte OpenID Connect) et refusé pour les fournisseurs
         à endpoints fixes. Validation stricte du flux côté login : issuer,
         audience, nonce et PKCE (§23.3). Action auditée (§23.4).
-      x-required-permission: root
+      x-required-permission: instance:manage
       parameters:
         - $ref: "#/components/parameters/OauthProviderName"
       requestBody:
@@ -584,7 +584,7 @@ paths:
         Les identités déjà liées sont conservées — elles redeviennent
         utilisables si le fournisseur est reconfiguré ; les comptes concernés
         gardent leurs autres credentials (mot de passe, passkey). Audité.
-      x-required-permission: root
+      x-required-permission: instance:manage
       parameters:
         - $ref: "#/components/parameters/OauthProviderName"
       responses:
@@ -1283,7 +1283,7 @@ paths:
         Liste les métadonnées des clés (nom, fingerprint, clé publique). Le
         champ `private_key` est toujours `null` dans les listes, quelle que
         soit la permission.
-      x-required-permission: read
+      x-required-permission: keys:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -1314,7 +1314,7 @@ paths:
         Enregistre une clé SSH privée (stockée chiffrée, §23.2). La réponse
         ne contient jamais le matériel privé, même avec `read:sensitive`
         immédiatement après création.
-      x-required-permission: write
+      x-required-permission: keys:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -1359,7 +1359,7 @@ paths:
         paramètre `reveal=true` est passé explicitement ; sinon il vaut
         `null` et `is_redacted` vaut `true`. Chaque révélation est auditée
         (§23.4).
-      x-required-permission: read
+      x-required-permission: keys:read
       parameters:
         - name: reveal
           in: query
@@ -1395,7 +1395,7 @@ paths:
       description: >-
         Met à jour le nom, la description ou remplace le matériel de clé
         (rotation). PATCH sensible — `If-Match` obligatoire (§24.1).
-      x-required-permission: write
+      x-required-permission: keys:manage
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
@@ -1435,7 +1435,7 @@ paths:
       description: >-
         Refusé avec `409` (`dependency_exists`) tant que la clé est
         référencée par un serveur ou une application (§19.2).
-      x-required-permission: write
+      x-required-permission: keys:manage
       responses:
         "204":
           description: Clé supprimée.
@@ -1466,7 +1466,7 @@ paths:
         est chiffré au repos et jamais relu (§23.2). Un push sur la branche
         déployée déclenche alors un déploiement, sous réserve des politiques
         (`auto_deploy`, `[skip ci]`, `watch_paths`).
-      x-required-permission: write
+      x-required-permission: sources:manage
       requestBody:
         required: true
         content:
@@ -1498,7 +1498,7 @@ paths:
       tags: [Applications]
       operationId: deleteWebhookEndpoint
       summary: Supprimer l'endpoint de webhook Git
-      x-required-permission: write
+      x-required-permission: sources:manage
       parameters:
         - name: provider
           in: query
@@ -1529,7 +1529,7 @@ paths:
       description: >-
         Liste les canaux de la team. La configuration (URL de webhook, token
         de bot) n'est jamais renvoyée (INV-003).
-      x-required-permission: read
+      x-required-permission: notifications:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -1561,7 +1561,7 @@ paths:
         types `smtp`, `resend`, `telegram` et `pushover` sont déclarés par le
         modèle mais refusés en `422` tant qu'ils ne sont pas implémentés —
         jamais acceptés puis ignorés silencieusement.
-      x-required-permission: write
+      x-required-permission: notifications:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -1600,7 +1600,7 @@ paths:
       tags: [Notifications]
       operationId: getNotificationChannel
       summary: Détail d'un canal
-      x-required-permission: read
+      x-required-permission: notifications:read
       responses:
         "200":
           description: Le canal (sans sa configuration).
@@ -1622,7 +1622,7 @@ paths:
       operationId: updateNotificationChannel
       summary: Modifier un canal
       description: PATCH sensible — `If-Match` obligatoire (§24.1).
-      x-required-permission: write
+      x-required-permission: notifications:manage
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
@@ -1660,7 +1660,7 @@ paths:
       operationId: deleteNotificationChannel
       summary: Supprimer un canal
       description: Les règles du canal sont supprimées avec lui (CASCADE).
-      x-required-permission: write
+      x-required-permission: notifications:manage
       responses:
         "204":
           description: Canal supprimé.
@@ -1684,7 +1684,7 @@ paths:
         Envoie immédiatement un événement de test sur le canal et renvoie le
         résultat de l'envoi — une configuration invalide se voit ici, pas à la
         première panne.
-      x-required-permission: write
+      x-required-permission: notifications:manage
       responses:
         "200":
           description: Résultat de l'envoi.
@@ -1716,7 +1716,7 @@ paths:
       tags: [Notifications]
       operationId: listNotificationRules
       summary: Lister les règles de routage d'un canal
-      x-required-permission: read
+      x-required-permission: notifications:read
       responses:
         "200":
           description: Règles du canal.
@@ -1745,7 +1745,7 @@ paths:
         projet/environnement, seuil de sévérité, débounce anti-flapping et
         heures calmes. Un événement `critical` traverse toujours le débounce
         et les heures calmes.
-      x-required-permission: write
+      x-required-permission: notifications:manage
       requestBody:
         required: true
         content:
@@ -1787,7 +1787,7 @@ paths:
       tags: [Notifications]
       operationId: deleteNotificationRule
       summary: Supprimer une règle de routage
-      x-required-permission: write
+      x-required-permission: notifications:manage
       responses:
         "204":
           description: Règle supprimée.
@@ -1812,7 +1812,7 @@ paths:
         Liste les destinations de backup de la team. Les credentials ne sont
         jamais renvoyés (INV-003) ; seul `is_usable` indique si un
         aller-retour écriture/lecture/suppression a réussi (§20.5).
-      x-required-permission: read
+      x-required-permission: cloud:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -1845,7 +1845,7 @@ paths:
         écriture/lecture/suppression : un stockage qui échoue est créé avec
         `is_usable: false` et `last_check_error` renseigné — il ne peut pas
         être référencé par un plan de backup tant qu'il n'est pas utilisable.
-      x-required-permission: write
+      x-required-permission: cloud:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -1884,7 +1884,7 @@ paths:
       tags: [S3Storages]
       operationId: getS3Storage
       summary: Détail d'un stockage S3
-      x-required-permission: read
+      x-required-permission: cloud:read
       responses:
         "200":
           description: Le stockage (sans credentials).
@@ -1909,7 +1909,7 @@ paths:
         Met à jour la configuration ou remplace les credentials. PATCH
         sensible — `If-Match` obligatoire (§24.1). La connectivité est
         revérifiée après modification.
-      x-required-permission: write
+      x-required-permission: cloud:manage
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
@@ -1950,7 +1950,7 @@ paths:
         Refusé avec `409` (`dependency_exists`) tant qu'un plan de backup le
         référence (§19.2). Les objets déjà déposés dans le bucket ne sont
         jamais supprimés (INV-008).
-      x-required-permission: write
+      x-required-permission: cloud:manage
       responses:
         "204":
           description: Stockage supprimé.
@@ -1975,7 +1975,7 @@ paths:
       description: >-
         Rejoue l'aller-retour écriture/lecture/suppression et met à jour
         `is_usable` et `last_check_error` (§20.5).
-      x-required-permission: write
+      x-required-permission: cloud:manage
       responses:
         "200":
           description: Résultat de la vérification.
@@ -2366,7 +2366,7 @@ paths:
         auditée à l'ouverture et à la fermeture, idle timeout, durée maximum,
         kill garanti (§24.4). `409` si la team a atteint son plafond de
         sessions simultanées (`terminal_session_limit`).
-      x-required-permission: write
+      x-required-permission: terminal:root
       responses:
         "201":
           description: >-
@@ -2511,7 +2511,7 @@ paths:
         variables d'environnement ne figurent JAMAIS dans le scan (INV-003) :
         seuls les noms sont listés ; les valeurs sont capturées et chiffrées
         au moment de l'adoption.
-      x-required-permission: read
+      x-required-permission: resources:read
       responses:
         "200":
           description: Le scan.
@@ -2545,7 +2545,7 @@ paths:
         Opération longue — répond `202` avec un job ; le résultat du job
         liste les ressources créées. `409` (`invalid_state`) si le scan n'est
         pas terminé ; `422` si un candidat est inconnu ou non adoptable.
-      x-required-permission: write
+      x-required-permission: resources:adopt
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -2620,7 +2620,7 @@ paths:
         application de configuration proxy et par réconciliation périodique
         (§18.3) — voir `observed_at`. Le matériel de clé privée ne quitte
         jamais le serveur et n'apparaît jamais dans l'API.
-      x-required-permission: read
+      x-required-permission: certificates:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -2683,7 +2683,7 @@ paths:
         (wildcards inclus), émetteur, fenêtre de validité
         (`not_before`/`not_after`), statut et dernière erreur d'émission.
         `observed_at` indique la fraîcheur de l'observation.
-      x-required-permission: read
+      x-required-permission: certificates:read
       responses:
         "200":
           description: Le certificat.
@@ -2720,7 +2720,7 @@ paths:
         Let's Encrypt : chaque échec de validation consomme du quota —
         corriger la cause (DNS, port 80, credentials DNS-01) avant de
         rejouer. Action auditée (§23.4).
-      x-required-permission: write
+      x-required-permission: certificates:renew
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
@@ -2959,7 +2959,7 @@ paths:
         Volumes nommés et bind mounts de l'application (§8). Le nom d'un
         volume est préfixé par l'UUID de la ressource (anti-collision,
         INV-011).
-      x-required-permission: read
+      x-required-permission: applications:read
       responses:
         "200":
           description: Stockages de l'application.
@@ -2990,7 +2990,7 @@ paths:
         créé au prochain déploiement, de façon idempotente ; les données
         survivent aux redéploiements et à la suppression de l'application,
         sauf `delete_volumes=true` explicite (INV-008).
-      x-required-permission: write
+      x-required-permission: storages:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -3034,7 +3034,7 @@ paths:
         jamais détruites** par cette opération (INV-008) : le volume orphelin
         reste sur le serveur et est signalé par le cleanup. Prend effet au
         prochain déploiement.
-      x-required-permission: write
+      x-required-permission: storages:manage
       responses:
         "204":
           description: Stockage retiré de la configuration.
@@ -3397,7 +3397,7 @@ paths:
         avec kill garanti à la déconnexion (§24.4). Les frappes ne sont pas
         enregistrées. `409` si la team a atteint son plafond de sessions
         simultanées (`terminal_session_limit`).
-      x-required-permission: write
+      x-required-permission: terminal:open
       responses:
         "201":
           description: >-
@@ -3438,7 +3438,7 @@ paths:
         `/tunnel/ws` (hors OpenAPI). Bornée à la team, auditée, idle/max/
         heartbeat/teardown comme le terminal (§24.4). `409` si la team atteint
         `port_forward_limit`.
-      x-required-permission: write
+      x-required-permission: terminal:open
       requestBody:
         required: true
         content:
@@ -3475,7 +3475,7 @@ paths:
         base et renvoie un **token à usage unique** à présenter sur
         `/tunnel/ws` (hors OpenAPI). Mêmes garanties que le terminal (§24.4).
         `409` si la team atteint `port_forward_limit`.
-      x-required-permission: write
+      x-required-permission: terminal:open
       requestBody:
         required: true
         content:
@@ -3943,7 +3943,7 @@ paths:
       tags: [DnsCredentials]
       operationId: listDnsCredentials
       summary: Lister les credentials DNS-01
-      x-required-permission: read
+      x-required-permission: servers:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -3976,7 +3976,7 @@ paths:
         matérialisées sur le serveur en `/var/lib/akerdock/proxy/acme.env` (0600)
         et injectées au proxy par `--env-file` — jamais dans un fichier de
         configuration généré, jamais dans `argv` (INV-003).
-      x-required-permission: write
+      x-required-permission: servers:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -4016,7 +4016,7 @@ paths:
       tags: [DnsCredentials]
       operationId: getDnsCredential
       summary: Détail d'un credential DNS-01
-      x-required-permission: read
+      x-required-permission: servers:read
       responses:
         "200":
           description: Le credential (sans son contenu).
@@ -4035,7 +4035,7 @@ paths:
       operationId: deleteDnsCredential
       summary: Supprimer un credential DNS-01
       description: Refusé en `409` tant qu'un serveur s'en sert pour ses wildcards.
-      x-required-permission: write
+      x-required-permission: servers:manage
       responses:
         "204":
           description: Credential supprimé.
@@ -4058,7 +4058,7 @@ paths:
       tags: [RegistryCredentials]
       operationId: listRegistryCredentials
       summary: Lister les credentials de registry
-      x-required-permission: read
+      x-required-permission: sources:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -4085,7 +4085,7 @@ paths:
       tags: [RegistryCredentials]
       operationId: createRegistryCredential
       summary: Enregistrer un credential de registry
-      x-required-permission: write
+      x-required-permission: registries:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -4124,7 +4124,7 @@ paths:
       tags: [RegistryCredentials]
       operationId: getRegistryCredential
       summary: Détail d'un credential de registry
-      x-required-permission: read
+      x-required-permission: sources:read
       responses:
         "200":
           description: Le credential (sans son mot de passe).
@@ -4146,7 +4146,7 @@ paths:
       operationId: updateRegistryCredential
       summary: Modifier un credential de registry
       description: PATCH sensible — `If-Match` obligatoire (§24.1).
-      x-required-permission: write
+      x-required-permission: registries:manage
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
@@ -4187,7 +4187,7 @@ paths:
         Refusé en `409` tant qu'une application ou un artifact de rollback en
         dépend : le déploiement concerné ne pourrait plus tirer son image
         (§19.2).
-      x-required-permission: write
+      x-required-permission: registries:manage
       responses:
         "204":
           description: Credential supprimé.
@@ -4210,7 +4210,7 @@ paths:
       tags: [GithubApps]
       operationId: listGithubApps
       summary: Lister les GitHub Apps de la team
-      x-required-permission: read
+      x-required-permission: sources:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -4244,7 +4244,7 @@ paths:
         callback de l'instance avec un code à usage unique, échangé contre
         les credentials (chiffrés au repos, jamais journalisés — INV-003).
         Le `state` anti-CSRF expire après 10 minutes.
-      x-required-permission: write
+      x-required-permission: sources:manage
       requestBody:
         required: true
         content:
@@ -4278,7 +4278,7 @@ paths:
       tags: [GithubApps]
       operationId: getGithubApp
       summary: Détail d'une GitHub App
-      x-required-permission: read
+      x-required-permission: sources:read
       responses:
         "200":
           description: L'app.
@@ -4301,7 +4301,7 @@ paths:
       description: >-
         Refusée en `409` tant qu'une git source l'utilise (RESTRICT) —
         l'app chez GitHub n'est pas supprimée, seulement l'enregistrement.
-      x-required-permission: write
+      x-required-permission: sources:manage
       responses:
         "204":
           description: App supprimée.
@@ -4327,7 +4327,7 @@ paths:
         Le cache de discovery (data dictionary §7.3), resynchronisé depuis
         GitHub quand `refresh=true` ou quand il est vide. `409` si l'app
         n'est pas encore installée.
-      x-required-permission: read
+      x-required-permission: sources:read
       parameters:
         - name: refresh
           in: query
@@ -5239,7 +5239,7 @@ paths:
         un container de l'INSTANCE de preview (INV-011). `component` désigne
         le service pour une stack compose ; `404` si le composant est
         inconnu ; `409` si la preview est détruite.
-      x-required-permission: write
+      x-required-permission: terminal:open
       parameters:
         - name: component
           in: query
@@ -5323,7 +5323,7 @@ paths:
         Même contrat que le port-forward d'application (ADR-032), mais la cible
         est un container de l'INSTANCE de preview (INV-011). `409` si la preview
         est détruite ; `404` si le composant est inconnu.
-      x-required-permission: write
+      x-required-permission: terminal:open
       parameters:
         - name: component
           in: query
@@ -5507,7 +5507,7 @@ paths:
       tags: [ScheduledTasks]
       operationId: getScheduledTask
       summary: Détail d'une tâche planifiée
-      x-required-permission: read
+      x-required-permission: applications:read
       responses:
         "200":
           description: La tâche.
@@ -5943,7 +5943,7 @@ paths:
         team, auditée, idle timeout, durée maximum, kill garanti (§24.4).
         `409` si la team a atteint son plafond de sessions simultanées
         (`terminal_session_limit`).
-      x-required-permission: write
+      x-required-permission: terminal:open
       responses:
         "201":
           description: >-
@@ -6690,7 +6690,7 @@ paths:
       tags: [Uptime]
       operationId: listUptimeChecks
       summary: Lister les checks d'uptime de la team
-      x-required-permission: read
+      x-required-permission: uptime:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -6729,7 +6729,7 @@ paths:
         `success_threshold` succès) — l'anti-flapping est dans les seuils,
         pas dans le notifier. La granularité effective est bornée par le
         tick du scheduler.
-      x-required-permission: write
+      x-required-permission: uptime:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -6768,7 +6768,7 @@ paths:
       tags: [Uptime]
       operationId: getUptimeCheck
       summary: Détail d'un check d'uptime
-      x-required-permission: read
+      x-required-permission: uptime:read
       responses:
         "200":
           description: Le check.
@@ -6792,7 +6792,7 @@ paths:
       operationId: updateUptimeCheck
       summary: Modifier un check d'uptime
       description: PATCH sensible — `If-Match` obligatoire.
-      x-required-permission: write
+      x-required-permission: uptime:manage
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
@@ -6830,7 +6830,7 @@ paths:
       operationId: deleteUptimeCheck
       summary: Supprimer un check d'uptime
       description: L'historique est purgé avec le check.
-      x-required-permission: write
+      x-required-permission: uptime:manage
       responses:
         "204":
           description: Check supprimé.
@@ -6854,7 +6854,7 @@ paths:
         Les résultats bruts (ok, latence, code, erreur), du plus récent au
         plus ancien — rétention bornée (30 jours) ; le verdict courant vit
         sur le check lui-même.
-      x-required-permission: read
+      x-required-permission: uptime:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"

@@ -240,7 +240,7 @@ func (a *API) GetPreviewLogs(w http.ResponseWriter, r *http.Request, application
 // write): same contract as the application terminal (§5.7, §24.4), targeting
 // a container of the PREVIEW instance (INV-011).
 func (a *API) CreatePreviewTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string, params api.CreatePreviewTerminalSessionParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermTerminalOpen)
 	if !ok {
 		return
 	}

@@ -70,7 +70,7 @@ func (a *API) resolvePrivateKey(w http.ResponseWriter, r *http.Request, id *auth
 // ListPrivateKeys implements GET /private-keys (permission: read). The
 // private material is always null in lists, whatever the permission.
 func (a *API) ListPrivateKeys(w http.ResponseWriter, r *http.Request, params api.ListPrivateKeysParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermKeysRead)
 	if !ok {
 		return
 	}
@@ -109,7 +109,7 @@ func (a *API) ListPrivateKeys(w http.ResponseWriter, r *http.Request, params api
 // CreatePrivateKey implements POST /private-keys (permission: write). The
 // material is validated, encrypted at rest, and never echoed back (§23.2).
 func (a *API) CreatePrivateKey(w http.ResponseWriter, r *http.Request, params api.CreatePrivateKeyParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermKeysManage)
 	if !ok {
 		return
 	}
@@ -165,7 +165,7 @@ func (a *API) CreatePrivateKey(w http.ResponseWriter, r *http.Request, params ap
 // INV-003: the material is revealed only with read:sensitive AND an
 // explicit reveal=true; the revelation is audited.
 func (a *API) GetPrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid api.PrivateKeyUuid, params api.GetPrivateKeyParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermKeysRead)
 	if !ok {
 		return
 	}
@@ -197,7 +197,7 @@ func (a *API) GetPrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUu
 // write). Sensitive PATCH — If-Match is mandatory (§24.1); providing
 // private_key rotates the material.
 func (a *API) UpdatePrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid api.PrivateKeyUuid, params api.UpdatePrivateKeyParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermKeysManage)
 	if !ok {
 		return
 	}
@@ -276,7 +276,7 @@ func (a *API) UpdatePrivateKey(w http.ResponseWriter, r *http.Request, privateKe
 // DeletePrivateKey implements DELETE /private-keys/{uuid} (permission:
 // write). RESTRICT: refused while referenced (enforced when servers land).
 func (a *API) DeletePrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid api.PrivateKeyUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermKeysManage)
 	if !ok {
 		return
 	}

@@ -93,7 +93,7 @@ func (a *API) resolveChannel(w http.ResponseWriter, r *http.Request, id *auth.Id
 
 // ListNotificationChannels implements GET /notification-channels.
 func (a *API) ListNotificationChannels(w http.ResponseWriter, r *http.Request, params api.ListNotificationChannelsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermNotificationsRead)
 	if !ok {
 		return
 	}
@@ -168,7 +168,7 @@ func channelConfig(u *string, smtp *api.SmtpConfig, resend *api.ResendConfig, te
 
 // CreateNotificationChannel implements POST /notification-channels.
 func (a *API) CreateNotificationChannel(w http.ResponseWriter, r *http.Request, params api.CreateNotificationChannelParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermNotificationsManage)
 	if !ok {
 		return
 	}
@@ -225,7 +225,7 @@ func (a *API) CreateNotificationChannel(w http.ResponseWriter, r *http.Request, 
 
 // GetNotificationChannel implements GET /notification-channels/{uuid}.
 func (a *API) GetNotificationChannel(w http.ResponseWriter, r *http.Request, channelUuid api.ChannelUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermNotificationsRead)
 	if !ok {
 		return
 	}
@@ -239,7 +239,7 @@ func (a *API) GetNotificationChannel(w http.ResponseWriter, r *http.Request, cha
 
 // UpdateNotificationChannel implements PATCH /notification-channels/{uuid}.
 func (a *API) UpdateNotificationChannel(w http.ResponseWriter, r *http.Request, channelUuid api.ChannelUuid, params api.UpdateNotificationChannelParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermNotificationsManage)
 	if !ok {
 		return
 	}
@@ -317,7 +317,7 @@ func (a *API) UpdateNotificationChannel(w http.ResponseWriter, r *http.Request, 
 
 // DeleteNotificationChannel implements DELETE /notification-channels/{uuid}.
 func (a *API) DeleteNotificationChannel(w http.ResponseWriter, r *http.Request, channelUuid api.ChannelUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermNotificationsManage)
 	if !ok {
 		return
 	}
@@ -336,7 +336,7 @@ func (a *API) DeleteNotificationChannel(w http.ResponseWriter, r *http.Request, 
 // TestNotificationChannel implements POST /notification-channels/{uuid}/test:
 // a bad configuration must be visible now, not at the first outage.
 func (a *API) TestNotificationChannel(w http.ResponseWriter, r *http.Request, channelUuid api.ChannelUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermNotificationsManage)
 	if !ok {
 		return
 	}
@@ -378,7 +378,7 @@ func (a *API) TestNotificationChannel(w http.ResponseWriter, r *http.Request, ch
 
 // ListNotificationRules implements GET /notification-channels/{uuid}/rules.
 func (a *API) ListNotificationRules(w http.ResponseWriter, r *http.Request, channelUuid api.ChannelUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermNotificationsRead)
 	if !ok {
 		return
 	}
@@ -402,7 +402,7 @@ func (a *API) ListNotificationRules(w http.ResponseWriter, r *http.Request, chan
 
 // CreateNotificationRule implements POST /notification-channels/{uuid}/rules.
 func (a *API) CreateNotificationRule(w http.ResponseWriter, r *http.Request, channelUuid api.ChannelUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermNotificationsManage)
 	if !ok {
 		return
 	}
@@ -525,7 +525,7 @@ func (a *API) CreateNotificationRule(w http.ResponseWriter, r *http.Request, cha
 // DeleteNotificationRule implements DELETE
 // /notification-channels/{uuid}/rules/{rule_uuid}.
 func (a *API) DeleteNotificationRule(w http.ResponseWriter, r *http.Request, channelUuid api.ChannelUuid, ruleUuid string) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermNotificationsManage)
 	if !ok {
 		return
 	}

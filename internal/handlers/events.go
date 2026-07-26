@@ -20,7 +20,7 @@ const keepaliveInterval = 20 * time.Second
 // event stream, fed by the transactional outbox (ADR-024). Resumes from
 // Last-Event-ID.
 func (a *API) StreamEvents(w http.ResponseWriter, r *http.Request, params api.StreamEventsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermAuditRead)
 	if !ok {
 		return
 	}

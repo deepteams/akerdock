@@ -62,7 +62,7 @@ func (a *API) registryInUse(r *http.Request, credID int64) bool {
 
 // ListRegistryCredentials implements GET /registry-credentials.
 func (a *API) ListRegistryCredentials(w http.ResponseWriter, r *http.Request, params api.ListRegistryCredentialsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermSourcesRead)
 	if !ok {
 		return
 	}
@@ -95,7 +95,7 @@ func (a *API) ListRegistryCredentials(w http.ResponseWriter, r *http.Request, pa
 
 // CreateRegistryCredential implements POST /registry-credentials.
 func (a *API) CreateRegistryCredential(w http.ResponseWriter, r *http.Request, params api.CreateRegistryCredentialParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermRegistriesManage)
 	if !ok {
 		return
 	}
@@ -158,7 +158,7 @@ func (a *API) CreateRegistryCredential(w http.ResponseWriter, r *http.Request, p
 
 // GetRegistryCredential implements GET /registry-credentials/{uuid}.
 func (a *API) GetRegistryCredential(w http.ResponseWriter, r *http.Request, registryCredentialUuid api.RegistryCredentialUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermSourcesRead)
 	if !ok {
 		return
 	}
@@ -172,7 +172,7 @@ func (a *API) GetRegistryCredential(w http.ResponseWriter, r *http.Request, regi
 
 // UpdateRegistryCredential implements PATCH /registry-credentials/{uuid}.
 func (a *API) UpdateRegistryCredential(w http.ResponseWriter, r *http.Request, registryCredentialUuid api.RegistryCredentialUuid, params api.UpdateRegistryCredentialParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermRegistriesManage)
 	if !ok {
 		return
 	}
@@ -243,7 +243,7 @@ func (a *API) UpdateRegistryCredential(w http.ResponseWriter, r *http.Request, r
 
 // DeleteRegistryCredential implements DELETE /registry-credentials/{uuid}.
 func (a *API) DeleteRegistryCredential(w http.ResponseWriter, r *http.Request, registryCredentialUuid api.RegistryCredentialUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermRegistriesManage)
 	if !ok {
 		return
 	}

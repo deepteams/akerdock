@@ -97,7 +97,7 @@ func (a *API) uptimeResourceUUIDOf(r *http.Request, c store.UptimeCheck) *string
 
 // ListUptimeChecks implements GET /uptime-checks (permission: read).
 func (a *API) ListUptimeChecks(w http.ResponseWriter, r *http.Request, params api.ListUptimeChecksParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermUptimeRead)
 	if !ok {
 		return
 	}
@@ -129,7 +129,7 @@ func (a *API) ListUptimeChecks(w http.ResponseWriter, r *http.Request, params ap
 
 // CreateUptimeCheck implements POST /uptime-checks (permission: write).
 func (a *API) CreateUptimeCheck(w http.ResponseWriter, r *http.Request, params api.CreateUptimeCheckParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermUptimeManage)
 	if !ok {
 		return
 	}
@@ -208,7 +208,7 @@ func (a *API) CreateUptimeCheck(w http.ResponseWriter, r *http.Request, params a
 
 // GetUptimeCheck implements GET /uptime-checks/{uuid} (permission: read).
 func (a *API) GetUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid api.UptimeCheckUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermUptimeRead)
 	if !ok {
 		return
 	}
@@ -222,7 +222,7 @@ func (a *API) GetUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheck
 
 // UpdateUptimeCheck implements PATCH /uptime-checks/{uuid} (permission: write).
 func (a *API) UpdateUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid api.UptimeCheckUuid, params api.UpdateUptimeCheckParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermUptimeManage)
 	if !ok {
 		return
 	}
@@ -306,7 +306,7 @@ func (a *API) UpdateUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCh
 
 // DeleteUptimeCheck implements DELETE /uptime-checks/{uuid} (permission: write).
 func (a *API) DeleteUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid api.UptimeCheckUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermUptimeManage)
 	if !ok {
 		return
 	}
@@ -325,7 +325,7 @@ func (a *API) DeleteUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCh
 // ListUptimeResults implements GET /uptime-checks/{uuid}/results
 // (permission: read).
 func (a *API) ListUptimeResults(w http.ResponseWriter, r *http.Request, uptimeCheckUuid api.UptimeCheckUuid, params api.ListUptimeResultsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermUptimeRead)
 	if !ok {
 		return
 	}

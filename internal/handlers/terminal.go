@@ -54,7 +54,7 @@ const (
 // CreateApplicationTerminalSession implements
 // POST /applications/{application_uuid}/terminal-sessions (permission: write).
 func (a *API) CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.CreateApplicationTerminalSessionParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermTerminalOpen)
 	if !ok {
 		return
 	}
@@ -98,7 +98,7 @@ func (a *API) CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Re
 // CreateDatabaseTerminalSession implements
 // POST /databases/{database_uuid}/terminal-sessions (permission: write).
 func (a *API) CreateDatabaseTerminalSession(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermTerminalOpen)
 	if !ok {
 		return
 	}
@@ -127,7 +127,7 @@ func (a *API) CreateDatabaseTerminalSession(w http.ResponseWriter, r *http.Reque
 // cannot re-authenticate, and root is already the credential that can do
 // everything else).
 func (a *API) CreateServerTerminalSession(w http.ResponseWriter, r *http.Request, serverUuid api.ServerUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermTerminalRoot)
 	if !ok {
 		return
 	}

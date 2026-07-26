@@ -666,7 +666,7 @@ func TestStreamEventsStopsWhenClientDisconnects(t *testing.T) {
 	a, _ := flowAPI(t)
 	ctx, cancel := context.WithCancel(auth.WithIdentity(context.Background(), &auth.Identity{
 		TokenID: 1, TokenUUID: fixtureUUID, TeamID: 1, TeamUUID: fixtureUUID,
-		Permissions: []string{string(auth.PermRead)},
+		Permissions: auth.EffectivePermissions([]string{string(auth.PermRead)}),
 	}))
 	cancel()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/events", nil).WithContext(ctx)

@@ -109,6 +109,14 @@ func TestGranularConstantsInCatalog(t *testing.T) {
 		PermDeploymentsRead, PermDeploymentsCancel,
 		PermBackupsRead, PermBackupsManage, PermBackupsRestore,
 		PermLogsRead, PermMetricsRead, PermJobsManage,
+		PermNotificationsRead, PermNotificationsManage,
+		PermCloudRead, PermCloudManage,
+		PermCertificatesRead, PermCertificatesRenew, PermStoragesManage,
+		PermKeysRead, PermKeysManage,
+		PermSourcesRead, PermSourcesManage, PermRegistriesManage,
+		PermTerminalOpen, PermTerminalRoot,
+		PermAuditRead, PermUptimeRead, PermUptimeManage,
+		PermInstanceManage, PermInstanceAudit, PermInstanceEncryption,
 	} {
 		if _, ok := Catalog[string(p)]; !ok {
 			t.Errorf("constant %q is not in Catalog", p)
