@@ -38,6 +38,13 @@ func (a *API) StreamEvents(w http.ResponseWriter, r *http.Request, params api.St
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
+	// Flush the headers (and a priming comment) right away: without this the 200
+	// stays in Go's write buffer until the first event or keepalive (up to 20s),
+	// so the browser's EventSource never fires `onopen` and the page is stuck on
+	// "connecting…" — worse behind a buffering proxy. The comment is ignored by
+	// EventSource but releases any intermediary that waits for a first byte.
+	fmt.Fprint(w, ": connected\n\n")
+	flusher.Flush()
 
 	last := int64(0)
 	if params.LastEventID != nil {

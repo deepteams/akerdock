@@ -144,7 +144,13 @@ func (a *API) StreamApplicationLogs(w http.ResponseWriter, r *http.Request, appl
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
+	// Flush headers now so the client's onopen fires immediately (and buffering
+	// proxies release the response) rather than only on the first log line —
+	// a quiet container would otherwise leave the stream stuck "connecting".
+	fmt.Fprint(w, ": connected\n\n")
+	flusher.Flush()
 
 	// Serialize writes: RunStream already calls onOutput from one goroutine,
 	// but the ANSI cleanup + SSE framing keep the handler self-contained.
