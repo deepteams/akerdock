@@ -423,6 +423,26 @@ func (r *deploymentRun) setStatus(ctx context.Context, s store.DeploymentStatus)
 				"deployment_uuid": pguuid.String(r.d.Uuid),
 				"status":          string(s),
 			})
+
+		// A preview's own lifecycle event, once its deployment succeeds: the
+		// first successful deploy CREATED it, any later one UPDATED it (a new
+		// commit). Destruction is emitted by the teardown job.
+		if r.preview != nil && s == store.DeploymentStatusSucceeded {
+			evt := "application.preview.created.v1"
+			if r.preview.LastDeployedAt.Valid {
+				evt = "application.preview.updated.v1"
+			}
+			fqdn := ""
+			if r.preview.Fqdn != nil {
+				fqdn = *r.preview.Fqdn
+			}
+			r.h.Audit.Outbox(ctx, r.h.Store, evt, teamUUID, r.app.Resource.Uuid,
+				"preview:"+pguuid.String(r.preview.Uuid), map[string]any{
+					"preview_uuid": pguuid.String(r.preview.Uuid),
+					"pr_id":        r.preview.PrID,
+					"fqdn":         fqdn,
+				})
+		}
 	}
 	return nil
 }

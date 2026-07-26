@@ -21,6 +21,70 @@ type NotificationChannel = components['schemas']['NotificationChannel'];
 type NotificationChannelUpdate = components['schemas']['NotificationChannelUpdate'];
 type NotificationRule = components['schemas']['NotificationRule'];
 
+type Severity = 'info' | 'warning' | 'critical';
+interface CatalogEvent {
+  type: string;
+  label: string;
+  severity: Severity;
+}
+
+/** The events a channel can subscribe to, grouped for the toggle grid. Types
+ * match exactly what the backend emits (notify.SeverityOf + outbox `*.v1`) —
+ * the dispatcher matches rules by exact event_type. Internal events
+ * (test, digest, invitation, email test) are deliberately not listed. */
+const EVENT_CATALOG: { title: string; events: CatalogEvent[] }[] = [
+  {
+    title: 'Deployments',
+    events: [
+      { type: 'deployment.succeeded.v1', label: 'Deployment succeeded', severity: 'info' },
+      { type: 'deployment.failed.v1', label: 'Deployment failed', severity: 'critical' },
+      { type: 'deployment.cancelled.v1', label: 'Deployment cancelled', severity: 'warning' },
+      { type: 'application.created.v1', label: 'Application created', severity: 'info' },
+    ],
+  },
+  {
+    title: 'Previews',
+    events: [
+      { type: 'application.preview.created.v1', label: 'Preview created', severity: 'info' },
+      { type: 'application.preview.updated.v1', label: 'Preview updated', severity: 'info' },
+      { type: 'application.preview.deleted.v1', label: 'Preview deleted', severity: 'info' },
+    ],
+  },
+  {
+    title: 'Backups',
+    events: [
+      { type: 'backup.failed.v1', label: 'Backup failed', severity: 'critical' },
+      { type: 'backup.partial.v1', label: 'Backup partial', severity: 'warning' },
+      { type: 'backup.drill_failed.v1', label: 'Restore drill failed', severity: 'critical' },
+    ],
+  },
+  {
+    title: 'Servers',
+    events: [
+      { type: 'server.unreachable.v1', label: 'Server unreachable', severity: 'critical' },
+      { type: 'server.updated.v1', label: 'Server updated', severity: 'info' },
+      { type: 'server.cleanup.completed.v1', label: 'Docker cleanup completed', severity: 'info' },
+      { type: 'server.cleanup.failed.v1', label: 'Docker cleanup failed', severity: 'critical' },
+    ],
+  },
+  {
+    title: 'Certificates & tasks',
+    events: [
+      { type: 'certificate.expiring.v1', label: 'Certificate expiring', severity: 'warning' },
+      { type: 'scheduled_task.succeeded.v1', label: 'Scheduled task succeeded', severity: 'info' },
+      { type: 'scheduled_task.failed.v1', label: 'Scheduled task failed', severity: 'critical' },
+    ],
+  },
+  {
+    title: 'Uptime & platform',
+    events: [
+      { type: 'uptime.check.failed.v1', label: 'Uptime check failed', severity: 'critical' },
+      { type: 'uptime.check.recovered.v1', label: 'Uptime check recovered', severity: 'info' },
+      { type: 'job.dead_letter.v1', label: 'Job dead-lettered', severity: 'critical' },
+    ],
+  },
+];
+
 @Component({
   selector: 'app-notification-channel-detail',
   standalone: true,
@@ -290,10 +354,39 @@ type NotificationRule = components['schemas']['NotificationRule'];
             </form>
           </akd-card>
 
-          <akd-card title="Routing">
+          <akd-card title="Events">
             <p class="akd-field__hint hint">
-              A rule routes matching events to this channel. Critical events always bypass digests
-              and debounce windows.
+              Turn on the events this channel should receive (team-wide). For finer control — per
+              project/environment, minimum severity, digests — use Advanced routing below.
+            </p>
+            @for (group of eventCatalog; track group.title) {
+              <div class="evgroup">
+                <div class="evgroup__title">{{ group.title }}</div>
+                @for (ev of group.events; track ev.type) {
+                  <label class="ev">
+                    <input
+                      type="checkbox"
+                      class="akd-switch"
+                      [checked]="isSubscribed(ev.type)"
+                      [disabled]="busy()"
+                      (change)="toggleEvent(ch, ev.type, $any($event.target).checked)"
+                    />
+                    <span class="ev__label">{{ ev.label }}</span>
+                    <span class="akd-badge akd-badge--mono ev__sev sev-{{ ev.severity }}">{{
+                      ev.severity
+                    }}</span>
+                    <code class="ev__type akd-muted">{{ ev.type }}</code>
+                  </label>
+                }
+              </div>
+            }
+          </akd-card>
+
+          <akd-card title="Advanced routing">
+            <p class="akd-field__hint hint">
+              A rule routes matching events to this channel — optionally scoped to a project or
+              environment, above a minimum severity, batched into a digest. Critical events always
+              bypass digests and debounce windows. The toggles above are simply team-wide rules.
             </p>
 
             <form class="form rule-form" (ngSubmit)="createRule(ch)">
@@ -447,6 +540,39 @@ type NotificationRule = components['schemas']['NotificationRule'];
       .hint {
         margin: 0 0 var(--space-4);
       }
+      .evgroup + .evgroup {
+        margin-top: var(--space-4);
+      }
+      .evgroup__title {
+        font-size: var(--text-xs);
+        text-transform: uppercase;
+        letter-spacing: var(--tracking-wide);
+        color: var(--text-3);
+        margin-bottom: var(--space-2);
+      }
+      .ev {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-1) 0;
+        cursor: pointer;
+      }
+      .ev__label {
+        min-width: 12rem;
+      }
+      .ev__type {
+        margin-left: auto;
+        font-size: var(--text-xs);
+      }
+      .sev-critical {
+        color: var(--danger, var(--text-1));
+      }
+      .sev-warning {
+        color: var(--warning, var(--text-2));
+      }
+      .sev-info {
+        color: var(--text-3);
+      }
       .form {
         display: grid;
         gap: var(--space-3);
@@ -504,6 +630,7 @@ export class NotificationChannelDetailComponent {
 
   protected readonly channel = signal<NotificationChannel | null>(null);
   protected readonly rules = signal<NotificationRule[]>([]);
+  protected readonly eventCatalog = EVENT_CATALOG;
   protected readonly loading = signal(true);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
@@ -646,6 +773,52 @@ export class NotificationChannelDetailComponent {
     this.testResult.set(null);
     try {
       this.testResult.set(await this.api.client().testNotificationChannel(ch.uuid));
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** A channel receives an event when a TEAM-WIDE rule (no project/environment
+   * scope) exists for it — that is what the toggles create and remove. Scoped
+   * rules from Advanced routing are independent and do not flip a toggle. */
+  protected isSubscribed(eventType: string): boolean {
+    return this.rules().some(
+      (r) => r.event_type === eventType && !r.project_uuid && !r.environment_uuid && r.enabled,
+    );
+  }
+
+  /** Toggle a whole event on/off for this channel by creating or deleting its
+   * team-wide rule. */
+  protected async toggleEvent(
+    ch: NotificationChannel,
+    eventType: string,
+    on: boolean,
+  ): Promise<void> {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      if (on) {
+        await this.api.client().createNotificationRule(ch.uuid, {
+          event_type: eventType,
+          enabled: true,
+          min_severity: 'info',
+          project_uuid: null,
+          environment_uuid: null,
+          debounce_seconds: 0,
+          digest_enabled: false,
+          digest_interval_minutes: 60,
+        });
+      } else {
+        const targets = this.rules().filter(
+          (r) => r.event_type === eventType && !r.project_uuid && !r.environment_uuid,
+        );
+        for (const r of targets) {
+          await this.api.client().deleteNotificationRule(ch.uuid, r.uuid);
+        }
+      }
+      await this.load(ch.uuid);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {

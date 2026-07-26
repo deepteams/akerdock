@@ -248,7 +248,7 @@ func serveRun(mode string) int {
 		worker.Register(jobs.TypeGithubAppPush, (&jobs.GithubAppPush{Store: q, Logger: logger}).Execute)
 		worker.Register(jobs.TypeGithubAppPullRequest, (&jobs.GithubAppPullRequest{Store: q, Keyring: keyring, Logger: logger}).Execute)
 		worker.Register(jobs.TypeGithubAppIssueComment, (&jobs.GithubAppIssueComment{Store: q, Keyring: keyring, Logger: logger}).Execute)
-		worker.Register(jobs.TypePreviewDestroy, (&jobs.PreviewDestroy{Store: q, Keyring: keyring, Logger: logger}).Execute)
+		worker.Register(jobs.TypePreviewDestroy, (&jobs.PreviewDestroy{Store: q, Keyring: keyring, Logger: logger, Audit: recorder}).Execute)
 		worker.Register(jobs.TypeBackupExecute, backup.Execute)
 		worker.Register(jobs.TypeBackupRestore, backup.Execute)
 		worker.Register(jobs.TypeBackupDrill, backup.Execute)

@@ -10,6 +10,9 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
@@ -22,6 +25,8 @@ type PreviewDestroy struct {
 	Store   *store.Queries
 	Keyring *envelope.Keyring
 	Logger  *slog.Logger
+	// Audit publishes the preview.deleted outbox event; nil disables it.
+	Audit *audit.Recorder
 }
 
 // Execute removes one preview instance.
@@ -114,6 +119,22 @@ func (h *PreviewDestroy) Execute(ctx context.Context, job store.Job, rec *queue.
 	_ = h.Store.SetPreviewFqdn(ctx, store.SetPreviewFqdnParams{ID: preview.ID, Fqdn: nil})
 	rec.Succeed(ctx, "preview removed")
 	(&PreviewFeedback{Store: h.Store, Keyring: h.Keyring, Logger: h.Logger}).Notify(ctx, app, preview, "destroyed")
+	if h.Audit != nil {
+		var teamUUID pgtype.UUID
+		if team, err := h.Store.GetTeamByID(ctx, app.Resource.TeamID); err == nil {
+			teamUUID = team.Uuid
+		}
+		fqdn := ""
+		if preview.Fqdn != nil {
+			fqdn = *preview.Fqdn
+		}
+		h.Audit.Outbox(ctx, h.Store, "application.preview.deleted.v1", teamUUID, app.Resource.Uuid,
+			"preview:"+previewUUID, map[string]any{
+				"preview_uuid": previewUUID,
+				"pr_id":        preview.PrID,
+				"fqdn":         fqdn,
+			})
+	}
 	h.Logger.Info("preview destroyed", "preview", previewUUID, "pr", preview.PrID)
 	return map[string]any{"destroyed": previewUUID}, nil
 }
