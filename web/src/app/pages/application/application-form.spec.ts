@@ -173,6 +173,27 @@ describe('settingsFromApplication / settingsToUpdate round trip', () => {
     expect(update.preview_cancel_obsolete_builds).toBeTrue();
   });
 
+  it('seeds the preview route table from the legacy template and round-trips it', () => {
+    // No table on the app → the single template becomes one editable row.
+    const legacy = settingsFromApplication(
+      anApplication({ source_type: 'git', preview_url_template: 'varuna-pr{{pr_id}}.ad.kedric.fr' }),
+    );
+    expect(legacy.previewUrlTemplates).toEqual([
+      { host: 'varuna-pr{{pr_id}}.ad.kedric.fr', port: '' },
+    ]);
+
+    // Editing the table → typed rows out (port parsed, blank host dropped).
+    legacy.previewUrlTemplates = [
+      { host: '{{service}}-pr{{pr_id}}.ad.kedric.fr', port: '' },
+      { host: 'api-pr{{pr_id}}.ad.kedric.fr', port: '8080' },
+      { host: '  ', port: '1' },
+    ];
+    expect(settingsToUpdate(legacy, 'git').preview_url_templates).toEqual([
+      { host: '{{service}}-pr{{pr_id}}.ad.kedric.fr', port: null },
+      { host: 'api-pr{{pr_id}}.ad.kedric.fr', port: 8080 },
+    ]);
+  });
+
   it('defaults preview_deploy_on_open to true and round-trips it when off', () => {
     // Absent from the API (older instance) reads as the historical behaviour.
     const on = settingsFromApplication(anApplication({ source_type: 'git' }));

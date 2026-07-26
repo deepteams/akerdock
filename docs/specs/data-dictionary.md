@@ -724,7 +724,8 @@ Extension 1—1 de `resources` (`resource_type = 'application'`) : identité de 
 | `auto_deploy_enabled` | `boolean` | non | `true` | — | non | Toggle « Auto Deploy » : événements webhook ignorés si `false` (§5.5). |
 | `watch_paths` | `text` | oui | — | — | non | Patterns (un par ligne) limitant l'auto-deploy en monorepo (§5.5) ; appliqués aussi aux previews (§20.4.5). |
 | `previews_enabled` | `boolean` | non | `false` | — | non | Preview par PR/MR (§5.6). |
-| `preview_url_template` | `text` | non | `'{{pr_id}}.{{domain}}'` | — | non | Placeholders `{{pr_id}}`, `{{domain}}`, `{{random}}` (§5.6). |
+| `preview_url_template` | `text` | non | `'{{pr_id}}.{{domain}}'` | — | non | Legacy — motif unique, fallback quand `preview_url_templates` est vide (§5.6). |
+| `preview_url_templates` | `jsonb` | oui | — | — | non | Table de routes de preview `[{host, port}]` (ADR-035) ; placeholders `{{pr_id}}`/`{{service}}`/`{{domain}}`/`{{random}}`. Vide/NULL = comportement legacy. |
 | `preview_public_prs_enabled` | `boolean` | non | `false` | — | non | Opt-in PR publiques (§5.6) ; forks ignorés par défaut (INV-010). |
 | `preview_fork_approval_enabled` | `boolean` | non | `false` | — | non | Forks sur approbation d'un mainteneur, builder isolé, zéro secret (§20.4.8). |
 | `preview_max_concurrent` | `integer` | oui | — | CHECK `> 0` | non | Plafond de previews simultanées ; NULL = défaut instance (§20.4.3). |
@@ -931,6 +932,7 @@ Environnement éphémère de PR/MR (§5.6, §20.4). Identité déterministe `(ap
 | `cleanup_error` | `text` | oui | — | — | non | Dernière erreur de cleanup. |
 | `last_deployed_at` | `timestamptz` | oui | — | — | non | — |
 | `last_activity_at` | `timestamptz` | oui | — | index | non | Dernière requête reçue : TTL d'inactivité et scale-to-zero (§20.4.3). |
+| `random_slug` | `text` | oui | — | — | non | Valeur stable derrière `{{random}}` des templates de preview (ADR-035), générée une fois. |
 | `destroyed_at` | `timestamptz` | oui | — | — | non | Fermeture/merge de la PR ou TTL (§5.6). |
 | `created_at` | `timestamptz` | non | `now()` | — | non | — |
 | `updated_at` | `timestamptz` | non | `now()` | — | non | — |

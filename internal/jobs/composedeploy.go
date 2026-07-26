@@ -617,11 +617,42 @@ func (r *deploymentRun) composePreviewRoutes(ctx context.Context, content string
 	}
 	base := *r.preview.Fqdn
 
+	// Preview route table (ADR-035): {{service}} row is the per-service pattern;
+	// explicit rows override a specific service (resolved by port); absent → the
+	// legacy base / <service>-base scheme.
+	random := previewRandom(r.preview)
+	domain := ""
+	if appDomains, err := r.h.Store.ListDomainsForApplication(ctx, &r.app.Resource.ID); err == nil && len(appDomains) > 0 {
+		domain = appDomains[0].Fqdn
+	}
+	templates := previewTemplates(r.app)
+	svcTmpl := serviceTemplate(templates)
+
 	names := make([]string, 0, len(plan.Services))
 	plans := map[string]compose.ServicePlan{}
 	for _, sp := range plan.Services {
 		names = append(names, sp.Name)
 		plans[sp.Name] = sp
+	}
+
+	components, _ := r.h.Store.ListServiceComponents(ctx, r.app.Resource.ID)
+	// Explicit rows ({{service}}-free) map to the component exposing their port
+	// (app-domain-style resolve) — that service takes that host and port.
+	explicitByService := map[string]previewRouteTemplate{}
+	for _, row := range explicitTemplates(templates) {
+		var portPtr *int32
+		if row.Port != nil {
+			p := int32(*row.Port)
+			portPtr = &p
+		}
+		c, err := resolveWebComponent(components, portPtr)
+		if err != nil {
+			continue
+		}
+		if _, inStack := plans[c.Name]; !inStack {
+			continue
+		}
+		explicitByService[c.Name] = row
 	}
 
 	// ports maps every SERVED service to its target port; 0 means "served,
@@ -644,7 +675,7 @@ func (r *deploymentRun) composePreviewRoutes(ctx context.Context, content string
 	}
 	// Production parity: a component served in production is served in the
 	// preview too (read-only — the preview never touches the domain rows).
-	if components, err := r.h.Store.ListServiceComponents(ctx, r.app.Resource.ID); err == nil {
+	if len(components) > 0 {
 		for _, c := range components {
 			if _, inStack := plans[c.Name]; !inStack {
 				continue
@@ -708,13 +739,50 @@ func (r *deploymentRun) composePreviewRoutes(ctx context.Context, content string
 		ports[name] = port
 		served = append(served, name)
 	}
+	// An explicit row can serve a component that has no domain of its own.
+	for name := range explicitByService {
+		if _, ok := ports[name]; !ok {
+			ports[name] = 0
+			if p := explicitByService[name].Port; p != nil {
+				ports[name] = *p
+			}
+			served = append(served, name)
+		}
+	}
+
+	prID := int(r.preview.PrID)
+	// A template needing {{domain}} we do not have is unusable — fall back.
+	usable := func(host string) bool { return domain != "" || !strings.Contains(host, "{{domain}}") }
+
 	sort.Strings(served)
 	for _, name := range served {
-		fqdn := base
-		if len(served) > 1 {
-			fqdn = strings.ToLower(strings.ReplaceAll(name, "_", "-")) + "-" + base
+		port := ports[name]
+		if port == 0 {
+			port = plans[name].DefaultRoutePort
 		}
-		routes[name] = previewComposeRoute{FQDN: fqdn, Port: ports[name]}
+		fqdn := ""
+		switch {
+		case explicitByService[name].Host != "" && usable(explicitByService[name].Host):
+			row := explicitByService[name]
+			fqdn = resolvePreviewHost(row.Host, prID, domain, name, random)
+			if row.Port != nil {
+				port = *row.Port
+			}
+		case svcTmpl != nil && usable(svcTmpl.Host):
+			fqdn = resolvePreviewHost(svcTmpl.Host, prID, domain, name, random)
+			if svcTmpl.Port != nil {
+				port = *svcTmpl.Port
+			}
+		default:
+			fqdn = base
+			if len(served) > 1 {
+				fqdn = strings.ToLower(strings.ReplaceAll(name, "_", "-")) + "-" + base
+			}
+		}
+		if port == 0 {
+			continue // never a guessed port (compose-spec §6)
+		}
+		routes[name] = previewComposeRoute{FQDN: fqdn, Port: port}
 	}
 	return routes
 }

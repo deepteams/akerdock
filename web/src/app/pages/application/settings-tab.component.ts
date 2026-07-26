@@ -10,6 +10,7 @@ import {
   untracked,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
 import { ApiError } from '../../../api/client';
 import type { components } from '../../../api/schema';
@@ -38,7 +39,7 @@ type SettingsSection = ConfigSection | 'deploys' | 'previews';
 @Component({
   selector: 'app-application-settings-tab',
   standalone: true,
-  imports: [FormsModule, ApplicationConfigFieldsComponent],
+  imports: [FormsModule, IconComponent, ApplicationConfigFieldsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (error(); as message) {
@@ -126,16 +127,71 @@ type SettingsSection = ConfigSection | 'deploys' | 'previews';
                   </label>
                   @if (form.previewsEnabled) {
                     <div class="akd-field">
-                      <label class="akd-field__label" for="pv-template">
-                        URL template ({{ templateHint }})
-                      </label>
-                      <input
-                        id="pv-template"
-                        name="previewUrlTemplate"
-                        class="akd-input akd-input--mono"
-                        [(ngModel)]="form.previewUrlTemplate"
+                      <span class="akd-field__label">Preview URLs</span>
+                      <table class="akd-table routes">
+                        <thead>
+                          <tr>
+                            <th scope="col">Host template</th>
+                            <th scope="col" class="port-col">Port</th>
+                            <th scope="col" class="right"><span class="sr-only">Actions</span></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (row of form.previewUrlTemplates; track $index) {
+                            <tr>
+                              <td>
+                                <input
+                                  class="akd-input akd-input--mono"
+                                  [name]="'pv-host-' + $index"
+                                  [(ngModel)]="row.host"
+                                  [disabled]="busy()"
+                                  placeholder="varuna-pr{{ '{{' }}pr_id{{ '}}' }}.ad.kedric.fr"
+                                  aria-label="Preview host template"
+                                />
+                              </td>
+                              <td class="port-col">
+                                <input
+                                  class="akd-input akd-input--mono"
+                                  inputmode="numeric"
+                                  [name]="'pv-port-' + $index"
+                                  [(ngModel)]="row.port"
+                                  [disabled]="busy()"
+                                  placeholder="default"
+                                  aria-label="Preview target port"
+                                />
+                              </td>
+                              <td class="right">
+                                <button
+                                  class="akd-iconbtn"
+                                  type="button"
+                                  [disabled]="busy()"
+                                  (click)="removePreviewRoute($index)"
+                                  aria-label="Remove preview route"
+                                >
+                                  <akd-icon name="trash-2" [size]="15" />
+                                </button>
+                              </td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                      <button
+                        class="akd-btn akd-btn--secondary akd-btn--sm add-route"
+                        type="button"
                         [disabled]="busy()"
-                      />
+                        (click)="addPreviewRoute()"
+                      >
+                        <akd-icon name="plus" [size]="13" />
+                        Add preview URL
+                      </button>
+                      <span class="akd-field__hint">
+                        One row per preview route. Placeholders: {{ templateHint }},
+                        {{ '{{' }}service{{
+                          '
+                        }}' }}. A row with {{ '{{' }}service{{ '}}' }} applies to every served
+                        service; empty port = the default / service port. Empty table = the legacy
+                        single template.
+                      </span>
                     </div>
                     <div class="akd-field">
                       <label class="akd-field__label" for="pv-max">
@@ -371,6 +427,22 @@ type SettingsSection = ConfigSection | 'deploys' | 'previews';
         display: grid;
         gap: var(--space-4);
       }
+      .routes {
+        margin-bottom: var(--space-2);
+      }
+      .routes .port-col {
+        width: 8rem;
+      }
+      .routes .right {
+        width: 3rem;
+        text-align: right;
+      }
+      .routes td {
+        vertical-align: middle;
+      }
+      .add-route {
+        justify-self: start;
+      }
       .body {
         display: grid;
         gap: var(--space-4);
@@ -431,6 +503,14 @@ export class ApplicationSettingsTabComponent {
   protected readonly notice = signal<string | null>(null);
   protected readonly busy = signal(false);
 
+  protected addPreviewRoute(): void {
+    this.form.previewUrlTemplates.push({ host: '', port: '' });
+  }
+
+  protected removePreviewRoute(index: number): void {
+    this.form.previewUrlTemplates.splice(index, 1);
+  }
+
   /** The open section (left menu); defaults to the always-present General. */
   protected readonly active = signal<SettingsSection>('general');
 
@@ -469,6 +549,7 @@ export class ApplicationSettingsTabComponent {
     autoDeploy: false,
     previewsEnabled: false,
     previewUrlTemplate: '{{pr_id}}.{{domain}}',
+    previewUrlTemplates: [],
     previewMaxConcurrent: '',
     previewTtlMinutes: '',
     previewProtection: 'basic_auth',

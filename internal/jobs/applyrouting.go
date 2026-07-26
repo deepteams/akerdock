@@ -250,6 +250,11 @@ func RenderPreviewRoutingFile(app store.GetApplicationByIDRow, preview store.Pre
 			port = n
 		}
 	}
+	// A single container has one primary route (preview.Fqdn). The route table
+	// (ADR-035) can still pin its target port: the first row's port wins.
+	if templates := previewTemplates(app); len(templates) > 0 && templates[0].Port != nil {
+		port = *templates[0].Port
+	}
 	rg := proxy.RouteGroup{
 		AppUUID: previewUUID, Endpoint: endpoint, ForceHTTPS: true,
 		Routes: []proxy.Route{{FQDN: *preview.Fqdn, Path: "/", TargetPort: port}},

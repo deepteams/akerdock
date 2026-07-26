@@ -713,6 +713,8 @@ type Querier interface {
 	SetPreviewDeployed(ctx context.Context, id int64) error
 	SetPreviewExpiryWarned(ctx context.Context, id int64) error
 	SetPreviewFqdn(ctx context.Context, arg SetPreviewFqdnParams) error
+	// Generated once at scaffolding; the stable value behind {{random}} (ADR-035).
+	SetPreviewRandomSlug(ctx context.Context, arg SetPreviewRandomSlugParams) error
 	SetPreviewStatus(ctx context.Context, arg SetPreviewStatusParams) error
 	// The operator's intent on the proxy (§3): an explicit stop must survive the
 	// drift reconciliation — a proxy someone deliberately stopped is not drift.

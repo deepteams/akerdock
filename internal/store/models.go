@@ -2065,6 +2065,7 @@ type Application struct {
 	CreatedAt                     pgtype.Timestamptz
 	UpdatedAt                     pgtype.Timestamptz
 	PreviewDeployOnOpen           bool
+	PreviewUrlTemplates           []byte
 }
 
 type AuditEvent struct {
@@ -2720,6 +2721,7 @@ type Preview struct {
 	UpdatedAt      pgtype.Timestamptz
 	RepoReference  *string
 	ExpiryWarnedAt pgtype.Timestamptz
+	RandomSlug     *string
 }
 
 type PreviewAccessToken struct {

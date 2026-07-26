@@ -75,10 +75,18 @@ export interface ConfigForm {
 }
 
 /** Settings form: configuration of an EXISTING application (PATCH). */
+/** One preview route row (ADR-035): host pattern + optional target port. */
+export interface PreviewRouteRow {
+  host: string;
+  port: string;
+}
+
 export interface SettingsForm extends ConfigForm {
   autoDeploy: boolean;
   previewsEnabled: boolean;
   previewUrlTemplate: string;
+  /** Preview route table (ADR-035) — replaces the single template. */
+  previewUrlTemplates: PreviewRouteRow[];
   previewMaxConcurrent: string;
   previewTtlMinutes: string;
   previewProtection: 'none' | 'basic_auth' | 'sso';
@@ -191,6 +199,17 @@ export function settingsFromApplication(app: Application): SettingsForm {
     autoDeploy: app.auto_deploy ?? false,
     previewsEnabled: app.previews_enabled ?? false,
     previewUrlTemplate: app.preview_url_template ?? '{{pr_id}}.{{domain}}',
+    // The table wins; seed it from the legacy single template for existing apps
+    // so nothing is lost when the operator first opens the new editor.
+    previewUrlTemplates:
+      app.preview_url_templates && app.preview_url_templates.length > 0
+        ? app.preview_url_templates.map((t) => ({
+            host: t.host,
+            port: t.port != null ? String(t.port) : '',
+          }))
+        : app.preview_url_template
+          ? [{ host: app.preview_url_template, port: '' }]
+          : [],
     previewMaxConcurrent:
       app.preview_max_concurrent != null ? String(app.preview_max_concurrent) : '',
     previewTtlMinutes: app.preview_ttl_minutes != null ? String(app.preview_ttl_minutes) : '',
@@ -331,6 +350,11 @@ export function settingsToUpdate(form: SettingsForm, sourceType: SourceType): Ap
       update.auto_deploy = form.autoDeploy;
       update.previews_enabled = form.previewsEnabled;
       update.preview_url_template = form.previewUrlTemplate.trim() || '{{pr_id}}.{{domain}}';
+      // The route table (ADR-035): blank-host rows dropped, port parsed. An
+      // empty table reverts to the legacy single template above.
+      update.preview_url_templates = form.previewUrlTemplates
+        .filter((r) => r.host.trim())
+        .map((r) => ({ host: r.host.trim(), port: r.port.trim() ? Number(r.port.trim()) : null }));
       update.preview_max_concurrent = intOrNull(form.previewMaxConcurrent);
       update.preview_ttl_minutes = intOrNull(form.previewTtlMinutes);
       update.preview_protection = form.previewProtection;

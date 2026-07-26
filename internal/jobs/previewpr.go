@@ -268,8 +268,16 @@ func previewEngaged(p store.Preview) bool {
 func ensurePreviewScaffolding(ctx context.Context, q *store.Queries, keyring *envelope.Keyring,
 	app store.GetApplicationByIDRow, preview *store.Preview,
 ) error {
+	// A stable per-preview slug backs {{random}} across every route and redeploy
+	// (ADR-035) — generated once so hostnames never churn.
+	if preview.RandomSlug == nil || *preview.RandomSlug == "" {
+		if slug, err := randomToken(3); err == nil {
+			_ = q.SetPreviewRandomSlug(ctx, store.SetPreviewRandomSlugParams{ID: preview.ID, RandomSlug: &slug})
+			preview.RandomSlug = &slug
+		}
+	}
 	if preview.Fqdn == nil || *preview.Fqdn == "" {
-		fqdn, err := previewFQDN(ctx, q, app, int(preview.PrID))
+		fqdn, err := previewFQDN(ctx, q, app, int(preview.PrID), previewRandom(preview))
 		if err == nil && fqdn != "" {
 			_ = q.SetPreviewFqdn(ctx, store.SetPreviewFqdnParams{ID: preview.ID, Fqdn: &fqdn})
 			preview.Fqdn = &fqdn
@@ -299,16 +307,42 @@ func ensurePreviewScaffolding(ctx context.Context, q *store.Queries, keyring *en
 	return err
 }
 
-// previewFQDN applies the application's URL template (§5.6): {{pr_id}},
-// {{domain}} (first configured domain), {{random}}; the server wildcard is
-// the fallback when the application has no domain.
-func previewFQDN(ctx context.Context, q *store.Queries, app store.GetApplicationByIDRow, prID int) (string, error) {
-	template := app.Application.PreviewUrlTemplate
+// previewRandom returns the preview's stable {{random}} slug (ADR-035).
+func previewRandom(p *store.Preview) string {
+	if p.RandomSlug != nil {
+		return *p.RandomSlug
+	}
+	return ""
+}
+
+// primaryServiceName is the web service a {{service}} primary host resolves to
+// on a compose stack; "" for a single-container app.
+func primaryServiceName(ctx context.Context, q *store.Queries, app store.GetApplicationByIDRow) string {
+	comps, err := q.ListServiceComponents(ctx, app.Resource.ID)
+	if err != nil {
+		return ""
+	}
+	if c, err := resolveWebComponent(comps, nil); err == nil {
+		return c.Name
+	}
+	if len(comps) > 0 {
+		return comps[0].Name
+	}
+	return ""
+}
+
+// previewFQDN computes the PRIMARY hostname of a preview (§20.4, ADR-035): the
+// first explicit route template, else the {{service}} template resolved for the
+// web service. The server wildcard is the fallback when a template needs a
+// domain the application does not have.
+func previewFQDN(ctx context.Context, q *store.Queries, app store.GetApplicationByIDRow, prID int, random string) (string, error) {
 	domain := ""
 	if domains, err := q.ListDomainsForApplication(ctx, &app.Resource.ID); err == nil && len(domains) > 0 {
 		domain = domains[0].Fqdn
 	}
-	if domain == "" {
+	templates := previewTemplates(app)
+
+	wildcard := func() (string, error) {
 		dest, err := q.GetDestinationByID(ctx, app.Resource.DestinationID)
 		if err != nil {
 			return "", err
@@ -320,19 +354,24 @@ func previewFQDN(ctx context.Context, q *store.Queries, app store.GetApplication
 		if server.WildcardDomain == nil || *server.WildcardDomain == "" {
 			return "", nil // no domain, no wildcard: the preview runs unrouted
 		}
-		appUUID := pguuid.String(app.Resource.Uuid)
-		return fmt.Sprintf("pr-%d-%s.%s", prID, appUUID[:8], *server.WildcardDomain), nil
+		return fmt.Sprintf("pr-%d-%s.%s", prID, pguuid.String(app.Resource.Uuid)[:8], *server.WildcardDomain), nil
 	}
-	random, err := randomToken(3)
-	if err != nil {
-		return "", err
+
+	if len(templates) == 0 {
+		return wildcard()
 	}
-	out := strings.NewReplacer(
-		"{{pr_id}}", fmt.Sprint(prID),
-		"{{domain}}", domain,
-		"{{random}}", random,
-	).Replace(template)
-	return strings.ToLower(out), nil
+	host, svc := templates[0].Host, ""
+	if ex := explicitTemplates(templates); len(ex) > 0 {
+		host = ex[0].Host
+	} else {
+		svc = primaryServiceName(ctx, q, app)
+	}
+	// A template that needs {{domain}} but has none falls back to the wildcard —
+	// otherwise it would resolve to a malformed host.
+	if strings.Contains(host, "{{domain}}") && domain == "" {
+		return wildcard()
+	}
+	return resolvePreviewHost(host, prID, domain, svc, random), nil
 }
 
 func randomToken(bytes int) (string, error) {

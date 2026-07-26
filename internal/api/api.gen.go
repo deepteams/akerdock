@@ -2065,14 +2065,17 @@ type Application struct {
 	PreviewProtection          *ApplicationPreviewProtection `json:"preview_protection,omitempty"`
 
 	// PreviewRequireLabel Opt-in par label de PR (§20.4.7) ; null = désactivé.
-	PreviewRequireLabel        *string `json:"preview_require_label,omitempty"`
-	PreviewTtlMinutes          *int    `json:"preview_ttl_minutes,omitempty"`
-	PreviewUrlTemplate         *string `json:"preview_url_template,omitempty"`
-	PreviewsEnabled            *bool   `json:"previews_enabled,omitempty"`
-	PrivateKeyUuid             *string `json:"private_key_uuid,omitempty"`
-	ProjectUuid                *string `json:"project_uuid,omitempty"`
-	PublishDirectory           *string `json:"publish_directory,omitempty"`
-	PushRegistryCredentialUuid *string `json:"push_registry_credential_uuid,omitempty"`
+	PreviewRequireLabel *string `json:"preview_require_label,omitempty"`
+	PreviewTtlMinutes   *int    `json:"preview_ttl_minutes,omitempty"`
+	PreviewUrlTemplate  *string `json:"preview_url_template,omitempty"`
+
+	// PreviewUrlTemplates Table de routes de preview (ADR-035). Absent = inchangé ; tableau vide = revient au template unique legacy.
+	PreviewUrlTemplates        *[]PreviewRouteTemplate `json:"preview_url_templates,omitempty"`
+	PreviewsEnabled            *bool                   `json:"previews_enabled,omitempty"`
+	PrivateKeyUuid             *string                 `json:"private_key_uuid,omitempty"`
+	ProjectUuid                *string                 `json:"project_uuid,omitempty"`
+	PublishDirectory           *string                 `json:"publish_directory,omitempty"`
+	PushRegistryCredentialUuid *string                 `json:"push_registry_credential_uuid,omitempty"`
 
 	// RawCompose (build pack compose) Mode raw compose (compose-spec §9).
 	RawCompose *bool `json:"raw_compose,omitempty"`
@@ -2421,8 +2424,11 @@ type ApplicationUpdate struct {
 	// PreviewTtlMinutes TTL d'inactivité en minutes ; null = pas de destruction automatique.
 	PreviewTtlMinutes *int `json:"preview_ttl_minutes,omitempty"`
 
-	// PreviewUrlTemplate Placeholders : {{pr_id}}, {{domain}}, {{random}} (§5.6).
+	// PreviewUrlTemplate Legacy — motif unique ; utilisez preview_url_templates (§5.6, ADR-035).
 	PreviewUrlTemplate *string `json:"preview_url_template,omitempty"`
+
+	// PreviewUrlTemplates Table de routes de preview (ADR-035) — remplace preview_url_template quand non vide. Vide/absent = comportement legacy.
+	PreviewUrlTemplates *[]PreviewRouteTemplate `json:"preview_url_templates,omitempty"`
 
 	// PreviewsEnabled Previews par PR (§20.4) — déclenchées par le webhook de la GitHub App ou par un webhook manuel GitLab/Gitea/GitHub de l'application (protocols §1.2).
 	PreviewsEnabled *bool `json:"previews_enabled,omitempty"`
@@ -3472,6 +3478,15 @@ type Preview struct {
 
 // PreviewStatus defines model for Preview.Status.
 type PreviewStatus string
+
+// PreviewRouteTemplate Une route de preview (ADR-035). `host` accepte {{pr_id}}, {{service}}, {{domain}}, {{random}}. Un `host` avec {{service}} est appliqué à chaque service servi ; sans {{service}}, le service cible est résolu par `port`.
+type PreviewRouteTemplate struct {
+	// Host Motif d'hôte (sans schéma), ex. `varuna-pr{{pr_id}}.ad.kedric.fr`.
+	Host string `json:"host"`
+
+	// Port Port interne cible ; null = port exposé par défaut / port du service.
+	Port *int `json:"port,omitempty"`
+}
 
 // PrivateKey Clé SSH privée. Le champ `private_key` n'est renseigné que sur `GET` unitaire avec permission `read:sensitive` ET `reveal=true` (INV-003) ; sinon `null` et `is_redacted=true`.
 type PrivateKey struct {

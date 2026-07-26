@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -234,7 +235,7 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 	if body.PreviewsEnabled != nil || body.PreviewUrlTemplate != nil || patch.Has("preview_max_concurrent") ||
 		patch.Has("preview_ttl_minutes") || body.PreviewProtection != nil ||
 		body.PreviewForkApprovalEnabled != nil || body.PreviewExcludeDrafts != nil ||
-		body.PreviewDeployOnOpen != nil ||
+		body.PreviewDeployOnOpen != nil || patch.Has("preview_url_templates") ||
 		patch.Has("preview_require_label") || body.PreviewCommentCommandsEnabled != nil ||
 		body.PreviewCancelObsoleteBuilds != nil {
 		params := store.UpdateApplicationPreviewSettingsParams{
@@ -264,6 +265,15 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 		if body.PreviewProtection != nil {
 			protection := store.PreviewProtection(*body.PreviewProtection)
 			params.PreviewProtection = &protection
+		}
+		if patch.Has("preview_url_templates") {
+			params.SetUrlTemplates = true
+			// An empty table reverts to the legacy single template (stored NULL).
+			if body.PreviewUrlTemplates != nil && len(*body.PreviewUrlTemplates) > 0 {
+				if raw, err := json.Marshal(*body.PreviewUrlTemplates); err == nil {
+					params.PreviewUrlTemplates = raw
+				}
+			}
 		}
 		if err := qtx.UpdateApplicationPreviewSettings(r.Context(), params); err != nil {
 			a.internalError(w, r, "update application", err)

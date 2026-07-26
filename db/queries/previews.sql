@@ -47,6 +47,10 @@ WHERE id = $1;
 -- name: SetPreviewExpiryWarned :exec
 UPDATE previews SET expiry_warned_at = now(), updated_at = now() WHERE id = $1;
 
+-- name: SetPreviewRandomSlug :exec
+-- Generated once at scaffolding; the stable value behind {{random}} (ADR-035).
+UPDATE previews SET random_slug = $2, updated_at = now() WHERE id = $1 AND random_slug IS NULL;
+
 -- name: ListPreviewsToWarn :many
 -- Active previews at least 80% into their inactivity TTL and not yet warned —
 -- the heads-up window before ListExpiredPreviews reaps them.
@@ -126,6 +130,7 @@ UPDATE applications SET
     preview_fork_approval_enabled = COALESCE(sqlc.narg(preview_fork_approval_enabled), preview_fork_approval_enabled),
     preview_exclude_drafts = COALESCE(sqlc.narg(preview_exclude_drafts), preview_exclude_drafts),
     preview_deploy_on_open = COALESCE(sqlc.narg(preview_deploy_on_open), preview_deploy_on_open),
+    preview_url_templates = CASE WHEN sqlc.arg(set_url_templates)::boolean THEN sqlc.narg(preview_url_templates) ELSE preview_url_templates END,
     preview_require_label = CASE WHEN sqlc.arg(set_require_label)::boolean THEN sqlc.narg(preview_require_label) ELSE preview_require_label END,
     preview_comment_commands_enabled = COALESCE(sqlc.narg(preview_comment_commands_enabled), preview_comment_commands_enabled),
     preview_cancel_obsolete_builds = COALESCE(sqlc.narg(preview_cancel_obsolete_builds), preview_cancel_obsolete_builds)

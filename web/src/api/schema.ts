@@ -4560,6 +4560,13 @@ export interface components {
             /** Format: date-time */
             readonly created_at: string;
         };
+        /** @description Une route de preview (ADR-035). `host` accepte {{pr_id}}, {{service}}, {{domain}}, {{random}}. Un `host` avec {{service}} est appliqué à chaque service servi ; sans {{service}}, le service cible est résolu par `port`. */
+        PreviewRouteTemplate: {
+            /** @description Motif d'hôte (sans schéma), ex. `varuna-pr{{pr_id}}.ad.kedric.fr`. */
+            host: string;
+            /** @description Port interne cible ; null = port exposé par défaut / port du service. */
+            port?: number | null;
+        };
         /** @description Instantané de consommation d'un service du stack (ADR-034) — lu à la demande, jamais stocké. `null` sur un champ = la mesure n'a pas pu être lue (container arrêté ou sans limite). */
         ComponentMetric: {
             /** @description Nom du service compose. */
@@ -4639,8 +4646,10 @@ export interface components {
             auto_deploy?: boolean;
             /** @description Previews par PR (§20.4) — déclenchées par le webhook de la GitHub App ou par un webhook manuel GitLab/Gitea/GitHub de l'application (protocols §1.2). */
             previews_enabled?: boolean;
-            /** @description Placeholders : {{pr_id}}, {{domain}}, {{random}} (§5.6). */
+            /** @description Legacy — motif unique ; utilisez preview_url_templates (§5.6, ADR-035). */
             preview_url_template?: string;
+            /** @description Table de routes de preview (ADR-035) — remplace preview_url_template quand non vide. Vide/absent = comportement legacy. */
+            preview_url_templates?: components["schemas"]["PreviewRouteTemplate"][] | null;
             /** @description Plafond de previews simultanées ; null = illimité (§20.4.3). */
             preview_max_concurrent?: number | null;
             /** @description TTL d'inactivité en minutes ; null = pas de destruction automatique. */
@@ -4708,6 +4717,8 @@ export interface components {
             auto_deploy?: boolean;
             previews_enabled?: boolean;
             preview_url_template?: string;
+            /** @description Table de routes de preview (ADR-035). Absent = inchangé ; tableau vide = revient au template unique legacy. */
+            preview_url_templates?: components["schemas"]["PreviewRouteTemplate"][] | null;
             preview_max_concurrent?: number | null;
             preview_ttl_minutes?: number | null;
             /** @enum {string} */

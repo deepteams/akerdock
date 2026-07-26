@@ -10234,6 +10234,22 @@ components:
           format: date-time
           readOnly: true
 
+    PreviewRouteTemplate:
+      type: object
+      description: >-
+        Une route de preview (ADR-035). `host` accepte {{pr_id}}, {{service}},
+        {{domain}}, {{random}}. Un `host` avec {{service}} est appliqué à chaque
+        service servi ; sans {{service}}, le service cible est résolu par `port`.
+      required: [host]
+      properties:
+        host:
+          type: string
+          description: Motif d'hôte (sans schéma), ex. `varuna-pr{{pr_id}}.ad.kedric.fr`.
+        port:
+          type: integer
+          nullable: true
+          description: Port interne cible ; null = port exposé par défaut / port du service.
+
     ComponentMetric:
       type: object
       description: >-
@@ -10399,7 +10415,15 @@ components:
             (protocols §1.2).
         preview_url_template:
           type: string
-          description: "Placeholders : {{pr_id}}, {{domain}}, {{random}} (§5.6)."
+          description: "Legacy — motif unique ; utilisez preview_url_templates (§5.6, ADR-035)."
+        preview_url_templates:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/PreviewRouteTemplate"
+          description: >-
+            Table de routes de preview (ADR-035) — remplace preview_url_template
+            quand non vide. Vide/absent = comportement legacy.
         preview_max_concurrent:
           type: integer
           nullable: true
@@ -10583,6 +10607,14 @@ components:
           type: boolean
         preview_url_template:
           type: string
+        preview_url_templates:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/PreviewRouteTemplate"
+          description: >-
+            Table de routes de preview (ADR-035). Absent = inchangé ; tableau
+            vide = revient au template unique legacy.
         preview_max_concurrent:
           type: integer
           nullable: true

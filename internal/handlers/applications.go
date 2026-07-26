@@ -46,6 +46,19 @@ type appRow struct {
 
 // watchPathsToAPI splits the stored newline-joined pattern list back into the
 // API's array form; a NULL or empty column is an absent field, not [""].
+// previewTemplatesToAPI decodes the stored preview route table (JSONB) for the
+// response; nil (legacy single-template apps) reads back as absent (ADR-035).
+func previewTemplatesToAPI(raw []byte) *[]api.PreviewRouteTemplate {
+	if len(raw) == 0 {
+		return nil
+	}
+	var rows []api.PreviewRouteTemplate
+	if err := json.Unmarshal(raw, &rows); err != nil || len(rows) == 0 {
+		return nil
+	}
+	return &rows
+}
+
 func watchPathsToAPI(stored *string) *[]string {
 	if stored == nil || *stored == "" {
 		return nil
@@ -106,6 +119,7 @@ func applicationToAPI(row appRow) api.Application {
 		PreviewForkApprovalEnabled:    ptr(row.Application.PreviewForkApprovalEnabled),
 		PreviewExcludeDrafts:          ptr(row.Application.PreviewExcludeDrafts),
 		PreviewDeployOnOpen:           ptr(row.Application.PreviewDeployOnOpen),
+		PreviewUrlTemplates:           previewTemplatesToAPI(row.Application.PreviewUrlTemplates),
 		PreviewRequireLabel:           row.Application.PreviewRequireLabel,
 		PreviewCommentCommandsEnabled: ptr(row.Application.PreviewCommentCommandsEnabled),
 		PreviewCancelObsoleteBuilds:   ptr(row.Application.PreviewCancelObsoleteBuilds),
