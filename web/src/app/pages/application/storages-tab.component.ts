@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../../ui/card/card.component';
+import { DrawerComponent } from '../../../ui/drawer/drawer.component';
 import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
@@ -19,76 +20,19 @@ type Storage = components['schemas']['PersistentStorage'];
 @Component({
   selector: 'app-application-storages-tab',
   standalone: true,
-  imports: [FormsModule, CardComponent, EmptyStateComponent, IconComponent],
+  imports: [FormsModule, CardComponent, DrawerComponent, EmptyStateComponent, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (error(); as message) {
       <p class="akd-error" role="alert">{{ message }}</p>
     }
 
-    <akd-card title="Add storage" class="create">
-      <form class="form" (ngSubmit)="create()">
-        <div class="akd-field">
-          <label class="akd-field__label" for="st-kind">Kind</label>
-          <div class="akd-select">
-            <select
-              id="st-kind"
-              name="kind"
-              class="akd-input"
-              [(ngModel)]="kind"
-              [disabled]="busy()"
-            >
-              <option value="volume">Named volume (recommended)</option>
-              <option value="bind">Bind mount (host directory)</option>
-            </select>
-          </div>
-        </div>
-        @if (kind === 'volume') {
-          <div class="akd-field">
-            <label class="akd-field__label" for="st-name">Volume name</label>
-            <input
-              id="st-name"
-              name="name"
-              class="akd-input"
-              placeholder="e.g. data"
-              [(ngModel)]="name"
-              [disabled]="busy()"
-            />
-          </div>
-        } @else {
-          <div class="akd-field">
-            <label class="akd-field__label" for="st-host"
-              >Host path (absolute, on the server)</label
-            >
-            <input
-              id="st-host"
-              name="hostPath"
-              class="akd-input akd-input--mono"
-              placeholder="/srv/app-data"
-              [(ngModel)]="hostPath"
-              [disabled]="busy()"
-            />
-          </div>
-        }
-        <div class="akd-field">
-          <label class="akd-field__label" for="st-mount">Mount path (in the container)</label>
-          <input
-            id="st-mount"
-            name="mountPath"
-            class="akd-input akd-input--mono"
-            placeholder="/data"
-            [(ngModel)]="mountPath"
-            [disabled]="busy()"
-          />
-        </div>
-        <div>
-          <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy() || !valid()">
-            <akd-icon name="plus" [size]="15" />
-            Add storage
-          </button>
-        </div>
-      </form>
-    </akd-card>
+    <div class="bar">
+      <button class="akd-btn akd-btn--primary" type="button" (click)="openAdd()" [disabled]="busy()">
+        <akd-icon name="plus" [size]="15" />
+        Add storage
+      </button>
+    </div>
 
     @if (loading()) {
       <p class="akd-muted">Loading…</p>
@@ -151,13 +95,80 @@ type Storage = components['schemas']['PersistentStorage'];
         </table>
       </akd-card>
     }
+
+    <akd-drawer [open]="showAdd()" title="Add storage" (closed)="closeAdd()">
+      <form id="storage-form" class="form" (ngSubmit)="create()">
+        @if (error(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        }
+        <div class="akd-field">
+          <label class="akd-field__label" for="st-kind">Kind</label>
+          <div class="akd-select">
+            <select id="st-kind" name="kind" class="akd-input" [(ngModel)]="kind" [disabled]="busy()">
+              <option value="volume">Named volume (recommended)</option>
+              <option value="bind">Bind mount (host directory)</option>
+            </select>
+          </div>
+        </div>
+        @if (kind === 'volume') {
+          <div class="akd-field">
+            <label class="akd-field__label" for="st-name">Volume name</label>
+            <input
+              id="st-name"
+              name="name"
+              class="akd-input"
+              placeholder="e.g. data"
+              [(ngModel)]="name"
+              [disabled]="busy()"
+            />
+          </div>
+        } @else {
+          <div class="akd-field">
+            <label class="akd-field__label" for="st-host">Host path (absolute, on the server)</label>
+            <input
+              id="st-host"
+              name="hostPath"
+              class="akd-input akd-input--mono"
+              placeholder="/srv/app-data"
+              [(ngModel)]="hostPath"
+              [disabled]="busy()"
+            />
+          </div>
+        }
+        <div class="akd-field">
+          <label class="akd-field__label" for="st-mount">Mount path (in the container)</label>
+          <input
+            id="st-mount"
+            name="mountPath"
+            class="akd-input akd-input--mono"
+            placeholder="/data"
+            [(ngModel)]="mountPath"
+            [disabled]="busy()"
+          />
+        </div>
+      </form>
+      <div drawer-footer>
+        <button class="akd-btn akd-btn--ghost" type="button" (click)="closeAdd()" [disabled]="busy()">
+          Cancel
+        </button>
+        <button
+          class="akd-btn akd-btn--primary"
+          type="submit"
+          form="storage-form"
+          [disabled]="busy() || !valid()"
+        >
+          <akd-icon name="plus" [size]="15" />
+          Add storage
+        </button>
+      </div>
+    </akd-drawer>
   `,
   styles: [
     `
-      .create {
-        display: block;
+      .bar {
+        display: flex;
+        justify-content: flex-end;
         margin-bottom: var(--space-5);
-        max-width: 32rem;
       }
       .form {
         display: grid;
@@ -175,11 +186,26 @@ export class ApplicationStoragesTabComponent {
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
+  protected readonly showAdd = signal(false);
 
   protected kind: 'volume' | 'bind' = 'volume';
   protected name = '';
   protected hostPath = '';
   protected mountPath = '';
+
+  protected openAdd(): void {
+    this.kind = 'volume';
+    this.name = '';
+    this.hostPath = '';
+    this.mountPath = '';
+    this.error.set(null);
+    this.showAdd.set(true);
+  }
+
+  protected closeAdd(): void {
+    if (this.busy()) return;
+    this.showAdd.set(false);
+  }
 
   constructor() {
     effect(() => {
@@ -219,6 +245,7 @@ export class ApplicationStoragesTabComponent {
       this.name = '';
       this.hostPath = '';
       this.mountPath = '';
+      this.showAdd.set(false);
       await this.load(this.uuid());
     } catch (err) {
       this.error.set(ApiService.describe(err));

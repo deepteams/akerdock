@@ -860,6 +860,63 @@ kbd {
   border-color: var(--danger-border);
 }
 
+/* Right-side slide-over drawer (sibling of the modal, on <dialog>). */
+.akd-drawer {
+  position: fixed;
+  inset: 0 0 0 auto; /* pin right, full height */
+  margin: 0;
+  max-width: none;
+  max-height: none;
+  width: min(30rem, 100vw);
+  background: var(--bg-1);
+  border: 0;
+  border-left: 1px solid var(--border-2);
+  border-radius: 0;
+  box-shadow: var(--shadow-3);
+  padding: 0;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+}
+.akd-drawer::backdrop {
+  background: oklch(10% 0.01 252 / 0.6);
+  backdrop-filter: blur(4px);
+}
+.akd-drawer[open] {
+  animation: akd-drawer-in var(--dur-2) var(--ease-out);
+}
+.akd-drawer__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-5) 0;
+  font: var(--weight-semibold) var(--text-xl) var(--font-display);
+}
+.akd-drawer__header .spacer {
+  flex: 1;
+}
+.akd-drawer__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-5);
+  color: var(--text-2);
+  font-size: var(--text-md);
+}
+.akd-drawer__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+@keyframes akd-drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Page scaffolding shared by every dashboard page.
 --------------------------------------------------------------------------- */
