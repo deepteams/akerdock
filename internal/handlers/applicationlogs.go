@@ -21,7 +21,7 @@ import (
 // The runtime console is the missing half of debugging: deployment logs stop
 // at the switch, and everything the app prints after lands only here.
 func (a *API) GetApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.GetApplicationLogsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermLogsRead)
 	if !ok {
 		return
 	}
@@ -98,7 +98,7 @@ func (a *API) GetApplicationLogs(w http.ResponseWriter, r *http.Request, applica
 // runtime console as Server-Sent Events (ADR-024): `docker logs -f` piped
 // line by line as `log` events. Powers `akerdock logs -f`.
 func (a *API) StreamApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.StreamApplicationLogsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermLogsRead)
 	if !ok {
 		return
 	}

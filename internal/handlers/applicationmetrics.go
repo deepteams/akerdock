@@ -20,7 +20,7 @@ import (
 // demand with `docker stats` over the runtime SSH connection and never stored
 // (ADR-034). Empty for non-compose build packs.
 func (a *API) GetApplicationMetrics(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermMetricsRead)
 	if !ok {
 		return
 	}
@@ -35,7 +35,7 @@ func (a *API) GetApplicationMetrics(w http.ResponseWriter, r *http.Request, appl
 // /applications/{application_uuid}/previews/{preview_uuid}/metrics: the same
 // live snapshot for a preview instance's containers (INV-011).
 func (a *API) GetPreviewMetrics(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermPreviewsRead)
 	if !ok {
 		return
 	}

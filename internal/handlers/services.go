@@ -575,7 +575,7 @@ func (a *API) DeleteServiceEnv(w http.ResponseWriter, r *http.Request, serviceUu
 
 // ListServiceDeployments implements GET /services/{service_uuid}/deployments.
 func (a *API) ListServiceDeployments(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid, params api.ListServiceDeploymentsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermDeploymentsRead)
 	if !ok {
 		return
 	}

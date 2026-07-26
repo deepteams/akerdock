@@ -60,6 +60,20 @@ const (
 	PermTokensRead   Permission = "tokens:read"
 	PermTokensCreate Permission = "tokens:create"
 	PermTokensRevoke Permission = "tokens:revoke"
+
+	PermPreviewsRead   Permission = "previews:read"
+	PermPreviewsManage Permission = "previews:manage"
+
+	PermDeploymentsRead   Permission = "deployments:read"
+	PermDeploymentsCancel Permission = "deployments:cancel"
+
+	PermBackupsRead    Permission = "backups:read"
+	PermBackupsManage  Permission = "backups:manage"
+	PermBackupsRestore Permission = "backups:restore"
+
+	PermLogsRead    Permission = "logs:read"
+	PermMetricsRead Permission = "metrics:read"
+	PermJobsManage  Permission = "jobs:manage"
 )
 
 // Catalog maps every granular permission to its coarse socle.

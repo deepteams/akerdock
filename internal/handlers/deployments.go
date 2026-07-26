@@ -35,7 +35,7 @@ func deploymentToAPI(d store.Deployment, applicationUUID string) api.Deployment 
 // GetDeployment implements GET /deployments/{deployment_uuid} (permission:
 // read).
 func (a *API) GetDeployment(w http.ResponseWriter, r *http.Request, deploymentUuid api.DeploymentUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermDeploymentsRead)
 	if !ok {
 		return
 	}
@@ -56,7 +56,7 @@ func (a *API) GetDeployment(w http.ResponseWriter, r *http.Request, deploymentUu
 // (permission: deploy): cooperative cancellation before the traffic switch
 // (§21.1, §2.6). Only the candidate is ever removed (INV-006).
 func (a *API) CancelDeployment(w http.ResponseWriter, r *http.Request, deploymentUuid api.DeploymentUuid) {
-	id, ok := a.require(w, r, auth.PermDeploy)
+	id, ok := a.require(w, r, auth.PermDeploymentsCancel)
 	if !ok {
 		return
 	}
@@ -101,7 +101,7 @@ func (a *API) CancelDeployment(w http.ResponseWriter, r *http.Request, deploymen
 // ListApplicationDeployments implements GET
 // /applications/{application_uuid}/deployments (permission: read).
 func (a *API) ListApplicationDeployments(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.ListApplicationDeploymentsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermDeploymentsRead)
 	if !ok {
 		return
 	}

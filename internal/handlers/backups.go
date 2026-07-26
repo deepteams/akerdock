@@ -157,7 +157,7 @@ func (a *API) resolveBackupPlan(w http.ResponseWriter, r *http.Request, id *auth
 
 // ListBackupPlans implements GET /databases/{uuid}/backups (permission: read).
 func (a *API) ListBackupPlans(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid, params api.ListBackupPlansParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermBackupsRead)
 	if !ok {
 		return
 	}
@@ -182,7 +182,7 @@ func (a *API) ListBackupPlans(w http.ResponseWriter, r *http.Request, databaseUu
 // CreateBackupPlan implements POST /databases/{uuid}/backups (permission:
 // write).
 func (a *API) CreateBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid, params api.CreateBackupPlanParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermBackupsManage)
 	if !ok {
 		return
 	}
@@ -256,7 +256,7 @@ func (a *API) CreateBackupPlan(w http.ResponseWriter, r *http.Request, databaseU
 
 // GetBackupPlan implements GET /databases/{uuid}/backups/{plan_uuid}.
 func (a *API) GetBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid, backupPlanUuid api.BackupPlanUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermBackupsRead)
 	if !ok {
 		return
 	}
@@ -271,7 +271,7 @@ func (a *API) GetBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid
 // UpdateBackupPlan implements PATCH /databases/{uuid}/backups/{plan_uuid}
 // (permission: write).
 func (a *API) UpdateBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid, backupPlanUuid api.BackupPlanUuid, params api.UpdateBackupPlanParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermBackupsManage)
 	if !ok {
 		return
 	}
@@ -363,7 +363,7 @@ func (a *API) applyBackupPlanUpdate(w http.ResponseWriter, r *http.Request, id *
 // DeleteBackupPlan implements DELETE /databases/{uuid}/backups/{plan_uuid}
 // (permission: write). Soft delete — the executed backups stay on disk.
 func (a *API) DeleteBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid, backupPlanUuid api.BackupPlanUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermBackupsManage)
 	if !ok {
 		return
 	}
@@ -382,7 +382,7 @@ func (a *API) DeleteBackupPlan(w http.ResponseWriter, r *http.Request, databaseU
 // ExecuteBackupPlan implements POST /databases/{uuid}/backups/{plan}/execute
 // (permission: write): long operation — 202 + job.
 func (a *API) ExecuteBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid, backupPlanUuid api.BackupPlanUuid, params api.ExecuteBackupPlanParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermBackupsManage)
 	if !ok {
 		return
 	}
@@ -422,7 +422,7 @@ func (a *API) ExecuteBackupPlan(w http.ResponseWriter, r *http.Request, database
 // ListBackupExecutions implements GET
 // /databases/{uuid}/backups/{plan}/executions (permission: read).
 func (a *API) ListBackupExecutions(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid, backupPlanUuid api.BackupPlanUuid, params api.ListBackupExecutionsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermBackupsRead)
 	if !ok {
 		return
 	}
@@ -462,7 +462,7 @@ func (a *API) ListBackupExecutions(w http.ResponseWriter, r *http.Request, datab
 // (permission: write): 202 + job. The dump checksum is verified before any
 // data is replayed (§20.5).
 func (a *API) RestoreBackupExecution(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid, backupPlanUuid api.BackupPlanUuid, executionUuid api.ExecutionUuid, params api.RestoreBackupExecutionParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermBackupsRestore)
 	if !ok {
 		return
 	}
@@ -620,7 +620,7 @@ func restoreDrillToAPI(d store.RestoreDrill, executionUUID pgtype.UUID) api.Rest
 // RunRestoreDrill implements POST /databases/{uuid}/backups/{plan}/drill: the
 // same path the periodic drill takes (ADR-014).
 func (a *API) RunRestoreDrill(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid, backupPlanUuid api.BackupPlanUuid, params api.RunRestoreDrillParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermBackupsRestore)
 	if !ok {
 		return
 	}
@@ -666,7 +666,7 @@ func (a *API) RunRestoreDrill(w http.ResponseWriter, r *http.Request, databaseUu
 
 // ListRestoreDrills implements GET /databases/{uuid}/backups/{plan}/drills.
 func (a *API) ListRestoreDrills(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid, backupPlanUuid api.BackupPlanUuid, params api.ListRestoreDrillsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermBackupsRead)
 	if !ok {
 		return
 	}

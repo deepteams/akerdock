@@ -3515,7 +3515,7 @@ paths:
         n'a pas de container propre). `409` si le container n'existe pas
         (application jamais déployée ou supprimée) ou si le serveur est
         injoignable en SSH ; `404` si le composant est inconnu.
-      x-required-permission: read
+      x-required-permission: logs:read
       parameters:
         - name: lines
           in: query
@@ -3574,7 +3574,7 @@ paths:
         le container n'existe pas ou le serveur est injoignable ; `404` si le
         composant est inconnu. Le corps ci-dessous décrit l'événement `log` ;
         le framing SSE lui-même n'est pas exprimable en OpenAPI.
-      x-required-permission: read
+      x-required-permission: logs:read
       parameters:
         - name: component
           in: query
@@ -3712,7 +3712,7 @@ paths:
       operationId: listApplicationDeployments
       summary: Historique des déploiements d'une application
       description: Pagination par curseur, du plus récent au plus ancien.
-      x-required-permission: read
+      x-required-permission: deployments:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -3758,7 +3758,7 @@ paths:
       tags: [Deployments]
       operationId: getDeployment
       summary: Détail d'un déploiement
-      x-required-permission: read
+      x-required-permission: deployments:read
       responses:
         "200":
           description: Le déploiement (statut §21.1, SHA, digest, durée).
@@ -3796,7 +3796,7 @@ paths:
 
         Les lignes sont neutralisées (ANSI/HTML, §23.3) et ne contiennent
         jamais de valeurs de secrets (INV-003).
-      x-required-permission: read
+      x-required-permission: deployments:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -3845,7 +3845,7 @@ paths:
         trafic (§21.1). Un déploiement déjà terminal ou en cours de bascule
         (`switching`) → `409`. L'annulation ne supprime que le candidat,
         jamais le container sain existant (INV-006).
-      x-required-permission: deploy
+      x-required-permission: deployments:cancel
       responses:
         "202":
           description: Annulation demandée — suivre le déploiement.
@@ -4833,7 +4833,7 @@ paths:
       tags: [Services]
       operationId: listServiceDeployments
       summary: Déploiements d'un stack
-      x-required-permission: read
+      x-required-permission: deployments:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -4873,7 +4873,7 @@ paths:
         stats` sur la connexion runtime (ADR-034) — jamais stocké. Le client
         rafraîchit périodiquement pour tracer une tendance côté navigateur.
         Vide pour les build packs non-compose.
-      x-required-permission: read
+      x-required-permission: metrics:read
       responses:
         "200":
           description: Métriques instantanées.
@@ -4991,7 +4991,7 @@ paths:
       tags: [Applications]
       operationId: listApplicationPreviews
       summary: Previews de PR d'une application
-      x-required-permission: read
+      x-required-permission: previews:read
       responses:
         "200":
           description: Previews non détruites.
@@ -5024,7 +5024,7 @@ paths:
         de fork reste en attente d'approbation (INV-010). `409` si les
         previews sont désactivées, si la source n'est pas une GitHub App
         installée, ou si la PR n'est pas ouverte.
-      x-required-permission: deploy
+      x-required-permission: previews:manage
       requestBody:
         required: true
         content:
@@ -5071,7 +5071,7 @@ paths:
         de la preview — la production n'est jamais touchée (INV-011). La PR
         reste ouverte : un `/deploy` ou un push recrée une instance neuve.
         `409` si la preview est déjà détruite ou en cours de destruction.
-      x-required-permission: deploy
+      x-required-permission: previews:manage
       responses:
         "202":
           description: Destruction enfilée.
@@ -5105,7 +5105,7 @@ paths:
         dès que la stack a des composants). `409` si le container n'existe
         pas (preview détruite ou jamais démarrée) ; `404` si le composant
         est inconnu.
-      x-required-permission: read
+      x-required-permission: previews:read
       parameters:
         - name: lines
           in: query
@@ -5282,7 +5282,7 @@ paths:
         Comme `getApplicationMetrics` mais pour les containers de l'INSTANCE de
         preview (INV-011), lus à la demande via `docker stats` (ADR-034). `409`
         si la preview est détruite.
-      x-required-permission: read
+      x-required-permission: previews:read
       responses:
         "200":
           description: Métriques instantanées.
@@ -5372,7 +5372,7 @@ paths:
         Remet à zéro l'horloge d'inactivité (§20.4.3) et efface l'avertissement
         d'expiration — équivalent UI de la commande `/keep`. La preview reste
         vivante jusqu'au prochain TTL. `409` si elle est déjà détruite.
-      x-required-permission: write
+      x-required-permission: previews:manage
       responses:
         "204":
           description: TTL réarmé.
@@ -5403,7 +5403,7 @@ paths:
         Approbation explicite d'un mainteneur (§20.4.8, INV-010) : la preview
         du fork est alors promue si la capacité le permet. Sans objet (409)
         pour une PR interne ou déjà approuvée.
-      x-required-permission: deploy
+      x-required-permission: previews:manage
       responses:
         "202":
           description: Approuvée — déploiement promu ou mis en file.
@@ -5973,7 +5973,7 @@ paths:
       tags: [Backups]
       operationId: listBackupPlans
       summary: Lister les plans de backup d'une base
-      x-required-permission: read
+      x-required-permission: backups:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -6007,7 +6007,7 @@ paths:
       description: >-
         Plan de backup planifié (§7.1) — cron ou alias (`daily`, `hourly`…),
         destination locale et/ou S3, règles de rétention séparées (§7.2).
-      x-required-permission: write
+      x-required-permission: backups:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -6049,7 +6049,7 @@ paths:
       tags: [Backups]
       operationId: getBackupPlan
       summary: Détail d'un plan de backup
-      x-required-permission: read
+      x-required-permission: backups:read
       responses:
         "200":
           description: Le plan.
@@ -6073,7 +6073,7 @@ paths:
       operationId: updateBackupPlan
       summary: Modifier un plan de backup
       description: PATCH sensible — `If-Match` obligatoire.
-      x-required-permission: write
+      x-required-permission: backups:manage
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
@@ -6114,7 +6114,7 @@ paths:
         Supprime le plan et sa planification. Les exécutions passées et
         leurs fichiers de backup sont conservés selon la rétention — jamais
         supprimés implicitement (INV-008).
-      x-required-permission: write
+      x-required-permission: backups:manage
       responses:
         "204":
           description: Plan supprimé.
@@ -6141,7 +6141,7 @@ paths:
         Exécute le plan immédiatement, hors planification (§7.1). Une seule
         exécution simultanée par plan (verrou §20.5) → `409` si une
         exécution est déjà en cours.
-      x-required-permission: write
+      x-required-permission: backups:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
@@ -6175,7 +6175,7 @@ paths:
         serveur, recompte ce qui est revenu, puis détruit la base. Même chemin
         que le drill périodique. `409` si le plan n'a aucun backup réussi à
         restaurer — il n'y a alors rien à prouver.
-      x-required-permission: write
+      x-required-permission: backups:restore
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
@@ -6204,7 +6204,7 @@ paths:
       tags: [Backups]
       operationId: listRestoreDrills
       summary: Historique des restore drills d'un plan
-      x-required-permission: read
+      x-required-permission: backups:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -6244,7 +6244,7 @@ paths:
         Historique des exécutions (statut, fichier, taille, upload S3,
         §7.3), du plus récent au plus ancien. Un succès local avec échec S3
         apparaît en statut `partial`, jamais en succès global (§20.5).
-      x-required-permission: read
+      x-required-permission: backups:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -6287,7 +6287,7 @@ paths:
         exécution ; un restore vers une base non vide exige en plus
         `allow_non_empty=true`. Journal complet dans le job. `409` si un
         restore ou un backup est déjà en cours sur la base.
-      x-required-permission: write
+      x-required-permission: backups:restore
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -6332,7 +6332,7 @@ paths:
       tags: [Backups]
       operationId: listComponentBackupPlans
       summary: Lister les plans de backup d'un composant de stack
-      x-required-permission: read
+      x-required-permission: backups:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -6369,7 +6369,7 @@ paths:
         v1) — sinon `422`. Le dump s'exécute dans le container du composant,
         credentials lus dans son environnement, jamais journalisés (INV-003).
         Mêmes destinations, rétention et drills que les bases managées.
-      x-required-permission: write
+      x-required-permission: backups:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -6411,7 +6411,7 @@ paths:
       tags: [Backups]
       operationId: getComponentBackupPlan
       summary: Détail d'un plan de backup de composant
-      x-required-permission: read
+      x-required-permission: backups:read
       responses:
         "200":
           description: Le plan.
@@ -6435,7 +6435,7 @@ paths:
       operationId: updateComponentBackupPlan
       summary: Modifier un plan de backup de composant
       description: PATCH sensible — `If-Match` obligatoire.
-      x-required-permission: write
+      x-required-permission: backups:manage
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
@@ -6476,7 +6476,7 @@ paths:
         Supprime le plan et sa planification. Les exécutions passées et
         leurs fichiers de backup sont conservés selon la rétention — jamais
         supprimés implicitement (INV-008).
-      x-required-permission: write
+      x-required-permission: backups:manage
       responses:
         "204":
           description: Plan supprimé.
@@ -6503,7 +6503,7 @@ paths:
         Exécute le plan immédiatement, hors planification (§7.1). Une seule
         exécution simultanée par plan (verrou §20.5) → `409` si une
         exécution est déjà en cours.
-      x-required-permission: write
+      x-required-permission: backups:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
@@ -6537,7 +6537,7 @@ paths:
         même serveur, recompte ce qui est revenu, puis détruit la base. Même
         chemin que le drill périodique. `409` si le plan n'a aucun backup
         réussi à restaurer.
-      x-required-permission: write
+      x-required-permission: backups:restore
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
@@ -6566,7 +6566,7 @@ paths:
       tags: [Backups]
       operationId: listComponentRestoreDrills
       summary: Historique des restore drills d'un plan de composant
-      x-required-permission: read
+      x-required-permission: backups:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -6606,7 +6606,7 @@ paths:
         Historique des exécutions (statut, fichier, taille, upload S3, §7.3),
         du plus récent au plus ancien. Un succès local avec échec S3 apparaît
         en statut `partial`, jamais en succès global (§20.5).
-      x-required-permission: read
+      x-required-permission: backups:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -6649,7 +6649,7 @@ paths:
         exécution ; un restore vers une base non vide exige en plus
         `allow_non_empty=true`. Journal complet dans le job. `409` si un
         restore ou un backup est déjà en cours sur le composant.
-      x-required-permission: write
+      x-required-permission: backups:restore
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -7031,7 +7031,7 @@ paths:
         (`?status=dead_letter`) — les jobs en dead-letter ne sont jamais
         rejoués automatiquement et sont conservés jusqu'à intervention
         (retry/forget, §21.3).
-      x-required-permission: read
+      x-required-permission: deployments:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -7087,7 +7087,7 @@ paths:
         §21.3), avec ses étapes, sa progression et son résultat ou son
         erreur. Les jobs sont scopés par team comme toute ressource
         (INV-002).
-      x-required-permission: read
+      x-required-permission: deployments:read
       responses:
         "200":
           description: Le job.
@@ -7120,7 +7120,7 @@ paths:
         la cause racine avant de rejouer, sinon la nouvelle tentative
         échouera à l'identique. `409` (`invalid_state`) si le job n'est pas
         en `dead_letter`.
-      x-required-permission: write
+      x-required-permission: jobs:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
@@ -7158,7 +7158,7 @@ paths:
         nettoyage distant, les objets orphelins restent à traiter
         manuellement. `409` (`invalid_state`) si le job n'est pas en
         `dead_letter`.
-      x-required-permission: write
+      x-required-permission: jobs:manage
       requestBody:
         required: false
         content:

@@ -41,7 +41,7 @@ func previewToAPI(p store.Preview) api.Preview {
 
 // ListApplicationPreviews implements GET /applications/{uuid}/previews.
 func (a *API) ListApplicationPreviews(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermPreviewsRead)
 	if !ok {
 		return
 	}
@@ -65,7 +65,7 @@ func (a *API) ListApplicationPreviews(w http.ResponseWriter, r *http.Request, ap
 // (permission: deploy): the maintainer's explicit yes (§20.4.8). The preview
 // is promoted immediately when capacity allows.
 func (a *API) ApprovePreviewFork(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string) {
-	id, ok := a.require(w, r, auth.PermDeploy)
+	id, ok := a.require(w, r, auth.PermPreviewsManage)
 	if !ok {
 		return
 	}
@@ -130,7 +130,7 @@ func (a *API) resolvePreview(w http.ResponseWriter, r *http.Request, id *auth.Id
 // networks, routing (§20.4.6). Production is untouched (INV-011); the PR
 // stays open and a /deploy or push recreates a fresh instance.
 func (a *API) DestroyPreview(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string) {
-	id, ok := a.require(w, r, auth.PermDeploy)
+	id, ok := a.require(w, r, auth.PermPreviewsManage)
 	if !ok {
 		return
 	}
@@ -159,7 +159,7 @@ func (a *API) DestroyPreview(w http.ResponseWriter, r *http.Request, application
 // missing half of debugging a PR instance, exactly like the application's
 // Logs tab but against the preview-scoped containers (INV-011 naming).
 func (a *API) GetPreviewLogs(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string, params api.GetPreviewLogsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermPreviewsRead)
 	if !ok {
 		return
 	}
@@ -364,7 +364,7 @@ func (a *API) ListApplicationPullRequests(w http.ResponseWriter, r *http.Request
 // (permission: write): the UI counterpart of the /keep comment command — reset
 // the inactivity TTL and clear any expiry warning.
 func (a *API) KeepPreview(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermPreviewsManage)
 	if !ok {
 		return
 	}
@@ -392,7 +392,7 @@ func (a *API) KeepPreview(w http.ResponseWriter, r *http.Request, applicationUui
 // (permission: deploy): the platform-side /deploy (§20.4.7). The PR is
 // re-read from the provider — never trusted from the browser.
 func (a *API) DeployPreviewForPr(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid) {
-	id, ok := a.require(w, r, auth.PermDeploy)
+	id, ok := a.require(w, r, auth.PermPreviewsManage)
 	if !ok {
 		return
 	}

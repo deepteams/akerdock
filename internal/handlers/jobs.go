@@ -66,7 +66,7 @@ func (a *API) resolveJob(w http.ResponseWriter, r *http.Request, id *auth.Identi
 // ListJobs implements GET /jobs (permission: read) — team-scoped, mainly
 // for the dead-letter inventory (§21.3).
 func (a *API) ListJobs(w http.ResponseWriter, r *http.Request, params api.ListJobsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermDeploymentsRead)
 	if !ok {
 		return
 	}
@@ -108,7 +108,7 @@ func (a *API) ListJobs(w http.ResponseWriter, r *http.Request, params api.ListJo
 
 // GetJob implements GET /jobs/{job_uuid} (permission: read).
 func (a *API) GetJob(w http.ResponseWriter, r *http.Request, jobUuid api.JobUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermDeploymentsRead)
 	if !ok {
 		return
 	}
@@ -123,7 +123,7 @@ func (a *API) GetJob(w http.ResponseWriter, r *http.Request, jobUuid api.JobUuid
 // creates a linked new attempt — the original job is never re-queued
 // (deployment-engine §2.4).
 func (a *API) RetryJob(w http.ResponseWriter, r *http.Request, jobUuid api.JobUuid, params api.RetryJobParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermJobsManage)
 	if !ok {
 		return
 	}
@@ -165,7 +165,7 @@ func (a *API) RetryJob(w http.ResponseWriter, r *http.Request, jobUuid api.JobUu
 // ForgetJob implements POST /jobs/{job_uuid}/forget (permission: write):
 // audited final closure of a dead-letter job (→ cancelled).
 func (a *API) ForgetJob(w http.ResponseWriter, r *http.Request, jobUuid api.JobUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermJobsManage)
 	if !ok {
 		return
 	}

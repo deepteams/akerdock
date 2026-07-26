@@ -58,7 +58,7 @@ func logLines(steps []store.DeploymentStep) []api.LogLine {
 // GetDeploymentLogs implements GET /deployments/{uuid}/logs (permission:
 // read): JSON page by default, SSE stream with text/event-stream (§27.24).
 func (a *API) GetDeploymentLogs(w http.ResponseWriter, r *http.Request, deploymentUuid api.DeploymentUuid, params api.GetDeploymentLogsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermDeploymentsRead)
 	if !ok {
 		return
 	}

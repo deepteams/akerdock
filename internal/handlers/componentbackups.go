@@ -59,7 +59,7 @@ func (a *API) resolveComponentBackupPlan(w http.ResponseWriter, r *http.Request,
 // ListComponentBackupPlans implements GET
 // /service-components/{uuid}/backups (permission: read).
 func (a *API) ListComponentBackupPlans(w http.ResponseWriter, r *http.Request, serviceComponentUuid api.ServiceComponentUuid, params api.ListComponentBackupPlansParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermBackupsRead)
 	if !ok {
 		return
 	}
@@ -86,7 +86,7 @@ func (a *API) ListComponentBackupPlans(w http.ResponseWriter, r *http.Request, s
 // be a database the engine knows how to dump — refused HERE with the reason,
 // never accepted and then failing at the first backup (compose-spec §10).
 func (a *API) CreateComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid api.ServiceComponentUuid, params api.CreateComponentBackupPlanParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermBackupsManage)
 	if !ok {
 		return
 	}
@@ -173,7 +173,7 @@ func (a *API) CreateComponentBackupPlan(w http.ResponseWriter, r *http.Request, 
 // GetComponentBackupPlan implements GET
 // /service-components/{uuid}/backups/{plan_uuid}.
 func (a *API) GetComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid api.ServiceComponentUuid, backupPlanUuid api.BackupPlanUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermBackupsRead)
 	if !ok {
 		return
 	}
@@ -188,7 +188,7 @@ func (a *API) GetComponentBackupPlan(w http.ResponseWriter, r *http.Request, ser
 // UpdateComponentBackupPlan implements PATCH
 // /service-components/{uuid}/backups/{plan_uuid} (permission: write).
 func (a *API) UpdateComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid api.ServiceComponentUuid, backupPlanUuid api.BackupPlanUuid, params api.UpdateComponentBackupPlanParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermBackupsManage)
 	if !ok {
 		return
 	}
@@ -211,7 +211,7 @@ func (a *API) UpdateComponentBackupPlan(w http.ResponseWriter, r *http.Request, 
 // DeleteComponentBackupPlan implements DELETE
 // /service-components/{uuid}/backups/{plan_uuid} (permission: write).
 func (a *API) DeleteComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid api.ServiceComponentUuid, backupPlanUuid api.BackupPlanUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermBackupsManage)
 	if !ok {
 		return
 	}
@@ -230,7 +230,7 @@ func (a *API) DeleteComponentBackupPlan(w http.ResponseWriter, r *http.Request, 
 // ExecuteComponentBackupPlan implements POST
 // /service-components/{uuid}/backups/{plan}/execute: 202 + job.
 func (a *API) ExecuteComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid api.ServiceComponentUuid, backupPlanUuid api.BackupPlanUuid, params api.ExecuteComponentBackupPlanParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermBackupsManage)
 	if !ok {
 		return
 	}
@@ -269,7 +269,7 @@ func (a *API) ExecuteComponentBackupPlan(w http.ResponseWriter, r *http.Request,
 // ListComponentBackupExecutions implements GET
 // /service-components/{uuid}/backups/{plan}/executions.
 func (a *API) ListComponentBackupExecutions(w http.ResponseWriter, r *http.Request, serviceComponentUuid api.ServiceComponentUuid, backupPlanUuid api.BackupPlanUuid, params api.ListComponentBackupExecutionsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermBackupsRead)
 	if !ok {
 		return
 	}
@@ -306,7 +306,7 @@ func (a *API) ListComponentBackupExecutions(w http.ResponseWriter, r *http.Reque
 // RestoreComponentBackupExecution implements POST
 // /service-components/{uuid}/backups/{plan}/executions/{execution}/restore.
 func (a *API) RestoreComponentBackupExecution(w http.ResponseWriter, r *http.Request, serviceComponentUuid api.ServiceComponentUuid, backupPlanUuid api.BackupPlanUuid, executionUuid api.ExecutionUuid, params api.RestoreComponentBackupExecutionParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermBackupsRestore)
 	if !ok {
 		return
 	}
@@ -366,7 +366,7 @@ func (a *API) RestoreComponentBackupExecution(w http.ResponseWriter, r *http.Req
 // RunComponentRestoreDrill implements POST
 // /service-components/{uuid}/backups/{plan}/drill.
 func (a *API) RunComponentRestoreDrill(w http.ResponseWriter, r *http.Request, serviceComponentUuid api.ServiceComponentUuid, backupPlanUuid api.BackupPlanUuid, params api.RunComponentRestoreDrillParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermBackupsRestore)
 	if !ok {
 		return
 	}
@@ -408,7 +408,7 @@ func (a *API) RunComponentRestoreDrill(w http.ResponseWriter, r *http.Request, s
 // ListComponentRestoreDrills implements GET
 // /service-components/{uuid}/backups/{plan}/drills.
 func (a *API) ListComponentRestoreDrills(w http.ResponseWriter, r *http.Request, serviceComponentUuid api.ServiceComponentUuid, backupPlanUuid api.BackupPlanUuid, params api.ListComponentRestoreDrillsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermBackupsRead)
 	if !ok {
 		return
 	}
