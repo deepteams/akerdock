@@ -6,6 +6,28 @@ import (
 	"testing"
 )
 
+func TestValidate(t *testing.T) {
+	// Accepted: long and not obviously weak.
+	for _, ok := range []string{"correct horse battery", "a-perfectly-fine-passphrase", "Tr0ub4dour&3xtra"} {
+		if err := Validate(ok); err != nil {
+			t.Errorf("Validate(%q) = %v, want nil", ok, err)
+		}
+	}
+	// Rejected: too short, common, or a single repeated rune.
+	for _, bad := range []string{"", "short", "elevenchars", "password1234", "PASSWORD1234", "aaaaaaaaaaaa"} {
+		var weak ErrWeakPassword
+		if err := Validate(bad); err == nil {
+			t.Errorf("Validate(%q) = nil, want a policy error", bad)
+		} else if !errors.As(err, &weak) {
+			t.Errorf("Validate(%q) error = %T, want ErrWeakPassword", bad, err)
+		}
+	}
+	// Exactly the minimum length is accepted (boundary).
+	if err := Validate(strings.Repeat("ab", MinLength/2)); err != nil {
+		t.Errorf("a %d-char varied password should pass: %v", MinLength, err)
+	}
+}
+
 type failingReader struct{}
 
 func (failingReader) Read([]byte) (int, error) { return 0, errors.New("entropy unavailable") }

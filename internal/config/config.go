@@ -15,6 +15,8 @@ import (
 	_ "time/tzdata" // IANA timezone validation inside distroless images
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/deepteams/akerdock/internal/password"
 )
 
 // Mode is the modular-monolith run mode (instance-config §2.1).
@@ -267,8 +269,8 @@ func Load(vars map[string]string, readFile func(string) ([]byte, error)) (*Confi
 		if cfg.RootName == "" || len(cfg.RootName) > 255 {
 			errs = append(errs, FieldError{"AKERDOCK_ROOT_NAME", "must be non-empty after trim and at most 255 characters"})
 		}
-		if len(cfg.RootPassword) < 12 {
-			errs = append(errs, FieldError{"AKERDOCK_ROOT_PASSWORD", "must be at least 12 characters (PRD §10.2)"})
+		if err := password.Validate(cfg.RootPassword); err != nil {
+			errs = append(errs, FieldError{"AKERDOCK_ROOT_PASSWORD", err.Error() + " (PRD §10.2)"})
 		}
 	}
 

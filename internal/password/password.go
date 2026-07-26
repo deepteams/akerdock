@@ -27,6 +27,72 @@ const (
 
 var randomReader io.Reader = rand.Reader
 
+// MinLength is the minimum password length (PRD §10.2). Length is the single
+// strongest lever against guessing; complexity rules mostly push users toward
+// predictable substitutions, so the policy is "long, and not a known-weak one".
+const MinLength = 12
+
+// commonPasswords are weak choices refused regardless of length — the handful
+// that survive a 12-char minimum (repetition, keyboard walks, obvious phrases).
+// Matched case-insensitively. Deliberately small: this is a floor, not a
+// breach-corpus check (that is a separate, network-dependent enhancement).
+var commonPasswords = map[string]bool{
+	"password":         true,
+	"passwordpassword": true,
+	"password1234":     true,
+	"password12345":    true,
+	"passw0rd12345":    true,
+	"123456789012":     true,
+	"1234567890123":    true,
+	"12345678901234":   true,
+	"qwertyuiopas":     true,
+	"qwertyuiop1234":   true,
+	"administrator":    true,
+	"administrator1":   true,
+	"letmeinletmein":   true,
+	"welcome1234567":   true,
+	"changemechangeme": true,
+	"aaaaaaaaaaaa":     true,
+}
+
+// ErrWeakPassword is returned by Validate for a password that does not meet the
+// policy. Its message is safe to show the user setting the password.
+type ErrWeakPassword struct{ Reason string }
+
+func (e ErrWeakPassword) Error() string { return e.Reason }
+
+// Validate enforces the password policy (PRD §10.2, ISO A.8.5): a minimum length
+// and a refusal of known-weak passwords. It is the single source of truth for
+// "is this password acceptable", called wherever a password is set.
+func Validate(password string) error {
+	if len(password) < MinLength {
+		return ErrWeakPassword{fmt.Sprintf("must be at least %d characters", MinLength)}
+	}
+	normalized := strings.ToLower(strings.TrimSpace(password))
+	if commonPasswords[normalized] {
+		return ErrWeakPassword{"this password is too common — choose a less predictable one"}
+	}
+	if isSingleRepeatedRune(password) {
+		return ErrWeakPassword{"this password is a single repeated character"}
+	}
+	return nil
+}
+
+// isSingleRepeatedRune reports whether every rune of s is identical (e.g.
+// "aaaaaaaaaaaa"): long, but trivially guessed.
+func isSingleRepeatedRune(s string) bool {
+	runes := []rune(s)
+	if len(runes) == 0 {
+		return false
+	}
+	for _, r := range runes[1:] {
+		if r != runes[0] {
+			return false
+		}
+	}
+	return true
+}
+
 // Hash derives an Argon2id hash and encodes it as a PHC string:
 // $argon2id$v=19$m=...,t=...,p=...$<salt b64>$<hash b64>
 func Hash(password string) (string, error) {
