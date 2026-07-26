@@ -195,6 +195,36 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /permissions:
+    get:
+      tags: [Teams]
+      operationId: listPermissions
+      summary: Catalogue des permissions granulaires
+      description: >-
+        Le catalogue des permissions granulaires (ADR-038) avec leurs prérequis :
+        de quoi construire le composeur de rôles custom côté UI. Statique — ne
+        dépend pas de la team.
+      x-required-permission: roles:read
+      responses:
+        "200":
+          description: Catalogue des permissions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PermissionCatalogEntry"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /events:
     get:
       tags: [System]
@@ -718,6 +748,190 @@ paths:
                       $ref: "#/components/schemas/TeamMember"
                   next_cursor:
                     $ref: "#/components/schemas/NextCursor"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /teams/{team_uuid}/members/{user_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/TeamUuid"
+      - $ref: "#/components/parameters/UserUuid"
+    patch:
+      tags: [Teams]
+      operationId: updateTeamMember
+      summary: Changer le rôle d'un membre
+      description: >-
+        Assigne un rôle système ou un rôle custom à un membre existant (ADR-038).
+        Le dernier admin d'une team ne peut pas être rétrogradé (protection contre
+        le verrouillage).
+      x-required-permission: members:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemberRoleUpdate"
+      responses:
+        "200":
+          description: Membre mis à jour.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamMember"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /teams/{team_uuid}/roles:
+    parameters:
+      - $ref: "#/components/parameters/TeamUuid"
+    get:
+      tags: [Teams]
+      operationId: listTeamRoles
+      summary: Lister les rôles custom d'une team
+      x-required-permission: roles:read
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page de rôles custom.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CustomRole"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      tags: [Teams]
+      operationId: createTeamRole
+      summary: Créer un rôle custom
+      x-required-permission: roles:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomRoleCreate"
+      responses:
+        "201":
+          description: Rôle créé.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomRole"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /teams/{team_uuid}/roles/{role_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/TeamUuid"
+      - $ref: "#/components/parameters/RoleUuid"
+    get:
+      tags: [Teams]
+      operationId: getTeamRole
+      summary: Détail d'un rôle custom
+      x-required-permission: roles:read
+      responses:
+        "200":
+          description: Le rôle custom.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomRole"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      tags: [Teams]
+      operationId: updateTeamRole
+      summary: Modifier un rôle custom
+      x-required-permission: roles:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomRoleUpdate"
+      responses:
+        "200":
+          description: Rôle mis à jour.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomRole"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    delete:
+      tags: [Teams]
+      operationId: deleteTeamRole
+      summary: Supprimer un rôle custom
+      description: >-
+        Supprime le rôle. Les membres qui le portaient retombent sur leur rôle
+        système de repli.
+      x-required-permission: roles:manage
+      responses:
+        "204":
+          description: Rôle supprimé.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -7306,6 +7520,20 @@ components:
       description: UUID de l'invitation.
       schema:
         type: string
+    RoleUuid:
+      name: role_uuid
+      in: path
+      required: true
+      description: UUID d'un rôle custom.
+      schema:
+        type: string
+    UserUuid:
+      name: user_uuid
+      in: path
+      required: true
+      description: UUID public d'un utilisateur (membre d'une team).
+      schema:
+        type: string
     TokenUuid:
       name: token_uuid
       in: path
@@ -7907,13 +8135,20 @@ components:
           nullable: true
         role:
           type: string
-          enum: [admin, member, reviewer]
+          enum: [admin, member, reviewer, custom]
           description: >-
-            Rôle système dans la team (ADR-038, §10.1) : `admin` (contrôle
-            complet de la team, ex-`owner` fusionné), `member` (gère les
-            ressources) ou `reviewer` (voit uniquement les PR previews). Les
-            rôles custom composés dans l'UI viendront dans une version ultérieure
-            du contrat.
+            Rôle dans la team (ADR-038, §10.1) : `admin` (contrôle complet de la
+            team, ex-`owner` fusionné), `member` (gère les ressources), `reviewer`
+            (voit uniquement les PR previews), ou `custom` (rôle composé, voir
+            `custom_role_uuid`).
+        custom_role_uuid:
+          type: string
+          nullable: true
+          description: UUID du rôle custom quand `role` vaut `custom`, sinon absent.
+        custom_role_name:
+          type: string
+          nullable: true
+          description: Nom du rôle custom quand `role` vaut `custom`, sinon absent.
         joined_at:
           type: string
           format: date-time
@@ -7976,6 +8211,117 @@ components:
           type: string
           format: date-time
           readOnly: true
+
+    CustomRole:
+      type: object
+      description: >-
+        Rôle custom d'une team (ADR-038) : un ensemble nommé de permissions
+        granulaires, composé dans l'UI. Ne peut jamais contenir de permission
+        d'instance (`instance:*`).
+      required: [uuid, name, permissions, created_at, updated_at]
+      properties:
+        uuid:
+          type: string
+          readOnly: true
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        permissions:
+          type: array
+          items:
+            type: string
+          description: >-
+            Permissions granulaires `domaine:action`, fermées sous leurs
+            prérequis (les dépendances manquantes sont ajoutées automatiquement).
+        member_count:
+          type: integer
+          readOnly: true
+          description: Nombre de membres portant ce rôle.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    CustomRoleCreate:
+      type: object
+      required: [name, permissions]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          description: Nom du rôle (unique dans la team).
+        description:
+          type: string
+          nullable: true
+        permissions:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          description: >-
+            Permissions granulaires accordées. Refusées si inconnues, si
+            d'instance (`instance:*`), ou hors des permissions du composeur
+            (anti-élévation). Les prérequis manquants sont ajoutés.
+
+    CustomRoleUpdate:
+      type: object
+      description: Mise à jour partielle d'un rôle custom.
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+        permissions:
+          type: array
+          items:
+            type: string
+          minItems: 1
+
+    MemberRoleUpdate:
+      type: object
+      description: >-
+        Change le rôle d'un membre (ADR-038). Soit un rôle système (`role`), soit
+        un rôle custom (`role: custom` + `custom_role_uuid`).
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [admin, member, reviewer, custom]
+        custom_role_uuid:
+          type: string
+          nullable: true
+          description: Requis (et seulement lu) quand `role` vaut `custom`.
+
+    PermissionCatalogEntry:
+      type: object
+      description: >-
+        Une permission granulaire du catalogue (ADR-038), avec ses prérequis —
+        de quoi construire le composeur de rôles custom côté UI.
+      required: [permission, socle, prerequisites]
+      properties:
+        permission:
+          type: string
+          description: Identifiant `domaine:action`.
+        socle:
+          type: string
+          enum: [read, "read:sensitive", write, deploy, root]
+          description: Socle coarse (§10.3).
+        instance_scoped:
+          type: boolean
+          description: Vrai si la permission est réservée à l'instance (jamais assignable à un rôle custom).
+        prerequisites:
+          type: array
+          items:
+            type: string
+          description: Permissions impliquées automatiquement (fermeture des dépendances).
 
     ApiTokenPermission:
       type: string

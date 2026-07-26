@@ -24,9 +24,11 @@ LIMIT sqlc.arg(page_limit);
 
 -- name: ListTeamMembersPage :many
 SELECT m.id AS membership_id, m.role, m.created_at AS joined_at,
-       u.uuid AS user_uuid, u.email, u.name
+       u.uuid AS user_uuid, u.email, u.name,
+       cr.uuid AS custom_role_uuid, cr.name AS custom_role_name
 FROM team_memberships m
 JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL
+LEFT JOIN custom_roles cr ON cr.id = m.custom_role_id
 WHERE m.team_id = sqlc.arg(team_id)
   AND (sqlc.arg(after_id)::bigint = 0 OR m.id < sqlc.arg(after_id))
 ORDER BY m.id DESC

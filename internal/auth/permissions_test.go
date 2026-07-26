@@ -103,7 +103,8 @@ func TestGranularConstantsInCatalog(t *testing.T) {
 		PermResourcesRead,
 		PermProjectsRead, PermProjectsManage,
 		PermEnvironmentsRead, PermEnvironmentsManage,
-		PermTeamRead, PermTeamManage, PermMembersRead, PermInvitationsManage,
+		PermTeamRead, PermTeamManage, PermMembersRead, PermMembersManage,
+		PermRolesRead, PermRolesManage, PermInvitationsManage,
 		PermTokensRead, PermTokensCreate, PermTokensRevoke,
 		PermPreviewsRead, PermPreviewsManage,
 		PermDeploymentsRead, PermDeploymentsCancel,
@@ -121,6 +122,40 @@ func TestGranularConstantsInCatalog(t *testing.T) {
 		if _, ok := Catalog[string(p)]; !ok {
 			t.Errorf("constant %q is not in Catalog", p)
 		}
+	}
+}
+
+func TestValidateCustomPermissions(t *testing.T) {
+	// An admin composes: holds every non-instance permission.
+	admin := TeamAdminPermissions()
+
+	// Happy path: a write permission is accepted and closed under its prereq.
+	got, err := ValidateCustomPermissions([]string{"applications:deploy"}, admin)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Contains(got, "applications:read") {
+		t.Errorf("closure missing prerequisite, got %v", got)
+	}
+
+	// Unknown permission is rejected.
+	if _, err := ValidateCustomPermissions([]string{"nope:read"}, admin); err == nil {
+		t.Error("unknown permission should be rejected")
+	}
+
+	// Instance-scoped permission can never be granted, even by an admin.
+	if _, err := ValidateCustomPermissions([]string{"instance:manage"}, admin); err == nil {
+		t.Error("instance-scoped permission must be rejected")
+	}
+
+	// Anti-elevation: a composer who only holds read cannot mint a write role —
+	// and the prerequisite closure is checked, not just the raw input.
+	reader := EffectivePermissions([]string{string(PermRead)})
+	if _, err := ValidateCustomPermissions([]string{"applications:read"}, reader); err != nil {
+		t.Errorf("a reader may grant a read permission: %v", err)
+	}
+	if _, err := ValidateCustomPermissions([]string{"applications:deploy"}, reader); err == nil {
+		t.Error("a reader must not be able to grant a deploy permission")
 	}
 }
 

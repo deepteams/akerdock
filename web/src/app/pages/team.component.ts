@@ -10,8 +10,17 @@ import type { components } from '../../api/schema';
 type Team = components['schemas']['Team'];
 type TeamMember = components['schemas']['TeamMember'];
 type Invitation = components['schemas']['Invitation'];
+type CustomRole = components['schemas']['CustomRole'];
+type PermissionEntry = components['schemas']['PermissionCatalogEntry'];
 
-type TeamTab = 'members' | 'pending' | 'canceled';
+type TeamTab = 'members' | 'roles' | 'pending' | 'canceled';
+
+/** A group of permissions sharing a domain (the part before the colon), for the
+ * custom-role composer. */
+interface PermissionGroup {
+  domain: string;
+  permissions: PermissionEntry[];
+}
 
 /**
  * Team members page (design kit: MembersScreen). Members, still-open
@@ -72,6 +81,19 @@ type TeamTab = 'members' | 'pending' | 'canceled';
             type="button"
             class="akd-tab"
             role="tab"
+            [class.akd-tab--active]="tab() === 'roles'"
+            [attr.aria-selected]="tab() === 'roles'"
+            (click)="tab.set('roles')"
+          >
+            Roles
+            @if (customRoles().length > 0) {
+              <span class="akd-tab__count">{{ customRoles().length }}</span>
+            }
+          </button>
+          <button
+            type="button"
+            class="akd-tab"
+            role="tab"
             [class.akd-tab--active]="tab() === 'pending'"
             [attr.aria-selected]="tab() === 'pending'"
             (click)="tab.set('pending')"
@@ -111,6 +133,7 @@ type TeamTab = 'members' | 'pending' | 'canceled';
                       <th scope="col">Member</th>
                       <th scope="col">Role</th>
                       <th scope="col">Joined</th>
+                      <th scope="col"><span class="sr-only">Actions</span></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -132,10 +155,99 @@ type TeamTab = 'members' | 'pending' | 'canceled';
                             class="akd-badge akd-badge--mono"
                             [class.akd-badge--accent]="member.role === 'admin'"
                           >
-                            {{ member.role }}
+                            {{ member.role === 'custom' ? member.custom_role_name : member.role }}
                           </span>
                         </td>
                         <td class="akd-muted">{{ member.joined_at | slice: 0 : 10 }}</td>
+                        <td class="right">
+                          <button
+                            class="akd-btn akd-btn--ghost akd-btn--sm"
+                            type="button"
+                            [disabled]="busy()"
+                            (click)="openMemberRole(member)"
+                          >
+                            Change role
+                          </button>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+            </akd-card>
+          }
+
+          @case ('roles') {
+            <akd-card [padded]="false">
+              <div class="card-head">
+                <span>Custom roles</span>
+                <button class="akd-btn akd-btn--primary akd-btn--sm" type="button" (click)="openRole(null)">
+                  <akd-icon name="plus" [size]="14" />
+                  New role
+                </button>
+              </div>
+              @if (customRoles().length === 0) {
+                <p class="akd-muted pad">
+                  No custom roles yet. A custom role is a named set of granular permissions you can
+                  assign to members, on top of the built-in admin / member / reviewer roles.
+                </p>
+              } @else {
+                <table class="akd-table">
+                  <caption class="sr-only">
+                    Custom roles of this team
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Role</th>
+                      <th scope="col">Permissions</th>
+                      <th scope="col">Members</th>
+                      <th scope="col"><span class="sr-only">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (role of customRoles(); track role.uuid) {
+                      <tr>
+                        <td>
+                          <span class="member-id">
+                            <span class="member-name">{{ role.name }}</span>
+                            @if (role.description) {
+                              <span class="sub-mono">{{ role.description }}</span>
+                            }
+                          </span>
+                        </td>
+                        <td class="akd-muted">{{ role.permissions.length }}</td>
+                        <td class="akd-muted">{{ role.member_count ?? 0 }}</td>
+                        <td class="right">
+                          <div class="menu">
+                            <button
+                              class="akd-iconbtn"
+                              type="button"
+                              [disabled]="busy()"
+                              [attr.aria-expanded]="menuFor() === role.uuid"
+                              aria-label="Role actions"
+                              (click)="toggleMenu(role.uuid!, $event)"
+                            >
+                              <akd-icon name="more-horizontal" [size]="15" />
+                            </button>
+                            @if (menuFor() === role.uuid) {
+                              <div class="menu__list" role="menu">
+                                <button class="menu__item" type="button" role="menuitem" (click)="openRole(role)">
+                                  <akd-icon name="pencil" [size]="14" />
+                                  Edit role
+                                </button>
+                                <button
+                                  class="menu__item menu__item--danger"
+                                  type="button"
+                                  role="menuitem"
+                                  (click)="deleteRole(role)"
+                                >
+                                  <akd-icon name="trash-2" [size]="14" />
+                                  Delete role
+                                </button>
+                              </div>
+                            }
+                          </div>
+                        </td>
                       </tr>
                     }
                   </tbody>
@@ -343,6 +455,102 @@ type TeamTab = 'members' | 'pending' | 'canceled';
           }
         </div>
       </akd-modal>
+
+      <akd-modal
+        [open]="memberRoleOpen()"
+        [title]="'Change role — ' + (roleMember()?.name ?? roleMember()?.email ?? '')"
+        (closed)="memberRoleOpen.set(false)"
+      >
+        @if (error(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        }
+        <form id="member-role-form" class="modal-stack" (ngSubmit)="saveMemberRole()">
+          <div class="akd-field">
+            <label class="akd-field__label" for="member-role">Role</label>
+            <div class="akd-select">
+              <select id="member-role" name="role" class="akd-input" [(ngModel)]="memberRole" [disabled]="busy()">
+                <option value="admin">admin</option>
+                <option value="member">member</option>
+                <option value="reviewer">reviewer</option>
+                @for (role of customRoles(); track role.uuid) {
+                  <option [value]="'custom:' + role.uuid">{{ role.name }} (custom)</option>
+                }
+              </select>
+            </div>
+            <span class="akd-field__hint">
+              Built-in roles or one of this team's custom roles.
+            </span>
+          </div>
+        </form>
+        <div modal-footer>
+          <button class="akd-btn akd-btn--ghost" type="button" (click)="memberRoleOpen.set(false)" [disabled]="busy()">
+            Cancel
+          </button>
+          <button class="akd-btn akd-btn--primary" type="submit" form="member-role-form" [disabled]="busy()">
+            {{ busy() ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
+      </akd-modal>
+
+      <akd-modal
+        [open]="roleOpen()"
+        [title]="editingRole() ? 'Edit custom role' : 'New custom role'"
+        (closed)="roleOpen.set(false)"
+      >
+        @if (error(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        }
+        <form id="role-form" class="modal-stack" (ngSubmit)="saveRole()">
+          <div class="akd-field">
+            <label class="akd-field__label" for="role-name">Name</label>
+            <input id="role-name" name="name" type="text" class="akd-input" [(ngModel)]="roleName" [disabled]="busy()" required />
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="role-desc">Description</label>
+            <input id="role-desc" name="description" type="text" class="akd-input" [(ngModel)]="roleDescription" [disabled]="busy()" />
+          </div>
+          <div class="akd-field">
+            <span class="akd-field__label">Permissions</span>
+            <span class="akd-field__hint">
+              Prerequisites are added automatically. Instance-wide permissions can never be granted.
+            </span>
+            <div class="composer">
+              @for (group of permissionGroups(); track group.domain) {
+                <fieldset class="composer__group">
+                  <legend>{{ group.domain }}</legend>
+                  @for (perm of group.permissions; track perm.permission) {
+                    <label class="composer__perm">
+                      <input
+                        type="checkbox"
+                        [checked]="selectedPerms().has(perm.permission)"
+                        [disabled]="busy()"
+                        (change)="togglePerm(perm)"
+                      />
+                      <span class="composer__action">{{ actionOf(perm.permission) }}</span>
+                      @if (perm.prerequisites.length > 0) {
+                        <span class="composer__prereq">needs {{ perm.prerequisites.join(', ') }}</span>
+                      }
+                    </label>
+                  }
+                </fieldset>
+              }
+            </div>
+          </div>
+        </form>
+        <div modal-footer>
+          <button class="akd-btn akd-btn--ghost" type="button" (click)="roleOpen.set(false)" [disabled]="busy()">
+            Cancel
+          </button>
+          <button
+            class="akd-btn akd-btn--primary"
+            type="submit"
+            form="role-form"
+            [disabled]="busy() || !roleName.trim() || selectedPerms().size === 0"
+          >
+            {{ busy() ? 'Saving…' : editingRole() ? 'Save role' : 'Create role' }}
+          </button>
+        </div>
+      </akd-modal>
     </div>
   `,
   styles: [
@@ -361,6 +569,61 @@ type TeamTab = 'members' | 'pending' | 'canceled';
       .footnote {
         margin: var(--space-5) 0 0;
         font-size: var(--text-xs);
+        color: var(--text-3);
+      }
+      .card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--space-4) var(--space-5);
+        border-bottom: 1px solid var(--border-2);
+        font-weight: var(--weight-semibold);
+      }
+      .right {
+        text-align: right;
+      }
+      .composer {
+        display: grid;
+        gap: var(--space-3);
+        max-height: 340px;
+        overflow-y: auto;
+        padding: var(--space-2);
+        border: 1px solid var(--border-2);
+        border-radius: var(--radius-2);
+        background: var(--bg-inset);
+      }
+      .composer__group {
+        border: 0;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 2px;
+      }
+      .composer__group legend {
+        font-family: var(--font-mono);
+        font-size: var(--text-2xs);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-3);
+        padding: 0 0 2px;
+      }
+      .composer__perm {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        padding: 2px var(--space-2);
+        border-radius: var(--radius-2);
+        cursor: pointer;
+      }
+      .composer__perm:hover {
+        background: var(--bg-2);
+      }
+      .composer__action {
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+      }
+      .composer__prereq {
+        font-size: var(--text-2xs);
         color: var(--text-3);
       }
       .member-cell {
@@ -497,6 +760,37 @@ export class TeamComponent {
   protected inviteEmail = '';
   protected inviteRole: 'admin' | 'member' | 'reviewer' = 'member';
 
+  // --- roles & permissions ---
+  protected readonly customRoles = signal<CustomRole[]>([]);
+  protected readonly permissions = signal<PermissionEntry[]>([]);
+
+  /** Composer catalogue grouped by domain, instance-scoped permissions dropped
+   * (they can never belong to a custom role). */
+  protected readonly permissionGroups = computed<PermissionGroup[]>(() => {
+    const byDomain = new Map<string, PermissionEntry[]>();
+    for (const perm of this.permissions()) {
+      if (perm.instance_scoped) continue;
+      const domain = perm.permission.split(':')[0];
+      (byDomain.get(domain) ?? byDomain.set(domain, []).get(domain)!).push(perm);
+    }
+    return [...byDomain.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([domain, permissions]) => ({ domain, permissions }));
+  });
+
+  /** Change-member-role modal. */
+  protected readonly memberRoleOpen = signal(false);
+  protected readonly roleMember = signal<TeamMember | null>(null);
+  /** Either a system role or `custom:<uuid>`. */
+  protected memberRole = 'member';
+
+  /** Create/edit custom-role modal. */
+  protected readonly roleOpen = signal(false);
+  protected readonly editingRole = signal<CustomRole | null>(null);
+  protected readonly selectedPerms = signal<Set<string>>(new Set());
+  protected roleName = '';
+  protected roleDescription = '';
+
   private readonly teamUuid = this.api.currentUser()?.teamUuid ?? null;
 
   constructor() {
@@ -582,14 +876,18 @@ export class TeamComponent {
   private async load(teamUuid: string): Promise<void> {
     try {
       const client = this.api.client();
-      const [team, members, invitations] = await Promise.all([
+      const [team, members, invitations, roles, permissions] = await Promise.all([
         client.getTeam(teamUuid),
         client.listTeamMembers(teamUuid, { limit: 100 }),
         client.listTeamInvitations(teamUuid, { limit: 100 }),
+        client.listTeamRoles(teamUuid, { limit: 100 }),
+        client.listPermissions(),
       ]);
       this.team.set(team);
       this.members.set(members.data);
       this.invitations.set(invitations.data);
+      this.customRoles.set(roles.data);
+      this.permissions.set(permissions.data);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -633,6 +931,117 @@ export class TeamComponent {
     this.error.set(null);
     try {
       await this.api.client().revokeTeamInvitation(this.teamUuid, inv.uuid);
+      await this.load(this.teamUuid);
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  // --- member role change ------------------------------------------------------
+
+  protected actionOf(permission: string): string {
+    return permission.split(':')[1] ?? permission;
+  }
+
+  protected openMemberRole(member: TeamMember): void {
+    this.error.set(null);
+    this.roleMember.set(member);
+    this.memberRole =
+      member.role === 'custom' && member.custom_role_uuid
+        ? `custom:${member.custom_role_uuid}`
+        : member.role;
+    this.memberRoleOpen.set(true);
+  }
+
+  protected async saveMemberRole(): Promise<void> {
+    const member = this.roleMember();
+    if (!this.teamUuid || !member) return;
+    const body: components['schemas']['MemberRoleUpdate'] = this.memberRole.startsWith('custom:')
+      ? { role: 'custom', custom_role_uuid: this.memberRole.slice('custom:'.length) }
+      : { role: this.memberRole as 'admin' | 'member' | 'reviewer' };
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.client().updateTeamMember(this.teamUuid, member.user_uuid, body);
+      this.memberRoleOpen.set(false);
+      await this.load(this.teamUuid);
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  // --- custom roles ------------------------------------------------------------
+
+  protected openRole(role: CustomRole | null): void {
+    this.menuFor.set(null);
+    this.error.set(null);
+    this.editingRole.set(role);
+    this.roleName = role?.name ?? '';
+    this.roleDescription = role?.description ?? '';
+    this.selectedPerms.set(new Set(role?.permissions ?? []));
+    this.roleOpen.set(true);
+  }
+
+  /** Toggle a permission, pulling in (but never auto-removing) its prerequisites
+   * — the server closes the set too, this is just immediate feedback. */
+  protected togglePerm(perm: PermissionEntry): void {
+    const next = new Set(this.selectedPerms());
+    if (next.has(perm.permission)) {
+      next.delete(perm.permission);
+    } else {
+      next.add(perm.permission);
+      for (const prereq of perm.prerequisites) next.add(prereq);
+    }
+    this.selectedPerms.set(next);
+  }
+
+  protected async saveRole(): Promise<void> {
+    if (!this.teamUuid || !this.roleName.trim() || this.selectedPerms().size === 0) return;
+    const permissions = [...this.selectedPerms()];
+    const description = this.roleDescription.trim() || null;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      const editing = this.editingRole();
+      if (editing?.uuid) {
+        await this.api
+          .client()
+          .updateTeamRole(this.teamUuid, editing.uuid, {
+            name: this.roleName.trim(),
+            description,
+            permissions,
+          });
+      } else {
+        await this.api
+          .client()
+          .createTeamRole(this.teamUuid, { name: this.roleName.trim(), description, permissions });
+      }
+      this.roleOpen.set(false);
+      await this.load(this.teamUuid);
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async deleteRole(role: CustomRole): Promise<void> {
+    this.menuFor.set(null);
+    if (!this.teamUuid || !role.uuid) return;
+    if (
+      !confirm(
+        `Delete the role "${role.name}"? Members carrying it fall back to their built-in role.`,
+      )
+    )
+      return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.client().deleteTeamRole(this.teamUuid, role.uuid);
       await this.load(this.teamUuid);
     } catch (err) {
       this.error.set(ApiService.describe(err));

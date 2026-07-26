@@ -1,6 +1,9 @@
 package auth
 
-import "sort"
+import (
+	"fmt"
+	"sort"
+)
 
 // Granular permission catalogue (ADR-038, rbac-matrix §2): the real unit of
 // authorization is a `domaine:action` permission. Each one maps to a coarse
@@ -55,6 +58,9 @@ const (
 	PermTeamManage Permission = "team:manage"
 
 	PermMembersRead      Permission = "members:read"
+	PermMembersManage    Permission = "members:manage"
+	PermRolesRead        Permission = "roles:read"
+	PermRolesManage      Permission = "roles:manage"
 	PermInvitationsManage Permission = "invitations:manage"
 
 	PermTokensRead   Permission = "tokens:read"
@@ -253,6 +259,38 @@ func TeamAdminPermissions() []string {
 		}
 	}
 	return Closure(out)
+}
+
+// ValidateCustomPermissions checks a proposed custom-role permission set
+// (ADR-038) and returns it closed under prerequisites, ready to persist. Three
+// rules, in order:
+//
+//   - every entry is a real catalogue permission (a typo would make a role that
+//     grants nothing, or worse, drifts from the contract);
+//   - none is instance-scoped (socle root): a custom role is team-scoped and can
+//     NEVER grant instance:* / root, whoever composes it;
+//   - the CLOSED set is within the composer's own permissions — anti-elevation:
+//     you cannot mint a role more powerful than yourself. The closure is checked,
+//     not the raw input, so a prerequisite the composer lacks is caught too.
+//
+// It returns the closed set, or an error naming the first offending permission.
+func ValidateCustomPermissions(perms []string, composer []string) ([]string, error) {
+	for _, p := range perms {
+		socle, ok := Catalog[p]
+		if !ok {
+			return nil, fmt.Errorf("unknown permission %q", p)
+		}
+		if socle == PermRoot {
+			return nil, fmt.Errorf("permission %q is instance-scoped and cannot be granted to a custom role", p)
+		}
+	}
+	closed := Closure(perms)
+	for _, p := range closed {
+		if !Has(composer, Permission(p)) {
+			return nil, fmt.Errorf("you cannot grant %q, a permission you do not hold", p)
+		}
+	}
+	return closed, nil
 }
 
 // ExpandGranular closes a granular permission set under its prerequisites and

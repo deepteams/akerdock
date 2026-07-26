@@ -150,9 +150,11 @@ func (q *Queries) ListInvitationsPage(ctx context.Context, arg ListInvitationsPa
 
 const listTeamMembersPage = `-- name: ListTeamMembersPage :many
 SELECT m.id AS membership_id, m.role, m.created_at AS joined_at,
-       u.uuid AS user_uuid, u.email, u.name
+       u.uuid AS user_uuid, u.email, u.name,
+       cr.uuid AS custom_role_uuid, cr.name AS custom_role_name
 FROM team_memberships m
 JOIN users u ON u.id = m.user_id AND u.deleted_at IS NULL
+LEFT JOIN custom_roles cr ON cr.id = m.custom_role_id
 WHERE m.team_id = $1
   AND ($2::bigint = 0 OR m.id < $2)
 ORDER BY m.id DESC
@@ -166,12 +168,14 @@ type ListTeamMembersPageParams struct {
 }
 
 type ListTeamMembersPageRow struct {
-	MembershipID int64
-	Role         TeamRole
-	JoinedAt     pgtype.Timestamptz
-	UserUuid     pgtype.UUID
-	Email        string
-	Name         string
+	MembershipID   int64
+	Role           TeamRole
+	JoinedAt       pgtype.Timestamptz
+	UserUuid       pgtype.UUID
+	Email          string
+	Name           string
+	CustomRoleUuid pgtype.UUID
+	CustomRoleName *string
 }
 
 func (q *Queries) ListTeamMembersPage(ctx context.Context, arg ListTeamMembersPageParams) ([]ListTeamMembersPageRow, error) {
@@ -190,6 +194,8 @@ func (q *Queries) ListTeamMembersPage(ctx context.Context, arg ListTeamMembersPa
 			&i.UserUuid,
 			&i.Email,
 			&i.Name,
+			&i.CustomRoleUuid,
+			&i.CustomRoleName,
 		); err != nil {
 			return nil, err
 		}

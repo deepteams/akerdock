@@ -77,6 +77,7 @@ type Querier interface {
 	// identities, passkeys. Unlinking the LAST one would lock the account out
 	// silently — the caller refuses when this reaches one.
 	CountCredentialsForUser(ctx context.Context, id int64) (int32, error)
+	CountCustomRoleMembers(ctx context.Context, customRoleID *int64) (int64, error)
 	CountDNSCredentialUsage(ctx context.Context, dnsCredentialID *int64) (int64, error)
 	// The concurrency cap (§20.4.3) counts everything that consumes the server.
 	CountLivePreviewsForApplication(ctx context.Context, applicationID int64) (int64, error)
@@ -100,6 +101,9 @@ type Querier interface {
 	// How many events this rule swallowed since its last send — an aggregated
 	// alert must be able to say "and 12 others" rather than hide them (ADR-019).
 	CountSuppressedSince(ctx context.Context, arg CountSuppressedSinceParams) (int64, error)
+	// Effective admins: a member carrying a custom role is NOT an admin, whatever the
+	// fallback role column says. Guards against removing the last admin.
+	CountTeamAdmins(ctx context.Context, teamID int64) (int64, error)
 	// Queries used by the startup sequence (instance-config §6).
 	CountUsers(ctx context.Context) (int64, error)
 	// Adoption (§20.7): external_name keeps the original Docker volume name so
@@ -121,6 +125,9 @@ type Querier interface {
 	// SERVICE_FQDN_<ID> in the file is a declaration of intent — the domain is
 	// created from the server wildcard at first deployment.
 	CreateComponentDomain(ctx context.Context, arg CreateComponentDomainParams) (Domain, error)
+	// Rôles custom d'une team (ADR-038). Composés à partir des permissions
+	// granulaires du catalogue ; toujours team-scoped par team_id + uuid.
+	CreateCustomRole(ctx context.Context, arg CreateCustomRoleParams) (CustomRole, error)
 	// DNS-01 credentials (proxy-contract §7.2). The config is never selected back
 	// out to the API: it is decrypted only to be materialized on the server.
 	CreateDNSCredential(ctx context.Context, arg CreateDNSCredentialParams) (CloudCredential, error)
@@ -225,6 +232,7 @@ type Querier interface {
 	// application: the (fqdn, path) uniqueness is GLOBAL and hard (INV-002) — a
 	// surviving row locks the URL against any future application, forever.
 	DeleteComponentDomainsForResource(ctx context.Context, resourceID int64) error
+	DeleteCustomRole(ctx context.Context, arg DeleteCustomRoleParams) (int64, error)
 	DeleteDomainsForApplication(ctx context.Context, applicationID *int64) error
 	DeleteEnvVar(ctx context.Context, id int64) (int64, error)
 	DeleteEnvVarsNotInKeys(ctx context.Context, arg DeleteEnvVarsNotInKeysParams) error
@@ -292,6 +300,7 @@ type Querier interface {
 	// component, its stack resource (container names derive from its uuid) and
 	// the server behind the stack's destination.
 	GetComponentBackupTarget(ctx context.Context, id int64) (GetComponentBackupTargetRow, error)
+	GetCustomRoleByUUID(ctx context.Context, arg GetCustomRoleByUUIDParams) (CustomRole, error)
 	GetDNSCredentialByID(ctx context.Context, id int64) (CloudCredential, error)
 	GetDNSCredentialByUUID(ctx context.Context, arg GetDNSCredentialByUUIDParams) (CloudCredential, error)
 	GetDatabaseByID(ctx context.Context, id int64) (GetDatabaseByIDRow, error)
@@ -398,10 +407,14 @@ type Querier interface {
 	// ordering, opaque cursor carrying the last seen internal id.
 	GetTeamByID(ctx context.Context, id int64) (Team, error)
 	GetTeamByUUID(ctx context.Context, uuid pgtype.UUID) (Team, error)
+	// Member role management (ADR-038).
+	GetTeamMemberByUUID(ctx context.Context, arg GetTeamMemberByUUIDParams) (GetTeamMemberByUUIDRow, error)
 	// The team a session acts in, with its role and public UUID (the dashboard
 	// addresses team endpoints by UUID). Falls back to the personal team.
 	// Carries the user's instance-root flag (users.is_root) so the session identity
 	// can gate instance-wide settings (rbac-matrix §3.5).
+	// A custom role (custom_role_id), when set, OVERRIDES the system role: its
+	// granular permissions are carried back for the session identity (ADR-038).
 	GetTeamMembershipForUser(ctx context.Context, userID int64) (GetTeamMembershipForUserRow, error)
 	GetUptimeCheckByUUID(ctx context.Context, arg GetUptimeCheckByUUIDParams) (UptimeCheck, error)
 	// Browser sessions (PRD §698).
@@ -459,6 +472,7 @@ type Querier interface {
 	// Cleanup-enabled, ready servers (§3.7). The scheduler owns the cron window
 	// (cleanup_next_run_at) exactly like the backup plans.
 	ListCleanupSchedulableServers(ctx context.Context) ([]Server, error)
+	ListCustomRolesPage(ctx context.Context, arg ListCustomRolesPageParams) ([]CustomRole, error)
 	ListDNSCredentialsPage(ctx context.Context, arg ListDNSCredentialsPageParams) ([]CloudCredential, error)
 	ListDatabaseCredentialsToRotate(ctx context.Context, arg ListDatabaseCredentialsToRotateParams) ([]ListDatabaseCredentialsToRotateRow, error)
 	ListDatabasesPage(ctx context.Context, arg ListDatabasesPageParams) ([]ListDatabasesPageRow, error)
@@ -812,6 +826,9 @@ type Querier interface {
 	// an explicit null means "no publish step anymore", a COALESCE would keep it.
 	UpdateBuildConfigGitPipeline(ctx context.Context, arg UpdateBuildConfigGitPipelineParams) error
 	UpdateBuildConfigSource(ctx context.Context, arg UpdateBuildConfigSourceParams) error
+	// Partial update: name/description/permissions. Permissions arrive already
+	// validated and closed under prerequisites by the handler.
+	UpdateCustomRole(ctx context.Context, arg UpdateCustomRoleParams) (CustomRole, error)
 	UpdateDatabasePassword(ctx context.Context, arg UpdateDatabasePasswordParams) error
 	UpdateDatabaseRow(ctx context.Context, arg UpdateDatabaseRowParams) error
 	UpdateEnvVar(ctx context.Context, arg UpdateEnvVarParams) (EnvironmentVariable, error)
@@ -833,6 +850,10 @@ type Querier interface {
 	UpdateSharedVariable(ctx context.Context, arg UpdateSharedVariableParams) (int64, error)
 	// Partial update of a team's name/description (§10.1).
 	UpdateTeam(ctx context.Context, arg UpdateTeamParams) (Team, error)
+	// Set a member's system role and (re)assign or clear its custom role. When
+	// custom_role_id is non-null it overrides the system role at resolution time;
+	// role is kept as the fallback. Team-scoped by the member's user UUID.
+	UpdateTeamMemberRole(ctx context.Context, arg UpdateTeamMemberRoleParams) (int64, error)
 	UpdateUptimeCheck(ctx context.Context, arg UpdateUptimeCheckParams) (int64, error)
 	// Certificates: observed reflection of the server state (§18.3).
 	UpsertCertificate(ctx context.Context, arg UpsertCertificateParams) error

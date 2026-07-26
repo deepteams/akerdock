@@ -84,25 +84,25 @@ func (e AdoptionScanStatus) Valid() bool {
 
 // Defines values for ApiTokenPermission.
 const (
-	Deploy        ApiTokenPermission = "deploy"
-	Read          ApiTokenPermission = "read"
-	ReadSensitive ApiTokenPermission = "read:sensitive"
-	Root          ApiTokenPermission = "root"
-	Write         ApiTokenPermission = "write"
+	ApiTokenPermissionDeploy        ApiTokenPermission = "deploy"
+	ApiTokenPermissionRead          ApiTokenPermission = "read"
+	ApiTokenPermissionReadSensitive ApiTokenPermission = "read:sensitive"
+	ApiTokenPermissionRoot          ApiTokenPermission = "root"
+	ApiTokenPermissionWrite         ApiTokenPermission = "write"
 )
 
 // Valid indicates whether the value is a known member of the ApiTokenPermission enum.
 func (e ApiTokenPermission) Valid() bool {
 	switch e {
-	case Deploy:
+	case ApiTokenPermissionDeploy:
 		return true
-	case Read:
+	case ApiTokenPermissionRead:
 		return true
-	case ReadSensitive:
+	case ApiTokenPermissionReadSensitive:
 		return true
-	case Root:
+	case ApiTokenPermissionRoot:
 		return true
-	case Write:
+	case ApiTokenPermissionWrite:
 		return true
 	default:
 		return false
@@ -369,22 +369,22 @@ func (e BackupPlanLastExecutionStatus) Valid() bool {
 
 // Defines values for CertificateKind.
 const (
-	AcmeDns01  CertificateKind = "acme_dns01"
-	AcmeHttp01 CertificateKind = "acme_http01"
-	Custom     CertificateKind = "custom"
-	SelfSigned CertificateKind = "self_signed"
+	CertificateKindAcmeDns01  CertificateKind = "acme_dns01"
+	CertificateKindAcmeHttp01 CertificateKind = "acme_http01"
+	CertificateKindCustom     CertificateKind = "custom"
+	CertificateKindSelfSigned CertificateKind = "self_signed"
 )
 
 // Valid indicates whether the value is a known member of the CertificateKind enum.
 func (e CertificateKind) Valid() bool {
 	switch e {
-	case AcmeDns01:
+	case CertificateKindAcmeDns01:
 		return true
-	case AcmeHttp01:
+	case CertificateKindAcmeHttp01:
 		return true
-	case Custom:
+	case CertificateKindCustom:
 		return true
-	case SelfSigned:
+	case CertificateKindSelfSigned:
 		return true
 	default:
 		return false
@@ -880,6 +880,30 @@ func (e LogLineChannel) Valid() bool {
 	}
 }
 
+// Defines values for MemberRoleUpdateRole.
+const (
+	MemberRoleUpdateRoleAdmin    MemberRoleUpdateRole = "admin"
+	MemberRoleUpdateRoleCustom   MemberRoleUpdateRole = "custom"
+	MemberRoleUpdateRoleMember   MemberRoleUpdateRole = "member"
+	MemberRoleUpdateRoleReviewer MemberRoleUpdateRole = "reviewer"
+)
+
+// Valid indicates whether the value is a known member of the MemberRoleUpdateRole enum.
+func (e MemberRoleUpdateRole) Valid() bool {
+	switch e {
+	case MemberRoleUpdateRoleAdmin:
+		return true
+	case MemberRoleUpdateRoleCustom:
+		return true
+	case MemberRoleUpdateRoleMember:
+		return true
+	case MemberRoleUpdateRoleReviewer:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NotificationChannelKind.
 const (
 	NotificationChannelKindDiscord  NotificationChannelKind = "discord"
@@ -1042,6 +1066,33 @@ func (e ObservedStatus) Valid() bool {
 	case ObservedStatusUnhealthy:
 		return true
 	case ObservedStatusUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PermissionCatalogEntrySocle.
+const (
+	PermissionCatalogEntrySocleDeploy        PermissionCatalogEntrySocle = "deploy"
+	PermissionCatalogEntrySocleRead          PermissionCatalogEntrySocle = "read"
+	PermissionCatalogEntrySocleReadSensitive PermissionCatalogEntrySocle = "read:sensitive"
+	PermissionCatalogEntrySocleRoot          PermissionCatalogEntrySocle = "root"
+	PermissionCatalogEntrySocleWrite         PermissionCatalogEntrySocle = "write"
+)
+
+// Valid indicates whether the value is a known member of the PermissionCatalogEntrySocle enum.
+func (e PermissionCatalogEntrySocle) Valid() bool {
+	switch e {
+	case PermissionCatalogEntrySocleDeploy:
+		return true
+	case PermissionCatalogEntrySocleRead:
+		return true
+	case PermissionCatalogEntrySocleReadSensitive:
+		return true
+	case PermissionCatalogEntrySocleRoot:
+		return true
+	case PermissionCatalogEntrySocleWrite:
 		return true
 	default:
 		return false
@@ -1486,6 +1537,7 @@ func (e TaskOverlapPolicy) Valid() bool {
 // Defines values for TeamMemberRole.
 const (
 	Admin    TeamMemberRole = "admin"
+	Custom   TeamMemberRole = "custom"
 	Member   TeamMemberRole = "member"
 	Reviewer TeamMemberRole = "reviewer"
 )
@@ -1494,6 +1546,8 @@ const (
 func (e TeamMemberRole) Valid() bool {
 	switch e {
 	case Admin:
+		return true
+	case Custom:
 		return true
 	case Member:
 		return true
@@ -2715,6 +2769,39 @@ type ComponentMetric struct {
 	Running *bool `json:"running,omitempty"`
 }
 
+// CustomRole Rôle custom d'une team (ADR-038) : un ensemble nommé de permissions granulaires, composé dans l'UI. Ne peut jamais contenir de permission d'instance (`instance:*`).
+type CustomRole struct {
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	Description *string    `json:"description,omitempty"`
+
+	// MemberCount Nombre de membres portant ce rôle.
+	MemberCount *int   `json:"member_count,omitempty"`
+	Name        string `json:"name"`
+
+	// Permissions Permissions granulaires `domaine:action`, fermées sous leurs prérequis (les dépendances manquantes sont ajoutées automatiquement).
+	Permissions []string   `json:"permissions"`
+	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
+	Uuid        *string    `json:"uuid,omitempty"`
+}
+
+// CustomRoleCreate defines model for CustomRoleCreate.
+type CustomRoleCreate struct {
+	Description *string `json:"description,omitempty"`
+
+	// Name Nom du rôle (unique dans la team).
+	Name string `json:"name"`
+
+	// Permissions Permissions granulaires accordées. Refusées si inconnues, si d'instance (`instance:*`), ou hors des permissions du composeur (anti-élévation). Les prérequis manquants sont ajoutés.
+	Permissions []string `json:"permissions"`
+}
+
+// CustomRoleUpdate Mise à jour partielle d'un rôle custom.
+type CustomRoleUpdate struct {
+	Description *string   `json:"description,omitempty"`
+	Name        *string   `json:"name,omitempty"`
+	Permissions *[]string `json:"permissions,omitempty"`
+}
+
 // Database Base de données managée (§6, v1 — PostgreSQL). Les champs `postgres_password`, `internal_url` et `external_url` contiennent des credentials — `null` sans `read:sensitive` (INV-003), `is_redacted` l'indique.
 type Database struct {
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
@@ -3309,6 +3396,16 @@ type LogLine struct {
 // LogLineChannel Origine de la ligne (`system` = étapes du moteur de déploiement).
 type LogLineChannel string
 
+// MemberRoleUpdate Change le rôle d'un membre (ADR-038). Soit un rôle système (`role`), soit un rôle custom (`role: custom` + `custom_role_uuid`).
+type MemberRoleUpdate struct {
+	// CustomRoleUuid Requis (et seulement lu) quand `role` vaut `custom`.
+	CustomRoleUuid *string              `json:"custom_role_uuid,omitempty"`
+	Role           MemberRoleUpdateRole `json:"role"`
+}
+
+// MemberRoleUpdateRole defines model for MemberRoleUpdate.Role.
+type MemberRoleUpdateRole string
+
 // NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
 type NextCursor = string
 
@@ -3434,6 +3531,24 @@ type OauthProviderSet struct {
 
 // ObservedStatus État observé d'une ressource (§21.2) — `unknown` si l'observation est trop ancienne (stale).
 type ObservedStatus string
+
+// PermissionCatalogEntry Une permission granulaire du catalogue (ADR-038), avec ses prérequis — de quoi construire le composeur de rôles custom côté UI.
+type PermissionCatalogEntry struct {
+	// InstanceScoped Vrai si la permission est réservée à l'instance (jamais assignable à un rôle custom).
+	InstanceScoped *bool `json:"instance_scoped,omitempty"`
+
+	// Permission Identifiant `domaine:action`.
+	Permission string `json:"permission"`
+
+	// Prerequisites Permissions impliquées automatiquement (fermeture des dépendances).
+	Prerequisites []string `json:"prerequisites"`
+
+	// Socle Socle coarse (§10.3).
+	Socle PermissionCatalogEntrySocle `json:"socle"`
+}
+
+// PermissionCatalogEntrySocle Socle coarse (§10.3).
+type PermissionCatalogEntrySocle string
 
 // PersistentStorage Stockage persistant d'une application (§8) — les données survivent aux déploiements.
 type PersistentStorage struct {
@@ -4161,16 +4276,21 @@ type Team struct {
 
 // TeamMember Appartenance d'un utilisateur à une team.
 type TeamMember struct {
-	Email    openapi_types.Email `json:"email"`
-	JoinedAt time.Time           `json:"joined_at"`
-	Name     *string             `json:"name,omitempty"`
+	// CustomRoleName Nom du rôle custom quand `role` vaut `custom`, sinon absent.
+	CustomRoleName *string `json:"custom_role_name,omitempty"`
 
-	// Role Rôle système dans la team (ADR-038, §10.1) : `admin` (contrôle complet de la team, ex-`owner` fusionné), `member` (gère les ressources) ou `reviewer` (voit uniquement les PR previews). Les rôles custom composés dans l'UI viendront dans une version ultérieure du contrat.
+	// CustomRoleUuid UUID du rôle custom quand `role` vaut `custom`, sinon absent.
+	CustomRoleUuid *string             `json:"custom_role_uuid,omitempty"`
+	Email          openapi_types.Email `json:"email"`
+	JoinedAt       time.Time           `json:"joined_at"`
+	Name           *string             `json:"name,omitempty"`
+
+	// Role Rôle dans la team (ADR-038, §10.1) : `admin` (contrôle complet de la team, ex-`owner` fusionné), `member` (gère les ressources), `reviewer` (voit uniquement les PR previews), ou `custom` (rôle composé, voir `custom_role_uuid`).
 	Role     TeamMemberRole `json:"role"`
 	UserUuid string         `json:"user_uuid"`
 }
 
-// TeamMemberRole Rôle système dans la team (ADR-038, §10.1) : `admin` (contrôle complet de la team, ex-`owner` fusionné), `member` (gère les ressources) ou `reviewer` (voit uniquement les PR previews). Les rôles custom composés dans l'UI viendront dans une version ultérieure du contrat.
+// TeamMemberRole Rôle dans la team (ADR-038, §10.1) : `admin` (contrôle complet de la team, ex-`owner` fusionné), `member` (gère les ressources), `reviewer` (voit uniquement les PR previews), ou `custom` (rôle composé, voir `custom_role_uuid`).
 type TeamMemberRole string
 
 // TeamUpdate Mise à jour partielle d'une team.
@@ -4458,6 +4578,9 @@ type ProjectUuid = string
 // RegistryCredentialUuid defines model for RegistryCredentialUuid.
 type RegistryCredentialUuid = string
 
+// RoleUuid defines model for RoleUuid.
+type RoleUuid = string
+
 // S3StorageUuid defines model for S3StorageUuid.
 type S3StorageUuid = string
 
@@ -4487,6 +4610,9 @@ type TokenUuid = string
 
 // UptimeCheckUuid defines model for UptimeCheckUuid.
 type UptimeCheckUuid = string
+
+// UserUuid defines model for UserUuid.
+type UserUuid = string
 
 // WebhookForce defines model for WebhookForce.
 type WebhookForce = bool
@@ -5312,6 +5438,15 @@ type ListTeamMembersParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListTeamRolesParams defines parameters for ListTeamRoles.
+type ListTeamRolesParams struct {
+	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Nombre maximal d'éléments par page (1 à 100).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListApiTokensParams defines parameters for ListApiTokens.
 type ListApiTokensParams struct {
 	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
@@ -5521,6 +5656,15 @@ type UpdateTeamJSONRequestBody = TeamUpdate
 
 // CreateTeamInvitationJSONRequestBody defines body for CreateTeamInvitation for application/json ContentType.
 type CreateTeamInvitationJSONRequestBody = InvitationCreate
+
+// UpdateTeamMemberJSONRequestBody defines body for UpdateTeamMember for application/json ContentType.
+type UpdateTeamMemberJSONRequestBody = MemberRoleUpdate
+
+// CreateTeamRoleJSONRequestBody defines body for CreateTeamRole for application/json ContentType.
+type CreateTeamRoleJSONRequestBody = CustomRoleCreate
+
+// UpdateTeamRoleJSONRequestBody defines body for UpdateTeamRole for application/json ContentType.
+type UpdateTeamRoleJSONRequestBody = CustomRoleUpdate
 
 // CreateApiTokenJSONRequestBody defines body for CreateApiToken for application/json ContentType.
 type CreateApiTokenJSONRequestBody = ApiTokenCreate
@@ -5937,6 +6081,9 @@ type ServerInterface interface {
 	// Envoyer un message de test
 	// (POST /notification-channels/{channel_uuid}/test)
 	TestNotificationChannel(w http.ResponseWriter, r *http.Request, channelUuid ChannelUuid)
+	// Catalogue des permissions granulaires
+	// (GET /permissions)
+	ListPermissions(w http.ResponseWriter, r *http.Request)
 	// Lister les clés privées
 	// (GET /private-keys)
 	ListPrivateKeys(w http.ResponseWriter, r *http.Request, params ListPrivateKeysParams)
@@ -6231,6 +6378,24 @@ type ServerInterface interface {
 	// Lister les membres d'une team
 	// (GET /teams/{team_uuid}/members)
 	ListTeamMembers(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamMembersParams)
+	// Changer le rôle d'un membre
+	// (PATCH /teams/{team_uuid}/members/{user_uuid})
+	UpdateTeamMember(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, userUuid UserUuid)
+	// Lister les rôles custom d'une team
+	// (GET /teams/{team_uuid}/roles)
+	ListTeamRoles(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamRolesParams)
+	// Créer un rôle custom
+	// (POST /teams/{team_uuid}/roles)
+	CreateTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid)
+	// Supprimer un rôle custom
+	// (DELETE /teams/{team_uuid}/roles/{role_uuid})
+	DeleteTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid)
+	// Détail d'un rôle custom
+	// (GET /teams/{team_uuid}/roles/{role_uuid})
+	GetTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid)
+	// Modifier un rôle custom
+	// (PATCH /teams/{team_uuid}/roles/{role_uuid})
+	UpdateTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid)
 	// Lister les tokens API
 	// (GET /teams/{team_uuid}/tokens)
 	ListApiTokens(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListApiTokensParams)
@@ -6837,6 +7002,12 @@ func (_ Unimplemented) TestNotificationChannel(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Catalogue des permissions granulaires
+// (GET /permissions)
+func (_ Unimplemented) ListPermissions(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Lister les clés privées
 // (GET /private-keys)
 func (_ Unimplemented) ListPrivateKeys(w http.ResponseWriter, r *http.Request, params ListPrivateKeysParams) {
@@ -7422,6 +7593,42 @@ func (_ Unimplemented) ResendTeamInvitation(w http.ResponseWriter, r *http.Reque
 // Lister les membres d'une team
 // (GET /teams/{team_uuid}/members)
 func (_ Unimplemented) ListTeamMembers(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamMembersParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Changer le rôle d'un membre
+// (PATCH /teams/{team_uuid}/members/{user_uuid})
+func (_ Unimplemented) UpdateTeamMember(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, userUuid UserUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Lister les rôles custom d'une team
+// (GET /teams/{team_uuid}/roles)
+func (_ Unimplemented) ListTeamRoles(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamRolesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Créer un rôle custom
+// (POST /teams/{team_uuid}/roles)
+func (_ Unimplemented) CreateTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Supprimer un rôle custom
+// (DELETE /teams/{team_uuid}/roles/{role_uuid})
+func (_ Unimplemented) DeleteTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Détail d'un rôle custom
+// (GET /teams/{team_uuid}/roles/{role_uuid})
+func (_ Unimplemented) GetTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Modifier un rôle custom
+// (PATCH /teams/{team_uuid}/roles/{role_uuid})
+func (_ Unimplemented) UpdateTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -11998,6 +12205,26 @@ func (siw *ServerInterfaceWrapper) TestNotificationChannel(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// ListPermissions operation middleware
+func (siw *ServerInterfaceWrapper) ListPermissions(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPermissions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListPrivateKeys operation middleware
 func (siw *ServerInterfaceWrapper) ListPrivateKeys(w http.ResponseWriter, r *http.Request) {
 
@@ -16366,6 +16593,263 @@ func (siw *ServerInterfaceWrapper) ListTeamMembers(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// UpdateTeamMember operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTeamMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "team_uuid" -------------
+	var teamUuid TeamUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "user_uuid" -------------
+	var userUuid UserUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "user_uuid", chi.URLParam(r, "user_uuid"), &userUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateTeamMember(w, r, teamUuid, userUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListTeamRoles operation middleware
+func (siw *ServerInterfaceWrapper) ListTeamRoles(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "team_uuid" -------------
+	var teamUuid TeamUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTeamRolesParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTeamRoles(w, r, teamUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateTeamRole operation middleware
+func (siw *ServerInterfaceWrapper) CreateTeamRole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "team_uuid" -------------
+	var teamUuid TeamUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateTeamRole(w, r, teamUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteTeamRole operation middleware
+func (siw *ServerInterfaceWrapper) DeleteTeamRole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "team_uuid" -------------
+	var teamUuid TeamUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "role_uuid" -------------
+	var roleUuid RoleUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "role_uuid", chi.URLParam(r, "role_uuid"), &roleUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "role_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteTeamRole(w, r, teamUuid, roleUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTeamRole operation middleware
+func (siw *ServerInterfaceWrapper) GetTeamRole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "team_uuid" -------------
+	var teamUuid TeamUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "role_uuid" -------------
+	var roleUuid RoleUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "role_uuid", chi.URLParam(r, "role_uuid"), &roleUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "role_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTeamRole(w, r, teamUuid, roleUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateTeamRole operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTeamRole(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "team_uuid" -------------
+	var teamUuid TeamUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "role_uuid" -------------
+	var roleUuid RoleUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "role_uuid", chi.URLParam(r, "role_uuid"), &roleUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "role_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateTeamRole(w, r, teamUuid, roleUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListApiTokens operation middleware
 func (siw *ServerInterfaceWrapper) ListApiTokens(w http.ResponseWriter, r *http.Request) {
 
@@ -17227,6 +17711,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/notification-channels/{channel_uuid}/test", wrapper.TestNotificationChannel)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/permissions", wrapper.ListPermissions)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/private-keys", wrapper.ListPrivateKeys)
 	})
 	r.Group(func(r chi.Router) {
@@ -17519,6 +18006,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{team_uuid}/members", wrapper.ListTeamMembers)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/teams/{team_uuid}/members/{user_uuid}", wrapper.UpdateTeamMember)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{team_uuid}/roles", wrapper.ListTeamRoles)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/teams/{team_uuid}/roles", wrapper.CreateTeamRole)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/teams/{team_uuid}/roles/{role_uuid}", wrapper.DeleteTeamRole)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{team_uuid}/roles/{role_uuid}", wrapper.GetTeamRole)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/teams/{team_uuid}/roles/{role_uuid}", wrapper.UpdateTeamRole)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{team_uuid}/tokens", wrapper.ListApiTokens)
@@ -26813,6 +27318,74 @@ func (response TestNotificationChannel429JSONResponse) VisitTestNotificationChan
 	return err
 }
 
+type ListPermissionsRequestObject struct {
+}
+
+type ListPermissionsResponseObject interface {
+	VisitListPermissionsResponse(w http.ResponseWriter) error
+}
+
+type ListPermissions200JSONResponse struct {
+	Data []PermissionCatalogEntry `json:"data"`
+}
+
+func (response ListPermissions200JSONResponse) VisitListPermissionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPermissions401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListPermissions401JSONResponse) VisitListPermissionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPermissions403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListPermissions403JSONResponse) VisitListPermissionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPermissions429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListPermissions429JSONResponse) VisitListPermissionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListPrivateKeysRequestObject struct {
 	Params ListPrivateKeysParams
 }
@@ -36053,6 +36626,631 @@ func (response ListTeamMembers429JSONResponse) VisitListTeamMembersResponse(w ht
 	return err
 }
 
+type UpdateTeamMemberRequestObject struct {
+	TeamUuid TeamUuid `json:"team_uuid"`
+	UserUuid UserUuid `json:"user_uuid"`
+	Body     *UpdateTeamMemberJSONRequestBody
+}
+
+type UpdateTeamMemberResponseObject interface {
+	VisitUpdateTeamMemberResponse(w http.ResponseWriter) error
+}
+
+type UpdateTeamMember200JSONResponse TeamMember
+
+func (response UpdateTeamMember200JSONResponse) VisitUpdateTeamMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeamMember400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateTeamMember400JSONResponse) VisitUpdateTeamMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeamMember401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateTeamMember401JSONResponse) VisitUpdateTeamMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeamMember403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateTeamMember403JSONResponse) VisitUpdateTeamMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeamMember404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateTeamMember404JSONResponse) VisitUpdateTeamMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeamMember409JSONResponse struct{ ConflictJSONResponse }
+
+func (response UpdateTeamMember409JSONResponse) VisitUpdateTeamMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeamMember422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response UpdateTeamMember422JSONResponse) VisitUpdateTeamMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeamMember429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response UpdateTeamMember429JSONResponse) VisitUpdateTeamMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTeamRolesRequestObject struct {
+	TeamUuid TeamUuid `json:"team_uuid"`
+	Params   ListTeamRolesParams
+}
+
+type ListTeamRolesResponseObject interface {
+	VisitListTeamRolesResponse(w http.ResponseWriter) error
+}
+
+type ListTeamRoles200JSONResponse struct {
+	Data []CustomRole `json:"data"`
+
+	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListTeamRoles200JSONResponse) VisitListTeamRolesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTeamRoles401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListTeamRoles401JSONResponse) VisitListTeamRolesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTeamRoles403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListTeamRoles403JSONResponse) VisitListTeamRolesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTeamRoles404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListTeamRoles404JSONResponse) VisitListTeamRolesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTeamRoles429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListTeamRoles429JSONResponse) VisitListTeamRolesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTeamRoleRequestObject struct {
+	TeamUuid TeamUuid `json:"team_uuid"`
+	Body     *CreateTeamRoleJSONRequestBody
+}
+
+type CreateTeamRoleResponseObject interface {
+	VisitCreateTeamRoleResponse(w http.ResponseWriter) error
+}
+
+type CreateTeamRole201JSONResponse CustomRole
+
+func (response CreateTeamRole201JSONResponse) VisitCreateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTeamRole400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateTeamRole400JSONResponse) VisitCreateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTeamRole401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateTeamRole401JSONResponse) VisitCreateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTeamRole403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateTeamRole403JSONResponse) VisitCreateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTeamRole404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateTeamRole404JSONResponse) VisitCreateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTeamRole409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateTeamRole409JSONResponse) VisitCreateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTeamRole422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response CreateTeamRole422JSONResponse) VisitCreateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTeamRole429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateTeamRole429JSONResponse) VisitCreateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTeamRoleRequestObject struct {
+	TeamUuid TeamUuid `json:"team_uuid"`
+	RoleUuid RoleUuid `json:"role_uuid"`
+}
+
+type DeleteTeamRoleResponseObject interface {
+	VisitDeleteTeamRoleResponse(w http.ResponseWriter) error
+}
+
+type DeleteTeamRole204Response struct {
+}
+
+func (response DeleteTeamRole204Response) VisitDeleteTeamRoleResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteTeamRole401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteTeamRole401JSONResponse) VisitDeleteTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTeamRole403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteTeamRole403JSONResponse) VisitDeleteTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTeamRole404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteTeamRole404JSONResponse) VisitDeleteTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteTeamRole429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response DeleteTeamRole429JSONResponse) VisitDeleteTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTeamRoleRequestObject struct {
+	TeamUuid TeamUuid `json:"team_uuid"`
+	RoleUuid RoleUuid `json:"role_uuid"`
+}
+
+type GetTeamRoleResponseObject interface {
+	VisitGetTeamRoleResponse(w http.ResponseWriter) error
+}
+
+type GetTeamRole200JSONResponse CustomRole
+
+func (response GetTeamRole200JSONResponse) VisitGetTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTeamRole401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetTeamRole401JSONResponse) VisitGetTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTeamRole403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetTeamRole403JSONResponse) VisitGetTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTeamRole404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetTeamRole404JSONResponse) VisitGetTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTeamRole429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetTeamRole429JSONResponse) VisitGetTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeamRoleRequestObject struct {
+	TeamUuid TeamUuid `json:"team_uuid"`
+	RoleUuid RoleUuid `json:"role_uuid"`
+	Body     *UpdateTeamRoleJSONRequestBody
+}
+
+type UpdateTeamRoleResponseObject interface {
+	VisitUpdateTeamRoleResponse(w http.ResponseWriter) error
+}
+
+type UpdateTeamRole200JSONResponse CustomRole
+
+func (response UpdateTeamRole200JSONResponse) VisitUpdateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeamRole400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateTeamRole400JSONResponse) VisitUpdateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeamRole401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateTeamRole401JSONResponse) VisitUpdateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeamRole403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateTeamRole403JSONResponse) VisitUpdateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeamRole404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateTeamRole404JSONResponse) VisitUpdateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeamRole409JSONResponse struct{ ConflictJSONResponse }
+
+func (response UpdateTeamRole409JSONResponse) VisitUpdateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeamRole422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response UpdateTeamRole422JSONResponse) VisitUpdateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeamRole429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response UpdateTeamRole429JSONResponse) VisitUpdateTeamRoleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListApiTokensRequestObject struct {
 	TeamUuid TeamUuid `json:"team_uuid"`
 	Params   ListApiTokensParams
@@ -37280,6 +38478,9 @@ type StrictServerInterface interface {
 	// Envoyer un message de test
 	// (POST /notification-channels/{channel_uuid}/test)
 	TestNotificationChannel(ctx context.Context, request TestNotificationChannelRequestObject) (TestNotificationChannelResponseObject, error)
+	// Catalogue des permissions granulaires
+	// (GET /permissions)
+	ListPermissions(ctx context.Context, request ListPermissionsRequestObject) (ListPermissionsResponseObject, error)
 	// Lister les clés privées
 	// (GET /private-keys)
 	ListPrivateKeys(ctx context.Context, request ListPrivateKeysRequestObject) (ListPrivateKeysResponseObject, error)
@@ -37574,6 +38775,24 @@ type StrictServerInterface interface {
 	// Lister les membres d'une team
 	// (GET /teams/{team_uuid}/members)
 	ListTeamMembers(ctx context.Context, request ListTeamMembersRequestObject) (ListTeamMembersResponseObject, error)
+	// Changer le rôle d'un membre
+	// (PATCH /teams/{team_uuid}/members/{user_uuid})
+	UpdateTeamMember(ctx context.Context, request UpdateTeamMemberRequestObject) (UpdateTeamMemberResponseObject, error)
+	// Lister les rôles custom d'une team
+	// (GET /teams/{team_uuid}/roles)
+	ListTeamRoles(ctx context.Context, request ListTeamRolesRequestObject) (ListTeamRolesResponseObject, error)
+	// Créer un rôle custom
+	// (POST /teams/{team_uuid}/roles)
+	CreateTeamRole(ctx context.Context, request CreateTeamRoleRequestObject) (CreateTeamRoleResponseObject, error)
+	// Supprimer un rôle custom
+	// (DELETE /teams/{team_uuid}/roles/{role_uuid})
+	DeleteTeamRole(ctx context.Context, request DeleteTeamRoleRequestObject) (DeleteTeamRoleResponseObject, error)
+	// Détail d'un rôle custom
+	// (GET /teams/{team_uuid}/roles/{role_uuid})
+	GetTeamRole(ctx context.Context, request GetTeamRoleRequestObject) (GetTeamRoleResponseObject, error)
+	// Modifier un rôle custom
+	// (PATCH /teams/{team_uuid}/roles/{role_uuid})
+	UpdateTeamRole(ctx context.Context, request UpdateTeamRoleRequestObject) (UpdateTeamRoleResponseObject, error)
 	// Lister les tokens API
 	// (GET /teams/{team_uuid}/tokens)
 	ListApiTokens(ctx context.Context, request ListApiTokensRequestObject) (ListApiTokensResponseObject, error)
@@ -40356,6 +41575,30 @@ func (sh *strictHandler) TestNotificationChannel(w http.ResponseWriter, r *http.
 	}
 }
 
+// ListPermissions operation middleware
+func (sh *strictHandler) ListPermissions(w http.ResponseWriter, r *http.Request) {
+	var request ListPermissionsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPermissions(ctx, request.(ListPermissionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPermissions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPermissionsResponseObject); ok {
+		if err := validResponse.VisitListPermissionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListPrivateKeys operation middleware
 func (sh *strictHandler) ListPrivateKeys(w http.ResponseWriter, r *http.Request, params ListPrivateKeysParams) {
 	var request ListPrivateKeysRequestObject
@@ -43124,6 +44367,188 @@ func (sh *strictHandler) ListTeamMembers(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListTeamMembersResponseObject); ok {
 		if err := validResponse.VisitListTeamMembersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateTeamMember operation middleware
+func (sh *strictHandler) UpdateTeamMember(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, userUuid UserUuid) {
+	var request UpdateTeamMemberRequestObject
+
+	request.TeamUuid = teamUuid
+	request.UserUuid = userUuid
+
+	var body UpdateTeamMemberJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateTeamMember(ctx, request.(UpdateTeamMemberRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateTeamMember")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateTeamMemberResponseObject); ok {
+		if err := validResponse.VisitUpdateTeamMemberResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTeamRoles operation middleware
+func (sh *strictHandler) ListTeamRoles(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamRolesParams) {
+	var request ListTeamRolesRequestObject
+
+	request.TeamUuid = teamUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTeamRoles(ctx, request.(ListTeamRolesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTeamRoles")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTeamRolesResponseObject); ok {
+		if err := validResponse.VisitListTeamRolesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateTeamRole operation middleware
+func (sh *strictHandler) CreateTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
+	var request CreateTeamRoleRequestObject
+
+	request.TeamUuid = teamUuid
+
+	var body CreateTeamRoleJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateTeamRole(ctx, request.(CreateTeamRoleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateTeamRole")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateTeamRoleResponseObject); ok {
+		if err := validResponse.VisitCreateTeamRoleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteTeamRole operation middleware
+func (sh *strictHandler) DeleteTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid) {
+	var request DeleteTeamRoleRequestObject
+
+	request.TeamUuid = teamUuid
+	request.RoleUuid = roleUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteTeamRole(ctx, request.(DeleteTeamRoleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteTeamRole")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteTeamRoleResponseObject); ok {
+		if err := validResponse.VisitDeleteTeamRoleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTeamRole operation middleware
+func (sh *strictHandler) GetTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid) {
+	var request GetTeamRoleRequestObject
+
+	request.TeamUuid = teamUuid
+	request.RoleUuid = roleUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTeamRole(ctx, request.(GetTeamRoleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTeamRole")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTeamRoleResponseObject); ok {
+		if err := validResponse.VisitGetTeamRoleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateTeamRole operation middleware
+func (sh *strictHandler) UpdateTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid) {
+	var request UpdateTeamRoleRequestObject
+
+	request.TeamUuid = teamUuid
+	request.RoleUuid = roleUuid
+
+	var body UpdateTeamRoleJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateTeamRole(ctx, request.(UpdateTeamRoleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateTeamRole")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateTeamRoleResponseObject); ok {
+		if err := validResponse.VisitUpdateTeamRoleResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -162,25 +162,34 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash string) (
 }
 
 const getTeamMembershipForUser = `-- name: GetTeamMembershipForUser :one
-SELECT tm.team_id, tm.role, t.uuid AS team_uuid, u.is_root FROM team_memberships tm
+SELECT tm.team_id, tm.role, t.uuid AS team_uuid, u.is_root,
+       cr.permissions AS custom_permissions, cr.uuid AS custom_role_uuid,
+       cr.name AS custom_role_name
+FROM team_memberships tm
 JOIN teams t ON t.id = tm.team_id
 JOIN users u ON u.id = tm.user_id
+LEFT JOIN custom_roles cr ON cr.id = tm.custom_role_id
 WHERE tm.user_id = $1
 ORDER BY tm.team_id
 LIMIT 1
 `
 
 type GetTeamMembershipForUserRow struct {
-	TeamID   int64
-	Role     TeamRole
-	TeamUuid pgtype.UUID
-	IsRoot   bool
+	TeamID            int64
+	Role              TeamRole
+	TeamUuid          pgtype.UUID
+	IsRoot            bool
+	CustomPermissions []string
+	CustomRoleUuid    pgtype.UUID
+	CustomRoleName    *string
 }
 
 // The team a session acts in, with its role and public UUID (the dashboard
 // addresses team endpoints by UUID). Falls back to the personal team.
 // Carries the user's instance-root flag (users.is_root) so the session identity
 // can gate instance-wide settings (rbac-matrix §3.5).
+// A custom role (custom_role_id), when set, OVERRIDES the system role: its
+// granular permissions are carried back for the session identity (ADR-038).
 func (q *Queries) GetTeamMembershipForUser(ctx context.Context, userID int64) (GetTeamMembershipForUserRow, error) {
 	row := q.db.QueryRow(ctx, getTeamMembershipForUser, userID)
 	var i GetTeamMembershipForUserRow
@@ -189,6 +198,9 @@ func (q *Queries) GetTeamMembershipForUser(ctx context.Context, userID int64) (G
 		&i.Role,
 		&i.TeamUuid,
 		&i.IsRoot,
+		&i.CustomPermissions,
+		&i.CustomRoleUuid,
+		&i.CustomRoleName,
 	)
 	return i, err
 }

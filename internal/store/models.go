@@ -2201,6 +2201,17 @@ type CloudCredential struct {
 	Version   int32
 }
 
+type CustomRole struct {
+	ID          int64
+	Uuid        pgtype.UUID
+	TeamID      int64
+	Name        string
+	Description *string
+	Permissions []string
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
 type Database struct {
 	ID                     int64
 	Engine                 DbEngine
@@ -3079,12 +3090,13 @@ type Team struct {
 }
 
 type TeamMembership struct {
-	ID        int64
-	TeamID    int64
-	UserID    int64
-	Role      TeamRole
-	CreatedAt pgtype.Timestamptz
-	UpdatedAt pgtype.Timestamptz
+	ID           int64
+	TeamID       int64
+	UserID       int64
+	Role         TeamRole
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+	CustomRoleID *int64
 }
 
 type TerminalSession struct {

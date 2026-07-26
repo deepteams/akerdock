@@ -238,7 +238,14 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) *auth.Ident
 		teamID = membership.TeamID
 	}
 
-	perms := auth.ExpandGranular(PermissionsForRole(membership.Role))
+	// A custom role (ADR-038) overrides the system role: its stored granular
+	// permissions become the identity's, expanded like any set. The permissions
+	// were validated (⊆ composer, never instance:*) and closed at write time.
+	granular := PermissionsForRole(membership.Role)
+	if len(membership.CustomPermissions) > 0 {
+		granular = membership.CustomPermissions
+	}
+	perms := auth.ExpandGranular(granular)
 	// The instance root (users.is_root) is the platform administrator, outside the
 	// team-role model (ADR-038 §1). Its SESSION carries the coarse `root` wildcard
 	// so it can act across every team (e.g. list all teams) — never a token, which

@@ -636,6 +636,55 @@ export class AkerDockClient {
     return this.request<void>('DELETE', `/teams/${teamUuid}/tokens/${tokenUuid}`);
   }
 
+  // --- roles (custom roles, member role, permission catalogue) ------------------
+
+  updateTeamMember(
+    teamUuid: string,
+    userUuid: string,
+    body: components['schemas']['MemberRoleUpdate'],
+  ) {
+    type Response =
+      paths['/teams/{team_uuid}/members/{user_uuid}']['patch']['responses']['200']['content']['application/json'];
+    return this.request<Response>('PATCH', `/teams/${teamUuid}/members/${userUuid}`, { body });
+  }
+
+  listTeamRoles(uuid: string, query?: { cursor?: string; limit?: number }) {
+    type Response =
+      paths['/teams/{team_uuid}/roles']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/teams/${uuid}/roles`, { query });
+  }
+
+  createTeamRole(uuid: string, body: components['schemas']['CustomRoleCreate']) {
+    type Response =
+      paths['/teams/{team_uuid}/roles']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', `/teams/${uuid}/roles`, { body });
+  }
+
+  getTeamRole(teamUuid: string, roleUuid: string) {
+    type Response =
+      paths['/teams/{team_uuid}/roles/{role_uuid}']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/teams/${teamUuid}/roles/${roleUuid}`);
+  }
+
+  updateTeamRole(
+    teamUuid: string,
+    roleUuid: string,
+    body: components['schemas']['CustomRoleUpdate'],
+  ) {
+    type Response =
+      paths['/teams/{team_uuid}/roles/{role_uuid}']['patch']['responses']['200']['content']['application/json'];
+    return this.request<Response>('PATCH', `/teams/${teamUuid}/roles/${roleUuid}`, { body });
+  }
+
+  deleteTeamRole(teamUuid: string, roleUuid: string) {
+    return this.request<void>('DELETE', `/teams/${teamUuid}/roles/${roleUuid}`);
+  }
+
+  listPermissions() {
+    type Response = paths['/permissions']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', '/permissions');
+  }
+
   // --- projects (+ environments) ------------------------------------------------
 
   listProjects(query?: { cursor?: string; limit?: number }) {

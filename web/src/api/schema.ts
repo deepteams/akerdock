@@ -41,6 +41,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Catalogue des permissions granulaires
+         * @description Le catalogue des permissions granulaires (ADR-038) avec leurs prérequis : de quoi construire le composeur de rôles custom côté UI. Statique — ne dépend pas de la team.
+         */
+        get: operations["listPermissions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/events": {
         parameters: {
             query?: never;
@@ -328,6 +348,79 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/teams/{team_uuid}/members/{user_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+                /** @description UUID public d'un utilisateur (membre d'une team). */
+                user_uuid: components["parameters"]["UserUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Changer le rôle d'un membre
+         * @description Assigne un rôle système ou un rôle custom à un membre existant (ADR-038). Le dernier admin d'une team ne peut pas être rétrogradé (protection contre le verrouillage).
+         */
+        patch: operations["updateTeamMember"];
+        trace?: never;
+    };
+    "/teams/{team_uuid}/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+            };
+            cookie?: never;
+        };
+        /** Lister les rôles custom d'une team */
+        get: operations["listTeamRoles"];
+        put?: never;
+        /** Créer un rôle custom */
+        post: operations["createTeamRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{team_uuid}/roles/{role_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+                /** @description UUID d'un rôle custom. */
+                role_uuid: components["parameters"]["RoleUuid"];
+            };
+            cookie?: never;
+        };
+        /** Détail d'un rôle custom */
+        get: operations["getTeamRole"];
+        put?: never;
+        post?: never;
+        /**
+         * Supprimer un rôle custom
+         * @description Supprime le rôle. Les membres qui le portaient retombent sur leur rôle système de repli.
+         */
+        delete: operations["deleteTeamRole"];
+        options?: never;
+        head?: never;
+        /** Modifier un rôle custom */
+        patch: operations["updateTeamRole"];
         trace?: never;
     };
     "/teams/{team_uuid}/invitations": {
@@ -3421,10 +3514,14 @@ export interface components {
             email: string;
             name?: string | null;
             /**
-             * @description Rôle système dans la team (ADR-038, §10.1) : `admin` (contrôle complet de la team, ex-`owner` fusionné), `member` (gère les ressources) ou `reviewer` (voit uniquement les PR previews). Les rôles custom composés dans l'UI viendront dans une version ultérieure du contrat.
+             * @description Rôle dans la team (ADR-038, §10.1) : `admin` (contrôle complet de la team, ex-`owner` fusionné), `member` (gère les ressources), `reviewer` (voit uniquement les PR previews), ou `custom` (rôle composé, voir `custom_role_uuid`).
              * @enum {string}
              */
-            role: "admin" | "member" | "reviewer";
+            role: "admin" | "member" | "reviewer" | "custom";
+            /** @description UUID du rôle custom quand `role` vaut `custom`, sinon absent. */
+            custom_role_uuid?: string | null;
+            /** @description Nom du rôle custom quand `role` vaut `custom`, sinon absent. */
+            custom_role_name?: string | null;
             /** Format: date-time */
             joined_at: string;
         };
@@ -3463,6 +3560,54 @@ export interface components {
             expires_at: string;
             /** Format: date-time */
             readonly created_at: string;
+        };
+        /** @description Rôle custom d'une team (ADR-038) : un ensemble nommé de permissions granulaires, composé dans l'UI. Ne peut jamais contenir de permission d'instance (`instance:*`). */
+        CustomRole: {
+            readonly uuid: string;
+            name: string;
+            description?: string | null;
+            /** @description Permissions granulaires `domaine:action`, fermées sous leurs prérequis (les dépendances manquantes sont ajoutées automatiquement). */
+            permissions: string[];
+            /** @description Nombre de membres portant ce rôle. */
+            readonly member_count?: number;
+            /** Format: date-time */
+            readonly created_at: string;
+            /** Format: date-time */
+            readonly updated_at: string;
+        };
+        CustomRoleCreate: {
+            /** @description Nom du rôle (unique dans la team). */
+            name: string;
+            description?: string | null;
+            /** @description Permissions granulaires accordées. Refusées si inconnues, si d'instance (`instance:*`), ou hors des permissions du composeur (anti-élévation). Les prérequis manquants sont ajoutés. */
+            permissions: string[];
+        };
+        /** @description Mise à jour partielle d'un rôle custom. */
+        CustomRoleUpdate: {
+            name?: string;
+            description?: string | null;
+            permissions?: string[];
+        };
+        /** @description Change le rôle d'un membre (ADR-038). Soit un rôle système (`role`), soit un rôle custom (`role: custom` + `custom_role_uuid`). */
+        MemberRoleUpdate: {
+            /** @enum {string} */
+            role: "admin" | "member" | "reviewer" | "custom";
+            /** @description Requis (et seulement lu) quand `role` vaut `custom`. */
+            custom_role_uuid?: string | null;
+        };
+        /** @description Une permission granulaire du catalogue (ADR-038), avec ses prérequis — de quoi construire le composeur de rôles custom côté UI. */
+        PermissionCatalogEntry: {
+            /** @description Identifiant `domaine:action`. */
+            permission: string;
+            /**
+             * @description Socle coarse (§10.3).
+             * @enum {string}
+             */
+            socle: "read" | "read:sensitive" | "write" | "deploy" | "root";
+            /** @description Vrai si la permission est réservée à l'instance (jamais assignable à un rôle custom). */
+            instance_scoped?: boolean;
+            /** @description Permissions impliquées automatiquement (fermeture des dépendances). */
+            prerequisites: string[];
         };
         /**
          * @description Permission granulaire d'un token API (§10.3).
@@ -5625,6 +5770,10 @@ export interface components {
         TeamUuid: string;
         /** @description UUID de l'invitation. */
         InvitationUuid: string;
+        /** @description UUID d'un rôle custom. */
+        RoleUuid: string;
+        /** @description UUID public d'un utilisateur (membre d'une team). */
+        UserUuid: string;
         /** @description UUID du token API (jamais sa valeur). */
         TokenUuid: string;
         /** @description UUID du projet. */
@@ -5724,6 +5873,31 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listPermissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Catalogue des permissions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PermissionCatalogEntry"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             429: components["responses"]["TooManyRequests"];
         };
     };
@@ -6210,6 +6384,203 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    updateTeamMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+                /** @description UUID public d'un utilisateur (membre d'une team). */
+                user_uuid: components["parameters"]["UserUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberRoleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Membre mis à jour. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMember"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listTeamRoles: {
+        parameters: {
+            query?: {
+                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page de rôles custom. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["CustomRole"][];
+                        next_cursor?: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createTeamRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomRoleCreate"];
+            };
+        };
+        responses: {
+            /** @description Rôle créé. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomRole"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getTeamRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+                /** @description UUID d'un rôle custom. */
+                role_uuid: components["parameters"]["RoleUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Le rôle custom. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomRole"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    deleteTeamRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+                /** @description UUID d'un rôle custom. */
+                role_uuid: components["parameters"]["RoleUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rôle supprimé. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    updateTeamRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+                /** @description UUID d'un rôle custom. */
+                role_uuid: components["parameters"]["RoleUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomRoleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Rôle mis à jour. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomRole"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
             429: components["responses"]["TooManyRequests"];
         };
     };
