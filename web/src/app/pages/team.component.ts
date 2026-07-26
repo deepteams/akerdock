@@ -130,7 +130,7 @@ type TeamTab = 'members' | 'pending' | 'canceled';
                         <td>
                           <span
                             class="akd-badge akd-badge--mono"
-                            [class.akd-badge--accent]="member.role === 'owner'"
+                            [class.akd-badge--accent]="member.role === 'admin'"
                           >
                             {{ member.role }}
                           </span>
@@ -304,12 +304,15 @@ type TeamTab = 'members' | 'pending' | 'canceled';
                   [(ngModel)]="inviteRole"
                   [disabled]="busy()"
                 >
-                  <option value="member">member</option>
                   <option value="admin">admin</option>
+                  <option value="member">member</option>
+                  <option value="reviewer">reviewer</option>
                 </select>
               </div>
               <span class="akd-field__hint">
-                Admins can manage servers and destructive actions; root stays API-token only.
+                Admin: full control of the team. Member: manages resources.
+                Reviewer: sees PR previews only. Instance settings stay
+                administrator-only.
               </span>
             </div>
           </form>
@@ -492,7 +495,7 @@ export class TeamComponent {
   );
 
   protected inviteEmail = '';
-  protected inviteRole: 'member' | 'admin' = 'member';
+  protected inviteRole: 'admin' | 'member' | 'reviewer' = 'member';
 
   private readonly teamUuid = this.api.currentUser()?.teamUuid ?? null;
 

@@ -299,8 +299,9 @@ func (o *OAuth) resolveLoginUser(ctx context.Context, provider string, who *oidc
 	if err != nil {
 		return zero, err
 	}
+	// The team creator is `admin`, the top team role (ADR-038 — `owner` merged in).
 	if err := o.Store.AddTeamMember(ctx, store.AddTeamMemberParams{
-		TeamID: team.ID, UserID: user.ID, Role: store.TeamRoleOwner,
+		TeamID: team.ID, UserID: user.ID, Role: store.TeamRoleAdmin,
 	}); err != nil {
 		return zero, err
 	}

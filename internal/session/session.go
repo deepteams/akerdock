@@ -238,36 +238,78 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) *auth.Ident
 		teamID = membership.TeamID
 	}
 
+	perms := auth.ExpandGranular(PermissionsForRole(membership.Role))
+	// The instance root (users.is_root) is the platform administrator, outside the
+	// team-role model (ADR-038 §1). Its SESSION carries the coarse `root` wildcard
+	// so it can act across every team (e.g. list all teams) — never a token, which
+	// is team-bound and stops at the team boundary (rbac-matrix §3.5).
+	if membership.IsRoot {
+		perms = append(perms, string(auth.PermRoot))
+	}
+
 	return &auth.Identity{
 		TokenID:      row.ID,
 		TokenUUID:    uuidString(row.Uuid),
 		TeamID:       teamID,
 		TeamUUID:     uuidString(membership.TeamUuid),
-		Permissions:  auth.EffectivePermissions(PermissionsForRole(membership.Role)),
+		Permissions:  perms,
 		Session:      true,
 		InstanceRoot: membership.IsRoot,
 	}
 }
 
-// PermissionsForRole maps a team role onto the API permission set (rbac-matrix).
-//
-// The mapping is deliberately coarse and explicit: a role is a NAME for a set of
-// permissions, and inventing a clever derivation would mean the RBAC matrix and
-// the code could disagree without anyone noticing.
+// memberPermissions is the granular set of the team `member` role — the old
+// "developer" column of the RBAC matrix (rbac-matrix §2): full management of the
+// team's resources (apps, databases, services, deploys, backups, previews,
+// secrets), but NOT team administration (members/roles/tokens/invitations),
+// infrastructure (servers/keys/cloud), instance settings, or root-shell access.
+// Closure adds the `:read` prerequisites, so only the acting permissions are
+// listed here.
+var memberPermissions = []string{
+	string(auth.PermTeamRead), string(auth.PermMembersRead),
+	string(auth.PermProjectsRead), string(auth.PermProjectsManage),
+	string(auth.PermEnvironmentsRead), string(auth.PermEnvironmentsManage),
+	string(auth.PermResourcesRead), string(auth.PermResourcesAdopt),
+	string(auth.PermApplicationsRead), string(auth.PermApplicationsCreate),
+	string(auth.PermApplicationsUpdate), string(auth.PermApplicationsDelete),
+	string(auth.PermApplicationsDeploy), string(auth.PermApplicationsLifecycle),
+	string(auth.PermApplicationsExec),
+	string(auth.PermDatabasesRead), string(auth.PermDatabasesCreate),
+	string(auth.PermDatabasesUpdate), string(auth.PermDatabasesDelete),
+	string(auth.PermDatabasesLifecycle),
+	string(auth.PermServicesRead), string(auth.PermServicesManage), string(auth.PermServicesDeploy),
+	string(auth.PermSecretsRead), string(auth.PermSecretsWrite),
+	string(auth.PermServersRead), string(auth.PermCertificatesRead), string(auth.PermKeysRead),
+	string(auth.PermSourcesRead), string(auth.PermSourcesManage), string(auth.PermRegistriesManage),
+	string(auth.PermStoragesManage),
+	string(auth.PermBackupsRead), string(auth.PermBackupsManage), string(auth.PermBackupsRestore),
+	string(auth.PermDeploymentsRead), string(auth.PermDeploymentsCancel),
+	string(auth.PermPreviewsRead), string(auth.PermPreviewsManage),
+	string(auth.PermTerminalOpen),
+	string(auth.PermLogsRead), string(auth.PermMetricsRead),
+	string(auth.PermNotificationsRead), string(auth.PermNotificationsManage),
+	string(auth.PermUptimeRead), string(auth.PermUptimeManage),
+	string(auth.PermAuditRead),
+}
+
+// PermissionsForRole maps a team role onto its granular permission set (ADR-038,
+// rbac-matrix §2). A role is a NAME for a set of permissions; the sets are
+// explicit so the matrix and the code cannot silently disagree. The caller runs
+// the result through auth.ExpandGranular, which adds the `:read` prerequisites
+// and the coarse socle each permission projects onto.
 func PermissionsForRole(role store.TeamRole) []string {
 	switch role {
-	case store.TeamRoleOwner:
-		return []string{
-			string(auth.PermRead), string(auth.PermReadSensitive),
-			string(auth.PermWrite), string(auth.PermDeploy), string(auth.PermRoot),
-		}
-	case store.TeamRoleAdmin:
-		return []string{
-			string(auth.PermRead), string(auth.PermReadSensitive),
-			string(auth.PermWrite), string(auth.PermDeploy),
-		}
+	case store.TeamRoleAdmin, store.TeamRoleOwner:
+		// admin is the merged owner+admin role (ADR-038): full control of the team
+		// and its resources, never instance settings. `owner` is legacy — rows are
+		// migrated to `admin`, but map it here too so a stray one is not left
+		// powerless.
+		return auth.TeamAdminPermissions()
+	case store.TeamRoleReviewer:
+		// reviewer sees only PR previews — nothing else (ADR-038).
+		return []string{string(auth.PermPreviewsRead)}
 	default: // member
-		return []string{string(auth.PermRead), string(auth.PermDeploy)}
+		return memberPermissions
 	}
 }
 

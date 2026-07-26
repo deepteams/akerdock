@@ -114,9 +114,16 @@ func (a *API) CreateTeamInvitation(w http.ResponseWriter, r *http.Request, teamU
 		httpapi.WriteValidationError(w, r, []api.ErrorDetail{{Field: ptr("email"), Code: ptr("invalid"), Message: "invalid email address"}})
 		return
 	}
+	// System roles an invitation may grant (ADR-038). `admin` and `reviewer` are
+	// explicit; anything else — including a missing role — defaults to `member`.
 	role := store.TeamRoleMember
-	if body.Role != nil && *body.Role == api.InvitationCreateRoleAdmin {
-		role = store.TeamRoleAdmin
+	if body.Role != nil {
+		switch *body.Role {
+		case api.InvitationCreateRoleAdmin:
+			role = store.TeamRoleAdmin
+		case api.InvitationCreateRoleReviewer:
+			role = store.TeamRoleReviewer
+		}
 	}
 	hours := defaultInvitationHours
 	if body.ExpiresInHours != nil {

@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/password"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/store"
@@ -192,7 +194,9 @@ func TestSessionLookupAndAuthentication(t *testing.T) {
 			ID: 3, Uuid: uuid, UserID: 4, CurrentTeamID: &current,
 		},
 		membership: store.GetTeamMembershipForUserRow{
-			TeamID: 5, TeamUuid: teamUUID, Role: store.TeamRoleOwner,
+			// An instance-root user (users.is_root): its session carries the coarse
+			// `root` wildcard (ADR-038 §1), which is what IsRoot() below checks.
+			TeamID: 5, TeamUuid: teamUUID, Role: store.TeamRoleAdmin, IsRoot: true,
 		},
 	}
 	manager := &Manager{Store: database}
@@ -230,16 +234,57 @@ func TestSessionLookupAndAuthentication(t *testing.T) {
 	}
 }
 
+// PermissionsForRole returns GRANULAR sets now (ADR-038), so the test checks the
+// structural properties of the model rather than pinning an exact 70-item list
+// (which would be a brittle copy of the code): admin holds every team-scoped
+// permission and nothing instance-scoped; owner maps onto the same admin set;
+// member is a strict subset that manages resources but not the team; reviewer
+// sees previews only.
 func TestPermissionsForEveryRole(t *testing.T) {
-	cases := map[store.TeamRole][]string{
-		store.TeamRoleOwner:  {"read", "read:sensitive", "write", "deploy", "root"},
-		store.TeamRoleAdmin:  {"read", "read:sensitive", "write", "deploy"},
-		store.TeamRoleMember: {"read", "deploy"},
+	admin := PermissionsForRole(store.TeamRoleAdmin)
+	owner := PermissionsForRole(store.TeamRoleOwner)
+	member := PermissionsForRole(store.TeamRoleMember)
+	reviewer := PermissionsForRole(store.TeamRoleReviewer)
+
+	has := func(set []string, perm string) bool { return slices.Contains(set, perm) }
+
+	// admin == owner == every catalogue permission except the instance-scoped ones.
+	if !reflect.DeepEqual(admin, owner) {
+		t.Errorf("owner must map onto the admin set, got %v vs %v", owner, admin)
 	}
-	for role, want := range cases {
-		if got := PermissionsForRole(role); !reflect.DeepEqual(got, want) {
-			t.Errorf("%s permissions = %v", role, got)
+	for name, socle := range auth.Catalog {
+		if socle == auth.PermRoot {
+			if has(admin, name) {
+				t.Errorf("admin must not hold instance-scoped %q", name)
+			}
+			continue
 		}
+		if !has(admin, name) {
+			t.Errorf("admin must hold every team permission, missing %q", name)
+		}
+	}
+
+	// member manages resources but never administers the team or infrastructure.
+	for _, want := range []string{"applications:update", "databases:create", "secrets:write", "previews:manage", "deployments:cancel"} {
+		if !has(member, want) {
+			t.Errorf("member should hold %q", want)
+		}
+	}
+	for _, forbidden := range []string{"team:manage", "members:manage", "roles:manage", "tokens:create", "servers:manage", "keys:manage", "instance:manage"} {
+		if has(member, forbidden) {
+			t.Errorf("member must NOT hold %q", forbidden)
+		}
+	}
+	// Every member permission is also an admin permission (member ⊆ admin).
+	for _, p := range member {
+		if !has(admin, p) {
+			t.Errorf("member permission %q leaks outside the admin set", p)
+		}
+	}
+
+	// reviewer sees PR previews and nothing else.
+	if !reflect.DeepEqual(reviewer, []string{"previews:read"}) {
+		t.Errorf("reviewer = %v, want just [previews:read]", reviewer)
 	}
 }
 

@@ -1707,9 +1707,10 @@ func (ns NullTaskOverlapPolicy) Value() (driver.Value, error) {
 type TeamRole string
 
 const (
-	TeamRoleOwner  TeamRole = "owner"
-	TeamRoleAdmin  TeamRole = "admin"
-	TeamRoleMember TeamRole = "member"
+	TeamRoleOwner    TeamRole = "owner"
+	TeamRoleAdmin    TeamRole = "admin"
+	TeamRoleMember   TeamRole = "member"
+	TeamRoleReviewer TeamRole = "reviewer"
 )
 
 func (e *TeamRole) Scan(src interface{}) error {

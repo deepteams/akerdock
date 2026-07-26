@@ -241,6 +241,41 @@ func ProjectScopes(scopes []Permission) []string {
 	return Closure(out)
 }
 
+// TeamAdminPermissions is every catalogue permission EXCEPT the instance-scoped
+// ones (socle root) — the granular set of the team `admin` role (ADR-038): full
+// control of the team and its resources, never instance settings. Closed under
+// prerequisites and sorted.
+func TeamAdminPermissions() []string {
+	var out []string
+	for name, socle := range Catalog {
+		if socle != PermRoot {
+			out = append(out, name)
+		}
+	}
+	return Closure(out)
+}
+
+// ExpandGranular closes a granular permission set under its prerequisites and
+// adds the coarse socle of each permission, so the identity satisfies BOTH the
+// granular endpoint checks and the few endpoints still declared with a coarse
+// permission (getVersion=read, the webhook receivers=deploy). Deduplicated,
+// sorted.
+func ExpandGranular(perms []string) []string {
+	set := map[string]bool{}
+	for _, p := range Closure(perms) {
+		set[p] = true
+		if socle, ok := Catalog[p]; ok {
+			set[string(socle)] = true
+		}
+	}
+	out := make([]string, 0, len(set))
+	for p := range set {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // EffectivePermissions expands a caller's coarse scopes (a role's set, or a
 // token's scopes) into the granular permissions it holds, AND keeps the coarse
 // scope strings themselves. Keeping both is what makes the ADR-038 migration

@@ -7907,8 +7907,13 @@ components:
           nullable: true
         role:
           type: string
-          enum: [owner, admin, member]
-          description: Rôle dans la team (§10.1). Le RBAC fin par projet/environnement (§27.7) viendra dans une version ultérieure du contrat.
+          enum: [admin, member, reviewer]
+          description: >-
+            Rôle système dans la team (ADR-038, §10.1) : `admin` (contrôle
+            complet de la team, ex-`owner` fusionné), `member` (gère les
+            ressources) ou `reviewer` (voit uniquement les PR previews). Les
+            rôles custom composés dans l'UI viendront dans une version ultérieure
+            du contrat.
         joined_at:
           type: string
           format: date-time
@@ -7923,9 +7928,9 @@ components:
           description: Email de la personne invitée.
         role:
           type: string
-          enum: [admin, member]
+          enum: [admin, member, reviewer]
           default: member
-          description: Rôle attribué à l'acceptation.
+          description: Rôle système attribué à l'acceptation (ADR-038).
         expires_in_hours:
           type: integer
           minimum: 1
@@ -7946,7 +7951,7 @@ components:
           format: email
         role:
           type: string
-          enum: [admin, member]
+          enum: [admin, member, reviewer]
         status:
           type: string
           enum: [pending, accepted, revoked, expired]

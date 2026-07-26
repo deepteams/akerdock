@@ -702,8 +702,9 @@ func (e HealthStatusStatus) Valid() bool {
 
 // Defines values for InvitationRole.
 const (
-	InvitationRoleAdmin  InvitationRole = "admin"
-	InvitationRoleMember InvitationRole = "member"
+	InvitationRoleAdmin    InvitationRole = "admin"
+	InvitationRoleMember   InvitationRole = "member"
+	InvitationRoleReviewer InvitationRole = "reviewer"
 )
 
 // Valid indicates whether the value is a known member of the InvitationRole enum.
@@ -712,6 +713,8 @@ func (e InvitationRole) Valid() bool {
 	case InvitationRoleAdmin:
 		return true
 	case InvitationRoleMember:
+		return true
+	case InvitationRoleReviewer:
 		return true
 	default:
 		return false
@@ -744,8 +747,9 @@ func (e InvitationStatus) Valid() bool {
 
 // Defines values for InvitationCreateRole.
 const (
-	InvitationCreateRoleAdmin  InvitationCreateRole = "admin"
-	InvitationCreateRoleMember InvitationCreateRole = "member"
+	InvitationCreateRoleAdmin    InvitationCreateRole = "admin"
+	InvitationCreateRoleMember   InvitationCreateRole = "member"
+	InvitationCreateRoleReviewer InvitationCreateRole = "reviewer"
 )
 
 // Valid indicates whether the value is a known member of the InvitationCreateRole enum.
@@ -754,6 +758,8 @@ func (e InvitationCreateRole) Valid() bool {
 	case InvitationCreateRoleAdmin:
 		return true
 	case InvitationCreateRoleMember:
+		return true
+	case InvitationCreateRoleReviewer:
 		return true
 	default:
 		return false
@@ -1479,9 +1485,9 @@ func (e TaskOverlapPolicy) Valid() bool {
 
 // Defines values for TeamMemberRole.
 const (
-	Admin  TeamMemberRole = "admin"
-	Member TeamMemberRole = "member"
-	Owner  TeamMemberRole = "owner"
+	Admin    TeamMemberRole = "admin"
+	Member   TeamMemberRole = "member"
+	Reviewer TeamMemberRole = "reviewer"
 )
 
 // Valid indicates whether the value is a known member of the TeamMemberRole enum.
@@ -1491,7 +1497,7 @@ func (e TeamMemberRole) Valid() bool {
 		return true
 	case Member:
 		return true
-	case Owner:
+	case Reviewer:
 		return true
 	default:
 		return false
@@ -3209,11 +3215,11 @@ type InvitationCreate struct {
 	// ExpiresInHours Durée de validité de l'invitation en heures (défaut 7 jours).
 	ExpiresInHours *int `json:"expires_in_hours,omitempty"`
 
-	// Role Rôle attribué à l'acceptation.
+	// Role Rôle système attribué à l'acceptation (ADR-038).
 	Role *InvitationCreateRole `json:"role,omitempty"`
 }
 
-// InvitationCreateRole Rôle attribué à l'acceptation.
+// InvitationCreateRole Rôle système attribué à l'acceptation (ADR-038).
 type InvitationCreateRole string
 
 // Job Opération asynchrone créée par une réponse `202` (§21.3, §24.1).
@@ -4159,12 +4165,12 @@ type TeamMember struct {
 	JoinedAt time.Time           `json:"joined_at"`
 	Name     *string             `json:"name,omitempty"`
 
-	// Role Rôle dans la team (§10.1). Le RBAC fin par projet/environnement (§27.7) viendra dans une version ultérieure du contrat.
+	// Role Rôle système dans la team (ADR-038, §10.1) : `admin` (contrôle complet de la team, ex-`owner` fusionné), `member` (gère les ressources) ou `reviewer` (voit uniquement les PR previews). Les rôles custom composés dans l'UI viendront dans une version ultérieure du contrat.
 	Role     TeamMemberRole `json:"role"`
 	UserUuid string         `json:"user_uuid"`
 }
 
-// TeamMemberRole Rôle dans la team (§10.1). Le RBAC fin par projet/environnement (§27.7) viendra dans une version ultérieure du contrat.
+// TeamMemberRole Rôle système dans la team (ADR-038, §10.1) : `admin` (contrôle complet de la team, ex-`owner` fusionné), `member` (gère les ressources) ou `reviewer` (voit uniquement les PR previews). Les rôles custom composés dans l'UI viendront dans une version ultérieure du contrat.
 type TeamMemberRole string
 
 // TeamUpdate Mise à jour partielle d'une team.

@@ -3421,10 +3421,10 @@ export interface components {
             email: string;
             name?: string | null;
             /**
-             * @description Rôle dans la team (§10.1). Le RBAC fin par projet/environnement (§27.7) viendra dans une version ultérieure du contrat.
+             * @description Rôle système dans la team (ADR-038, §10.1) : `admin` (contrôle complet de la team, ex-`owner` fusionné), `member` (gère les ressources) ou `reviewer` (voit uniquement les PR previews). Les rôles custom composés dans l'UI viendront dans une version ultérieure du contrat.
              * @enum {string}
              */
-            role: "owner" | "admin" | "member";
+            role: "admin" | "member" | "reviewer";
             /** Format: date-time */
             joined_at: string;
         };
@@ -3435,11 +3435,11 @@ export interface components {
              */
             email: string;
             /**
-             * @description Rôle attribué à l'acceptation.
+             * @description Rôle système attribué à l'acceptation (ADR-038).
              * @default member
              * @enum {string}
              */
-            role: "admin" | "member";
+            role: "admin" | "member" | "reviewer";
             /**
              * @description Durée de validité de l'invitation en heures (défaut 7 jours).
              * @default 168
@@ -3452,7 +3452,7 @@ export interface components {
             /** Format: email */
             email: string;
             /** @enum {string} */
-            role: "admin" | "member";
+            role: "admin" | "member" | "reviewer";
             /** @enum {string} */
             readonly status: "pending" | "accepted" | "revoked" | "expired";
             /** @description Lien d'acceptation — renvoyé uniquement à la création et uniquement si l'email transactionnel de l'instance n'est pas configuré (transmission manuelle). */

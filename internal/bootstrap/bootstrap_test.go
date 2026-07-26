@@ -336,7 +336,7 @@ func TestBootstrapRootUser(t *testing.T) {
 		if database.createUserArg.PasswordHash == nil || !database.createUserArg.IsRoot ||
 			database.createTeamName != cfg.RootName ||
 			database.memberArg.TeamID != 20 || database.memberArg.UserID != 10 ||
-			database.memberArg.Role != store.TeamRoleOwner {
+			database.memberArg.Role != store.TeamRoleAdmin {
 			t.Fatalf("user=%#v team=%q member=%#v", database.createUserArg, database.createTeamName, database.memberArg)
 		}
 	})

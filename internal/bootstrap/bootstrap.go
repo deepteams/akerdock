@@ -261,8 +261,9 @@ func bootstrapRootUser(ctx context.Context, pool bootstrapPool, q BootstrapStore
 	if err != nil {
 		return fmt.Errorf("bootstrap: personal team: %w", err)
 	}
+	// The team creator is `admin`, the top team role (ADR-038 — `owner` merged in).
 	if err := q.AddTeamMember(ctx, store.AddTeamMemberParams{
-		TeamID: team.ID, UserID: user.ID, Role: store.TeamRoleOwner,
+		TeamID: team.ID, UserID: user.ID, Role: store.TeamRoleAdmin,
 	}); err != nil {
 		return fmt.Errorf("bootstrap: team membership: %w", err)
 	}
