@@ -270,6 +270,7 @@ func serveRun(mode string) int {
 			Pool: pool, Store: q, Keyring: keyring, Audit: recorder,
 			Dispatcher: dispatcher, Logger: logger,
 			TerminalMaxDuration: cfg.TerminalMaxDuration,
+			WakerImage:          cfg.Image,
 		}).Run(ctx)
 	}
 

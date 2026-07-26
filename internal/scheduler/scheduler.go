@@ -57,6 +57,11 @@ type Scheduler struct {
 	// control-plane restart — sessions live in-process. Zero falls back to
 	// the default.
 	TerminalMaxDuration time.Duration
+	// WakerImage is this release's own image (AKERDOCK_IMAGE / baked default):
+	// the scale-to-zero pass recreates any waker whose running image differs, so
+	// an upgrade propagates to every server's waker without waiting for a deploy
+	// (ADR-036). Empty disables the reconciliation.
+	WakerImage string
 
 	acquireLeader func(context.Context) (leaderConnection, error)
 	dialSSH       func(context.Context, store.Server, string) (remoteClient, error)

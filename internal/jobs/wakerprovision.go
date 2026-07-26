@@ -103,16 +103,28 @@ func ensureWaker(ctx context.Context, client *sshexec.Client, network, image, re
 	if err := depositWakerRoutes(ctx, client, mergeWakerConfig(readWakerConfig(ctx, client), resourceUUID, cfg)); err != nil {
 		return err
 	}
-	// Deployed on the same internal network as the proxy so it is reachable as
-	// akerdock-waker:8080, never published on the host (§8.1). It gets the local
-	// Docker socket to start managed containers, and the waker dir for the
-	// routing table and activity files.
-	//
-	// Recreated when the running image differs from the release image (or when
-	// absent): this is how an `install.sh` upgrade propagates to the waker — the
-	// next STZ deploy after the upgrade swaps it onto the new image. Same version
-	// → no-op. The brief recreate only affects this server's STZ resources.
-	run := fmt.Sprintf(
+	res, err := client.Run(ctx, WakerEnsureCommand(network, image))
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("waker deploy failed (exit %d): %s", res.ExitCode, stderrOf(res))
+	}
+	return nil
+}
+
+// WakerEnsureCommand is the idempotent, image-aware deploy of the waker helper.
+// It recreates the container when the running image differs from `image` (or
+// when it is absent) and is otherwise a no-op — so it both provisions the waker
+// and upgrades it in place when the release image changes. The routing table and
+// activity files live in a bind mount, so a recreate preserves them.
+//
+// Deployed on the same internal network as the proxy (reachable as
+// akerdock-waker:8080, never published), with the local Docker socket to start
+// managed containers. Shared by the deploy path (ensureWaker) and the
+// scheduler's cross-server upgrade reconciliation.
+func WakerEnsureCommand(network, image string) string {
+	return fmt.Sprintf(
 		"mkdir -p %s && cur=$(docker inspect -f '{{.Config.Image}}' %s 2>/dev/null || true); "+
 			"if [ \"$cur\" != \"%s\" ]; then docker rm -f %s >/dev/null 2>&1 || true; "+
 			"docker run -d --name %s --restart unless-stopped --network %s "+
@@ -121,14 +133,6 @@ func ensureWaker(ctx context.Context, client *sshexec.Client, network, image, re
 			"%s waker; fi",
 		wakerDir, proxy.WakerContainerName, image, proxy.WakerContainerName,
 		proxy.WakerContainerName, network, wakerDir, wakerDir, image)
-	res, err := client.Run(ctx, run)
-	if err != nil {
-		return err
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("waker deploy failed (exit %d): %s", res.ExitCode, stderrOf(res))
-	}
-	return nil
 }
 
 // removeWakerRoutes drops a resource from the shared table (preview destroy).

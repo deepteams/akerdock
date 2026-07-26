@@ -143,10 +143,24 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 		return c
 	}
 
+	// The waker of each server is upgraded in place (recreated) once per pass
+	// when its running image differs from this release's — how an upgrade of the
+	// control plane propagates to every server's waker (ADR-036).
+	reconciled := map[int64]bool{}
+	reconcileWaker := func(server store.Server, network string, client remoteClient) {
+		if s.WakerImage == "" || network == "" || reconciled[server.ID] {
+			return
+		}
+		reconciled[server.ID] = true
+		if _, err := client.Run(ctx, jobs.WakerEnsureCommand(network, s.WakerImage)); err != nil {
+			s.Logger.Warn("waker image reconcile failed", "server_id", server.ID, "error", err)
+		}
+	}
+
 	now := time.Now()
 
 	for _, p := range active {
-		server, ok := s.previewServer(ctx, p.ApplicationID)
+		server, network, ok := s.previewPlacement(ctx, p.ApplicationID)
 		if !ok {
 			continue
 		}
@@ -154,6 +168,7 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 		if client == nil {
 			continue
 		}
+		reconcileWaker(server, network, client)
 		uuid := pguuid.String(p.Uuid)
 		last := readWakerActivity(ctx, client, uuid)
 		if last.IsZero() { // no activity yet: fall back to the last known times
@@ -174,7 +189,7 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 	}
 
 	for _, p := range sleeping {
-		server, ok := s.previewServer(ctx, p.ApplicationID)
+		server, network, ok := s.previewPlacement(ctx, p.ApplicationID)
 		if !ok {
 			continue
 		}
@@ -182,6 +197,7 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 		if client == nil {
 			continue
 		}
+		reconcileWaker(server, network, client)
 		uuid := pguuid.String(p.Uuid)
 		last := readWakerActivity(ctx, client, uuid)
 		// The waker records activity when it serves a request, which it only does
@@ -197,21 +213,22 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 	}
 }
 
-// previewServer resolves a preview's application to its server.
-func (s *Scheduler) previewServer(ctx context.Context, applicationID int64) (store.Server, bool) {
+// previewPlacement resolves a preview's application to its server and the proxy
+// network the waker shares with the proxy and the app containers.
+func (s *Scheduler) previewPlacement(ctx context.Context, applicationID int64) (store.Server, string, bool) {
 	app, err := s.Store.GetApplicationByID(ctx, applicationID)
 	if err != nil {
-		return store.Server{}, false
+		return store.Server{}, "", false
 	}
 	dest, err := s.Store.GetDestinationByID(ctx, app.Resource.DestinationID)
 	if err != nil {
-		return store.Server{}, false
+		return store.Server{}, "", false
 	}
 	server, err := s.Store.GetServerByID(ctx, dest.ServerID)
 	if err != nil {
-		return store.Server{}, false
+		return store.Server{}, "", false
 	}
-	return server, true
+	return server, dest.Network, true
 }
 
 // readWakerActivity reads a preview's waker activity file over SSH; a zero time
