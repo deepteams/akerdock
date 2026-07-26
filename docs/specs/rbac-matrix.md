@@ -1,5 +1,17 @@
 # Matrice RBAC / Permissions — AkerDock (artefact §29.7)
 
+> ⚠️ **Modèle de rôles mis à jour par [ADR-038](../adr/ADR-038-modele-de-roles.md)**
+> (supersede la partie rôles d'ADR-007). Rôles de team = **`admin` / `member` /
+> `reviewer`** + **rôles custom** ; `owner` est fusionné dans `admin` ; le **root
+> est réservé à l'instance** (`users.is_root`, hors modèle de team). ADR-038 acte
+> aussi que les **permissions granulaires `domaine:action` de ce document
+> deviennent l'unité d'évaluation réelle** (aujourd'hui l'enforcement est coarse
+> et le granulaire n'est que documentaire) : chaque opération portera un
+> `x-required-permission` granulaire, avec une **table de prérequis** (§3 ADR-038)
+> et fermeture transitive. Les colonnes `owner / developer / viewer` ci-dessous
+> sont remplacées par `admin / member / reviewer` (+ custom) et **régénérées** à
+> l'implémentation.
+
 > Document de spécification d'autorisation (artefact §29.7 du PRD, `docs/PRD.md`).
 > Décision de référence : **ADR-007 / §27.7** — RBAC fin, modèle **permissions à la carte** :
 > chaque action produit est une permission granulaire `domaine:action` ; un rôle est un

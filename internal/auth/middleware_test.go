@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"slices"
 	"context"
 	"errors"
 	"io"
@@ -191,8 +192,21 @@ func TestAuthenticateBearerToken(t *testing.T) {
 	if identity == nil || identity.TokenID != 7 || identity.TeamID != 42 ||
 		identity.TokenUUID != "11111111-1111-4111-8111-111111111111" ||
 		identity.TeamUUID != "22222222-2222-4222-8222-222222222222" ||
-		len(identity.Permissions) != 2 || rec.Code != http.StatusOK {
+		rec.Code != http.StatusOK {
 		t.Fatalf("identity = %+v, response = %d %q", identity, rec.Code, rec.Body.String())
+	}
+	// The token's coarse scopes {read, deploy} are kept AND expanded to the
+	// granular set they hold (ADR-038): both coarse and granular checks pass.
+	for _, want := range []string{"read", "deploy", "applications:read", "applications:deploy"} {
+		if !slices.Contains(identity.Permissions, want) {
+			t.Errorf("identity missing expected permission %q; got %v", want, identity.Permissions)
+		}
+	}
+	// A read/deploy token holds no write or reveal permission.
+	for _, forbidden := range []string{"write", "applications:update", "secrets:reveal"} {
+		if slices.Contains(identity.Permissions, forbidden) {
+			t.Errorf("identity should not hold %q; got %v", forbidden, identity.Permissions)
+		}
 	}
 }
 

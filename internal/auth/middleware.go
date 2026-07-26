@@ -152,11 +152,14 @@ func (m *Middleware) authenticate(w http.ResponseWriter, r *http.Request) *Ident
 	}
 
 	return &Identity{
-		TokenID:     match.ID,
-		TokenUUID:   uuidString(match.Uuid),
-		TeamID:      match.TeamID,
-		TeamUUID:    uuidString(match.TeamUuid),
-		Permissions: match.Permissions,
+		TokenID:   match.ID,
+		TokenUUID: uuidString(match.Uuid),
+		TeamID:    match.TeamID,
+		TeamUUID:  uuidString(match.TeamUuid),
+		// The token's coarse scopes are expanded to the granular set it holds,
+		// keeping the coarse strings too (ADR-038 migration): converted endpoints
+		// check a granular permission, the rest still check the coarse one.
+		Permissions: EffectivePermissions(match.Permissions),
 	}
 }
 
