@@ -63,6 +63,39 @@ func TestPresignShape(t *testing.T) {
 	}
 }
 
+// When server-side encryption is configured, the presigned PUT must SIGN the
+// x-amz-server-side-encryption header (so S3 requires it), and SSEHeader must
+// return the matching header the uploader sends.
+func TestPresignSSE(t *testing.T) {
+	c := New(Config{
+		Endpoint: "https://s3.local", Region: "eu-west-3", Bucket: "backups",
+		AccessKey: "AKIAIOSFODNN7EXAMPLE", SecretKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+		SSEAlgorithm: "AES256",
+	})
+	raw, err := c.PresignPut("dump.sql", 15*time.Minute)
+	if err != nil {
+		t.Fatalf("PresignPut: %v", err)
+	}
+	signed := mustQuery(t, raw).Get("X-Amz-SignedHeaders")
+	if !strings.Contains(signed, "x-amz-server-side-encryption") {
+		t.Errorf("SignedHeaders = %q, want it to include x-amz-server-side-encryption", signed)
+	}
+	header, ok := c.SSEHeader()
+	if !ok || header != "x-amz-server-side-encryption: AES256" {
+		t.Errorf("SSEHeader = %q, %v", header, ok)
+	}
+
+	// Without SSE, neither the signature nor the helper mention it.
+	plain := testClient("https://s3.local")
+	rawPlain, _ := plain.PresignPut("dump.sql", time.Minute)
+	if strings.Contains(mustQuery(t, rawPlain).Get("X-Amz-SignedHeaders"), "encryption") {
+		t.Error("a non-SSE client signed an encryption header")
+	}
+	if _, ok := plain.SSEHeader(); ok {
+		t.Error("a non-SSE client returned an SSE header")
+	}
+}
+
 func TestPresignGetAndDefaultRegion(t *testing.T) {
 	client := New(Config{
 		Endpoint: "https://s3.local", Bucket: "backups",

@@ -21,6 +21,7 @@ import (
 	"github.com/deepteams/akerdock/internal/events"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/instance"
+	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/session"
 	"github.com/deepteams/akerdock/internal/store"
 )
@@ -105,6 +106,7 @@ func (a *API) auditAuth(r *http.Request, action string, result store.AuditResult
 func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
+	r.Use(a.requestContext)
 	r.Use(recoverJSON(a.Logger))
 
 	limiter := httpapi.NewLimiter()
@@ -222,11 +224,57 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 		BaseRouter: r,
 		// The generated wrapper applies middlewares in reverse order (the last
 		// entry ends up outermost), so authentication must come last: rate
-		// limiting and idempotency both need the authenticated identity.
-		Middlewares: []api.MiddlewareFunc{idempotency, rateLimit, mw.Handler},
+		// limiting and idempotency both need the authenticated identity. The body
+		// cap is innermost — it only needs to wrap r.Body before a handler reads
+		// it (§23.3: a JSON API request has no business being megabytes).
+		Middlewares: []api.MiddlewareFunc{bodyLimit, idempotency, rateLimit, mw.Handler},
 		ErrorHandlerFunc: func(w http.ResponseWriter, req *http.Request, err error) {
 			httpapi.WriteError(w, req, http.StatusBadRequest, httpapi.CodeBadRequest, err.Error())
 		},
+	})
+}
+
+// maxRequestBody caps the request body of a /api/v1 operation (§23.3). JSON
+// payloads are kilobytes; 5 MiB leaves generous room for the largest legitimate
+// body (config-as-code, key material) while bounding a memory-exhaustion attempt.
+// The generated handlers decode without their own limit, so this is their guard.
+const maxRequestBody = 5 << 20
+
+// bodyLimit wraps the request body so an over-large payload fails with 413
+// (via http.MaxBytesReader) instead of being read unbounded into memory. Scoped
+// to /api/v1: git webhooks (larger provider payloads) and /auth (its own tighter
+// per-endpoint limits) are mounted elsewhere and unaffected.
+func bodyLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requestContext stamps each request with a UUID request id (surfaced as the
+// X-Request-Id response header and recorded on every audit row, §23.4) and a
+// correlation id — a client-supplied X-Correlation-Id when a valid UUID, else
+// the request id — so a chain of related calls can be tied together in the
+// audit trail.
+func (a *API) requestContext(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqID, err := pguuid.New()
+		if err == nil {
+			ctx := audit.WithRequestID(r.Context(), reqID)
+			corr := reqID
+			if h := r.Header.Get("X-Correlation-Id"); h != "" {
+				var c pgtype.UUID
+				if c.Scan(h) == nil {
+					corr = c
+				}
+			}
+			ctx = audit.WithCorrelationID(ctx, corr)
+			w.Header().Set("X-Request-Id", pguuid.String(reqID))
+			r = r.WithContext(ctx)
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

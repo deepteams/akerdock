@@ -73,23 +73,24 @@ func (q *Queries) CountAuditEvents(ctx context.Context) (int64, error) {
 
 const insertAuditEvent = `-- name: InsertAuditEvent :exec
 
-INSERT INTO audit_events (team_id, actor_kind, actor_uuid, actor_display, action, target_kind, target_uuid, result, ip, user_agent, request_id, diff_redacted)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+INSERT INTO audit_events (team_id, actor_kind, actor_uuid, actor_display, action, target_kind, target_uuid, result, ip, user_agent, request_id, correlation_id, diff_redacted)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 `
 
 type InsertAuditEventParams struct {
-	TeamID       *int64
-	ActorKind    ActorKind
-	ActorUuid    pgtype.UUID
-	ActorDisplay *string
-	Action       string
-	TargetKind   *string
-	TargetUuid   pgtype.UUID
-	Result       AuditResult
-	Ip           *netip.Addr
-	UserAgent    *string
-	RequestID    pgtype.UUID
-	DiffRedacted []byte
+	TeamID        *int64
+	ActorKind     ActorKind
+	ActorUuid     pgtype.UUID
+	ActorDisplay  *string
+	Action        string
+	TargetKind    *string
+	TargetUuid    pgtype.UUID
+	Result        AuditResult
+	Ip            *netip.Addr
+	UserAgent     *string
+	RequestID     pgtype.UUID
+	CorrelationID pgtype.UUID
+	DiffRedacted  []byte
 }
 
 // Audit log (§23.4): strictly append-only — no UPDATE or single DELETE
@@ -107,6 +108,7 @@ func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventPara
 		arg.Ip,
 		arg.UserAgent,
 		arg.RequestID,
+		arg.CorrelationID,
 		arg.DiffRedacted,
 	)
 	return err

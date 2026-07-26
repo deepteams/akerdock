@@ -9621,6 +9621,13 @@ components:
           type: string
           nullable: true
           description: Raison du dernier échec de vérification — jamais un credential.
+        server_side_encryption:
+          type: string
+          enum: [AES256]
+          nullable: true
+          description: >-
+            Chiffrement au repos demandé aux uploads (SSE-S3). `null` = aucun
+            (le store peut tout de même appliquer un chiffrement par défaut).
         created_at:
           type: string
           format: date-time
@@ -9653,6 +9660,11 @@ components:
         secret_key:
           type: string
           description: Sensible — chiffré au repos, jamais renvoyé (INV-003).
+        server_side_encryption:
+          type: string
+          enum: [AES256]
+          nullable: true
+          description: Chiffrement au repos SSE-S3 des uploads (`null`/absent = aucun).
 
     S3StorageUpdate:
       type: object
@@ -9674,6 +9686,11 @@ components:
           type: string
         secret_key:
           type: string
+        server_side_encryption:
+          type: string
+          enum: [AES256]
+          nullable: true
+          description: Chiffrement au repos SSE-S3 des uploads (`null`/absent = aucun).
 
     PrivateKeyCreate:
       type: object

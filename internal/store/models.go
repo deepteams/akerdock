@@ -2913,6 +2913,7 @@ type S3Storage struct {
 	CreatedAt      pgtype.Timestamptz
 	UpdatedAt      pgtype.Timestamptz
 	Version        int32
+	SseAlgorithm   *string
 }
 
 type ScheduledTask struct {

@@ -509,6 +509,9 @@ func (h *BackupRun) s3ClientFor(ctx context.Context, storageID int64) (*s3.Clien
 	if storage.PathPrefix != nil {
 		cfg.PathPrefix = *storage.PathPrefix
 	}
+	if storage.SseAlgorithm != nil {
+		cfg.SSEAlgorithm = *storage.SseAlgorithm
+	}
 	return s3.New(cfg), nil
 }
 
@@ -536,10 +539,17 @@ func (h *BackupRun) uploadToS3(ctx context.Context, client *sshexec.Client,
 		return "", err
 	}
 
-	// `curl -K -` reads its configuration — including the URL — from stdin.
+	// `curl -K -` reads its configuration — including the URL — from stdin. When
+	// the storage requests server-side encryption, the matching header must be
+	// sent (it was signed into the presigned URL); on stdin it stays off the
+	// process list like the URL.
+	config := "url = \"" + url + "\"\n"
+	if sseHeader, ok := s3c.SSEHeader(); ok {
+		config += "header = \"" + sseHeader + "\"\n"
+	}
 	res, err := client.RunInput(ctx,
 		"curl -sS --fail-with-body -X PUT -K - --upload-file "+file,
-		"url = \""+url+"\"\n")
+		config)
 	if err != nil {
 		return "", err
 	}

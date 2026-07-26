@@ -2,8 +2,8 @@
 -- query must ever exist against this table.
 
 -- name: InsertAuditEvent :exec
-INSERT INTO audit_events (team_id, actor_kind, actor_uuid, actor_display, action, target_kind, target_uuid, result, ip, user_agent, request_id, diff_redacted)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, sqlc.narg(diff_redacted));
+INSERT INTO audit_events (team_id, actor_kind, actor_uuid, actor_display, action, target_kind, target_uuid, result, ip, user_agent, request_id, correlation_id, diff_redacted)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, sqlc.narg(diff_redacted));
 
 -- name: InsertOutboxEvent :exec
 INSERT INTO outbox_events (uuid, event_type, team_uuid, resource_uuid, actor, aggregate_key, payload)

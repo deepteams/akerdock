@@ -42,6 +42,29 @@ func testRecorder(store *fakeStore) *Recorder {
 	}
 }
 
+func TestRecordEnrichesRequestAndActor(t *testing.T) {
+	storeFake := &fakeStore{}
+	recorder := testRecorder(storeFake)
+	req := pguuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+	corr := pguuid.MustParse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+	ctx := WithCorrelationID(WithRequestID(context.Background(), req), corr)
+	request := httptest.NewRequest(http.MethodPost, "/resource", nil).WithContext(ctx)
+
+	recorder.Record(request, &auth.Identity{TokenUUID: "11111111-1111-4111-8111-111111111111", Display: "ci-token"},
+		Event{Action: "application.deploy"})
+
+	got := storeFake.auditParams[0]
+	if got.RequestID != req {
+		t.Errorf("request id = %v, want %v", got.RequestID, req)
+	}
+	if got.CorrelationID != corr {
+		t.Errorf("correlation id = %v, want %v", got.CorrelationID, corr)
+	}
+	if got.ActorDisplay == nil || *got.ActorDisplay != "ci-token" {
+		t.Errorf("actor display = %v, want the token name", got.ActorDisplay)
+	}
+}
+
 func TestRecordAuthSuccess(t *testing.T) {
 	storeFake := &fakeStore{}
 	recorder := testRecorder(storeFake)

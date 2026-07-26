@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/netip"
 
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -62,6 +61,37 @@ type OutboxStore interface {
 
 var newUUID = pguuid.New
 
+// ctxKey namespaces the request/correlation ids carried on the context so the
+// audit rows can be correlated to a request and to a client-supplied chain
+// (§23.4). Set by the request-id middleware.
+type ctxKey int
+
+const (
+	requestIDKey ctxKey = iota
+	correlationIDKey
+)
+
+// WithRequestID attaches a per-request UUID to the context.
+func WithRequestID(ctx context.Context, id pgtype.UUID) context.Context {
+	return context.WithValue(ctx, requestIDKey, id)
+}
+
+// WithCorrelationID attaches a correlation UUID (a client-supplied chain id) to
+// the context.
+func WithCorrelationID(ctx context.Context, id pgtype.UUID) context.Context {
+	return context.WithValue(ctx, correlationIDKey, id)
+}
+
+func requestID(ctx context.Context) pgtype.UUID {
+	id, _ := ctx.Value(requestIDKey).(pgtype.UUID)
+	return id
+}
+
+func correlationID(ctx context.Context) pgtype.UUID {
+	id, _ := ctx.Value(correlationIDKey).(pgtype.UUID)
+	return id
+}
+
 // Event is one audited action (§23.4 vocabulary: secret.reveal,
 // server.delete, deployment.rollback, ...).
 type Event struct {
@@ -89,24 +119,23 @@ func (a *Recorder) Record(r *http.Request, id *auth.Identity, ev Event) {
 	}
 	var ip *netip.Addr
 	params := store.InsertAuditEventParams{
-		TeamID:     teamID,
-		ActorKind:  store.ActorKindToken,
-		ActorUuid:  actorUUID,
-		Action:     ev.Action,
-		TargetKind: strPtr(ev.TargetKind),
-		TargetUuid: ev.TargetUUID,
-		Result:     ev.Result,
-		Ip:         ip,
-		UserAgent:  strPtr(r.UserAgent()),
+		TeamID:        teamID,
+		ActorKind:     store.ActorKindToken,
+		ActorUuid:     actorUUID,
+		ActorDisplay:  strPtr(id.Display),
+		Action:        ev.Action,
+		TargetKind:    strPtr(ev.TargetKind),
+		TargetUuid:    ev.TargetUUID,
+		Result:        ev.Result,
+		Ip:            ip,
+		UserAgent:     strPtr(r.UserAgent()),
+		RequestID:     requestID(r.Context()),
+		CorrelationID: correlationID(r.Context()),
 	}
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
 		if addr, err := netip.ParseAddr(host); err == nil {
 			params.Ip = &addr
 		}
-	}
-	if reqID := middleware.GetReqID(r.Context()); reqID != "" {
-		// request ids from chi are not UUIDs; keep correlation via logs.
-		_ = reqID
 	}
 	params.DiffRedacted = encodeDiff(ev.Diff, a.Logger)
 	if err := a.Store.InsertAuditEvent(r.Context(), params); err != nil {
@@ -126,13 +155,15 @@ func (a *Recorder) RecordAuth(r *http.Request, action string, result store.Audit
 	}
 	a.telemetry(r.Context(), action, "user", string(result))
 	params := store.InsertAuditEventParams{
-		TeamID:       teamID,
-		ActorKind:    store.ActorKindUser,
-		ActorUuid:    actorUUID,
-		ActorDisplay: strPtr(display),
-		Action:       action,
-		Result:       result,
-		UserAgent:    strPtr(r.UserAgent()),
+		TeamID:        teamID,
+		ActorKind:     store.ActorKindUser,
+		ActorUuid:     actorUUID,
+		ActorDisplay:  strPtr(display),
+		Action:        action,
+		Result:        result,
+		UserAgent:     strPtr(r.UserAgent()),
+		RequestID:     requestID(r.Context()),
+		CorrelationID: correlationID(r.Context()),
 	}
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
 		if addr, err := netip.ParseAddr(host); err == nil {
@@ -196,12 +227,14 @@ func (a *Recorder) System(ctx context.Context, teamID *int64, action, targetKind
 	}
 	a.telemetry(ctx, action, "system", string(result))
 	if err := a.Store.InsertAuditEvent(ctx, store.InsertAuditEventParams{
-		TeamID:     teamID,
-		ActorKind:  store.ActorKindSystem,
-		Action:     action,
-		TargetKind: strPtr(targetKind),
-		TargetUuid: targetUUID,
-		Result:     result,
+		TeamID:        teamID,
+		ActorKind:     store.ActorKindSystem,
+		Action:        action,
+		TargetKind:    strPtr(targetKind),
+		TargetUuid:    targetUUID,
+		Result:        result,
+		RequestID:     requestID(ctx),
+		CorrelationID: correlationID(ctx),
 	}); err != nil {
 		a.Logger.Error("audit event lost", "action", action, "error", err)
 	}

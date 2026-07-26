@@ -27,7 +27,7 @@ const checkTimeout = 15 * time.Second
 // representation — not even redacted, not even with read:sensitive: nothing
 // consumes them outside the instance (INV-003).
 func s3StorageToAPI(s store.S3Storage) api.S3Storage {
-	return api.S3Storage{
+	out := api.S3Storage{
 		Uuid:           uuidString(s.Uuid),
 		Name:           s.Name,
 		Endpoint:       s.Endpoint,
@@ -40,6 +40,11 @@ func s3StorageToAPI(s store.S3Storage) api.S3Storage {
 		UpdatedAt:      timePtr(s.UpdatedAt),
 		Version:        int(s.Version),
 	}
+	if s.SseAlgorithm != nil {
+		enc := api.S3StorageServerSideEncryption(*s.SseAlgorithm)
+		out.ServerSideEncryption = &enc
+	}
+	return out
 }
 
 // s3ClientFor decrypts the credentials of a storage and builds a client.
@@ -61,9 +66,13 @@ func (a *API) s3ClientFor(s store.S3Storage) (*s3.Client, error) {
 	if s.Region != nil {
 		region = *s.Region
 	}
+	sse := ""
+	if s.SseAlgorithm != nil {
+		sse = *s.SseAlgorithm
+	}
 	return s3.New(s3.Config{
 		Endpoint: s.Endpoint, Region: region, Bucket: s.Bucket, PathPrefix: prefix,
-		AccessKey: string(access), SecretKey: string(secret),
+		AccessKey: string(access), SecretKey: string(secret), SSEAlgorithm: sse,
 	}), nil
 }
 
@@ -181,11 +190,16 @@ func (a *API) CreateS3Storage(w http.ResponseWriter, r *http.Request, params api
 		return
 	}
 
-	storage, err := a.Store.CreateS3Storage(r.Context(), store.CreateS3StorageParams{
+	createParams := store.CreateS3StorageParams{
 		Uuid: u, TeamID: id.TeamID, Name: body.Name, Endpoint: body.Endpoint,
 		Region: body.Region, Bucket: body.Bucket, PathPrefix: body.PathPrefix,
 		AccessKeyEnc: accessEnc, SecretKeyEnc: secretEnc,
-	})
+	}
+	if body.ServerSideEncryption != nil {
+		v := string(*body.ServerSideEncryption)
+		createParams.SseAlgorithm = &v
+	}
+	storage, err := a.Store.CreateS3Storage(r.Context(), createParams)
 	if err != nil {
 		if isUniqueViolation(err) {
 			httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "a storage with this name already exists in this team")
@@ -273,6 +287,14 @@ func (a *API) UpdateS3Storage(w http.ResponseWriter, r *http.Request, s3StorageU
 	if patch.Has("path_prefix") {
 		next.PathPrefix = body.PathPrefix
 	}
+	if patch.Has("server_side_encryption") {
+		if body.ServerSideEncryption != nil {
+			v := string(*body.ServerSideEncryption)
+			next.SseAlgorithm = &v
+		} else {
+			next.SseAlgorithm = nil
+		}
+	}
 	uuid := uuidString(storage.Uuid)
 	if body.AccessKey != nil {
 		enc, err := a.Keyring.Encrypt("s3_storages", "access_key_enc", uuid, []byte(*body.AccessKey))
@@ -299,6 +321,7 @@ func (a *API) UpdateS3Storage(w http.ResponseWriter, r *http.Request, s3StorageU
 		Bucket: next.Bucket, PathPrefix: next.PathPrefix,
 		AccessKeyEnc: next.AccessKeyEnc, SecretKeyEnc: next.SecretKeyEnc,
 		IsUsable: usable, LastCheckError: checkErr,
+		SseAlgorithm:    next.SseAlgorithm,
 		ExpectedVersion: int32(expected),
 	})
 	if err != nil {

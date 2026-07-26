@@ -100,6 +100,16 @@ type S3Storage = components['schemas']['S3Storage'];
               />
             </div>
           </div>
+          <div class="akd-field">
+            <label class="akd-check">
+              <input type="checkbox" name="sse" [(ngModel)]="encryptAtRest" [disabled]="busy()" />
+              Encrypt backups at rest (SSE-S3)
+            </label>
+            <span class="akd-field__hint">
+              Requests server-side encryption (AES256) on upload. Leave off for stores without
+              SSE support (e.g. MinIO without KMS).
+            </span>
+          </div>
           <p class="form-hint">
             The keys are write-only: encrypted at rest and never returned by the API.
           </p>
@@ -264,6 +274,7 @@ export class S3StoragesComponent {
   protected region = '';
   protected accessKey = '';
   protected secretKey = '';
+  protected encryptAtRest = false;
 
   constructor() {
     void this.load();
@@ -288,6 +299,7 @@ export class S3StoragesComponent {
     this.region = storage.region ?? '';
     this.accessKey = '';
     this.secretKey = '';
+    this.encryptAtRest = storage.server_side_encryption === 'AES256';
   }
 
   protected cancelEdit(): void {
@@ -298,6 +310,7 @@ export class S3StoragesComponent {
     this.region = '';
     this.accessKey = '';
     this.secretKey = '';
+    this.encryptAtRest = false;
   }
 
   protected async save(): Promise<void> {
@@ -318,6 +331,7 @@ export class S3StoragesComponent {
           endpoint: this.endpoint.trim(),
           bucket: this.bucket.trim(),
           region: this.region.trim() || null,
+          server_side_encryption: this.encryptAtRest ? 'AES256' : null,
           ...(this.accessKey ? { access_key: this.accessKey } : {}),
           ...(this.secretKey ? { secret_key: this.secretKey } : {}),
         });
@@ -327,6 +341,7 @@ export class S3StoragesComponent {
           endpoint: this.endpoint.trim(),
           bucket: this.bucket.trim(),
           region: this.region.trim() || null,
+          server_side_encryption: this.encryptAtRest ? 'AES256' : null,
           access_key: this.accessKey,
           secret_key: this.secretKey,
         });

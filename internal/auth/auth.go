@@ -66,6 +66,10 @@ type Identity struct {
 	// settings (/system/*). A team owner/admin's team-scoped `root` permission
 	// does NOT set it, and API tokens are team-bound so never carry it.
 	InstanceRoot bool
+	// Display is a human label for the actor recorded in the audit trail (§23.4):
+	// an API token's name, so an audit reader sees which token acted rather than
+	// only its uuid. Empty for sessions (the auth events carry the email).
+	Display string
 }
 
 // IsRoot reports whether the token carries the root permission.

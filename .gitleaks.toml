@@ -1,0 +1,27 @@
+# gitleaks configuration (ISO A.8.12): scan for credentials accidentally
+# committed to the repository. Extends the default ruleset and allowlists the
+# known non-secrets so the CI gate stays signal, not noise.
+
+title = "akerdock gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known non-secrets: test fixtures, docs, generated dashboard bundle, and the constant-time dummy Argon2 hash."
+paths = [
+  '''_test\.go$''',
+  '''^docs/''',
+  '''^internal/web/dist/''',
+  '''^scripts/''',       # dev/CI/E2E scripts use throwaway or placeholder creds
+  '''package-lock\.json$''',
+  '''\.env$''',          # gitignored dev config, never committed
+  '''\.env\.''',
+]
+regexes = [
+  # The dummy Argon2id hash used for constant-time login (session.go) and any
+  # example hash in the tree — a KDF output, not a live credential.
+  '''\$argon2id\$''',
+  # Obvious placeholder tokens used in examples/tests.
+  '''akd_bogus''',
+]

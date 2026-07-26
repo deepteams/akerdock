@@ -1255,6 +1255,51 @@ func (e RestoreRequestSource) Valid() bool {
 	}
 }
 
+// Defines values for S3StorageServerSideEncryption.
+const (
+	S3StorageServerSideEncryptionAES256 S3StorageServerSideEncryption = "AES256"
+)
+
+// Valid indicates whether the value is a known member of the S3StorageServerSideEncryption enum.
+func (e S3StorageServerSideEncryption) Valid() bool {
+	switch e {
+	case S3StorageServerSideEncryptionAES256:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for S3StorageCreateServerSideEncryption.
+const (
+	S3StorageCreateServerSideEncryptionAES256 S3StorageCreateServerSideEncryption = "AES256"
+)
+
+// Valid indicates whether the value is a known member of the S3StorageCreateServerSideEncryption enum.
+func (e S3StorageCreateServerSideEncryption) Valid() bool {
+	switch e {
+	case S3StorageCreateServerSideEncryptionAES256:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for S3StorageUpdateServerSideEncryption.
+const (
+	AES256 S3StorageUpdateServerSideEncryption = "AES256"
+)
+
+// Valid indicates whether the value is a known member of the S3StorageUpdateServerSideEncryption enum.
+func (e S3StorageUpdateServerSideEncryption) Valid() bool {
+	switch e {
+	case AES256:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ServerArchitecture.
 const (
 	ServerArchitectureAmd64       ServerArchitecture = "amd64"
@@ -3940,12 +3985,18 @@ type S3Storage struct {
 	Name           string  `json:"name"`
 
 	// PathPrefix Préfixe des objets déposés dans le bucket.
-	PathPrefix *string    `json:"path_prefix,omitempty"`
-	Region     *string    `json:"region,omitempty"`
-	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
-	Uuid       string     `json:"uuid"`
-	Version    int        `json:"version"`
+	PathPrefix *string `json:"path_prefix,omitempty"`
+	Region     *string `json:"region,omitempty"`
+
+	// ServerSideEncryption Chiffrement au repos demandé aux uploads (SSE-S3). `null` = aucun (le store peut tout de même appliquer un chiffrement par défaut).
+	ServerSideEncryption *S3StorageServerSideEncryption `json:"server_side_encryption,omitempty"`
+	UpdatedAt            *time.Time                     `json:"updated_at,omitempty"`
+	Uuid                 string                         `json:"uuid"`
+	Version              int                            `json:"version"`
 }
+
+// S3StorageServerSideEncryption Chiffrement au repos demandé aux uploads (SSE-S3). `null` = aucun (le store peut tout de même appliquer un chiffrement par défaut).
+type S3StorageServerSideEncryption string
 
 // S3StorageCreate defines model for S3StorageCreate.
 type S3StorageCreate struct {
@@ -3959,7 +4010,13 @@ type S3StorageCreate struct {
 
 	// SecretKey Sensible — chiffré au repos, jamais renvoyé (INV-003).
 	SecretKey string `json:"secret_key"`
+
+	// ServerSideEncryption Chiffrement au repos SSE-S3 des uploads (`null`/absent = aucun).
+	ServerSideEncryption *S3StorageCreateServerSideEncryption `json:"server_side_encryption,omitempty"`
 }
+
+// S3StorageCreateServerSideEncryption Chiffrement au repos SSE-S3 des uploads (`null`/absent = aucun).
+type S3StorageCreateServerSideEncryption string
 
 // S3StorageUpdate defines model for S3StorageUpdate.
 type S3StorageUpdate struct {
@@ -3970,7 +4027,13 @@ type S3StorageUpdate struct {
 	PathPrefix *string `json:"path_prefix,omitempty"`
 	Region     *string `json:"region,omitempty"`
 	SecretKey  *string `json:"secret_key,omitempty"`
+
+	// ServerSideEncryption Chiffrement au repos SSE-S3 des uploads (`null`/absent = aucun).
+	ServerSideEncryption *S3StorageUpdateServerSideEncryption `json:"server_side_encryption,omitempty"`
 }
+
+// S3StorageUpdateServerSideEncryption Chiffrement au repos SSE-S3 des uploads (`null`/absent = aucun).
+type S3StorageUpdateServerSideEncryption string
 
 // ScheduledTask Cron exécutant une commande dans le container d'une ressource (§192).
 type ScheduledTask struct {

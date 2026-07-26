@@ -39,6 +39,21 @@ type Config struct {
 	PathPrefix string
 	AccessKey  string
 	SecretKey  string
+	// SSEAlgorithm, when set (e.g. "AES256"), requests server-side encryption at
+	// rest for uploads: the header is SIGNED into the presigned PUT and must be
+	// sent by the uploader (see SSEHeader). Empty leaves objects unencrypted by
+	// this layer — the operator may still enforce bucket default encryption.
+	SSEAlgorithm string
+}
+
+// SSEHeader returns the server-side-encryption request header the uploader must
+// send with a PUT, and whether one is configured. It must match the header
+// signed into the presigned URL (presign), or S3 rejects the request.
+func (c *Client) SSEHeader() (string, bool) {
+	if c.cfg.SSEAlgorithm == "" {
+		return "", false
+	}
+	return "x-amz-server-side-encryption: " + c.cfg.SSEAlgorithm, true
 }
 
 // Client performs signed requests against one bucket. Path-style addressing
@@ -248,19 +263,29 @@ func (c *Client) presign(method, key string, expiry time.Duration) (string, erro
 	scopeDate := now.Format("20060102")
 	scope := scopeDate + "/" + c.region() + "/s3/aws4_request"
 
+	// Server-side encryption is requested by signing the SSE header into a PUT.
+	// Canonical headers must be lowercase and sorted: "host" sorts before
+	// "x-amz-server-side-encryption".
+	signedHeaders := "host"
+	canonicalHeaders := "host:" + u.Host + "\n"
+	if method == http.MethodPut && c.cfg.SSEAlgorithm != "" {
+		signedHeaders = "host;x-amz-server-side-encryption"
+		canonicalHeaders += "x-amz-server-side-encryption:" + c.cfg.SSEAlgorithm + "\n"
+	}
+
 	q := url.Values{}
 	q.Set("X-Amz-Algorithm", "AWS4-HMAC-SHA256")
 	q.Set("X-Amz-Credential", c.cfg.AccessKey+"/"+scope)
 	q.Set("X-Amz-Date", amzDate)
 	q.Set("X-Amz-Expires", fmt.Sprintf("%d", int(expiry.Seconds())))
-	q.Set("X-Amz-SignedHeaders", "host")
+	q.Set("X-Amz-SignedHeaders", signedHeaders)
 
 	canonicalRequest := strings.Join([]string{
 		method,
 		escapePath(u.Path),
 		q.Encode(),
-		"host:" + u.Host + "\n",
-		"host",
+		canonicalHeaders,
+		signedHeaders,
 		"UNSIGNED-PAYLOAD",
 	}, "\n")
 	sum := sha256.Sum256([]byte(canonicalRequest))

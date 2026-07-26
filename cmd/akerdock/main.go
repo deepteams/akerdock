@@ -35,6 +35,7 @@ import (
 	"github.com/deepteams/akerdock/internal/httpserver"
 	"github.com/deepteams/akerdock/internal/instance"
 	"github.com/deepteams/akerdock/internal/jobs"
+	"github.com/deepteams/akerdock/internal/logredact"
 	"github.com/deepteams/akerdock/internal/notify"
 	"github.com/deepteams/akerdock/internal/postgres"
 
@@ -192,7 +193,7 @@ func serveRun(mode string) int {
 	}
 
 	baseHandler := loggerHandler(cfg)
-	logger := slog.New(baseHandler)
+	logger := slog.New(logredact.Wrap(baseHandler))
 	logger.Info("akerdock starting", "version", version, "mode", string(cfg.Mode), "port", cfg.Port)
 	for _, w := range warnings {
 		logger.Warn(w)
@@ -252,7 +253,7 @@ func serveRun(mode string) int {
 	// With the LoggerProvider now set (if any), fan logs to the OTLP bridge too;
 	// the bridge captures the provider at construction, hence after Init.
 	if tel.Enabled() {
-		logger = slog.New(multiHandler{baseHandler, otelslog.NewHandler(telemetry.ScopeName())})
+		logger = slog.New(logredact.Wrap(multiHandler{baseHandler, otelslog.NewHandler(telemetry.ScopeName())}))
 	}
 
 	recorder := &audit.Recorder{Store: q, Logger: logger, Metrics: metrics}

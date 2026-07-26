@@ -4195,6 +4195,11 @@ export interface components {
             is_usable: boolean;
             /** @description Raison du dernier échec de vérification — jamais un credential. */
             last_check_error?: string | null;
+            /**
+             * @description Chiffrement au repos demandé aux uploads (SSE-S3). `null` = aucun (le store peut tout de même appliquer un chiffrement par défaut).
+             * @enum {string|null}
+             */
+            server_side_encryption?: "AES256" | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -4211,6 +4216,11 @@ export interface components {
             access_key: string;
             /** @description Sensible — chiffré au repos, jamais renvoyé (INV-003). */
             secret_key: string;
+            /**
+             * @description Chiffrement au repos SSE-S3 des uploads (`null`/absent = aucun).
+             * @enum {string|null}
+             */
+            server_side_encryption?: "AES256" | null;
         };
         S3StorageUpdate: {
             name?: string;
@@ -4220,6 +4230,11 @@ export interface components {
             path_prefix?: string | null;
             access_key?: string;
             secret_key?: string;
+            /**
+             * @description Chiffrement au repos SSE-S3 des uploads (`null`/absent = aucun).
+             * @enum {string|null}
+             */
+            server_side_encryption?: "AES256" | null;
         };
         PrivateKeyCreate: {
             name: string;

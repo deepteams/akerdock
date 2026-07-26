@@ -25,9 +25,9 @@ func (q *Queries) CountBackupPlansUsingS3Storage(ctx context.Context, s3StorageI
 
 const createS3Storage = `-- name: CreateS3Storage :one
 INSERT INTO s3_storages (uuid, team_id, name, endpoint, region, bucket, path_prefix,
-                         access_key_enc, secret_key_enc, is_usable, last_check_error)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, uuid, team_id, name, endpoint, region, bucket, path_prefix, access_key_enc, secret_key_enc, is_usable, last_check_error, created_by, created_at, updated_at, version
+                         access_key_enc, secret_key_enc, is_usable, last_check_error, sse_algorithm)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+RETURNING id, uuid, team_id, name, endpoint, region, bucket, path_prefix, access_key_enc, secret_key_enc, is_usable, last_check_error, created_by, created_at, updated_at, version, sse_algorithm
 `
 
 type CreateS3StorageParams struct {
@@ -42,6 +42,7 @@ type CreateS3StorageParams struct {
 	SecretKeyEnc   []byte
 	IsUsable       bool
 	LastCheckError *string
+	SseAlgorithm   *string
 }
 
 func (q *Queries) CreateS3Storage(ctx context.Context, arg CreateS3StorageParams) (S3Storage, error) {
@@ -57,6 +58,7 @@ func (q *Queries) CreateS3Storage(ctx context.Context, arg CreateS3StorageParams
 		arg.SecretKeyEnc,
 		arg.IsUsable,
 		arg.LastCheckError,
+		arg.SseAlgorithm,
 	)
 	var i S3Storage
 	err := row.Scan(
@@ -76,6 +78,7 @@ func (q *Queries) CreateS3Storage(ctx context.Context, arg CreateS3StorageParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.SseAlgorithm,
 	)
 	return i, err
 }
@@ -93,7 +96,7 @@ func (q *Queries) DeleteS3Storage(ctx context.Context, id int64) (int64, error) 
 }
 
 const getS3StorageByID = `-- name: GetS3StorageByID :one
-SELECT id, uuid, team_id, name, endpoint, region, bucket, path_prefix, access_key_enc, secret_key_enc, is_usable, last_check_error, created_by, created_at, updated_at, version FROM s3_storages WHERE id = $1
+SELECT id, uuid, team_id, name, endpoint, region, bucket, path_prefix, access_key_enc, secret_key_enc, is_usable, last_check_error, created_by, created_at, updated_at, version, sse_algorithm FROM s3_storages WHERE id = $1
 `
 
 func (q *Queries) GetS3StorageByID(ctx context.Context, id int64) (S3Storage, error) {
@@ -116,12 +119,13 @@ func (q *Queries) GetS3StorageByID(ctx context.Context, id int64) (S3Storage, er
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.SseAlgorithm,
 	)
 	return i, err
 }
 
 const getS3StorageByUUID = `-- name: GetS3StorageByUUID :one
-SELECT id, uuid, team_id, name, endpoint, region, bucket, path_prefix, access_key_enc, secret_key_enc, is_usable, last_check_error, created_by, created_at, updated_at, version FROM s3_storages WHERE uuid = $1 AND team_id = $2
+SELECT id, uuid, team_id, name, endpoint, region, bucket, path_prefix, access_key_enc, secret_key_enc, is_usable, last_check_error, created_by, created_at, updated_at, version, sse_algorithm FROM s3_storages WHERE uuid = $1 AND team_id = $2
 `
 
 type GetS3StorageByUUIDParams struct {
@@ -149,13 +153,14 @@ func (q *Queries) GetS3StorageByUUID(ctx context.Context, arg GetS3StorageByUUID
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Version,
+		&i.SseAlgorithm,
 	)
 	return i, err
 }
 
 const listS3StoragesPage = `-- name: ListS3StoragesPage :many
 
-SELECT id, uuid, team_id, name, endpoint, region, bucket, path_prefix, access_key_enc, secret_key_enc, is_usable, last_check_error, created_by, created_at, updated_at, version FROM s3_storages
+SELECT id, uuid, team_id, name, endpoint, region, bucket, path_prefix, access_key_enc, secret_key_enc, is_usable, last_check_error, created_by, created_at, updated_at, version, sse_algorithm FROM s3_storages
 WHERE team_id = $1 AND ($2::bigint = 0 OR id < $2)
 ORDER BY id DESC
 LIMIT $3
@@ -195,6 +200,7 @@ func (q *Queries) ListS3StoragesPage(ctx context.Context, arg ListS3StoragesPage
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Version,
+			&i.SseAlgorithm,
 		); err != nil {
 			return nil, err
 		}
@@ -289,8 +295,9 @@ const updateS3Storage = `-- name: UpdateS3Storage :execrows
 UPDATE s3_storages
 SET name = $2, endpoint = $3, region = $4, bucket = $5, path_prefix = $6,
     access_key_enc = $7, secret_key_enc = $8, is_usable = $9, last_check_error = $10,
+    sse_algorithm = $11,
     updated_at = now(), version = version + 1
-WHERE id = $1 AND version = $11
+WHERE id = $1 AND version = $12
 `
 
 type UpdateS3StorageParams struct {
@@ -304,6 +311,7 @@ type UpdateS3StorageParams struct {
 	SecretKeyEnc    []byte
 	IsUsable        bool
 	LastCheckError  *string
+	SseAlgorithm    *string
 	ExpectedVersion int32
 }
 
@@ -319,6 +327,7 @@ func (q *Queries) UpdateS3Storage(ctx context.Context, arg UpdateS3StorageParams
 		arg.SecretKeyEnc,
 		arg.IsUsable,
 		arg.LastCheckError,
+		arg.SseAlgorithm,
 		arg.ExpectedVersion,
 	)
 	if err != nil {
