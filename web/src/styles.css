@@ -875,14 +875,17 @@ kbd {
   box-shadow: var(--shadow-3);
   padding: 0;
   color: inherit;
-  display: flex;
-  flex-direction: column;
 }
 .akd-drawer::backdrop {
   background: oklch(10% 0.01 252 / 0.6);
   backdrop-filter: blur(4px);
 }
+/* Only the open dialog gets the flex layout: a bare `display` on the base rule
+   would override the UA `dialog:not([open]) { display: none }` and leave the
+   drawer permanently visible. */
 .akd-drawer[open] {
+  display: flex;
+  flex-direction: column;
   animation: akd-drawer-in var(--dur-2) var(--ease-out);
 }
 .akd-drawer__header {
