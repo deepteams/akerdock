@@ -98,6 +98,13 @@ type Config struct {
 	// Terminal session bounds (§24.4, ADR-024).
 	TerminalIdleTimeout time.Duration
 	TerminalMaxDuration time.Duration
+	// Image is this AkerDock release's own container image (ADR-036): the
+	// scale-to-zero waker is deployed as a helper container from it (same binary,
+	// `akerdock waker` mode). AKERDOCK_IMAGE sets it explicitly; on a release
+	// build it otherwise falls back (in main) to the image baked in via
+	// -ldflags. Empty everywhere disables waker provisioning — scale-to-zero then
+	// stays inert with a clear error, never a guessed registry.
+	Image string
 }
 
 // HasRootBootstrap reports whether the AKERDOCK_ROOT_* trio was provided.
@@ -150,6 +157,7 @@ var envKeys = []string{
 	"AKERDOCK_SHUTDOWN_TIMEOUT",
 	"AKERDOCK_TERMINAL_IDLE_TIMEOUT",
 	"AKERDOCK_TERMINAL_MAX_DURATION",
+	"AKERDOCK_IMAGE",
 	"AKERDOCK_CONFIG_FILE",
 }
 
@@ -301,6 +309,8 @@ func Load(vars map[string]string, readFile func(string) ([]byte, error)) (*Confi
 	if v := get("AKERDOCK_DATA_DIR"); v != "" {
 		cfg.DataDir = v
 	}
+
+	cfg.Image = get("AKERDOCK_IMAGE")
 
 	cfg.WorkerConcurrency = DefaultWorkerConcurrency
 	if v := get("AKERDOCK_WORKER_CONCURRENCY"); v != "" {

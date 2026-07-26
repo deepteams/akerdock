@@ -811,6 +811,17 @@ func (r *deploymentRun) applyComposePreviewRouting(ctx context.Context, content 
 			Endpoint: plans(plan)[name].ContainerName,
 		})
 	}
+	// Scale-to-zero (ADR-036): route the stack's traffic through the waker,
+	// which forwards to each component and wakes the stack on demand. The waker
+	// routes by Host, so only the service target changes — the protection
+	// middlewares injected below are untouched.
+	if r.app.Application.ScaleToZero && len(rg.Routes) > 0 {
+		wcfg := wakerConfigFromRouteGroup(appUUID, rg)
+		if err := ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, appUUID, wcfg); err != nil {
+			return err
+		}
+		rg = pointRouteGroupAtWaker(rg)
+	}
 	routingContent := ""
 	if len(rg.Routes) > 0 {
 		ssoURL, err := r.previewSSOAuthURL(ctx)

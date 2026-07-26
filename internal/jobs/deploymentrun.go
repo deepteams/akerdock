@@ -50,6 +50,10 @@ type DeploymentRun struct {
 	// the control plane straight through the Docker host gateway — never the
 	// public hairpin, whose latency taxes every preview request (ADR-030).
 	ControlPlanePort int
+	// WakerImage is this AkerDock release's own image (AKERDOCK_IMAGE): the
+	// scale-to-zero waker is deployed as a helper container from it (ADR-036).
+	// Empty leaves scale_to_zero inert with a clear error at deploy time.
+	WakerImage string
 }
 
 // ImageRef and TagRef bound what can reach a remote shell (INV-012); they
@@ -1231,7 +1235,24 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 		if ssoErr != nil {
 			return ssoErr
 		}
-		content, err = RenderPreviewRoutingFile(r.app, *r.preview, r.d.ID, endpoint, r.previewAuthHash(ctx), ssoURL)
+		// Scale-to-zero (ADR-036): point the preview's single route at the waker,
+		// which forwards to the container and wakes it on demand. Provision the
+		// waker (and its routing table) before the routing flips to it.
+		if r.app.Application.ScaleToZero {
+			// The waker forwards to the stable container name and wakes it by
+			// `docker start` — never the candidate IP of a rolling switch.
+			if rg, ok := previewSingleRouteGroup(r.app, *r.preview, ""); ok {
+				previewUUID := pguuid.String(r.preview.Uuid)
+				if err = ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, previewUUID,
+					wakerConfigFromRouteGroup(previewUUID, rg)); err != nil {
+					return err
+				}
+				content = renderPreviewContent(pointRouteGroupAtWaker(rg), previewUUID, r.d.ID,
+					r.app.Application.PreviewProtection, r.previewAuthHash(ctx), ssoURL, []string{*r.preview.Fqdn})
+			}
+		} else {
+			content, err = RenderPreviewRoutingFile(r.app, *r.preview, r.d.ID, endpoint, r.previewAuthHash(ctx), ssoURL)
+		}
 	} else {
 		content, err = RenderRoutingFileTo(ctx, r.h.Store, r.app, r.d.ID, endpoint)
 	}

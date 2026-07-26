@@ -121,6 +121,17 @@ func (f *fakeSchedulerStore) SetPreviewStatus(_ context.Context, arg store.SetPr
 	f.previewStatuses = append(f.previewStatuses, arg)
 	return f.err("previewStatus")
 }
+func (f *fakeSchedulerStore) ListPreviewsForScaleToZero(context.Context) ([]store.ListPreviewsForScaleToZeroRow, error) {
+	return nil, f.err("stzList")
+}
+func (f *fakeSchedulerStore) ListSleepingPreviews(context.Context) ([]store.Preview, error) {
+	return nil, f.err("sleepingList")
+}
+func (f *fakeSchedulerStore) SetPreviewSleeping(context.Context, int64) error { return f.err("sleep") }
+func (f *fakeSchedulerStore) SetPreviewAwake(context.Context, int64) error    { return f.err("awake") }
+func (f *fakeSchedulerStore) GetServerByID(context.Context, int64) (store.Server, error) {
+	return store.Server{}, f.err("server")
+}
 func (f *fakeSchedulerStore) InsertOutboxEvent(_ context.Context, arg store.InsertOutboxEventParams) error {
 	f.outbox = append(f.outbox, arg)
 	return f.err("outbox")

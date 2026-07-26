@@ -44,10 +44,15 @@ COPY --from=web /web/dist/akerdock-web/browser/ internal/web/dist/
 # image has none. The version is stamped in, not read from git — the build must
 # be reproducible from a source tarball.
 ARG VERSION=dev
+# IMAGE is this build's own image reference (ADR-036): baked in so the
+# scale-to-zero waker is deployed from the exact same image, with no runtime
+# configuration. install.sh passes akerdock:${AKERDOCK_TAG}; empty falls back to
+# AKERDOCK_IMAGE at runtime.
+ARG IMAGE=
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
         -trimpath \
-        -ldflags "-s -w -X main.version=${VERSION}" \
+        -ldflags "-s -w -X main.version=${VERSION} -X main.image=${IMAGE}" \
         -o /akerdock ./cmd/akerdock
 
 FROM gcr.io/distroless/static-debian12:nonroot

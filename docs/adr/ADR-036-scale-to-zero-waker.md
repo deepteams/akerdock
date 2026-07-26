@@ -42,7 +42,14 @@ Pas de second artefact. `akerdock waker` est une sous-commande du binaire
 existant (ADR-021, full-Cobra ADR-033), déployée en conteneur helper avec la
 **même image** épinglée par la release, labellisé `akerdock.type=helper` et
 `akerdock.managed=true`, sur le réseau interne du serveur (**jamais publié**),
-avec accès au socket Docker local. Son code est **borné** à démarrer des
+avec accès au socket Docker local.
+
+La référence de cette image est **gravée dans le binaire au build** (`-ldflags
+-X main.image=...`, comme `version`) : une release déploie donc le waker depuis
+sa propre image sans configuration au runtime — un conteneur ne connaît pas son
+propre tag, mais le build si. `AKERDOCK_IMAGE` (env) surcharge (registre miroir,
+build local). Vide des deux côtés ⇒ le scale-to-zero reste inerte avec une
+erreur explicite au déploiement, jamais un registre deviné. Son code est **borné** à démarrer des
 conteneurs `akerdock.managed=true` : il ne crée, ne supprime, ni ne construit
 rien.
 

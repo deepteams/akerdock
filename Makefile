@@ -1,12 +1,17 @@
 GO      ?= go
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+# IMAGE is this release's own container image, baked into the binary so the
+# scale-to-zero waker (ADR-036) is deployed from the exact same image without
+# any runtime configuration. The release pipeline sets it; local builds leave it
+# empty (scale-to-zero then needs AKERDOCK_IMAGE, or stays inert).
+IMAGE   ?=
 
 .PHONY: all build test unit-coverage go-unit-coverage web-unit-coverage lint generate api-gen sqlc-gen openapi-validate migrate-status e2e clean web
 
 all: generate build test
 
 build:
-	$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/akerdock ./cmd/akerdock
+	$(GO) build -ldflags "-X main.version=$(VERSION) -X main.image=$(IMAGE)" -o bin/akerdock ./cmd/akerdock
 
 test:
 	$(GO) test ./...

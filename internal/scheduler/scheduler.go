@@ -93,6 +93,12 @@ type SchedulerStore interface {
 	ListPreviewsToWarn(context.Context) ([]store.Preview, error)
 	SetPreviewExpiryWarned(context.Context, int64) error
 	ListQueuedPreviews(context.Context) ([]store.Preview, error)
+	ListPreviewsForScaleToZero(context.Context) ([]store.ListPreviewsForScaleToZeroRow, error)
+	ListSleepingPreviews(context.Context) ([]store.Preview, error)
+	SetPreviewSleeping(context.Context, int64) error
+	SetPreviewAwake(context.Context, int64) error
+	GetDestinationByID(context.Context, int64) (store.Destination, error)
+	GetServerByID(context.Context, int64) (store.Server, error)
 	GetApplicationByID(context.Context, int64) (store.GetApplicationByIDRow, error)
 	ListSchedulableTasks(context.Context) ([]store.ListSchedulableTasksRow, error)
 	CountRunningTaskExecutions(context.Context, int64) (int64, error)
@@ -238,6 +244,7 @@ func (s *Scheduler) runTasks(ctx context.Context) {
 	s.reconcileProxyDrift(ctx)
 	s.validateSeededLocalhost(ctx)
 	s.reapPreviews(ctx)
+	s.scaleZeroPreviews(ctx)
 }
 
 // purgeRetention drops expired history: terminal jobs, published outbox

@@ -236,8 +236,21 @@ func appendComponentRoutes(ctx context.Context, q *store.Queries, components []s
 // the application's protection policy — basic auth by default, and always
 // `X-Robots-Tag: noindex`: a preview is not content to index.
 func RenderPreviewRoutingFile(app store.GetApplicationByIDRow, preview store.Preview, revision int64, endpoint, basicAuthHash, ssoAuthURL string) (string, error) {
-	if preview.Fqdn == nil || *preview.Fqdn == "" {
+	rg, ok := previewSingleRouteGroup(app, preview, endpoint)
+	if !ok {
 		return "", nil // no fqdn resolved: the preview runs unrouted
+	}
+	return renderPreviewContent(rg, pguuid.String(preview.Uuid), revision,
+		app.Application.PreviewProtection, basicAuthHash, ssoAuthURL, []string{*preview.Fqdn}), nil
+}
+
+// previewSingleRouteGroup builds the RouteGroup of a single-container preview:
+// one route (preview.Fqdn) to the preview's own container, on the port from
+// PortsExposes or the route table's first row (ADR-035). ok is false when no
+// fqdn is resolved (the preview runs unrouted).
+func previewSingleRouteGroup(app store.GetApplicationByIDRow, preview store.Preview, endpoint string) (proxy.RouteGroup, bool) {
+	if preview.Fqdn == nil || *preview.Fqdn == "" {
+		return proxy.RouteGroup{}, false
 	}
 	previewUUID := pguuid.String(preview.Uuid)
 	if endpoint == "" {
@@ -250,22 +263,28 @@ func RenderPreviewRoutingFile(app store.GetApplicationByIDRow, preview store.Pre
 			port = n
 		}
 	}
-	// A single container has one primary route (preview.Fqdn). The route table
-	// (ADR-035) can still pin its target port: the first row's port wins.
 	if templates := previewTemplates(app); len(templates) > 0 && templates[0].Port != nil {
 		port = *templates[0].Port
 	}
-	rg := proxy.RouteGroup{
+	return proxy.RouteGroup{
 		AppUUID: previewUUID, Endpoint: endpoint, ForceHTTPS: true,
 		Routes: []proxy.Route{{FQDN: *preview.Fqdn, Path: "/", TargetPort: port}},
-	}
+	}, true
+}
+
+// renderPreviewContent renders a preview's dynamic file from its RouteGroup and
+// attaches the protection policy — basic auth by default, always noindex, and
+// the SSO cookie-bootstrap when enabled. Shared by the direct and the
+// scale-to-zero (waker-pointed) routing, whose RouteGroups differ only in the
+// service target.
+func renderPreviewContent(rg proxy.RouteGroup, previewUUID string, revision int64, protection store.PreviewProtection, basicAuthHash, ssoAuthURL string, fqdns []string) string {
 	content := proxy.GenerateDynamic(rg, revision)
-	content = injectPreviewMiddlewares(content, previewUUID, app.Application.PreviewProtection, basicAuthHash, ssoAuthURL)
-	if app.Application.PreviewProtection == store.PreviewProtectionSso && ssoAuthURL != "" {
-		content = injectPreviewSSOCallback(content, previewUUID, []string{*preview.Fqdn},
+	content = injectPreviewMiddlewares(content, previewUUID, protection, basicAuthHash, ssoAuthURL)
+	if protection == store.PreviewProtectionSso && ssoAuthURL != "" {
+		content = injectPreviewSSOCallback(content, previewUUID, fqdns,
 			strings.TrimSuffix(ssoAuthURL, "/webhooks/previews/forward-auth"))
 	}
-	return content, nil
+	return content
 }
 
 // injectPreviewMiddlewares attaches the preview protection to every https

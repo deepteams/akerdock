@@ -51,6 +51,13 @@ import (
 // version is set at build time via -ldflags "-X main.version=...".
 var version = "dev"
 
+// image is this release's own container image, baked in at build time via
+// -ldflags "-X main.image=...". It is the default source of the scale-to-zero
+// waker container (ADR-036), so no runtime configuration is needed on a release
+// build; AKERDOCK_IMAGE overrides it (custom registry/mirror). Empty on local
+// builds, which is why scale-to-zero then requires AKERDOCK_IMAGE explicitly.
+var image string
+
 // serverModes are the run modes accepted both by `serve <mode>` and, for one
 // release, as a bare legacy argument (`akerdock all-in-one`).
 var serverModes = map[string]bool{
@@ -177,6 +184,12 @@ func serveRun(mode string) int {
 		fmt.Fprintf(os.Stderr, "FATAL %v\n", err)
 		return 1
 	}
+	// AKERDOCK_IMAGE (env) wins; otherwise fall back to the image baked in at
+	// build time, so a release deploys the waker from its own image with no
+	// runtime configuration (ADR-036).
+	if cfg.Image == "" {
+		cfg.Image = image
+	}
 
 	baseHandler := loggerHandler(cfg)
 	logger := slog.New(baseHandler)
@@ -266,7 +279,7 @@ func serveRun(mode string) int {
 		worker = queue.NewWorker(q, cfg.WorkerConcurrency, logger)
 		worker.Metrics, worker.Tracer = metrics, tel.Tracer
 		worker.Register(jobs.TypeServerValidate, (&jobs.ServerValidate{Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort}).Execute)
-		worker.Register(jobs.TypeDeploymentRun, (&jobs.DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger, ControlPlanePort: cfg.InstancePort}).Execute)
+		worker.Register(jobs.TypeDeploymentRun, (&jobs.DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger, ControlPlanePort: cfg.InstancePort, WakerImage: cfg.Image}).Execute)
 		worker.Register(jobs.TypeApplicationDelete, (&jobs.ApplicationDelete{Store: q, Keyring: keyring, Logger: logger}).Execute)
 		worker.Register(jobs.TypeApplyRouting, (&jobs.ApplyRouting{Store: q, Keyring: keyring, Logger: logger}).Execute)
 		db := &jobs.DatabaseRun{Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort}

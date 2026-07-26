@@ -27,6 +27,10 @@ services:
       # mapping, and the 00-control-plane proxy route must target the host
       # side of it (proxy-contract §5.7).
       AKERDOCK_INSTANCE_PORT: ${AKERDOCK_PORT:-8080}
+      # This instance's own image, mirroring the `image:` line above: the
+      # scale-to-zero waker (ADR-036) is deployed from it. Set here because the
+      # process cannot read its own image tag at runtime.
+      AKERDOCK_IMAGE: ${AKERDOCK_IMAGE:-ghcr.io/deepteams/akerdock:${AKERDOCK_TAG}}
       # Let's Encrypt contact. A wrong address fails silently — the proxy runs,
       # the certificates never come (§4.3).
       AKERDOCK_ACME_EMAIL: ${AKERDOCK_ACME_EMAIL:-}
