@@ -13,7 +13,6 @@ import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
 import { BreadcrumbComponent, type Crumb } from '../../ui/breadcrumb/breadcrumb.component';
 import { CardComponent } from '../../ui/card/card.component';
-import { DrawerComponent } from '../../ui/drawer/drawer.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
@@ -56,7 +55,6 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
     FormsModule,
     BreadcrumbComponent,
     CardComponent,
-    DrawerComponent,
     EmptyStateComponent,
     IconComponent,
     StatusBadgeComponent,
@@ -137,6 +135,16 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
             <span class="akd-tab__count">{{ variables().length }}</span>
           }
         </button>
+        <button
+          type="button"
+          class="akd-tab"
+          role="tab"
+          [class.akd-tab--active]="active() === 'config'"
+          [attr.aria-selected]="active() === 'config'"
+          (click)="active.set('config')"
+        >
+          Config
+        </button>
       </nav>
 
       @if (error(); as message) {
@@ -197,118 +205,156 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
             </table>
           }
         </akd-card>
-      } @else {
+      } @else if (active() === 'variables') {
         <akd-card title="Environment variables" [padded]="false">
-          <button
-            card-actions
-            class="akd-btn akd-btn--primary akd-btn--sm"
-            type="button"
-            (click)="openAddVar()"
-            [disabled]="busy()"
-          >
-            <akd-icon name="plus" [size]="14" />
-            Add variable
-          </button>
-          @if (variables().length === 0) {
-            <akd-empty-state
-              icon="hash"
-              title="No environment variables"
-              message="Shared across every resource of this environment, referenced as {{ '{{' }}environment.KEY{{ '}}' }} in their env."
-            />
-          } @else {
-            <table class="akd-table">
-              <caption class="sr-only">
-                Environment-scoped shared variables
-              </caption>
-              <thead>
+          <table class="akd-table">
+            <caption class="sr-only">
+              Environment-scoped shared variables
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Key</th>
+                <th scope="col">Value</th>
+                <th scope="col">Flags</th>
+                <th scope="col" class="right"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (v of variables(); track v.uuid) {
                 <tr>
-                  <th scope="col">Key</th>
-                  <th scope="col">Value</th>
-                  <th scope="col">Reference</th>
-                  <th scope="col" class="right"><span class="sr-only">Actions</span></th>
+                  <td>
+                    <span class="akd-mono">{{ v.key }}</span>
+                    <div class="ref akd-mono akd-muted">{{ '{{' }}environment.{{ v.key }}{{ '}}' }}</div>
+                  </td>
+                  <td class="akd-mono akd-muted">{{ v.is_redacted ? '••••••••' : v.value }}</td>
+                  <td>
+                    @if (v.is_secret) {
+                      <span class="akd-badge akd-badge--accent">secret</span>
+                    } @else {
+                      <span class="akd-muted">—</span>
+                    }
+                  </td>
+                  <td class="right">
+                    <button
+                      class="akd-btn akd-btn--danger akd-btn--sm"
+                      type="button"
+                      [disabled]="busy()"
+                      (click)="removeVar(v)"
+                    >
+                      Delete
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                @for (v of variables(); track v.uuid) {
-                  <tr>
-                    <td class="akd-mono">
-                      {{ v.key }}
-                      @if (v.is_secret) {
-                        <span class="akd-badge">secret</span>
-                      }
-                    </td>
-                    <td class="akd-mono akd-muted">
-                      {{ v.is_redacted ? '••••••••' : v.value }}
-                    </td>
-                    <td class="akd-mono akd-muted">{{ '{{' }}environment.{{ v.key }}{{ '}}' }}</td>
-                    <td class="right">
-                      <button
-                        class="akd-btn akd-btn--danger akd-btn--sm"
-                        type="button"
-                        [disabled]="busy()"
-                        (click)="removeVar(v)"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
+              }
+              <!-- The last row IS the creator: add a variable in place. -->
+              <tr class="add-row">
+                <td>
+                  <input
+                    class="akd-input akd-input--mono"
+                    name="newKey"
+                    placeholder="NEW_KEY"
+                    aria-label="New variable key"
+                    [(ngModel)]="varKey"
+                    [disabled]="busy()"
+                    (keydown.enter)="createVar()"
+                  />
+                </td>
+                <td>
+                  <input
+                    class="akd-input akd-input--mono"
+                    name="newValue"
+                    placeholder="value"
+                    aria-label="New variable value"
+                    [(ngModel)]="varValue"
+                    [disabled]="busy()"
+                    (keydown.enter)="createVar()"
+                  />
+                </td>
+                <td>
+                  <label class="akd-check" title="Encrypted at rest, never shown again (INV-003)">
+                    <input type="checkbox" name="newSecret" [(ngModel)]="varSecret" [disabled]="busy()" />
+                    secret
+                  </label>
+                </td>
+                <td class="right">
+                  <button
+                    class="akd-btn akd-btn--primary akd-btn--sm"
+                    type="button"
+                    [disabled]="busy() || !varKey.trim()"
+                    (click)="createVar()"
+                  >
+                    <akd-icon name="plus" [size]="13" />
+                    Add
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </akd-card>
+      } @else {
+        <akd-card title="Environment settings" class="cfg">
+          <form class="cfgform" (ngSubmit)="saveConfig()">
+            @if (cfgError(); as message) {
+              <p class="akd-error" role="alert">{{ message }}</p>
+            }
+            <div class="akd-field">
+              <label class="akd-field__label" for="cfg-name">Name</label>
+              <input
+                id="cfg-name"
+                name="name"
+                class="akd-input akd-input--mono"
+                [(ngModel)]="cfgName"
+                [disabled]="busy()"
+              />
+            </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="cfg-desc">Description</label>
+              <textarea
+                id="cfg-desc"
+                name="description"
+                class="akd-input"
+                rows="3"
+                [(ngModel)]="cfgDescription"
+                [disabled]="busy()"
+              ></textarea>
+            </div>
+            <div>
+              <button
+                class="akd-btn akd-btn--primary"
+                type="submit"
+                [disabled]="busy() || !cfgName.trim() || !cfgDirty()"
+              >
+                Save changes
+              </button>
+            </div>
+          </form>
+        </akd-card>
+
+        <akd-card title="Danger zone" class="cfg danger">
+          <div class="danger__row">
+            <div>
+              <p class="danger__title">Delete this environment</p>
+              <p class="danger__desc">
+                @if (environment()?.resource_count) {
+                  Remove its {{ environment()?.resource_count }} resource(s) first — an environment
+                  with resources cannot be deleted.
+                } @else {
+                  Permanent. Its environment-scoped variables are removed too.
                 }
-              </tbody>
-            </table>
-          }
+              </p>
+            </div>
+            <button
+              class="akd-btn akd-btn--danger"
+              type="button"
+              [disabled]="busy() || !!environment()?.resource_count"
+              (click)="deleteEnvironment()"
+            >
+              Delete environment
+            </button>
+          </div>
         </akd-card>
       }
 
-      <akd-drawer [open]="showAddVar()" title="Add environment variable" (closed)="closeAddVar()">
-        <form id="env-var-form" class="varform" (ngSubmit)="createVar()">
-          @if (varError(); as message) {
-            <p class="akd-error" role="alert">{{ message }}</p>
-          }
-          <div class="akd-field">
-            <label class="akd-field__label" for="ev-key">Key</label>
-            <input
-              id="ev-key"
-              name="key"
-              class="akd-input akd-input--mono"
-              placeholder="e.g. API_URL"
-              [(ngModel)]="varKey"
-              [disabled]="busy()"
-            />
-            <span class="akd-field__hint">Letters, digits and underscore; cannot start with a digit.</span>
-          </div>
-          <div class="akd-field">
-            <label class="akd-field__label" for="ev-value">Value</label>
-            <input
-              id="ev-value"
-              name="value"
-              class="akd-input akd-input--mono"
-              [(ngModel)]="varValue"
-              [disabled]="busy()"
-            />
-          </div>
-          <label class="switch">
-            <input type="checkbox" class="akd-switch" name="secret" [(ngModel)]="varSecret" [disabled]="busy()" />
-            <span>
-              <span class="switch__label">Secret</span>
-              <span class="switch__desc">Encrypted at rest and never shown again (INV-003).</span>
-            </span>
-          </label>
-        </form>
-        <div drawer-footer>
-          <button class="akd-btn akd-btn--ghost" type="button" (click)="closeAddVar()" [disabled]="busy()">
-            Cancel
-          </button>
-          <button
-            class="akd-btn akd-btn--primary"
-            type="submit"
-            form="env-var-form"
-            [disabled]="busy() || !varKey.trim()"
-          >
-            <akd-icon name="plus" [size]="15" />
-            Add variable
-          </button>
-        </div>
-      </akd-drawer>
     </div>
   `,
   styles: [
@@ -382,6 +428,46 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
         color: var(--text-3);
         line-height: 0;
       }
+      .ref {
+        font-size: var(--text-xs);
+        margin-top: 2px;
+      }
+      .add-row td {
+        vertical-align: middle;
+      }
+      .add-row .akd-input {
+        width: 100%;
+      }
+      .cfg {
+        display: block;
+        max-width: 40rem;
+        margin-bottom: var(--space-5);
+      }
+      .cfgform {
+        display: grid;
+        gap: var(--space-4);
+      }
+      .cfg.danger {
+        border-color: var(--danger-border);
+      }
+      .danger__row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-4);
+        flex-wrap: wrap;
+      }
+      .danger__title {
+        margin: 0 0 2px;
+        color: var(--text-1);
+        font-weight: var(--weight-medium);
+      }
+      .danger__desc {
+        margin: 0;
+        font-size: var(--text-sm);
+        color: var(--text-3);
+        max-width: 40ch;
+      }
     `,
   ],
 })
@@ -400,14 +486,23 @@ export class EnvironmentDetailComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly menu = signal(false);
 
-  protected readonly active = signal<'resources' | 'variables'>('resources');
+  protected readonly active = signal<'resources' | 'variables' | 'config'>('resources');
   protected readonly variables = signal<SharedVariable[]>([]);
   protected readonly busy = signal(false);
-  protected readonly showAddVar = signal(false);
-  protected readonly varError = signal<string | null>(null);
   protected varKey = '';
   protected varValue = '';
   protected varSecret = false;
+
+  protected readonly cfgError = signal<string | null>(null);
+  protected cfgName = '';
+  protected cfgDescription = '';
+
+  /** Dirty when the config form diverges from the loaded environment. */
+  protected cfgDirty(): boolean {
+    const env = this.environment();
+    if (!env) return false;
+    return this.cfgName.trim() !== env.name || this.cfgDescription !== (env.description ?? '');
+  }
 
   protected readonly crumbs = computed<Crumb[]>(() => [
     { label: 'Projects', link: '/projects' },
@@ -459,6 +554,8 @@ export class EnvironmentDetailComponent {
       ]);
       this.project.set(project);
       this.environment.set(environment);
+      this.cfgName = environment.name;
+      this.cfgDescription = environment.description ?? '';
       this.variables.set(
         variables.data
           .filter((v) => v.environment_uuid === envUuid)
@@ -527,23 +624,10 @@ export class EnvironmentDetailComponent {
     });
   }
 
-  protected openAddVar(): void {
-    this.varKey = '';
-    this.varValue = '';
-    this.varSecret = false;
-    this.varError.set(null);
-    this.showAddVar.set(true);
-  }
-
-  protected closeAddVar(): void {
-    if (this.busy()) return;
-    this.showAddVar.set(false);
-  }
-
   protected async createVar(): Promise<void> {
     if (this.busy() || !this.varKey.trim()) return;
     this.busy.set(true);
-    this.varError.set(null);
+    this.error.set(null);
     try {
       await this.api.client().createSharedVariable({
         scope: 'environment',
@@ -552,10 +636,12 @@ export class EnvironmentDetailComponent {
         value: this.varValue,
         is_secret: this.varSecret,
       });
-      this.showAddVar.set(false);
+      this.varKey = '';
+      this.varValue = '';
+      this.varSecret = false;
       await this.reloadVariables();
     } catch (err) {
-      this.varError.set(ApiService.describe(err));
+      this.error.set(ApiService.describe(err));
     } finally {
       this.busy.set(false);
     }
@@ -573,6 +659,40 @@ export class EnvironmentDetailComponent {
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async saveConfig(): Promise<void> {
+    if (this.busy() || !this.cfgName.trim() || !this.cfgDirty()) return;
+    this.busy.set(true);
+    this.cfgError.set(null);
+    try {
+      const updated = await this.api.client().updateEnvironment(this.uuid(), this.envUuid(), {
+        name: this.cfgName.trim(),
+        description: this.cfgDescription.trim() || null,
+      });
+      this.environment.set(updated);
+      this.cfgName = updated.name;
+      this.cfgDescription = updated.description ?? '';
+    } catch (err) {
+      this.cfgError.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async deleteEnvironment(): Promise<void> {
+    const env = this.environment();
+    if (!env || env.resource_count) return;
+    if (!confirm(`Delete the environment "${env.name}"? This cannot be undone.`)) return;
+    this.busy.set(true);
+    this.cfgError.set(null);
+    try {
+      await this.api.client().deleteEnvironment(this.uuid(), this.envUuid());
+      void this.router.navigate(['/projects', this.uuid()]);
+    } catch (err) {
+      this.cfgError.set(ApiService.describe(err));
       this.busy.set(false);
     }
   }
