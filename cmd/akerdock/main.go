@@ -44,6 +44,7 @@ import (
 	"github.com/deepteams/akerdock/internal/session"
 	"github.com/deepteams/akerdock/internal/store"
 	"github.com/deepteams/akerdock/internal/telemetry"
+	"github.com/deepteams/akerdock/internal/waker"
 	"github.com/deepteams/akerdock/internal/web"
 )
 
@@ -123,9 +124,43 @@ func rootCommand() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(serve, healthcheckCmd, versionCmd)
+	wakerCmd := &cobra.Command{
+		Use:   "waker",
+		Short: "Run the scale-to-zero waker (ADR-036, deployed as a helper container)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return wakerRun(cmd.Context())
+		},
+	}
+
+	root.AddCommand(serve, healthcheckCmd, versionCmd, wakerCmd)
 	cli.AddCommands(root, version)
 	return root
+}
+
+// wakerRun runs the scale-to-zero waker (ADR-036). It is a mode of this single
+// binary, deployed as a helper container with the local Docker socket. Config
+// comes from AKERDOCK_WAKER_* env vars so the control plane can parameterise the
+// container without a config file beyond the routing table it deposits.
+func wakerRun(_ context.Context) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	dir := envOr("AKERDOCK_WAKER_DIR", waker.DefaultDir)
+	addr := envOr("AKERDOCK_WAKER_ADDR", waker.DefaultListenAddr)
+	socket := envOr("AKERDOCK_DOCKER_SOCKET", waker.DockerSocket)
+	apiVersion := os.Getenv("AKERDOCK_DOCKER_API_VERSION")
+
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	docker := waker.NewSocketDocker(socket, apiVersion)
+	return waker.Serve(ctx, dir, addr, docker, logger)
+}
+
+// envOr returns the environment value for key, or def when unset/empty.
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
 
 // serveRun boots the control plane in the given mode ("" = AKERDOCK_MODE or

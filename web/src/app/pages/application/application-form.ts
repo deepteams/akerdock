@@ -99,6 +99,10 @@ export interface SettingsForm extends ConfigForm {
   previewRequireLabel: string;
   previewCommentCommandsEnabled: boolean;
   previewCancelObsoleteBuilds: boolean;
+  /** Sleep idle previews and wake them on demand via the waker (ADR-036). */
+  scaleToZero: boolean;
+  /** Idle window before sleeping, in minutes. */
+  scaleToZeroAfterMinutes: number;
   /** New provider API token to store; blank = keep the stored one (write-only). */
   gitApiToken: string;
   /** Explicitly remove the stored token (sends null). */
@@ -220,6 +224,8 @@ export function settingsFromApplication(app: Application): SettingsForm {
     previewRequireLabel: app.preview_require_label ?? '',
     previewCommentCommandsEnabled: app.preview_comment_commands_enabled ?? false,
     previewCancelObsoleteBuilds: app.preview_cancel_obsolete_builds ?? false,
+    scaleToZero: app.scale_to_zero ?? false,
+    scaleToZeroAfterMinutes: app.scale_to_zero_after_minutes ?? 30,
     gitApiToken: '',
     gitApiTokenClear: false,
     useBuildServer: app.use_build_server ?? false,
@@ -364,6 +370,8 @@ export function settingsToUpdate(form: SettingsForm, sourceType: SourceType): Ap
       update.preview_require_label = orNull(form.previewRequireLabel);
       update.preview_comment_commands_enabled = form.previewCommentCommandsEnabled;
       update.preview_cancel_obsolete_builds = form.previewCancelObsoleteBuilds;
+      update.scale_to_zero = form.scaleToZero;
+      update.scale_to_zero_after_minutes = Math.max(1, Number(form.scaleToZeroAfterMinutes) || 30);
       // The token never comes back (write-only): a blank field means "keep the
       // stored one", the clear checkbox means "remove it" (explicit null), and
       // a typed value replaces it.

@@ -322,6 +322,38 @@ type SettingsSection = ConfigSection | 'deploys' | 'previews';
                         </span>
                       </span>
                     </label>
+                    <label class="switch">
+                      <input
+                        type="checkbox"
+                        class="akd-switch"
+                        name="scaleToZero"
+                        [(ngModel)]="form.scaleToZero"
+                        [disabled]="busy()"
+                      />
+                      <span>
+                        <span class="switch__label">Scale to zero</span>
+                        <span class="switch__desc">
+                          Sleep an idle preview (docker stop) and wake it on the first
+                          request via the waker helper. Previews only — never production.
+                        </span>
+                      </span>
+                    </label>
+                    @if (form.scaleToZero) {
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="pv-stz-min">
+                          Sleep after (minutes of inactivity)
+                        </label>
+                        <input
+                          id="pv-stz-min"
+                          class="akd-input"
+                          type="number"
+                          min="1"
+                          name="scaleToZeroAfterMinutes"
+                          [(ngModel)]="form.scaleToZeroAfterMinutes"
+                          [disabled]="busy()"
+                        />
+                      </div>
+                    }
                     <div class="akd-field">
                       <label class="akd-field__label" for="pv-token">
                         Provider API token (GitLab / Gitea PAT)
@@ -559,6 +591,8 @@ export class ApplicationSettingsTabComponent {
     previewRequireLabel: '',
     previewCommentCommandsEnabled: false,
     previewCancelObsoleteBuilds: false,
+    scaleToZero: false,
+    scaleToZeroAfterMinutes: 30,
     gitApiToken: '',
     gitApiTokenClear: false,
   };

@@ -834,7 +834,8 @@ La colonne « Sections » renvoie aux exigences de ce document qui définissent 
 | Git/build packs/webhooks | §5.1–5.6 | P1 | À faire | Tests de protocole/module par provider et build pack |
 | Databases/backups/restore | §6–7 | P1 | À faire | Tests module par moteur supporté |
 | Compose/services/templates | §5.2, §9 | P2 | À faire | Conformance fixtures Compose |
-| Previews PR enrichies (compose, données éphémères, seed par clone de volume — ADR-029, TTL/caps, protection, checks, forks approuvés) | §5.6, §20.4, §27.11 | P2 | Conforme (hors scale-to-zero, DEVRAIT différé — ADR-011) | Tests protocole multi-providers + sécurité fork/accès + tests module du seed |
+| Previews PR enrichies (compose, données éphémères, seed par clone de volume — ADR-029, TTL/caps, protection, checks, forks approuvés) | §5.6, §20.4, §27.11 | P2 | Conforme | Tests protocole multi-providers + sécurité fork/accès + tests module du seed |
+| Scale-to-zero des previews (endort/réveille via un waker en coupure) | §20.4.3, proxy-contract §8 | P3 | En cours | Tests module waker (décision de réveil, limites 503/504, single-flight) + génération du fichier dynamique ; réveil de bout en bout au parcours E2E (ADR-036) |
 | Backups volumes + Redis/ClickHouse + restore drills | §20.5, §27.14 | P1 | À faire | Tests module backup/restore + drill automatisé |
 | Config as code + Terraform officiel | §24.5, §27.12 | P2 | À faire | Round-trip export→apply + tests provider |
 | Adoption de ressources existantes | §20.7, §27.13 | P2 | Conforme | Tests module scan/réconciliation sans perte |

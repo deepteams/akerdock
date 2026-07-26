@@ -1014,6 +1014,8 @@ const (
 	PreviewStatusDestroying    PreviewStatus = "destroying"
 	PreviewStatusCleanupFailed PreviewStatus = "cleanup_failed"
 	PreviewStatusDestroyed     PreviewStatus = "destroyed"
+	PreviewStatusSleeping      PreviewStatus = "sleeping"
+	PreviewStatusWaking        PreviewStatus = "waking"
 )
 
 func (e *PreviewStatus) Scan(src interface{}) error {
@@ -2066,6 +2068,8 @@ type Application struct {
 	UpdatedAt                     pgtype.Timestamptz
 	PreviewDeployOnOpen           bool
 	PreviewUrlTemplates           []byte
+	ScaleToZero                   bool
+	ScaleToZeroAfterMinutes       int32
 }
 
 type AuditEvent struct {

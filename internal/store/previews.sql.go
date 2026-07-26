@@ -474,6 +474,84 @@ func (q *Queries) ListPreviewsForApplication(ctx context.Context, applicationID 
 	return items, nil
 }
 
+const listPreviewsForScaleToZero = `-- name: ListPreviewsForScaleToZero :many
+SELECT p.id, p.uuid, p.application_id, p.provider, p.pr_id, p.source_branch, p.head_sha, p.is_fork, p.fork_approved_by, p.fork_approved_at, p.fqdn, p.status, p.cleanup_error, p.last_deployed_at, p.last_activity_at, p.destroyed_at, p.created_at, p.updated_at, p.repo_reference, p.expiry_warned_at, p.random_slug, a.scale_to_zero_after_minutes AS scale_to_zero_after_minutes
+FROM previews p
+JOIN applications a ON a.id = p.application_id
+WHERE p.status = 'active' AND a.scale_to_zero = true
+`
+
+type ListPreviewsForScaleToZeroRow struct {
+	ID                      int64
+	Uuid                    pgtype.UUID
+	ApplicationID           int64
+	Provider                GitProvider
+	PrID                    int32
+	SourceBranch            *string
+	HeadSha                 *string
+	IsFork                  bool
+	ForkApprovedBy          *int64
+	ForkApprovedAt          pgtype.Timestamptz
+	Fqdn                    *string
+	Status                  PreviewStatus
+	CleanupError            *string
+	LastDeployedAt          pgtype.Timestamptz
+	LastActivityAt          pgtype.Timestamptz
+	DestroyedAt             pgtype.Timestamptz
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+	RepoReference           *string
+	ExpiryWarnedAt          pgtype.Timestamptz
+	RandomSlug              *string
+	ScaleToZeroAfterMinutes int32
+}
+
+// Scale-to-zero (ADR-036): active previews whose application opted in, with the
+// app's idle window. The scheduler reads each preview's waker activity file over
+// SSH and sleeps the ones idle past their window.
+func (q *Queries) ListPreviewsForScaleToZero(ctx context.Context) ([]ListPreviewsForScaleToZeroRow, error) {
+	rows, err := q.db.Query(ctx, listPreviewsForScaleToZero)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPreviewsForScaleToZeroRow
+	for rows.Next() {
+		var i ListPreviewsForScaleToZeroRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.ApplicationID,
+			&i.Provider,
+			&i.PrID,
+			&i.SourceBranch,
+			&i.HeadSha,
+			&i.IsFork,
+			&i.ForkApprovedBy,
+			&i.ForkApprovedAt,
+			&i.Fqdn,
+			&i.Status,
+			&i.CleanupError,
+			&i.LastDeployedAt,
+			&i.LastActivityAt,
+			&i.DestroyedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.RepoReference,
+			&i.ExpiryWarnedAt,
+			&i.RandomSlug,
+			&i.ScaleToZeroAfterMinutes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPreviewsToWarn = `-- name: ListPreviewsToWarn :many
 SELECT p.id, p.uuid, p.application_id, p.provider, p.pr_id, p.source_branch, p.head_sha, p.is_fork, p.fork_approved_by, p.fork_approved_at, p.fqdn, p.status, p.cleanup_error, p.last_deployed_at, p.last_activity_at, p.destroyed_at, p.created_at, p.updated_at, p.repo_reference, p.expiry_warned_at, p.random_slug FROM previews p
 JOIN applications a ON a.id = p.application_id
@@ -575,6 +653,65 @@ func (q *Queries) ListQueuedPreviews(ctx context.Context) ([]Preview, error) {
 	return items, nil
 }
 
+const listSleepingPreviews = `-- name: ListSleepingPreviews :many
+SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference, expiry_warned_at, random_slug FROM previews WHERE status = 'sleeping'
+`
+
+// Sleeping previews (ADR-036): the scheduler checks whether the waker has woken
+// them (fresh activity) and flips their status back to active.
+func (q *Queries) ListSleepingPreviews(ctx context.Context) ([]Preview, error) {
+	rows, err := q.db.Query(ctx, listSleepingPreviews)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Preview
+	for rows.Next() {
+		var i Preview
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.ApplicationID,
+			&i.Provider,
+			&i.PrID,
+			&i.SourceBranch,
+			&i.HeadSha,
+			&i.IsFork,
+			&i.ForkApprovedBy,
+			&i.ForkApprovedAt,
+			&i.Fqdn,
+			&i.Status,
+			&i.CleanupError,
+			&i.LastDeployedAt,
+			&i.LastActivityAt,
+			&i.DestroyedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.RepoReference,
+			&i.ExpiryWarnedAt,
+			&i.RandomSlug,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setPreviewAwake = `-- name: SetPreviewAwake :exec
+UPDATE previews SET status = 'active', expiry_warned_at = NULL, updated_at = now() WHERE id = $1
+`
+
+// Back to the running state after a waker-driven wake; clears the expiry warning
+// so an active preview is never mistaken for one about to be reaped.
+func (q *Queries) SetPreviewAwake(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, setPreviewAwake, id)
+	return err
+}
+
 const setPreviewDeployed = `-- name: SetPreviewDeployed :exec
 UPDATE previews SET status = 'active', last_deployed_at = now(), last_activity_at = now(),
     expiry_warned_at = NULL, updated_at = now()
@@ -621,6 +758,15 @@ type SetPreviewRandomSlugParams struct {
 // Generated once at scaffolding; the stable value behind {{random}} (ADR-035).
 func (q *Queries) SetPreviewRandomSlug(ctx context.Context, arg SetPreviewRandomSlugParams) error {
 	_, err := q.db.Exec(ctx, setPreviewRandomSlug, arg.ID, arg.RandomSlug)
+	return err
+}
+
+const setPreviewSleeping = `-- name: SetPreviewSleeping :exec
+UPDATE previews SET status = 'sleeping', updated_at = now() WHERE id = $1
+`
+
+func (q *Queries) SetPreviewSleeping(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, setPreviewSleeping, id)
 	return err
 }
 
@@ -692,7 +838,9 @@ UPDATE applications SET
     preview_url_templates = CASE WHEN $12::boolean THEN $13 ELSE preview_url_templates END,
     preview_require_label = CASE WHEN $14::boolean THEN $15 ELSE preview_require_label END,
     preview_comment_commands_enabled = COALESCE($16, preview_comment_commands_enabled),
-    preview_cancel_obsolete_builds = COALESCE($17, preview_cancel_obsolete_builds)
+    preview_cancel_obsolete_builds = COALESCE($17, preview_cancel_obsolete_builds),
+    scale_to_zero = COALESCE($18, scale_to_zero),
+    scale_to_zero_after_minutes = COALESCE($19, scale_to_zero_after_minutes)
 WHERE id = $1
 `
 
@@ -714,6 +862,8 @@ type UpdateApplicationPreviewSettingsParams struct {
 	PreviewRequireLabel           *string
 	PreviewCommentCommandsEnabled *bool
 	PreviewCancelObsoleteBuilds   *bool
+	ScaleToZero                   *bool
+	ScaleToZeroAfterMinutes       *int32
 }
 
 func (q *Queries) UpdateApplicationPreviewSettings(ctx context.Context, arg UpdateApplicationPreviewSettingsParams) error {
@@ -735,6 +885,8 @@ func (q *Queries) UpdateApplicationPreviewSettings(ctx context.Context, arg Upda
 		arg.PreviewRequireLabel,
 		arg.PreviewCommentCommandsEnabled,
 		arg.PreviewCancelObsoleteBuilds,
+		arg.ScaleToZero,
+		arg.ScaleToZeroAfterMinutes,
 	)
 	return err
 }

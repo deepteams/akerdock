@@ -133,8 +133,32 @@ UPDATE applications SET
     preview_url_templates = CASE WHEN sqlc.arg(set_url_templates)::boolean THEN sqlc.narg(preview_url_templates) ELSE preview_url_templates END,
     preview_require_label = CASE WHEN sqlc.arg(set_require_label)::boolean THEN sqlc.narg(preview_require_label) ELSE preview_require_label END,
     preview_comment_commands_enabled = COALESCE(sqlc.narg(preview_comment_commands_enabled), preview_comment_commands_enabled),
-    preview_cancel_obsolete_builds = COALESCE(sqlc.narg(preview_cancel_obsolete_builds), preview_cancel_obsolete_builds)
+    preview_cancel_obsolete_builds = COALESCE(sqlc.narg(preview_cancel_obsolete_builds), preview_cancel_obsolete_builds),
+    scale_to_zero = COALESCE(sqlc.narg(scale_to_zero), scale_to_zero),
+    scale_to_zero_after_minutes = COALESCE(sqlc.narg(scale_to_zero_after_minutes), scale_to_zero_after_minutes)
 WHERE id = $1;
+
+-- name: ListPreviewsForScaleToZero :many
+-- Scale-to-zero (ADR-036): active previews whose application opted in, with the
+-- app's idle window. The scheduler reads each preview's waker activity file over
+-- SSH and sleeps the ones idle past their window.
+SELECT p.*, a.scale_to_zero_after_minutes AS scale_to_zero_after_minutes
+FROM previews p
+JOIN applications a ON a.id = p.application_id
+WHERE p.status = 'active' AND a.scale_to_zero = true;
+
+-- name: ListSleepingPreviews :many
+-- Sleeping previews (ADR-036): the scheduler checks whether the waker has woken
+-- them (fresh activity) and flips their status back to active.
+SELECT * FROM previews WHERE status = 'sleeping';
+
+-- name: SetPreviewSleeping :exec
+UPDATE previews SET status = 'sleeping', updated_at = now() WHERE id = $1;
+
+-- name: SetPreviewAwake :exec
+-- Back to the running state after a waker-driven wake; clears the expiry warning
+-- so an active preview is never mistaken for one about to be reaped.
+UPDATE previews SET status = 'active', expiry_warned_at = NULL, updated_at = now() WHERE id = $1;
 
 -- name: CreatePreviewAccessToken :exec
 -- ADR-030: only the HASH is stored — the cookie value never touches the base.

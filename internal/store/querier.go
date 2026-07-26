@@ -514,6 +514,10 @@ type Querier interface {
 	// preview's id wins over the shared set's same key.
 	ListPreviewEnvVars(ctx context.Context, arg ListPreviewEnvVarsParams) ([]EnvironmentVariable, error)
 	ListPreviewsForApplication(ctx context.Context, applicationID int64) ([]Preview, error)
+	// Scale-to-zero (ADR-036): active previews whose application opted in, with the
+	// app's idle window. The scheduler reads each preview's waker activity file over
+	// SSH and sleeps the ones idle past their window.
+	ListPreviewsForScaleToZero(ctx context.Context) ([]ListPreviewsForScaleToZeroRow, error)
 	// Active previews at least 80% into their inactivity TTL and not yet warned —
 	// the heads-up window before ListExpiredPreviews reaps them.
 	ListPreviewsToWarn(ctx context.Context) ([]Preview, error)
@@ -567,6 +571,9 @@ type Querier interface {
 	// variables of its destination server.
 	ListSharedVariablesForResource(ctx context.Context, resourceID int64) ([]SharedVariable, error)
 	ListSharedVariablesPage(ctx context.Context, arg ListSharedVariablesPageParams) ([]SharedVariable, error)
+	// Sleeping previews (ADR-036): the scheduler checks whether the waker has woken
+	// them (fresh activity) and flips their status back to active.
+	ListSleepingPreviews(ctx context.Context) ([]Preview, error)
 	ListStoragesForResource(ctx context.Context, resourceID int64) ([]PersistentStorage, error)
 	// Every public port routed through the proxy on a server. It is the set the
 	// static config must declare: Traefik cannot add a listener at runtime.
@@ -710,11 +717,15 @@ type Querier interface {
 	SetNotificationCursor(ctx context.Context, lastOutboxEventID int64) error
 	SetOtlpConfig(ctx context.Context, otlpConfigEnc []byte) error
 	SetPlanDrillResult(ctx context.Context, arg SetPlanDrillResultParams) error
+	// Back to the running state after a waker-driven wake; clears the expiry warning
+	// so an active preview is never mistaken for one about to be reaped.
+	SetPreviewAwake(ctx context.Context, id int64) error
 	SetPreviewDeployed(ctx context.Context, id int64) error
 	SetPreviewExpiryWarned(ctx context.Context, id int64) error
 	SetPreviewFqdn(ctx context.Context, arg SetPreviewFqdnParams) error
 	// Generated once at scaffolding; the stable value behind {{random}} (ADR-035).
 	SetPreviewRandomSlug(ctx context.Context, arg SetPreviewRandomSlugParams) error
+	SetPreviewSleeping(ctx context.Context, id int64) error
 	SetPreviewStatus(ctx context.Context, arg SetPreviewStatusParams) error
 	// The operator's intent on the proxy (§3): an explicit stop must survive the
 	// drift reconciliation — a proxy someone deliberately stopped is not drift.

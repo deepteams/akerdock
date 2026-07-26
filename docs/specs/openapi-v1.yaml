@@ -10470,6 +10470,18 @@ components:
             Annule le build de preview rendu obsolète par un nouveau commit de
             la même PR (§20.4.7, opt-in) — le déploiement en file est
             superseded, le build en cours annulé coopérativement.
+        scale_to_zero:
+          type: boolean
+          description: >-
+            Scale-to-zero des previews (ADR-036, proxy-contract §8, opt-in,
+            défaut false) : une preview inactive est endormie (`docker stop`) et
+            réveillée à la première requête par le conteneur waker. Previews
+            d'abord — jamais implicite en production.
+        scale_to_zero_after_minutes:
+          type: integer
+          description: >-
+            Fenêtre d'inactivité en minutes avant endormissement (défaut 30).
+            L'activité est datée par le waker en coupure du trafic (ADR-036).
         git_api_token:
           type: string
           nullable: true
@@ -10643,6 +10655,12 @@ components:
         preview_cancel_obsolete_builds:
           type: boolean
           description: Annulation du build de preview obsolète (§20.4.7).
+        scale_to_zero:
+          type: boolean
+          description: Scale-to-zero des previews (ADR-036, opt-in) — endort/réveille via le waker.
+        scale_to_zero_after_minutes:
+          type: integer
+          description: Fenêtre d'inactivité avant endormissement, en minutes (défaut 30).
         git_api_token_set:
           type: boolean
           readOnly: true

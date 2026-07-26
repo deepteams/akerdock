@@ -237,7 +237,8 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 		body.PreviewForkApprovalEnabled != nil || body.PreviewExcludeDrafts != nil ||
 		body.PreviewDeployOnOpen != nil || patch.Has("preview_url_templates") ||
 		patch.Has("preview_require_label") || body.PreviewCommentCommandsEnabled != nil ||
-		body.PreviewCancelObsoleteBuilds != nil {
+		body.PreviewCancelObsoleteBuilds != nil || body.ScaleToZero != nil ||
+		body.ScaleToZeroAfterMinutes != nil {
 		params := store.UpdateApplicationPreviewSettingsParams{
 			ID:                            row.Resource.ID,
 			PreviewsEnabled:               body.PreviewsEnabled,
@@ -247,6 +248,11 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 			PreviewDeployOnOpen:           body.PreviewDeployOnOpen,
 			PreviewCommentCommandsEnabled: body.PreviewCommentCommandsEnabled,
 			PreviewCancelObsoleteBuilds:   body.PreviewCancelObsoleteBuilds,
+			ScaleToZero:                   body.ScaleToZero,
+		}
+		if body.ScaleToZeroAfterMinutes != nil {
+			m := int32(*body.ScaleToZeroAfterMinutes)
+			params.ScaleToZeroAfterMinutes = &m
 		}
 		if patch.Has("preview_max_concurrent") {
 			params.SetMaxConcurrent = true

@@ -2081,13 +2081,19 @@ type Application struct {
 	RawCompose *bool `json:"raw_compose,omitempty"`
 
 	// RegistryCredentialUuid Credential du registry privé utilisé pour le pull (amendement n°17).
-	RegistryCredentialUuid *string                `json:"registry_credential_uuid,omitempty"`
-	ServerUuid             *string                `json:"server_uuid,omitempty"`
-	SourceType             *ApplicationSourceType `json:"source_type,omitempty"`
-	Tags                   *[]string              `json:"tags,omitempty"`
-	UpdatedAt              *time.Time             `json:"updated_at,omitempty"`
-	UseBuildServer         *bool                  `json:"use_build_server,omitempty"`
-	Uuid                   *string                `json:"uuid,omitempty"`
+	RegistryCredentialUuid *string `json:"registry_credential_uuid,omitempty"`
+
+	// ScaleToZero Scale-to-zero des previews (ADR-036, opt-in) — endort/réveille via le waker.
+	ScaleToZero *bool `json:"scale_to_zero,omitempty"`
+
+	// ScaleToZeroAfterMinutes Fenêtre d'inactivité avant endormissement, en minutes (défaut 30).
+	ScaleToZeroAfterMinutes *int                   `json:"scale_to_zero_after_minutes,omitempty"`
+	ServerUuid              *string                `json:"server_uuid,omitempty"`
+	SourceType              *ApplicationSourceType `json:"source_type,omitempty"`
+	Tags                    *[]string              `json:"tags,omitempty"`
+	UpdatedAt               *time.Time             `json:"updated_at,omitempty"`
+	UseBuildServer          *bool                  `json:"use_build_server,omitempty"`
+	Uuid                    *string                `json:"uuid,omitempty"`
 
 	// Version Version optimiste de la configuration (reflétée dans l'ETag).
 	Version    *int      `json:"version,omitempty"`
@@ -2444,9 +2450,15 @@ type ApplicationUpdate struct {
 	RawCompose *bool `json:"raw_compose,omitempty"`
 
 	// RegistryCredentialUuid Credential du registry privé (null pour le retirer).
-	RegistryCredentialUuid *string   `json:"registry_credential_uuid,omitempty"`
-	Tags                   *[]string `json:"tags,omitempty"`
-	UseBuildServer         *bool     `json:"use_build_server,omitempty"`
+	RegistryCredentialUuid *string `json:"registry_credential_uuid,omitempty"`
+
+	// ScaleToZero Scale-to-zero des previews (ADR-036, proxy-contract §8, opt-in, défaut false) : une preview inactive est endormie (`docker stop`) et réveillée à la première requête par le conteneur waker. Previews d'abord — jamais implicite en production.
+	ScaleToZero *bool `json:"scale_to_zero,omitempty"`
+
+	// ScaleToZeroAfterMinutes Fenêtre d'inactivité en minutes avant endormissement (défaut 30). L'activité est datée par le waker en coupure du trafic (ADR-036).
+	ScaleToZeroAfterMinutes *int      `json:"scale_to_zero_after_minutes,omitempty"`
+	Tags                    *[]string `json:"tags,omitempty"`
+	UseBuildServer          *bool     `json:"use_build_server,omitempty"`
 
 	// WatchPaths (source git) Patterns d'auto-deploy.
 	WatchPaths *[]string `json:"watch_paths,omitempty"`

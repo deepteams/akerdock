@@ -634,6 +634,8 @@ Le control plane maintient un **reflet observé** de l'état des certificats de 
 
 Tout ce chapitre est **(défaut proposé)** : le PRD exige seulement que le proxy DEVRAIT supporter le scale-to-zero (arrêt du container idle, réveil à la première requête), previews d'abord.
 
+> **Verrouillé par [ADR-036](../adr/ADR-036-scale-to-zero-waker.md)** avec deux précisions par rapport aux défauts ci-dessous : (1) le waker est un **mode du binaire unique** (`akerdock waker`, même image — ADR-021), pas un second artefact ; (2) on écarte le **basculement à deux variantes** de §8.2 au profit d'une **variante unique** où le waker reste **en coupure permanente** des ressources STZ (route toujours vers le waker). Le waker voit ainsi tout le trafic et **date la dernière activité** dans un fichier local que le control plane lit par SSH — l'inactivité est mesurée exactement, sans parser d'access logs. Endormir/réveiller se réduit à `docker stop`/`docker start`, sans toucher au fichier dynamique. Le reste du chapitre (§8.1 rôle et confinement du waker, §8.3 limites) tient.
+
 ### 8.1 Composant « waker » local au serveur
 
 Un helper container `akerdock-waker` (`akerdock.type=helper`, image du projet, épinglée par release) est déployé sur les serveurs où au moins une ressource a `scale_to_zero` activé. Il écoute sur le réseau interne (jamais publié sur l'hôte) et dispose du socket Docker local, limité par son code au démarrage de containers portant `akerdock.managed=true`.

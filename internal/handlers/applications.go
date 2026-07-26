@@ -123,6 +123,8 @@ func applicationToAPI(row appRow) api.Application {
 		PreviewRequireLabel:           row.Application.PreviewRequireLabel,
 		PreviewCommentCommandsEnabled: ptr(row.Application.PreviewCommentCommandsEnabled),
 		PreviewCancelObsoleteBuilds:   ptr(row.Application.PreviewCancelObsoleteBuilds),
+		ScaleToZero:                   ptr(row.Application.ScaleToZero),
+		ScaleToZeroAfterMinutes:       ptr(int(row.Application.ScaleToZeroAfterMinutes)),
 		GitApiTokenSet:                ptr(row.GitApiTokenSet),
 		GitApiUrl:                     row.GitApiUrl,
 		PreDeploymentCommand:          row.RuntimeConfig.PreDeploymentCommand,
