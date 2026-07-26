@@ -57,6 +57,10 @@ type Scheduler struct {
 	// control-plane restart — sessions live in-process. Zero falls back to
 	// the default.
 	TerminalMaxDuration time.Duration
+	// AuditRetentionDays bounds how long audit rows are kept (§23.4). Zero (the
+	// default) keeps everything; a positive value enables the daily purge of
+	// aged-out rows through the sanctioned append-only bypass.
+	AuditRetentionDays int
 	// WakerImage is this release's own image (AKERDOCK_IMAGE / baked default):
 	// the scale-to-zero pass recreates any waker whose running image differs, so
 	// an upgrade propagates to every server's waker without waiting for a deploy
@@ -118,6 +122,7 @@ type SchedulerStore interface {
 	PurgeIdempotencyKeys(context.Context) error
 	PurgeWebhookDeliveries(context.Context) (int64, error)
 	PurgeUptimeResults(context.Context, int32) (int64, error)
+	PurgeAuditEvents(context.Context, int32) (int64, error)
 	SweepTerminalSessions(context.Context, int32) (int64, error)
 	PurgeTerminalSessions(context.Context, int32) (int64, error)
 	ListServersWithProxy(context.Context) ([]store.Server, error)
@@ -287,6 +292,15 @@ func (s *Scheduler) purgeRetention(ctx context.Context) {
 		s.Logger.Warn("uptime result purge failed", "error", err)
 	} else if n > 0 {
 		s.Logger.Info("purged uptime results", "count", n)
+	}
+	// Audit trail: opt-in retention (§23.4). Zero keeps everything; a positive
+	// value purges aged-out rows through the sanctioned append-only bypass.
+	if s.AuditRetentionDays > 0 {
+		if n, err := s.Store.PurgeAuditEvents(ctx, int32(s.AuditRetentionDays)); err != nil {
+			s.Logger.Warn("audit retention purge failed", "error", err)
+		} else if n > 0 {
+			s.Logger.Info("purged audit events", "count", n, "retention_days", s.AuditRetentionDays)
+		}
 	}
 	// Terminal sessions: sweep rows orphaned by a control-plane crash (the
 	// sessions themselves live in-process), then purge the ended history.

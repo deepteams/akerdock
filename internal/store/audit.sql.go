@@ -264,6 +264,21 @@ func (q *Queries) ListOutboxEventsForTeamAfter(ctx context.Context, arg ListOutb
 	return items, nil
 }
 
+const purgeAuditEvents = `-- name: PurgeAuditEvents :one
+SELECT purge_audit_events($1::integer)
+`
+
+// Retention purge (§23.4): removes audit rows older than retention_days. Goes
+// through the SQL function (not a direct DELETE) — the function is the only
+// sanctioned path past the append-only trigger, and it caps the deletion to
+// aged-out rows. retention_days <= 0 keeps everything. Returns rows removed.
+func (q *Queries) PurgeAuditEvents(ctx context.Context, retentionDays int32) (int64, error) {
+	row := q.db.QueryRow(ctx, purgeAuditEvents, retentionDays)
+	var purge_audit_events int64
+	err := row.Scan(&purge_audit_events)
+	return purge_audit_events, err
+}
+
 const purgePublishedOutboxEvents = `-- name: PurgePublishedOutboxEvents :execrows
 DELETE FROM outbox_events
 WHERE published_at IS NOT NULL AND published_at < now() - interval '7 days'

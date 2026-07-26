@@ -648,6 +648,11 @@ type Querier interface {
 	// must fail the connection, not silently re-pin itself.
 	PinServerHostKey(ctx context.Context, arg PinServerHostKeyParams) error
 	PromoteWaitingJobs(ctx context.Context) (int64, error)
+	// Retention purge (§23.4): removes audit rows older than retention_days. Goes
+	// through the SQL function (not a direct DELETE) — the function is the only
+	// sanctioned path past the append-only trigger, and it caps the deletion to
+	// aged-out rows. retention_days <= 0 keeps everything. Returns rows removed.
+	PurgeAuditEvents(ctx context.Context, retentionDays int32) (int64, error)
 	PurgeCliAuthCodes(ctx context.Context) (int64, error)
 	PurgeExpiredMfaChallenges(ctx context.Context) (int64, error)
 	PurgeExpiredOauthLoginStates(ctx context.Context) (int64, error)

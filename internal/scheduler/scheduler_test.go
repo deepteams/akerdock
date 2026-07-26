@@ -222,6 +222,9 @@ func (f *fakeSchedulerStore) PurgeWebhookDeliveries(context.Context) (int64, err
 func (f *fakeSchedulerStore) PurgeUptimeResults(context.Context, int32) (int64, error) {
 	return f.number("purgeUptime"), f.err("purgeUptime")
 }
+func (f *fakeSchedulerStore) PurgeAuditEvents(context.Context, int32) (int64, error) {
+	return f.number("purgeAudit"), f.err("purgeAudit")
+}
 func (f *fakeSchedulerStore) SweepTerminalSessions(context.Context, int32) (int64, error) {
 	return f.number("sweepTerminals"), f.err("sweepTerminals")
 }

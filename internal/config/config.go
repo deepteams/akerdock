@@ -95,6 +95,10 @@ type Config struct {
 	DataDir           string
 	WorkerConcurrency int
 	ShutdownTimeout   time.Duration
+	// AuditRetentionDays bounds how long audit_events rows are kept (§23.4). Zero
+	// (the default) keeps everything — non-repudiation over disk. A positive
+	// value opts into a daily retention purge of aged-out rows.
+	AuditRetentionDays int
 	// Terminal session bounds (§24.4, ADR-024).
 	TerminalIdleTimeout time.Duration
 	TerminalMaxDuration time.Duration
@@ -154,6 +158,7 @@ var envKeys = []string{
 	"AKERDOCK_LOG_FORMAT",
 	"AKERDOCK_DATA_DIR",
 	"AKERDOCK_WORKER_CONCURRENCY",
+	"AKERDOCK_AUDIT_RETENTION_DAYS",
 	"AKERDOCK_SHUTDOWN_TIMEOUT",
 	"AKERDOCK_TERMINAL_IDLE_TIMEOUT",
 	"AKERDOCK_TERMINAL_MAX_DURATION",
@@ -318,6 +323,16 @@ func Load(vars map[string]string, readFile func(string) ([]byte, error)) (*Confi
 			errs = append(errs, FieldError{"AKERDOCK_WORKER_CONCURRENCY", fmt.Sprintf("invalid value %q (expected an integer >= 1)", v)})
 		} else {
 			cfg.WorkerConcurrency = n
+		}
+	}
+
+	// Audit retention: 0 (default) keeps every audit row forever. A positive
+	// value enables the daily purge of rows older than that many days.
+	if v := get("AKERDOCK_AUDIT_RETENTION_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err != nil || n < 0 {
+			errs = append(errs, FieldError{"AKERDOCK_AUDIT_RETENTION_DAYS", fmt.Sprintf("invalid value %q (expected an integer >= 0, 0 keeps everything)", v)})
+		} else {
+			cfg.AuditRetentionDays = n
 		}
 	}
 

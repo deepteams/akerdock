@@ -12,6 +12,13 @@ VALUES ($1, $2, $3, $4, $5, $6, $7);
 -- name: CountAuditEvents :one
 SELECT count(*) FROM audit_events;
 
+-- name: PurgeAuditEvents :one
+-- Retention purge (§23.4): removes audit rows older than retention_days. Goes
+-- through the SQL function (not a direct DELETE) — the function is the only
+-- sanctioned path past the append-only trigger, and it caps the deletion to
+-- aged-out rows. retention_days <= 0 keeps everything. Returns rows removed.
+SELECT purge_audit_events(sqlc.arg(retention_days)::integer);
+
 -- name: ListAuditEventsPage :many
 -- Read side of the audit trail (§23.4: paginé, filtrable, exportable). A SELECT
 -- does not violate the append-only rule. Team-scoped; optional filters on action,
