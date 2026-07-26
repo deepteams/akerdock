@@ -685,6 +685,14 @@ export class AkerDockClient {
     return this.request<Response>('GET', '/permissions');
   }
 
+  listTeamAudit(uuid: string, query?: paths['/teams/{team_uuid}/audit']['get']['parameters']['query']) {
+    type Response =
+      paths['/teams/{team_uuid}/audit']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/teams/${uuid}/audit`, {
+      query: query as Record<string, string | number | undefined> | undefined,
+    });
+  }
+
   // --- projects (+ environments) ------------------------------------------------
 
   listProjects(query?: { cursor?: string; limit?: number }) {

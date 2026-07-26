@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { SlicePipe } from '@angular/common';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
 import { CardComponent } from '../../ui/card/card.component';
@@ -8,6 +9,8 @@ import type { components } from '../../api/schema';
 type SharedVariable = components['schemas']['SharedVariable'];
 type Scope = SharedVariable['scope'];
 type Team = components['schemas']['Team'];
+type AuditEvent = components['schemas']['AuditEvent'];
+type SettingsTab = 'variables' | 'config' | 'audit';
 
 /**
  * Team-level settings. Two tabs: Variables — the team-scoped shared variables
@@ -18,7 +21,7 @@ type Team = components['schemas']['Team'];
 @Component({
   selector: 'app-team-settings',
   standalone: true,
-  imports: [FormsModule, CardComponent, IconComponent],
+  imports: [FormsModule, SlicePipe, CardComponent, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
@@ -53,6 +56,18 @@ type Team = components['schemas']['Team'];
         >
           Config
         </button>
+        @if (canAudit()) {
+          <button
+            type="button"
+            class="akd-tab"
+            role="tab"
+            [class.akd-tab--active]="active() === 'audit'"
+            [attr.aria-selected]="active() === 'audit'"
+            (click)="openAudit()"
+          >
+            Audit
+          </button>
+        }
       </nav>
 
       @if (error(); as message) {
@@ -160,6 +175,53 @@ type Team = components['schemas']['Team'];
           matches the Scope column). Interpolated at deploy time; an unknown reference stays verbatim
           in the container — visible, therefore diagnosable. Previews never receive shared secrets.
         </p>
+      } @else if (active() === 'audit') {
+        <akd-card title="Audit log" [padded]="false">
+          @if (auditLoading()) {
+            <p class="akd-muted pad">Loading…</p>
+          } @else if (auditEvents().length === 0) {
+            <p class="akd-muted pad">No audit events yet.</p>
+          } @else {
+            <table class="akd-table">
+              <caption class="sr-only">
+                Audit events of this team
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">When</th>
+                  <th scope="col">Actor</th>
+                  <th scope="col">Action</th>
+                  <th scope="col">Target</th>
+                  <th scope="col">Result</th>
+                  <th scope="col">IP</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (ev of auditEvents(); track ev.uuid) {
+                  <tr>
+                    <td class="akd-muted sub-mono">{{ ev.occurred_at | slice: 0 : 19 }}</td>
+                    <td class="sub-mono">{{ ev.actor_display ?? ev.actor_uuid ?? ev.actor_kind }}</td>
+                    <td><span class="akd-badge akd-badge--mono">{{ ev.action }}</span></td>
+                    <td class="akd-muted sub-mono">{{ ev.target_kind ?? '—' }}</td>
+                    <td>
+                      <span
+                        class="akd-badge akd-badge--mono"
+                        [class.akd-badge--accent]="ev.result !== 'success'"
+                      >
+                        {{ ev.result }}
+                      </span>
+                    </td>
+                    <td class="akd-muted sub-mono">{{ ev.ip ?? '—' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </akd-card>
+        <p class="footnote">
+          Append-only trail (§23.4): authentication, secret access, RBAC and destructive actions.
+          Showing the most recent {{ auditEvents().length }} events.
+        </p>
       } @else {
         <akd-card title="Team" class="cfg">
           <form class="cfgform" (ngSubmit)="saveConfig()">
@@ -226,6 +288,14 @@ type Team = components['schemas']['Team'];
         display: grid;
         gap: var(--space-4);
       }
+      .pad {
+        padding: var(--space-5);
+        margin: 0;
+      }
+      .sub-mono {
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+      }
     `,
   ],
 })
@@ -237,7 +307,16 @@ export class TeamSettingsComponent {
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
-  protected readonly active = signal<'variables' | 'config'>('variables');
+  protected readonly active = signal<SettingsTab>('variables');
+
+  // Audit tab: loaded on demand (the trail can be large; don't fetch it unless
+  // the operator opens the tab). Gated by the audit:read permission.
+  protected readonly auditEvents = signal<AuditEvent[]>([]);
+  protected readonly auditLoading = signal(false);
+  private auditLoaded = false;
+  protected readonly canAudit = computed(() =>
+    (this.api.currentUser()?.permissions ?? []).some((p) => p === 'audit:read' || p === 'root'),
+  );
 
   protected key = '';
   protected value = '';
@@ -248,6 +327,28 @@ export class TeamSettingsComponent {
 
   constructor() {
     void this.load();
+  }
+
+  /** Switch to the Audit tab, loading the trail the first time it is opened. */
+  protected openAudit(): void {
+    this.active.set('audit');
+    if (this.auditLoaded) return;
+    this.auditLoaded = true;
+    void this.loadAudit();
+  }
+
+  private async loadAudit(): Promise<void> {
+    const teamUuid = this.api.currentUser()?.teamUuid;
+    if (!teamUuid) return;
+    this.auditLoading.set(true);
+    try {
+      const page = await this.api.client().listTeamAudit(teamUuid, { limit: 100 });
+      this.auditEvents.set(page.data);
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.auditLoading.set(false);
+    }
   }
 
   protected reference(variable: SharedVariable): string {
