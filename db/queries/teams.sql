@@ -7,6 +7,15 @@ SELECT * FROM teams WHERE id = $1 AND deleted_at IS NULL;
 -- name: GetTeamByUUID :one
 SELECT * FROM teams WHERE uuid = $1 AND deleted_at IS NULL;
 
+-- name: UpdateTeam :one
+-- Partial update of a team's name/description (§10.1).
+UPDATE teams SET
+    name = COALESCE(sqlc.narg(name), name),
+    description = CASE WHEN sqlc.arg(set_description)::boolean THEN sqlc.narg(description) ELSE description END,
+    updated_at = now()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING *;
+
 -- name: ListTeamsPage :many
 SELECT * FROM teams
 WHERE deleted_at IS NULL AND (sqlc.arg(after_id)::bigint = 0 OR id < sqlc.arg(after_id))

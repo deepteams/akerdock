@@ -7,12 +7,13 @@ import type { components } from '../../api/schema';
 
 type SharedVariable = components['schemas']['SharedVariable'];
 type Scope = SharedVariable['scope'];
+type Team = components['schemas']['Team'];
 
 /**
- * Team-level settings (design kit: TeamSettingsScreen, General tab). Shared
- * variables are the real feature here: `{{team.KEY}}` references resolved at
- * deploy time. Connections live on the Notifications page; there is no team
- * deletion because the API does not expose one.
+ * Team-level settings. Two tabs: Variables — the team-scoped shared variables
+ * (`{{team.KEY}}` resolved at deploy time), edited inline in a table; and
+ * Config — the team's name and description. Connections live on the
+ * Notifications page; there is no team deletion (the API exposes none).
  */
 @Component({
   selector: 'app-team-settings',
@@ -23,73 +24,45 @@ type Scope = SharedVariable['scope'];
     <div class="akd-page">
       <header class="akd-bar">
         <h1>Team settings</h1>
-        @if (teamName()) {
-          <span class="akd-badge akd-badge--mono">{{ teamName() }}</span>
+        @if (team()?.name) {
+          <span class="akd-badge akd-badge--mono">{{ team()?.name }}</span>
         }
-        <span class="grow"></span>
-        <button class="akd-btn akd-btn--primary" type="button" (click)="creating.set(!creating())">
-          <akd-icon name="plus" [size]="15" />
-          {{ creating() ? 'Cancel' : 'Add variable' }}
-        </button>
       </header>
+
+      <nav class="akd-tabs" role="tablist" aria-label="Team settings sections">
+        <button
+          type="button"
+          class="akd-tab"
+          role="tab"
+          [class.akd-tab--active]="active() === 'variables'"
+          [attr.aria-selected]="active() === 'variables'"
+          (click)="active.set('variables')"
+        >
+          Variables
+          @if (variables().length > 0) {
+            <span class="akd-tab__count">{{ variables().length }}</span>
+          }
+        </button>
+        <button
+          type="button"
+          class="akd-tab"
+          role="tab"
+          [class.akd-tab--active]="active() === 'config'"
+          [attr.aria-selected]="active() === 'config'"
+          (click)="active.set('config')"
+        >
+          Config
+        </button>
+      </nav>
 
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      @if (creating()) {
-        <form class="akd-card create" (ngSubmit)="create()">
-          <div class="akd-field">
-            <label class="akd-field__label" for="sv-key">Key</label>
-            <input
-              id="sv-key"
-              name="key"
-              class="akd-input akd-input--mono"
-              required
-              pattern="[A-Za-z_][A-Za-z0-9_]*"
-              placeholder="SENTRY_ORG"
-              [(ngModel)]="key"
-              [disabled]="busy()"
-            />
-            <span class="akd-field__hint"
-              >Grammar [A-Za-z_][A-Za-z0-9_]* — referenced as {{ '{{' }}team.KEY{{ '}}' }}.</span
-            >
-          </div>
-          <div class="akd-field">
-            <label class="akd-field__label" for="sv-value">Value</label>
-            <input
-              id="sv-value"
-              name="value"
-              class="akd-input akd-input--mono"
-              required
-              [(ngModel)]="value"
-              [disabled]="busy()"
-            />
-          </div>
-          <label class="akd-check">
-            <input type="checkbox" name="secret" [(ngModel)]="secret" [disabled]="busy()" />
-            Secret — value redacted without read:sensitive
-          </label>
-          <div>
-            <button
-              class="akd-btn akd-btn--primary"
-              type="submit"
-              [disabled]="busy() || !key.trim()"
-            >
-              {{ busy() ? 'Creating…' : 'Create variable' }}
-            </button>
-          </div>
-        </form>
-      }
-
-      <akd-card title="Shared variables" [padded]="false">
-        @if (loading()) {
-          <p class="akd-muted pad">Loading…</p>
-        } @else if (variables().length === 0) {
-          <p class="akd-muted pad">
-            No shared variables yet — add one to reference it from any resource.
-          </p>
-        } @else {
+      @if (loading()) {
+        <p class="akd-muted">Loading…</p>
+      } @else if (active() === 'variables') {
+        <akd-card title="Shared variables" [padded]="false">
           <table class="akd-table">
             <caption class="sr-only">
               Shared variables of this team
@@ -100,16 +73,17 @@ type Scope = SharedVariable['scope'];
                 <th scope="col">Scope</th>
                 <th scope="col">Value</th>
                 <th scope="col">Secret</th>
-                <th scope="col"><span class="sr-only">Actions</span></th>
+                <th scope="col" class="right"><span class="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
               @for (variable of variables(); track variable.uuid) {
                 <tr>
-                  <td class="akd-mono">{{ reference(variable) }}</td>
                   <td>
-                    <span class="akd-badge akd-badge--mono">{{ variable.scope }}</span>
+                    <span class="akd-mono">{{ variable.key }}</span>
+                    <div class="ref akd-mono akd-muted">{{ reference(variable) }}</div>
                   </td>
+                  <td><span class="akd-badge akd-badge--mono">{{ variable.scope }}</span></td>
                   <td class="akd-mono akd-muted">
                     {{ variable.is_redacted ? '••••••••' : (variable.value ?? '—') }}
                   </td>
@@ -122,48 +96,129 @@ type Scope = SharedVariable['scope'];
                   </td>
                   <td class="right">
                     <button
-                      class="akd-iconbtn"
+                      class="akd-btn akd-btn--danger akd-btn--sm"
                       type="button"
                       [disabled]="busy()"
                       (click)="remove(variable)"
-                      aria-label="Delete variable"
                     >
-                      <akd-icon name="trash-2" [size]="15" />
+                      Delete
                     </button>
                   </td>
                 </tr>
               }
+              <!-- The last row IS the creator: a team-scoped variable in place. -->
+              <tr class="add-row">
+                <td>
+                  <input
+                    class="akd-input akd-input--mono"
+                    name="newKey"
+                    placeholder="NEW_KEY"
+                    aria-label="New variable key"
+                    [(ngModel)]="key"
+                    [disabled]="busy()"
+                    (keydown.enter)="create()"
+                  />
+                </td>
+                <td><span class="akd-badge akd-badge--mono">team</span></td>
+                <td>
+                  <input
+                    class="akd-input akd-input--mono"
+                    name="newValue"
+                    placeholder="value"
+                    aria-label="New variable value"
+                    [(ngModel)]="value"
+                    [disabled]="busy()"
+                    (keydown.enter)="create()"
+                  />
+                </td>
+                <td>
+                  <label class="akd-check" title="Value redacted without read:sensitive (INV-003)">
+                    <input type="checkbox" name="newSecret" [(ngModel)]="secret" [disabled]="busy()" />
+                    secret
+                  </label>
+                </td>
+                <td class="right">
+                  <button
+                    class="akd-btn akd-btn--primary akd-btn--sm"
+                    type="button"
+                    [disabled]="busy() || !key.trim()"
+                    (click)="create()"
+                  >
+                    <akd-icon name="plus" [size]="13" />
+                    Add
+                  </button>
+                </td>
+              </tr>
             </tbody>
           </table>
-        }
-      </akd-card>
+        </akd-card>
 
-      <p class="footnote">
-        References are interpolated at deploy time; an unknown reference stays verbatim in the
-        container — visible, therefore diagnosable. Previews never receive shared secrets.
-      </p>
+        <p class="footnote">
+          References are interpolated at deploy time; an unknown reference stays verbatim in the
+          container — visible, therefore diagnosable. Previews never receive shared secrets.
+        </p>
+      } @else {
+        <akd-card title="Team" class="cfg">
+          <form class="cfgform" (ngSubmit)="saveConfig()">
+            <div class="akd-field">
+              <label class="akd-field__label" for="team-name">Name</label>
+              <input
+                id="team-name"
+                name="name"
+                class="akd-input"
+                [(ngModel)]="cfgName"
+                [disabled]="busy()"
+              />
+            </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="team-desc">Description</label>
+              <textarea
+                id="team-desc"
+                name="description"
+                class="akd-input"
+                rows="3"
+                [(ngModel)]="cfgDescription"
+                [disabled]="busy()"
+              ></textarea>
+            </div>
+            <div>
+              <button
+                class="akd-btn akd-btn--primary"
+                type="submit"
+                [disabled]="busy() || !cfgName.trim() || !cfgDirty()"
+              >
+                Save changes
+              </button>
+            </div>
+          </form>
+        </akd-card>
+      }
     </div>
   `,
   styles: [
     `
-      .grow {
-        flex: 1;
+      .ref {
+        font-size: var(--text-xs);
+        margin-top: 2px;
       }
-      .create {
-        margin-bottom: var(--space-5);
-        max-width: 32rem;
+      .add-row td {
+        vertical-align: middle;
       }
-      .pad {
-        padding: var(--space-5);
-        margin: 0;
+      .add-row .akd-input {
+        width: 100%;
       }
       .footnote {
         margin-top: var(--space-3);
         font-size: var(--text-xs);
         color: var(--text-3);
       }
-      akd-card {
+      .cfg {
         display: block;
+        max-width: 40rem;
+      }
+      .cfgform {
+        display: grid;
+        gap: var(--space-4);
       }
     `,
   ],
@@ -172,14 +227,18 @@ export class TeamSettingsComponent {
   private readonly api = inject(ApiService);
 
   protected readonly variables = signal<SharedVariable[]>([]);
-  protected readonly teamName = signal<string | null>(null);
+  protected readonly team = signal<Team | null>(null);
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
-  protected readonly creating = signal(false);
+  protected readonly active = signal<'variables' | 'config'>('variables');
+
   protected key = '';
   protected value = '';
   protected secret = false;
+
+  protected cfgName = '';
+  protected cfgDescription = '';
 
   constructor() {
     void this.load();
@@ -190,6 +249,12 @@ export class TeamSettingsComponent {
     return `{{${scope}.${variable.key}}}`;
   }
 
+  protected cfgDirty(): boolean {
+    const team = this.team();
+    if (!team) return false;
+    return this.cfgName.trim() !== team.name || this.cfgDescription !== (team.description ?? '');
+  }
+
   private async load(): Promise<void> {
     try {
       const [variables, teams] = await Promise.all([
@@ -197,7 +262,10 @@ export class TeamSettingsComponent {
         this.api.client().listTeams({ limit: 1 }),
       ]);
       this.variables.set(variables.data);
-      this.teamName.set(teams.data[0]?.name ?? null);
+      const team = teams.data[0] ?? null;
+      this.team.set(team);
+      this.cfgName = team?.name ?? '';
+      this.cfgDescription = team?.description ?? '';
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -219,8 +287,7 @@ export class TeamSettingsComponent {
       this.key = '';
       this.value = '';
       this.secret = false;
-      this.creating.set(false);
-      await this.load();
+      await this.reloadVariables();
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -234,11 +301,36 @@ export class TeamSettingsComponent {
     this.error.set(null);
     try {
       await this.api.client().deleteSharedVariable(variable.uuid);
-      await this.load();
+      await this.reloadVariables();
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
       this.busy.set(false);
     }
+  }
+
+  protected async saveConfig(): Promise<void> {
+    const team = this.team();
+    if (!team || this.busy() || !this.cfgName.trim() || !this.cfgDirty()) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      const updated = await this.api.client().updateTeam(team.uuid, {
+        name: this.cfgName.trim(),
+        description: this.cfgDescription.trim() || null,
+      });
+      this.team.set(updated);
+      this.cfgName = updated.name;
+      this.cfgDescription = updated.description ?? '';
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  private async reloadVariables(): Promise<void> {
+    const page = await this.api.client().listSharedVariables({ limit: 100 });
+    this.variables.set(page.data);
   }
 }

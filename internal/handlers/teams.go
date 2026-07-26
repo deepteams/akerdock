@@ -80,6 +80,41 @@ func (a *API) GetTeam(w http.ResponseWriter, r *http.Request, teamUuid api.TeamU
 	httpapi.WriteJSON(w, http.StatusOK, teamToAPI(team))
 }
 
+// UpdateTeam implements PATCH /teams/{team_uuid} (permission: write): partial
+// update of the team's name and description.
+func (a *API) UpdateTeam(w http.ResponseWriter, r *http.Request, teamUuid api.TeamUuid) {
+	id, ok := a.require(w, r, auth.PermWrite)
+	if !ok {
+		return
+	}
+	team, ok := a.resolveTeam(w, r, id, teamUuid)
+	if !ok {
+		return
+	}
+	var body api.TeamUpdate
+	patch, ok := decodePatch(w, r, &body)
+	if !ok {
+		return
+	}
+	params := store.UpdateTeamParams{ID: team.ID}
+	if body.Name != nil {
+		if _, ok := validateName(w, r, *body.Name); !ok {
+			return
+		}
+		params.Name = body.Name
+	}
+	if patch.Has("description") {
+		params.SetDescription = true
+		params.Description = body.Description
+	}
+	updated, err := a.Store.UpdateTeam(r.Context(), params)
+	if err != nil {
+		a.internalError(w, r, "update team", err)
+		return
+	}
+	httpapi.WriteJSON(w, http.StatusOK, teamToAPI(updated))
+}
+
 // ListTeamMembers implements GET /teams/{team_uuid}/members (permission: read).
 func (a *API) ListTeamMembers(w http.ResponseWriter, r *http.Request, teamUuid api.TeamUuid, params api.ListTeamMembersParams) {
 	id, ok := a.require(w, r, auth.PermRead)

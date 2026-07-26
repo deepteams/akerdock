@@ -583,6 +583,12 @@ export class AkerDockClient {
     return this.request<Response>('GET', `/teams/${uuid}`);
   }
 
+  updateTeam(uuid: string, body: components['schemas']['TeamUpdate']) {
+    type Response =
+      paths['/teams/{team_uuid}']['patch']['responses']['200']['content']['application/json'];
+    return this.request<Response>('PATCH', `/teams/${uuid}`, { body });
+  }
+
   listTeamMembers(uuid: string, query?: { cursor?: string; limit?: number }) {
     type Response =
       paths['/teams/{team_uuid}/members']['get']['responses']['200']['content']['application/json'];

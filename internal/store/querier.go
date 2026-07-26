@@ -829,6 +829,8 @@ type Querier interface {
 	UpdateServer(ctx context.Context, arg UpdateServerParams) (int64, error)
 	UpdateServiceCompose(ctx context.Context, arg UpdateServiceComposeParams) (int64, error)
 	UpdateSharedVariable(ctx context.Context, arg UpdateSharedVariableParams) (int64, error)
+	// Partial update of a team's name/description (§10.1).
+	UpdateTeam(ctx context.Context, arg UpdateTeamParams) (Team, error)
 	UpdateUptimeCheck(ctx context.Context, arg UpdateUptimeCheckParams) (int64, error)
 	// Certificates: observed reflection of the server state (§18.3).
 	UpsertCertificate(ctx context.Context, arg UpsertCertificateParams) error

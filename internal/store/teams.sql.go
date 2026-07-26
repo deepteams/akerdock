@@ -303,3 +303,44 @@ func (q *Queries) RotateInvitation(ctx context.Context, arg RotateInvitationPara
 	)
 	return i, err
 }
+
+const updateTeam = `-- name: UpdateTeam :one
+UPDATE teams SET
+    name = COALESCE($2, name),
+    description = CASE WHEN $3::boolean THEN $4 ELSE description END,
+    updated_at = now()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, uuid, name, description, created_by, updated_by, created_at, updated_at, deleted_at, version, personal
+`
+
+type UpdateTeamParams struct {
+	ID             int64
+	Name           *string
+	SetDescription bool
+	Description    *string
+}
+
+// Partial update of a team's name/description (§10.1).
+func (q *Queries) UpdateTeam(ctx context.Context, arg UpdateTeamParams) (Team, error) {
+	row := q.db.QueryRow(ctx, updateTeam,
+		arg.ID,
+		arg.Name,
+		arg.SetDescription,
+		arg.Description,
+	)
+	var i Team
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.Name,
+		&i.Description,
+		&i.CreatedBy,
+		&i.UpdatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.Version,
+		&i.Personal,
+	)
+	return i, err
+}

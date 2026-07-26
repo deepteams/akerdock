@@ -660,6 +660,37 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+    patch:
+      tags: [Teams]
+      operationId: updateTeam
+      summary: Modifier une team
+      description: Met à jour le nom et la description de la team (mise à jour partielle).
+      x-required-permission: write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamUpdate"
+      responses:
+        "200":
+          description: Team mise à jour.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   /teams/{team_uuid}/members:
     parameters:
@@ -7849,6 +7880,17 @@ components:
           nullable: true
           format: date-time
           readOnly: true
+
+    TeamUpdate:
+      type: object
+      description: Mise à jour partielle d'une team.
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
 
     TeamMember:
       type: object

@@ -303,7 +303,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Modifier une team
+         * @description Met à jour le nom et la description de la team (mise à jour partielle).
+         */
+        patch: operations["updateTeam"];
         trace?: never;
     };
     "/teams/{team_uuid}/members": {
@@ -3405,6 +3409,11 @@ export interface components {
             /** Format: date-time */
             readonly updated_at?: string | null;
         };
+        /** @description Mise à jour partielle d'une team. */
+        TeamUpdate: {
+            name?: string;
+            description?: string | null;
+        };
         /** @description Appartenance d'un utilisateur à une team. */
         TeamMember: {
             user_uuid: string;
@@ -6133,6 +6142,39 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    updateTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamUpdate"];
+            };
+        };
+        responses: {
+            /** @description Team mise à jour. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
             429: components["responses"]["TooManyRequests"];
         };
     };

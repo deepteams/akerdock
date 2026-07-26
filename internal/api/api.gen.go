@@ -4167,6 +4167,12 @@ type TeamMember struct {
 // TeamMemberRole Rôle dans la team (§10.1). Le RBAC fin par projet/environnement (§27.7) viendra dans une version ultérieure du contrat.
 type TeamMemberRole string
 
+// TeamUpdate Mise à jour partielle d'une team.
+type TeamUpdate struct {
+	Description *string `json:"description,omitempty"`
+	Name        *string `json:"name,omitempty"`
+}
+
 // TelegramConfig defines model for TelegramConfig.
 type TelegramConfig struct {
 	BotToken string  `json:"bot_token"`
@@ -5504,6 +5510,9 @@ type SetOauthProviderJSONRequestBody = OauthProviderSet
 // SetTelemetryJSONRequestBody defines body for SetTelemetry for application/json ContentType.
 type SetTelemetryJSONRequestBody = TelemetryConfigSet
 
+// UpdateTeamJSONRequestBody defines body for UpdateTeam for application/json ContentType.
+type UpdateTeamJSONRequestBody = TeamUpdate
+
 // CreateTeamInvitationJSONRequestBody defines body for CreateTeamInvitation for application/json ContentType.
 type CreateTeamInvitationJSONRequestBody = InvitationCreate
 
@@ -6198,6 +6207,9 @@ type ServerInterface interface {
 	// Détail d'une team
 	// (GET /teams/{team_uuid})
 	GetTeam(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid)
+	// Modifier une team
+	// (PATCH /teams/{team_uuid})
+	UpdateTeam(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid)
 	// Lister les invitations
 	// (GET /teams/{team_uuid}/invitations)
 	ListTeamInvitations(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamInvitationsParams)
@@ -7368,6 +7380,12 @@ func (_ Unimplemented) ListTeams(w http.ResponseWriter, r *http.Request, params 
 // Détail d'une team
 // (GET /teams/{team_uuid})
 func (_ Unimplemented) GetTeam(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Modifier une team
+// (PATCH /teams/{team_uuid})
+func (_ Unimplemented) UpdateTeam(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -16050,6 +16068,38 @@ func (siw *ServerInterfaceWrapper) GetTeam(w http.ResponseWriter, r *http.Reques
 	handler.ServeHTTP(w, r)
 }
 
+// UpdateTeam operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTeam(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "team_uuid" -------------
+	var teamUuid TeamUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateTeam(w, r, teamUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTeamInvitations operation middleware
 func (siw *ServerInterfaceWrapper) ListTeamInvitations(w http.ResponseWriter, r *http.Request) {
 
@@ -17445,6 +17495,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{team_uuid}", wrapper.GetTeam)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/teams/{team_uuid}", wrapper.UpdateTeam)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{team_uuid}/invitations", wrapper.ListTeamInvitations)
@@ -35409,6 +35462,118 @@ func (response GetTeam429JSONResponse) VisitGetTeamResponse(w http.ResponseWrite
 	return err
 }
 
+type UpdateTeamRequestObject struct {
+	TeamUuid TeamUuid `json:"team_uuid"`
+	Body     *UpdateTeamJSONRequestBody
+}
+
+type UpdateTeamResponseObject interface {
+	VisitUpdateTeamResponse(w http.ResponseWriter) error
+}
+
+type UpdateTeam200JSONResponse Team
+
+func (response UpdateTeam200JSONResponse) VisitUpdateTeamResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeam400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateTeam400JSONResponse) VisitUpdateTeamResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeam401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateTeam401JSONResponse) VisitUpdateTeamResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeam403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateTeam403JSONResponse) VisitUpdateTeamResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeam404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateTeam404JSONResponse) VisitUpdateTeamResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeam422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response UpdateTeam422JSONResponse) VisitUpdateTeamResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTeam429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response UpdateTeam429JSONResponse) VisitUpdateTeamResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTeamInvitationsRequestObject struct {
 	TeamUuid TeamUuid `json:"team_uuid"`
 	Params   ListTeamInvitationsParams
@@ -37385,6 +37550,9 @@ type StrictServerInterface interface {
 	// Détail d'une team
 	// (GET /teams/{team_uuid})
 	GetTeam(ctx context.Context, request GetTeamRequestObject) (GetTeamResponseObject, error)
+	// Modifier une team
+	// (PATCH /teams/{team_uuid})
+	UpdateTeam(ctx context.Context, request UpdateTeamRequestObject) (UpdateTeamResponseObject, error)
 	// Lister les invitations
 	// (GET /teams/{team_uuid}/invitations)
 	ListTeamInvitations(ctx context.Context, request ListTeamInvitationsRequestObject) (ListTeamInvitationsResponseObject, error)
@@ -42775,6 +42943,39 @@ func (sh *strictHandler) GetTeam(w http.ResponseWriter, r *http.Request, teamUui
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetTeamResponseObject); ok {
 		if err := validResponse.VisitGetTeamResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateTeam operation middleware
+func (sh *strictHandler) UpdateTeam(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
+	var request UpdateTeamRequestObject
+
+	request.TeamUuid = teamUuid
+
+	var body UpdateTeamJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateTeam(ctx, request.(UpdateTeamRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateTeam")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateTeamResponseObject); ok {
+		if err := validResponse.VisitUpdateTeamResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
