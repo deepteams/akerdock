@@ -10,7 +10,9 @@ package waker
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -18,6 +20,11 @@ import (
 	"sync"
 	"time"
 )
+
+// errWakeTimeout marks a genuine wake deadline overrun (→ 504), as opposed to an
+// operational failure like an unreachable Docker socket or a missing container
+// (→ 502). Both used to surface as "wake timed out", which hid the real cause.
+var errWakeTimeout = errors.New("wake timed out")
 
 // ContainerState is the subset of `docker inspect` the waker needs.
 type ContainerState struct {
@@ -90,6 +97,8 @@ type Waker struct {
 	WakeTimeout time.Duration
 	Poll        time.Duration
 	StableFor   time.Duration
+	// Logger records wake failures with their real cause; nil uses slog.Default.
+	Logger *slog.Logger
 
 	// newProxy builds the reverse proxy to a running target; overridable in tests.
 	newProxy func(target *url.URL) http.Handler
@@ -136,6 +145,13 @@ func hostname(h string) string {
 	return host
 }
 
+func (w *Waker) log() *slog.Logger {
+	if w.Logger != nil {
+		return w.Logger
+	}
+	return slog.Default()
+}
+
 func (w *Waker) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	route, ok := w.byHost[hostname(req.Host)]
 	if !ok {
@@ -152,7 +168,15 @@ func (w *Waker) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	if err := w.ensureAwake(req.Context(), route.ResourceUUID); err != nil {
-		http.Error(rw, "wake timed out", http.StatusGatewayTimeout)
+		w.log().Warn("waker: wake failed", "host", hostname(req.Host),
+			"resource", route.ResourceUUID, "container", route.Container, "error", err)
+		if errors.Is(err, errWakeTimeout) {
+			http.Error(rw, "wake timed out", http.StatusGatewayTimeout)
+		} else {
+			// Operational failure (Docker socket unreachable, container missing,
+			// API version…): report it instead of masking it as a timeout.
+			http.Error(rw, "wake failed: "+err.Error(), http.StatusBadGateway)
+		}
 		return
 	}
 
@@ -240,7 +264,7 @@ func (w *Waker) ensureAwake(ctx context.Context, uuid string) error {
 			return nil
 		}
 		if !w.now().Before(deadline) {
-			return fmt.Errorf("waker: wake of %s timed out after %s", uuid, w.WakeTimeout)
+			return fmt.Errorf("%w: %s after %s", errWakeTimeout, uuid, w.WakeTimeout)
 		}
 		if err := sleepCtx(ctx, w.Poll); err != nil {
 			return err

@@ -113,26 +113,38 @@ func ensureWaker(ctx context.Context, client *sshexec.Client, network, image, re
 	return nil
 }
 
-// WakerEnsureCommand is the idempotent, image-aware deploy of the waker helper.
-// It recreates the container when the running image differs from `image` (or
-// when it is absent) and is otherwise a no-op — so it both provisions the waker
-// and upgrades it in place when the release image changes. The routing table and
-// activity files live in a bind mount, so a recreate preserves them.
+// wakerSpec is the run-spec generation of the waker container. Bump it whenever
+// the `docker run` flags change (not just the image): the deploy recreates the
+// container when EITHER the image OR this spec differs, so a flag fix propagates
+// even when the image tag is unchanged (local "dirty" builds reuse a tag).
+const wakerSpec = "2"
+
+// WakerEnsureCommand is the idempotent deploy of the waker helper. It recreates
+// the container when the running image OR the run spec differs (or when it is
+// absent), otherwise a no-op — so it provisions the waker, upgrades it when the
+// release image changes, and re-applies run-flag fixes when wakerSpec is bumped.
+// The routing table and activity files live in a bind mount, so a recreate
+// preserves them.
 //
 // Deployed on the same internal network as the proxy (reachable as
-// akerdock-waker:8080, never published), with the local Docker socket to start
-// managed containers. Shared by the deploy path (ensureWaker) and the
-// scheduler's cross-server upgrade reconciliation.
+// akerdock-waker:8080, never published). It runs as root (--user 0) because it
+// needs the local Docker socket — whose access is root-equivalent anyway, so the
+// distroless nonroot default simply cannot read it, and every wake would fail.
+// Shared by the deploy path (ensureWaker) and the scheduler's cross-server
+// upgrade reconciliation.
 func WakerEnsureCommand(network, image string) string {
 	return fmt.Sprintf(
-		"mkdir -p %s && cur=$(docker inspect -f '{{.Config.Image}}' %s 2>/dev/null || true); "+
-			"if [ \"$cur\" != \"%s\" ]; then docker rm -f %s >/dev/null 2>&1 || true; "+
-			"docker run -d --name %s --restart unless-stopped --network %s "+
+		"mkdir -p %s && "+
+			"img=$(docker inspect -f '{{.Config.Image}}' %s 2>/dev/null || true); "+
+			"spec=$(docker inspect -f '{{index .Config.Labels \"akerdock.waker_spec\"}}' %s 2>/dev/null || true); "+
+			"if [ \"$img\" != \"%s\" ] || [ \"$spec\" != \"%s\" ]; then docker rm -f %s >/dev/null 2>&1 || true; "+
+			"docker run -d --name %s --restart unless-stopped --network %s --user 0 "+
 			"-v /var/run/docker.sock:/var/run/docker.sock -v %s:%s "+
-			"--label akerdock.managed=true --label akerdock.type=helper "+
+			"--label akerdock.managed=true --label akerdock.type=helper --label akerdock.waker_spec=%s "+
 			"%s waker; fi",
-		wakerDir, proxy.WakerContainerName, image, proxy.WakerContainerName,
-		proxy.WakerContainerName, network, wakerDir, wakerDir, image)
+		wakerDir, proxy.WakerContainerName, proxy.WakerContainerName,
+		image, wakerSpec, proxy.WakerContainerName,
+		proxy.WakerContainerName, network, wakerDir, wakerDir, wakerSpec, image)
 }
 
 // removeWakerRoutes drops a resource from the shared table (preview destroy).

@@ -29,7 +29,9 @@ func Serve(ctx context.Context, dir, addr string, docker Docker, logger *slog.Lo
 			}
 			return
 		}
-		current.Store(New(cfg, docker, activity, nil))
+		wk := New(cfg, docker, activity, nil)
+		wk.Logger = logger
+		current.Store(wk)
 		logger.Info("waker: routing config loaded", "routes", len(cfg.Routes), "resources", len(cfg.Resources))
 	}
 	load()

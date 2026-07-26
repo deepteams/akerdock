@@ -2,6 +2,7 @@ package waker
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,11 +17,12 @@ import (
 // fakeDocker drives the wake decision: containers report their state, and the
 // number of Start calls is counted to prove single-flight and idempotence.
 type fakeDocker struct {
-	mu       sync.Mutex
-	running  map[string]bool
-	health   map[string]string // per-container health, default "none"
-	starts   map[string]int
-	inspects int32
+	mu         sync.Mutex
+	running    map[string]bool
+	health     map[string]string // per-container health, default "none"
+	starts     map[string]int
+	inspects   int32
+	inspectErr error // when set, Inspect fails (e.g. unreachable Docker socket)
 }
 
 func newFakeDocker() *fakeDocker {
@@ -37,6 +39,9 @@ func (d *fakeDocker) Start(_ context.Context, c string) error {
 
 func (d *fakeDocker) Inspect(_ context.Context, c string) (ContainerState, error) {
 	atomic.AddInt32(&d.inspects, 1)
+	if d.inspectErr != nil {
+		return ContainerState{}, d.inspectErr
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	h := d.health[c]
@@ -153,6 +158,26 @@ func TestWakeTimeout(t *testing.T) {
 
 	if rr.Code != http.StatusGatewayTimeout {
 		t.Fatalf("status = %d, want 504", rr.Code)
+	}
+}
+
+func TestDockerErrorIs502NotTimeout(t *testing.T) {
+	// An unreachable Docker socket (nonroot user) or a too-new API version makes
+	// Inspect fail. That must surface as 502 "wake failed: …", never be masked as
+	// a 504 timeout — the bug that made a healthy app look like it timed out.
+	d := newFakeDocker()
+	d.inspectErr = errors.New("permission denied on /var/run/docker.sock")
+	w, _, closeFn := newTestWaker(t, d, &fakeActivity{})
+	defer closeFn()
+
+	rr := httptest.NewRecorder()
+	w.ServeHTTP(rr, request("app.example.com", ""))
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502 for an operational error", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "wake failed") {
+		t.Fatalf("body = %q, want the real cause surfaced", rr.Body.String())
 	}
 }
 

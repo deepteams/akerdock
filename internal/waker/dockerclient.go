@@ -23,14 +23,14 @@ type SocketDocker struct {
 	version string // pinned Engine API version segment, e.g. "v1.45"
 }
 
-// NewSocketDocker builds a client bound to socket. version pins the Engine API
-// path segment; empty falls back to a conservative default.
+// NewSocketDocker builds a client bound to socket. version optionally pins the
+// Engine API path segment (e.g. "v1.45"); empty — the default — sends
+// unversioned requests, which the daemon serves with its own current API
+// version. Pinning a version NEWER than the daemon supports makes every call
+// fail ("client version too new"), so we do not pin by default.
 func NewSocketDocker(socket, version string) *SocketDocker {
 	if socket == "" {
 		socket = DockerSocket
-	}
-	if version == "" {
-		version = "v1.45"
 	}
 	return &SocketDocker{
 		version: version,
@@ -47,7 +47,11 @@ func NewSocketDocker(socket, version string) *SocketDocker {
 }
 
 func (c *SocketDocker) endpoint(path string) string {
-	// The host is ignored (unix socket) but must be a valid http URL.
+	// The host is ignored (unix socket) but must be a valid http URL. An empty
+	// version yields an unversioned path served by the daemon's current version.
+	if c.version == "" {
+		return "http://docker" + path
+	}
 	return "http://docker/" + c.version + path
 }
 

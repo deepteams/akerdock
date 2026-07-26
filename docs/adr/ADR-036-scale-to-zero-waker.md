@@ -108,6 +108,14 @@ implicite en production.
   **validation E2E** (ADR-028) : les tests unitaires couvrent la décision de
   réveil, les limites et la génération du fichier dynamique ; le comportement live
   passe par le parcours DinD.
+- **Distribution de l'image aux serveurs distants** : le waker tourne l'image
+  AkerDock — première image *du projet* à devoir tourner sur un serveur cible (le
+  proxy, lui, utilise une image publique). Elle y arrive par pull registry (flux
+  ghcr) ou parce qu'elle est locale (install source-only mono-hôte). Sur un
+  serveur **distant** en install source-only *sans registry*, elle manque : à
+  lever par un registry, ou par un `docker save`→`docker load` streamé en SSH pour
+  rester « sans registry » (piste notée dans `TODO.md`, non implémentée — inutile
+  tant que le déploiement reste mono-hôte).
 
 ## Alternatives rejetées
 
