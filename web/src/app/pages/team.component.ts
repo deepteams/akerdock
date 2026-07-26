@@ -419,12 +419,15 @@ interface PermissionGroup {
                   <option value="admin">admin</option>
                   <option value="member">member</option>
                   <option value="reviewer">reviewer</option>
+                  @for (role of customRoles(); track role.uuid) {
+                    <option [value]="'custom:' + role.uuid">{{ role.name }} (custom)</option>
+                  }
                 </select>
               </div>
               <span class="akd-field__hint">
                 Admin: full control of the team. Member: manages resources.
-                Reviewer: sees PR previews only. Instance settings stay
-                administrator-only.
+                Reviewer: sees PR previews only. Custom roles are defined in the
+                Roles tab. Instance settings stay administrator-only.
               </span>
             </div>
           </form>
@@ -758,7 +761,8 @@ export class TeamComponent {
   );
 
   protected inviteEmail = '';
-  protected inviteRole: 'admin' | 'member' | 'reviewer' = 'member';
+  /** A system role, or `custom:<uuid>` for a custom role. */
+  protected inviteRole = 'member';
 
   // --- roles & permissions ---
   protected readonly customRoles = signal<CustomRole[]>([]);
@@ -902,11 +906,19 @@ export class TeamComponent {
     this.inviteLink.set(null);
     this.inviteSent.set(null);
     try {
-      const created = await this.api.client().createTeamInvitation(this.teamUuid, {
-        email: this.inviteEmail.trim(),
-        role: this.inviteRole,
-        expires_in_hours: 168,
-      });
+      const body: components['schemas']['InvitationCreate'] = this.inviteRole.startsWith('custom:')
+        ? {
+            email: this.inviteEmail.trim(),
+            role: 'custom',
+            custom_role_uuid: this.inviteRole.slice('custom:'.length),
+            expires_in_hours: 168,
+          }
+        : {
+            email: this.inviteEmail.trim(),
+            role: this.inviteRole as 'admin' | 'member' | 'reviewer',
+            expires_in_hours: 168,
+          };
+      const created = await this.api.client().createTeamInvitation(this.teamUuid, body);
       // The link is only present when the instance has no transactional email
       // configured (manual hand-off) — and then only in this response, once.
       if (created.invite_url) {

@@ -38,15 +38,26 @@ LIMIT sqlc.arg(page_limit);
 -- clear value is returned only once, at creation.
 
 -- name: CreateInvitation :one
-INSERT INTO invitations (team_id, email, role, token_hash, expires_at)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO invitations (team_id, email, role, token_hash, expires_at, custom_role_id)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
+-- name: AcceptInvitation :one
+-- Atomically claim a still-pending invitation by its link hash: the WHERE clause
+-- is the single-use guard (accepted/revoked/expired all fail to match). Returns
+-- the target team, role and optional custom role so the caller can add the
+-- membership. Team-scoping is inherent — the invitation names its own team.
+UPDATE invitations SET accepted_at = now()
+WHERE token_hash = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+RETURNING team_id, email, role, custom_role_id;
+
 -- name: ListInvitationsPage :many
-SELECT * FROM invitations
-WHERE team_id = sqlc.arg(team_id)
-  AND (sqlc.arg(after_id)::bigint = 0 OR id < sqlc.arg(after_id))
-ORDER BY id DESC
+SELECT i.*, cr.uuid AS custom_role_uuid, cr.name AS custom_role_name
+FROM invitations i
+LEFT JOIN custom_roles cr ON cr.id = i.custom_role_id
+WHERE i.team_id = sqlc.arg(team_id)
+  AND (sqlc.arg(after_id)::bigint = 0 OR i.id < sqlc.arg(after_id))
+ORDER BY i.id DESC
 LIMIT sqlc.arg(page_limit);
 
 -- name: RevokeInvitation :execrows

@@ -3532,11 +3532,13 @@ export interface components {
              */
             email: string;
             /**
-             * @description Rôle système attribué à l'acceptation (ADR-038).
+             * @description Rôle attribué à l'acceptation (ADR-038). `custom` exige `custom_role_uuid`.
              * @default member
              * @enum {string}
              */
-            role: "admin" | "member" | "reviewer";
+            role: "admin" | "member" | "reviewer" | "custom";
+            /** @description UUID d'un rôle custom de la team, requis quand `role` vaut `custom`. */
+            custom_role_uuid?: string | null;
             /**
              * @description Durée de validité de l'invitation en heures (défaut 7 jours).
              * @default 168
@@ -3549,7 +3551,11 @@ export interface components {
             /** Format: email */
             email: string;
             /** @enum {string} */
-            role: "admin" | "member" | "reviewer";
+            role: "admin" | "member" | "reviewer" | "custom";
+            /** @description UUID du rôle custom quand `role` vaut `custom`. */
+            readonly custom_role_uuid?: string | null;
+            /** @description Nom du rôle custom quand `role` vaut `custom`. */
+            readonly custom_role_name?: string | null;
             /** @enum {string} */
             readonly status: "pending" | "accepted" | "revoked" | "expired";
             /** @description Lien d'acceptation — renvoyé uniquement à la création et uniquement si l'email transactionnel de l'instance n'est pas configuré (transmission manuelle). */

@@ -25,33 +25,43 @@ import (
 // defaultInvitationHours is the 7-day validity of the OpenAPI contract.
 const defaultInvitationHours = 168
 
-// invitationStatus derives the exposed status from the row timestamps.
-func invitationStatus(inv store.Invitation) api.InvitationStatus {
+// invitationStatusOf derives the exposed status from the row timestamps.
+func invitationStatusOf(accepted, revoked, expires pgtype.Timestamptz) api.InvitationStatus {
 	switch {
-	case inv.AcceptedAt.Valid:
+	case accepted.Valid:
 		return "accepted"
-	case inv.RevokedAt.Valid:
+	case revoked.Valid:
 		return "revoked"
-	case inv.ExpiresAt.Valid && time.Now().After(inv.ExpiresAt.Time):
+	case expires.Valid && time.Now().After(expires.Time):
 		return "expired"
 	default:
 		return "pending"
 	}
 }
 
-// invitationToAPI renders an invitation. inviteURL is only set at creation
-// (the link is a credential: it is hashed at rest and never returned again).
-func invitationToAPI(inv store.Invitation, inviteURL *string) api.Invitation {
-	return api.Invitation{
-		Uuid:      ptr(uuidString(inv.Uuid)),
-		Email:     openapi_types.Email(inv.Email),
-		Role:      api.InvitationRole(inv.Role),
-		Status:    ptr(invitationStatus(inv)),
+// invitationToAPI renders an invitation. inviteURL is only set at creation (the
+// link is a credential: hashed at rest, never returned again). A custom role
+// (customRoleID set) is surfaced as role "custom" with its uuid/name when known.
+func invitationToAPI(
+	uuid pgtype.UUID, email string, role store.TeamRole,
+	customRoleID *int64, customRoleUUID pgtype.UUID, customRoleName *string,
+	accepted, revoked, expires, created pgtype.Timestamptz, inviteURL *string,
+) api.Invitation {
+	out := api.Invitation{
+		Uuid:      ptr(uuidString(uuid)),
+		Email:     openapi_types.Email(email),
+		Role:      api.InvitationRole(role),
+		Status:    ptr(invitationStatusOf(accepted, revoked, expires)),
 		InviteUrl: inviteURL,
-		ExpiresAt: inv.ExpiresAt.Time.UTC(),
-		CreatedAt: timePtr(inv.CreatedAt),
-		InvitedBy: nil,
+		ExpiresAt: expires.Time.UTC(),
+		CreatedAt: timePtr(created),
 	}
+	if customRoleID != nil {
+		out.Role = "custom"
+		out.CustomRoleUuid = ptr(uuidString(customRoleUUID))
+		out.CustomRoleName = customRoleName
+	}
+	return out
 }
 
 // ListTeamInvitations implements GET /teams/{team_uuid}/invitations
@@ -80,11 +90,15 @@ func (a *API) ListTeamInvitations(w http.ResponseWriter, r *http.Request, teamUu
 		a.internalError(w, r, "list invitations", err)
 		return
 	}
-	rows, cursor := nextCursor(rows, limit, func(i store.Invitation) int64 { return i.ID })
+	rows, cursor := nextCursor(rows, limit, func(i store.ListInvitationsPageRow) int64 { return i.ID })
 
 	data := make([]api.Invitation, 0, len(rows))
 	for _, inv := range rows {
-		data = append(data, invitationToAPI(inv, nil))
+		data = append(data, invitationToAPI(
+			inv.Uuid, inv.Email, inv.Role,
+			inv.CustomRoleID, inv.CustomRoleUuid, inv.CustomRoleName,
+			inv.AcceptedAt, inv.RevokedAt, inv.ExpiresAt, inv.CreatedAt, nil,
+		))
 	}
 	httpapi.WriteJSON(w, http.StatusOK, struct {
 		Data       []api.Invitation `json:"data"`
@@ -114,15 +128,37 @@ func (a *API) CreateTeamInvitation(w http.ResponseWriter, r *http.Request, teamU
 		httpapi.WriteValidationError(w, r, []api.ErrorDetail{{Field: ptr("email"), Code: ptr("invalid"), Message: "invalid email address"}})
 		return
 	}
-	// System roles an invitation may grant (ADR-038). `admin` and `reviewer` are
-	// explicit; anything else — including a missing role — defaults to `member`.
+	// Roles an invitation may grant (ADR-038). `admin`/`reviewer` are explicit;
+	// `custom` requires a custom_role_uuid of THIS team; anything else — including
+	// a missing role — defaults to `member`. A custom role keeps `member` as the
+	// stored fallback and rides on custom_role_id.
 	role := store.TeamRoleMember
+	var customRole *store.CustomRole
 	if body.Role != nil {
 		switch *body.Role {
 		case api.InvitationCreateRoleAdmin:
 			role = store.TeamRoleAdmin
 		case api.InvitationCreateRoleReviewer:
 			role = store.TeamRoleReviewer
+		case api.InvitationCreateRoleCustom:
+			if body.CustomRoleUuid == nil || *body.CustomRoleUuid == "" {
+				httpapi.WriteValidationError(w, r, []api.ErrorDetail{{Field: ptr("custom_role_uuid"), Code: ptr("required"), Message: "custom_role_uuid is required when role is custom"}})
+				return
+			}
+			u, ok := a.scanUUID(w, r, *body.CustomRoleUuid, "role")
+			if !ok {
+				return
+			}
+			found, err := a.Store.GetCustomRoleByUUID(r.Context(), store.GetCustomRoleByUUIDParams{Uuid: u, TeamID: team.ID})
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "role not found")
+					return
+				}
+				a.internalError(w, r, "get role", err)
+				return
+			}
+			customRole = &found
 		}
 	}
 	hours := defaultInvitationHours
@@ -144,11 +180,15 @@ func (a *API) CreateTeamInvitation(w http.ResponseWriter, r *http.Request, teamU
 	token := hex.EncodeToString(raw)
 	sum := sha256.Sum256([]byte(token))
 
-	inv, err := a.Store.CreateInvitation(r.Context(), store.CreateInvitationParams{
+	invParams := store.CreateInvitationParams{
 		TeamID: team.ID, Email: email, Role: role,
 		TokenHash: hex.EncodeToString(sum[:]),
 		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Duration(hours) * time.Hour), Valid: true},
-	})
+	}
+	if customRole != nil {
+		invParams.CustomRoleID = &customRole.ID
+	}
+	inv, err := a.Store.CreateInvitation(r.Context(), invParams)
 	if err != nil {
 		if isUniqueViolation(err) {
 			httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "an active invitation already exists for this email in this team")
@@ -170,7 +210,15 @@ func (a *API) CreateTeamInvitation(w http.ResponseWriter, r *http.Request, teamU
 	a.mailInvitation(r, email, *inviteURL)
 
 	a.recordAudit(r, id, "invitation.create", "invitation", inv.Uuid)
-	httpapi.WriteJSON(w, http.StatusCreated, invitationToAPI(inv, inviteURL))
+	var crUUID pgtype.UUID
+	var crName *string
+	if customRole != nil {
+		crUUID, crName = customRole.Uuid, &customRole.Name
+	}
+	httpapi.WriteJSON(w, http.StatusCreated, invitationToAPI(
+		inv.Uuid, inv.Email, inv.Role, inv.CustomRoleID, crUUID, crName,
+		inv.AcceptedAt, inv.RevokedAt, inv.ExpiresAt, inv.CreatedAt, inviteURL,
+	))
 }
 
 // RevokeTeamInvitation implements DELETE
@@ -257,7 +305,12 @@ func (a *API) ResendTeamInvitation(w http.ResponseWriter, r *http.Request, teamU
 	a.mailInvitation(r, inv.Email, *inviteURL)
 
 	a.recordAudit(r, id, "invitation.regenerate", "invitation", inv.Uuid)
-	httpapi.WriteJSON(w, http.StatusOK, invitationToAPI(inv, inviteURL))
+	// The role is unchanged by a resend; a custom role shows as "custom" (name is
+	// omitted here — the resend response is only used to copy the fresh link).
+	httpapi.WriteJSON(w, http.StatusOK, invitationToAPI(
+		inv.Uuid, inv.Email, inv.Role, inv.CustomRoleID, pgtype.UUID{}, nil,
+		inv.AcceptedAt, inv.RevokedAt, inv.ExpiresAt, inv.CreatedAt, inviteURL,
+	))
 }
 
 // mailInvitation sends the invite link through the instance's transactional

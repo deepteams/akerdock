@@ -337,6 +337,15 @@ export class ApiService {
     if (!res.ok && res.status !== 204) throw await this.authError(res);
   }
 
+  /**
+   * Redeems an invitation link for the signed-in user (ADR-038): joins the team
+   * the invitation names. Requires an active session — the invitation email must
+   * match the current account, enforced server-side.
+   */
+  async acceptInvitation(token: string): Promise<{ team_uuid: string }> {
+    return this.authPost<{ team_uuid: string }>('/auth/invitations/accept', { token });
+  }
+
   /** POST to an /auth endpoint: session cookie rides along, CSRF echoed. */
   private async authPost<T>(path: string, body: unknown): Promise<T> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };

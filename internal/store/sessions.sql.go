@@ -13,18 +13,24 @@ import (
 )
 
 const addTeamMember = `-- name: AddTeamMember :exec
-INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, $3)
+INSERT INTO team_memberships (team_id, user_id, role, custom_role_id) VALUES ($1, $2, $3, $4)
 ON CONFLICT (team_id, user_id) DO NOTHING
 `
 
 type AddTeamMemberParams struct {
-	TeamID int64
-	UserID int64
-	Role   TeamRole
+	TeamID       int64
+	UserID       int64
+	Role         TeamRole
+	CustomRoleID *int64
 }
 
 func (q *Queries) AddTeamMember(ctx context.Context, arg AddTeamMemberParams) error {
-	_, err := q.db.Exec(ctx, addTeamMember, arg.TeamID, arg.UserID, arg.Role)
+	_, err := q.db.Exec(ctx, addTeamMember,
+		arg.TeamID,
+		arg.UserID,
+		arg.Role,
+		arg.CustomRoleID,
+	)
 	return err
 }
 

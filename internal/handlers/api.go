@@ -144,6 +144,10 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 		r.Post("/auth/logout", a.Logout)
 		r.Get("/auth/me", a.Me)
 
+		// Redeem an invitation link (ADR-038): a signed-in invitee joins the team.
+		// Session + CSRF like the rest of the mutating /auth endpoints.
+		r.Post("/auth/invitations/accept", a.AcceptInvitation)
+
 		// Passkeys (WebAuthn). Management requires a session (and CSRF); the
 		// login pair is anonymous by nature — a discoverable credential names
 		// its user.

@@ -28,7 +28,8 @@
 #     docs/specs/cli.md §7
 #   - Les endpoints d'authentification du CLI (`/auth/cli/start|approve|token`,
 #     ADR-031) — hors contrat comme /auth/*, normatifs dans docs/specs/cli.md §5
-#   - Gestion des sessions/login (UI uniquement, §10.2)
+#   - Gestion des sessions/login (UI uniquement, §10.2), dont l'acceptation
+#     d'invitation (`POST /auth/invitations/accept`, ADR-038 — session + CSRF)
 #
 # Décisions structurantes appliquées (§27) :
 #   - §27.1  : port unique du control plane, tout sous /api/v1
@@ -8163,9 +8164,15 @@ components:
           description: Email de la personne invitée.
         role:
           type: string
-          enum: [admin, member, reviewer]
+          enum: [admin, member, reviewer, custom]
           default: member
-          description: Rôle système attribué à l'acceptation (ADR-038).
+          description: >-
+            Rôle attribué à l'acceptation (ADR-038). `custom` exige
+            `custom_role_uuid`.
+        custom_role_uuid:
+          type: string
+          nullable: true
+          description: UUID d'un rôle custom de la team, requis quand `role` vaut `custom`.
         expires_in_hours:
           type: integer
           minimum: 1
@@ -8186,7 +8193,17 @@ components:
           format: email
         role:
           type: string
-          enum: [admin, member, reviewer]
+          enum: [admin, member, reviewer, custom]
+        custom_role_uuid:
+          type: string
+          nullable: true
+          description: UUID du rôle custom quand `role` vaut `custom`.
+          readOnly: true
+        custom_role_name:
+          type: string
+          nullable: true
+          description: Nom du rôle custom quand `role` vaut `custom`.
+          readOnly: true
         status:
           type: string
           enum: [pending, accepted, revoked, expired]

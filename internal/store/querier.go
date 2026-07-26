@@ -11,6 +11,11 @@ import (
 )
 
 type Querier interface {
+	// Atomically claim a still-pending invitation by its link hash: the WHERE clause
+	// is the single-use guard (accepted/revoked/expired all fail to match). Returns
+	// the target team, role and optional custom role so the caller can add the
+	// membership. Team-scoping is inherent — the invitation names its own team.
+	AcceptInvitation(ctx context.Context, tokenHash string) (AcceptInvitationRow, error)
 	AddTeamMember(ctx context.Context, arg AddTeamMemberParams) error
 	// Bind the pending request to the approving user/team and permissions.
 	ApproveCliAuthCode(ctx context.Context, arg ApproveCliAuthCodeParams) (int64, error)
@@ -512,7 +517,7 @@ type Querier interface {
 	ListExpiredS3Backups(ctx context.Context, arg ListExpiredS3BackupsParams) ([]ListExpiredS3BackupsRow, error)
 	ListGithubAppsPage(ctx context.Context, arg ListGithubAppsPageParams) ([]GithubApp, error)
 	ListIdentitiesForUser(ctx context.Context, userID int64) ([]Identity, error)
-	ListInvitationsPage(ctx context.Context, arg ListInvitationsPageParams) ([]Invitation, error)
+	ListInvitationsPage(ctx context.Context, arg ListInvitationsPageParams) ([]ListInvitationsPageRow, error)
 	ListJobsPage(ctx context.Context, arg ListJobsPageParams) ([]Job, error)
 	// Scan exclusion (INV-015): "managed" means tracked by a live row, not just
 	// labelled — a disowned resource keeps its labels but is adoptable again.

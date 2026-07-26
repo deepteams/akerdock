@@ -11,19 +11,49 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const acceptInvitation = `-- name: AcceptInvitation :one
+UPDATE invitations SET accepted_at = now()
+WHERE token_hash = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+RETURNING team_id, email, role, custom_role_id
+`
+
+type AcceptInvitationRow struct {
+	TeamID       int64
+	Email        string
+	Role         TeamRole
+	CustomRoleID *int64
+}
+
+// Atomically claim a still-pending invitation by its link hash: the WHERE clause
+// is the single-use guard (accepted/revoked/expired all fail to match). Returns
+// the target team, role and optional custom role so the caller can add the
+// membership. Team-scoping is inherent — the invitation names its own team.
+func (q *Queries) AcceptInvitation(ctx context.Context, tokenHash string) (AcceptInvitationRow, error) {
+	row := q.db.QueryRow(ctx, acceptInvitation, tokenHash)
+	var i AcceptInvitationRow
+	err := row.Scan(
+		&i.TeamID,
+		&i.Email,
+		&i.Role,
+		&i.CustomRoleID,
+	)
+	return i, err
+}
+
 const createInvitation = `-- name: CreateInvitation :one
 
-INSERT INTO invitations (team_id, email, role, token_hash, expires_at)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, uuid, team_id, email, role, token_hash, invited_by, expires_at, accepted_at, revoked_at, created_at
+INSERT INTO invitations (team_id, email, role, token_hash, expires_at, custom_role_id)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, uuid, team_id, email, role, token_hash, invited_by, expires_at, accepted_at, revoked_at, created_at, custom_role_id
 `
 
 type CreateInvitationParams struct {
-	TeamID    int64
-	Email     string
-	Role      TeamRole
-	TokenHash string
-	ExpiresAt pgtype.Timestamptz
+	TeamID       int64
+	Email        string
+	Role         TeamRole
+	TokenHash    string
+	ExpiresAt    pgtype.Timestamptz
+	CustomRoleID *int64
 }
 
 // Invitations (§10.1). The link token is hashed like any credential; the
@@ -35,6 +65,7 @@ func (q *Queries) CreateInvitation(ctx context.Context, arg CreateInvitationPara
 		arg.Role,
 		arg.TokenHash,
 		arg.ExpiresAt,
+		arg.CustomRoleID,
 	)
 	var i Invitation
 	err := row.Scan(
@@ -49,6 +80,7 @@ func (q *Queries) CreateInvitation(ctx context.Context, arg CreateInvitationPara
 		&i.AcceptedAt,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.CustomRoleID,
 	)
 	return i, err
 }
@@ -103,10 +135,12 @@ func (q *Queries) GetTeamByUUID(ctx context.Context, uuid pgtype.UUID) (Team, er
 }
 
 const listInvitationsPage = `-- name: ListInvitationsPage :many
-SELECT id, uuid, team_id, email, role, token_hash, invited_by, expires_at, accepted_at, revoked_at, created_at FROM invitations
-WHERE team_id = $1
-  AND ($2::bigint = 0 OR id < $2)
-ORDER BY id DESC
+SELECT i.id, i.uuid, i.team_id, i.email, i.role, i.token_hash, i.invited_by, i.expires_at, i.accepted_at, i.revoked_at, i.created_at, i.custom_role_id, cr.uuid AS custom_role_uuid, cr.name AS custom_role_name
+FROM invitations i
+LEFT JOIN custom_roles cr ON cr.id = i.custom_role_id
+WHERE i.team_id = $1
+  AND ($2::bigint = 0 OR i.id < $2)
+ORDER BY i.id DESC
 LIMIT $3
 `
 
@@ -116,15 +150,32 @@ type ListInvitationsPageParams struct {
 	PageLimit int32
 }
 
-func (q *Queries) ListInvitationsPage(ctx context.Context, arg ListInvitationsPageParams) ([]Invitation, error) {
+type ListInvitationsPageRow struct {
+	ID             int64
+	Uuid           pgtype.UUID
+	TeamID         int64
+	Email          string
+	Role           TeamRole
+	TokenHash      string
+	InvitedBy      *int64
+	ExpiresAt      pgtype.Timestamptz
+	AcceptedAt     pgtype.Timestamptz
+	RevokedAt      pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+	CustomRoleID   *int64
+	CustomRoleUuid pgtype.UUID
+	CustomRoleName *string
+}
+
+func (q *Queries) ListInvitationsPage(ctx context.Context, arg ListInvitationsPageParams) ([]ListInvitationsPageRow, error) {
 	rows, err := q.db.Query(ctx, listInvitationsPage, arg.TeamID, arg.AfterID, arg.PageLimit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Invitation
+	var items []ListInvitationsPageRow
 	for rows.Next() {
-		var i Invitation
+		var i ListInvitationsPageRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Uuid,
@@ -137,6 +188,9 @@ func (q *Queries) ListInvitationsPage(ctx context.Context, arg ListInvitationsPa
 			&i.AcceptedAt,
 			&i.RevokedAt,
 			&i.CreatedAt,
+			&i.CustomRoleID,
+			&i.CustomRoleUuid,
+			&i.CustomRoleName,
 		); err != nil {
 			return nil, err
 		}
@@ -274,7 +328,7 @@ UPDATE invitations
 SET token_hash = $1, expires_at = $2
 WHERE uuid = $3 AND team_id = $4
   AND accepted_at IS NULL AND revoked_at IS NULL
-RETURNING id, uuid, team_id, email, role, token_hash, invited_by, expires_at, accepted_at, revoked_at, created_at
+RETURNING id, uuid, team_id, email, role, token_hash, invited_by, expires_at, accepted_at, revoked_at, created_at, custom_role_id
 `
 
 type RotateInvitationParams struct {
@@ -306,6 +360,7 @@ func (q *Queries) RotateInvitation(ctx context.Context, arg RotateInvitationPara
 		&i.AcceptedAt,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.CustomRoleID,
 	)
 	return i, err
 }

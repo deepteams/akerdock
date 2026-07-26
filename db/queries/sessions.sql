@@ -73,5 +73,5 @@ LIMIT 1;
 INSERT INTO teams (name, personal) VALUES ($1, true) RETURNING *;
 
 -- name: AddTeamMember :exec
-INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, $3)
+INSERT INTO team_memberships (team_id, user_id, role, custom_role_id) VALUES ($1, $2, $3, $4)
 ON CONFLICT (team_id, user_id) DO NOTHING;

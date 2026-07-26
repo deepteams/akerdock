@@ -703,6 +703,7 @@ func (e HealthStatusStatus) Valid() bool {
 // Defines values for InvitationRole.
 const (
 	InvitationRoleAdmin    InvitationRole = "admin"
+	InvitationRoleCustom   InvitationRole = "custom"
 	InvitationRoleMember   InvitationRole = "member"
 	InvitationRoleReviewer InvitationRole = "reviewer"
 )
@@ -711,6 +712,8 @@ const (
 func (e InvitationRole) Valid() bool {
 	switch e {
 	case InvitationRoleAdmin:
+		return true
+	case InvitationRoleCustom:
 		return true
 	case InvitationRoleMember:
 		return true
@@ -748,6 +751,7 @@ func (e InvitationStatus) Valid() bool {
 // Defines values for InvitationCreateRole.
 const (
 	InvitationCreateRoleAdmin    InvitationCreateRole = "admin"
+	InvitationCreateRoleCustom   InvitationCreateRole = "custom"
 	InvitationCreateRoleMember   InvitationCreateRole = "member"
 	InvitationCreateRoleReviewer InvitationCreateRole = "reviewer"
 )
@@ -756,6 +760,8 @@ const (
 func (e InvitationCreateRole) Valid() bool {
 	switch e {
 	case InvitationCreateRoleAdmin:
+		return true
+	case InvitationCreateRoleCustom:
 		return true
 	case InvitationCreateRoleMember:
 		return true
@@ -3274,9 +3280,15 @@ type InstanceIdentityUpdate struct {
 
 // Invitation Invitation d'un membre dans une team.
 type Invitation struct {
-	CreatedAt *time.Time          `json:"created_at,omitempty"`
-	Email     openapi_types.Email `json:"email"`
-	ExpiresAt time.Time           `json:"expires_at"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// CustomRoleName Nom du rôle custom quand `role` vaut `custom`.
+	CustomRoleName *string `json:"custom_role_name,omitempty"`
+
+	// CustomRoleUuid UUID du rôle custom quand `role` vaut `custom`.
+	CustomRoleUuid *string             `json:"custom_role_uuid,omitempty"`
+	Email          openapi_types.Email `json:"email"`
+	ExpiresAt      time.Time           `json:"expires_at"`
 
 	// InviteUrl Lien d'acceptation — renvoyé uniquement à la création et uniquement si l'email transactionnel de l'instance n'est pas configuré (transmission manuelle).
 	InviteUrl *string `json:"invite_url,omitempty"`
@@ -3296,17 +3308,20 @@ type InvitationStatus string
 
 // InvitationCreate defines model for InvitationCreate.
 type InvitationCreate struct {
+	// CustomRoleUuid UUID d'un rôle custom de la team, requis quand `role` vaut `custom`.
+	CustomRoleUuid *string `json:"custom_role_uuid,omitempty"`
+
 	// Email Email de la personne invitée.
 	Email openapi_types.Email `json:"email"`
 
 	// ExpiresInHours Durée de validité de l'invitation en heures (défaut 7 jours).
 	ExpiresInHours *int `json:"expires_in_hours,omitempty"`
 
-	// Role Rôle système attribué à l'acceptation (ADR-038).
+	// Role Rôle attribué à l'acceptation (ADR-038). `custom` exige `custom_role_uuid`.
 	Role *InvitationCreateRole `json:"role,omitempty"`
 }
 
-// InvitationCreateRole Rôle système attribué à l'acceptation (ADR-038).
+// InvitationCreateRole Rôle attribué à l'acceptation (ADR-038). `custom` exige `custom_role_uuid`.
 type InvitationCreateRole string
 
 // Job Opération asynchrone créée par une réponse `202` (§21.3, §24.1).

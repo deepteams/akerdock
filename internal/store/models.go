@@ -2496,17 +2496,18 @@ type InstanceSetting struct {
 }
 
 type Invitation struct {
-	ID         int64
-	Uuid       pgtype.UUID
-	TeamID     int64
-	Email      string
-	Role       TeamRole
-	TokenHash  string
-	InvitedBy  *int64
-	ExpiresAt  pgtype.Timestamptz
-	AcceptedAt pgtype.Timestamptz
-	RevokedAt  pgtype.Timestamptz
-	CreatedAt  pgtype.Timestamptz
+	ID           int64
+	Uuid         pgtype.UUID
+	TeamID       int64
+	Email        string
+	Role         TeamRole
+	TokenHash    string
+	InvitedBy    *int64
+	ExpiresAt    pgtype.Timestamptz
+	AcceptedAt   pgtype.Timestamptz
+	RevokedAt    pgtype.Timestamptz
+	CreatedAt    pgtype.Timestamptz
+	CustomRoleID *int64
 }
 
 type Job struct {
