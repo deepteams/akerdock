@@ -48,7 +48,7 @@ func TestTelegramPayload(t *testing.T) {
 	defer func() { telegramBase = "https://api.telegram.org" }()
 
 	cfg := Config{Telegram: &TelegramConfig{BotToken: "42:secret", ChatID: "-100123"}}
-	if err := New().Send(context.Background(), "telegram", cfg, testEvent()); err != nil {
+	if err := testSender().Send(context.Background(), "telegram", cfg, testEvent()); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 	// The token belongs in the path of the Bot API — this is the one provider
@@ -73,7 +73,7 @@ func TestPushoverPayload(t *testing.T) {
 	defer func() { pushoverEndpoint = "https://api.pushover.net/1/messages.json" }()
 
 	cfg := Config{Pushover: &PushoverConfig{Token: "app-token", UserKey: "user-key"}}
-	if err := New().Send(context.Background(), "pushover", cfg, testEvent()); err != nil {
+	if err := testSender().Send(context.Background(), "pushover", cfg, testEvent()); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 }
@@ -92,7 +92,7 @@ func TestResendSendsTheKeyAsAHeaderNotInTheURL(t *testing.T) {
 	defer func() { resendEndpoint = "https://api.resend.com/emails" }()
 
 	cfg := Config{Resend: &ResendConfig{APIKey: "re_secret", From: "akerdock@example.com", To: []string{"ops@example.com"}}}
-	if err := New().Send(context.Background(), "resend", cfg, testEvent()); err != nil {
+	if err := testSender().Send(context.Background(), "resend", cfg, testEvent()); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 	if auth != "Bearer re_secret" {
@@ -112,7 +112,7 @@ func TestSMTPRefusesToSendAPasswordInTheClear(t *testing.T) {
 		Host: "127.0.0.1", Port: 1, From: "a@b.c", To: []string{"d@e.f"},
 		Username: "user", Password: "secret", Encryption: "starttls",
 	}
-	err := New().sendMail(context.Background(), cfg, testEvent())
+	err := testSender().sendMail(context.Background(), cfg, testEvent())
 	if err == nil {
 		t.Fatal("an unreachable relay must fail rather than silently succeed")
 	}

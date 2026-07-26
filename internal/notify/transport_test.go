@@ -144,7 +144,7 @@ func TestSenderHTTPProviders(t *testing.T) {
 			Token: "app-secret", UserKey: "user-secret",
 		}}, "/pushover"},
 	}
-	sender := New()
+	sender := testSender()
 	if sender.HTTP.Timeout != 10*time.Second {
 		t.Fatalf("HTTP timeout = %s", sender.HTTP.Timeout)
 	}
@@ -178,7 +178,7 @@ func TestSenderHTTPProviders(t *testing.T) {
 }
 
 func TestSenderErrors(t *testing.T) {
-	if err := New().Send(context.Background(), "smtp", Config{}, Event{}); err == nil {
+	if err := testSender().Send(context.Background(), "smtp", Config{}, Event{}); err == nil {
 		t.Fatal("invalid provider config should fail before it can panic")
 	}
 
@@ -187,7 +187,7 @@ func TestSenderErrors(t *testing.T) {
 		_, _ = io.WriteString(w, strings.Repeat("invalid token ", 40))
 	}))
 	defer server.Close()
-	err := New().Send(context.Background(), "webhook", Config{URL: server.URL}, Event{})
+	err := testSender().Send(context.Background(), "webhook", Config{URL: server.URL}, Event{})
 	if err == nil || !strings.Contains(err.Error(), "answered 401") || len(err.Error()) > 320 {
 		t.Fatalf("HTTP error = %v", err)
 	}
@@ -205,7 +205,7 @@ func TestSenderErrors(t *testing.T) {
 	old := resendEndpoint
 	resendEndpoint = "://bad target"
 	defer func() { resendEndpoint = old }()
-	err = New().Send(context.Background(), "resend", Config{Resend: &ResendConfig{
+	err = testSender().Send(context.Background(), "resend", Config{Resend: &ResendConfig{
 		APIKey: "x", From: "x@example.test", To: []string{"y@example.test"},
 	}}, Event{})
 	if err == nil {
@@ -320,7 +320,7 @@ func TestSendMailPlainRelay(t *testing.T) {
 		t.Fatal(err)
 	}
 	port, _ := strconv.Atoi(portText)
-	err = New().Send(context.Background(), "smtp", Config{SMTP: &SMTPConfig{
+	err = testSender().Send(context.Background(), "smtp", Config{SMTP: &SMTPConfig{
 		Host: host, Port: port, From: "from@example.test", To: []string{"to@example.test"},
 		Encryption: "none",
 	}}, Event{Type: "deployment.succeeded.v1"})
@@ -341,7 +341,7 @@ func TestSendMailConnectionAndDowngradeErrors(t *testing.T) {
 	_ = listener.Close()
 	host, portText, _ := net.SplitHostPort(addr)
 	port, _ := strconv.Atoi(portText)
-	err = New().Send(context.Background(), "smtp", Config{SMTP: &SMTPConfig{
+	err = testSender().Send(context.Background(), "smtp", Config{SMTP: &SMTPConfig{
 		Host: host, Port: port, From: "from@example.test", To: []string{"to@example.test"},
 		Encryption: "none",
 	}}, Event{})
@@ -370,7 +370,7 @@ func TestSendMailConnectionAndDowngradeErrors(t *testing.T) {
 	}()
 	host, portText, _ = net.SplitHostPort(listener.Addr().String())
 	port, _ = strconv.Atoi(portText)
-	err = New().Send(context.Background(), "smtp", Config{SMTP: &SMTPConfig{
+	err = testSender().Send(context.Background(), "smtp", Config{SMTP: &SMTPConfig{
 		Host: host, Port: port, Username: "user", Password: "secret",
 		From: "from@example.test", To: []string{"to@example.test"}, Encryption: "starttls",
 	}}, Event{})

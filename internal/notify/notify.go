@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/deepteams/akerdock/internal/safedial"
 )
 
 // Severity orders how much an event deserves to wake someone up (ADR-019).
@@ -238,8 +240,15 @@ type Sender struct {
 
 // New builds a sender. The timeout is short: a channel that hangs must not
 // hold the dispatcher, and a missed alert is retried on the next pass.
+//
+// The HTTP client is SSRF-guarded (safedial): a notification channel's webhook
+// URL is set by team members (notifications:manage), so it is attacker-
+// influenceable — the classic SSRF vector is a "test channel" call pointed at
+// 169.254.169.254. Blocking non-public destinations here closes it. (The SMTP
+// dial below is NOT guarded: the relay is instance-root configuration and may
+// legitimately be an internal host.)
 func New() *Sender {
-	return &Sender{HTTP: &http.Client{Timeout: 10 * time.Second}}
+	return &Sender{HTTP: safedial.HTTPClient(10 * time.Second)}
 }
 
 // Send posts the event to the channel. The body shape is the provider's; the

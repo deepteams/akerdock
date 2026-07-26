@@ -176,7 +176,7 @@ func testDispatcher(t *testing.T, database *fakeNotificationStore, channel store
 		database.channels = map[int64]store.NotificationChannel{channel.ID: channel}
 	}
 	return &Dispatcher{
-		Store: database, Keyring: testKeyring(t), Sender: New(),
+		Store: database, Keyring: testKeyring(t), Sender: testSender(),
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }
@@ -214,7 +214,7 @@ func TestDispatchReadsRoutesAndAdvancesCursor(t *testing.T) {
 		channels: map[int64]store.NotificationChannel{channel.ID: channel},
 	}
 	dispatcher := &Dispatcher{
-		Store: database, Keyring: keyring, Sender: New(),
+		Store: database, Keyring: keyring, Sender: testSender(),
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 
@@ -447,7 +447,7 @@ func TestFlushDigests(t *testing.T) {
 		channels: map[int64]store.NotificationChannel{channel.ID: channel},
 	}
 	dispatcher := &Dispatcher{
-		Store: database, Keyring: keyring, Sender: New(),
+		Store: database, Keyring: keyring, Sender: testSender(),
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 
@@ -517,7 +517,7 @@ func TestFlushDigestFailureBranches(t *testing.T) {
 			channels: map[int64]store.NotificationChannel{channel.ID: channel},
 		}
 		dispatcher := &Dispatcher{
-			Store: database, Keyring: keyring, Sender: New(),
+			Store: database, Keyring: keyring, Sender: testSender(),
 			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		}
 		if err := dispatcher.flushDigest(context.Background(),
@@ -541,7 +541,7 @@ func TestFlushDigestFailureBranches(t *testing.T) {
 			digestSentErr: errBoom,
 		}
 		dispatcher := &Dispatcher{
-			Store: database, Keyring: keyring, Sender: New(),
+			Store: database, Keyring: keyring, Sender: testSender(),
 			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		}
 		if err := dispatcher.flushDigest(context.Background(),
