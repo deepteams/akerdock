@@ -48,16 +48,33 @@ type Environment = components['schemas']['Environment'];
           </a>
           <h1 class="title__name">{{ project()?.name ?? '…' }}</h1>
         </div>
-        <button
-          class="akd-btn akd-btn--danger"
-          type="button"
-          [disabled]="busy()"
-          (click)="remove()"
-        >
-          <akd-icon name="trash-2" [size]="15" />
-          Delete project
-        </button>
       </header>
+
+      <nav class="akd-tabs" role="tablist" aria-label="Project sections">
+        <button
+          type="button"
+          class="akd-tab"
+          role="tab"
+          [class.akd-tab--active]="active() === 'environments'"
+          [attr.aria-selected]="active() === 'environments'"
+          (click)="active.set('environments')"
+        >
+          Environments
+          @if (environments().length > 0) {
+            <span class="akd-tab__count">{{ environments().length }}</span>
+          }
+        </button>
+        <button
+          type="button"
+          class="akd-tab"
+          role="tab"
+          [class.akd-tab--active]="active() === 'config'"
+          [attr.aria-selected]="active() === 'config'"
+          (click)="active.set('config')"
+        >
+          Config
+        </button>
+      </nav>
 
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
@@ -66,39 +83,7 @@ type Environment = components['schemas']['Environment'];
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
       } @else if (project(); as p) {
-        <akd-card title="Details" class="section">
-          <form class="row" (ngSubmit)="save()">
-            <div class="akd-field grow">
-              <label class="akd-field__label" for="pd-name">Name</label>
-              <input
-                id="pd-name"
-                name="name"
-                class="akd-input akd-input--mono"
-                required
-                [(ngModel)]="name"
-                [disabled]="busy()"
-              />
-            </div>
-            <div class="akd-field grow">
-              <label class="akd-field__label" for="pd-description">Description</label>
-              <input
-                id="pd-description"
-                name="description"
-                class="akd-input"
-                [(ngModel)]="description"
-                [disabled]="busy()"
-              />
-            </div>
-            <button
-              class="akd-btn akd-btn--secondary"
-              type="submit"
-              [disabled]="busy() || !name.trim()"
-            >
-              Save
-            </button>
-          </form>
-        </akd-card>
-
+        @if (active() === 'environments') {
         <akd-card title="Environments" [padded]="false" class="section">
           <form card-actions class="envform" (ngSubmit)="createEnvironment()">
             <input
@@ -215,6 +200,63 @@ type Environment = components['schemas']['Environment'];
             </table>
           }
         </akd-card>
+        } @else {
+          <akd-card title="Project" class="cfg">
+            <form class="cfgform" (ngSubmit)="save()">
+              <div class="akd-field">
+                <label class="akd-field__label" for="pd-name">Name</label>
+                <input
+                  id="pd-name"
+                  name="name"
+                  class="akd-input akd-input--mono"
+                  required
+                  [(ngModel)]="name"
+                  [disabled]="busy()"
+                />
+              </div>
+              <div class="akd-field">
+                <label class="akd-field__label" for="pd-description">Description</label>
+                <textarea
+                  id="pd-description"
+                  name="description"
+                  class="akd-input"
+                  rows="3"
+                  [(ngModel)]="description"
+                  [disabled]="busy()"
+                ></textarea>
+              </div>
+              <div>
+                <button
+                  class="akd-btn akd-btn--primary"
+                  type="submit"
+                  [disabled]="busy() || !name.trim() || !cfgDirty()"
+                >
+                  Save changes
+                </button>
+              </div>
+            </form>
+          </akd-card>
+
+          <akd-card title="Danger zone" class="cfg danger">
+            <div class="danger__row">
+              <div>
+                <p class="danger__title">Delete this project</p>
+                <p class="danger__desc">
+                  Permanent. Its {{ environments().length }} environment(s) are removed with it.
+                </p>
+              </div>
+              <button
+                class="akd-btn akd-btn--danger"
+                type="button"
+                [disabled]="busy()"
+                (click)="remove()"
+              >
+                <akd-icon name="trash-2" [size]="15" />
+                Delete project
+              </button>
+            </div>
+          </akd-card>
+        }
       }
     </div>
   `,
@@ -238,6 +280,33 @@ type Environment = components['schemas']['Environment'];
       .section {
         display: block;
         margin-bottom: var(--space-5);
+      }
+      .cfg {
+        display: block;
+        max-width: 40rem;
+        margin-bottom: var(--space-5);
+      }
+      .cfgform {
+        display: grid;
+        gap: var(--space-4);
+      }
+      .danger__row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-4);
+        flex-wrap: wrap;
+      }
+      .danger__title {
+        margin: 0 0 2px;
+        color: var(--text-1);
+        font-weight: var(--weight-medium);
+      }
+      .danger__desc {
+        margin: 0;
+        font-size: var(--text-sm);
+        color: var(--text-3);
+        max-width: 40ch;
       }
       .row {
         display: flex;
@@ -291,6 +360,7 @@ export class ProjectDetailComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
   protected readonly editing = signal<string | null>(null);
+  protected readonly active = signal<'environments' | 'config'>('environments');
   protected readonly crumbs = computed<Crumb[]>(() => [
     { label: 'Projects', link: '/projects' },
     { label: this.project()?.name ?? '…' },
@@ -306,6 +376,12 @@ export class ProjectDetailComponent {
       const uuid = this.uuid();
       untracked(() => void this.load(uuid));
     });
+  }
+
+  protected cfgDirty(): boolean {
+    const p = this.project();
+    if (!p) return false;
+    return this.name.trim() !== p.name || this.description !== (p.description ?? '');
   }
 
   private async load(uuid: string): Promise<void> {
