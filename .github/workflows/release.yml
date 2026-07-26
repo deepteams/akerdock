@@ -78,6 +78,10 @@ jobs:
             VERSION=${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Attach a CycloneDX SBOM to the published image (licensing-sbom.md):
+          # what an operator pulls carries its own supply-chain inventory,
+          # alongside the signed provenance below.
+          sbom: true
 
       # Signed provenance: what an operator pulls can be traced back to this
       # commit and this workflow, not merely to whoever could push to the

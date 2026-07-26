@@ -423,6 +423,29 @@ export interface paths {
         patch: operations["updateTeamRole"];
         trace?: never;
     };
+    "/teams/{team_uuid}/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Journal d'audit d'une team
+         * @description Le journal d'audit append-only (§23.4) : actions authentifiées, accès aux secrets, changements RBAC, authentification (login/logout/échecs/MFA). Paginé (curseur), filtrable et scriptable (`-o json`).
+         */
+        get: operations["listTeamAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams/{team_uuid}/invitations": {
         parameters: {
             query?: never;
@@ -3567,6 +3590,30 @@ export interface components {
             /** Format: date-time */
             readonly created_at: string;
         };
+        /** @description Une entrée du journal d'audit append-only (§23.4). Les valeurs sensibles ne sont jamais présentes : un champ modifié apparaît dans `diff` comme `{changed:true, redacted:true}` (INV-003). */
+        AuditEvent: {
+            uuid: string;
+            /** Format: date-time */
+            occurred_at: string;
+            /** @enum {string} */
+            actor_kind?: "user" | "token" | "system";
+            /** @description UUID de l'utilisateur ou du token acteur (absent pour une action système ou un login échoué). */
+            actor_uuid?: string | null;
+            /** @description Identifiant lisible de l'acteur (ex. l'email tenté à un login échoué). */
+            actor_display?: string | null;
+            /** @description Verbe d'action (ex. `auth.login`, `secret.reveal`, `role.update`). */
+            action: string;
+            target_kind?: string | null;
+            target_uuid?: string | null;
+            /** @enum {string} */
+            result: "success" | "failure" | "denied";
+            ip?: string | null;
+            user_agent?: string | null;
+            /** @description Ce qui a changé, déjà redacté pour les champs sensibles. */
+            diff?: {
+                [key: string]: unknown;
+            } | null;
+        };
         /** @description Rôle custom d'une team (ADR-038) : un ensemble nommé de permissions granulaires, composé dans l'UI. Ne peut jamais contenir de permission d'instance (`instance:*`). */
         CustomRole: {
             readonly uuid: string;
@@ -6587,6 +6634,54 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listTeamAudit: {
+        parameters: {
+            query?: {
+                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                limit?: components["parameters"]["Limit"];
+                /** @description Filtre exact sur l'action (ex. `auth.login`, `secret.reveal`). */
+                action?: string;
+                /** @description Filtre sur le résultat. */
+                result?: "success" | "failure" | "denied";
+                /** @description Filtre sur l'UUID de l'acteur (utilisateur ou token). */
+                actor_uuid?: string;
+                /** @description Filtre sur l'UUID de la ressource cible. */
+                target_uuid?: string;
+                /** @description Borne basse (incluse) sur occurred_at (RFC 3339). */
+                from?: string;
+                /** @description Borne haute (incluse) sur occurred_at (RFC 3339). */
+                to?: string;
+            };
+            header?: never;
+            path: {
+                /** @description UUID de la team. */
+                team_uuid: components["parameters"]["TeamUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page d'événements d'audit (du plus récent au plus ancien). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AuditEvent"][];
+                        next_cursor?: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["TooManyRequests"];
         };
     };

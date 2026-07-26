@@ -83,6 +83,21 @@ func (a *API) recordAuditDiff(r *http.Request, id *auth.Identity, action, target
 	})
 }
 
+// auditAuth records an authentication event (§23.4: login/logout/failures/MFA).
+// userID is the acting user when known (0 on a failed login that resolved
+// nobody); display is a human identifier shown then — typically the attempted
+// email. Nil Audit (some tests) makes it a no-op.
+func (a *API) auditAuth(r *http.Request, action string, result store.AuditResult, userID int64, display string, teamID *int64) {
+	if a.Audit == nil {
+		return
+	}
+	var actorUUID pgtype.UUID
+	if userID != 0 {
+		actorUUID = userUUIDOf(a, r, userID)
+	}
+	a.Audit.RecordAuth(r, action, result, actorUUID, display, teamID)
+}
+
 // NewRouter assembles the public API router: request ids, panic recovery,
 // bearer authentication, then the cross-cutting policies of §24.1 — rate
 // limiting (200 req/min per token) and Idempotency-Key handling — and the

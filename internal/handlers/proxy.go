@@ -139,7 +139,7 @@ func containerLogLines(out string) []api.LogLine {
 		lines = append(lines, api.LogLine{
 			Sequence:  i + 1,
 			Timestamp: now,
-			Channel:   api.Stdout,
+			Channel:   api.LogLineChannelStdout,
 			Message:   ansiEscapes.ReplaceAllString(line, ""),
 		})
 	}

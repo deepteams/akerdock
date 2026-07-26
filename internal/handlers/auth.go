@@ -8,6 +8,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/session"
+	"github.com/deepteams/akerdock/internal/store"
 )
 
 // Browser authentication lives OUTSIDE /api/v1, like the Git webhooks: the v1
@@ -76,6 +77,7 @@ func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, session.ErrAccountLocked):
 		// Told plainly: a locked-out user needs to know why they cannot get in,
 		// and an attacker learns nothing they could not measure anyway.
+		a.auditAuth(r, "auth.login", store.AuditResultDenied, 0, body.Email, nil)
 		httpapi.WriteError(w, r, http.StatusTooManyRequests, "account_locked",
 			"too many failed attempts — try again later")
 		return
@@ -83,6 +85,7 @@ func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 		// One message for a wrong email AND a wrong password: anything else
 		// turns this endpoint into an account-enumeration oracle.
 		a.Logger.Warn("failed login attempt", "email", body.Email, "ip", r.RemoteAddr)
+		a.auditAuth(r, "auth.login", store.AuditResultFailure, 0, body.Email, nil)
 		httpapi.WriteError(w, r, http.StatusUnauthorized, httpapi.CodeUnauthorized,
 			"invalid email or password")
 		return
@@ -96,6 +99,8 @@ func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 	// login, so session fixation has nothing to fix onto.
 	a.Sessions.SetCookies(w, token, sess.CSRFToken)
 	a.Logger.Info("session opened", "user", sess.Email, "team_id", sess.TeamID)
+	teamID := sess.TeamID
+	a.auditAuth(r, "auth.login", store.AuditResultSuccess, sess.UserID, sess.Email, &teamID)
 
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"email":      sess.Email,
@@ -113,6 +118,10 @@ func (a *API) Logout(w http.ResponseWriter, r *http.Request) {
 	if a.Sessions == nil {
 		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "not found")
 		return
+	}
+	// Resolve who is logging out BEFORE revoking, so the audit entry names them.
+	if sess, err := a.Sessions.SessionFromRequest(r.Context(), r); err == nil {
+		a.auditAuth(r, "auth.logout", store.AuditResultSuccess, sess.UserID, sess.Email, sess.CurrentTeamID)
 	}
 	a.Sessions.Logout(r.Context(), r)
 	a.Sessions.ClearCookies(w)

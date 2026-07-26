@@ -12,6 +12,22 @@ VALUES ($1, $2, $3, $4, $5, $6, $7);
 -- name: CountAuditEvents :one
 SELECT count(*) FROM audit_events;
 
+-- name: ListAuditEventsPage :many
+-- Read side of the audit trail (§23.4: paginé, filtrable, exportable). A SELECT
+-- does not violate the append-only rule. Team-scoped; optional filters on action,
+-- result, actor, target and an occurred_at window; cursor by descending id.
+SELECT * FROM audit_events
+WHERE team_id = sqlc.arg(team_id)
+  AND (sqlc.arg(after_id)::bigint = 0 OR id < sqlc.arg(after_id))
+  AND (sqlc.narg(action)::text IS NULL OR action = sqlc.narg(action))
+  AND (sqlc.narg(result)::audit_result IS NULL OR result = sqlc.narg(result))
+  AND (sqlc.narg(actor_uuid)::uuid IS NULL OR actor_uuid = sqlc.narg(actor_uuid))
+  AND (sqlc.narg(target_uuid)::uuid IS NULL OR target_uuid = sqlc.narg(target_uuid))
+  AND (sqlc.narg(from_time)::timestamptz IS NULL OR occurred_at >= sqlc.narg(from_time))
+  AND (sqlc.narg(to_time)::timestamptz IS NULL OR occurred_at <= sqlc.narg(to_time))
+ORDER BY id DESC
+LIMIT sqlc.arg(page_limit);
+
 -- Outbox publisher (§18.2, §24.2): events are published in commit order.
 
 -- name: ClaimUnpublishedOutboxEvents :many

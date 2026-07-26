@@ -10,6 +10,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/session"
+	"github.com/deepteams/akerdock/internal/store"
 )
 
 // OAuth/OIDC login endpoints (§10.2). Outside /api/v1 like the rest of
@@ -88,6 +89,7 @@ func (a *API) OauthCallback(w http.ResponseWriter, r *http.Request) {
 	// cancelled, consent denied). Not our failure — back to sign-in, labeled.
 	if e := q.Get("error"); e != "" {
 		a.Logger.Warn("oauth callback returned an error", "provider", provider, "error", e)
+		a.auditAuth(r, "auth.oauth", store.AuditResultFailure, 0, provider, nil)
 		redirectWithError(w, r, "/sign-in", "provider_refused")
 		return
 	}
@@ -108,6 +110,7 @@ func (a *API) OauthCallback(w http.ResponseWriter, r *http.Request) {
 			code = "identity_taken"
 		}
 		a.Logger.Warn("oauth callback failed", "provider", provider, "code", code, "error", err, "ip", r.RemoteAddr)
+		a.auditAuth(r, "auth.oauth", store.AuditResultFailure, 0, provider, nil)
 		target := "/sign-in"
 		if code == "identity_taken" {
 			target = "/security" // a link attempt: the user is signed in
@@ -137,6 +140,8 @@ func (a *API) OauthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	a.Sessions.SetCookies(w, result.SessionToken, result.Session.CSRFToken)
 	a.Logger.Info("session opened by oauth", "provider", provider, "user", result.Session.Email, "team_id", result.Session.TeamID)
+	oauthTeamID := result.Session.TeamID
+	a.auditAuth(r, "auth.oauth", store.AuditResultSuccess, result.Session.UserID, result.Session.Email, &oauthTeamID)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

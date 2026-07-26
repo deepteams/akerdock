@@ -171,7 +171,7 @@ func (a *API) StreamApplicationLogs(w http.ResponseWriter, r *http.Request, appl
 			seq++
 			data, _ := json.Marshal(api.LogLine{
 				Sequence: seq, Timestamp: time.Now().UTC(),
-				Channel: api.Stdout, Message: ansiEscapes.ReplaceAllString(line, ""),
+				Channel: api.LogLineChannelStdout, Message: ansiEscapes.ReplaceAllString(line, ""),
 			})
 			_, _ = fmt.Fprintf(w, "event: log\nid: %d\ndata: %s\n\n", seq, data)
 			flusher.Flush()

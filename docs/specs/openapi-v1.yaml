@@ -942,6 +942,86 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /teams/{team_uuid}/audit:
+    parameters:
+      - $ref: "#/components/parameters/TeamUuid"
+    get:
+      tags: [Teams]
+      operationId: listTeamAudit
+      summary: Journal d'audit d'une team
+      description: >-
+        Le journal d'audit append-only (§23.4) : actions authentifiées, accès aux
+        secrets, changements RBAC, authentification (login/logout/échecs/MFA).
+        Paginé (curseur), filtrable et scriptable (`-o json`).
+      x-required-permission: audit:read
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: action
+          in: query
+          required: false
+          description: Filtre exact sur l'action (ex. `auth.login`, `secret.reveal`).
+          schema:
+            type: string
+        - name: result
+          in: query
+          required: false
+          description: Filtre sur le résultat.
+          schema:
+            type: string
+            enum: [success, failure, denied]
+        - name: actor_uuid
+          in: query
+          required: false
+          description: Filtre sur l'UUID de l'acteur (utilisateur ou token).
+          schema:
+            type: string
+        - name: target_uuid
+          in: query
+          required: false
+          description: Filtre sur l'UUID de la ressource cible.
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          description: Borne basse (incluse) sur occurred_at (RFC 3339).
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Borne haute (incluse) sur occurred_at (RFC 3339).
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Page d'événements d'audit (du plus récent au plus ancien).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditEvent"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /teams/{team_uuid}/invitations:
     parameters:
       - $ref: "#/components/parameters/TeamUuid"
@@ -8228,6 +8308,54 @@ components:
           type: string
           format: date-time
           readOnly: true
+
+    AuditEvent:
+      type: object
+      description: >-
+        Une entrée du journal d'audit append-only (§23.4). Les valeurs sensibles
+        ne sont jamais présentes : un champ modifié apparaît dans `diff` comme
+        `{changed:true, redacted:true}` (INV-003).
+      required: [uuid, action, result, occurred_at]
+      properties:
+        uuid:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        actor_kind:
+          type: string
+          enum: [user, token, system]
+        actor_uuid:
+          type: string
+          nullable: true
+          description: UUID de l'utilisateur ou du token acteur (absent pour une action système ou un login échoué).
+        actor_display:
+          type: string
+          nullable: true
+          description: Identifiant lisible de l'acteur (ex. l'email tenté à un login échoué).
+        action:
+          type: string
+          description: Verbe d'action (ex. `auth.login`, `secret.reveal`, `role.update`).
+        target_kind:
+          type: string
+          nullable: true
+        target_uuid:
+          type: string
+          nullable: true
+        result:
+          type: string
+          enum: [success, failure, denied]
+        ip:
+          type: string
+          nullable: true
+        user_agent:
+          type: string
+          nullable: true
+        diff:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: Ce qui a changé, déjà redacté pour les champs sensibles.
 
     CustomRole:
       type: object

@@ -463,6 +463,10 @@ type Querier interface {
 	// The current expected state of each scope on a server: its last applied
 	// revision (drift reconciliation, §6.2.4).
 	ListAppliedProxyRevisions(ctx context.Context, serverID int64) ([]ProxyConfigRevision, error)
+	// Read side of the audit trail (§23.4: paginé, filtrable, exportable). A SELECT
+	// does not violate the append-only rule. Team-scoped; optional filters on action,
+	// result, actor, target and an occurred_at window; cursor by descending id.
+	ListAuditEventsPage(ctx context.Context, arg ListAuditEventsPageParams) ([]AuditEvent, error)
 	ListBackupExecutionsPage(ctx context.Context, arg ListBackupExecutionsPageParams) ([]BackupExecution, error)
 	ListBackupPlansForComponent(ctx context.Context, serviceComponentID *int64) ([]DatabaseBackupPlan, error)
 	ListBackupPlansForDatabase(ctx context.Context, databaseID *int64) ([]DatabaseBackupPlan, error)

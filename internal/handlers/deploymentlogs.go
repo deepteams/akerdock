@@ -39,17 +39,17 @@ func logLines(steps []store.DeploymentStep) []api.LogLine {
 	}
 	for _, s := range steps {
 		if s.Status == store.DeploymentStepStatusSkipped {
-			push(s.StartedAt, api.System, fmt.Sprintf("step %s: skipped", s.Name))
+			push(s.StartedAt, api.LogLineChannelSystem, fmt.Sprintf("step %s: skipped", s.Name))
 		} else {
-			push(s.StartedAt, api.System, fmt.Sprintf("step %s: started", s.Name))
+			push(s.StartedAt, api.LogLineChannelSystem, fmt.Sprintf("step %s: started", s.Name))
 		}
 		if s.Log != nil {
 			for _, line := range strings.Split(strings.TrimRight(*s.Log, "\n"), "\n") {
-				push(s.FinishedAt, api.Stdout, line)
+				push(s.FinishedAt, api.LogLineChannelStdout, line)
 			}
 		}
 		if s.Status == store.DeploymentStepStatusFailed || s.Status == store.DeploymentStepStatusSucceeded {
-			push(s.FinishedAt, api.System, fmt.Sprintf("step %s: %s", s.Name, s.Status))
+			push(s.FinishedAt, api.LogLineChannelSystem, fmt.Sprintf("step %s: %s", s.Name, s.Status))
 		}
 	}
 	return lines

@@ -71,9 +71,11 @@ func (a *API) VerifyMFALogin(w http.ResponseWriter, r *http.Request) {
 	sess, token, err := a.MFA.VerifyLogin(r.Context(), r, body.Challenge, body.Code, body.RecoveryCode)
 	switch {
 	case errors.Is(err, session.ErrMFAChallengeExpired):
+		a.auditAuth(r, "auth.mfa", store.AuditResultFailure, 0, "", nil)
 		httpapi.WriteError(w, r, http.StatusBadRequest, "challenge_expired", err.Error())
 		return
 	case errors.Is(err, session.ErrAccountLocked):
+		a.auditAuth(r, "auth.mfa", store.AuditResultDenied, 0, "", nil)
 		httpapi.WriteError(w, r, http.StatusTooManyRequests, "account_locked",
 			"too many failed attempts — try again later")
 		return
@@ -81,6 +83,7 @@ func (a *API) VerifyMFALogin(w http.ResponseWriter, r *http.Request) {
 		// One answer for a wrong code, a replayed code and a spent recovery
 		// code: anything finer grades an attacker's guesses for them.
 		a.Logger.Warn("failed MFA verification", "ip", r.RemoteAddr)
+		a.auditAuth(r, "auth.mfa", store.AuditResultFailure, 0, "", nil)
 		httpapi.WriteError(w, r, http.StatusUnauthorized, "invalid_code", err.Error())
 		return
 	case err != nil:
@@ -93,6 +96,8 @@ func (a *API) VerifyMFALogin(w http.ResponseWriter, r *http.Request) {
 	}
 	a.Sessions.SetCookies(w, token, sess.CSRFToken)
 	a.Logger.Info("session opened after MFA", "user", sess.Email, "team_id", sess.TeamID)
+	mfaTeamID := sess.TeamID
+	a.auditAuth(r, "auth.mfa", store.AuditResultSuccess, sess.UserID, sess.Email, &mfaTeamID)
 
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"email":      sess.Email,

@@ -1,6 +1,6 @@
 module github.com/deepteams/akerdock
 
-go 1.26.3
+go 1.26.5
 
 tool (
 	github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen

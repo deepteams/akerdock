@@ -42,6 +42,61 @@ func testRecorder(store *fakeStore) *Recorder {
 	}
 }
 
+func TestRecordAuthSuccess(t *testing.T) {
+	storeFake := &fakeStore{}
+	recorder := testRecorder(storeFake)
+	request := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
+	request.RemoteAddr = "203.0.113.5:5555"
+	request.Header.Set("User-Agent", "unit-test")
+	teamID := int64(7)
+	recorder.RecordAuth(request, "auth.login", store.AuditResultSuccess,
+		pguuid.MustParse("33333333-3333-4333-8333-333333333333"), "user@example.test", &teamID)
+
+	if len(storeFake.auditParams) != 1 {
+		t.Fatalf("insert count = %d", len(storeFake.auditParams))
+	}
+	got := storeFake.auditParams[0]
+	if got.ActorKind != store.ActorKindUser {
+		t.Errorf("actor kind = %q, want user", got.ActorKind)
+	}
+	if got.ActorDisplay == nil || *got.ActorDisplay != "user@example.test" {
+		t.Errorf("actor display = %v, want the email", got.ActorDisplay)
+	}
+	if got.Result != store.AuditResultSuccess || got.Action != "auth.login" {
+		t.Errorf("action/result = %q/%q", got.Action, got.Result)
+	}
+	if got.TeamID == nil || *got.TeamID != 7 {
+		t.Errorf("team id = %v, want 7", got.TeamID)
+	}
+	if got.Ip == nil || got.Ip.String() != "203.0.113.5" {
+		t.Errorf("ip = %v", got.Ip)
+	}
+}
+
+func TestRecordAuthFailureHasNoActorUUID(t *testing.T) {
+	storeFake := &fakeStore{}
+	recorder := testRecorder(storeFake)
+	request := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
+	request.RemoteAddr = "203.0.113.9:1111"
+	// A failed login resolves nobody: zero uuid, only the attempted email, no team.
+	recorder.RecordAuth(request, "auth.login", store.AuditResultFailure,
+		pgtype.UUID{}, "attempt@example.test", nil)
+
+	got := storeFake.auditParams[0]
+	if got.Result != store.AuditResultFailure {
+		t.Errorf("result = %q, want failure", got.Result)
+	}
+	if got.ActorUuid.Valid {
+		t.Error("a failed login must not name an actor uuid")
+	}
+	if got.TeamID != nil {
+		t.Error("a failed login has no team context")
+	}
+	if got.ActorDisplay == nil || *got.ActorDisplay != "attempt@example.test" {
+		t.Errorf("actor display = %v, want the attempted email", got.ActorDisplay)
+	}
+}
+
 func TestRecordMapsRequestIdentityAndDefaults(t *testing.T) {
 	storeFake := &fakeStore{}
 	recorder := testRecorder(storeFake)

@@ -204,16 +204,19 @@ func (a *API) FinishPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 	sess, token, err := a.Passkeys.FinishLogin(r.Context(), r, body.Ceremony, body.Credential)
 	switch {
 	case errors.Is(err, session.ErrCeremonyExpired):
+		a.auditAuth(r, "auth.passkey", store.AuditResultFailure, 0, "", nil)
 		httpapi.WriteError(w, r, http.StatusBadRequest, "ceremony_expired", err.Error())
 		return
 	case errors.Is(err, session.ErrPasskeyClone):
 		// This one is loud on purpose: a rewound signature counter means the
 		// credential exists twice, and the owner must revoke it.
 		a.Logger.Error("passkey clone detected", "ip", r.RemoteAddr)
+		a.auditAuth(r, "auth.passkey", store.AuditResultDenied, 0, "", nil)
 		httpapi.WriteError(w, r, http.StatusUnauthorized, "passkey_clone_detected", err.Error())
 		return
 	case errors.Is(err, session.ErrPasskeyRejected):
 		a.Logger.Warn("failed passkey login attempt", "ip", r.RemoteAddr)
+		a.auditAuth(r, "auth.passkey", store.AuditResultFailure, 0, "", nil)
 		httpapi.WriteError(w, r, http.StatusUnauthorized, httpapi.CodeUnauthorized, "passkey verification failed")
 		return
 	case err != nil:
@@ -226,6 +229,8 @@ func (a *API) FinishPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	a.Sessions.SetCookies(w, token, sess.CSRFToken)
 	a.Logger.Info("session opened by passkey", "user", sess.Email, "team_id", sess.TeamID)
+	passkeyTeamID := sess.TeamID
+	a.auditAuth(r, "auth.passkey", store.AuditResultSuccess, sess.UserID, sess.Email, &passkeyTeamID)
 
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"email":      sess.Email,

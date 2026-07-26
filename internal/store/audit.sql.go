@@ -140,6 +140,83 @@ func (q *Queries) InsertOutboxEvent(ctx context.Context, arg InsertOutboxEventPa
 	return err
 }
 
+const listAuditEventsPage = `-- name: ListAuditEventsPage :many
+SELECT id, uuid, occurred_at, team_id, actor_kind, actor_uuid, actor_display, action, target_kind, target_uuid, result, ip, user_agent, request_id, correlation_id, diff_redacted, created_at FROM audit_events
+WHERE team_id = $1
+  AND ($2::bigint = 0 OR id < $2)
+  AND ($3::text IS NULL OR action = $3)
+  AND ($4::audit_result IS NULL OR result = $4)
+  AND ($5::uuid IS NULL OR actor_uuid = $5)
+  AND ($6::uuid IS NULL OR target_uuid = $6)
+  AND ($7::timestamptz IS NULL OR occurred_at >= $7)
+  AND ($8::timestamptz IS NULL OR occurred_at <= $8)
+ORDER BY id DESC
+LIMIT $9
+`
+
+type ListAuditEventsPageParams struct {
+	TeamID     *int64
+	AfterID    int64
+	Action     *string
+	Result     *AuditResult
+	ActorUuid  pgtype.UUID
+	TargetUuid pgtype.UUID
+	FromTime   pgtype.Timestamptz
+	ToTime     pgtype.Timestamptz
+	PageLimit  int32
+}
+
+// Read side of the audit trail (§23.4: paginé, filtrable, exportable). A SELECT
+// does not violate the append-only rule. Team-scoped; optional filters on action,
+// result, actor, target and an occurred_at window; cursor by descending id.
+func (q *Queries) ListAuditEventsPage(ctx context.Context, arg ListAuditEventsPageParams) ([]AuditEvent, error) {
+	rows, err := q.db.Query(ctx, listAuditEventsPage,
+		arg.TeamID,
+		arg.AfterID,
+		arg.Action,
+		arg.Result,
+		arg.ActorUuid,
+		arg.TargetUuid,
+		arg.FromTime,
+		arg.ToTime,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuditEvent
+	for rows.Next() {
+		var i AuditEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.OccurredAt,
+			&i.TeamID,
+			&i.ActorKind,
+			&i.ActorUuid,
+			&i.ActorDisplay,
+			&i.Action,
+			&i.TargetKind,
+			&i.TargetUuid,
+			&i.Result,
+			&i.Ip,
+			&i.UserAgent,
+			&i.RequestID,
+			&i.CorrelationID,
+			&i.DiffRedacted,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOutboxEventsForTeamAfter = `-- name: ListOutboxEventsForTeamAfter :many
 SELECT id, uuid, event_type, occurred_at, team_uuid, resource_uuid, actor, correlation_id, aggregate_key, payload, published_at, publish_attempts, created_at FROM outbox_events
 WHERE team_uuid = $1 AND id > $2 AND published_at IS NOT NULL

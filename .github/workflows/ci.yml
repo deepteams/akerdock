@@ -68,6 +68,42 @@ jobs:
       - name: Validate OpenAPI spec
         run: make openapi-validate
 
+  # Vulnerability & supply-chain scanning (PRD §23.5, threat-model §5.6, ISO
+  # A.8.8 / SOC2 CC7.1). Tools are pinned; the SBOM (licensing-sbom.md) is
+  # published as an artifact.
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Go vulnerabilities that are actually REACHABLE in our code (govulncheck's
+      # call-graph analysis keeps false positives low): a hard gate.
+      - name: govulncheck (Go)
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      # Dashboard advisories: gate on critical only. Transitive highs are triaged,
+      # not build-breaking on day one; tighten once the baseline is clean.
+      - name: npm audit (dashboard)
+        run: npm --prefix web audit --audit-level=critical
+      # Cross-ecosystem advisory scan (Go + npm lockfiles), including unfixable
+      # transitive ones — reported, not yet a gate, so it informs triage without
+      # breaking main. Promote to a gate once the baseline is triaged.
+      - name: osv-scanner (report)
+        continue-on-error: true
+        run: go run github.com/google/osv-scanner/cmd/osv-scanner@v1.9.2 -r .
+      # Supply-chain inventory: a CycloneDX SBOM of the Go module graph
+      # (licensing-sbom.md), attached to the build for auditors/consumers.
+      - name: Generate SBOM (CycloneDX)
+        run: go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.7.0 mod -json -output sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cdx.json
+
   # ADR-028: exactly one assembled-product journey. Pull requests are gated by
   # fast unit/module tests; the expensive DinD proof runs after merge to main
   # (or explicitly on demand) and again before a release.

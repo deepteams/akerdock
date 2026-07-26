@@ -268,6 +268,48 @@ func (e ApplicationUpdatePreviewProtection) Valid() bool {
 	}
 }
 
+// Defines values for AuditEventActorKind.
+const (
+	AuditEventActorKindSystem AuditEventActorKind = "system"
+	AuditEventActorKindToken  AuditEventActorKind = "token"
+	AuditEventActorKindUser   AuditEventActorKind = "user"
+)
+
+// Valid indicates whether the value is a known member of the AuditEventActorKind enum.
+func (e AuditEventActorKind) Valid() bool {
+	switch e {
+	case AuditEventActorKindSystem:
+		return true
+	case AuditEventActorKindToken:
+		return true
+	case AuditEventActorKindUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AuditEventResult.
+const (
+	AuditEventResultDenied  AuditEventResult = "denied"
+	AuditEventResultFailure AuditEventResult = "failure"
+	AuditEventResultSuccess AuditEventResult = "success"
+)
+
+// Valid indicates whether the value is a known member of the AuditEventResult enum.
+func (e AuditEventResult) Valid() bool {
+	switch e {
+	case AuditEventResultDenied:
+		return true
+	case AuditEventResultFailure:
+		return true
+	case AuditEventResultSuccess:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BackupExecutionStatus.
 const (
 	BackupExecutionStatusFailed    BackupExecutionStatus = "failed"
@@ -867,19 +909,19 @@ func (e JobStepStatus) Valid() bool {
 
 // Defines values for LogLineChannel.
 const (
-	Stderr LogLineChannel = "stderr"
-	Stdout LogLineChannel = "stdout"
-	System LogLineChannel = "system"
+	LogLineChannelStderr LogLineChannel = "stderr"
+	LogLineChannelStdout LogLineChannel = "stdout"
+	LogLineChannelSystem LogLineChannel = "system"
 )
 
 // Valid indicates whether the value is a known member of the LogLineChannel enum.
 func (e LogLineChannel) Valid() bool {
 	switch e {
-	case Stderr:
+	case LogLineChannelStderr:
 		return true
-	case Stdout:
+	case LogLineChannelStdout:
 		return true
-	case System:
+	case LogLineChannelSystem:
 		return true
 	default:
 		return false
@@ -1894,6 +1936,27 @@ func (e SetOauthProviderParamsOauthProvider) Valid() bool {
 	}
 }
 
+// Defines values for ListTeamAuditParamsResult.
+const (
+	ListTeamAuditParamsResultDenied  ListTeamAuditParamsResult = "denied"
+	ListTeamAuditParamsResultFailure ListTeamAuditParamsResult = "failure"
+	ListTeamAuditParamsResultSuccess ListTeamAuditParamsResult = "success"
+)
+
+// Valid indicates whether the value is a known member of the ListTeamAuditParamsResult enum.
+func (e ListTeamAuditParamsResult) Valid() bool {
+	switch e {
+	case ListTeamAuditParamsResultDenied:
+		return true
+	case ListTeamAuditParamsResultFailure:
+		return true
+	case ListTeamAuditParamsResultSuccess:
+		return true
+	default:
+		return false
+	}
+}
+
 // AdoptRequest Sélection de candidats d'un scan à adopter (§20.7).
 type AdoptRequest struct {
 	// EnvironmentUuid Environnement cible des ressources créées.
@@ -2550,6 +2613,35 @@ type ApplicationUpdateBuildPack string
 
 // ApplicationUpdatePreviewProtection Protection d'accès des URLs de preview (§20.4.4) — basic_auth par défaut.
 type ApplicationUpdatePreviewProtection string
+
+// AuditEvent Une entrée du journal d'audit append-only (§23.4). Les valeurs sensibles ne sont jamais présentes : un champ modifié apparaît dans `diff` comme `{changed:true, redacted:true}` (INV-003).
+type AuditEvent struct {
+	// Action Verbe d'action (ex. `auth.login`, `secret.reveal`, `role.update`).
+	Action string `json:"action"`
+
+	// ActorDisplay Identifiant lisible de l'acteur (ex. l'email tenté à un login échoué).
+	ActorDisplay *string              `json:"actor_display,omitempty"`
+	ActorKind    *AuditEventActorKind `json:"actor_kind,omitempty"`
+
+	// ActorUuid UUID de l'utilisateur ou du token acteur (absent pour une action système ou un login échoué).
+	ActorUuid *string `json:"actor_uuid,omitempty"`
+
+	// Diff Ce qui a changé, déjà redacté pour les champs sensibles.
+	Diff       *map[string]interface{} `json:"diff,omitempty"`
+	Ip         *string                 `json:"ip,omitempty"`
+	OccurredAt time.Time               `json:"occurred_at"`
+	Result     AuditEventResult        `json:"result"`
+	TargetKind *string                 `json:"target_kind,omitempty"`
+	TargetUuid *string                 `json:"target_uuid,omitempty"`
+	UserAgent  *string                 `json:"user_agent,omitempty"`
+	Uuid       string                  `json:"uuid"`
+}
+
+// AuditEventActorKind defines model for AuditEvent.ActorKind.
+type AuditEventActorKind string
+
+// AuditEventResult defines model for AuditEvent.Result.
+type AuditEventResult string
 
 // BackupExecution Exécution d'un plan de backup (§7.3, §20.5). `partial` = succès local mais échec S3 — jamais présenté comme un succès global.
 type BackupExecution struct {
@@ -5429,6 +5521,36 @@ type ListTeamsParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListTeamAuditParams defines parameters for ListTeamAudit.
+type ListTeamAuditParams struct {
+	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Nombre maximal d'éléments par page (1 à 100).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Action Filtre exact sur l'action (ex. `auth.login`, `secret.reveal`).
+	Action *string `form:"action,omitempty" json:"action,omitempty"`
+
+	// Result Filtre sur le résultat.
+	Result *ListTeamAuditParamsResult `form:"result,omitempty" json:"result,omitempty"`
+
+	// ActorUuid Filtre sur l'UUID de l'acteur (utilisateur ou token).
+	ActorUuid *string `form:"actor_uuid,omitempty" json:"actor_uuid,omitempty"`
+
+	// TargetUuid Filtre sur l'UUID de la ressource cible.
+	TargetUuid *string `form:"target_uuid,omitempty" json:"target_uuid,omitempty"`
+
+	// From Borne basse (incluse) sur occurred_at (RFC 3339).
+	From *time.Time `form:"from,omitempty" json:"from,omitempty"`
+
+	// To Borne haute (incluse) sur occurred_at (RFC 3339).
+	To *time.Time `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// ListTeamAuditParamsResult defines parameters for ListTeamAudit.
+type ListTeamAuditParamsResult string
+
 // ListTeamInvitationsParams defines parameters for ListTeamInvitations.
 type ListTeamInvitationsParams struct {
 	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
@@ -6378,6 +6500,9 @@ type ServerInterface interface {
 	// Modifier une team
 	// (PATCH /teams/{team_uuid})
 	UpdateTeam(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid)
+	// Journal d'audit d'une team
+	// (GET /teams/{team_uuid}/audit)
+	ListTeamAudit(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamAuditParams)
 	// Lister les invitations
 	// (GET /teams/{team_uuid}/invitations)
 	ListTeamInvitations(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamInvitationsParams)
@@ -7578,6 +7703,12 @@ func (_ Unimplemented) GetTeam(w http.ResponseWriter, r *http.Request, teamUuid 
 // Modifier une team
 // (PATCH /teams/{team_uuid})
 func (_ Unimplemented) UpdateTeam(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Journal d'audit d'une team
+// (GET /teams/{team_uuid}/audit)
+func (_ Unimplemented) ListTeamAudit(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamAuditParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -16348,6 +16479,145 @@ func (siw *ServerInterfaceWrapper) UpdateTeam(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// ListTeamAudit operation middleware
+func (siw *ServerInterfaceWrapper) ListTeamAudit(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "team_uuid" -------------
+	var teamUuid TeamUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTeamAuditParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "action" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "action", r.URL.Query(), &params.Action, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "action"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "result" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "result", r.URL.Query(), &params.Result, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "result"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "result", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "actor_uuid" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "actor_uuid", r.URL.Query(), &params.ActorUuid, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "actor_uuid"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "actor_uuid", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "target_uuid" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "target_uuid", r.URL.Query(), &params.TargetUuid, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "target_uuid"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "target_uuid", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTeamAudit(w, r, teamUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTeamInvitations operation middleware
 func (siw *ServerInterfaceWrapper) ListTeamInvitations(w http.ResponseWriter, r *http.Request) {
 
@@ -18006,6 +18276,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/teams/{team_uuid}", wrapper.UpdateTeam)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{team_uuid}/audit", wrapper.ListTeamAudit)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{team_uuid}/invitations", wrapper.ListTeamInvitations)
@@ -36168,6 +36441,107 @@ func (response UpdateTeam429JSONResponse) VisitUpdateTeamResponse(w http.Respons
 	return err
 }
 
+type ListTeamAuditRequestObject struct {
+	TeamUuid TeamUuid `json:"team_uuid"`
+	Params   ListTeamAuditParams
+}
+
+type ListTeamAuditResponseObject interface {
+	VisitListTeamAuditResponse(w http.ResponseWriter) error
+}
+
+type ListTeamAudit200JSONResponse struct {
+	Data []AuditEvent `json:"data"`
+
+	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListTeamAudit200JSONResponse) VisitListTeamAuditResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTeamAudit400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListTeamAudit400JSONResponse) VisitListTeamAuditResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTeamAudit401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListTeamAudit401JSONResponse) VisitListTeamAuditResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTeamAudit403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListTeamAudit403JSONResponse) VisitListTeamAuditResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTeamAudit404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListTeamAudit404JSONResponse) VisitListTeamAuditResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTeamAudit429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListTeamAudit429JSONResponse) VisitListTeamAuditResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTeamInvitationsRequestObject struct {
 	TeamUuid TeamUuid `json:"team_uuid"`
 	Params   ListTeamInvitationsParams
@@ -38775,6 +39149,9 @@ type StrictServerInterface interface {
 	// Modifier une team
 	// (PATCH /teams/{team_uuid})
 	UpdateTeam(ctx context.Context, request UpdateTeamRequestObject) (UpdateTeamResponseObject, error)
+	// Journal d'audit d'une team
+	// (GET /teams/{team_uuid}/audit)
+	ListTeamAudit(ctx context.Context, request ListTeamAuditRequestObject) (ListTeamAuditResponseObject, error)
 	// Lister les invitations
 	// (GET /teams/{team_uuid}/invitations)
 	ListTeamInvitations(ctx context.Context, request ListTeamInvitationsRequestObject) (ListTeamInvitationsResponseObject, error)
@@ -44240,6 +44617,33 @@ func (sh *strictHandler) UpdateTeam(w http.ResponseWriter, r *http.Request, team
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateTeamResponseObject); ok {
 		if err := validResponse.VisitUpdateTeamResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTeamAudit operation middleware
+func (sh *strictHandler) ListTeamAudit(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamAuditParams) {
+	var request ListTeamAuditRequestObject
+
+	request.TeamUuid = teamUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTeamAudit(ctx, request.(ListTeamAuditRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTeamAudit")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTeamAuditResponseObject); ok {
+		if err := validResponse.VisitListTeamAuditResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

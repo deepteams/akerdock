@@ -114,6 +114,36 @@ func (a *Recorder) Record(r *http.Request, id *auth.Identity, ev Event) {
 	}
 }
 
+// RecordAuth writes an audit event for an authentication attempt — login,
+// logout, MFA, passkey or OAuth (§23.4: login/logout/failures/MFA must be
+// logged). Unlike Record, the actor is a USER, not an API token, and may be
+// unresolved on failure: actorUUID is then zero and display carries the
+// attempted identifier (e.g. the email typed at a failed login). teamID is nil
+// when no team context is known.
+func (a *Recorder) RecordAuth(r *http.Request, action string, result store.AuditResult, actorUUID pgtype.UUID, display string, teamID *int64) {
+	if result == "" {
+		result = store.AuditResultSuccess
+	}
+	a.telemetry(r.Context(), action, "user", string(result))
+	params := store.InsertAuditEventParams{
+		TeamID:       teamID,
+		ActorKind:    store.ActorKindUser,
+		ActorUuid:    actorUUID,
+		ActorDisplay: strPtr(display),
+		Action:       action,
+		Result:       result,
+		UserAgent:    strPtr(r.UserAgent()),
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		if addr, err := netip.ParseAddr(host); err == nil {
+			params.Ip = &addr
+		}
+	}
+	if err := a.Store.InsertAuditEvent(r.Context(), params); err != nil {
+		a.Logger.Error("audit event lost", "action", action, "error", err)
+	}
+}
+
 // encodeDiff serializes a redacted diff. A diff that cannot be encoded is
 // dropped rather than losing the audit event: the event itself matters more than
 // its detail.
