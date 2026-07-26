@@ -524,6 +524,10 @@ type Querier interface {
 	ListExpiredS3Backups(ctx context.Context, arg ListExpiredS3BackupsParams) ([]ListExpiredS3BackupsRow, error)
 	ListGithubAppsPage(ctx context.Context, arg ListGithubAppsPageParams) ([]GithubApp, error)
 	ListIdentitiesForUser(ctx context.Context, userID int64) ([]Identity, error)
+	// Instance-wide audit (reserved to the instance root): every team AND the
+	// system/instance actions that have no team_id (encryption rotation, instance
+	// settings…), which no team-scoped view can show. Same optional filters.
+	ListInstanceAuditEventsPage(ctx context.Context, arg ListInstanceAuditEventsPageParams) ([]AuditEvent, error)
 	ListInvitationsPage(ctx context.Context, arg ListInvitationsPageParams) ([]ListInvitationsPageRow, error)
 	ListJobsPage(ctx context.Context, arg ListJobsPageParams) ([]Job, error)
 	// Scan exclusion (INV-015): "managed" means tracked by a live row, not just

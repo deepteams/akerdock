@@ -219,6 +219,77 @@ func (q *Queries) ListAuditEventsPage(ctx context.Context, arg ListAuditEventsPa
 	return items, nil
 }
 
+const listInstanceAuditEventsPage = `-- name: ListInstanceAuditEventsPage :many
+SELECT id, uuid, occurred_at, team_id, actor_kind, actor_uuid, actor_display, action, target_kind, target_uuid, result, ip, user_agent, request_id, correlation_id, diff_redacted, created_at FROM audit_events
+WHERE ($1::bigint = 0 OR id < $1)
+  AND ($2::text IS NULL OR action = $2)
+  AND ($3::audit_result IS NULL OR result = $3)
+  AND ($4::uuid IS NULL OR actor_uuid = $4)
+  AND ($5::timestamptz IS NULL OR occurred_at >= $5)
+  AND ($6::timestamptz IS NULL OR occurred_at <= $6)
+ORDER BY id DESC
+LIMIT $7
+`
+
+type ListInstanceAuditEventsPageParams struct {
+	AfterID   int64
+	Action    *string
+	Result    *AuditResult
+	ActorUuid pgtype.UUID
+	FromTime  pgtype.Timestamptz
+	ToTime    pgtype.Timestamptz
+	PageLimit int32
+}
+
+// Instance-wide audit (reserved to the instance root): every team AND the
+// system/instance actions that have no team_id (encryption rotation, instance
+// settings…), which no team-scoped view can show. Same optional filters.
+func (q *Queries) ListInstanceAuditEventsPage(ctx context.Context, arg ListInstanceAuditEventsPageParams) ([]AuditEvent, error) {
+	rows, err := q.db.Query(ctx, listInstanceAuditEventsPage,
+		arg.AfterID,
+		arg.Action,
+		arg.Result,
+		arg.ActorUuid,
+		arg.FromTime,
+		arg.ToTime,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuditEvent
+	for rows.Next() {
+		var i AuditEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.OccurredAt,
+			&i.TeamID,
+			&i.ActorKind,
+			&i.ActorUuid,
+			&i.ActorDisplay,
+			&i.Action,
+			&i.TargetKind,
+			&i.TargetUuid,
+			&i.Result,
+			&i.Ip,
+			&i.UserAgent,
+			&i.RequestID,
+			&i.CorrelationID,
+			&i.DiffRedacted,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOutboxEventsForTeamAfter = `-- name: ListOutboxEventsForTeamAfter :many
 SELECT id, uuid, event_type, occurred_at, team_uuid, resource_uuid, actor, correlation_id, aggregate_key, payload, published_at, publish_attempts, created_at FROM outbox_events
 WHERE team_uuid = $1 AND id > $2 AND published_at IS NOT NULL

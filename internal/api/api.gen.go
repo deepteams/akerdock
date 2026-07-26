@@ -1921,6 +1921,27 @@ func (e ListSharedVariablesParamsScope) Valid() bool {
 	}
 }
 
+// Defines values for ListInstanceAuditParamsResult.
+const (
+	ListInstanceAuditParamsResultDenied  ListInstanceAuditParamsResult = "denied"
+	ListInstanceAuditParamsResultFailure ListInstanceAuditParamsResult = "failure"
+	ListInstanceAuditParamsResultSuccess ListInstanceAuditParamsResult = "success"
+)
+
+// Valid indicates whether the value is a known member of the ListInstanceAuditParamsResult enum.
+func (e ListInstanceAuditParamsResult) Valid() bool {
+	switch e {
+	case ListInstanceAuditParamsResultDenied:
+		return true
+	case ListInstanceAuditParamsResultFailure:
+		return true
+	case ListInstanceAuditParamsResultSuccess:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeleteOauthProviderParamsOauthProvider.
 const (
 	DeleteOauthProviderParamsOauthProviderAzure     DeleteOauthProviderParamsOauthProvider = "azure"
@@ -1983,19 +2004,19 @@ func (e SetOauthProviderParamsOauthProvider) Valid() bool {
 
 // Defines values for ListTeamAuditParamsResult.
 const (
-	ListTeamAuditParamsResultDenied  ListTeamAuditParamsResult = "denied"
-	ListTeamAuditParamsResultFailure ListTeamAuditParamsResult = "failure"
-	ListTeamAuditParamsResultSuccess ListTeamAuditParamsResult = "success"
+	Denied  ListTeamAuditParamsResult = "denied"
+	Failure ListTeamAuditParamsResult = "failure"
+	Success ListTeamAuditParamsResult = "success"
 )
 
 // Valid indicates whether the value is a known member of the ListTeamAuditParamsResult enum.
 func (e ListTeamAuditParamsResult) Valid() bool {
 	switch e {
-	case ListTeamAuditParamsResultDenied:
+	case Denied:
 		return true
-	case ListTeamAuditParamsResultFailure:
+	case Failure:
 		return true
-	case ListTeamAuditParamsResultSuccess:
+	case Success:
 		return true
 	default:
 		return false
@@ -5569,6 +5590,23 @@ type CreateSharedVariableParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ListInstanceAuditParams defines parameters for ListInstanceAudit.
+type ListInstanceAuditParams struct {
+	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Nombre maximal d'éléments par page (1 à 100).
+	Limit     *Limit                         `form:"limit,omitempty" json:"limit,omitempty"`
+	Action    *string                        `form:"action,omitempty" json:"action,omitempty"`
+	Result    *ListInstanceAuditParamsResult `form:"result,omitempty" json:"result,omitempty"`
+	ActorUuid *string                        `form:"actor_uuid,omitempty" json:"actor_uuid,omitempty"`
+	From      *time.Time                     `form:"from,omitempty" json:"from,omitempty"`
+	To        *time.Time                     `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// ListInstanceAuditParamsResult defines parameters for ListInstanceAudit.
+type ListInstanceAuditParamsResult string
+
 // RotateEncryptionParams defines parameters for RotateEncryption.
 type RotateEncryptionParams struct {
 	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
@@ -6527,6 +6565,9 @@ type ServerInterface interface {
 	// Activer l'API
 	// (POST /system/api/enable)
 	EnableApi(w http.ResponseWriter, r *http.Request)
+	// Journal d'audit de toute l'instance
+	// (GET /system/audit)
+	ListInstanceAudit(w http.ResponseWriter, r *http.Request, params ListInstanceAuditParams)
 	// Configuration de l'email transactionnel de l'instance
 	// (GET /system/email)
 	GetTransactionalEmail(w http.ResponseWriter, r *http.Request)
@@ -7688,6 +7729,12 @@ func (_ Unimplemented) DisableApi(w http.ResponseWriter, r *http.Request) {
 // Activer l'API
 // (POST /system/api/enable)
 func (_ Unimplemented) EnableApi(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Journal d'audit de toute l'instance
+// (GET /system/audit)
+func (_ Unimplemented) ListInstanceAudit(w http.ResponseWriter, r *http.Request, params ListInstanceAuditParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -16161,6 +16208,123 @@ func (siw *ServerInterfaceWrapper) EnableApi(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ListInstanceAudit operation middleware
+func (siw *ServerInterfaceWrapper) ListInstanceAudit(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListInstanceAuditParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "action" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "action", r.URL.Query(), &params.Action, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "action"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "result" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "result", r.URL.Query(), &params.Result, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "result"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "result", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "actor_uuid" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "actor_uuid", r.URL.Query(), &params.ActorUuid, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "actor_uuid"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "actor_uuid", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListInstanceAudit(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetTransactionalEmail operation middleware
 func (siw *ServerInterfaceWrapper) GetTransactionalEmail(w http.ResponseWriter, r *http.Request) {
 
@@ -18303,6 +18467,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/system/api/enable", wrapper.EnableApi)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/system/audit", wrapper.ListInstanceAudit)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/system/email", wrapper.GetTransactionalEmail)
@@ -35368,6 +35535,92 @@ func (response EnableApi429JSONResponse) VisitEnableApiResponse(w http.ResponseW
 	return err
 }
 
+type ListInstanceAuditRequestObject struct {
+	Params ListInstanceAuditParams
+}
+
+type ListInstanceAuditResponseObject interface {
+	VisitListInstanceAuditResponse(w http.ResponseWriter) error
+}
+
+type ListInstanceAudit200JSONResponse struct {
+	Data []AuditEvent `json:"data"`
+
+	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListInstanceAudit200JSONResponse) VisitListInstanceAuditResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInstanceAudit400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListInstanceAudit400JSONResponse) VisitListInstanceAuditResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInstanceAudit401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListInstanceAudit401JSONResponse) VisitListInstanceAuditResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInstanceAudit403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListInstanceAudit403JSONResponse) VisitListInstanceAuditResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInstanceAudit429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListInstanceAudit429JSONResponse) VisitListInstanceAuditResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetTransactionalEmailRequestObject struct {
 }
 
@@ -39176,6 +39429,9 @@ type StrictServerInterface interface {
 	// Activer l'API
 	// (POST /system/api/enable)
 	EnableApi(ctx context.Context, request EnableApiRequestObject) (EnableApiResponseObject, error)
+	// Journal d'audit de toute l'instance
+	// (GET /system/audit)
+	ListInstanceAudit(ctx context.Context, request ListInstanceAuditRequestObject) (ListInstanceAuditResponseObject, error)
 	// Configuration de l'email transactionnel de l'instance
 	// (GET /system/email)
 	GetTransactionalEmail(ctx context.Context, request GetTransactionalEmailRequestObject) (GetTransactionalEmailResponseObject, error)
@@ -44303,6 +44559,32 @@ func (sh *strictHandler) EnableApi(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(EnableApiResponseObject); ok {
 		if err := validResponse.VisitEnableApiResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListInstanceAudit operation middleware
+func (sh *strictHandler) ListInstanceAudit(w http.ResponseWriter, r *http.Request, params ListInstanceAuditParams) {
+	var request ListInstanceAuditRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListInstanceAudit(ctx, request.(ListInstanceAuditRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListInstanceAudit")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListInstanceAuditResponseObject); ok {
+		if err := validResponse.VisitListInstanceAuditResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

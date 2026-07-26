@@ -693,6 +693,14 @@ export class AkerDockClient {
     });
   }
 
+  listInstanceAudit(query?: paths['/system/audit']['get']['parameters']['query']) {
+    type Response =
+      paths['/system/audit']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', '/system/audit', {
+      query: query as Record<string, string | number | undefined> | undefined,
+    });
+  }
+
   // --- projects (+ environments) ------------------------------------------------
 
   listProjects(query?: { cursor?: string; limit?: number }) {

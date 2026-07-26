@@ -475,6 +475,72 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /system/audit:
+    get:
+      tags: [System]
+      operationId: listInstanceAudit
+      summary: Journal d'audit de toute l'instance
+      description: >-
+        Le journal d'audit append-only (§23.4) sur TOUTE l'instance — toutes les
+        teams ET les actions système/instance sans team (rotation de clé,
+        réglages d'instance…), qu'aucune vue par team ne montre. Réservé à
+        l'administrateur d'instance. Paginé, filtrable.
+      x-required-permission: instance:audit
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: result
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [success, failure, denied]
+        - name: actor_uuid
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Page d'événements d'audit (du plus récent au plus ancien).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditEvent"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /system/encryption:
     get:
       tags: [System]

@@ -12,6 +12,20 @@ VALUES ($1, $2, $3, $4, $5, $6, $7);
 -- name: CountAuditEvents :one
 SELECT count(*) FROM audit_events;
 
+-- name: ListInstanceAuditEventsPage :many
+-- Instance-wide audit (reserved to the instance root): every team AND the
+-- system/instance actions that have no team_id (encryption rotation, instance
+-- settings…), which no team-scoped view can show. Same optional filters.
+SELECT * FROM audit_events
+WHERE (sqlc.arg(after_id)::bigint = 0 OR id < sqlc.arg(after_id))
+  AND (sqlc.narg(action)::text IS NULL OR action = sqlc.narg(action))
+  AND (sqlc.narg(result)::audit_result IS NULL OR result = sqlc.narg(result))
+  AND (sqlc.narg(actor_uuid)::uuid IS NULL OR actor_uuid = sqlc.narg(actor_uuid))
+  AND (sqlc.narg(from_time)::timestamptz IS NULL OR occurred_at >= sqlc.narg(from_time))
+  AND (sqlc.narg(to_time)::timestamptz IS NULL OR occurred_at <= sqlc.narg(to_time))
+ORDER BY id DESC
+LIMIT sqlc.arg(page_limit);
+
 -- name: PurgeAuditEvents :one
 -- Retention purge (§23.4): removes audit rows older than retention_days. Goes
 -- through the SQL function (not a direct DELETE) — the function is the only

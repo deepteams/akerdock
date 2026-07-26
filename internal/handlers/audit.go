@@ -43,6 +43,59 @@ func auditEventToAPI(e store.AuditEvent) api.AuditEvent {
 	return out
 }
 
+// ListInstanceAudit implements GET /system/audit (§23.4): the instance-wide
+// audit trail, reserved to the instance root — it includes the system/instance
+// actions that carry no team and so appear in no team-scoped view.
+func (a *API) ListInstanceAudit(w http.ResponseWriter, r *http.Request, params api.ListInstanceAuditParams) {
+	if _, ok := a.requireInstanceRoot(w, r); !ok {
+		return
+	}
+	limit, ok := pageLimit(w, r, params.Limit)
+	if !ok {
+		return
+	}
+	after, ok := afterID(w, r, params.Cursor)
+	if !ok {
+		return
+	}
+
+	qp := store.ListInstanceAuditEventsPageParams{AfterID: after, PageLimit: limit + 1}
+	if params.Action != nil && *params.Action != "" {
+		qp.Action = params.Action
+	}
+	if params.Result != nil {
+		res := store.AuditResult(*params.Result)
+		qp.Result = &res
+	}
+	if params.ActorUuid != nil && *params.ActorUuid != "" {
+		if err := qp.ActorUuid.Scan(*params.ActorUuid); err != nil {
+			httpapi.WriteValidationError(w, r, []api.ErrorDetail{{Field: ptr("actor_uuid"), Code: ptr("invalid"), Message: "actor_uuid must be a UUID"}})
+			return
+		}
+	}
+	if params.From != nil {
+		qp.FromTime = pgtype.Timestamptz{Time: *params.From, Valid: true}
+	}
+	if params.To != nil {
+		qp.ToTime = pgtype.Timestamptz{Time: *params.To, Valid: true}
+	}
+
+	rows, err := a.Store.ListInstanceAuditEventsPage(r.Context(), qp)
+	if err != nil {
+		a.internalError(w, r, "list instance audit events", err)
+		return
+	}
+	rows, cursor := nextCursor(rows, limit, func(e store.AuditEvent) int64 { return e.ID })
+	data := make([]api.AuditEvent, 0, len(rows))
+	for _, e := range rows {
+		data = append(data, auditEventToAPI(e))
+	}
+	httpapi.WriteJSON(w, http.StatusOK, struct {
+		Data       []api.AuditEvent `json:"data"`
+		NextCursor *string          `json:"next_cursor"`
+	}{data, cursor})
+}
+
 // ListTeamAudit implements GET /teams/{team_uuid}/audit (§23.4): the append-only
 // audit trail, paginated, filtered and scriptable. Read-only — no mutation of
 // the trail is ever exposed.

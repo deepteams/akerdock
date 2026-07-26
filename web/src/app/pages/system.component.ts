@@ -1,3 +1,4 @@
+import { SlicePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -5,6 +6,8 @@ import { ApiService } from '../core/api.service';
 import { CardComponent } from '../../ui/card/card.component';
 import type { components } from '../../api/schema';
 
+type AuditEvent = components['schemas']['AuditEvent'];
+type SystemTab = 'instance' | 'email' | 'api' | 'telemetry' | 'providers' | 'encryption' | 'audit';
 type TransactionalEmail = components['schemas']['TransactionalEmail'];
 type TransactionalEmailSet = components['schemas']['TransactionalEmailSet'];
 type EncryptionStatus = components['schemas']['EncryptionStatus'];
@@ -25,7 +28,7 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
 @Component({
   selector: 'app-system',
   standalone: true,
-  imports: [FormsModule, RouterLink, CardComponent],
+  imports: [FormsModule, SlicePipe, RouterLink, CardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
@@ -38,8 +41,23 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      <div class="cols">
-        <div class="col">
+      <nav class="akd-tabs" role="tablist" aria-label="Global settings sections">
+        @for (t of tabs; track t.key) {
+          <button
+            type="button"
+            class="akd-tab"
+            role="tab"
+            [class.akd-tab--active]="tab() === t.key"
+            [attr.aria-selected]="tab() === t.key"
+            (click)="t.key === 'audit' ? openAudit() : tab.set(t.key)"
+          >
+            {{ t.label }}
+          </button>
+        }
+      </nav>
+
+      @switch (tab()) {
+        @case ('instance') {
           <akd-card title="Instance">
             <form class="stack" (ngSubmit)="saveInstance()">
               <div class="akd-field">
@@ -93,7 +111,8 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
               </div>
             </form>
           </akd-card>
-
+        }
+        @case ('email') {
           <akd-card title="Transactional email">
             <div class="stack">
               @if (email(); as em) {
@@ -250,7 +269,8 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
               </form>
             </div>
           </akd-card>
-
+        }
+        @case ('api') {
           <akd-card title="API access">
             <div class="stack">
               <label class="switch-row">
@@ -270,7 +290,8 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
               </p>
             </div>
           </akd-card>
-
+        }
+        @case ('telemetry') {
           <akd-card title="Remote telemetry (OTLP)">
             <form class="stack" (ngSubmit)="saveTelemetry()">
               <p class="akd-muted sm">
@@ -383,9 +404,8 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
               </div>
             </form>
           </akd-card>
-        </div>
-
-        <div class="col">
+        }
+        @case ('providers') {
           <akd-card title="Sign-in providers (OAuth/OIDC)" [padded]="false">
             <p class="akd-muted sm pad">
               Let the dashboard sign in through an identity provider. The client secret is
@@ -522,7 +542,8 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
               </form>
             }
           </akd-card>
-
+        }
+        @case ('encryption') {
           <akd-card title="Encryption" [padded]="false">
             @if (encryption(); as enc) {
               <div class="pad">
@@ -594,8 +615,56 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
               </div>
             </div>
           </akd-card>
-        </div>
-      </div>
+        }
+        @case ('audit') {
+          <akd-card title="Instance audit log" [padded]="false">
+            @if (auditLoading()) {
+              <p class="akd-muted pad">Loading…</p>
+            } @else if (auditEvents().length === 0) {
+              <p class="akd-muted pad">No audit events yet.</p>
+            } @else {
+              <table class="akd-table">
+                <caption class="sr-only">
+                  Audit events across the whole instance
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">When</th>
+                    <th scope="col">Actor</th>
+                    <th scope="col">Action</th>
+                    <th scope="col">Target</th>
+                    <th scope="col">Result</th>
+                    <th scope="col">IP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (ev of auditEvents(); track ev.uuid) {
+                    <tr>
+                      <td class="akd-muted sub-mono">{{ ev.occurred_at | slice: 0 : 19 }}</td>
+                      <td class="sub-mono">{{ ev.actor_display ?? ev.actor_uuid ?? ev.actor_kind }}</td>
+                      <td><span class="akd-badge akd-badge--mono">{{ ev.action }}</span></td>
+                      <td class="akd-muted sub-mono">{{ ev.target_kind ?? '—' }}</td>
+                      <td>
+                        <span
+                          class="akd-badge akd-badge--mono"
+                          [class.akd-badge--accent]="ev.result !== 'success'"
+                        >
+                          {{ ev.result }}
+                        </span>
+                      </td>
+                      <td class="akd-muted sub-mono">{{ ev.ip ?? '—' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            }
+          </akd-card>
+          <p class="footnote">
+            Append-only trail (§23.4) across every team AND the system/instance actions that
+            belong to no team. Showing the most recent {{ auditEvents().length }} events.
+          </p>
+        }
+      }
     </div>
   `,
   styles: [
@@ -635,6 +704,15 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
       .pad {
         padding: var(--space-5);
         margin: 0;
+      }
+      .sub-mono {
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+      }
+      .footnote {
+        margin: var(--space-3) 0 0;
+        font-size: var(--text-xs);
+        color: var(--text-3);
       }
       .row {
         display: flex;
@@ -687,6 +765,22 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
 export class SystemComponent {
   private readonly api = inject(ApiService);
 
+  protected readonly tab = signal<SystemTab>('instance');
+  protected readonly tabs: { key: SystemTab; label: string }[] = [
+    { key: 'instance', label: 'Instance' },
+    { key: 'email', label: 'Email' },
+    { key: 'api', label: 'API access' },
+    { key: 'providers', label: 'Sign-in' },
+    { key: 'telemetry', label: 'Telemetry' },
+    { key: 'encryption', label: 'Encryption' },
+    { key: 'audit', label: 'Audit' },
+  ];
+
+  // Instance-wide audit, loaded on demand when the Audit tab is opened.
+  protected readonly auditEvents = signal<AuditEvent[]>([]);
+  protected readonly auditLoading = signal(false);
+  private auditLoaded = false;
+
   protected readonly email = signal<TransactionalEmail | null>(null);
   protected readonly encryption = signal<EncryptionStatus | null>(null);
   protected apiOn = true;
@@ -728,6 +822,26 @@ export class SystemComponent {
 
   constructor() {
     void this.load();
+  }
+
+  /** Switch to the Audit tab, loading the instance-wide trail the first time. */
+  protected openAudit(): void {
+    this.tab.set('audit');
+    if (this.auditLoaded) return;
+    this.auditLoaded = true;
+    void this.loadAudit();
+  }
+
+  private async loadAudit(): Promise<void> {
+    this.auditLoading.set(true);
+    try {
+      const page = await this.api.client().listInstanceAudit({ limit: 100 });
+      this.auditEvents.set(page.data);
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.auditLoading.set(false);
+    }
   }
 
   protected async saveInstance(): Promise<void> {
