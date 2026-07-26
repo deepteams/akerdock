@@ -154,8 +154,11 @@ type Team = components['schemas']['Team'];
         </akd-card>
 
         <p class="footnote">
-          References are interpolated at deploy time; an unknown reference stays verbatim in the
-          container — visible, therefore diagnosable. Previews never receive shared secrets.
+          Reference these anywhere in a resource's env as
+          <code class="akd-mono">{{ '{{' }}team.KEY{{ '}}' }}</code> — for example
+          <code class="akd-mono">SENTRY_ORG={{ '{{' }}team.SENTRY_ORG{{ '}}' }}</code> (the scope prefix
+          matches the Scope column). Interpolated at deploy time; an unknown reference stays verbatim
+          in the container — visible, therefore diagnosable. Previews never receive shared secrets.
         </p>
       } @else {
         <akd-card title="Team" class="cfg">
@@ -211,6 +214,9 @@ type Team = components['schemas']['Team'];
         margin-top: var(--space-3);
         font-size: var(--text-xs);
         color: var(--text-3);
+      }
+      .footnote code {
+        color: var(--text-2);
       }
       .cfg {
         display: block;

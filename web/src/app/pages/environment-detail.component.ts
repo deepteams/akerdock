@@ -291,6 +291,14 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
             </tbody>
           </table>
         </akd-card>
+
+        <p class="footnote">
+          Reference these anywhere in a resource's env of this environment as
+          <code class="akd-mono">{{ '{{' }}environment.KEY{{ '}}' }}</code> — for example
+          <code class="akd-mono">DATABASE_URL={{ '{{' }}environment.DB_DSN{{ '}}' }}</code>. Interpolated at
+          deploy time; an unknown reference stays verbatim in the container (visible, therefore
+          diagnosable). Previews never receive shared secrets.
+        </p>
       } @else {
         <akd-card title="Environment settings" class="cfg">
           <form class="cfgform" (ngSubmit)="saveConfig()">
@@ -431,6 +439,14 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
       .ref {
         font-size: var(--text-xs);
         margin-top: 2px;
+      }
+      .footnote {
+        margin-top: var(--space-3);
+        font-size: var(--text-xs);
+        color: var(--text-3);
+      }
+      .footnote code {
+        color: var(--text-2);
       }
       .add-row td {
         vertical-align: middle;
