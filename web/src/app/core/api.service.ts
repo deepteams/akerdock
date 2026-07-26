@@ -29,6 +29,9 @@ export interface CurrentUser {
   instanceRoot: boolean;
   email: string;
   name: string;
+  /** The instance requires MFA and this user has no confirmed factor yet: the
+   * app is blocked until they enrol one (forced enrollment). */
+  mfaEnrollmentRequired: boolean;
 }
 
 export interface Passkey {
@@ -122,6 +125,7 @@ export class ApiService {
         csrf_token: string;
         email: string;
         name: string;
+        mfa_enrollment_required?: boolean;
       };
       this.user.set({
         teamUuid: body.team_uuid,
@@ -129,6 +133,7 @@ export class ApiService {
         instanceRoot: body.instance_root ?? false,
         email: body.email,
         name: body.name,
+        mfaEnrollmentRequired: body.mfa_enrollment_required ?? false,
       });
       this.csrf.set(body.csrf_token);
       return true;

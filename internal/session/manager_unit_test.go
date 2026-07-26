@@ -240,6 +240,37 @@ func TestSessionLookupAndAuthentication(t *testing.T) {
 // permission and nothing instance-scoped; owner maps onto the same admin set;
 // member is a strict subset that manages resources but not the team; reviewer
 // sees previews only.
+func TestOpenForcesMfaEnrollment(t *testing.T) {
+	membership := store.GetTeamMembershipForUserRow{TeamID: 1, Role: store.TeamRoleMember}
+	user := store.User{ID: 5, Email: "u@example.test"}
+	confirmed := store.MfaFactor{ConfirmedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true}}
+
+	cases := []struct {
+		name        string
+		db          *fakeSessionStore
+		wantPending bool
+	}{
+		{"required, no factor → pending", &fakeSessionStore{membership: membership, settings: store.InstanceSetting{MfaRequired: true}}, true},
+		{"required, confirmed factor → not pending", &fakeSessionStore{membership: membership, settings: store.InstanceSetting{MfaRequired: true}, factor: confirmed}, false},
+		{"not required → not pending", &fakeSessionStore{membership: membership, settings: store.InstanceSetting{MfaRequired: false}}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &Manager{Store: tc.db}
+			sess, _, err := m.Open(context.Background(), httptest.NewRequest(http.MethodPost, "/", nil), user)
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			if sess.MFAPending != tc.wantPending {
+				t.Errorf("session MFAPending = %v, want %v", sess.MFAPending, tc.wantPending)
+			}
+			if len(tc.db.sessionCreates) != 1 || tc.db.sessionCreates[0].MfaPending != tc.wantPending {
+				t.Errorf("persisted mfa_pending = %v, want %v", tc.db.sessionCreates, tc.wantPending)
+			}
+		})
+	}
+}
+
 func TestPermissionsForEveryRole(t *testing.T) {
 	admin := PermissionsForRole(store.TeamRoleAdmin)
 	owner := PermissionsForRole(store.TeamRoleOwner)

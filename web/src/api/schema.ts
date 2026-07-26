@@ -4037,12 +4037,16 @@ export interface components {
             readonly timezone: string;
             /** @description État du verrou de l'API publique (§10.3). Les sessions du dashboard sont exemptées ; basculer via POST /system/api/enable|disable. */
             readonly api_enabled?: boolean;
+            /** @description Quand vrai, la double authentification est obligatoire : un utilisateur sans facteur confirmé est forcé de l'enrôler avant de pouvoir utiliser l'instance (§10.2). */
+            readonly mfa_required?: boolean;
         };
         InstanceIdentityUpdate: {
             /** @description Nom d'hôte nu (`[a-z0-9.-]`, au moins un point). Chaîne vide ou `null` : efface le FQDN. */
             fqdn?: string | null;
             /** @description Chaîne vide ou `null` — efface le contact. */
             acme_email?: string | null;
+            /** @description Active/désactive l'obligation de double authentification (§10.2). Absent = inchangé. */
+            mfa_required?: boolean | null;
         };
         TransactionalEmail: {
             readonly configured: boolean;

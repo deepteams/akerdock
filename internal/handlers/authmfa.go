@@ -197,6 +197,11 @@ func (a *API) ConfirmMFATOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Forced-enrollment gate lifted: with a factor now confirmed, this user's
+	// pending sessions become fully usable (mfa_required).
+	if err := a.Store.ClearMfaPendingForUser(r.Context(), sess.UserID); err != nil {
+		a.Logger.Warn("failed to clear mfa_pending after enrollment", "error", err)
+	}
 	a.recordAudit(r, sessionIdentity(sess), "mfa.enable", "user", userUUIDOf(a, r, sess.UserID))
 	a.Logger.Info("MFA TOTP enabled", "user", sess.Email)
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"recovery_codes": codes})

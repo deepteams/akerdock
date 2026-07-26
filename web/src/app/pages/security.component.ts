@@ -855,6 +855,10 @@ export class SecurityComponent {
       this.recoveryCodes.set(codes);
       this.copied.set(false);
       this.mfa.set(await this.api.mfaStatus());
+      // Under forced enrollment, the session was blocked until now: refresh the
+      // current user so the mfa_enrollment_required gate lifts and the rest of
+      // the app becomes reachable again.
+      await this.api.restore();
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {

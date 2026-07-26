@@ -38,6 +38,9 @@ type Querier interface {
 	ClearFailedLogins(ctx context.Context, id int64) error
 	// installation deleted/suspended (§2.4): the source is degraded, not removed.
 	ClearGithubAppInstallation(ctx context.Context, id int64) (int64, error)
+	// Lift the forced-enrollment gate on all of a user's sessions once they confirm
+	// an MFA factor (ADR — mfa_required).
+	ClearMfaPendingForUser(ctx context.Context, userID int64) error
 	// The normalizing deployment converged the remote objects onto the
 	// uuid-derived names (§20.7): the pointer is obsolete, the history stays.
 	ClearResourceAdoption(ctx context.Context, id int64) error
@@ -754,6 +757,7 @@ type Querier interface {
 	// c'est donc ici — et nulle part ailleurs — qu'ils se modifient.
 	SetInstanceIdentity(ctx context.Context, arg SetInstanceIdentityParams) (InstanceSetting, error)
 	SetLocalhostSeeded(ctx context.Context) (int64, error)
+	SetMfaRequired(ctx context.Context, mfaRequired bool) (InstanceSetting, error)
 	SetNotificationCursor(ctx context.Context, lastOutboxEventID int64) error
 	SetOtlpConfig(ctx context.Context, otlpConfigEnc []byte) error
 	SetPlanDrillResult(ctx context.Context, arg SetPlanDrillResultParams) error

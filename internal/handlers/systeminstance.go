@@ -32,10 +32,11 @@ func (a *API) instanceIdentity(r *http.Request) (api.InstanceIdentity, error) {
 		return api.InstanceIdentity{}, err
 	}
 	return api.InstanceIdentity{
-		Fqdn:       settings.Fqdn,
-		AcmeEmail:  settings.AcmeEmail,
-		Timezone:   ptr(settings.Timezone),
-		ApiEnabled: ptr(settings.ApiEnabled),
+		Fqdn:        settings.Fqdn,
+		AcmeEmail:   settings.AcmeEmail,
+		Timezone:    ptr(settings.Timezone),
+		ApiEnabled:  ptr(settings.ApiEnabled),
+		MfaRequired: ptr(settings.MfaRequired),
 	}, nil
 }
 
@@ -80,6 +81,14 @@ func (a *API) SetInstanceSettings(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		a.internalError(w, r, "set instance settings", err)
 		return
+	}
+	// MFA requirement is a separate switch: only touched when explicitly present.
+	if body.MfaRequired != nil {
+		if _, err := a.Store.SetMfaRequired(r.Context(), *body.MfaRequired); err != nil {
+			a.internalError(w, r, "set instance settings", err)
+			return
+		}
+		a.recordAudit(r, id, "instance.mfa_required_updated", "instance", pgtype.UUID{})
 	}
 	a.Settings.Invalidate()
 	a.recordAudit(r, id, "instance.identity_updated", "instance", pgtype.UUID{})

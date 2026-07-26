@@ -89,6 +89,9 @@ type Session struct {
 	Name      string
 	CSRFToken string
 	Role      store.TeamRole
+	// MFAPending is true when the instance requires MFA but this user has no
+	// confirmed factor yet: the session may only enroll one (forced enrollment).
+	MFAPending bool
 }
 
 // Login verifies the credentials and opens a session — unless the account
@@ -174,6 +177,18 @@ func (m *Manager) Open(ctx context.Context, r *http.Request, user store.User) (*
 		return nil, "", err
 	}
 
+	// Forced MFA enrollment (ISO A.8.5): if the instance requires MFA and this
+	// user has no confirmed factor, the session opens PENDING — usable only to
+	// enroll a factor, blocked on the API until they do. A user WITH a factor
+	// never reaches Open without having just passed the MFA challenge, so is
+	// never pending.
+	pending := false
+	if settings, err := m.Store.GetInstanceSettings(ctx); err == nil && settings.MfaRequired {
+		if factor, err := m.Store.GetMfaFactorForUser(ctx, user.ID); err != nil || !factor.ConfirmedAt.Valid {
+			pending = true
+		}
+	}
+
 	row, err := m.Store.CreateSession(ctx, store.CreateSessionParams{
 		UserID:        user.ID,
 		TokenHash:     hash,
@@ -182,6 +197,7 @@ func (m *Manager) Open(ctx context.Context, r *http.Request, user store.User) (*
 		Ip:            clientIP(r),
 		UserAgent:     ptr(r.UserAgent()),
 		ExpiresAt:     pgtype.Timestamptz{Time: time.Now().Add(Lifetime), Valid: true},
+		MfaPending:    pending,
 	})
 	if err != nil {
 		return nil, "", err
@@ -190,6 +206,7 @@ func (m *Manager) Open(ctx context.Context, r *http.Request, user store.User) (*
 	return &Session{
 		ID: row.ID, UserID: user.ID, TeamID: membership.TeamID,
 		Email: user.Email, Name: user.Name, CSRFToken: csrf, Role: membership.Role,
+		MFAPending: pending,
 	}, token, nil
 }
 
@@ -262,6 +279,7 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) *auth.Ident
 		Permissions:  perms,
 		Session:      true,
 		InstanceRoot: membership.IsRoot,
+		MFAPending:   row.MfaPending,
 	}
 }
 

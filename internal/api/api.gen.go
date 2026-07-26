@@ -3402,8 +3402,11 @@ type InstanceIdentity struct {
 	ApiEnabled *bool `json:"api_enabled,omitempty"`
 
 	// Fqdn Nom d'hôte nu, sans schéma ni chemin (ex. `deploy.example.com`). `null` : instance sans FQDN, cookies non-`Secure`, HTTP simple toléré.
-	Fqdn     *string `json:"fqdn,omitempty"`
-	Timezone *string `json:"timezone,omitempty"`
+	Fqdn *string `json:"fqdn,omitempty"`
+
+	// MfaRequired Quand vrai, la double authentification est obligatoire : un utilisateur sans facteur confirmé est forcé de l'enrôler avant de pouvoir utiliser l'instance (§10.2).
+	MfaRequired *bool   `json:"mfa_required,omitempty"`
+	Timezone    *string `json:"timezone,omitempty"`
 }
 
 // InstanceIdentityUpdate defines model for InstanceIdentityUpdate.
@@ -3413,6 +3416,9 @@ type InstanceIdentityUpdate struct {
 
 	// Fqdn Nom d'hôte nu (`[a-z0-9.-]`, au moins un point). Chaîne vide ou `null` : efface le FQDN.
 	Fqdn *string `json:"fqdn,omitempty"`
+
+	// MfaRequired Active/désactive l'obligation de double authentification (§10.2). Absent = inchangé.
+	MfaRequired *bool `json:"mfa_required,omitempty"`
 }
 
 // Invitation Invitation d'un membre dans une team.

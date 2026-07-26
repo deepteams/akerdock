@@ -1,4 +1,4 @@
-import { CanActivateFn, Routes } from '@angular/router';
+import { CanActivateChildFn, CanActivateFn, Routes } from '@angular/router';
 import { inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { ApiService } from './core/api.service';
@@ -29,6 +29,21 @@ const authenticatedWithReturn: CanActivateFn = async (_route, state) => {
   return router.createUrlTree(['/sign-in'], { queryParams: { returnUrl: state.url } });
 };
 
+/**
+ * Forced MFA enrollment (§10.2): when the instance requires MFA and the user has
+ * no confirmed factor, every screen but Security (which hosts the enrollment
+ * flow) is off-limits until they enrol. The server enforces this too — the API
+ * refuses a pending session — this guard just keeps the UI coherent.
+ */
+const mfaEnrolled: CanActivateChildFn = (route) => {
+  const api = inject(ApiService);
+  const router = inject(Router);
+  if (api.currentUser()?.mfaEnrollmentRequired && route.routeConfig?.path !== 'security') {
+    return router.createUrlTree(['/security'], { queryParams: { enroll: 'mfa' } });
+  }
+  return true;
+};
+
 export const routes: Routes = [
   {
     path: 'sign-in',
@@ -55,6 +70,7 @@ export const routes: Routes = [
     // capability, one guard in front of all of them.
     path: '',
     canActivate: [authenticated],
+    canActivateChild: [mfaEnrolled],
     loadComponent: () => import('./layout/shell.component').then((m) => m.ShellComponent),
     children: [
       { path: '', pathMatch: 'full', redirectTo: 'applications' },

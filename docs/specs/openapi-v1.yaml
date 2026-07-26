@@ -9305,6 +9305,13 @@ components:
           description: >-
             État du verrou de l'API publique (§10.3). Les sessions du dashboard
             sont exemptées ; basculer via POST /system/api/enable|disable.
+        mfa_required:
+          type: boolean
+          readOnly: true
+          description: >-
+            Quand vrai, la double authentification est obligatoire : un
+            utilisateur sans facteur confirmé est forcé de l'enrôler avant de
+            pouvoir utiliser l'instance (§10.2).
     InstanceIdentityUpdate:
       type: object
       properties:
@@ -9318,6 +9325,10 @@ components:
           type: string
           nullable: true
           description: Chaîne vide ou `null` — efface le contact.
+        mfa_required:
+          type: boolean
+          nullable: true
+          description: Active/désactive l'obligation de double authentification (§10.2). Absent = inchangé.
     TransactionalEmail:
       type: object
       required: [configured]

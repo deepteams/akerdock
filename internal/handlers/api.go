@@ -302,6 +302,14 @@ func (a *API) require(w http.ResponseWriter, r *http.Request, perm auth.Permissi
 		httpapi.WriteError(w, r, http.StatusUnauthorized, httpapi.CodeUnauthorized, "missing or invalid bearer token")
 		return nil, false
 	}
+	if id.MFAPending {
+		// Forced MFA enrollment (§10.2): the session may only enroll a factor
+		// (the /auth/mfa/* endpoints, which do not go through require). Every API
+		// operation is refused until it does.
+		httpapi.WriteError(w, r, http.StatusForbidden, "mfa_enrollment_required",
+			"this instance requires two-factor authentication — enrol a factor to continue")
+		return nil, false
+	}
 	if !auth.Has(id.Permissions, perm) {
 		httpapi.WriteError(w, r, http.StatusForbidden, httpapi.CodeForbidden, "this operation requires the "+string(perm)+" permission")
 		return nil, false
@@ -322,6 +330,11 @@ func (a *API) requireInstanceRoot(w http.ResponseWriter, r *http.Request) (*auth
 	}
 	if !id.InstanceRoot {
 		httpapi.WriteError(w, r, http.StatusForbidden, httpapi.CodeForbidden, "this operation is reserved to the instance administrator")
+		return nil, false
+	}
+	if id.MFAPending {
+		httpapi.WriteError(w, r, http.StatusForbidden, "mfa_enrollment_required",
+			"this instance requires two-factor authentication — enrol a factor to continue")
 		return nil, false
 	}
 	return id, true

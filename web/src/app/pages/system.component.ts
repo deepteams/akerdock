@@ -73,6 +73,16 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
                   contact.
                 </span>
               </div>
+              <div class="akd-field">
+                <label class="akd-check">
+                  <input type="checkbox" name="mfaRequired" [(ngModel)]="instanceMfaRequired" [disabled]="busy()" />
+                  Require two-factor authentication for every user
+                </label>
+                <span class="akd-field__hint">
+                  Users without a confirmed factor are forced to enrol one before they can use the
+                  instance.
+                </span>
+              </div>
               @if (instanceNotice(); as message) {
                 <p class="akd-muted sm" role="status">{{ message }}</p>
               }
@@ -695,6 +705,7 @@ export class SystemComponent {
   protected readonly instanceNotice = signal<string | null>(null);
   protected instanceFqdn = '';
   protected instanceAcmeEmail = '';
+  protected instanceMfaRequired = false;
 
   protected emailKind: 'smtp' | 'resend' = 'smtp';
   protected emailFrom = '';
@@ -728,9 +739,11 @@ export class SystemComponent {
       const updated = await this.api.client().setInstanceSettings({
         fqdn: this.instanceFqdn.trim() || null,
         acme_email: this.instanceAcmeEmail.trim() || null,
+        mfa_required: this.instanceMfaRequired,
       });
       this.instanceFqdn = updated.fqdn ?? '';
       this.instanceAcmeEmail = updated.acme_email ?? '';
+      this.instanceMfaRequired = updated.mfa_required ?? false;
       this.instanceNotice.set(
         updated.fqdn
           ? 'Saved. Session cookie security follows the FQDN at the next restart of the binary.'
@@ -755,6 +768,7 @@ export class SystemComponent {
       ]);
       this.instanceFqdn = instance.fqdn ?? '';
       this.instanceAcmeEmail = instance.acme_email ?? '';
+      this.instanceMfaRequired = instance.mfa_required ?? false;
       this.apiOn = instance.api_enabled ?? true;
       this.email.set(email);
       this.encryption.set(encryption);

@@ -44,6 +44,17 @@ func (q *Queries) ClearFailedLogins(ctx context.Context, id int64) error {
 	return err
 }
 
+const clearMfaPendingForUser = `-- name: ClearMfaPendingForUser :exec
+UPDATE sessions SET mfa_pending = false WHERE user_id = $1 AND mfa_pending = true
+`
+
+// Lift the forced-enrollment gate on all of a user's sessions once they confirm
+// an MFA factor (ADR — mfa_required).
+func (q *Queries) ClearMfaPendingForUser(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, clearMfaPendingForUser, userID)
+	return err
+}
+
 const createPersonalTeam = `-- name: CreatePersonalTeam :one
 INSERT INTO teams (name, personal) VALUES ($1, true) RETURNING id, uuid, name, description, created_by, updated_by, created_at, updated_at, deleted_at, version, personal
 `
@@ -68,9 +79,9 @@ func (q *Queries) CreatePersonalTeam(ctx context.Context, name string) (Team, er
 }
 
 const createSession = `-- name: CreateSession :one
-INSERT INTO sessions (user_id, token_hash, csrf_token, current_team_id, ip, user_agent, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, uuid, user_id, token_hash, current_team_id, mfa_verified_at, ip, user_agent, last_seen_at, expires_at, revoked_at, created_at, csrf_token
+INSERT INTO sessions (user_id, token_hash, csrf_token, current_team_id, ip, user_agent, expires_at, mfa_pending)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, uuid, user_id, token_hash, current_team_id, mfa_verified_at, ip, user_agent, last_seen_at, expires_at, revoked_at, created_at, csrf_token, mfa_pending
 `
 
 type CreateSessionParams struct {
@@ -81,6 +92,7 @@ type CreateSessionParams struct {
 	Ip            *netip.Addr
 	UserAgent     *string
 	ExpiresAt     pgtype.Timestamptz
+	MfaPending    bool
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error) {
@@ -92,6 +104,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		arg.Ip,
 		arg.UserAgent,
 		arg.ExpiresAt,
+		arg.MfaPending,
 	)
 	var i Session
 	err := row.Scan(
@@ -108,12 +121,13 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.RevokedAt,
 		&i.CreatedAt,
 		&i.CsrfToken,
+		&i.MfaPending,
 	)
 	return i, err
 }
 
 const getSessionByTokenHash = `-- name: GetSessionByTokenHash :one
-SELECT s.id, s.uuid, s.user_id, s.token_hash, s.current_team_id, s.mfa_verified_at, s.ip, s.user_agent, s.last_seen_at, s.expires_at, s.revoked_at, s.created_at, s.csrf_token, u.email, u.name AS user_name, u.deleted_at AS user_deleted_at
+SELECT s.id, s.uuid, s.user_id, s.token_hash, s.current_team_id, s.mfa_verified_at, s.ip, s.user_agent, s.last_seen_at, s.expires_at, s.revoked_at, s.created_at, s.csrf_token, s.mfa_pending, u.email, u.name AS user_name, u.deleted_at AS user_deleted_at
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1
@@ -136,6 +150,7 @@ type GetSessionByTokenHashRow struct {
 	RevokedAt     pgtype.Timestamptz
 	CreatedAt     pgtype.Timestamptz
 	CsrfToken     *string
+	MfaPending    bool
 	Email         string
 	UserName      string
 	UserDeletedAt pgtype.Timestamptz
@@ -160,6 +175,7 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash string) (
 		&i.RevokedAt,
 		&i.CreatedAt,
 		&i.CsrfToken,
+		&i.MfaPending,
 		&i.Email,
 		&i.UserName,
 		&i.UserDeletedAt,

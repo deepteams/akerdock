@@ -2493,6 +2493,7 @@ type InstanceSetting struct {
 	AcmeEmail                   *string
 	LocalhostSeeded             bool
 	OtlpConfigEnc               []byte
+	MfaRequired                 bool
 }
 
 type Invitation struct {
@@ -3036,6 +3037,7 @@ type Session struct {
 	RevokedAt     pgtype.Timestamptz
 	CreatedAt     pgtype.Timestamptz
 	CsrfToken     *string
+	MfaPending    bool
 }
 
 type SharedVariable struct {

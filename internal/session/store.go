@@ -20,6 +20,8 @@ type Store interface {
 	GetSessionByTokenHash(context.Context, string) (store.GetSessionByTokenHashRow, error)
 	TouchSession(context.Context, int64) error
 	RevokeSession(context.Context, int64) error
+	GetInstanceSettings(context.Context) (store.InstanceSetting, error)
+	ClearMfaPendingForUser(context.Context, int64) error
 
 	GetMfaFactorForUser(context.Context, int64) (store.MfaFactor, error)
 	UpsertUnconfirmedMfaFactor(context.Context, store.UpsertUnconfirmedMfaFactorParams) (store.MfaFactor, error)

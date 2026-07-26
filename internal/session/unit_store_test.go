@@ -18,8 +18,11 @@ type fakeSessionStore struct {
 	membership store.GetTeamMembershipForUserRow
 	session    store.Session
 	sessionRow store.GetSessionByTokenHashRow
+	settings   store.InstanceSetting
 	factor     store.MfaFactor
 	challenge  store.MfaChallenge
+
+	clearedPending []int64
 
 	passkeys      []store.PasskeyCredential
 	passkey       store.PasskeyCredential
@@ -107,6 +110,13 @@ func (f *fakeSessionStore) TouchSession(_ context.Context, id int64) error {
 func (f *fakeSessionStore) RevokeSession(_ context.Context, id int64) error {
 	f.revokedSessions = append(f.revokedSessions, id)
 	return f.err("revokeSession")
+}
+func (f *fakeSessionStore) GetInstanceSettings(context.Context) (store.InstanceSetting, error) {
+	return f.settings, f.err("settings")
+}
+func (f *fakeSessionStore) ClearMfaPendingForUser(_ context.Context, userID int64) error {
+	f.clearedPending = append(f.clearedPending, userID)
+	return f.err("clearPending")
 }
 
 func (f *fakeSessionStore) GetMfaFactorForUser(context.Context, int64) (store.MfaFactor, error) {

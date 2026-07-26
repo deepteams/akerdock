@@ -70,6 +70,10 @@ type Identity struct {
 	// an API token's name, so an audit reader sees which token acted rather than
 	// only its uuid. Empty for sessions (the auth events carry the email).
 	Display string
+	// MFAPending is true for a session opened under forced MFA enrollment
+	// (instance mfa_required, user without a confirmed factor): it may only
+	// enroll a factor — every other operation is refused until it does.
+	MFAPending bool
 }
 
 // IsRoot reports whether the token carries the root permission.

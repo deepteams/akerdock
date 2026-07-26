@@ -4,9 +4,14 @@
 SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL;
 
 -- name: CreateSession :one
-INSERT INTO sessions (user_id, token_hash, csrf_token, current_team_id, ip, user_agent, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO sessions (user_id, token_hash, csrf_token, current_team_id, ip, user_agent, expires_at, mfa_pending)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING *;
+
+-- name: ClearMfaPendingForUser :exec
+-- Lift the forced-enrollment gate on all of a user's sessions once they confirm
+-- an MFA factor (ADR — mfa_required).
+UPDATE sessions SET mfa_pending = false WHERE user_id = $1 AND mfa_pending = true;
 
 -- name: GetSessionByTokenHash :one
 -- A session is only valid while it is unrevoked AND unexpired: both are checked
