@@ -154,7 +154,7 @@ start_akerdock() { # Keep the complete boot environment in one readable place.
   AKERDOCK_RETRY_BASE=1s \
   AKERDOCK_TERMINAL_IDLE_TIMEOUT=8s \
   AKERDOCK_TERMINAL_MAX_DURATION=2m \
-  AKERDOCK_LOG_FORMAT=text "$WORKDIR/akerdock" >> "$WORKDIR/api.log" 2>&1 &
+  AKERDOCK_LOG_FORMAT=text "$WORKDIR/akerdock" serve all-in-one >> "$WORKDIR/api.log" 2>&1 &
   API_PID=$!
   for _ in $(seq 1 30); do curl -sf "$B/health" >/dev/null 2>&1 && break; sleep 1; done
   curl -sf "$B/health" >/dev/null || die "akerdock did not become healthy"
