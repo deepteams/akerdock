@@ -237,8 +237,8 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 		body.PreviewForkApprovalEnabled != nil || body.PreviewExcludeDrafts != nil ||
 		body.PreviewDeployOnOpen != nil || patch.Has("preview_url_templates") ||
 		patch.Has("preview_require_label") || body.PreviewCommentCommandsEnabled != nil ||
-		body.PreviewCancelObsoleteBuilds != nil || body.ScaleToZero != nil ||
-		body.ScaleToZeroAfterMinutes != nil {
+		body.PreviewCancelObsoleteBuilds != nil || body.PreviewScaleToZero != nil ||
+		body.PreviewScaleToZeroAfterMinutes != nil {
 		params := store.UpdateApplicationPreviewSettingsParams{
 			ID:                            row.Resource.ID,
 			PreviewsEnabled:               body.PreviewsEnabled,
@@ -248,11 +248,11 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 			PreviewDeployOnOpen:           body.PreviewDeployOnOpen,
 			PreviewCommentCommandsEnabled: body.PreviewCommentCommandsEnabled,
 			PreviewCancelObsoleteBuilds:   body.PreviewCancelObsoleteBuilds,
-			ScaleToZero:                   body.ScaleToZero,
+			PreviewScaleToZero:            body.PreviewScaleToZero,
 		}
-		if body.ScaleToZeroAfterMinutes != nil {
-			m := int32(*body.ScaleToZeroAfterMinutes)
-			params.ScaleToZeroAfterMinutes = &m
+		if body.PreviewScaleToZeroAfterMinutes != nil {
+			m := int32(*body.PreviewScaleToZeroAfterMinutes)
+			params.PreviewScaleToZeroAfterMinutes = &m
 		}
 		if patch.Has("preview_max_concurrent") {
 			params.SetMaxConcurrent = true
@@ -282,6 +282,19 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 			}
 		}
 		if err := qtx.UpdateApplicationPreviewSettings(r.Context(), params); err != nil {
+			a.internalError(w, r, "update application", err)
+			return
+		}
+	}
+	// Scale-to-zero of the application itself (ADR-037): a separate opt-in from
+	// the preview scale-to-zero above.
+	if body.ScaleToZero != nil || body.ScaleToZeroAfterMinutes != nil {
+		stz := store.UpdateApplicationScaleToZeroParams{ID: row.Resource.ID, ScaleToZero: body.ScaleToZero}
+		if body.ScaleToZeroAfterMinutes != nil {
+			m := int32(*body.ScaleToZeroAfterMinutes)
+			stz.ScaleToZeroAfterMinutes = &m
+		}
+		if err := qtx.UpdateApplicationScaleToZero(r.Context(), stz); err != nil {
 			a.internalError(w, r, "update application", err)
 			return
 		}

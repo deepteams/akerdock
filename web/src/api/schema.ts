@@ -4671,9 +4671,13 @@ export interface components {
             preview_comment_commands_enabled?: boolean;
             /** @description Annule le build de preview rendu obsolète par un nouveau commit de la même PR (§20.4.7, opt-in) — le déploiement en file est superseded, le build en cours annulé coopérativement. */
             preview_cancel_obsolete_builds?: boolean;
-            /** @description Scale-to-zero des previews (ADR-036, proxy-contract §8, opt-in, défaut false) : une preview inactive est endormie (`docker stop`) et réveillée à la première requête par le conteneur waker. Previews d'abord — jamais implicite en production. */
+            /** @description Scale-to-zero des PREVIEWS (ADR-036, opt-in, défaut false) : une preview inactive est endormie (`docker stop`) et réveillée à la première requête par le conteneur waker. */
+            preview_scale_to_zero?: boolean;
+            /** @description Fenêtre d'inactivité des previews en minutes avant endormissement (défaut 30). */
+            preview_scale_to_zero_after_minutes?: number;
+            /** @description Scale-to-zero de l'APPLICATION elle-même (ADR-037, opt-in explicite, défaut false) : l'app inactive est endormie et réveillée à la première requête. À réserver aux workloads pilotés par requête — un `docker stop` arrête aussi workers/crons, et le premier visiteur après inactivité paie le cold-start (jusqu'à 60 s). Séparé de `preview_scale_to_zero`. */
             scale_to_zero?: boolean;
-            /** @description Fenêtre d'inactivité en minutes avant endormissement (défaut 30). L'activité est datée par le waker en coupure du trafic (ADR-036). */
+            /** @description Fenêtre d'inactivité de l'application en minutes avant endormissement (défaut 30). */
             scale_to_zero_after_minutes?: number;
             /** @description (source git) Token API du provider, stocké chiffré sur la git source de l'application (protocols §3-§6) : porte le feedback de preview (commit statuses, commentaire upserté) et la vérification des droits des commandes pour GitLab, Gitea et les webhooks GitHub manuels. Write-only — jamais relu par l'API (INV-003). Null pour le retirer. Inutile avec une GitHub App (elle a ses propres credentials). */
             git_api_token?: string | null;
@@ -4738,9 +4742,15 @@ export interface components {
             /** @description Annulation du build de preview obsolète (§20.4.7). */
             preview_cancel_obsolete_builds?: boolean;
             /** @description Scale-to-zero des previews (ADR-036, opt-in) — endort/réveille via le waker. */
+            preview_scale_to_zero?: boolean;
+            /** @description Fenêtre d'inactivité des previews avant endormissement, en minutes (défaut 30). */
+            preview_scale_to_zero_after_minutes?: number;
+            /** @description Scale-to-zero de l'application elle-même (ADR-037, opt-in) — endort/réveille via le waker. */
             scale_to_zero?: boolean;
-            /** @description Fenêtre d'inactivité avant endormissement, en minutes (défaut 30). */
+            /** @description Fenêtre d'inactivité de l'application avant endormissement, en minutes (défaut 30). */
             scale_to_zero_after_minutes?: number;
+            /** @description L'application est actuellement en veille (scale-to-zero, ADR-037) — arrêtée volontairement, à ne pas confondre avec un état « down ». */
+            readonly scale_asleep?: boolean;
             /** @description Un token API de provider est configuré sur la git source (jamais la valeur — INV-003). */
             readonly git_api_token_set?: boolean;
             /** @description Endpoint API du provider sur la git source (self-hosted). */

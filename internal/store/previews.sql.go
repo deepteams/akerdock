@@ -475,10 +475,10 @@ func (q *Queries) ListPreviewsForApplication(ctx context.Context, applicationID 
 }
 
 const listPreviewsForScaleToZero = `-- name: ListPreviewsForScaleToZero :many
-SELECT p.id, p.uuid, p.application_id, p.provider, p.pr_id, p.source_branch, p.head_sha, p.is_fork, p.fork_approved_by, p.fork_approved_at, p.fqdn, p.status, p.cleanup_error, p.last_deployed_at, p.last_activity_at, p.destroyed_at, p.created_at, p.updated_at, p.repo_reference, p.expiry_warned_at, p.random_slug, a.scale_to_zero_after_minutes AS scale_to_zero_after_minutes
+SELECT p.id, p.uuid, p.application_id, p.provider, p.pr_id, p.source_branch, p.head_sha, p.is_fork, p.fork_approved_by, p.fork_approved_at, p.fqdn, p.status, p.cleanup_error, p.last_deployed_at, p.last_activity_at, p.destroyed_at, p.created_at, p.updated_at, p.repo_reference, p.expiry_warned_at, p.random_slug, a.preview_scale_to_zero_after_minutes AS scale_to_zero_after_minutes
 FROM previews p
 JOIN applications a ON a.id = p.application_id
-WHERE p.status = 'active' AND a.scale_to_zero = true
+WHERE p.status = 'active' AND a.preview_scale_to_zero = true
 `
 
 type ListPreviewsForScaleToZeroRow struct {
@@ -839,31 +839,31 @@ UPDATE applications SET
     preview_require_label = CASE WHEN $14::boolean THEN $15 ELSE preview_require_label END,
     preview_comment_commands_enabled = COALESCE($16, preview_comment_commands_enabled),
     preview_cancel_obsolete_builds = COALESCE($17, preview_cancel_obsolete_builds),
-    scale_to_zero = COALESCE($18, scale_to_zero),
-    scale_to_zero_after_minutes = COALESCE($19, scale_to_zero_after_minutes)
+    preview_scale_to_zero = COALESCE($18, preview_scale_to_zero),
+    preview_scale_to_zero_after_minutes = COALESCE($19, preview_scale_to_zero_after_minutes)
 WHERE id = $1
 `
 
 type UpdateApplicationPreviewSettingsParams struct {
-	ID                            int64
-	PreviewsEnabled               *bool
-	PreviewUrlTemplate            *string
-	SetMaxConcurrent              bool
-	PreviewMaxConcurrent          *int32
-	SetTtl                        bool
-	PreviewTtlMinutes             *int32
-	PreviewProtection             *PreviewProtection
-	PreviewForkApprovalEnabled    *bool
-	PreviewExcludeDrafts          *bool
-	PreviewDeployOnOpen           *bool
-	SetUrlTemplates               bool
-	PreviewUrlTemplates           []byte
-	SetRequireLabel               bool
-	PreviewRequireLabel           *string
-	PreviewCommentCommandsEnabled *bool
-	PreviewCancelObsoleteBuilds   *bool
-	ScaleToZero                   *bool
-	ScaleToZeroAfterMinutes       *int32
+	ID                             int64
+	PreviewsEnabled                *bool
+	PreviewUrlTemplate             *string
+	SetMaxConcurrent               bool
+	PreviewMaxConcurrent           *int32
+	SetTtl                         bool
+	PreviewTtlMinutes              *int32
+	PreviewProtection              *PreviewProtection
+	PreviewForkApprovalEnabled     *bool
+	PreviewExcludeDrafts           *bool
+	PreviewDeployOnOpen            *bool
+	SetUrlTemplates                bool
+	PreviewUrlTemplates            []byte
+	SetRequireLabel                bool
+	PreviewRequireLabel            *string
+	PreviewCommentCommandsEnabled  *bool
+	PreviewCancelObsoleteBuilds    *bool
+	PreviewScaleToZero             *bool
+	PreviewScaleToZeroAfterMinutes *int32
 }
 
 func (q *Queries) UpdateApplicationPreviewSettings(ctx context.Context, arg UpdateApplicationPreviewSettingsParams) error {
@@ -885,8 +885,8 @@ func (q *Queries) UpdateApplicationPreviewSettings(ctx context.Context, arg Upda
 		arg.PreviewRequireLabel,
 		arg.PreviewCommentCommandsEnabled,
 		arg.PreviewCancelObsoleteBuilds,
-		arg.ScaleToZero,
-		arg.ScaleToZeroAfterMinutes,
+		arg.PreviewScaleToZero,
+		arg.PreviewScaleToZeroAfterMinutes,
 	)
 	return err
 }

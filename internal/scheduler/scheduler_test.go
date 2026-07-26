@@ -129,6 +129,14 @@ func (f *fakeSchedulerStore) ListSleepingPreviews(context.Context) ([]store.Prev
 }
 func (f *fakeSchedulerStore) SetPreviewSleeping(context.Context, int64) error { return f.err("sleep") }
 func (f *fakeSchedulerStore) SetPreviewAwake(context.Context, int64) error    { return f.err("awake") }
+func (f *fakeSchedulerStore) ListApplicationsToSleep(context.Context) ([]store.ListApplicationsToSleepRow, error) {
+	return nil, f.err("appSleepList")
+}
+func (f *fakeSchedulerStore) ListSleepingApplications(context.Context) ([]store.ListSleepingApplicationsRow, error) {
+	return nil, f.err("appSleepingList")
+}
+func (f *fakeSchedulerStore) SetApplicationSlept(context.Context, int64) error { return f.err("appSleep") }
+func (f *fakeSchedulerStore) SetApplicationAwake(context.Context, int64) error { return f.err("appAwake") }
 func (f *fakeSchedulerStore) GetServerByID(context.Context, int64) (store.Server, error) {
 	return store.Server{}, f.err("server")
 }

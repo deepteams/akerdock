@@ -268,7 +268,7 @@ func (q *Queries) DeleteDomainsForApplication(ctx context.Context, applicationID
 }
 
 const getApplicationByID = `-- name: GetApplicationByID :one
-SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, a.id, a.git_source_id, a.repository_id, a.git_repository_url, a.git_branch, a.base_directory, a.enable_submodules, a.enable_lfs, a.enable_shallow_clone, a.auto_deploy_enabled, a.watch_paths, a.previews_enabled, a.preview_url_template, a.preview_public_prs_enabled, a.preview_fork_approval_enabled, a.preview_max_concurrent, a.preview_ttl_minutes, a.preview_protection, a.preview_require_label, a.preview_comment_commands_enabled, a.preview_exclude_drafts, a.preview_cancel_obsolete_builds, a.rollback_on_degraded_health, a.bake_time_seconds, a.created_at, a.updated_at, a.preview_deploy_on_open, a.preview_url_templates, a.scale_to_zero, a.scale_to_zero_after_minutes, b.id, b.application_id, b.build_pack, b.install_command, b.build_command, b.start_command, b.publish_directory, b.is_spa, b.custom_nginx_config, b.dockerfile_path, b.dockerfile_content, b.auto_inject_build_args, b.inject_source_commit, b.compose_file_path, b.raw_compose, b.image_name, b.image_tag, b.registry_credential_id, b.push_enabled, b.push_image_name, b.push_image_tag, b.push_tag_with_commit_sha, b.push_registry_credential_id, b.use_build_server, b.use_build_secrets, b.created_at, b.updated_at, rt.id, rt.application_id, rt.ports_exposes, rt.ports_mappings, rt.custom_docker_options, rt.custom_labels, rt.pre_deployment_command, rt.post_deployment_command, rt.stop_grace_period_seconds, rt.restart_limit, rt.memory_limit, rt.memory_reservation, rt.memory_swap, rt.memory_swappiness, rt.cpu_limit, rt.cpu_sets, rt.cpu_shares, rt.force_https, rt.redirect_direction, rt.created_at, rt.updated_at
+SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, a.id, a.git_source_id, a.repository_id, a.git_repository_url, a.git_branch, a.base_directory, a.enable_submodules, a.enable_lfs, a.enable_shallow_clone, a.auto_deploy_enabled, a.watch_paths, a.previews_enabled, a.preview_url_template, a.preview_public_prs_enabled, a.preview_fork_approval_enabled, a.preview_max_concurrent, a.preview_ttl_minutes, a.preview_protection, a.preview_require_label, a.preview_comment_commands_enabled, a.preview_exclude_drafts, a.preview_cancel_obsolete_builds, a.rollback_on_degraded_health, a.bake_time_seconds, a.created_at, a.updated_at, a.preview_deploy_on_open, a.preview_url_templates, a.scale_to_zero, a.scale_to_zero_after_minutes, a.preview_scale_to_zero, a.preview_scale_to_zero_after_minutes, a.scale_slept_at, b.id, b.application_id, b.build_pack, b.install_command, b.build_command, b.start_command, b.publish_directory, b.is_spa, b.custom_nginx_config, b.dockerfile_path, b.dockerfile_content, b.auto_inject_build_args, b.inject_source_commit, b.compose_file_path, b.raw_compose, b.image_name, b.image_tag, b.registry_credential_id, b.push_enabled, b.push_image_name, b.push_image_tag, b.push_tag_with_commit_sha, b.push_registry_credential_id, b.use_build_server, b.use_build_secrets, b.created_at, b.updated_at, rt.id, rt.application_id, rt.ports_exposes, rt.ports_mappings, rt.custom_docker_options, rt.custom_labels, rt.pre_deployment_command, rt.post_deployment_command, rt.stop_grace_period_seconds, rt.restart_limit, rt.memory_limit, rt.memory_reservation, rt.memory_swap, rt.memory_swappiness, rt.cpu_limit, rt.cpu_sets, rt.cpu_shares, rt.force_https, rt.redirect_direction, rt.created_at, rt.updated_at
 FROM resources r
 JOIN applications a ON a.id = r.id
 JOIN build_configs b ON b.application_id = a.id
@@ -338,6 +338,9 @@ func (q *Queries) GetApplicationByID(ctx context.Context, id int64) (GetApplicat
 		&i.Application.PreviewUrlTemplates,
 		&i.Application.ScaleToZero,
 		&i.Application.ScaleToZeroAfterMinutes,
+		&i.Application.PreviewScaleToZero,
+		&i.Application.PreviewScaleToZeroAfterMinutes,
+		&i.Application.ScaleSleptAt,
 		&i.BuildConfig.ID,
 		&i.BuildConfig.ApplicationID,
 		&i.BuildConfig.BuildPack,
@@ -391,7 +394,7 @@ func (q *Queries) GetApplicationByID(ctx context.Context, id int64) (GetApplicat
 }
 
 const getApplicationByUUID = `-- name: GetApplicationByUUID :one
-SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, a.id, a.git_source_id, a.repository_id, a.git_repository_url, a.git_branch, a.base_directory, a.enable_submodules, a.enable_lfs, a.enable_shallow_clone, a.auto_deploy_enabled, a.watch_paths, a.previews_enabled, a.preview_url_template, a.preview_public_prs_enabled, a.preview_fork_approval_enabled, a.preview_max_concurrent, a.preview_ttl_minutes, a.preview_protection, a.preview_require_label, a.preview_comment_commands_enabled, a.preview_exclude_drafts, a.preview_cancel_obsolete_builds, a.rollback_on_degraded_health, a.bake_time_seconds, a.created_at, a.updated_at, a.preview_deploy_on_open, a.preview_url_templates, a.scale_to_zero, a.scale_to_zero_after_minutes, b.id, b.application_id, b.build_pack, b.install_command, b.build_command, b.start_command, b.publish_directory, b.is_spa, b.custom_nginx_config, b.dockerfile_path, b.dockerfile_content, b.auto_inject_build_args, b.inject_source_commit, b.compose_file_path, b.raw_compose, b.image_name, b.image_tag, b.registry_credential_id, b.push_enabled, b.push_image_name, b.push_image_tag, b.push_tag_with_commit_sha, b.push_registry_credential_id, b.use_build_server, b.use_build_secrets, b.created_at, b.updated_at, rt.id, rt.application_id, rt.ports_exposes, rt.ports_mappings, rt.custom_docker_options, rt.custom_labels, rt.pre_deployment_command, rt.post_deployment_command, rt.stop_grace_period_seconds, rt.restart_limit, rt.memory_limit, rt.memory_reservation, rt.memory_swap, rt.memory_swappiness, rt.cpu_limit, rt.cpu_sets, rt.cpu_shares, rt.force_https, rt.redirect_direction, rt.created_at, rt.updated_at,
+SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, a.id, a.git_source_id, a.repository_id, a.git_repository_url, a.git_branch, a.base_directory, a.enable_submodules, a.enable_lfs, a.enable_shallow_clone, a.auto_deploy_enabled, a.watch_paths, a.previews_enabled, a.preview_url_template, a.preview_public_prs_enabled, a.preview_fork_approval_enabled, a.preview_max_concurrent, a.preview_ttl_minutes, a.preview_protection, a.preview_require_label, a.preview_comment_commands_enabled, a.preview_exclude_drafts, a.preview_cancel_obsolete_builds, a.rollback_on_degraded_health, a.bake_time_seconds, a.created_at, a.updated_at, a.preview_deploy_on_open, a.preview_url_templates, a.scale_to_zero, a.scale_to_zero_after_minutes, a.preview_scale_to_zero, a.preview_scale_to_zero_after_minutes, a.scale_slept_at, b.id, b.application_id, b.build_pack, b.install_command, b.build_command, b.start_command, b.publish_directory, b.is_spa, b.custom_nginx_config, b.dockerfile_path, b.dockerfile_content, b.auto_inject_build_args, b.inject_source_commit, b.compose_file_path, b.raw_compose, b.image_name, b.image_tag, b.registry_credential_id, b.push_enabled, b.push_image_name, b.push_image_tag, b.push_tag_with_commit_sha, b.push_registry_credential_id, b.use_build_server, b.use_build_secrets, b.created_at, b.updated_at, rt.id, rt.application_id, rt.ports_exposes, rt.ports_mappings, rt.custom_docker_options, rt.custom_labels, rt.pre_deployment_command, rt.post_deployment_command, rt.stop_grace_period_seconds, rt.restart_limit, rt.memory_limit, rt.memory_reservation, rt.memory_swap, rt.memory_swappiness, rt.cpu_limit, rt.cpu_sets, rt.cpu_shares, rt.force_https, rt.redirect_direction, rt.created_at, rt.updated_at,
        e.uuid AS environment_uuid, p.uuid AS project_uuid,
        dst.uuid AS destination_uuid, srv.uuid AS server_uuid, srv.id AS server_row_id,
        pk.uuid AS private_key_uuid, rc.uuid AS registry_credential_uuid,
@@ -493,6 +496,9 @@ func (q *Queries) GetApplicationByUUID(ctx context.Context, arg GetApplicationBy
 		&i.Application.PreviewUrlTemplates,
 		&i.Application.ScaleToZero,
 		&i.Application.ScaleToZeroAfterMinutes,
+		&i.Application.PreviewScaleToZero,
+		&i.Application.PreviewScaleToZeroAfterMinutes,
+		&i.Application.ScaleSleptAt,
 		&i.BuildConfig.ID,
 		&i.BuildConfig.ApplicationID,
 		&i.BuildConfig.BuildPack,
@@ -677,7 +683,7 @@ func (q *Queries) ListApplicationsByTags(ctx context.Context, arg ListApplicatio
 }
 
 const listApplicationsPage = `-- name: ListApplicationsPage :many
-SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, a.id, a.git_source_id, a.repository_id, a.git_repository_url, a.git_branch, a.base_directory, a.enable_submodules, a.enable_lfs, a.enable_shallow_clone, a.auto_deploy_enabled, a.watch_paths, a.previews_enabled, a.preview_url_template, a.preview_public_prs_enabled, a.preview_fork_approval_enabled, a.preview_max_concurrent, a.preview_ttl_minutes, a.preview_protection, a.preview_require_label, a.preview_comment_commands_enabled, a.preview_exclude_drafts, a.preview_cancel_obsolete_builds, a.rollback_on_degraded_health, a.bake_time_seconds, a.created_at, a.updated_at, a.preview_deploy_on_open, a.preview_url_templates, a.scale_to_zero, a.scale_to_zero_after_minutes, b.id, b.application_id, b.build_pack, b.install_command, b.build_command, b.start_command, b.publish_directory, b.is_spa, b.custom_nginx_config, b.dockerfile_path, b.dockerfile_content, b.auto_inject_build_args, b.inject_source_commit, b.compose_file_path, b.raw_compose, b.image_name, b.image_tag, b.registry_credential_id, b.push_enabled, b.push_image_name, b.push_image_tag, b.push_tag_with_commit_sha, b.push_registry_credential_id, b.use_build_server, b.use_build_secrets, b.created_at, b.updated_at, rt.id, rt.application_id, rt.ports_exposes, rt.ports_mappings, rt.custom_docker_options, rt.custom_labels, rt.pre_deployment_command, rt.post_deployment_command, rt.stop_grace_period_seconds, rt.restart_limit, rt.memory_limit, rt.memory_reservation, rt.memory_swap, rt.memory_swappiness, rt.cpu_limit, rt.cpu_sets, rt.cpu_shares, rt.force_https, rt.redirect_direction, rt.created_at, rt.updated_at,
+SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, a.id, a.git_source_id, a.repository_id, a.git_repository_url, a.git_branch, a.base_directory, a.enable_submodules, a.enable_lfs, a.enable_shallow_clone, a.auto_deploy_enabled, a.watch_paths, a.previews_enabled, a.preview_url_template, a.preview_public_prs_enabled, a.preview_fork_approval_enabled, a.preview_max_concurrent, a.preview_ttl_minutes, a.preview_protection, a.preview_require_label, a.preview_comment_commands_enabled, a.preview_exclude_drafts, a.preview_cancel_obsolete_builds, a.rollback_on_degraded_health, a.bake_time_seconds, a.created_at, a.updated_at, a.preview_deploy_on_open, a.preview_url_templates, a.scale_to_zero, a.scale_to_zero_after_minutes, a.preview_scale_to_zero, a.preview_scale_to_zero_after_minutes, a.scale_slept_at, b.id, b.application_id, b.build_pack, b.install_command, b.build_command, b.start_command, b.publish_directory, b.is_spa, b.custom_nginx_config, b.dockerfile_path, b.dockerfile_content, b.auto_inject_build_args, b.inject_source_commit, b.compose_file_path, b.raw_compose, b.image_name, b.image_tag, b.registry_credential_id, b.push_enabled, b.push_image_name, b.push_image_tag, b.push_tag_with_commit_sha, b.push_registry_credential_id, b.use_build_server, b.use_build_secrets, b.created_at, b.updated_at, rt.id, rt.application_id, rt.ports_exposes, rt.ports_mappings, rt.custom_docker_options, rt.custom_labels, rt.pre_deployment_command, rt.post_deployment_command, rt.stop_grace_period_seconds, rt.restart_limit, rt.memory_limit, rt.memory_reservation, rt.memory_swap, rt.memory_swappiness, rt.cpu_limit, rt.cpu_sets, rt.cpu_shares, rt.force_https, rt.redirect_direction, rt.created_at, rt.updated_at,
        e.uuid AS environment_uuid, p.uuid AS project_uuid,
        dst.uuid AS destination_uuid, srv.uuid AS server_uuid, srv.id AS server_row_id,
        pk.uuid AS private_key_uuid, rc.uuid AS registry_credential_uuid,
@@ -789,6 +795,9 @@ func (q *Queries) ListApplicationsPage(ctx context.Context, arg ListApplications
 			&i.Application.PreviewUrlTemplates,
 			&i.Application.ScaleToZero,
 			&i.Application.ScaleToZeroAfterMinutes,
+			&i.Application.PreviewScaleToZero,
+			&i.Application.PreviewScaleToZeroAfterMinutes,
+			&i.Application.ScaleSleptAt,
 			&i.BuildConfig.ID,
 			&i.BuildConfig.ApplicationID,
 			&i.BuildConfig.BuildPack,
@@ -859,6 +868,85 @@ func (q *Queries) ListApplicationsPage(ctx context.Context, arg ListApplications
 	return items, nil
 }
 
+const listApplicationsToSleep = `-- name: ListApplicationsToSleep :many
+SELECT r.id, r.uuid, r.updated_at, a.scale_to_zero_after_minutes
+FROM applications a
+JOIN resources r ON r.id = a.id
+WHERE a.scale_to_zero = true AND a.scale_slept_at IS NULL
+  AND r.desired_status = 'running' AND r.deleted_at IS NULL
+`
+
+type ListApplicationsToSleepRow struct {
+	ID                      int64
+	Uuid                    pgtype.UUID
+	UpdatedAt               pgtype.Timestamptz
+	ScaleToZeroAfterMinutes int32
+}
+
+// Awake applications that opted into scale-to-zero and are meant to run: the
+// scheduler reads each one's waker activity file over SSH and sleeps the ones
+// idle past their window (ADR-037). A manually stopped app (desired_status !=
+// running) is never touched.
+func (q *Queries) ListApplicationsToSleep(ctx context.Context) ([]ListApplicationsToSleepRow, error) {
+	rows, err := q.db.Query(ctx, listApplicationsToSleep)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListApplicationsToSleepRow
+	for rows.Next() {
+		var i ListApplicationsToSleepRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.UpdatedAt,
+			&i.ScaleToZeroAfterMinutes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSleepingApplications = `-- name: ListSleepingApplications :many
+SELECT r.id, r.uuid, a.scale_slept_at
+FROM applications a
+JOIN resources r ON r.id = a.id
+WHERE a.scale_slept_at IS NOT NULL AND r.deleted_at IS NULL
+`
+
+type ListSleepingApplicationsRow struct {
+	ID           int64
+	Uuid         pgtype.UUID
+	ScaleSleptAt pgtype.Timestamptz
+}
+
+// Applications currently asleep (ADR-037): the scheduler flips them back to
+// awake when the waker has served them again (fresh activity after slept_at).
+func (q *Queries) ListSleepingApplications(ctx context.Context) ([]ListSleepingApplicationsRow, error) {
+	rows, err := q.db.Query(ctx, listSleepingApplications)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSleepingApplicationsRow
+	for rows.Next() {
+		var i ListSleepingApplicationsRow
+		if err := rows.Scan(&i.ID, &i.Uuid, &i.ScaleSleptAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTagsForResource = `-- name: ListTagsForResource :many
 SELECT t.name FROM tags t
 JOIN resource_tags rt ON rt.tag_id = t.id
@@ -884,6 +972,24 @@ func (q *Queries) ListTagsForResource(ctx context.Context, resourceID int64) ([]
 		return nil, err
 	}
 	return items, nil
+}
+
+const setApplicationAwake = `-- name: SetApplicationAwake :exec
+UPDATE applications SET scale_slept_at = NULL WHERE id = $1
+`
+
+func (q *Queries) SetApplicationAwake(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, setApplicationAwake, id)
+	return err
+}
+
+const setApplicationSlept = `-- name: SetApplicationSlept :exec
+UPDATE applications SET scale_slept_at = now() WHERE id = $1
+`
+
+func (q *Queries) SetApplicationSlept(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, setApplicationSlept, id)
+	return err
 }
 
 const setResourceDesiredStatus = `-- name: SetResourceDesiredStatus :exec
@@ -999,6 +1105,25 @@ func (q *Queries) UpdateApplicationGitSettings(ctx context.Context, arg UpdateAp
 		arg.WatchPaths,
 		arg.AutoDeployEnabled,
 	)
+	return err
+}
+
+const updateApplicationScaleToZero = `-- name: UpdateApplicationScaleToZero :exec
+UPDATE applications SET
+    scale_to_zero = COALESCE($2, scale_to_zero),
+    scale_to_zero_after_minutes = COALESCE($3, scale_to_zero_after_minutes)
+WHERE id = $1
+`
+
+type UpdateApplicationScaleToZeroParams struct {
+	ID                      int64
+	ScaleToZero             *bool
+	ScaleToZeroAfterMinutes *int32
+}
+
+// Scale-to-zero of the application itself (ADR-037), separate from previews.
+func (q *Queries) UpdateApplicationScaleToZero(ctx context.Context, arg UpdateApplicationScaleToZeroParams) error {
+	_, err := q.db.Exec(ctx, updateApplicationScaleToZero, arg.ID, arg.ScaleToZero, arg.ScaleToZeroAfterMinutes)
 	return err
 }
 

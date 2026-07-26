@@ -75,6 +75,12 @@ type Config struct {
 // http://akerdock-waker:8080 (ADR-036 §2).
 const DefaultListenAddr = ":8080"
 
+// UptimeProbeHeader marks an AkerDock uptime check (ADR-037): the waker wakes
+// and forwards it (so the check measures the app truly up), but does NOT record
+// it as activity — otherwise monitoring would keep a scale-to-zero app awake
+// forever. The app wakes briefly per check, then sleeps again.
+const UptimeProbeHeader = "X-AkerDock-Uptime"
+
 const (
 	// MaxHoldBody is the largest request body held across a cold start (§8.3):
 	// beyond it the waker returns 503 rather than buffer a big upload while the
@@ -159,6 +165,19 @@ func (w *Waker) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// An uptime probe (ADR-037) must never wake a deliberately-sleeping app just
+	// to be answered — that would cold-start the whole stack on every check. When
+	// the target is asleep, the waker replies directly "up" (it IS available: it
+	// wakes on real traffic); when already awake, the probe is forwarded to the
+	// real app below so the check measures its true health.
+	isUptime := req.Header.Get(UptimeProbeHeader) != ""
+	if isUptime && !w.isRunning(req.Context(), route.ResourceUUID) {
+		rw.Header().Set("X-AkerDock-Scale", "asleep")
+		rw.WriteHeader(http.StatusOK)
+		_, _ = rw.Write([]byte("asleep"))
+		return
+	}
+
 	// A body larger than the hold budget is refused during a cold start rather
 	// than buffered while the target boots (§8.3).
 	if req.ContentLength > MaxHoldBody && !w.isRunning(req.Context(), route.ResourceUUID) {
@@ -182,7 +201,9 @@ func (w *Waker) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	// Activity is dated on every request — that is what "the waker reports
 	// activity" means (ADR-036): the control plane reads this to decide sleep.
-	if w.activity != nil {
+	// An uptime probe of an already-awake app is forwarded (real health) but must
+	// not count as activity, or monitoring would keep the app awake forever.
+	if w.activity != nil && !isUptime {
 		_ = w.activity.Record(route.ResourceUUID, w.now())
 	}
 

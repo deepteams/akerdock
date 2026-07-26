@@ -100,8 +100,12 @@ export interface SettingsForm extends ConfigForm {
   previewCommentCommandsEnabled: boolean;
   previewCancelObsoleteBuilds: boolean;
   /** Sleep idle previews and wake them on demand via the waker (ADR-036). */
+  previewScaleToZero: boolean;
+  /** Idle window before sleeping previews, in minutes. */
+  previewScaleToZeroAfterMinutes: number;
+  /** Sleep the application itself when idle, woken on demand (ADR-037). */
   scaleToZero: boolean;
-  /** Idle window before sleeping, in minutes. */
+  /** Idle window before sleeping the application, in minutes. */
   scaleToZeroAfterMinutes: number;
   /** New provider API token to store; blank = keep the stored one (write-only). */
   gitApiToken: string;
@@ -224,6 +228,8 @@ export function settingsFromApplication(app: Application): SettingsForm {
     previewRequireLabel: app.preview_require_label ?? '',
     previewCommentCommandsEnabled: app.preview_comment_commands_enabled ?? false,
     previewCancelObsoleteBuilds: app.preview_cancel_obsolete_builds ?? false,
+    previewScaleToZero: app.preview_scale_to_zero ?? false,
+    previewScaleToZeroAfterMinutes: app.preview_scale_to_zero_after_minutes ?? 30,
     scaleToZero: app.scale_to_zero ?? false,
     scaleToZeroAfterMinutes: app.scale_to_zero_after_minutes ?? 30,
     gitApiToken: '',
@@ -321,6 +327,10 @@ export function settingsToUpdate(form: SettingsForm, sourceType: SourceType): Ap
     post_deployment_command: orNull(form.postDeploymentCommand),
     health_check: healthCheckFromForm(form),
     limits: limitsFromForm(form),
+    // Scale-to-zero of the application itself (ADR-037) — applies to every
+    // source type, unlike the preview scale-to-zero which lives under `git`.
+    scale_to_zero: form.scaleToZero,
+    scale_to_zero_after_minutes: Math.max(1, Number(form.scaleToZeroAfterMinutes) || 30),
   };
 
   switch (sourceType) {
@@ -370,8 +380,8 @@ export function settingsToUpdate(form: SettingsForm, sourceType: SourceType): Ap
       update.preview_require_label = orNull(form.previewRequireLabel);
       update.preview_comment_commands_enabled = form.previewCommentCommandsEnabled;
       update.preview_cancel_obsolete_builds = form.previewCancelObsoleteBuilds;
-      update.scale_to_zero = form.scaleToZero;
-      update.scale_to_zero_after_minutes = Math.max(1, Number(form.scaleToZeroAfterMinutes) || 30);
+      update.preview_scale_to_zero = form.previewScaleToZero;
+      update.preview_scale_to_zero_after_minutes = Math.max(1, Number(form.previewScaleToZeroAfterMinutes) || 30);
       // The token never comes back (write-only): a blank field means "keep the
       // stored one", the clear checkbox means "remove it" (explicit null), and
       // a typed value replaces it.

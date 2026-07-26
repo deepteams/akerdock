@@ -134,18 +134,18 @@ UPDATE applications SET
     preview_require_label = CASE WHEN sqlc.arg(set_require_label)::boolean THEN sqlc.narg(preview_require_label) ELSE preview_require_label END,
     preview_comment_commands_enabled = COALESCE(sqlc.narg(preview_comment_commands_enabled), preview_comment_commands_enabled),
     preview_cancel_obsolete_builds = COALESCE(sqlc.narg(preview_cancel_obsolete_builds), preview_cancel_obsolete_builds),
-    scale_to_zero = COALESCE(sqlc.narg(scale_to_zero), scale_to_zero),
-    scale_to_zero_after_minutes = COALESCE(sqlc.narg(scale_to_zero_after_minutes), scale_to_zero_after_minutes)
+    preview_scale_to_zero = COALESCE(sqlc.narg(preview_scale_to_zero), preview_scale_to_zero),
+    preview_scale_to_zero_after_minutes = COALESCE(sqlc.narg(preview_scale_to_zero_after_minutes), preview_scale_to_zero_after_minutes)
 WHERE id = $1;
 
 -- name: ListPreviewsForScaleToZero :many
 -- Scale-to-zero (ADR-036): active previews whose application opted in, with the
 -- app's idle window. The scheduler reads each preview's waker activity file over
 -- SSH and sleeps the ones idle past their window.
-SELECT p.*, a.scale_to_zero_after_minutes AS scale_to_zero_after_minutes
+SELECT p.*, a.preview_scale_to_zero_after_minutes AS scale_to_zero_after_minutes
 FROM previews p
 JOIN applications a ON a.id = p.application_id
-WHERE p.status = 'active' AND a.scale_to_zero = true;
+WHERE p.status = 'active' AND a.preview_scale_to_zero = true;
 
 -- name: ListSleepingPreviews :many
 -- Sleeping previews (ADR-036): the scheduler checks whether the waker has woken

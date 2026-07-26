@@ -110,52 +110,8 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 		return
 	}
 
-	// One SSH connection per server, reused across its previews.
-	clients := map[int64]remoteClient{}
-	defer func() {
-		for _, c := range clients {
-			_ = c.Close()
-		}
-	}()
-	clientFor := func(server store.Server) remoteClient {
-		if c, ok := clients[server.ID]; ok {
-			return c
-		}
-		key, err := s.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
-		if err != nil {
-			return nil
-		}
-		pem, err := s.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
-		if err != nil {
-			return nil
-		}
-		var c remoteClient
-		if s.dialSSH != nil {
-			c, err = s.dialSSH(ctx, server, string(pem))
-		} else {
-			c, err = sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
-				time.Duration(server.SshTimeoutSeconds)*time.Second, hostKeyOf(server))
-		}
-		if err != nil {
-			return nil
-		}
-		clients[server.ID] = c
-		return c
-	}
-
-	// The waker of each server is upgraded in place (recreated) once per pass
-	// when its running image differs from this release's — how an upgrade of the
-	// control plane propagates to every server's waker (ADR-036).
-	reconciled := map[int64]bool{}
-	reconcileWaker := func(server store.Server, network string, client remoteClient) {
-		if s.WakerImage == "" || network == "" || reconciled[server.ID] {
-			return
-		}
-		reconciled[server.ID] = true
-		if _, err := client.Run(ctx, jobs.WakerEnsureCommand(network, s.WakerImage)); err != nil {
-			s.Logger.Warn("waker image reconcile failed", "server_id", server.ID, "error", err)
-		}
-	}
+	scan := s.newWakerScan(ctx)
+	defer scan.close()
 
 	now := time.Now()
 
@@ -164,11 +120,11 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		client := clientFor(server)
+		client := scan.client(server)
 		if client == nil {
 			continue
 		}
-		reconcileWaker(server, network, client)
+		scan.reconcile(server, network, client)
 		uuid := pguuid.String(p.Uuid)
 		last := readWakerActivity(ctx, client, uuid)
 		if last.IsZero() { // no activity yet: fall back to the last known times
@@ -193,11 +149,11 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		client := clientFor(server)
+		client := scan.client(server)
 		if client == nil {
 			continue
 		}
-		reconcileWaker(server, network, client)
+		scan.reconcile(server, network, client)
 		uuid := pguuid.String(p.Uuid)
 		last := readWakerActivity(ctx, client, uuid)
 		// The waker records activity when it serves a request, which it only does
@@ -210,6 +166,139 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 			}
 			s.Logger.Info("preview woken by waker", "preview", uuid, "pr", p.PrID)
 		}
+	}
+}
+
+// scaleZeroApplications runs the scale-to-zero lifecycle for production
+// applications (ADR-037): the exact mirror of the preview scan, keyed on the
+// application's own resource uuid. A manually stopped app is excluded by the
+// query (desired_status = running only).
+func (s *Scheduler) scaleZeroApplications(ctx context.Context) {
+	toSleep, err := s.Store.ListApplicationsToSleep(ctx)
+	if err != nil {
+		s.Logger.Warn("app scale-to-zero scan failed", "error", err)
+		return
+	}
+	sleeping, err := s.Store.ListSleepingApplications(ctx)
+	if err != nil {
+		s.Logger.Warn("app scale-to-zero sleeping scan failed", "error", err)
+		return
+	}
+	if len(toSleep) == 0 && len(sleeping) == 0 {
+		return
+	}
+
+	scan := s.newWakerScan(ctx)
+	defer scan.close()
+
+	now := time.Now()
+
+	for _, a := range toSleep {
+		server, network, ok := s.previewPlacement(ctx, a.ID)
+		if !ok {
+			continue
+		}
+		client := scan.client(server)
+		if client == nil {
+			continue
+		}
+		scan.reconcile(server, network, client)
+		uuid := pguuid.String(a.Uuid)
+		last := readWakerActivity(ctx, client, uuid)
+		if last.IsZero() { // no request recorded yet: fall back to the last deploy/update
+			last = a.UpdatedAt.Time
+		}
+		if last.IsZero() || !idlePastWindow(last, a.ScaleToZeroAfterMinutes, now) {
+			continue
+		}
+		if err := stopResourceContainers(ctx, client, uuid); err != nil {
+			s.Logger.Warn("app scale-to-zero stop failed", "application", uuid, "error", err)
+			continue
+		}
+		if err := s.Store.SetApplicationSlept(ctx, a.ID); err != nil {
+			s.Logger.Warn("app scale-to-zero status update failed", "application", uuid, "error", err)
+			continue
+		}
+		s.Logger.Info("application scaled to zero (asleep)", "application", uuid, "idle_since", last)
+	}
+
+	for _, a := range sleeping {
+		server, network, ok := s.previewPlacement(ctx, a.ID)
+		if !ok {
+			continue
+		}
+		client := scan.client(server)
+		if client == nil {
+			continue
+		}
+		scan.reconcile(server, network, client)
+		uuid := pguuid.String(a.Uuid)
+		last := readWakerActivity(ctx, client, uuid)
+		// Woken by the waker if the activity file is newer than when we slept it.
+		if !last.IsZero() && a.ScaleSleptAt.Valid && last.After(a.ScaleSleptAt.Time) {
+			if err := s.Store.SetApplicationAwake(ctx, a.ID); err != nil {
+				s.Logger.Warn("app scale-to-zero wake update failed", "application", uuid, "error", err)
+				continue
+			}
+			s.Logger.Info("application woken by waker", "application", uuid)
+		}
+	}
+}
+
+// wakerScan shares one SSH connection per server across a scale-to-zero pass and
+// reconciles each server's waker image once.
+type wakerScan struct {
+	s          *Scheduler
+	ctx        context.Context
+	clients    map[int64]remoteClient
+	reconciled map[int64]bool
+}
+
+func (s *Scheduler) newWakerScan(ctx context.Context) *wakerScan {
+	return &wakerScan{s: s, ctx: ctx, clients: map[int64]remoteClient{}, reconciled: map[int64]bool{}}
+}
+
+func (w *wakerScan) client(server store.Server) remoteClient {
+	if c, ok := w.clients[server.ID]; ok {
+		return c
+	}
+	key, err := w.s.Store.GetPrivateKeyByID(w.ctx, server.PrivateKeyID)
+	if err != nil {
+		return nil
+	}
+	pem, err := w.s.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
+	if err != nil {
+		return nil
+	}
+	var c remoteClient
+	if w.s.dialSSH != nil {
+		c, err = w.s.dialSSH(w.ctx, server, string(pem))
+	} else {
+		c, err = sshexec.Dial(w.ctx, server.Host, int(server.Port), server.SshUser, string(pem),
+			time.Duration(server.SshTimeoutSeconds)*time.Second, hostKeyOf(server))
+	}
+	if err != nil {
+		return nil
+	}
+	w.clients[server.ID] = c
+	return c
+}
+
+// reconcile upgrades a server's waker in place once per pass when its running
+// image differs from this release's (ADR-036).
+func (w *wakerScan) reconcile(server store.Server, network string, client remoteClient) {
+	if w.s.WakerImage == "" || network == "" || w.reconciled[server.ID] {
+		return
+	}
+	w.reconciled[server.ID] = true
+	if _, err := client.Run(w.ctx, jobs.WakerEnsureCommand(network, w.s.WakerImage)); err != nil {
+		w.s.Logger.Warn("waker image reconcile failed", "server_id", server.ID, "error", err)
+	}
+}
+
+func (w *wakerScan) close() {
+	for _, c := range w.clients {
+		_ = c.Close()
 	}
 }
 
@@ -250,10 +339,21 @@ func readWakerActivity(ctx context.Context, client remoteClient, uuid string) ti
 // preview uuid (INV-011). Stopped, not removed: the waker wakes them with
 // `docker start`.
 func stopPreviewContainers(ctx context.Context, client remoteClient, uuid string) error {
+	return stopByLabel(ctx, client, uuid, "akerdock.preview_uuid")
+}
+
+// stopResourceContainers stops every container of an application — the single
+// container by name and, for a compose stack, every one labelled with the
+// resource uuid (ADR-037). Stopped, not removed.
+func stopResourceContainers(ctx context.Context, client remoteClient, uuid string) error {
+	return stopByLabel(ctx, client, uuid, "akerdock.resource_uuid")
+}
+
+func stopByLabel(ctx context.Context, client remoteClient, uuid, label string) error {
 	cmd := fmt.Sprintf(
 		"docker stop -t 10 %s >/dev/null 2>&1; "+
-			"docker ps -q --filter label=akerdock.preview_uuid=%s | xargs -r docker stop -t 10 >/dev/null 2>&1; true",
-		uuid, uuid)
+			"docker ps -q --filter label=%s=%s | xargs -r docker stop -t 10 >/dev/null 2>&1; true",
+		uuid, label, uuid)
 	res, err := client.Run(ctx, cmd)
 	if err != nil {
 		return err

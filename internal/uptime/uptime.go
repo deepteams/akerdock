@@ -57,6 +57,10 @@ func Probe(ctx context.Context, kind, target string, timeout time.Duration) Resu
 			return done(false, 0, err.Error())
 		}
 		req.Header.Set("User-Agent", "akerdock-uptime/1")
+		// A scale-to-zero app (ADR-037) is woken by this probe but must NOT count
+		// it as activity, otherwise monitoring would keep it awake forever. The
+		// waker recognises this header and skips the activity record.
+		req.Header.Set("X-AkerDock-Uptime", "1")
 		client := &http.Client{Timeout: timeout}
 		resp, err := client.Do(req)
 		if err != nil {

@@ -106,9 +106,21 @@ func RenderRoutingFileTo(ctx context.Context, q *store.Queries, app store.GetApp
 // components at explicit endpoints — the candidate IP during a per-service
 // zero-downtime switch (compose-spec §8.2 step 4).
 func RenderRoutingFileWithComponentEndpoints(ctx context.Context, q *store.Queries, app store.GetApplicationByIDRow, revision int64, endpoint string, componentEndpoints map[string]string) (string, error) {
+	rg, ok, err := applicationRouteGroup(ctx, q, app, endpoint, componentEndpoints)
+	if err != nil || !ok {
+		return "", err
+	}
+	return proxy.GenerateDynamic(rg, revision), nil
+}
+
+// applicationRouteGroup builds an application's RouteGroup (domains, compose
+// component targets, wildcard/DNS resolver) before rendering. ok is false when
+// the app has no routable domain. Exposed so scale-to-zero can repoint the group
+// at the waker (ADR-037) while reusing the exact same routing resolution.
+func applicationRouteGroup(ctx context.Context, q *store.Queries, app store.GetApplicationByIDRow, endpoint string, componentEndpoints map[string]string) (proxy.RouteGroup, bool, error) {
 	domains, err := q.ListDomainsForApplication(ctx, &app.Resource.ID)
 	if err != nil {
-		return "", err
+		return proxy.RouteGroup{}, false, err
 	}
 	defaultPort := 80
 	if p := app.RuntimeConfig.PortsExposes; p != nil {
@@ -140,7 +152,7 @@ func RenderRoutingFileWithComponentEndpoints(ctx context.Context, q *store.Queri
 	// against a container that does not exist.
 	components, err := q.ListServiceComponents(ctx, app.Resource.ID)
 	if err != nil {
-		return "", err
+		return proxy.RouteGroup{}, false, err
 	}
 	for _, d := range domains {
 		port := defaultPort
@@ -151,7 +163,7 @@ func RenderRoutingFileWithComponentEndpoints(ctx context.Context, q *store.Queri
 		if len(components) > 0 {
 			c, err := resolveWebComponent(components, d.TargetPort)
 			if err != nil {
-				return "", fmt.Errorf("domain %s: %w", d.Fqdn, err)
+				return proxy.RouteGroup{}, false, fmt.Errorf("domain %s: %w", d.Fqdn, err)
 			}
 			if d.TargetPort == nil && c.DefaultRoutePort != nil {
 				route.TargetPort = int(*c.DefaultRoutePort)
@@ -166,12 +178,12 @@ func RenderRoutingFileWithComponentEndpoints(ctx context.Context, q *store.Queri
 	// Compose stacks route per component (compose-spec §6): each domain of a
 	// component targets that component's own container.
 	if err := appendComponentRoutes(ctx, q, components, appUUID, &rg, componentEndpoints); err != nil {
-		return "", err
+		return proxy.RouteGroup{}, false, err
 	}
 	if len(rg.Routes) == 0 {
-		return "", nil
+		return proxy.RouteGroup{}, false, nil
 	}
-	return proxy.GenerateDynamic(rg, revision), nil
+	return rg, true, nil
 }
 
 // resolveWebComponent picks the compose service an application-level domain

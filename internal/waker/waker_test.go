@@ -195,6 +195,58 @@ func TestHealthyReady(t *testing.T) {
 	}
 }
 
+func TestUptimeProbeAsleepAnswersDirectly(t *testing.T) {
+	// ADR-037: an uptime probe on a SLEEPING app must be answered directly (200)
+	// without waking it — otherwise every check cold-starts the whole stack.
+	d := newFakeDocker() // sleeping
+	act := &fakeActivity{}
+	w, hits, closeFn := newTestWaker(t, d, act)
+	defer closeFn()
+
+	req := request("app.example.com", "")
+	req.Header.Set(UptimeProbeHeader, "1")
+	rr := httptest.NewRecorder()
+	w.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (available while asleep)", rr.Code)
+	}
+	if rr.Header().Get("X-AkerDock-Scale") != "asleep" {
+		t.Fatalf("missing asleep marker: %v", rr.Header())
+	}
+	if len(d.starts) != 0 {
+		t.Fatalf("uptime probe must NOT wake a sleeping app, starts=%v", d.starts)
+	}
+	if *hits != 0 {
+		t.Fatalf("sleeping probe must not reach the backend, hits=%d", *hits)
+	}
+	if !act.last["res-1"].IsZero() {
+		t.Fatal("uptime probe must not count as activity")
+	}
+}
+
+func TestUptimeProbeAwakeForwardsNotActivity(t *testing.T) {
+	// An uptime probe on an already-awake app IS forwarded (real health) but must
+	// not count as activity.
+	d := newFakeDocker()
+	d.running["c1"], d.running["c2"] = true, true
+	act := &fakeActivity{}
+	w, hits, closeFn := newTestWaker(t, d, act)
+	defer closeFn()
+
+	req := request("app.example.com", "")
+	req.Header.Set(UptimeProbeHeader, "1")
+	rr := httptest.NewRecorder()
+	w.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTeapot || *hits != 1 {
+		t.Fatalf("status=%d hits=%d, want forwarded to the awake app", rr.Code, *hits)
+	}
+	if !act.last["res-1"].IsZero() {
+		t.Fatal("uptime probe must not count as activity even when awake")
+	}
+}
+
 func TestUnknownHost404(t *testing.T) {
 	w, _, closeFn := newTestWaker(t, newFakeDocker(), &fakeActivity{})
 	defer closeFn()

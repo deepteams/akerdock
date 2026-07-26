@@ -112,7 +112,7 @@ func (h *PreviewDestroy) Execute(ctx context.Context, job store.Job, rec *queue.
 
 	// Drop the preview from the waker's shared routing table (ADR-036). Best
 	// effort: the container is already gone, and the waker ignores stale routes.
-	if app.Application.ScaleToZero {
+	if app.Application.PreviewScaleToZero {
 		_ = removeWakerRoutes(ctx, client, previewUUID)
 	}
 

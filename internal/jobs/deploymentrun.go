@@ -23,6 +23,7 @@ import (
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/githubapp"
 	"github.com/deepteams/akerdock/internal/pguuid"
+	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
@@ -1238,7 +1239,7 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 		// Scale-to-zero (ADR-036): point the preview's single route at the waker,
 		// which forwards to the container and wakes it on demand. Provision the
 		// waker (and its routing table) before the routing flips to it.
-		if r.app.Application.ScaleToZero {
+		if r.app.Application.PreviewScaleToZero {
 			// The waker forwards to the stable container name and wakes it by
 			// `docker start` — never the candidate IP of a rolling switch.
 			if rg, ok := previewSingleRouteGroup(r.app, *r.preview, ""); ok {
@@ -1252,6 +1253,25 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 			}
 		} else {
 			content, err = RenderPreviewRoutingFile(r.app, *r.preview, r.d.ID, endpoint, r.previewAuthHash(ctx), ssoURL)
+		}
+	} else if r.app.Application.ScaleToZero {
+		// Scale-to-zero application (ADR-037): route through the waker, which
+		// forwards to the app's container(s) by their stable names and wakes them
+		// on demand. The rolling candidate-IP step is skipped — cold-start is
+		// accepted, so zero-downtime is not the goal; only the stable step routes.
+		if endpoint != "" {
+			return nil
+		}
+		rg, ok, rgErr := applicationRouteGroup(ctx, r.h.Store, r.app, "", nil)
+		if rgErr != nil {
+			return rgErr
+		}
+		if ok && len(rg.Routes) > 0 {
+			if err = ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, appUUID,
+				wakerConfigFromRouteGroup(appUUID, rg)); err != nil {
+				return err
+			}
+			content = proxy.GenerateDynamic(pointRouteGroupAtWaker(rg), r.d.ID)
 		}
 	} else {
 		content, err = RenderRoutingFileTo(ctx, r.h.Store, r.app, r.d.ID, endpoint)

@@ -81,6 +81,50 @@ type SettingsSection = ConfigSection | 'deploys' | 'previews';
               />
             }
 
+            @if (active() === 'resources') {
+              <section class="akd-card group">
+                <div class="akd-card__header">
+                  <h2 class="akd-card__title">Scale to zero</h2>
+                </div>
+                <div class="akd-card__body body">
+                  <label class="switch">
+                    <input
+                      type="checkbox"
+                      class="akd-switch"
+                      name="appScaleToZero"
+                      [(ngModel)]="form.scaleToZero"
+                      [disabled]="busy()"
+                    />
+                    <span>
+                      <span class="switch__label">Sleep this application when idle</span>
+                      <span class="switch__desc">
+                        Stops the app after inactivity and wakes it on the first request
+                        via the waker. Best for request-driven, low-traffic apps: the
+                        first visitor after a sleep waits for the cold start (up to 60s),
+                        and background workers/crons are stopped too.
+                      </span>
+                    </span>
+                  </label>
+                  @if (form.scaleToZero) {
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="app-stz-min">
+                        Sleep after (minutes of inactivity)
+                      </label>
+                      <input
+                        id="app-stz-min"
+                        class="akd-input"
+                        type="number"
+                        min="1"
+                        name="appScaleToZeroAfterMinutes"
+                        [(ngModel)]="form.scaleToZeroAfterMinutes"
+                        [disabled]="busy()"
+                      />
+                    </div>
+                  }
+                </div>
+              </section>
+            }
+
             @if (active() === 'deploys') {
               <section class="akd-card group">
                 <div class="akd-card__header">
@@ -326,19 +370,19 @@ type SettingsSection = ConfigSection | 'deploys' | 'previews';
                       <input
                         type="checkbox"
                         class="akd-switch"
-                        name="scaleToZero"
-                        [(ngModel)]="form.scaleToZero"
+                        name="previewScaleToZero"
+                        [(ngModel)]="form.previewScaleToZero"
                         [disabled]="busy()"
                       />
                       <span>
-                        <span class="switch__label">Scale to zero</span>
+                        <span class="switch__label">Scale to zero (previews)</span>
                         <span class="switch__desc">
                           Sleep an idle preview (docker stop) and wake it on the first
-                          request via the waker helper. Previews only — never production.
+                          request via the waker helper.
                         </span>
                       </span>
                     </label>
-                    @if (form.scaleToZero) {
+                    @if (form.previewScaleToZero) {
                       <div class="akd-field">
                         <label class="akd-field__label" for="pv-stz-min">
                           Sleep after (minutes of inactivity)
@@ -348,8 +392,8 @@ type SettingsSection = ConfigSection | 'deploys' | 'previews';
                           class="akd-input"
                           type="number"
                           min="1"
-                          name="scaleToZeroAfterMinutes"
-                          [(ngModel)]="form.scaleToZeroAfterMinutes"
+                          name="previewScaleToZeroAfterMinutes"
+                          [(ngModel)]="form.previewScaleToZeroAfterMinutes"
                           [disabled]="busy()"
                         />
                       </div>
@@ -591,6 +635,8 @@ export class ApplicationSettingsTabComponent {
     previewRequireLabel: '',
     previewCommentCommandsEnabled: false,
     previewCancelObsoleteBuilds: false,
+    previewScaleToZero: false,
+    previewScaleToZeroAfterMinutes: 30,
     scaleToZero: false,
     scaleToZeroAfterMinutes: 30,
     gitApiToken: '',

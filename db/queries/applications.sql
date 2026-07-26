@@ -221,3 +221,35 @@ UPDATE resources SET remnants = $2, updated_at = now() WHERE id = $1;
 
 -- name: GetResourceRemnants :one
 SELECT remnants FROM resources WHERE id = $1;
+
+-- name: UpdateApplicationScaleToZero :exec
+-- Scale-to-zero of the application itself (ADR-037), separate from previews.
+UPDATE applications SET
+    scale_to_zero = COALESCE(sqlc.narg(scale_to_zero), scale_to_zero),
+    scale_to_zero_after_minutes = COALESCE(sqlc.narg(scale_to_zero_after_minutes), scale_to_zero_after_minutes)
+WHERE id = $1;
+
+-- name: ListApplicationsToSleep :many
+-- Awake applications that opted into scale-to-zero and are meant to run: the
+-- scheduler reads each one's waker activity file over SSH and sleeps the ones
+-- idle past their window (ADR-037). A manually stopped app (desired_status !=
+-- running) is never touched.
+SELECT r.id, r.uuid, r.updated_at, a.scale_to_zero_after_minutes
+FROM applications a
+JOIN resources r ON r.id = a.id
+WHERE a.scale_to_zero = true AND a.scale_slept_at IS NULL
+  AND r.desired_status = 'running' AND r.deleted_at IS NULL;
+
+-- name: ListSleepingApplications :many
+-- Applications currently asleep (ADR-037): the scheduler flips them back to
+-- awake when the waker has served them again (fresh activity after slept_at).
+SELECT r.id, r.uuid, a.scale_slept_at
+FROM applications a
+JOIN resources r ON r.id = a.id
+WHERE a.scale_slept_at IS NOT NULL AND r.deleted_at IS NULL;
+
+-- name: SetApplicationSlept :exec
+UPDATE applications SET scale_slept_at = now() WHERE id = $1;
+
+-- name: SetApplicationAwake :exec
+UPDATE applications SET scale_slept_at = NULL WHERE id = $1;

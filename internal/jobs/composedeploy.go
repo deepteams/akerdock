@@ -815,7 +815,7 @@ func (r *deploymentRun) applyComposePreviewRouting(ctx context.Context, content 
 	// which forwards to each component and wakes the stack on demand. The waker
 	// routes by Host, so only the service target changes — the protection
 	// middlewares injected below are untouched.
-	if r.app.Application.ScaleToZero && len(rg.Routes) > 0 {
+	if r.app.Application.PreviewScaleToZero && len(rg.Routes) > 0 {
 		wcfg := wakerConfigFromRouteGroup(appUUID, rg)
 		if err := ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, appUUID, wcfg); err != nil {
 			return err
@@ -1455,6 +1455,15 @@ func (r *deploymentRun) composeHealthBudget(sp compose.ServicePlan) int {
 func (r *deploymentRun) switchComponentRouting(ctx context.Context, appUUID, component, endpoint string) error {
 	if r.server.ProxyType != store.ProxyTypeTraefik {
 		return nil
+	}
+	// Scale-to-zero app (ADR-037): routing goes through the waker, so there is no
+	// per-component rolling switch. Candidate steps are skipped; the stable step
+	// re-applies the waker routing.
+	if r.app.Application.ScaleToZero {
+		if endpoint != "" {
+			return nil
+		}
+		return r.applyRouting(ctx, appUUID)
 	}
 	overrides := map[string]string{}
 	expect := ""

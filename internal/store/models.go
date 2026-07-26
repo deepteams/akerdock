@@ -2040,36 +2040,39 @@ type ApiToken struct {
 }
 
 type Application struct {
-	ID                            int64
-	GitSourceID                   *int64
-	RepositoryID                  *int64
-	GitRepositoryUrl              *string
-	GitBranch                     *string
-	BaseDirectory                 string
-	EnableSubmodules              bool
-	EnableLfs                     bool
-	EnableShallowClone            bool
-	AutoDeployEnabled             bool
-	WatchPaths                    *string
-	PreviewsEnabled               bool
-	PreviewUrlTemplate            string
-	PreviewPublicPrsEnabled       bool
-	PreviewForkApprovalEnabled    bool
-	PreviewMaxConcurrent          *int32
-	PreviewTtlMinutes             *int32
-	PreviewProtection             PreviewProtection
-	PreviewRequireLabel           *string
-	PreviewCommentCommandsEnabled bool
-	PreviewExcludeDrafts          bool
-	PreviewCancelObsoleteBuilds   bool
-	RollbackOnDegradedHealth      bool
-	BakeTimeSeconds               *int32
-	CreatedAt                     pgtype.Timestamptz
-	UpdatedAt                     pgtype.Timestamptz
-	PreviewDeployOnOpen           bool
-	PreviewUrlTemplates           []byte
-	ScaleToZero                   bool
-	ScaleToZeroAfterMinutes       int32
+	ID                             int64
+	GitSourceID                    *int64
+	RepositoryID                   *int64
+	GitRepositoryUrl               *string
+	GitBranch                      *string
+	BaseDirectory                  string
+	EnableSubmodules               bool
+	EnableLfs                      bool
+	EnableShallowClone             bool
+	AutoDeployEnabled              bool
+	WatchPaths                     *string
+	PreviewsEnabled                bool
+	PreviewUrlTemplate             string
+	PreviewPublicPrsEnabled        bool
+	PreviewForkApprovalEnabled     bool
+	PreviewMaxConcurrent           *int32
+	PreviewTtlMinutes              *int32
+	PreviewProtection              PreviewProtection
+	PreviewRequireLabel            *string
+	PreviewCommentCommandsEnabled  bool
+	PreviewExcludeDrafts           bool
+	PreviewCancelObsoleteBuilds    bool
+	RollbackOnDegradedHealth       bool
+	BakeTimeSeconds                *int32
+	CreatedAt                      pgtype.Timestamptz
+	UpdatedAt                      pgtype.Timestamptz
+	PreviewDeployOnOpen            bool
+	PreviewUrlTemplates            []byte
+	ScaleToZero                    bool
+	ScaleToZeroAfterMinutes        int32
+	PreviewScaleToZero             bool
+	PreviewScaleToZeroAfterMinutes int32
+	ScaleSleptAt                   pgtype.Timestamptz
 }
 
 type AuditEvent struct {

@@ -10470,18 +10470,31 @@ components:
             Annule le build de preview rendu obsolète par un nouveau commit de
             la même PR (§20.4.7, opt-in) — le déploiement en file est
             superseded, le build en cours annulé coopérativement.
+        preview_scale_to_zero:
+          type: boolean
+          description: >-
+            Scale-to-zero des PREVIEWS (ADR-036, opt-in, défaut false) : une
+            preview inactive est endormie (`docker stop`) et réveillée à la
+            première requête par le conteneur waker.
+        preview_scale_to_zero_after_minutes:
+          type: integer
+          description: >-
+            Fenêtre d'inactivité des previews en minutes avant endormissement
+            (défaut 30).
         scale_to_zero:
           type: boolean
           description: >-
-            Scale-to-zero des previews (ADR-036, proxy-contract §8, opt-in,
-            défaut false) : une preview inactive est endormie (`docker stop`) et
-            réveillée à la première requête par le conteneur waker. Previews
-            d'abord — jamais implicite en production.
+            Scale-to-zero de l'APPLICATION elle-même (ADR-037, opt-in explicite,
+            défaut false) : l'app inactive est endormie et réveillée à la
+            première requête. À réserver aux workloads pilotés par requête — un
+            `docker stop` arrête aussi workers/crons, et le premier visiteur
+            après inactivité paie le cold-start (jusqu'à 60 s). Séparé de
+            `preview_scale_to_zero`.
         scale_to_zero_after_minutes:
           type: integer
           description: >-
-            Fenêtre d'inactivité en minutes avant endormissement (défaut 30).
-            L'activité est datée par le waker en coupure du trafic (ADR-036).
+            Fenêtre d'inactivité de l'application en minutes avant endormissement
+            (défaut 30).
         git_api_token:
           type: string
           nullable: true
@@ -10655,12 +10668,24 @@ components:
         preview_cancel_obsolete_builds:
           type: boolean
           description: Annulation du build de preview obsolète (§20.4.7).
-        scale_to_zero:
+        preview_scale_to_zero:
           type: boolean
           description: Scale-to-zero des previews (ADR-036, opt-in) — endort/réveille via le waker.
+        preview_scale_to_zero_after_minutes:
+          type: integer
+          description: Fenêtre d'inactivité des previews avant endormissement, en minutes (défaut 30).
+        scale_to_zero:
+          type: boolean
+          description: Scale-to-zero de l'application elle-même (ADR-037, opt-in) — endort/réveille via le waker.
         scale_to_zero_after_minutes:
           type: integer
-          description: Fenêtre d'inactivité avant endormissement, en minutes (défaut 30).
+          description: Fenêtre d'inactivité de l'application avant endormissement, en minutes (défaut 30).
+        scale_asleep:
+          type: boolean
+          readOnly: true
+          description: >-
+            L'application est actuellement en veille (scale-to-zero, ADR-037) —
+            arrêtée volontairement, à ne pas confondre avec un état « down ».
         git_api_token_set:
           type: boolean
           readOnly: true

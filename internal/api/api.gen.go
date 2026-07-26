@@ -2066,8 +2066,14 @@ type Application struct {
 
 	// PreviewRequireLabel Opt-in par label de PR (§20.4.7) ; null = désactivé.
 	PreviewRequireLabel *string `json:"preview_require_label,omitempty"`
-	PreviewTtlMinutes   *int    `json:"preview_ttl_minutes,omitempty"`
-	PreviewUrlTemplate  *string `json:"preview_url_template,omitempty"`
+
+	// PreviewScaleToZero Scale-to-zero des previews (ADR-036, opt-in) — endort/réveille via le waker.
+	PreviewScaleToZero *bool `json:"preview_scale_to_zero,omitempty"`
+
+	// PreviewScaleToZeroAfterMinutes Fenêtre d'inactivité des previews avant endormissement, en minutes (défaut 30).
+	PreviewScaleToZeroAfterMinutes *int    `json:"preview_scale_to_zero_after_minutes,omitempty"`
+	PreviewTtlMinutes              *int    `json:"preview_ttl_minutes,omitempty"`
+	PreviewUrlTemplate             *string `json:"preview_url_template,omitempty"`
 
 	// PreviewUrlTemplates Table de routes de preview (ADR-035). Absent = inchangé ; tableau vide = revient au template unique legacy.
 	PreviewUrlTemplates        *[]PreviewRouteTemplate `json:"preview_url_templates,omitempty"`
@@ -2083,10 +2089,13 @@ type Application struct {
 	// RegistryCredentialUuid Credential du registry privé utilisé pour le pull (amendement n°17).
 	RegistryCredentialUuid *string `json:"registry_credential_uuid,omitempty"`
 
-	// ScaleToZero Scale-to-zero des previews (ADR-036, opt-in) — endort/réveille via le waker.
+	// ScaleAsleep L'application est actuellement en veille (scale-to-zero, ADR-037) — arrêtée volontairement, à ne pas confondre avec un état « down ».
+	ScaleAsleep *bool `json:"scale_asleep,omitempty"`
+
+	// ScaleToZero Scale-to-zero de l'application elle-même (ADR-037, opt-in) — endort/réveille via le waker.
 	ScaleToZero *bool `json:"scale_to_zero,omitempty"`
 
-	// ScaleToZeroAfterMinutes Fenêtre d'inactivité avant endormissement, en minutes (défaut 30).
+	// ScaleToZeroAfterMinutes Fenêtre d'inactivité de l'application avant endormissement, en minutes (défaut 30).
 	ScaleToZeroAfterMinutes *int                   `json:"scale_to_zero_after_minutes,omitempty"`
 	ServerUuid              *string                `json:"server_uuid,omitempty"`
 	SourceType              *ApplicationSourceType `json:"source_type,omitempty"`
@@ -2427,6 +2436,12 @@ type ApplicationUpdate struct {
 	// PreviewRequireLabel Opt-in par label (§20.4.7, ADR-011) : la PR doit porter ce label pour obtenir une preview ; null = désactivé (comportement de parité).
 	PreviewRequireLabel *string `json:"preview_require_label,omitempty"`
 
+	// PreviewScaleToZero Scale-to-zero des PREVIEWS (ADR-036, opt-in, défaut false) : une preview inactive est endormie (`docker stop`) et réveillée à la première requête par le conteneur waker.
+	PreviewScaleToZero *bool `json:"preview_scale_to_zero,omitempty"`
+
+	// PreviewScaleToZeroAfterMinutes Fenêtre d'inactivité des previews en minutes avant endormissement (défaut 30).
+	PreviewScaleToZeroAfterMinutes *int `json:"preview_scale_to_zero_after_minutes,omitempty"`
+
 	// PreviewTtlMinutes TTL d'inactivité en minutes ; null = pas de destruction automatique.
 	PreviewTtlMinutes *int `json:"preview_ttl_minutes,omitempty"`
 
@@ -2452,10 +2467,10 @@ type ApplicationUpdate struct {
 	// RegistryCredentialUuid Credential du registry privé (null pour le retirer).
 	RegistryCredentialUuid *string `json:"registry_credential_uuid,omitempty"`
 
-	// ScaleToZero Scale-to-zero des previews (ADR-036, proxy-contract §8, opt-in, défaut false) : une preview inactive est endormie (`docker stop`) et réveillée à la première requête par le conteneur waker. Previews d'abord — jamais implicite en production.
+	// ScaleToZero Scale-to-zero de l'APPLICATION elle-même (ADR-037, opt-in explicite, défaut false) : l'app inactive est endormie et réveillée à la première requête. À réserver aux workloads pilotés par requête — un `docker stop` arrête aussi workers/crons, et le premier visiteur après inactivité paie le cold-start (jusqu'à 60 s). Séparé de `preview_scale_to_zero`.
 	ScaleToZero *bool `json:"scale_to_zero,omitempty"`
 
-	// ScaleToZeroAfterMinutes Fenêtre d'inactivité en minutes avant endormissement (défaut 30). L'activité est datée par le waker en coupure du trafic (ADR-036).
+	// ScaleToZeroAfterMinutes Fenêtre d'inactivité de l'application en minutes avant endormissement (défaut 30).
 	ScaleToZeroAfterMinutes *int      `json:"scale_to_zero_after_minutes,omitempty"`
 	Tags                    *[]string `json:"tags,omitempty"`
 	UseBuildServer          *bool     `json:"use_build_server,omitempty"`

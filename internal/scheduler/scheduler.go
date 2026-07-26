@@ -102,6 +102,10 @@ type SchedulerStore interface {
 	ListSleepingPreviews(context.Context) ([]store.Preview, error)
 	SetPreviewSleeping(context.Context, int64) error
 	SetPreviewAwake(context.Context, int64) error
+	ListApplicationsToSleep(context.Context) ([]store.ListApplicationsToSleepRow, error)
+	ListSleepingApplications(context.Context) ([]store.ListSleepingApplicationsRow, error)
+	SetApplicationSlept(context.Context, int64) error
+	SetApplicationAwake(context.Context, int64) error
 	GetDestinationByID(context.Context, int64) (store.Destination, error)
 	GetServerByID(context.Context, int64) (store.Server, error)
 	GetApplicationByID(context.Context, int64) (store.GetApplicationByIDRow, error)
@@ -250,6 +254,7 @@ func (s *Scheduler) runTasks(ctx context.Context) {
 	s.validateSeededLocalhost(ctx)
 	s.reapPreviews(ctx)
 	s.scaleZeroPreviews(ctx)
+	s.scaleZeroApplications(ctx)
 }
 
 // purgeRetention drops expired history: terminal jobs, published outbox

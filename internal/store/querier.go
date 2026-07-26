@@ -435,6 +435,11 @@ type Querier interface {
 	ListApplicationIDsForRepositoryPush(ctx context.Context, arg ListApplicationIDsForRepositoryPushParams) ([]int64, error)
 	ListApplicationsByTags(ctx context.Context, arg ListApplicationsByTagsParams) ([]pgtype.UUID, error)
 	ListApplicationsPage(ctx context.Context, arg ListApplicationsPageParams) ([]ListApplicationsPageRow, error)
+	// Awake applications that opted into scale-to-zero and are meant to run: the
+	// scheduler reads each one's waker activity file over SSH and sleeps the ones
+	// idle past their window (ADR-037). A manually stopped app (desired_status !=
+	// running) is never touched.
+	ListApplicationsToSleep(ctx context.Context) ([]ListApplicationsToSleepRow, error)
 	// The current expected state of each scope on a server: its last applied
 	// revision (drift reconciliation, §6.2.4).
 	ListAppliedProxyRevisions(ctx context.Context, serverID int64) ([]ProxyConfigRevision, error)
@@ -571,6 +576,9 @@ type Querier interface {
 	// variables of its destination server.
 	ListSharedVariablesForResource(ctx context.Context, resourceID int64) ([]SharedVariable, error)
 	ListSharedVariablesPage(ctx context.Context, arg ListSharedVariablesPageParams) ([]SharedVariable, error)
+	// Applications currently asleep (ADR-037): the scheduler flips them back to
+	// awake when the waker has served them again (fresh activity after slept_at).
+	ListSleepingApplications(ctx context.Context) ([]ListSleepingApplicationsRow, error)
 	// Sleeping previews (ADR-036): the scheduler checks whether the waker has woken
 	// them (fresh activity) and flips their status back to active.
 	ListSleepingPreviews(ctx context.Context) ([]Preview, error)
@@ -679,10 +687,12 @@ type Querier interface {
 	SetAdoptionScanRunning(ctx context.Context, id int64) error
 	// Instance settings mutations (§14.2).
 	SetApiEnabled(ctx context.Context, apiEnabled bool) (InstanceSetting, error)
+	SetApplicationAwake(ctx context.Context, id int64) error
 	// Links an application to a git source after creation — used when a provider
 	// API token arrives on an application whose public repository needed no source
 	// row until now (amendment 31).
 	SetApplicationGitSource(ctx context.Context, arg SetApplicationGitSourceParams) error
+	SetApplicationSlept(ctx context.Context, id int64) error
 	// Restore drills (ADR-014). A backup that has never been restored is a file,
 	// not a backup.
 	SetBackupExecutionTableCount(ctx context.Context, arg SetBackupExecutionTableCountParams) error
@@ -793,6 +803,8 @@ type Querier interface {
 	// the column ("deploy on every push again"), not keep it.
 	UpdateApplicationGitSettings(ctx context.Context, arg UpdateApplicationGitSettingsParams) error
 	UpdateApplicationPreviewSettings(ctx context.Context, arg UpdateApplicationPreviewSettingsParams) error
+	// Scale-to-zero of the application itself (ADR-037), separate from previews.
+	UpdateApplicationScaleToZero(ctx context.Context, arg UpdateApplicationScaleToZeroParams) error
 	UpdateBackupPlan(ctx context.Context, arg UpdateBackupPlanParams) (int64, error)
 	// Build-pack side of the same PATCH. publish_directory carries a set flag:
 	// an explicit null means "no publish step anymore", a COALESCE would keep it.
