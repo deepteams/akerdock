@@ -9,9 +9,11 @@ import {
   untracked,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
 import { BreadcrumbComponent, type Crumb } from '../../ui/breadcrumb/breadcrumb.component';
 import { CardComponent } from '../../ui/card/card.component';
+import { DrawerComponent } from '../../ui/drawer/drawer.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
@@ -19,6 +21,7 @@ import type { components } from '../../api/schema';
 
 type Project = components['schemas']['Project'];
 type Environment = components['schemas']['Environment'];
+type SharedVariable = components['schemas']['SharedVariable'];
 
 /** One row of the unified resource table, whatever the underlying kind. */
 interface ResourceRow {
@@ -50,8 +53,10 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
   standalone: true,
   imports: [
     RouterLink,
+    FormsModule,
     BreadcrumbComponent,
     CardComponent,
+    DrawerComponent,
     EmptyStateComponent,
     IconComponent,
     StatusBadgeComponent,
@@ -108,13 +113,39 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
         </div>
       </header>
 
+      <nav class="akd-tabs" role="tablist" aria-label="Environment sections">
+        <button
+          type="button"
+          class="akd-tab"
+          role="tab"
+          [class.akd-tab--active]="active() === 'resources'"
+          [attr.aria-selected]="active() === 'resources'"
+          (click)="active.set('resources')"
+        >
+          Resources
+        </button>
+        <button
+          type="button"
+          class="akd-tab"
+          role="tab"
+          [class.akd-tab--active]="active() === 'variables'"
+          [attr.aria-selected]="active() === 'variables'"
+          (click)="active.set('variables')"
+        >
+          Variables
+          @if (variables().length > 0) {
+            <span class="akd-tab__count">{{ variables().length }}</span>
+          }
+        </button>
+      </nav>
+
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
-      } @else {
+      } @else if (active() === 'resources') {
         <akd-card title="Resources" [padded]="false">
           <span card-actions class="akd-badge akd-badge--mono">
             {{ resources().length }} in {{ environment()?.name ?? '…' }}
@@ -166,7 +197,118 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
             </table>
           }
         </akd-card>
+      } @else {
+        <akd-card title="Environment variables" [padded]="false">
+          <button
+            card-actions
+            class="akd-btn akd-btn--primary akd-btn--sm"
+            type="button"
+            (click)="openAddVar()"
+            [disabled]="busy()"
+          >
+            <akd-icon name="plus" [size]="14" />
+            Add variable
+          </button>
+          @if (variables().length === 0) {
+            <akd-empty-state
+              icon="hash"
+              title="No environment variables"
+              message="Shared across every resource of this environment, referenced as {{ '{{' }}environment.KEY{{ '}}' }} in their env."
+            />
+          } @else {
+            <table class="akd-table">
+              <caption class="sr-only">
+                Environment-scoped shared variables
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Key</th>
+                  <th scope="col">Value</th>
+                  <th scope="col">Reference</th>
+                  <th scope="col" class="right"><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (v of variables(); track v.uuid) {
+                  <tr>
+                    <td class="akd-mono">
+                      {{ v.key }}
+                      @if (v.is_secret) {
+                        <span class="akd-badge">secret</span>
+                      }
+                    </td>
+                    <td class="akd-mono akd-muted">
+                      {{ v.is_redacted ? '••••••••' : v.value }}
+                    </td>
+                    <td class="akd-mono akd-muted">{{ '{{' }}environment.{{ v.key }}{{ '}}' }}</td>
+                    <td class="right">
+                      <button
+                        class="akd-btn akd-btn--danger akd-btn--sm"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="removeVar(v)"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </akd-card>
       }
+
+      <akd-drawer [open]="showAddVar()" title="Add environment variable" (closed)="closeAddVar()">
+        <form id="env-var-form" class="varform" (ngSubmit)="createVar()">
+          @if (varError(); as message) {
+            <p class="akd-error" role="alert">{{ message }}</p>
+          }
+          <div class="akd-field">
+            <label class="akd-field__label" for="ev-key">Key</label>
+            <input
+              id="ev-key"
+              name="key"
+              class="akd-input akd-input--mono"
+              placeholder="e.g. API_URL"
+              [(ngModel)]="varKey"
+              [disabled]="busy()"
+            />
+            <span class="akd-field__hint">Letters, digits and underscore; cannot start with a digit.</span>
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="ev-value">Value</label>
+            <input
+              id="ev-value"
+              name="value"
+              class="akd-input akd-input--mono"
+              [(ngModel)]="varValue"
+              [disabled]="busy()"
+            />
+          </div>
+          <label class="switch">
+            <input type="checkbox" class="akd-switch" name="secret" [(ngModel)]="varSecret" [disabled]="busy()" />
+            <span>
+              <span class="switch__label">Secret</span>
+              <span class="switch__desc">Encrypted at rest and never shown again (INV-003).</span>
+            </span>
+          </label>
+        </form>
+        <div drawer-footer>
+          <button class="akd-btn akd-btn--ghost" type="button" (click)="closeAddVar()" [disabled]="busy()">
+            Cancel
+          </button>
+          <button
+            class="akd-btn akd-btn--primary"
+            type="submit"
+            form="env-var-form"
+            [disabled]="busy() || !varKey.trim()"
+          >
+            <akd-icon name="plus" [size]="15" />
+            Add variable
+          </button>
+        </div>
+      </akd-drawer>
     </div>
   `,
   styles: [
@@ -258,6 +400,15 @@ export class EnvironmentDetailComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly menu = signal(false);
 
+  protected readonly active = signal<'resources' | 'variables'>('resources');
+  protected readonly variables = signal<SharedVariable[]>([]);
+  protected readonly busy = signal(false);
+  protected readonly showAddVar = signal(false);
+  protected readonly varError = signal<string | null>(null);
+  protected varKey = '';
+  protected varValue = '';
+  protected varSecret = false;
+
   protected readonly crumbs = computed<Crumb[]>(() => [
     { label: 'Projects', link: '/projects' },
     { label: this.project()?.name ?? '…', link: ['/projects', this.uuid()] },
@@ -297,15 +448,22 @@ export class EnvironmentDetailComponent {
     this.loading.set(true);
     this.error.set(null);
     try {
-      const [project, environment, apps, services, databases] = await Promise.all([
+      const [project, environment, apps, services, databases, variables] = await Promise.all([
         this.api.client().getProject(uuid),
         this.api.client().getEnvironment(uuid, envUuid),
         this.api.client().listApplications({ environment_uuid: envUuid, limit: 100 }),
         this.api.client().listServices({ limit: 100 }),
         this.api.client().listDatabases({ environment_uuid: envUuid, limit: 100 }),
+        // The list filters by scope only, so narrow to THIS environment here.
+        this.api.client().listSharedVariables({ scope: 'environment', limit: 100 }),
       ]);
       this.project.set(project);
       this.environment.set(environment);
+      this.variables.set(
+        variables.data
+          .filter((v) => v.environment_uuid === envUuid)
+          .sort((a, b) => a.key.localeCompare(b.key)),
+      );
       const rows: ResourceRow[] = [
         ...apps.data.map((app): ResourceRow => ({
           uuid: app.uuid,
@@ -367,5 +525,64 @@ export class EnvironmentDetailComponent {
         environment: this.envUuid(),
       },
     });
+  }
+
+  protected openAddVar(): void {
+    this.varKey = '';
+    this.varValue = '';
+    this.varSecret = false;
+    this.varError.set(null);
+    this.showAddVar.set(true);
+  }
+
+  protected closeAddVar(): void {
+    if (this.busy()) return;
+    this.showAddVar.set(false);
+  }
+
+  protected async createVar(): Promise<void> {
+    if (this.busy() || !this.varKey.trim()) return;
+    this.busy.set(true);
+    this.varError.set(null);
+    try {
+      await this.api.client().createSharedVariable({
+        scope: 'environment',
+        environment_uuid: this.envUuid(),
+        key: this.varKey.trim(),
+        value: this.varValue,
+        is_secret: this.varSecret,
+      });
+      this.showAddVar.set(false);
+      await this.reloadVariables();
+    } catch (err) {
+      this.varError.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async removeVar(v: SharedVariable): Promise<void> {
+    if (!confirm(`Delete the environment variable "${v.key}"? Resources pick it up at their next deployment.`)) {
+      return;
+    }
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.client().deleteSharedVariable(v.uuid);
+      await this.reloadVariables();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  private async reloadVariables(): Promise<void> {
+    const page = await this.api.client().listSharedVariables({ scope: 'environment', limit: 100 });
+    this.variables.set(
+      page.data
+        .filter((v) => v.environment_uuid === this.envUuid())
+        .sort((a, b) => a.key.localeCompare(b.key)),
+    );
   }
 }

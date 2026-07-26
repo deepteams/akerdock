@@ -863,10 +863,16 @@ kbd {
 /* Right-side slide-over drawer (sibling of the modal, on <dialog>). */
 .akd-drawer {
   position: fixed;
-  inset: 0 0 0 auto; /* pin right, full height */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: auto;
   margin: 0;
+  /* The UA stylesheet gives <dialog> height: fit-content, which top/bottom
+     alone can't override — pin the full viewport height explicitly. */
+  height: 100dvh;
   max-width: none;
-  max-height: none;
+  max-height: 100dvh;
   width: min(30rem, 100vw);
   background: var(--bg-1);
   border: 0;
