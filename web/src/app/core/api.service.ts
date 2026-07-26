@@ -24,6 +24,9 @@ import {
 export interface CurrentUser {
   teamUuid: string;
   permissions: string[];
+  /** The instance root (platform administrator, users.is_root) — gates the
+   * global settings, outside the team-role model (rbac-matrix §3.5). */
+  instanceRoot: boolean;
   email: string;
   name: string;
 }
@@ -115,6 +118,7 @@ export class ApiService {
       const body = (await res.json()) as {
         team_uuid: string;
         permissions: string[];
+        instance_root?: boolean;
         csrf_token: string;
         email: string;
         name: string;
@@ -122,6 +126,7 @@ export class ApiService {
       this.user.set({
         teamUuid: body.team_uuid,
         permissions: body.permissions,
+        instanceRoot: body.instance_root ?? false,
         email: body.email,
         name: body.name,
       });

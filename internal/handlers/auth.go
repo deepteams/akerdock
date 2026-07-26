@@ -145,10 +145,11 @@ func (a *API) Me(w http.ResponseWriter, r *http.Request) {
 		email, name = sess.Email, sess.UserName
 	}
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
-		"team_uuid":   identity.TeamUUID,
-		"permissions": identity.Permissions,
-		"csrf_token":  csrf,
-		"email":       email,
-		"name":        name,
+		"team_uuid":     identity.TeamUUID,
+		"permissions":   identity.Permissions,
+		"instance_root": identity.InstanceRoot,
+		"csrf_token":    csrf,
+		"email":         email,
+		"name":          name,
 	})
 }

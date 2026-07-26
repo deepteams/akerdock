@@ -7,7 +7,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/api"
-	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/notify"
 )
@@ -45,7 +44,7 @@ func (a *API) transactionalEmail(r *http.Request) (*instanceEmail, bool) {
 
 // GetTransactionalEmail implements GET /system/email.
 func (a *API) GetTransactionalEmail(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.require(w, r, auth.PermRoot); !ok {
+	if _, ok := a.requireInstanceRoot(w, r); !ok {
 		return
 	}
 	out := api.TransactionalEmail{Configured: ptr(false)}
@@ -60,7 +59,7 @@ func (a *API) GetTransactionalEmail(w http.ResponseWriter, r *http.Request) {
 
 // SetTransactionalEmail implements PUT /system/email.
 func (a *API) SetTransactionalEmail(w http.ResponseWriter, r *http.Request) {
-	id, ok := a.require(w, r, auth.PermRoot)
+	id, ok := a.requireInstanceRoot(w, r)
 	if !ok {
 		return
 	}

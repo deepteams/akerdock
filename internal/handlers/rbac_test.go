@@ -179,6 +179,15 @@ func TestRootTokenIsNeverRefused(t *testing.T) {
 		Permissions: []string{string(auth.PermRoot)},
 	})
 	for _, op := range contractOperations(t) {
+		// Instance-wide settings (/system/*, permission `root`) are the deliberate
+		// exception: they are reserved to a SESSION of the instance root, never a
+		// token — even a root one (rbac-matrix §3.5). Covered by
+		// TestInstanceSettingsRequireInstanceRootSession instead. Other
+		// root-permission endpoints (e.g. OIDC provider management) are NOT
+		// instance-gated and must still accept a root token.
+		if strings.HasPrefix(op.path, "/system") && op.permission == string(auth.PermRoot) {
+			continue
+		}
 		t.Run(op.id, func(t *testing.T) {
 			rec := httptest.NewRecorder()
 			defer func() {
@@ -190,6 +199,47 @@ func TestRootTokenIsNeverRefused(t *testing.T) {
 			if rec.Code == http.StatusUnauthorized || rec.Code == http.StatusForbidden {
 				t.Errorf("%s %s (%s) refused a root token with %d",
 					op.method, op.path, op.id, rec.Code)
+			}
+		})
+	}
+}
+
+// Instance-wide settings (/system/*) are reserved to a SESSION of the instance
+// root (users.is_root) — the platform administrator, outside the team-role model
+// (rbac-matrix §3.5). A team owner/admin's team-scoped `root` permission is not
+// enough, and API tokens are team-bound so are always refused here.
+func TestInstanceSettingsRequireInstanceRootSession(t *testing.T) {
+	rootToken := &auth.Identity{
+		TokenID: 1, TeamID: 1, TokenUUID: "t", TeamUUID: "team",
+		Permissions: []string{string(auth.PermRoot)},
+	}
+	teamOwnerSession := &auth.Identity{
+		TeamID: 1, TeamUUID: "team", Session: true,
+		Permissions: []string{string(auth.PermRoot)}, // owner role grants `root`, but not is_root
+	}
+	instanceRootSession := &auth.Identity{
+		TeamID: 1, TeamUUID: "team", Session: true, InstanceRoot: true,
+		Permissions: []string{string(auth.PermRoot)},
+	}
+	for _, op := range contractOperations(t) {
+		if !strings.HasPrefix(op.path, "/system") || op.permission != string(auth.PermRoot) {
+			continue
+		}
+		t.Run(op.id, func(t *testing.T) {
+			for name, id := range map[string]*auth.Identity{"root token": rootToken, "team owner session": teamOwnerSession} {
+				rec := httptest.NewRecorder()
+				routerWithIdentity(id).ServeHTTP(rec, request(op))
+				if rec.Code != http.StatusForbidden {
+					t.Errorf("%s %s: %s got %d, want 403", op.method, op.path, name, rec.Code)
+				}
+			}
+			// The instance-root session clears authorization (whatever the nil
+			// store then does — panic/500 — is out of scope).
+			rec := httptest.NewRecorder()
+			defer func() { _ = recover() }()
+			routerWithIdentity(instanceRootSession).ServeHTTP(rec, request(op))
+			if rec.Code == http.StatusUnauthorized || rec.Code == http.StatusForbidden {
+				t.Errorf("%s %s: instance-root session refused with %d", op.method, op.path, rec.Code)
 			}
 		})
 	}

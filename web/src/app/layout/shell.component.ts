@@ -85,9 +85,11 @@ interface NavSection {
               <button class="akd-sidenav__item" role="menuitem" (click)="go('/security')">
                 <akd-icon name="settings" [size]="14" /><span>Personal settings</span>
               </button>
-              <button class="akd-sidenav__item" role="menuitem" (click)="go('/system')">
-                <akd-icon name="globe" [size]="14" /><span>Global settings</span>
-              </button>
+              @if (api.currentUser()?.instanceRoot) {
+                <button class="akd-sidenav__item" role="menuitem" (click)="go('/system')">
+                  <akd-icon name="globe" [size]="14" /><span>Global settings</span>
+                </button>
+              }
               <button class="akd-sidenav__item" role="menuitem" (click)="signOut()">
                 <akd-icon name="log-out" [size]="14" /><span>Sign out</span>
               </button>

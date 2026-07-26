@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/deepteams/akerdock/internal/api"
-	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/jobs"
 	"github.com/deepteams/akerdock/internal/queue"
@@ -16,7 +15,7 @@ import (
 // contains key material. A rotation has converged once only the active
 // version remains referenced.
 func (a *API) GetEncryptionStatus(w http.ResponseWriter, r *http.Request) {
-	id, ok := a.require(w, r, auth.PermRoot)
+	id, ok := a.requireInstanceRoot(w, r)
 	if !ok {
 		return
 	}
@@ -86,7 +85,7 @@ const rotationLockKey = "system:encryption:rotate"
 // active one. Long operation — 202 + job; a rotation already running yields
 // 409 operation_in_progress.
 func (a *API) RotateEncryption(w http.ResponseWriter, r *http.Request, params api.RotateEncryptionParams) {
-	id, ok := a.require(w, r, auth.PermRoot)
+	id, ok := a.requireInstanceRoot(w, r)
 	if !ok {
 		return
 	}

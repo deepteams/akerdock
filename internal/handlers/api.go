@@ -242,6 +242,24 @@ func (a *API) require(w http.ResponseWriter, r *http.Request, perm auth.Permissi
 	return id, true
 }
 
+// requireInstanceRoot gates instance-wide settings (/system/*): only a session
+// of the instance root user (users.is_root, established at bootstrap) may touch
+// them — the platform administrator, OUTSIDE the team-role model (rbac-matrix
+// §3.5). A team owner/admin's team-scoped `root` permission is NOT enough, and
+// API tokens are team-bound so are always refused here (§3.5).
+func (a *API) requireInstanceRoot(w http.ResponseWriter, r *http.Request) (*auth.Identity, bool) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		httpapi.WriteError(w, r, http.StatusUnauthorized, httpapi.CodeUnauthorized, "missing or invalid bearer token")
+		return nil, false
+	}
+	if !id.InstanceRoot {
+		httpapi.WriteError(w, r, http.StatusForbidden, httpapi.CodeForbidden, "this operation is reserved to the instance administrator")
+		return nil, false
+	}
+	return id, true
+}
+
 // resolveTeam loads a team by public UUID and applies team isolation: a
 // valid UUID belonging to another team yields the same 404 as a missing one
 // (INV-002).

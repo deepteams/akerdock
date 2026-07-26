@@ -239,12 +239,13 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) *auth.Ident
 	}
 
 	return &auth.Identity{
-		TokenID:     row.ID,
-		TokenUUID:   uuidString(row.Uuid),
-		TeamID:      teamID,
-		TeamUUID:    uuidString(membership.TeamUuid),
-		Permissions: PermissionsForRole(membership.Role),
-		Session:     true,
+		TokenID:      row.ID,
+		TokenUUID:    uuidString(row.Uuid),
+		TeamID:       teamID,
+		TeamUUID:     uuidString(membership.TeamUuid),
+		Permissions:  PermissionsForRole(membership.Role),
+		Session:      true,
+		InstanceRoot: membership.IsRoot,
 	}
 }
 

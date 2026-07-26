@@ -604,6 +604,10 @@ func flowRouter(a *API) http.Handler {
 	root := &auth.Identity{
 		TokenID: 1, TokenUUID: fixtureUUID, TeamID: 1, TeamUUID: fixtureUUID,
 		Permissions: []string{string(auth.PermRoot)},
+		// The most-privileged fixture caller: also instance root, so it clears the
+		// /system/* instance-root gate. Left as a token (Session:false) so the
+		// server-terminal step-up path stays on its token branch.
+		InstanceRoot: true,
 	}
 	inject := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

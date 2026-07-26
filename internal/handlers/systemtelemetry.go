@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/api"
-	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/telemetry"
@@ -39,7 +38,7 @@ func DecodeOtlpConfig(enc []byte, keyring *envelope.Keyring) (telemetry.Config, 
 
 // GetTelemetry implements GET /system/telemetry.
 func (a *API) GetTelemetry(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.require(w, r, auth.PermRoot); !ok {
+	if _, ok := a.requireInstanceRoot(w, r); !ok {
 		return
 	}
 	out := api.TelemetryConfig{Configured: ptr(false)}
@@ -53,7 +52,7 @@ func (a *API) GetTelemetry(w http.ResponseWriter, r *http.Request) {
 
 // SetTelemetry implements PUT /system/telemetry.
 func (a *API) SetTelemetry(w http.ResponseWriter, r *http.Request) {
-	id, ok := a.require(w, r, auth.PermRoot)
+	id, ok := a.requireInstanceRoot(w, r)
 	if !ok {
 		return
 	}

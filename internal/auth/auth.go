@@ -60,6 +60,12 @@ type Identity struct {
 	// applies to tokens only (PRD §10.3 — it governs the public API), so
 	// the dashboard keeps working, and the setting can be flipped from it.
 	Session bool
+	// InstanceRoot is true only for a session of the instance root user
+	// (users.is_root, established at bootstrap) — the platform administrator,
+	// OUTSIDE the team-role model (rbac-matrix §3.5). It gates instance-wide
+	// settings (/system/*). A team owner/admin's team-scoped `root` permission
+	// does NOT set it, and API tokens are team-bound so never carry it.
+	InstanceRoot bool
 }
 
 // IsRoot reports whether the token carries the root permission.

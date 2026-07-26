@@ -42,7 +42,7 @@ func (a *API) DisableApi(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) setAPIEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
-	id, ok := a.require(w, r, auth.PermRoot)
+	id, ok := a.requireInstanceRoot(w, r)
 	if !ok {
 		return
 	}

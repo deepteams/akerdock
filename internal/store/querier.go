@@ -400,6 +400,8 @@ type Querier interface {
 	GetTeamByUUID(ctx context.Context, uuid pgtype.UUID) (Team, error)
 	// The team a session acts in, with its role and public UUID (the dashboard
 	// addresses team endpoints by UUID). Falls back to the personal team.
+	// Carries the user's instance-root flag (users.is_root) so the session identity
+	// can gate instance-wide settings (rbac-matrix §3.5).
 	GetTeamMembershipForUser(ctx context.Context, userID int64) (GetTeamMembershipForUserRow, error)
 	GetUptimeCheckByUUID(ctx context.Context, arg GetUptimeCheckByUUIDParams) (UptimeCheck, error)
 	// Browser sessions (PRD §698).

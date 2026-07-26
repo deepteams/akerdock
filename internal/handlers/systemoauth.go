@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/deepteams/akerdock/internal/api"
-	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/oidc"
 	"github.com/deepteams/akerdock/internal/pguuid"
@@ -20,7 +19,7 @@ import (
 
 // ListOauthProviders implements GET /system/oauth-providers.
 func (a *API) ListOauthProviders(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.require(w, r, auth.PermRoot); !ok {
+	if _, ok := a.requireInstanceRoot(w, r); !ok {
 		return
 	}
 	rows, err := a.Store.ListOauthProviderConfigs(r.Context())
@@ -37,7 +36,7 @@ func (a *API) ListOauthProviders(w http.ResponseWriter, r *http.Request) {
 
 // SetOauthProvider implements PUT /system/oauth-providers/{oauth_provider}.
 func (a *API) SetOauthProvider(w http.ResponseWriter, r *http.Request, oauthProvider api.SetOauthProviderParamsOauthProvider) {
-	id, ok := a.require(w, r, auth.PermRoot)
+	id, ok := a.requireInstanceRoot(w, r)
 	if !ok {
 		return
 	}
@@ -128,7 +127,7 @@ func (a *API) SetOauthProvider(w http.ResponseWriter, r *http.Request, oauthProv
 
 // DeleteOauthProvider implements DELETE /system/oauth-providers/{oauth_provider}.
 func (a *API) DeleteOauthProvider(w http.ResponseWriter, r *http.Request, oauthProvider api.DeleteOauthProviderParamsOauthProvider) {
-	id, ok := a.require(w, r, auth.PermRoot)
+	id, ok := a.requireInstanceRoot(w, r)
 	if !ok {
 		return
 	}

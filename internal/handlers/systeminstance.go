@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/api"
-	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/store"
 )
@@ -42,7 +41,7 @@ func (a *API) instanceIdentity(r *http.Request) (api.InstanceIdentity, error) {
 
 // GetInstanceSettings implements GET /system/instance.
 func (a *API) GetInstanceSettings(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.require(w, r, auth.PermRoot); !ok {
+	if _, ok := a.requireInstanceRoot(w, r); !ok {
 		return
 	}
 	out, err := a.instanceIdentity(r)
@@ -55,7 +54,7 @@ func (a *API) GetInstanceSettings(w http.ResponseWriter, r *http.Request) {
 
 // SetInstanceSettings implements PUT /system/instance.
 func (a *API) SetInstanceSettings(w http.ResponseWriter, r *http.Request) {
-	id, ok := a.require(w, r, auth.PermRoot)
+	id, ok := a.requireInstanceRoot(w, r)
 	if !ok {
 		return
 	}
