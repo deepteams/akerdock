@@ -10,6 +10,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { StatusBadgeComponent } from '../../../ui/status-badge/status-badge.component';
 import { CardComponent } from '../../../ui/card/card.component';
+import { DrawerComponent } from '../../../ui/drawer/drawer.component';
 import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
@@ -21,58 +22,26 @@ type TaskExecution = components['schemas']['TaskExecution'];
 @Component({
   selector: 'app-application-tasks-tab',
   standalone: true,
-  imports: [FormsModule, StatusBadgeComponent, CardComponent, EmptyStateComponent, IconComponent],
+  imports: [
+    FormsModule,
+    StatusBadgeComponent,
+    CardComponent,
+    DrawerComponent,
+    EmptyStateComponent,
+    IconComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (error(); as message) {
       <p class="akd-error" role="alert">{{ message }}</p>
     }
 
-    <akd-card title="Add task" class="create">
-      <form class="form" (ngSubmit)="create()">
-        <div class="akd-field">
-          <label class="akd-field__label" for="tk-name">Name</label>
-          <input
-            id="tk-name"
-            name="name"
-            class="akd-input"
-            required
-            [(ngModel)]="name"
-            [disabled]="busy()"
-          />
-        </div>
-        <div class="akd-field">
-          <label class="akd-field__label" for="tk-command">Command (run in the container)</label>
-          <input
-            id="tk-command"
-            name="command"
-            class="akd-input akd-input--mono"
-            placeholder="php artisan schedule:run"
-            required
-            [(ngModel)]="command"
-            [disabled]="busy()"
-          />
-        </div>
-        <div class="akd-field">
-          <label class="akd-field__label" for="tk-cron">Cron expression</label>
-          <input
-            id="tk-cron"
-            name="cron"
-            class="akd-input akd-input--mono"
-            placeholder="0 3 * * *"
-            required
-            [(ngModel)]="cron"
-            [disabled]="busy()"
-          />
-        </div>
-        <div>
-          <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy() || !valid()">
-            <akd-icon name="plus" [size]="15" />
-            Add task
-          </button>
-        </div>
-      </form>
-    </akd-card>
+    <div class="bar">
+      <button class="akd-btn akd-btn--primary" type="button" (click)="openAdd()" [disabled]="busy()">
+        <akd-icon name="plus" [size]="15" />
+        Add task
+      </button>
+    </div>
 
     @if (loading()) {
       <p class="akd-muted">Loading…</p>
@@ -254,13 +223,71 @@ type TaskExecution = components['schemas']['TaskExecution'];
         </table>
       </akd-card>
     }
+
+    <akd-drawer [open]="showAdd()" title="Add scheduled task" (closed)="closeAdd()">
+      <form id="task-form" class="form" (ngSubmit)="create()">
+        @if (error(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        }
+        <div class="akd-field">
+          <label class="akd-field__label" for="tk-name">Name</label>
+          <input
+            id="tk-name"
+            name="name"
+            class="akd-input"
+            required
+            [(ngModel)]="name"
+            [disabled]="busy()"
+          />
+        </div>
+        <div class="akd-field">
+          <label class="akd-field__label" for="tk-command">Command (run in the container)</label>
+          <input
+            id="tk-command"
+            name="command"
+            class="akd-input akd-input--mono"
+            placeholder="php artisan schedule:run"
+            required
+            [(ngModel)]="command"
+            [disabled]="busy()"
+          />
+        </div>
+        <div class="akd-field">
+          <label class="akd-field__label" for="tk-cron">Cron expression</label>
+          <input
+            id="tk-cron"
+            name="cron"
+            class="akd-input akd-input--mono"
+            placeholder="0 3 * * *"
+            required
+            [(ngModel)]="cron"
+            [disabled]="busy()"
+          />
+          <span class="akd-field__hint">Standard 5-field cron, evaluated in UTC.</span>
+        </div>
+      </form>
+      <div drawer-footer>
+        <button class="akd-btn akd-btn--ghost" type="button" (click)="closeAdd()" [disabled]="busy()">
+          Cancel
+        </button>
+        <button
+          class="akd-btn akd-btn--primary"
+          type="submit"
+          form="task-form"
+          [disabled]="busy() || !valid()"
+        >
+          <akd-icon name="plus" [size]="15" />
+          Add task
+        </button>
+      </div>
+    </akd-drawer>
   `,
   styles: [
     `
-      .create {
-        display: block;
+      .bar {
+        display: flex;
+        justify-content: flex-end;
         margin-bottom: var(--space-5);
-        max-width: 32rem;
       }
       .form {
         display: grid;
@@ -302,10 +329,24 @@ export class ApplicationTasksTabComponent {
   protected readonly editing = signal<string | null>(null);
   protected readonly expanded = signal<string | null>(null);
   protected readonly executions = signal<TaskExecution[]>([]);
+  protected readonly showAdd = signal(false);
 
   protected name = '';
   protected command = '';
   protected cron = '';
+
+  protected openAdd(): void {
+    this.name = '';
+    this.command = '';
+    this.cron = '';
+    this.error.set(null);
+    this.showAdd.set(true);
+  }
+
+  protected closeAdd(): void {
+    if (this.busy()) return;
+    this.showAdd.set(false);
+  }
   protected editName = '';
   protected editCommand = '';
   protected editCron = '';
@@ -349,6 +390,7 @@ export class ApplicationTasksTabComponent {
       this.name = '';
       this.command = '';
       this.cron = '';
+      this.showAdd.set(false);
       await this.load(this.uuid());
     } catch (err) {
       this.error.set(ApiService.describe(err));
