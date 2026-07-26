@@ -111,7 +111,7 @@ func (a *API) resolveDatabase(w http.ResponseWriter, r *http.Request, id *auth.I
 
 // ListDatabases implements GET /databases (permission: read).
 func (a *API) ListDatabases(w http.ResponseWriter, r *http.Request, params api.ListDatabasesParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermDatabasesRead)
 	if !ok {
 		return
 	}
@@ -145,7 +145,7 @@ func (a *API) ListDatabases(w http.ResponseWriter, r *http.Request, params api.L
 // CreatePostgresqlDatabase implements POST /databases/postgresql
 // (permission: write). Omitted credentials are generated (§6.2).
 func (a *API) CreatePostgresqlDatabase(w http.ResponseWriter, r *http.Request, params api.CreatePostgresqlDatabaseParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermDatabasesCreate)
 	if !ok {
 		return
 	}
@@ -323,7 +323,7 @@ func (a *API) CreatePostgresqlDatabase(w http.ResponseWriter, r *http.Request, p
 
 // GetDatabase implements GET /databases/{database_uuid} (permission: read).
 func (a *API) GetDatabase(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermDatabasesRead)
 	if !ok {
 		return
 	}
@@ -342,7 +342,7 @@ func (a *API) GetDatabase(w http.ResponseWriter, r *http.Request, databaseUuid a
 // write). Image, configuration and credential changes take effect on the
 // next restart (restart_required).
 func (a *API) UpdateDatabase(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid, params api.UpdateDatabaseParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermDatabasesUpdate)
 	if !ok {
 		return
 	}
@@ -477,7 +477,7 @@ func (a *API) UpdateDatabase(w http.ResponseWriter, r *http.Request, databaseUui
 // write): asynchronous deletion; the data volume is kept unless
 // delete_volumes=true (INV-008).
 func (a *API) DeleteDatabase(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid, params api.DeleteDatabaseParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermDatabasesDelete)
 	if !ok {
 		return
 	}
@@ -522,7 +522,7 @@ func (a *API) RestartDatabase(w http.ResponseWriter, r *http.Request, databaseUu
 }
 
 func (a *API) databaseLifecycle(w http.ResponseWriter, r *http.Request, databaseUuid, action, jobType string) {
-	id, ok := a.require(w, r, auth.PermDeploy)
+	id, ok := a.require(w, r, auth.PermDatabasesLifecycle)
 	if !ok {
 		return
 	}

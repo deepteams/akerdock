@@ -85,7 +85,7 @@ func validateComposeContent(ctx context.Context, content, stackUUID string, poli
 
 // ListServices implements GET /services (permission: read).
 func (a *API) ListServices(w http.ResponseWriter, r *http.Request, params api.ListServicesParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermServicesRead)
 	if !ok {
 		return
 	}
@@ -118,7 +118,7 @@ func (a *API) ListServices(w http.ResponseWriter, r *http.Request, params api.Li
 
 // CreateService implements POST /services (permission: write).
 func (a *API) CreateService(w http.ResponseWriter, r *http.Request, params api.CreateServiceParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermServicesManage)
 	if !ok {
 		return
 	}
@@ -228,7 +228,7 @@ func stackRow(row store.GetServiceStackByUUIDRow) appRow {
 
 // GetService implements GET /services/{service_uuid} (permission: read).
 func (a *API) GetService(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermServicesRead)
 	if !ok {
 		return
 	}
@@ -242,7 +242,7 @@ func (a *API) GetService(w http.ResponseWriter, r *http.Request, serviceUuid api
 
 // UpdateService implements PATCH /services/{service_uuid} (permission: write).
 func (a *API) UpdateService(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid, params api.UpdateServiceParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermServicesManage)
 	if !ok {
 		return
 	}
@@ -336,7 +336,7 @@ func (a *API) UpdateService(w http.ResponseWriter, r *http.Request, serviceUuid 
 // DeleteService implements DELETE /services/{service_uuid} (permission:
 // write): asynchronous, same job as applications (§20.6).
 func (a *API) DeleteService(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid, params api.DeleteServiceParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermServicesManage)
 	if !ok {
 		return
 	}
@@ -373,7 +373,7 @@ func (a *API) DeleteService(w http.ResponseWriter, r *http.Request, serviceUuid 
 
 // ListServiceComponents implements GET /services/{service_uuid}/components.
 func (a *API) ListServiceComponents(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermServicesRead)
 	if !ok {
 		return
 	}
@@ -396,7 +396,7 @@ func (a *API) ListServiceComponents(w http.ResponseWriter, r *http.Request, serv
 // DeployService implements POST /services/{service_uuid}/deploy (permission:
 // deploy) — same engine, same queue, same locks as the compose build pack.
 func (a *API) DeployService(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid, params api.DeployServiceParams) {
-	id, ok := a.require(w, r, auth.PermDeploy)
+	id, ok := a.require(w, r, auth.PermServicesDeploy)
 	if !ok {
 		return
 	}
@@ -435,7 +435,7 @@ func (a *API) RestartService(w http.ResponseWriter, r *http.Request, serviceUuid
 }
 
 func (a *API) serviceLifecycle(w http.ResponseWriter, r *http.Request, serviceUuid, action, jobType string) {
-	id, ok := a.require(w, r, auth.PermDeploy)
+	id, ok := a.require(w, r, auth.PermServicesDeploy)
 	if !ok {
 		return
 	}
@@ -467,7 +467,7 @@ func (a *API) serviceLifecycle(w http.ResponseWriter, r *http.Request, serviceUu
 // the stack's variable set (compose-spec §3.2) — same helpers as
 // applications, resolved on the service resource.
 func (a *API) ListServiceEnvs(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid, params api.ListServiceEnvsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermSecretsRead)
 	if !ok {
 		return
 	}
@@ -499,7 +499,7 @@ func (a *API) ListServiceEnvs(w http.ResponseWriter, r *http.Request, serviceUui
 }
 
 func (a *API) CreateServiceEnv(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermSecretsWrite)
 	if !ok {
 		return
 	}
@@ -522,7 +522,7 @@ func (a *API) CreateServiceEnv(w http.ResponseWriter, r *http.Request, serviceUu
 }
 
 func (a *API) UpdateServiceEnv(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid, envUuid api.EnvUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermSecretsWrite)
 	if !ok {
 		return
 	}
@@ -553,7 +553,7 @@ func (a *API) UpdateServiceEnv(w http.ResponseWriter, r *http.Request, serviceUu
 }
 
 func (a *API) DeleteServiceEnv(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid, envUuid api.EnvUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermSecretsWrite)
 	if !ok {
 		return
 	}

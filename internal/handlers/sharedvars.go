@@ -59,7 +59,7 @@ func (a *API) sharedVariableToAPI(r *http.Request, id *auth.Identity, v store.Sh
 
 // ListSharedVariables implements GET /shared-variables (permission: read).
 func (a *API) ListSharedVariables(w http.ResponseWriter, r *http.Request, params api.ListSharedVariablesParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermSecretsRead)
 	if !ok {
 		return
 	}
@@ -96,7 +96,7 @@ func (a *API) ListSharedVariables(w http.ResponseWriter, r *http.Request, params
 
 // CreateSharedVariable implements POST /shared-variables (permission: write).
 func (a *API) CreateSharedVariable(w http.ResponseWriter, r *http.Request, params api.CreateSharedVariableParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermSecretsWrite)
 	if !ok {
 		return
 	}
@@ -208,7 +208,7 @@ func (a *API) CreateSharedVariable(w http.ResponseWriter, r *http.Request, param
 // UpdateSharedVariable implements PATCH /shared-variables/{uuid}
 // (permission: write). Key and scope are identity — immutable.
 func (a *API) UpdateSharedVariable(w http.ResponseWriter, r *http.Request, sharedVariableUuid api.SharedVariableUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermSecretsWrite)
 	if !ok {
 		return
 	}
@@ -257,7 +257,7 @@ func (a *API) UpdateSharedVariable(w http.ResponseWriter, r *http.Request, share
 // DeleteSharedVariable implements DELETE /shared-variables/{uuid}
 // (permission: write).
 func (a *API) DeleteSharedVariable(w http.ResponseWriter, r *http.Request, sharedVariableUuid api.SharedVariableUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermSecretsWrite)
 	if !ok {
 		return
 	}

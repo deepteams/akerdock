@@ -45,7 +45,7 @@ func (a *API) envToAPI(id *auth.Identity, v store.EnvironmentVariable) api.Envir
 // ListApplicationEnvs implements GET /applications/{uuid}/envs
 // (permission: read).
 func (a *API) ListApplicationEnvs(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.ListApplicationEnvsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermSecretsRead)
 	if !ok {
 		return
 	}
@@ -88,7 +88,7 @@ func (a *API) ListApplicationEnvs(w http.ResponseWriter, r *http.Request, applic
 // (permission: write). Values are envelope encrypted at rest, whatever
 // their sensitivity (data-dictionary §8.5).
 func (a *API) CreateApplicationEnv(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.CreateApplicationEnvParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermSecretsWrite)
 	if !ok {
 		return
 	}
@@ -116,7 +116,7 @@ func (a *API) CreateApplicationEnv(w http.ResponseWriter, r *http.Request, appli
 // (permission: write): full replacement — absent variables are DELETED,
 // except locked ones which survive (§5.4).
 func (a *API) ReplaceApplicationEnvs(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermSecretsWrite)
 	if !ok {
 		return
 	}
@@ -181,7 +181,7 @@ func (a *API) ReplaceApplicationEnvs(w http.ResponseWriter, r *http.Request, app
 // UpdateApplicationEnv implements PATCH /applications/{uuid}/envs/{env_uuid}
 // (permission: write). Locked variables are never re-editable (§5.4).
 func (a *API) UpdateApplicationEnv(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, envUuid api.EnvUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermSecretsWrite)
 	if !ok {
 		return
 	}
@@ -239,7 +239,7 @@ func (a *API) UpdateApplicationEnv(w http.ResponseWriter, r *http.Request, appli
 // DeleteApplicationEnv implements DELETE
 // /applications/{uuid}/envs/{env_uuid} (permission: write).
 func (a *API) DeleteApplicationEnv(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, envUuid api.EnvUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermSecretsWrite)
 	if !ok {
 		return
 	}

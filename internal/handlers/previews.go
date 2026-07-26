@@ -453,7 +453,7 @@ func (a *API) DeployPreviewForPr(w http.ResponseWriter, r *http.Request, applica
 // shared preview set merged with this preview's own overrides, override
 // winning per key (INV-010: production values never appear here).
 func (a *API) ListPreviewEnvs(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermSecretsRead)
 	if !ok {
 		return
 	}
@@ -483,7 +483,7 @@ func (a *API) ListPreviewEnvs(w http.ResponseWriter, r *http.Request, applicatio
 // (permission: write): a variable dedicated to THIS preview — same key as
 // the shared set means this value wins here, and only here.
 func (a *API) CreatePreviewEnv(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermSecretsWrite)
 	if !ok {
 		return
 	}

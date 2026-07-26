@@ -3062,7 +3062,7 @@ paths:
         de chaque variable est `null` et `is_redacted` vaut `true` (INV-003).
         Les variables `is_locked` ne révèlent jamais leur valeur, quelle que
         soit la permission.
-      x-required-permission: read
+      x-required-permission: secrets:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -3105,7 +3105,7 @@ paths:
         dans le jeu dédié des previews (INV-010) — c'est ainsi qu'on fournit
         aux instances de PR leurs clés (versions de test), sans jamais copier
         les secrets de production.
-      x-required-permission: write
+      x-required-permission: secrets:write
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
         - name: preview
@@ -3153,7 +3153,7 @@ paths:
         `is_locked` existantes absentes du corps sont conservées (elles ne
         peuvent être supprimées qu'unitairement). Équivalent de la vue
         Developer / éditeur bulk (§5.4).
-      x-required-permission: write
+      x-required-permission: secrets:write
       requestBody:
         required: true
         content:
@@ -3204,7 +3204,7 @@ paths:
         Une variable `is_locked` ne peut pas être rééditée (valeur en écriture
         seule définitive) — seule sa suppression puis recréation est possible
         (§5.4).
-      x-required-permission: write
+      x-required-permission: secrets:write
       requestBody:
         required: true
         content:
@@ -3236,7 +3236,7 @@ paths:
       tags: [Applications]
       operationId: deleteApplicationEnv
       summary: Supprimer une variable d'environnement
-      x-required-permission: write
+      x-required-permission: secrets:write
       responses:
         "204":
           description: Variable supprimée.
@@ -4364,7 +4364,7 @@ paths:
       tags: [Services]
       operationId: listServices
       summary: Lister les stacks compose
-      x-required-permission: read
+      x-required-permission: services:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -4399,7 +4399,7 @@ paths:
         pour un stack inline — sans source à cloner, il n'y a rien à
         construire ; les services déploient des images. La création ne
         déploie pas, sauf `instant_deploy=true`.
-      x-required-permission: write
+      x-required-permission: services:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -4440,7 +4440,7 @@ paths:
       tags: [Services]
       operationId: getService
       summary: Détail d'un stack compose
-      x-required-permission: read
+      x-required-permission: services:read
       responses:
         "200":
           description: Le stack.
@@ -4467,7 +4467,7 @@ paths:
         PATCH sensible — `If-Match` obligatoire (§24.1). Un nouveau
         `compose_content` est validé comme à la création (422 + findings) ;
         il prend effet au prochain déploiement.
-      x-required-permission: write
+      x-required-permission: services:manage
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
@@ -4508,7 +4508,7 @@ paths:
         Suppression asynchrone (§20.6) — routage, containers du stack, puis
         l'objet logique. Les volumes persistants sont CONSERVÉS par défaut
         (INV-008).
-      x-required-permission: write
+      x-required-permission: services:manage
       parameters:
         - name: delete_volumes
           in: query
@@ -4546,7 +4546,7 @@ paths:
         éventuel puis oublie le stack — containers, réseaux, volumes et
         fichiers distants restent EXACTEMENT en l'état. Opération longue —
         répond `202` avec un job.
-      x-required-permission: write
+      x-required-permission: resources:adopt
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
@@ -4574,7 +4574,7 @@ paths:
       tags: [Services]
       operationId: listServiceComponents
       summary: Composants d'un stack
-      x-required-permission: read
+      x-required-permission: services:read
       responses:
         "200":
           description: Composants du stack.
@@ -4608,7 +4608,7 @@ paths:
         Même moteur que le build pack compose des applications
         (compose-spec §8.2) : validation, magic variables, remplacement par
         service avec zero-downtime pour les services web éligibles.
-      x-required-permission: deploy
+      x-required-permission: services:deploy
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
@@ -4637,7 +4637,7 @@ paths:
       operationId: startService
       summary: Démarrer les containers d'un stack
       description: Démarre chaque composant, jobs one-shot exclus (§7.3).
-      x-required-permission: deploy
+      x-required-permission: services:deploy
       responses:
         "202":
           description: Démarrage accepté.
@@ -4661,7 +4661,7 @@ paths:
       tags: [Services]
       operationId: stopService
       summary: Arrêter les containers d'un stack
-      x-required-permission: deploy
+      x-required-permission: services:deploy
       responses:
         "202":
           description: Arrêt accepté.
@@ -4686,7 +4686,7 @@ paths:
       operationId: restartService
       summary: Redémarrer les containers d'un stack
       description: Redémarre chaque composant, jobs one-shot exclus.
-      x-required-permission: deploy
+      x-required-permission: services:deploy
       responses:
         "202":
           description: Redémarrage accepté.
@@ -4713,7 +4713,7 @@ paths:
       description: >-
         Le jeu de variables du stack (compose-spec §3.2) — magic variables
         générées incluses (`is_generated`).
-      x-required-permission: read
+      x-required-permission: secrets:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -4744,7 +4744,7 @@ paths:
       tags: [Services]
       operationId: createServiceEnv
       summary: Ajouter une variable au stack
-      x-required-permission: write
+      x-required-permission: secrets:write
       requestBody:
         required: true
         content:
@@ -4785,7 +4785,7 @@ paths:
       tags: [Services]
       operationId: updateServiceEnv
       summary: Modifier une variable du stack
-      x-required-permission: write
+      x-required-permission: secrets:write
       requestBody:
         required: true
         content:
@@ -4813,7 +4813,7 @@ paths:
       tags: [Services]
       operationId: deleteServiceEnv
       summary: Supprimer une variable du stack
-      x-required-permission: write
+      x-required-permission: secrets:write
       responses:
         "204":
           description: Variable supprimée.
@@ -5163,7 +5163,7 @@ paths:
         Le jeu partagé des previews (INV-010) fusionné avec les surcharges
         dédiées à CETTE PR — par clé, la surcharge gagne. Chaque ligne dit
         d'où elle vient (`is_preview_override`).
-      x-required-permission: read
+      x-required-permission: secrets:read
       responses:
         "200":
           description: Variables effectives.
@@ -5194,7 +5194,7 @@ paths:
         valeur gagne pour cette preview seulement ; clé nouvelle → variable
         supplémentaire de cette preview. Appliquée au prochain déploiement de
         la preview.
-      x-required-permission: write
+      x-required-permission: secrets:write
       requestBody:
         required: true
         content:
@@ -5662,7 +5662,7 @@ paths:
       description: >-
         Les champs sensibles (mot de passe, URLs de connexion) sont `null`
         sans `read:sensitive`.
-      x-required-permission: read
+      x-required-permission: databases:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -5709,7 +5709,7 @@ paths:
         Crée une base PostgreSQL managée (§6). Les credentials omis sont
         auto-générés (mot de passe 64 caractères). La création n'effectue
         aucun démarrage, sauf `instant_start=true`.
-      x-required-permission: write
+      x-required-permission: databases:create
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -5753,7 +5753,7 @@ paths:
       description: >-
         `postgres_password`, `internal_url` et `external_url` requièrent
         `read:sensitive` (sinon `null`, `is_redacted=true`).
-      x-required-permission: read
+      x-required-permission: databases:read
       responses:
         "200":
           description: La base.
@@ -5780,7 +5780,7 @@ paths:
         PATCH sensible — `If-Match` obligatoire. Certains changements
         (image, configuration, credentials) nécessitent un redémarrage pour
         prendre effet — le champ `restart_required` de la réponse l'indique.
-      x-required-permission: write
+      x-required-permission: databases:update
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
@@ -5822,7 +5822,7 @@ paths:
         sont CONSERVÉS ; `delete_volumes=true` pour les détruire (INV-008).
         Refusé avec `409` si des plans de backup actifs référencent la base
         (les supprimer d'abord).
-      x-required-permission: write
+      x-required-permission: databases:delete
       parameters:
         - name: delete_volumes
           in: query
@@ -5856,7 +5856,7 @@ paths:
       tags: [Databases]
       operationId: startDatabase
       summary: Démarrer une base
-      x-required-permission: deploy
+      x-required-permission: databases:lifecycle
       responses:
         "202":
           description: Démarrage accepté — suivre le job.
@@ -5882,7 +5882,7 @@ paths:
       tags: [Databases]
       operationId: stopDatabase
       summary: Arrêter une base
-      x-required-permission: deploy
+      x-required-permission: databases:lifecycle
       responses:
         "202":
           description: Arrêt accepté — suivre le job.
@@ -5908,7 +5908,7 @@ paths:
       tags: [Databases]
       operationId: restartDatabase
       summary: Redémarrer une base
-      x-required-permission: deploy
+      x-required-permission: databases:lifecycle
       responses:
         "202":
           description: Redémarrage accepté — suivre le job.
@@ -6894,7 +6894,7 @@ paths:
       tags: [SharedVariables]
       operationId: listSharedVariables
       summary: Lister les variables partagées de la team
-      x-required-permission: read
+      x-required-permission: secrets:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -6936,7 +6936,7 @@ paths:
         `project`/`environment`/`server` (parent obligatoire). Une clé est
         unique par parent. La valeur est chiffrée au repos et prend effet au
         prochain déploiement des ressources concernées.
-      x-required-permission: write
+      x-required-permission: secrets:write
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -6973,7 +6973,7 @@ paths:
       operationId: updateSharedVariable
       summary: Modifier une variable partagée (valeur, masquage)
       description: La clé et le scope sont immuables — recréer pour changer d'identité.
-      x-required-permission: write
+      x-required-permission: secrets:write
       requestBody:
         required: true
         content:
@@ -7004,7 +7004,7 @@ paths:
       description: >-
         Les valeurs déjà interpolées dans des containers en cours d'exécution
         ne changent qu'au prochain déploiement.
-      x-required-permission: write
+      x-required-permission: secrets:write
       responses:
         "204":
           description: Variable supprimée.

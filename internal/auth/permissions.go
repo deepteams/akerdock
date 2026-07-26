@@ -24,6 +24,19 @@ const (
 	PermApplicationsLifecycle Permission = "applications:lifecycle"
 	PermApplicationsExec      Permission = "applications:exec"
 	PermResourcesAdopt        Permission = "resources:adopt"
+
+	PermDatabasesRead      Permission = "databases:read"
+	PermDatabasesCreate    Permission = "databases:create"
+	PermDatabasesUpdate    Permission = "databases:update"
+	PermDatabasesDelete    Permission = "databases:delete"
+	PermDatabasesLifecycle Permission = "databases:lifecycle"
+
+	PermServicesRead   Permission = "services:read"
+	PermServicesManage Permission = "services:manage"
+	PermServicesDeploy Permission = "services:deploy"
+
+	PermSecretsRead  Permission = "secrets:read"
+	PermSecretsWrite Permission = "secrets:write"
 )
 
 // Catalog maps every granular permission to its coarse socle.

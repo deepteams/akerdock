@@ -239,7 +239,7 @@ func (a *API) DisownApplication(w http.ResponseWriter, r *http.Request, applicat
 
 // DisownService implements POST /services/{uuid}/disown (permission: write).
 func (a *API) DisownService(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid, params api.DisownServiceParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermResourcesAdopt)
 	if !ok {
 		return
 	}
