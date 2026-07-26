@@ -194,6 +194,7 @@ func (r *jobFlowRows) Next() bool {
 	r.current = true
 	return true
 }
+
 func (r *jobFlowRows) Scan(dest ...any) error {
 	if !r.current {
 		return errors.New("Scan called before Next")
@@ -669,7 +670,7 @@ func TestImageDeploymentRunsThroughCompleteStateMachine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("image deployment: %v", err)
 	}
-	status, _ := result.(map[string]any)["deployment_status"]
+	status := result.(map[string]any)["deployment_status"]
 	if status != "succeeded" {
 		t.Fatalf("deployment result = %#v", result)
 	}
@@ -697,7 +698,7 @@ func TestComposeDeploymentRunsThroughCompleteStateMachine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compose deployment: %v", err)
 	}
-	status, _ := result.(map[string]any)["deployment_status"]
+	status := result.(map[string]any)["deployment_status"]
 	if status != "succeeded" {
 		t.Fatalf("deployment result = %#v", result)
 	}
@@ -726,7 +727,7 @@ func TestComposePreviewDeploymentRunsThroughCompleteStateMachine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compose preview deployment: %v", err)
 	}
-	status, _ := result.(map[string]any)["deployment_status"]
+	status := result.(map[string]any)["deployment_status"]
 	if status != "succeeded" {
 		t.Fatalf("deployment result = %#v", result)
 	}
@@ -760,7 +761,7 @@ func TestSourceBuildPacksRunThroughCompleteStateMachine(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s deployment: %v", pack, err)
 			}
-			status, _ := result.(map[string]any)["deployment_status"]
+			status := result.(map[string]any)["deployment_status"]
 			if status != "succeeded" {
 				t.Fatalf("deployment result = %#v", result)
 			}

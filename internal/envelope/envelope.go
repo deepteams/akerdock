@@ -11,7 +11,7 @@ import (
 
 const nonceSize = 12
 
-var randomReader io.Reader = rand.Reader
+var randomReader = rand.Reader
 
 // aad builds the additional authenticated data binding a ciphertext to its
 // row: table || column || row uuid concatenated (data-dictionary §2.7). This

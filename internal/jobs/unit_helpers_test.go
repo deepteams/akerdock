@@ -257,13 +257,16 @@ func (f *previewNotifierFake) SetCommitStatus(context.Context, string, string, g
 	f.statuses++
 	return nil
 }
+
 func (f *previewNotifierFake) UpsertComment(context.Context, string, int, string, string) error {
 	f.comments++
 	return nil
 }
+
 func (f *previewNotifierFake) AuthorCanWrite(context.Context, string, string, int64) (bool, error) {
 	return f.rights, nil
 }
+
 func (f *previewNotifierFake) CollaboratorCanWrite(context.Context, string, string, string) (bool, error) {
 	return f.rights, nil
 }
@@ -309,18 +312,23 @@ func (f *previewPromotionFake) EnqueueJob(context.Context, store.EnqueueJobParam
 	f.enqueued++
 	return store.Job{ID: int64(f.enqueued)}, nil
 }
+
 func (*previewPromotionFake) GetJobByIdempotencyKey(context.Context, *string) (store.Job, error) {
 	return store.Job{}, errors.New("unused")
 }
+
 func (f *previewPromotionFake) CountLivePreviewsForApplication(context.Context, int64) (int64, error) {
 	return f.live, nil
 }
+
 func (*previewPromotionFake) GetDestinationByID(context.Context, int64) (store.Destination, error) {
 	return store.Destination{ServerID: 9}, nil
 }
+
 func (*previewPromotionFake) CreateDeployment(context.Context, store.CreateDeploymentParams) (store.Deployment, error) {
 	return store.Deployment{ID: 7}, nil
 }
+
 func (f *previewPromotionFake) SupersedeObsoletePreviewDeployments(context.Context, store.SupersedeObsoletePreviewDeploymentsParams) ([]int64, error) {
 	return f.superseded, nil
 }
@@ -328,9 +336,11 @@ func (*previewPromotionFake) CancelJobsForDeployments(context.Context, []int64) 
 func (f *previewPromotionFake) ListCancellablePreviewDeploymentIDs(context.Context, store.ListCancellablePreviewDeploymentIDsParams) ([]int64, error) {
 	return f.running, nil
 }
+
 func (*previewPromotionFake) RequestDeploymentJobCancel(context.Context, int64) (int64, error) {
 	return 1, nil
 }
+
 func (f *previewPromotionFake) SetPreviewStatus(_ context.Context, p store.SetPreviewStatusParams) error {
 	f.status = p.Status
 	return nil

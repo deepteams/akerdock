@@ -354,7 +354,7 @@ func TestGitHubIdentity(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/user", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer at-1" {
-			w.WriteHeader(401)
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		fmt.Fprint(w, `{"id": 583231, "login": "octocat", "name": "The Octocat"}`)

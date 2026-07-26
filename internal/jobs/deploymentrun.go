@@ -1231,7 +1231,8 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 	}
 	var content string
 	var err error
-	if r.preview != nil {
+	switch {
+	case r.preview != nil:
 		ssoURL, ssoErr := r.previewSSOAuthURL(ctx)
 		if ssoErr != nil {
 			return ssoErr
@@ -1254,7 +1255,7 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 		} else {
 			content, err = RenderPreviewRoutingFile(r.app, *r.preview, r.d.ID, endpoint, r.previewAuthHash(ctx), ssoURL)
 		}
-	} else if r.app.Application.ScaleToZero {
+	case r.app.Application.ScaleToZero:
 		// Scale-to-zero application (ADR-037): route through the waker, which
 		// forwards to the app's container(s) by their stable names and wakes them
 		// on demand. The rolling candidate-IP step is skipped — cold-start is
@@ -1273,7 +1274,7 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 			}
 			content = proxy.GenerateDynamic(pointRouteGroupAtWaker(rg), r.d.ID)
 		}
-	} else {
+	default:
 		content, err = RenderRoutingFileTo(ctx, r.h.Store, r.app, r.d.ID, endpoint)
 	}
 	if err != nil {

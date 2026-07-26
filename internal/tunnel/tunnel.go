@@ -24,6 +24,7 @@ import (
 // MessageType is the frame kind of the underlying WebSocket.
 type MessageType int
 
+// Tunnel WebSocket frame types (ADR-032).
 const (
 	MessageBinary MessageType = iota
 	MessageText
@@ -46,6 +47,7 @@ type Dialer func(ctx context.Context) (net.Conn, error)
 // EndReason mirrors terminal_end_reason (reused enum, data-dictionary §10.7).
 type EndReason string
 
+// Tunnel session end reasons (ADR-032).
 const (
 	EndUserClose   EndReason = "user_close"
 	EndIdleTimeout EndReason = "idle_timeout"

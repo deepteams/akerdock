@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -37,7 +38,7 @@ func TestSessionIdentity(t *testing.T) {
 
 func TestReadMFABodyRejectsGarbage(t *testing.T) {
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/auth/mfa/verify", strings.NewReader("{not json"))
+	r := httptest.NewRequest(http.MethodPost, "/auth/mfa/verify", strings.NewReader("{not json"))
 	var body mfaCodeBody
 	if readMFABody(w, r, &body) {
 		t.Fatal("malformed JSON was accepted")
@@ -49,7 +50,7 @@ func TestReadMFABodyRejectsGarbage(t *testing.T) {
 
 func TestReadMFABodyDecodes(t *testing.T) {
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/auth/mfa/verify",
+	r := httptest.NewRequest(http.MethodPost, "/auth/mfa/verify",
 		strings.NewReader(`{"challenge":"c","code":"123456","recovery_code":"r"}`))
 	var body mfaCodeBody
 	if !readMFABody(w, r, &body) {

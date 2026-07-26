@@ -10,6 +10,7 @@ import "fmt"
 // or the save; a warning is accepted, traced and displayed.
 type Severity string
 
+// Finding severities (compose-spec §11).
 const (
 	Error   Severity = "error"
 	Warning Severity = "warning"

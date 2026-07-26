@@ -107,8 +107,10 @@ func (h *ServerCleanup) Execute(ctx context.Context, job store.Job, rec *queue.S
 		{"prune_dangling_images", "docker image prune -f"},
 		// Dead candidates: exited `-next` containers are leftovers of crashed
 		// deployments — the live ones are protected by their running state.
-		{"prune_dead_candidates",
-			`ids=$(docker ps -aq --filter status=exited --filter label=akerdock.managed=true | while read -r id; do docker inspect --format '{{.Name}}' "$id" | grep -q -- '-next$' && echo "$id"; done); [ -n "$ids" ] && docker rm $ids || echo none`},
+		{
+			"prune_dead_candidates",
+			`ids=$(docker ps -aq --filter status=exited --filter label=akerdock.managed=true | while read -r id; do docker inspect --format '{{.Name}}' "$id" | grep -q -- '-next$' && echo "$id"; done); [ -n "$ids" ] && docker rm $ids || echo none`,
+		},
 		{"purge_tmp", "rm -rf /var/lib/akerdock/tmp/* 2>/dev/null; echo done"},
 	}
 	if server.CleanupPruneVolumes {
@@ -118,8 +120,10 @@ func (h *ServerCleanup) Execute(ctx context.Context, job store.Job, rec *queue.S
 		prunes = append(prunes, struct{ name, cmd string }{"prune_anonymous_volumes", "docker volume prune -f"})
 	}
 	if server.CleanupPruneNetworks {
-		prunes = append(prunes, struct{ name, cmd string }{"prune_managed_networks",
-			"docker network prune -f --filter label=akerdock.managed=true"})
+		prunes = append(prunes, struct{ name, cmd string }{
+			"prune_managed_networks",
+			"docker network prune -f --filter label=akerdock.managed=true",
+		})
 	}
 
 	for _, p := range prunes {

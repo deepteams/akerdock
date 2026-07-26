@@ -51,6 +51,7 @@ type realPasskeyEngine struct{ engine *webauthn.WebAuthn }
 func (e realPasskeyEngine) BeginRegistration(user webauthn.User, opts ...webauthn.RegistrationOption) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
 	return e.engine.BeginRegistration(user, opts...)
 }
+
 func (e realPasskeyEngine) CreateCredential(user webauthn.User, session webauthn.SessionData, response []byte) (*webauthn.Credential, error) {
 	parsed, err := protocol.ParseCredentialCreationResponseBytes(response)
 	if err != nil {
@@ -58,9 +59,11 @@ func (e realPasskeyEngine) CreateCredential(user webauthn.User, session webauthn
 	}
 	return e.engine.CreateCredential(user, session, parsed)
 }
+
 func (e realPasskeyEngine) BeginDiscoverableLogin(opts ...webauthn.LoginOption) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
 	return e.engine.BeginDiscoverableLogin(opts...)
 }
+
 func (e realPasskeyEngine) ValidatePasskeyLogin(handler webauthn.DiscoverableUserHandler, session webauthn.SessionData, response []byte) (webauthn.User, *webauthn.Credential, error) {
 	parsed, err := protocol.ParseCredentialRequestResponseBytes(response)
 	if err != nil {

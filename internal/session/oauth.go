@@ -41,6 +41,7 @@ type OAuth struct {
 	BaseURL string
 }
 
+// OAuthClient is the OIDC provider client used by the login flow (§10.2).
 type OAuthClient interface {
 	Discover(context.Context, string) (*oidc.Endpoints, error)
 	Exchange(context.Context, *oidc.Endpoints, string, string, string, string, string) (*oidc.TokenResponse, error)
@@ -76,12 +77,12 @@ var (
 	// and link from the security page.
 	ErrOAuthAccountCollision = errors.New("an account with this email already exists — sign in with it, then link this provider from the Security page")
 
-	// ErrOAuthRegistrationDisabled: no matching identity, no collision, and
-	// the instance does not take new accounts (§10.2, closed by default).
+	// ErrOAuthRegistrationDisabled is returned when there is no matching identity,
+	// no collision, and the instance does not take new accounts (§10.2, closed by default).
 	ErrOAuthRegistrationDisabled = errors.New("registration is disabled on this instance")
 
-	// ErrOAuthEmailMissing: the provider did not vouch for any email, so
-	// there is nothing safe to create an account from.
+	// ErrOAuthEmailMissing is returned when the provider did not vouch for any
+	// email, so there is nothing safe to create an account from.
 	ErrOAuthEmailMissing = errors.New("the identity provider reported no verified email for this account")
 
 	// ErrOAuthIdentityTaken (link): this provider account is already linked

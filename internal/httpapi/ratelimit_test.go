@@ -52,7 +52,7 @@ func TestLimiterHonorsACustomRate(t *testing.T) {
 }
 
 func TestClientIPKeyNeverExempts(t *testing.T) {
-	r := httptest.NewRequest("POST", "/auth/login", nil)
+	r := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
 	r.RemoteAddr = "203.0.113.9:4242"
 	if got := ClientIPKey(r); got != "203.0.113.9" {
 		t.Errorf("ClientIPKey = %q, want the bare host", got)
@@ -72,7 +72,7 @@ func TestClientIPKeyNeverExempts(t *testing.T) {
 // client-controlled, and honouring it would turn "rotate a header" into
 // "reset the limiter".
 func TestClientIPKeyIgnoresForwardedHeaders(t *testing.T) {
-	r := httptest.NewRequest("POST", "/auth/login", nil)
+	r := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
 	r.RemoteAddr = "203.0.113.9:4242"
 	r.Header.Set("X-Forwarded-For", "10.0.0.1")
 	if got := ClientIPKey(r); got != "203.0.113.9" {

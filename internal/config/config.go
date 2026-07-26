@@ -81,12 +81,12 @@ type Config struct {
 	// ACMEEmail is the Let's Encrypt contact (§4.3). Seeded here, then owned by
 	// instance_settings: an issuance failure is silent, so the address must be
 	// a deliberate choice, never a guess.
-	SchedulerTick     time.Duration
-	RetryBase         time.Duration
-	ACMEEmail         string
-	RootEmail         string
-	RootName          string
-	RootPassword      string
+	SchedulerTick time.Duration
+	RetryBase     time.Duration
+	ACMEEmail     string
+	RootEmail     string
+	RootName      string
+	RootPassword  string
 	// LocalhostHost/LocalhostUser seed the pre-registered localhost server at
 	// first bootstrap (§6.2); afterwards the server row is authoritative.
 	LocalhostHost     string

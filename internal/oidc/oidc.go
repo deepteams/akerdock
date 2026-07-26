@@ -40,7 +40,7 @@ import (
 	"time"
 )
 
-var randomReader io.Reader = rand.Reader
+var randomReader = rand.Reader
 
 // Timeout bounds every call to an identity provider: a slow IdP must delay
 // one login, not pile up handler goroutines.
@@ -209,7 +209,7 @@ func (c *Client) Exchange(ctx context.Context, ep *Endpoints, clientID, clientSe
 	if err != nil {
 		return nil, fmt.Errorf("token exchange: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if err != nil {
 		return nil, err
@@ -410,7 +410,7 @@ func (c *Client) getJSON(ctx context.Context, rawURL, bearer string, into any) e
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if err != nil {
 		return err

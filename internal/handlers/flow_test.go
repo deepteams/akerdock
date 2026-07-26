@@ -118,6 +118,7 @@ func (r *flowRows) Next() bool {
 	r.current = true
 	return true
 }
+
 func (r *flowRows) Scan(dest ...any) error {
 	if !r.current {
 		return errors.New("Scan called before Next")
@@ -319,12 +320,15 @@ func (*flowTx) LargeObjects() pgx.LargeObjects                         { return 
 func (*flowTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
 	return &pgconn.StatementDescription{}, nil
 }
+
 func (t *flowTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	return t.db.Exec(ctx, sql, args...)
 }
+
 func (t *flowTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	return t.db.Query(ctx, sql, args...)
 }
+
 func (t *flowTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	return t.db.QueryRow(ctx, sql, args...)
 }
@@ -642,7 +646,8 @@ func TestFlowDBErrorsArePropagated(t *testing.T) {
 	if _, err := db.Exec(context.Background(), "update"); err == nil {
 		t.Fatal("Exec swallowed the configured error")
 	}
-	if _, err := db.Query(context.Background(), "select"); err == nil {
+	if rows, err := db.Query(context.Background(), "select"); err == nil {
+		rows.Close()
 		t.Fatal("Query swallowed the configured error")
 	}
 	if err := db.QueryRow(context.Background(), "select").Scan(new(int64)); err == nil {

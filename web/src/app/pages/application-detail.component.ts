@@ -11,7 +11,6 @@ import {
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import { IconComponent } from '../../ui/icon/icon.component';
-import { CardComponent } from '../../ui/card/card.component';
 import {
   StackComponentsComponent,
   type StackComponentAction,
@@ -53,7 +52,6 @@ type TabId =
   imports: [
     StatusBadgeComponent,
     IconComponent,
-    CardComponent,
     StackComponentsComponent,
     RouterLink,
     ApplicationSettingsTabComponent,

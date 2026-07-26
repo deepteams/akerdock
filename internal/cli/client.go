@@ -39,33 +39,33 @@ func (e *apiError) Error() string {
 
 // newClient resolves the active context and returns a ready client. It fails
 // with an actionable message when no context or token is configured.
-func newClient(contextFlag string) (*Client, string, error) {
+func newClient(contextFlag string) (*Client, error) {
 	cfg, err := LoadConfig()
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	name := cfg.resolveContextName(contextFlag)
 	if name == "" {
-		return nil, "", fmt.Errorf("no context selected — run `akerdock login` first")
+		return nil, fmt.Errorf("no context selected — run `akerdock login` first")
 	}
 	ctx, ok := cfg.Contexts[name]
 	if !ok {
-		return nil, "", fmt.Errorf("unknown context %q — see `akerdock context list`", name)
+		return nil, fmt.Errorf("unknown context %q — see `akerdock context list`", name)
 	}
 	creds, err := loadCredentials()
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	token := creds.Tokens[name]
 	if token == "" {
-		return nil, "", fmt.Errorf("context %q has no token — run `akerdock login --context %s`", name, name)
+		return nil, fmt.Errorf("context %q has no token — run `akerdock login --context %s`", name, name)
 	}
 	return &Client{
 		base:  strings.TrimRight(ctx.URL, "/"),
 		token: token,
 		team:  ctx.TeamUUID,
 		http:  &http.Client{Timeout: 30 * time.Second},
-	}, name, nil
+	}, nil
 }
 
 // do performs a request against /api/v1, decoding a JSON response into out
@@ -114,13 +114,4 @@ func decodeError(resp *http.Response) error {
 		e.Message = strings.TrimSpace(string(data))
 	}
 	return &e
-}
-
-// teamScoped returns the team UUID for endpoints that need it, preferring an
-// explicit override.
-func (c *Client) teamScoped(override string) string {
-	if override != "" {
-		return override
-	}
-	return c.team
 }

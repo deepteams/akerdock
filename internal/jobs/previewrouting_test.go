@@ -6,8 +6,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/deepteams/akerdock/internal/store"
 	"gopkg.in/yaml.v3"
+
+	"github.com/deepteams/akerdock/internal/store"
 )
 
 func previewFixture(t *testing.T) (store.GetApplicationByIDRow, store.Preview) {

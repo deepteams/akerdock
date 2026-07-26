@@ -2,7 +2,7 @@ package jobs
 
 import "github.com/deepteams/akerdock/internal/store"
 
-// pinnedHostKey returns the host key a server is expected to present (§20.1).
+// PinnedHostKey returns the host key a server is expected to present (§20.1).
 //
 // An empty string means "nothing pinned yet" — trust-on-first-use. That is the
 // case exactly once, during the first validation of a server; every operational

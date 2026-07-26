@@ -67,7 +67,7 @@ func validateComposeContent(ctx context.Context, content, stackUUID string, poli
 		if f.Severity != compose.Error {
 			continue
 		}
-		f := f
+
 		details = append(details, api.ErrorDetail{Field: ptr("compose_content"), Code: ptr(f.Code), Message: f.Message})
 	}
 	if res.Plan != nil {
@@ -426,10 +426,12 @@ func (a *API) StartService(w http.ResponseWriter, r *http.Request, serviceUuid a
 	a.serviceLifecycle(w, r, serviceUuid, "start", jobs.TypeApplicationStart)
 }
 
+// StopService implements POST /services/{service_uuid}/stop.
 func (a *API) StopService(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid) {
 	a.serviceLifecycle(w, r, serviceUuid, "stop", jobs.TypeApplicationStop)
 }
 
+// RestartService implements POST /services/{service_uuid}/restart.
 func (a *API) RestartService(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid) {
 	a.serviceLifecycle(w, r, serviceUuid, "restart", jobs.TypeApplicationRestart)
 }
@@ -498,6 +500,7 @@ func (a *API) ListServiceEnvs(w http.ResponseWriter, r *http.Request, serviceUui
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": data, "next_cursor": cursor})
 }
 
+// CreateServiceEnv implements POST /services/{service_uuid}/envs.
 func (a *API) CreateServiceEnv(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid) {
 	id, ok := a.require(w, r, auth.PermSecretsWrite)
 	if !ok {
@@ -521,6 +524,7 @@ func (a *API) CreateServiceEnv(w http.ResponseWriter, r *http.Request, serviceUu
 	httpapi.WriteJSON(w, http.StatusCreated, a.envToAPI(id, created))
 }
 
+// UpdateServiceEnv implements PATCH /services/{service_uuid}/envs/{env_uuid}.
 func (a *API) UpdateServiceEnv(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid, envUuid api.EnvUuid) {
 	id, ok := a.require(w, r, auth.PermSecretsWrite)
 	if !ok {
@@ -552,6 +556,7 @@ func (a *API) UpdateServiceEnv(w http.ResponseWriter, r *http.Request, serviceUu
 	httpapi.WriteJSON(w, http.StatusOK, a.envToAPI(id, updated))
 }
 
+// DeleteServiceEnv implements DELETE /services/{service_uuid}/envs/{env_uuid}.
 func (a *API) DeleteServiceEnv(w http.ResponseWriter, r *http.Request, serviceUuid api.ServiceUuid, envUuid api.EnvUuid) {
 	id, ok := a.require(w, r, auth.PermSecretsWrite)
 	if !ok {

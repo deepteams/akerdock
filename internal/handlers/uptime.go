@@ -52,18 +52,24 @@ func validateUptimeTarget(kind, target string) *api.ErrorDetail {
 	case "http":
 		u, err := url.Parse(target)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return &api.ErrorDetail{Field: ptr("target"), Code: ptr("invalid"),
-				Message: "an http check needs an absolute http(s) URL"}
+			return &api.ErrorDetail{
+				Field: ptr("target"), Code: ptr("invalid"),
+				Message: "an http check needs an absolute http(s) URL",
+			}
 		}
 	case "tcp":
 		host, port, ok := strings.Cut(target, ":")
 		if !ok || host == "" {
-			return &api.ErrorDetail{Field: ptr("target"), Code: ptr("invalid"),
-				Message: "a tcp check needs a host:port target"}
+			return &api.ErrorDetail{
+				Field: ptr("target"), Code: ptr("invalid"),
+				Message: "a tcp check needs a host:port target",
+			}
 		}
 		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
-			return &api.ErrorDetail{Field: ptr("target"), Code: ptr("invalid"),
-				Message: "a tcp check needs a valid port (1-65535)"}
+			return &api.ErrorDetail{
+				Field: ptr("target"), Code: ptr("invalid"),
+				Message: "a tcp check needs a valid port (1-65535)",
+			}
 		}
 	default:
 		return &api.ErrorDetail{Field: ptr("kind"), Code: ptr("invalid"), Message: "kind must be http or tcp"}
@@ -145,13 +151,15 @@ func (a *API) CreateUptimeCheck(w http.ResponseWriter, r *http.Request, params a
 	if d := validateUptimeTarget(string(body.Kind), body.Target); d != nil {
 		details = append(details, *d)
 	}
-	intOr := func(p *int, def, min, max int, field string) int32 {
+	intOr := func(p *int, def, lo, hi int, field string) int32 {
 		if p == nil {
 			return int32(def)
 		}
-		if *p < min || *p > max {
-			details = append(details, api.ErrorDetail{Field: ptr(field), Code: ptr("out_of_range"),
-				Message: field + " must be between " + strconv.Itoa(min) + " and " + strconv.Itoa(max)})
+		if *p < lo || *p > hi {
+			details = append(details, api.ErrorDetail{
+				Field: ptr(field), Code: ptr("out_of_range"),
+				Message: field + " must be between " + strconv.Itoa(lo) + " and " + strconv.Itoa(hi),
+			})
 			return int32(def)
 		}
 		return int32(*p)
@@ -254,13 +262,15 @@ func (a *API) UpdateUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCh
 	if d := validateUptimeTarget(string(check.Kind), next.Target); d != nil {
 		details = append(details, *d)
 	}
-	applyInt := func(p *int, cur int32, min, max int, field string) int32 {
+	applyInt := func(p *int, cur int32, lo, hi int, field string) int32 {
 		if p == nil {
 			return cur
 		}
-		if *p < min || *p > max {
-			details = append(details, api.ErrorDetail{Field: ptr(field), Code: ptr("out_of_range"),
-				Message: field + " must be between " + strconv.Itoa(min) + " and " + strconv.Itoa(max)})
+		if *p < lo || *p > hi {
+			details = append(details, api.ErrorDetail{
+				Field: ptr(field), Code: ptr("out_of_range"),
+				Message: field + " must be between " + strconv.Itoa(lo) + " and " + strconv.Itoa(hi),
+			})
 			return cur
 		}
 		return int32(*p)

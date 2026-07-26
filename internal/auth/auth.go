@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-var randomReader io.Reader = rand.Reader
+var randomReader = rand.Reader
 
 // Permission is a granular API token permission.
 type Permission string

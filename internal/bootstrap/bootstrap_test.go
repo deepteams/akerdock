@@ -56,19 +56,24 @@ func (f *fakeBootstrapStore) GetInstanceSettings(context.Context) (store.Instanc
 	f.settingsCalls++
 	return f.settings, f.settingsErr
 }
+
 func (f *fakeBootstrapStore) GetOldestTeamID(context.Context) (int64, error) {
 	return f.teamID, f.teamIDErr
 }
+
 func (f *fakeBootstrapStore) GetInstancePrivateKey(context.Context) (store.PrivateKey, error) {
 	return f.privateKey, f.privateKeyErr
 }
+
 func (f *fakeBootstrapStore) CreateLocalhostServerIfAbsent(_ context.Context, arg store.CreateLocalhostServerIfAbsentParams) (int64, error) {
 	f.localhostArg = arg
 	return f.localhostRows, f.localhostErr
 }
+
 func (f *fakeBootstrapStore) SetLocalhostSeeded(context.Context) (int64, error) {
 	return f.seedRows, f.seedErr
 }
+
 func (f *fakeBootstrapStore) CreatePrivateKey(_ context.Context, arg store.CreatePrivateKeyParams) (store.PrivateKey, error) {
 	f.createKeyArg = arg
 	if f.privateKey.ID == 0 {
@@ -76,24 +81,30 @@ func (f *fakeBootstrapStore) CreatePrivateKey(_ context.Context, arg store.Creat
 	}
 	return f.privateKey, f.createKeyErr
 }
+
 func (f *fakeBootstrapStore) InsertInstanceSettingsIfAbsent(_ context.Context, arg store.InsertInstanceSettingsIfAbsentParams) (int64, error) {
 	return f.inserted, f.insertErr
 }
+
 func (f *fakeBootstrapStore) SetAcmeEmailIfAbsent(_ context.Context, email *string) (int64, error) {
 	f.acme = email
 	return f.acmeRows, f.acmeErr
 }
+
 func (f *fakeBootstrapStore) CountUsers(context.Context) (int64, error) {
 	return f.userCount, f.countErr
 }
+
 func (f *fakeBootstrapStore) CreateUser(_ context.Context, arg store.CreateUserParams) (store.User, error) {
 	f.createUserArg = arg
 	return f.user, f.createUserErr
 }
+
 func (f *fakeBootstrapStore) CreatePersonalTeam(_ context.Context, name string) (store.Team, error) {
 	f.createTeamName = name
 	return f.team, f.createTeamErr
 }
+
 func (f *fakeBootstrapStore) AddTeamMember(_ context.Context, arg store.AddTeamMemberParams) error {
 	f.memberArg = arg
 	return f.memberErr
@@ -105,7 +116,7 @@ type fakeBootstrapPool struct {
 }
 
 func (f fakeBootstrapPool) QueryRow(context.Context, string, ...any) pgx.Row {
-	return fakeCountRow{count: f.count, err: f.err}
+	return fakeCountRow(f)
 }
 
 type fakeCountRow struct {

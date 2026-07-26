@@ -43,6 +43,7 @@ func newBrowserSessionStore(t *testing.T) *browserSessionStore {
 func (s *browserSessionStore) GetSessionByTokenHash(context.Context, string) (store.GetSessionByTokenHashRow, error) {
 	return s.sessionRow, nil
 }
+
 func (s *browserSessionStore) GetTeamMembershipForUser(context.Context, int64) (store.GetTeamMembershipForUserRow, error) {
 	return store.GetTeamMembershipForUserRow{
 		TeamID: 1, Role: store.TeamRoleOwner, TeamUuid: s.sessionRow.Uuid,
@@ -53,39 +54,48 @@ func (*browserSessionStore) RevokeSession(context.Context, int64) error { return
 func (s *browserSessionStore) GetUserByID(context.Context, int64) (store.User, error) {
 	return s.user, nil
 }
+
 func (*browserSessionStore) ListPasskeysForUser(context.Context, int64) ([]store.PasskeyCredential, error) {
 	return nil, nil
 }
+
 func (*browserSessionStore) PurgeExpiredPasskeyCeremonies(context.Context) (int64, error) {
 	return 0, nil
 }
+
 func (*browserSessionStore) CreatePasskeyCeremony(context.Context, store.CreatePasskeyCeremonyParams) error {
 	return nil
 }
+
 func (s *browserSessionStore) GetMfaFactorForUser(context.Context, int64) (store.MfaFactor, error) {
 	if s.factor.ID == 0 {
 		return store.MfaFactor{}, pgx.ErrNoRows
 	}
 	return s.factor, nil
 }
+
 func (s *browserSessionStore) UpsertUnconfirmedMfaFactor(_ context.Context, p store.UpsertUnconfirmedMfaFactorParams) (store.MfaFactor, error) {
 	s.factor = store.MfaFactor{
 		ID: 1, Uuid: p.Uuid, UserID: p.UserID, Type: store.MfaTypeTotp, SecretEnc: p.SecretEnc,
 	}
 	return s.factor, nil
 }
+
 func (*browserSessionStore) RecordFailedLogin(context.Context, store.RecordFailedLoginParams) (store.RecordFailedLoginRow, error) {
 	return store.RecordFailedLoginRow{}, nil
 }
+
 func (*browserSessionStore) ListEnabledOauthProviderConfigs(context.Context) ([]store.ListEnabledOauthProviderConfigsRow, error) {
 	name := "GitHub"
 	return []store.ListEnabledOauthProviderConfigsRow{{
 		Provider: store.OauthProviderGithub, DisplayName: &name,
 	}}, nil
 }
+
 func (*browserSessionStore) GetOauthProviderConfig(context.Context, store.OauthProvider) (store.OauthProviderConfig, error) {
 	return store.OauthProviderConfig{}, pgx.ErrNoRows
 }
+
 func (*browserSessionStore) CountCredentialsForUser(context.Context, int64) (int32, error) {
 	return 1, nil
 }

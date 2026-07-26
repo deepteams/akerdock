@@ -135,13 +135,13 @@ func TestConvertManifestAndTokens(t *testing.T) {
 	mints := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == "POST" && r.URL.Path == "/app-manifests/one-shot-code/conversions":
+		case r.Method == http.MethodPost && r.URL.Path == "/app-manifests/one-shot-code/conversions":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id": 77, "slug": "akerdock-x", "client_id": "cid",
 				"client_secret": "csec", "webhook_secret": "wsec", "pem": string(pemBytes),
 				"html_url": "https://github.com/apps/akerdock-x",
 			})
-		case r.Method == "POST" && r.URL.Path == "/app/installations/9/access_tokens":
+		case r.Method == http.MethodPost && r.URL.Path == "/app/installations/9/access_tokens":
 			if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ey") {
 				t.Errorf("missing app JWT: %q", r.Header.Get("Authorization"))
 			}
@@ -149,7 +149,7 @@ func TestConvertManifestAndTokens(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"token": "ghs_test", "expires_at": time.Now().Add(time.Hour).Format(time.RFC3339),
 			})
-		case r.Method == "GET" && r.URL.Path == "/installation/repositories":
+		case r.Method == http.MethodGet && r.URL.Path == "/installation/repositories":
 			if r.Header.Get("Authorization") != "Bearer ghs_test" {
 				t.Errorf("repos must use the installation token")
 			}
@@ -161,7 +161,7 @@ func TestConvertManifestAndTokens(t *testing.T) {
 			})
 		default:
 			t.Errorf("unexpected call %s %s", r.Method, r.URL.Path)
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 		}
 	}))
 	defer server.Close()
@@ -217,22 +217,22 @@ func TestUpsertPRComment(t *testing.T) {
 	var patched, posted int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == "GET" && r.URL.Path == "/repos/acme/shop/issues/12/comments":
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/shop/issues/12/comments":
 			_ = json.NewEncoder(w).Encode([]map[string]any{
 				{"id": 1, "body": "unrelated"},
 				{"id": 2, "body": "<!-- akerdock:preview-42 -->\nold body"},
 			})
-		case r.Method == "PATCH" && r.URL.Path == "/repos/acme/shop/issues/comments/2":
+		case r.Method == http.MethodPatch && r.URL.Path == "/repos/acme/shop/issues/comments/2":
 			patched++
-			w.WriteHeader(200)
+			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("{}"))
-		case r.Method == "POST" && r.URL.Path == "/repos/acme/shop/issues/12/comments":
+		case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/shop/issues/12/comments":
 			posted++
-			w.WriteHeader(201)
+			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte("{}"))
 		default:
 			t.Errorf("unexpected call %s %s", r.Method, r.URL.Path)
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 		}
 	}))
 	defer server.Close()

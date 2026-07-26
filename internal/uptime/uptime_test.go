@@ -56,12 +56,12 @@ func TestProbeHTTP(t *testing.T) {
 	defer srv.Close()
 
 	res := Probe(context.Background(), "http", srv.URL+"/", 2*time.Second)
-	if !res.OK || res.StatusCode != 200 {
+	if !res.OK || res.StatusCode != http.StatusOK {
 		t.Fatalf("healthy endpoint must be up: %+v", res)
 	}
 	// A 500 is reachable but NOT up — the outage this feature catches.
 	res = Probe(context.Background(), "http", srv.URL+"/broken", 2*time.Second)
-	if res.OK || res.StatusCode != 500 || !strings.Contains(res.Error, "500") {
+	if res.OK || res.StatusCode != http.StatusInternalServerError || !strings.Contains(res.Error, "500") {
 		t.Fatalf("a 500 must be down: %+v", res)
 	}
 	res = Probe(context.Background(), "http", "http://127.0.0.1:1/", 500*time.Millisecond)

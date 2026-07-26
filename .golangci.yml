@@ -28,6 +28,24 @@ linters:
       - path: internal/handlers/
         linters: [revive]
         text: "var-naming|unused-parameter"
+      # Test code is held to a lighter bar: fakes must mirror the GENERATED store
+      # method names (GetActiveApiTokensByPrefix…) so they cannot be renamed, and
+      # ignored errors / unused params / always-same args are the norm in fixtures.
+      - path: _test\.go
+        linters: [errcheck, unparam, gocritic]
+      - path: _test\.go
+        linters: [revive]
+        text: "var-naming|unused-parameter"
+      # The CLI mirrors the API's JSON field names (Uuid, matching the generated
+      # store types and the "uuid" wire tag) — not worth diverging from them.
+      - path: internal/cli/
+        linters: [revive]
+        text: "var-naming"
+      # House style: every file opens with a descriptive header comment tied to
+      # the section it implements (see composedeploy.go). That deliberately
+      # conflicts with package-comments' "Package jobs ..." single-sentence form.
+      - linters: [revive]
+        text: "package-comments"
 
 formatters:
   enable:

@@ -67,10 +67,12 @@ type Handler struct{ inner slog.Handler }
 // Wrap returns h with redaction applied to every record it handles.
 func Wrap(h slog.Handler) slog.Handler { return Handler{inner: h} }
 
+// Enabled reports whether the wrapped handler handles this level.
 func (h Handler) Enabled(ctx context.Context, l slog.Level) bool {
 	return h.inner.Enabled(ctx, l)
 }
 
+// Handle redacts the record's attributes then delegates to the wrapped handler.
 func (h Handler) Handle(ctx context.Context, r slog.Record) error {
 	out := slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
 	r.Attrs(func(a slog.Attr) bool {
@@ -80,6 +82,7 @@ func (h Handler) Handle(ctx context.Context, r slog.Record) error {
 	return h.inner.Handle(ctx, out)
 }
 
+// WithAttrs redacts preset attributes and returns a handler carrying them.
 func (h Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	red := make([]slog.Attr, len(attrs))
 	for i, a := range attrs {
@@ -88,6 +91,7 @@ func (h Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return Handler{inner: h.inner.WithAttrs(red)}
 }
 
+// WithGroup returns a handler that nests subsequent attributes under name.
 func (h Handler) WithGroup(name string) slog.Handler {
 	return Handler{inner: h.inner.WithGroup(name)}
 }

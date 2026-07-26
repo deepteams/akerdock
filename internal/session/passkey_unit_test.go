@@ -30,15 +30,18 @@ type fakePasskeyEngine struct {
 func (f *fakePasskeyEngine) BeginRegistration(webauthn.User, ...webauthn.RegistrationOption) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
 	return &protocol.CredentialCreation{}, &webauthn.SessionData{Challenge: "registration"}, f.beginRegistrationErr
 }
+
 func (f *fakePasskeyEngine) CreateCredential(webauthn.User, webauthn.SessionData, []byte) (*webauthn.Credential, error) {
 	if f.credential == nil {
 		f.credential = &webauthn.Credential{ID: []byte("credential")}
 	}
 	return f.credential, f.createErr
 }
+
 func (f *fakePasskeyEngine) BeginDiscoverableLogin(...webauthn.LoginOption) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
 	return &protocol.CredentialAssertion{}, &webauthn.SessionData{Challenge: "login"}, f.beginLoginErr
 }
+
 func (f *fakePasskeyEngine) ValidatePasskeyLogin(handler webauthn.DiscoverableUserHandler, _ webauthn.SessionData, _ []byte) (webauthn.User, *webauthn.Credential, error) {
 	var user webauthn.User
 	if f.callHandler {

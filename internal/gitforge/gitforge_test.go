@@ -50,7 +50,7 @@ func TestGitLabSetCommitStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := records[0]
-	if rec.Path != "/projects/42/statuses/abc" || rec.Method != "POST" {
+	if rec.Path != "/projects/42/statuses/abc" || rec.Method != http.MethodPost {
 		t.Fatalf("bad call: %s %s", rec.Method, rec.Path)
 	}
 	if rec.Header.Get("PRIVATE-TOKEN") != "tok" {
@@ -86,7 +86,7 @@ func TestGitLabUpsertCommentCreatesThenUpdates(t *testing.T) {
 	var records []record
 	existing := []map[string]any{}
 	srv := httptest.NewServer(capture(t, &records, func(r *http.Request) (int, any) {
-		if r.Method == "GET" {
+		if r.Method == http.MethodGet {
 			return 200, existing
 		}
 		return 201, nil
@@ -99,7 +99,7 @@ func TestGitLabUpsertCommentCreatesThenUpdates(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := records[len(records)-1]
-	if last.Method != "POST" || last.Path != "/projects/42/merge_requests/9/notes" {
+	if last.Method != http.MethodPost || last.Path != "/projects/42/merge_requests/9/notes" {
 		t.Fatalf("expected note creation, got %s %s", last.Method, last.Path)
 	}
 	body := last.Body["body"].(string)
@@ -118,7 +118,7 @@ func TestGitLabUpsertCommentCreatesThenUpdates(t *testing.T) {
 		t.Fatal(err)
 	}
 	last = records[len(records)-1]
-	if last.Method != "PUT" || last.Path != "/projects/42/merge_requests/9/notes/8" {
+	if last.Method != http.MethodPut || last.Path != "/projects/42/merge_requests/9/notes/8" {
 		t.Fatalf("expected in-place update, got %s %s", last.Method, last.Path)
 	}
 }
@@ -175,7 +175,7 @@ func TestGiteaSetCommitStatus(t *testing.T) {
 func TestGiteaUpsertCommentUpdatesInPlace(t *testing.T) {
 	var records []record
 	srv := httptest.NewServer(capture(t, &records, func(r *http.Request) (int, any) {
-		if r.Method == "GET" {
+		if r.Method == http.MethodGet {
 			return 200, []map[string]any{{"id": 5, "body": "<!-- akerdock:m1 -->\nold"}}
 		}
 		return 200, nil
@@ -186,7 +186,7 @@ func TestGiteaUpsertCommentUpdatesInPlace(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := records[len(records)-1]
-	if last.Method != "PATCH" || last.Path != "/repos/o/r/issues/comments/5" {
+	if last.Method != http.MethodPatch || last.Path != "/repos/o/r/issues/comments/5" {
 		t.Fatalf("expected PATCH in place, got %s %s", last.Method, last.Path)
 	}
 }

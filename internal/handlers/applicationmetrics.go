@@ -186,8 +186,16 @@ var sizeUnits = []struct {
 	suffix string
 	mult   float64
 }{
-	{"TiB", 1 << 40}, {"GiB", 1 << 30}, {"MiB", 1 << 20}, {"KiB", 1 << 10},
-	{"TB", 1e12}, {"GB", 1e9}, {"MB", 1e6}, {"kB", 1e3}, {"KB", 1e3}, {"B", 1},
+	{"TiB", 1 << 40},
+	{"GiB", 1 << 30},
+	{"MiB", 1 << 20},
+	{"KiB", 1 << 10},
+	{"TB", 1e12},
+	{"GB", 1e9},
+	{"MB", 1e6},
+	{"kB", 1e3},
+	{"KB", 1e3},
+	{"B", 1},
 }
 
 // parseDockerSize turns "25.6MiB" into a byte count; nil if it does not parse.

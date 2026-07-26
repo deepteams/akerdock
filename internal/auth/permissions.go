@@ -57,10 +57,10 @@ const (
 	PermTeamRead   Permission = "team:read"
 	PermTeamManage Permission = "team:manage"
 
-	PermMembersRead      Permission = "members:read"
-	PermMembersManage    Permission = "members:manage"
-	PermRolesRead        Permission = "roles:read"
-	PermRolesManage      Permission = "roles:manage"
+	PermMembersRead       Permission = "members:read"
+	PermMembersManage     Permission = "members:manage"
+	PermRolesRead         Permission = "roles:read"
+	PermRolesManage       Permission = "roles:manage"
 	PermInvitationsManage Permission = "invitations:manage"
 
 	PermTokensRead   Permission = "tokens:read"
@@ -95,8 +95,8 @@ const (
 	PermKeysRead   Permission = "keys:read"
 	PermKeysManage Permission = "keys:manage"
 
-	PermSourcesRead    Permission = "sources:read"
-	PermSourcesManage  Permission = "sources:manage"
+	PermSourcesRead      Permission = "sources:read"
+	PermSourcesManage    Permission = "sources:manage"
 	PermRegistriesManage Permission = "registries:manage"
 
 	PermTerminalOpen Permission = "terminal:open"

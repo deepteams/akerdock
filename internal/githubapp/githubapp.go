@@ -89,9 +89,9 @@ func Manifest(instanceURL, appUUID, name string) map[string]any {
 			"url":    base + "/webhooks/github/apps/" + appUUID,
 			"active": true,
 		},
-		"redirect_url":   base + "/webhooks/github/manifest/callback",
-		"setup_url":      base + "/github-apps/" + appUUID + "/setup",
-		"public": false,
+		"redirect_url": base + "/webhooks/github/manifest/callback",
+		"setup_url":    base + "/github-apps/" + appUUID + "/setup",
+		"public":       false,
 		// installation/installation_repositories are ALWAYS delivered to a
 		// GitHub App and may not be listed here anymore: GitHub rejects the
 		// manifest with "Default events unsupported" if they appear.
@@ -228,6 +228,7 @@ type InstallationToken struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// InstallationToken mints a short-lived installation access token for a GitHub App.
 func (c *Client) InstallationToken(ctx context.Context, appJWT string, installationID int64, repositories []string) (InstallationToken, error) {
 	var body any
 	if len(repositories) > 0 {
@@ -274,6 +275,7 @@ type CheckRun struct {
 	Conclusion string `json:"conclusion"`
 }
 
+// CheckRunInput is the payload to create or update a GitHub check run.
 type CheckRunInput struct {
 	Name       string `json:"name"`
 	HeadSHA    string `json:"head_sha,omitempty"`
@@ -330,12 +332,14 @@ func (c *Client) GetPullRequest(ctx context.Context, token, fullName string, num
 	return pr, err
 }
 
+// CreateCheckRun creates a GitHub check run on a commit.
 func (c *Client) CreateCheckRun(ctx context.Context, token, fullName string, in CheckRunInput) (CheckRun, error) {
 	var out CheckRun
 	err := c.do(ctx, http.MethodPost, "/repos/"+fullName+"/check-runs", token, in, &out)
 	return out, err
 }
 
+// UpdateCheckRun patches an existing check run (its status, conclusion or output).
 func (c *Client) UpdateCheckRun(ctx context.Context, token, fullName string, id int64, in CheckRunInput) error {
 	return c.do(ctx, http.MethodPatch, fmt.Sprintf("/repos/%s/check-runs/%d", fullName, id), token, in, nil)
 }
@@ -356,6 +360,8 @@ func (c *Client) CreateDeployment(ctx context.Context, token, fullName, ref, env
 	return out.ID, err
 }
 
+// CreateDeploymentStatus records a status transition on a deployment, updating
+// the "View deployment" link's state and target URL on the PR (§2.7b).
 func (c *Client) CreateDeploymentStatus(ctx context.Context, token, fullName string, deploymentID int64, state, environmentURL string) error {
 	return c.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/deployments/%d/statuses", fullName, deploymentID), token, map[string]any{
 		"state":           state,

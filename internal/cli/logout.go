@@ -44,7 +44,7 @@ func logoutCmd() *cobra.Command {
 // and deletes it. The token in use lists and revokes itself (rbac §: a token
 // may revoke itself).
 func revokeOwnCliToken(ctx context.Context, contextName string) error {
-	c, _, err := newClient(contextName)
+	c, err := newClient(contextName)
 	if err != nil {
 		return err
 	}

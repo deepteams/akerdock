@@ -84,7 +84,7 @@ func (g *Gitea) UpsertComment(ctx context.Context, repo string, number int, mark
 
 // AuthorCanWrite implements the §6.3 rights check: GET
 // /repos/{owner}/{repo}/collaborators/{username}/permission.
-func (g *Gitea) AuthorCanWrite(ctx context.Context, repo, username string, userID int64) (bool, error) {
+func (g *Gitea) AuthorCanWrite(ctx context.Context, repo, username string, _ int64) (bool, error) {
 	owner, name, err := splitRepo(repo)
 	if err != nil {
 		return false, err

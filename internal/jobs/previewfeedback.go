@@ -1,6 +1,7 @@
 // Rich PR feedback (§20.4.6, protocols §2.7): ONE upserted comment and a
 // check run per preview. Everything here is BEST-EFFORT by contract: a
 // feedback failure is logged and never fails the deployment it narrates.
+
 package jobs
 
 import (

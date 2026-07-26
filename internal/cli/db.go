@@ -37,7 +37,8 @@ func str(m map[string]any, k string) string {
 // engines maps a normalized engine to its local client recipe. Credentials are
 // best-effort from the database detail; the client prompts otherwise.
 var engines = map[string]engineClient{
-	"postgres": {port: 5432, bin: "psql", needsUser: true,
+	"postgres": {
+		port: 5432, bin: "psql", needsUser: true,
 		args: func(h string, p int, d map[string]any) []string {
 			db := str(d, "database")
 			if db == "" {
@@ -45,20 +46,27 @@ var engines = map[string]engineClient{
 			}
 			return []string{"-h", h, "-p", strconv.Itoa(p), "-U", str(d, "username"), db}
 		},
-		env: func(d map[string]any) []string { return []string{"PGPASSWORD=" + str(d, "password")} }},
-	"mysql": {port: 3306, bin: "mysql", needsUser: true,
+		env: func(d map[string]any) []string { return []string{"PGPASSWORD=" + str(d, "password")} },
+	},
+	"mysql": {
+		port: 3306, bin: "mysql", needsUser: true,
 		args: func(h string, p int, d map[string]any) []string {
 			return []string{"-h", h, "-P", strconv.Itoa(p), "-u", str(d, "username"), str(d, "database")}
 		},
-		env: func(d map[string]any) []string { return []string{"MYSQL_PWD=" + str(d, "password")} }},
-	"redis": {port: 6379, bin: "redis-cli",
-		args: func(h string, p int, d map[string]any) []string { return []string{"-h", h, "-p", strconv.Itoa(p)} },
-		env:  func(d map[string]any) []string { return []string{"REDISCLI_AUTH=" + str(d, "password")} }},
-	"mongo": {port: 27017, bin: "mongosh",
-		args: func(h string, p int, d map[string]any) []string {
+		env: func(d map[string]any) []string { return []string{"MYSQL_PWD=" + str(d, "password")} },
+	},
+	"redis": {
+		port: 6379, bin: "redis-cli",
+		args: func(h string, p int, _ map[string]any) []string { return []string{"-h", h, "-p", strconv.Itoa(p)} },
+		env:  func(d map[string]any) []string { return []string{"REDISCLI_AUTH=" + str(d, "password")} },
+	},
+	"mongo": {
+		port: 27017, bin: "mongosh",
+		args: func(h string, p int, _ map[string]any) []string {
 			return []string{fmt.Sprintf("mongodb://%s:%d", h, p)}
 		},
-		env: func(d map[string]any) []string { return nil }},
+		env: func(_ map[string]any) []string { return nil },
+	},
 }
 
 // engineRecipe normalizes an engine name (compose services report the long form,
@@ -89,7 +97,7 @@ func dbCmd() *cobra.Command {
 			"  akerdock db app/varuna -c postgres --pr 8   # in a PR preview",
 		Args: usageArgs(1, "db <ref>", "db db/pg"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, _, err := newClient(flags.context)
+			c, err := newClient(flags.context)
 			if err != nil {
 				return err
 			}

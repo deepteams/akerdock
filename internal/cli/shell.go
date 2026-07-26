@@ -25,7 +25,7 @@ func shellCmd() *cobra.Command {
 		Example: "  akerdock shell app/varuna\n  akerdock shell app/varuna -c postgres",
 		Args:    usageArgs(1, "shell <type/name>", "shell app/varuna"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, _, err := newClient(flags.context)
+			c, err := newClient(flags.context)
 			if err != nil {
 				return err
 			}

@@ -22,6 +22,7 @@ type Idempotency struct {
 	Store IdempotencyStore
 }
 
+// IdempotencyStore persists idempotency keys and their replayed responses (§24.1).
 type IdempotencyStore interface {
 	ClaimIdempotencyKey(context.Context, store.ClaimIdempotencyKeyParams) (store.ClaimIdempotencyKeyRow, error)
 	CompleteIdempotencyKey(context.Context, store.CompleteIdempotencyKeyParams) error

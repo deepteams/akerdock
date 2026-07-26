@@ -26,6 +26,7 @@ type Middleware struct {
 	Logger   *slog.Logger
 }
 
+// TokenStore is the token-lookup boundary for bearer authentication.
 type TokenStore interface {
 	GetActiveApiTokensByPrefix(context.Context, string) ([]store.GetActiveApiTokensByPrefixRow, error)
 	TouchApiTokenLastUsed(context.Context, int64) error

@@ -43,7 +43,7 @@ func (a *API) StreamEvents(w http.ResponseWriter, r *http.Request, params api.St
 	// so the browser's EventSource never fires `onopen` and the page is stuck on
 	// "connecting…" — worse behind a buffering proxy. The comment is ignored by
 	// EventSource but releases any intermediary that waits for a first byte.
-	fmt.Fprint(w, ": connected\n\n")
+	_, _ = fmt.Fprint(w, ": connected\n\n")
 	flusher.Flush()
 
 	last := int64(0)

@@ -37,6 +37,7 @@ type EnqueueOptions struct {
 	RetryOfID      *int64
 }
 
+// EnqueueStore is the queue persistence boundary for enqueuing jobs.
 type EnqueueStore interface {
 	EnqueueJob(context.Context, store.EnqueueJobParams) (store.Job, error)
 	GetJobByIdempotencyKey(context.Context, *string) (store.Job, error)

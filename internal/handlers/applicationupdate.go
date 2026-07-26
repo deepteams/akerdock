@@ -43,7 +43,7 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 	// source_type is immutable; per-source fields must match the pack.
 	var details []api.ErrorDetail
 	isGit := row.BuildConfig.BuildPack != store.BuildPackImage &&
-		!(row.BuildConfig.BuildPack == store.BuildPackDockerfile && row.BuildConfig.DockerfileContent != nil)
+		(row.BuildConfig.BuildPack != store.BuildPackDockerfile || row.BuildConfig.DockerfileContent == nil)
 	gitTouched := body.GitRepository != nil || body.GitBranch != nil || body.BuildPack != nil ||
 		body.BaseDirectory != nil || body.DockerfileLocation != nil || patch.Has("publish_directory") ||
 		body.ComposeFileLocation != nil || body.RawCompose != nil || body.WatchPaths != nil ||

@@ -26,8 +26,10 @@ func validPasswordUser(t *testing.T) store.User {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return store.User{ID: 10, Uuid: pguuid.MustParse("11111111-2222-4333-8444-555555555555"),
-		Email: "user@example.test", Name: "User", PasswordHash: &hash}
+	return store.User{
+		ID: 10, Uuid: pguuid.MustParse("11111111-2222-4333-8444-555555555555"),
+		Email: "user@example.test", Name: "User", PasswordHash: &hash,
+	}
 }
 
 func loginRequest() *http.Request {

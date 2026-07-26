@@ -22,9 +22,6 @@ import (
 // previewCookieName carries the preview access token on the PREVIEW domain.
 const previewCookieName = "akerdock_preview"
 
-// previewTokenParam is the one-shot query parameter of the cookie bootstrap.
-const previewTokenParam = "akerdock_preview_token"
-
 // previewAccessTTL bounds one authorization; re-authorizing is a redirect
 // round-trip through the (still open) panel session.
 const previewAccessTTL = 12 * time.Hour

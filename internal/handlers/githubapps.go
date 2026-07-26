@@ -2,6 +2,7 @@
 // repository discovery, and the app-level webhook reception. The credentials
 // GitHub returns are encrypted at rest and never rendered by the API
 // (INV-003) — what the dashboard sees is identity and installation state.
+
 package handlers
 
 import (
@@ -592,7 +593,6 @@ func (a *API) handleInstallationEvent(w http.ResponseWriter, r *http.Request, ro
 	})
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"received": true})
 }
-
 
 // isRestrictViolation matches the RESTRICT foreign-key SQLSTATE (23503):
 // the app is still referenced by a git source.

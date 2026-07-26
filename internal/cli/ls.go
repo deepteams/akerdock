@@ -40,7 +40,7 @@ func lsCmd() *cobra.Command {
 		ValidArgs: []string{"apps", "databases", "services", "servers"},
 		Args:      cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, _, err := newClient(flags.context)
+			c, err := newClient(flags.context)
 			if err != nil {
 				return err
 			}

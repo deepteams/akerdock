@@ -25,6 +25,7 @@ type StepRecorder struct {
 	steps []Step
 }
 
+// StepStore is the persistence boundary for a job's step records.
 type StepStore interface {
 	UpdateJobSteps(context.Context, store.UpdateJobStepsParams) error
 }

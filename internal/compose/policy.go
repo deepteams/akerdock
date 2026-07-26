@@ -121,7 +121,7 @@ func validateLimits(name, p string, svc types.ServiceConfig, fs *findings) {
 	if limits == nil {
 		return
 	}
-	if svc.MemLimit != 0 && limits.MemoryBytes != 0 && types.UnitBytes(limits.MemoryBytes) != svc.MemLimit {
+	if svc.MemLimit != 0 && limits.MemoryBytes != 0 && limits.MemoryBytes != svc.MemLimit {
 		fs.errf(CodeConflictingLimits, name, p, "mem_limit and deploy.resources.limits.memory contradict each other")
 	}
 	if svc.CPUS != 0 && limits.NanoCPUs != 0 && float32(limits.NanoCPUs) != svc.CPUS {

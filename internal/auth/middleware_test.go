@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"slices"
 	"context"
 	"errors"
 	"io"
@@ -9,13 +8,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/store"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type fakeSessions struct {

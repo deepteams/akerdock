@@ -4,6 +4,7 @@
 // verifier for a normal akd_ token (/auth/cli/token). All out of contract,
 // mounted next to /auth. Only hashes are stored; the verifier never reaches
 // the browser.
+
 package handlers
 
 import (

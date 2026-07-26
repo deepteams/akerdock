@@ -81,7 +81,7 @@ type Manager struct {
 	Secure bool
 }
 
-var randomReader io.Reader = rand.Reader
+var randomReader = rand.Reader
 
 // Session is an authenticated browser session.
 type Session struct {

@@ -70,6 +70,7 @@ func (f *fakeSchedulerStore) err(name string) error {
 	}
 	return f.errs[name]
 }
+
 func (f *fakeSchedulerStore) number(name string) int64 {
 	if f.ints == nil {
 		return 0
@@ -89,41 +90,52 @@ func (f *fakeSchedulerStore) EnqueueJob(_ context.Context, arg store.EnqueueJobP
 	}
 	return f.job, nil
 }
+
 func (f *fakeSchedulerStore) GetJobByIdempotencyKey(context.Context, *string) (store.Job, error) {
 	return f.job, f.err("idempotency")
 }
+
 func (f *fakeSchedulerStore) CountLivePreviewsForApplication(context.Context, int64) (int64, error) {
 	return f.number("livePreviews"), f.err("livePreviews")
 }
+
 func (f *fakeSchedulerStore) GetDestinationByID(context.Context, int64) (store.Destination, error) {
 	return f.destination, f.err("destination")
 }
+
 func (f *fakeSchedulerStore) CreateDeployment(context.Context, store.CreateDeploymentParams) (store.Deployment, error) {
 	if f.deployment.ID == 0 {
 		f.deployment.ID = 88
 	}
 	return f.deployment, f.err("deployment")
 }
+
 func (f *fakeSchedulerStore) SupersedeObsoletePreviewDeployments(context.Context, store.SupersedeObsoletePreviewDeploymentsParams) ([]int64, error) {
 	return nil, f.err("supersede")
 }
+
 func (f *fakeSchedulerStore) CancelJobsForDeployments(context.Context, []int64) error {
 	return f.err("cancelJobs")
 }
+
 func (f *fakeSchedulerStore) ListCancellablePreviewDeploymentIDs(context.Context, store.ListCancellablePreviewDeploymentIDsParams) ([]int64, error) {
 	return nil, f.err("cancellable")
 }
+
 func (f *fakeSchedulerStore) RequestDeploymentJobCancel(_ context.Context, id int64) (int64, error) {
 	f.cancelledDeployIDs = append(f.cancelledDeployIDs, id)
 	return 1, f.err("requestCancel")
 }
+
 func (f *fakeSchedulerStore) SetPreviewStatus(_ context.Context, arg store.SetPreviewStatusParams) error {
 	f.previewStatuses = append(f.previewStatuses, arg)
 	return f.err("previewStatus")
 }
+
 func (f *fakeSchedulerStore) ListPreviewsForScaleToZero(context.Context) ([]store.ListPreviewsForScaleToZeroRow, error) {
 	return nil, f.err("stzList")
 }
+
 func (f *fakeSchedulerStore) ListSleepingPreviews(context.Context) ([]store.Preview, error) {
 	return nil, f.err("sleepingList")
 }
@@ -132,54 +144,74 @@ func (f *fakeSchedulerStore) SetPreviewAwake(context.Context, int64) error    { 
 func (f *fakeSchedulerStore) ListApplicationsToSleep(context.Context) ([]store.ListApplicationsToSleepRow, error) {
 	return nil, f.err("appSleepList")
 }
+
 func (f *fakeSchedulerStore) ListSleepingApplications(context.Context) ([]store.ListSleepingApplicationsRow, error) {
 	return nil, f.err("appSleepingList")
 }
-func (f *fakeSchedulerStore) SetApplicationSlept(context.Context, int64) error { return f.err("appSleep") }
-func (f *fakeSchedulerStore) SetApplicationAwake(context.Context, int64) error { return f.err("appAwake") }
+
+func (f *fakeSchedulerStore) SetApplicationSlept(context.Context, int64) error {
+	return f.err("appSleep")
+}
+
+func (f *fakeSchedulerStore) SetApplicationAwake(context.Context, int64) error {
+	return f.err("appAwake")
+}
+
 func (f *fakeSchedulerStore) GetServerByID(context.Context, int64) (store.Server, error) {
 	return store.Server{}, f.err("server")
 }
+
 func (f *fakeSchedulerStore) InsertOutboxEvent(_ context.Context, arg store.InsertOutboxEventParams) error {
 	f.outbox = append(f.outbox, arg)
 	return f.err("outbox")
 }
+
 func (f *fakeSchedulerStore) ListSchedulableBackupPlans(context.Context) ([]store.ListSchedulableBackupPlansRow, error) {
 	return f.backups, f.err("backups")
 }
+
 func (f *fakeSchedulerStore) CountActiveJobsByLockKey(context.Context, *string) (int64, error) {
 	return f.number("active"), f.err("active")
 }
+
 func (f *fakeSchedulerStore) SetBackupPlanSchedule(_ context.Context, arg store.SetBackupPlanScheduleParams) error {
 	f.backupSchedules = append(f.backupSchedules, arg)
 	return f.err("backupSchedule")
 }
+
 func (f *fakeSchedulerStore) ListCertificatesToAlert(_ context.Context, threshold int32) ([]store.ListCertificatesToAlertRow, error) {
 	if err := f.err("certificates"); err != nil {
 		return nil, err
 	}
 	return f.certificates[threshold], nil
 }
+
 func (f *fakeSchedulerStore) MarkCertificateAlerted(_ context.Context, arg store.MarkCertificateAlertedParams) error {
 	f.certificateMarks = append(f.certificateMarks, arg)
 	return f.err("markCertificate")
 }
+
 func (f *fakeSchedulerStore) ListCleanupSchedulableServers(context.Context) ([]store.Server, error) {
 	return f.cleanups, f.err("cleanups")
 }
+
 func (f *fakeSchedulerStore) SetServerCleanupSchedule(_ context.Context, arg store.SetServerCleanupScheduleParams) error {
 	f.cleanupSchedules = append(f.cleanupSchedules, arg)
 	return f.err("cleanupSchedule")
 }
+
 func (f *fakeSchedulerStore) ListDrillablePlans(context.Context) ([]store.ListDrillablePlansRow, error) {
 	return f.drills, f.err("drills")
 }
+
 func (f *fakeSchedulerStore) ListUnvalidatedLocalhostServers(context.Context) ([]store.Server, error) {
 	return f.localhost, f.err("localhost")
 }
+
 func (f *fakeSchedulerStore) ListExpiredPreviews(context.Context) ([]store.Preview, error) {
 	return f.expired, f.err("expired")
 }
+
 func (f *fakeSchedulerStore) ListPreviewsToWarn(context.Context) ([]store.Preview, error) {
 	return nil, nil
 }
@@ -187,15 +219,19 @@ func (f *fakeSchedulerStore) SetPreviewExpiryWarned(context.Context, int64) erro
 func (f *fakeSchedulerStore) ListQueuedPreviews(context.Context) ([]store.Preview, error) {
 	return f.queued, f.err("queued")
 }
+
 func (f *fakeSchedulerStore) GetApplicationByID(context.Context, int64) (store.GetApplicationByIDRow, error) {
 	return f.application, f.err("application")
 }
+
 func (f *fakeSchedulerStore) ListSchedulableTasks(context.Context) ([]store.ListSchedulableTasksRow, error) {
 	return f.tasks, f.err("tasks")
 }
+
 func (f *fakeSchedulerStore) CountRunningTaskExecutions(context.Context, int64) (int64, error) {
 	return f.number("runningTasks"), f.err("runningTasks")
 }
+
 func (f *fakeSchedulerStore) CreateTaskExecution(_ context.Context, arg store.CreateTaskExecutionParams) (store.TaskExecution, error) {
 	f.taskExecutions = append(f.taskExecutions, arg)
 	if f.execution.ID == 0 {
@@ -203,58 +239,74 @@ func (f *fakeSchedulerStore) CreateTaskExecution(_ context.Context, arg store.Cr
 	}
 	return f.execution, f.err("taskExecution")
 }
+
 func (f *fakeSchedulerStore) SetScheduledTaskSchedule(_ context.Context, arg store.SetScheduledTaskScheduleParams) error {
 	f.taskSchedules = append(f.taskSchedules, arg)
 	return f.err("taskSchedule")
 }
+
 func (f *fakeSchedulerStore) PurgeTerminalJobs(context.Context, int32) (int64, error) {
 	return f.number("purgeJobs"), f.err("purgeJobs")
 }
+
 func (f *fakeSchedulerStore) PurgePublishedOutboxEvents(context.Context) (int64, error) {
 	return f.number("purgeOutbox"), f.err("purgeOutbox")
 }
+
 func (f *fakeSchedulerStore) PurgeIdempotencyKeys(context.Context) error {
 	return f.err("purgeIdempotency")
 }
+
 func (f *fakeSchedulerStore) PurgeWebhookDeliveries(context.Context) (int64, error) {
 	return f.number("purgeWebhooks"), f.err("purgeWebhooks")
 }
+
 func (f *fakeSchedulerStore) PurgeUptimeResults(context.Context, int32) (int64, error) {
 	return f.number("purgeUptime"), f.err("purgeUptime")
 }
+
 func (f *fakeSchedulerStore) PurgeAuditEvents(context.Context, int32) (int64, error) {
 	return f.number("purgeAudit"), f.err("purgeAudit")
 }
+
 func (f *fakeSchedulerStore) SweepTerminalSessions(context.Context, int32) (int64, error) {
 	return f.number("sweepTerminals"), f.err("sweepTerminals")
 }
+
 func (f *fakeSchedulerStore) PurgeTerminalSessions(context.Context, int32) (int64, error) {
 	return f.number("purgeTerminals"), f.err("purgeTerminals")
 }
+
 func (f *fakeSchedulerStore) ListServersWithProxy(context.Context) ([]store.Server, error) {
 	return f.proxyServers, f.err("proxyServers")
 }
+
 func (f *fakeSchedulerStore) ListAppliedProxyRevisions(context.Context, int64) ([]store.ProxyConfigRevision, error) {
 	return f.revisions, f.err("revisions")
 }
+
 func (f *fakeSchedulerStore) GetPrivateKeyByID(context.Context, int64) (store.PrivateKey, error) {
 	return f.privateKey, f.err("privateKey")
 }
+
 func (f *fakeSchedulerStore) ListDueUptimeChecks(context.Context) ([]store.UptimeCheck, error) {
 	return f.uptimeChecks, f.err("uptimeChecks")
 }
+
 func (f *fakeSchedulerStore) RecordUptimeResult(_ context.Context, arg store.RecordUptimeResultParams) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.uptimeResults = append(f.uptimeResults, arg)
 	return f.err("uptimeResult")
 }
+
 func (f *fakeSchedulerStore) SetUptimeCheckState(_ context.Context, arg store.SetUptimeCheckStateParams) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.uptimeStates = append(f.uptimeStates, arg)
 	return f.err("uptimeState")
 }
+
 func (f *fakeSchedulerStore) GetTeamByID(context.Context, int64) (store.Team, error) {
 	return f.team, f.err("team")
 }
@@ -673,6 +725,7 @@ func (f *fakeRemoteClient) Run(_ context.Context, command string) (*sshexec.Resu
 	}
 	return f.result, f.runErr
 }
+
 func (f *fakeRemoteClient) RunInput(_ context.Context, command, input string) (*sshexec.Result, error) {
 	f.commands = append(f.commands, command)
 	f.inputs = append(f.inputs, input)
@@ -826,6 +879,7 @@ type fakeLeaderConnection struct {
 func (f *fakeLeaderConnection) QueryRow(context.Context, string, ...any) pgx.Row {
 	return fakeBoolRow{value: f.acquired, err: f.rowErr}
 }
+
 func (f *fakeLeaderConnection) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
 	f.execs++
 	return pgconn.CommandTag{}, nil

@@ -1,6 +1,7 @@
 // Preview teardown (§20.4): routing first, then every Docker object named by
 // the preview uuid, then the logical state. A failed cleanup is recorded as
 // cleanup_failed and retried — never silently forgotten.
+
 package jobs
 
 import (
@@ -66,20 +67,20 @@ func (h *PreviewDestroy) Execute(ctx context.Context, job store.Job, rec *queue.
 		return nil, err
 	}
 
-	cleanupFailed := func(cause error) (any, error) {
+	cleanupFailed := func(cause error) error {
 		msg := cause.Error()
 		_ = h.Store.SetPreviewStatus(ctx, store.SetPreviewStatusParams{
 			ID: preview.ID, Status: store.PreviewStatusCleanupFailed, CleanupError: &msg,
 		})
 		rec.Fail(ctx, msg)
-		return nil, cause
+		return cause
 	}
 
 	rec.Start(ctx, "teardown")
 	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
 		time.Duration(server.SshTimeoutSeconds)*time.Second, pinnedHostKey(server))
 	if err != nil {
-		return cleanupFailed(fmt.Errorf("ssh connect: %w", err))
+		return nil, cleanupFailed(fmt.Errorf("ssh connect: %w", err))
 	}
 	defer func() { _ = client.Close() }()
 
@@ -88,7 +89,7 @@ func (h *PreviewDestroy) Execute(ctx context.Context, job store.Job, rec *queue.
 	if server.ProxyType == store.ProxyTypeTraefik {
 		applier := &ProxyApplier{Store: h.Store, Client: client, Server: server, Network: dest.Network}
 		if err := applier.Apply(ctx, previewUUID, "", ""); err != nil {
-			return cleanupFailed(fmt.Errorf("routing removal: %w", err))
+			return nil, cleanupFailed(fmt.Errorf("routing removal: %w", err))
 		}
 	}
 	// Containers first, then the volumes and networks a compose preview
@@ -107,7 +108,7 @@ func (h *PreviewDestroy) Execute(ctx context.Context, job store.Job, rec *queue.
 		if err == nil {
 			err = fmt.Errorf("remote cleanup exited with code %d", res.ExitCode)
 		}
-		return cleanupFailed(err)
+		return nil, cleanupFailed(err)
 	}
 
 	// Drop the preview from the waker's shared routing table (ADR-036). Best

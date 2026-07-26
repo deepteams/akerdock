@@ -263,7 +263,7 @@ func ParseComment(p Provider, body []byte) (CommentEvent, error) {
 			} `json:"project"`
 			ObjectAttributes struct {
 				Note         string `json:"note"`
-				NoteableType string `json:"noteable_type"`
+				NoteableType string `json:"notable_type"`
 			} `json:"object_attributes"`
 			MergeRequest struct {
 				IID int `json:"iid"`

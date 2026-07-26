@@ -35,6 +35,7 @@ func (f *fakeOAuthClient) err(name string) error {
 	}
 	return f.errs[name]
 }
+
 func (f *fakeOAuthClient) Discover(_ context.Context, issuer string) (*oidc.Endpoints, error) {
 	f.discover = append(f.discover, issuer)
 	if f.endpoints == nil {
@@ -42,6 +43,7 @@ func (f *fakeOAuthClient) Discover(_ context.Context, issuer string) (*oidc.Endp
 	}
 	return f.endpoints, f.err("discover")
 }
+
 func (f *fakeOAuthClient) Exchange(context.Context, *oidc.Endpoints, string, string, string, string, string) (*oidc.TokenResponse, error) {
 	f.exchanges++
 	if f.token == nil {
@@ -49,10 +51,12 @@ func (f *fakeOAuthClient) Exchange(context.Context, *oidc.Endpoints, string, str
 	}
 	return f.token, f.err("exchange")
 }
+
 func (f *fakeOAuthClient) VerifyIDToken(context.Context, *oidc.Endpoints, string, string, string, time.Time) (*oidc.Identity, error) {
 	f.verified++
 	return f.identity, f.err("verify")
 }
+
 func (f *fakeOAuthClient) FetchOAuth2Identity(context.Context, string, *oidc.Endpoints, string) (*oidc.Identity, error) {
 	f.fetched++
 	return f.identity, f.err("fetch")
@@ -377,7 +381,7 @@ func TestOAuthCallbackLoginAndLink(t *testing.T) {
 
 func TestOAuthCallbackFailureTable(t *testing.T) {
 	if _, err := oauthService(t, &fakeSessionStore{}, &fakeOAuthClient{}, false).
-		Callback(context.Background(), httptest.NewRequest("GET", "/", nil), "github", "", ""); !errors.Is(err, ErrOAuthStateInvalid) {
+		Callback(context.Background(), httptest.NewRequest(http.MethodGet, "/", nil), "github", "", ""); !errors.Is(err, ErrOAuthStateInvalid) {
 		t.Fatalf("empty callback = %v", err)
 	}
 
@@ -418,7 +422,7 @@ func TestOAuthCallbackFailureTable(t *testing.T) {
 			service := oauthService(t, database, client, false)
 			tc.mutate(service, database, client)
 			if _, err := service.Callback(
-				context.Background(), httptest.NewRequest("GET", "/", nil),
+				context.Background(), httptest.NewRequest(http.MethodGet, "/", nil),
 				"github", "state", "code",
 			); err == nil {
 				t.Fatal("callback failure hidden")
@@ -444,7 +448,7 @@ func TestOAuthOIDCCallbackUsesIDTokenVerification(t *testing.T) {
 	}, false)
 	service.Store.(*fakeSessionStore).oauthConfig.Provider = store.OauthProviderOidc
 	service.Store.(*fakeSessionStore).oauthConfig.IssuerUrl = &issuer
-	_, err := service.Callback(context.Background(), httptest.NewRequest("GET", "/", nil),
+	_, err := service.Callback(context.Background(), httptest.NewRequest(http.MethodGet, "/", nil),
 		"oidc", "state", "code")
 	if err != nil || service.Client.(*fakeOAuthClient).verified != 1 {
 		t.Fatalf("OIDC callback = %v, verifies=%d", err, service.Client.(*fakeOAuthClient).verified)

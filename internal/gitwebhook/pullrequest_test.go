@@ -189,7 +189,7 @@ func TestParseCommentGitLab(t *testing.T) {
 	body := []byte(`{"object_kind":"note",
 		"user":{"id":12,"username":"bob"},
 		"project":{"id":42},
-		"object_attributes":{"note":"/destroy","noteable_type":"MergeRequest"},
+		"object_attributes":{"note":"/destroy","notable_type":"MergeRequest"},
 		"merge_request":{"iid":9}}`)
 	ev, err := ParseComment(GitLab, body)
 	if err != nil {

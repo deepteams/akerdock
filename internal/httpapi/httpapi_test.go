@@ -8,8 +8,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/deepteams/akerdock/internal/api"
 	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/deepteams/akerdock/internal/api"
 )
 
 func TestJSONErrorHelpers(t *testing.T) {

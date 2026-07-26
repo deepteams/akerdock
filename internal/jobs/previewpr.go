@@ -3,6 +3,7 @@
 // The same lifecycle serves the GitHub App webhook and the per-application
 // manual webhooks (GitLab MR events, Gitea PR events) — one implementation,
 // one set of policies (protocols §1.2).
+
 package jobs
 
 import (
@@ -52,6 +53,7 @@ type PreviewPromotionStore interface {
 	SetPreviewStatus(context.Context, store.SetPreviewStatusParams) error
 }
 
+// PreviewDestroyQueueStore enqueues preview-destroy jobs.
 type PreviewDestroyQueueStore interface {
 	queue.EnqueueStore
 	SetPreviewStatus(context.Context, store.SetPreviewStatusParams) error
@@ -152,6 +154,7 @@ func HandlePreviewPREvent(ctx context.Context, q *store.Queries, keyring *envelo
 			ApplicationID: app.Resource.ID, Provider: provider, PrID: int32(event.Number),
 		})
 		if err != nil {
+			//nolint:nilerr // no row means nothing to destroy: an expected no-op, not an error.
 			return "no preview to destroy", nil
 		}
 		if preview.Status == store.PreviewStatusDestroyed || preview.Status == store.PreviewStatusDestroying {

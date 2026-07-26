@@ -294,7 +294,7 @@ func (a *API) UpdateBackupPlan(w http.ResponseWriter, r *http.Request, databaseU
 // applyBackupPlanUpdate is the shared PATCH tail of the database and
 // component plan handlers: same fields, same rules, same optimistic locking.
 func (a *API) applyBackupPlanUpdate(w http.ResponseWriter, r *http.Request, id *auth.Identity, plan store.DatabaseBackupPlan, body api.BackupPlanUpdate, expected int32) {
-	ok := true
+	var ok bool
 	cron := plan.CronExpression
 	if body.Frequency != nil {
 		normalized, valid := normalizeCron(*body.Frequency)
@@ -341,7 +341,7 @@ func (a *API) applyBackupPlanUpdate(w http.ResponseWriter, r *http.Request, id *
 		RetentionS3MaxDays:     retentionDays(body.S3Retention, plan.RetentionS3MaxDays),
 		DrillEnabled:           boolOr(body.DrillEnabled, plan.DrillEnabled),
 		DrillIntervalDays:      drillInterval(body.DrillIntervalDays, plan.DrillIntervalDays),
-		ExpectedVersion:        int32(expected),
+		ExpectedVersion:        expected,
 	})
 	if err != nil {
 		a.internalError(w, r, "update backup plan", err)

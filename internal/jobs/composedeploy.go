@@ -349,7 +349,7 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 
 // cloneForCompose is the clone half of buildFromGit: resolve the branch to an
 // immutable SHA, then shallow-clone it into the per-deployment directory.
-func (r *deploymentRun) cloneForCompose(ctx context.Context, appUUID, appDir string) (string, string, error) {
+func (r *deploymentRun) cloneForCompose(ctx context.Context, _, appDir string) (string, string, error) {
 	repoURL := *r.app.Application.GitRepositoryUrl
 	branch := "main"
 	if r.app.Application.GitBranch != nil && *r.app.Application.GitBranch != "" {
@@ -1399,7 +1399,8 @@ func (r *deploymentRun) resumeComposeService(ctx context.Context, plan *compose.
 	r.skipStep(ctx, "resume_"+sp.Name, "healthy candidate found after the crash; finishing its interrupted switch")
 	if err := r.waitComposeHealthy(ctx, sp, sp.CandidateName); err != nil {
 		_, _ = r.client.Run(ctx, "docker rm -f "+sp.CandidateName+" >/dev/null 2>&1 || true")
-		return false, nil // unhealthy after all: redo from scratch
+		//nolint:nilerr // an unhealthy candidate is not a job failure: signal "redo from scratch".
+		return false, nil
 	}
 	if err := r.promoteComposeCandidate(ctx, plan, sp, appUUID); err != nil {
 		return true, err

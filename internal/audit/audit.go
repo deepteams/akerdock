@@ -24,7 +24,7 @@ import (
 
 // Recorder writes audit and outbox rows.
 type Recorder struct {
-	Store  AuditStore
+	Store  Store
 	Logger *slog.Logger
 	// Metrics is optional: the audit trail is the chokepoint every action
 	// crosses, so recording a counter + span event here instruments the whole
@@ -47,14 +47,15 @@ func (a *Recorder) telemetry(ctx context.Context, action, actor, result string) 
 	}
 }
 
-// AuditStore is the generated-query boundary owned by this package. The
+// Store is the generated-query boundary owned by this package. The
 // recorder's formatting, redaction and failure policy are unit-testable
 // independently from PostgreSQL; append-only SQL guarantees stay in the
 // database module suite.
-type AuditStore interface {
+type Store interface {
 	InsertAuditEvent(context.Context, store.InsertAuditEventParams) error
 }
 
+// OutboxStore persists domain events to the transactional outbox (§24.2).
 type OutboxStore interface {
 	InsertOutboxEvent(context.Context, store.InsertOutboxEventParams) error
 }

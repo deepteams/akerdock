@@ -9,13 +9,12 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
 )
 
-var randomReader io.Reader = rand.Reader
+var randomReader = rand.Reader
 
 // Material is the derived view of a private key.
 type Material struct {

@@ -15,11 +15,11 @@ func TestValidate(t *testing.T) {
 	}
 	// Rejected: too short, common, or a single repeated rune.
 	for _, bad := range []string{"", "short", "elevenchars", "password1234", "PASSWORD1234", "aaaaaaaaaaaa"} {
-		var weak ErrWeakPassword
+		var weak WeakPasswordError
 		if err := Validate(bad); err == nil {
 			t.Errorf("Validate(%q) = nil, want a policy error", bad)
 		} else if !errors.As(err, &weak) {
-			t.Errorf("Validate(%q) error = %T, want ErrWeakPassword", bad, err)
+			t.Errorf("Validate(%q) error = %T, want WeakPasswordError", bad, err)
 		}
 	}
 	// Exactly the minimum length is accepted (boundary).

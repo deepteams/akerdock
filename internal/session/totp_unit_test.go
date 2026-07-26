@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -386,5 +387,5 @@ func TestTOTPHelpersAndSentinels(t *testing.T) {
 	if ChallengeLifetime <= 0 || RecoveryCodeCount != 10 || Issuer != "AkerDock" {
 		t.Fatal("MFA safety constants changed")
 	}
-	_ = httptest.NewRequest("POST", "/", nil)
+	_ = httptest.NewRequest(http.MethodPost, "/", nil)
 }

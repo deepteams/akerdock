@@ -195,11 +195,7 @@ func buildPlan(project *types.Project, in Input, fs *findings) (*Plan, error) {
 
 	for _, name := range order {
 		svc := project.Services[name]
-		sp, err := buildServicePlan(name, svc, project, in, plan, fs)
-		if err != nil {
-			return nil, err
-		}
-		plan.Services = append(plan.Services, sp)
+		plan.Services = append(plan.Services, buildServicePlan(name, svc, project, in, plan, fs))
 	}
 
 	canonical, err := project.MarshalYAML()
@@ -210,7 +206,7 @@ func buildPlan(project *types.Project, in Input, fs *findings) (*Plan, error) {
 	return plan, nil
 }
 
-func buildServicePlan(name string, svc types.ServiceConfig, project *types.Project, in Input, plan *Plan, fs *findings) (ServicePlan, error) {
+func buildServicePlan(name string, svc types.ServiceConfig, _ *types.Project, in Input, plan *Plan, fs *findings) ServicePlan {
 	p := "services." + name
 	ext := serviceExtensions(name, p+".x-akerdock", svc, &findings{}) // findings already reported by validate
 
@@ -281,13 +277,13 @@ func buildServicePlan(name string, svc types.ServiceConfig, project *types.Proje
 	// Host port mappings (§8.4).
 	sp.HasHostPorts = len(svc.Ports) > 0
 	if len(svc.Expose) > 0 {
-		fmt.Sscanf(svc.Expose[0], "%d", &sp.DefaultRoutePort)
+		_, _ = fmt.Sscanf(svc.Expose[0], "%d", &sp.DefaultRoutePort)
 	}
 
 	sp.Health = healthFlags(svc.HealthCheck)
 	sp.Limits = limitFlags(svc)
 	sp.IsDatabase, sp.DatabaseEngine = detectDatabase(svc.Image)
-	return sp, nil
+	return sp
 }
 
 // healthFlags maps the compose healthcheck onto docker create flags with the

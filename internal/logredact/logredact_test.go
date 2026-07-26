@@ -21,7 +21,7 @@ func TestRedactsSensitiveValues(t *testing.T) {
 		slog.String("token", "akd_supersecret"),
 		slog.String("client_secret", "oauthsecret"),
 		slog.String("db_password", "pgpw"),
-		slog.String("email", "user@example.test"), // not sensitive
+		slog.String("email", "user@example.test"),                         // not sensitive
 		slog.String("token_uuid", "11111111-1111-1111-1111-111111111111"), // identifier, not the secret
 	)
 

@@ -21,6 +21,7 @@ import (
 // MagicType is a supported <TYPE> (§4.2).
 type MagicType string
 
+// Magic value placeholders substituted at deploy time (compose-spec).
 const (
 	MagicFQDN                MagicType = "FQDN"
 	MagicURL                 MagicType = "URL"
@@ -167,11 +168,11 @@ func ScanMagicReferences(content string, services []string) ([]MagicRef, []Findi
 
 // Alphabets of §4.2.
 const (
-	alphaLower        = "abcdefghijklmnopqrstuvwxyz"
-	alphaLowerDigits  = alphaLower + "0123456789"
-	alphaMixedDigits  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" + alphaLowerDigits
-	passwordSymbols   = "!@#$%^&*()-_=+[]{}<>~"
-	alphaWithSymbols  = alphaMixedDigits + passwordSymbols
+	alphaLower       = "abcdefghijklmnopqrstuvwxyz"
+	alphaLowerDigits = alphaLower + "0123456789"
+	alphaMixedDigits = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" + alphaLowerDigits
+	passwordSymbols  = "!@#$%^&*()-_=+[]{}<>~"
+	alphaWithSymbols = alphaMixedDigits + passwordSymbols
 )
 
 // GenerateMagicValue produces the value of a credential-type reference with
@@ -214,9 +215,9 @@ func GenerateMagicValue(ref MagicRef) (string, error) {
 // so no character is likelier than another.
 func randomFrom(alphabet string, n int) (string, error) {
 	out := make([]byte, n)
-	max := big.NewInt(int64(len(alphabet)))
+	size := big.NewInt(int64(len(alphabet)))
 	for i := range out {
-		idx, err := rand.Int(rand.Reader, max)
+		idx, err := rand.Int(rand.Reader, size)
 		if err != nil {
 			return "", err
 		}

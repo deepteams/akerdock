@@ -45,6 +45,7 @@ type Worker struct {
 	wg       sync.WaitGroup
 }
 
+// WorkerStore is the queue persistence boundary a worker dequeues through.
 type WorkerStore interface {
 	StepStore
 	PromoteWaitingJobs(context.Context) (int64, error)

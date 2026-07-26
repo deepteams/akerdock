@@ -20,15 +20,16 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"math/big"
 	"net"
 	"time"
 )
 
-var randomReader io.Reader = rand.Reader
-var newSerialNumber = serialNumber
-var createCertificate = x509.CreateCertificate
+var (
+	randomReader      = rand.Reader
+	newSerialNumber   = serialNumber
+	createCertificate = x509.CreateCertificate
+)
 
 // caLifetime outlives any leaf it signs, by a wide margin: a CA that expires
 // under its own certificates would take every database down at once, and the

@@ -35,7 +35,7 @@ func logsCmd() *cobra.Command {
 		Example: "  akerdock logs app/varuna\n  akerdock logs app/varuna -f -c postgres",
 		Args:    usageArgs(1, "logs <type/name>", "logs app/varuna"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, _, err := newClient(flags.context)
+			c, err := newClient(flags.context)
 			if err != nil {
 				return err
 			}

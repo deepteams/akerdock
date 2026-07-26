@@ -3,6 +3,7 @@
 // server-side through the forge API. A command without a verifiable author
 // is refused — a webhook body is attacker-shaped input, only the forge knows
 // who really wrote the comment.
+
 package jobs
 
 import (
@@ -74,6 +75,7 @@ func handlePreviewComment(ctx context.Context, q *store.Queries, keyring *envelo
 	if err != nil {
 		// A PR the lifecycle never saw has no branch and no SHA to deploy:
 		// the command cannot conjure them from a comment payload.
+		//nolint:nilerr // a missing preview is an expected no-op, not a job error.
 		return ignored("no preview known for this PR"), nil
 	}
 

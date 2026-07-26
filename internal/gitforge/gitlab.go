@@ -81,7 +81,7 @@ func (g *GitLab) listNotes(ctx context.Context, repo string, number int) ([]gitl
 
 // AuthorCanWrite implements the §4.3 rights check: GET
 // /projects/:id/members/all/:user_id, access_level >= 30 (Developer).
-func (g *GitLab) AuthorCanWrite(ctx context.Context, repo, username string, userID int64) (bool, error) {
+func (g *GitLab) AuthorCanWrite(ctx context.Context, repo, _ string, userID int64) (bool, error) {
 	u := fmt.Sprintf("%s/projects/%s/members/all/%d", g.BaseURL, url.PathEscape(repo), userID)
 	var member struct {
 		AccessLevel int `json:"access_level"`

@@ -14,6 +14,7 @@ import (
 // the access token we just exchanged the code for).
 type Kind int
 
+// Provider kinds (§10.2): OIDC discovery vs bare OAuth2.
 const (
 	KindOIDC Kind = iota
 	KindOAuth2

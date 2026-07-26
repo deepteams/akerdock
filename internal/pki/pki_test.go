@@ -21,6 +21,7 @@ func parseCertPEM(t *testing.T, certPEM []byte) *x509.Certificate {
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
 		t.Fatal("certificate PEM does not decode")
+		return nil
 	}
 	if block.Type != "CERTIFICATE" {
 		t.Fatalf("PEM block type = %q, want %q", block.Type, "CERTIFICATE")
@@ -73,6 +74,7 @@ func TestNewCA(t *testing.T) {
 	keyBlock, _ := pem.Decode(ca.KeyPEM)
 	if keyBlock == nil {
 		t.Fatal("key PEM does not decode")
+		return
 	}
 	if keyBlock.Type != "EC PRIVATE KEY" {
 		t.Errorf("key PEM block type = %q, want %q", keyBlock.Type, "EC PRIVATE KEY")

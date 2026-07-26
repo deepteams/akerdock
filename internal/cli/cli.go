@@ -12,7 +12,7 @@ import (
 // usageArgs enforces an exact argument count with an actionable message and an
 // example, instead of Cobra's terse "accepts N arg(s), received M".
 func usageArgs(n int, usage, example string) cobra.PositionalArgs {
-	return func(cmd *cobra.Command, args []string) error {
+	return func(_ *cobra.Command, args []string) error {
 		if len(args) == n {
 			return nil
 		}
@@ -30,7 +30,7 @@ type globalFlags struct {
 var flags globalFlags
 
 // AddCommands registers the client subcommands on the root command (ADR-033).
-func AddCommands(root *cobra.Command, version string) {
+func AddCommands(root *cobra.Command, _ string) {
 	pf := root.PersistentFlags()
 	pf.StringVar(&flags.context, "context", "", "context to use (default: current, or $AKERDOCK_CONTEXT)")
 	pf.StringVarP(&flags.output, "output", "o", "table", "output format: table|json")
@@ -62,20 +62,20 @@ func table(header []string, rows [][]string) {
 	if len(header) > 0 && !flags.quiet {
 		for i, h := range header {
 			if i > 0 {
-				fmt.Fprint(w, "\t")
+				_, _ = fmt.Fprint(w, "\t")
 			}
-			fmt.Fprint(w, h)
+			_, _ = fmt.Fprint(w, h)
 		}
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 	}
 	for _, row := range rows {
 		for i, c := range row {
 			if i > 0 {
-				fmt.Fprint(w, "\t")
+				_, _ = fmt.Fprint(w, "\t")
 			}
-			fmt.Fprint(w, c)
+			_, _ = fmt.Fprint(w, c)
 		}
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 	}
 	_ = w.Flush()
 }

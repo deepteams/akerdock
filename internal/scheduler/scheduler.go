@@ -41,7 +41,7 @@ type Scheduler struct {
 	// certificates, notifications). Zero falls back to the default.
 	Tick       time.Duration
 	Pool       *pgxpool.Pool
-	Store      SchedulerStore
+	Store      Store
 	Keyring    *envelope.Keyring
 	Audit      *audit.Recorder
 	Dispatcher NotificationDispatcher
@@ -71,6 +71,8 @@ type Scheduler struct {
 	dialSSH       func(context.Context, store.Server, string) (remoteClient, error)
 }
 
+// NotificationDispatcher drains the outbox and flushes pending digests on the
+// scheduler's tick; the concrete implementation lives in the notify package.
 type NotificationDispatcher interface {
 	Dispatch(context.Context)
 	FlushDigests(context.Context)
@@ -82,10 +84,10 @@ type remoteClient interface {
 	Close() error
 }
 
-// SchedulerStore is the scheduler's database boundary. Scheduling decisions
+// Store is the scheduler's database boundary. Scheduling decisions
 // are ordinary unit-testable state machines; only advisory-lock and SQL
 // concurrency guarantees need PostgreSQL module tests.
-type SchedulerStore interface {
+type Store interface {
 	jobs.PreviewPromotionStore
 	audit.OutboxStore
 
@@ -146,6 +148,7 @@ type poolLeaderConnection struct{ connection *pgxpool.Conn }
 func (c poolLeaderConnection) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	return c.connection.QueryRow(ctx, sql, args...)
 }
+
 func (c poolLeaderConnection) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	return c.connection.Exec(ctx, sql, args...)
 }

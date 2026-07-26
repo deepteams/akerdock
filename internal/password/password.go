@@ -25,7 +25,7 @@ const (
 	maxVerifyParallelism = 16
 )
 
-var randomReader io.Reader = rand.Reader
+var randomReader = rand.Reader
 
 // MinLength is the minimum password length (PRD §10.2). Length is the single
 // strongest lever against guessing; complexity rules mostly push users toward
@@ -55,25 +55,25 @@ var commonPasswords = map[string]bool{
 	"aaaaaaaaaaaa":     true,
 }
 
-// ErrWeakPassword is returned by Validate for a password that does not meet the
+// WeakPasswordError is returned by Validate for a password that does not meet the
 // policy. Its message is safe to show the user setting the password.
-type ErrWeakPassword struct{ Reason string }
+type WeakPasswordError struct{ Reason string }
 
-func (e ErrWeakPassword) Error() string { return e.Reason }
+func (e WeakPasswordError) Error() string { return e.Reason }
 
 // Validate enforces the password policy (PRD §10.2, ISO A.8.5): a minimum length
 // and a refusal of known-weak passwords. It is the single source of truth for
 // "is this password acceptable", called wherever a password is set.
 func Validate(password string) error {
 	if len(password) < MinLength {
-		return ErrWeakPassword{fmt.Sprintf("must be at least %d characters", MinLength)}
+		return WeakPasswordError{fmt.Sprintf("must be at least %d characters", MinLength)}
 	}
 	normalized := strings.ToLower(strings.TrimSpace(password))
 	if commonPasswords[normalized] {
-		return ErrWeakPassword{"this password is too common — choose a less predictable one"}
+		return WeakPasswordError{"this password is too common — choose a less predictable one"}
 	}
 	if isSingleRepeatedRune(password) {
-		return ErrWeakPassword{"this password is a single repeated character"}
+		return WeakPasswordError{"this password is a single repeated character"}
 	}
 	return nil
 }

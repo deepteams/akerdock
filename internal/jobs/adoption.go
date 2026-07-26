@@ -308,7 +308,7 @@ func (h *Adoption) ExecuteAdopt(ctx context.Context, job store.Job, rec *queue.S
 
 // adoptOne creates the AkerDock objects for one candidate, transactionally.
 // Returns "" when the resource already exists (idempotent replay).
-func (h *Adoption) adoptOne(ctx context.Context, client *sshexec.Client, scan store.AdoptionScan, server store.Server, dest store.Destination, envID int64, cand adoption.Candidate, name string) (string, []string, error) {
+func (h *Adoption) adoptOne(ctx context.Context, client *sshexec.Client, scan store.AdoptionScan, _ store.Server, dest store.Destination, envID int64, cand adoption.Candidate, name string) (string, []string, error) {
 	// Re-inspect: the scan is a snapshot, the workload must still be there.
 	lead := cand.Containers[0]
 	probe := lead.ContainerID

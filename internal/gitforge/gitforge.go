@@ -89,7 +89,7 @@ func doJSON(ctx context.Context, client *http.Client, method, url string, header
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return resp.StatusCode, fmt.Errorf("%s %s: HTTP %d", method, redactURL(url), resp.StatusCode)
 	}

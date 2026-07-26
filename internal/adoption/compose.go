@@ -50,7 +50,8 @@ func RewriteComposeExternalVolumes(content, project string) (string, error) {
 		}
 		replacement := &yaml.Node{Kind: yaml.MappingNode}
 		replacement.Content = []*yaml.Node{
-			scalar("external"), {Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"},
+			scalar("external"),
+			{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"},
 			scalar("name"), scalar(name),
 		}
 		volumes.Content[i+1] = replacement

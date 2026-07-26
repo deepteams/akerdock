@@ -34,7 +34,7 @@ func portForwardCmd() *cobra.Command {
 			"  akerdock port-forward app/varuna 15432:5432 -c postgres --pr 8   # a PR preview",
 		Args: usageArgs(2, "port-forward <type/name> [LOCAL:]REMOTE", "port-forward db/pg 15432:5432"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, _, err := newClient(flags.context)
+			c, err := newClient(flags.context)
 			if err != nil {
 				return err
 			}

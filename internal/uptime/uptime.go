@@ -20,6 +20,7 @@ import (
 // a real outage.
 type Status string
 
+// Uptime check statuses (ADR-017).
 const (
 	StatusUnknown Status = "unknown"
 	StatusUp      Status = "up"

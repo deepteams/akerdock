@@ -209,19 +209,19 @@ func (a *API) createTerminalSession(w http.ResponseWriter, r *http.Request, id *
 	}
 
 	row, err := a.Store.CreateTerminalSession(r.Context(), store.CreateTerminalSessionParams{
-		TeamID:         id.TeamID,
-		UserID:         userID,
-		TargetKind:     target.kind,
-		ServerID:       &target.serverID,
-		ResourceID:     target.resourceID,
-		TargetName:     target.name,
+		TeamID:     id.TeamID,
+		UserID:     userID,
+		TargetKind: target.kind,
+		ServerID:   &target.serverID,
+		ResourceID: target.resourceID,
+		TargetName: target.name,
 		TargetComponent: func() *string {
 			if target.component == "" {
 				return nil
 			}
 			return &target.component
 		}(),
-		PreviewID: target.previewID,
+		PreviewID:      target.previewID,
 		ClientIp:       clientAddr(r),
 		TokenHash:      hashTerminalToken(token),
 		TokenExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(terminalTokenTTL), Valid: true},

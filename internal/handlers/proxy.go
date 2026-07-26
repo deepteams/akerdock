@@ -1,6 +1,7 @@
 // Proxy lifecycle and logs of a server (PRD §3). Stopping a proxy cuts every
 // inbound route of its server: the API exposes the action, the dashboard makes
 // the consequence explicit before it is taken.
+
 package handlers
 
 import (
