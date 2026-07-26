@@ -44,7 +44,7 @@ func componentToAPI(c store.ServiceComponent) api.ServiceComponent {
 // (permission: read). Empty for non-compose build packs — an application
 // with one container has no sub-components to report.
 func (a *API) ListApplicationComponents(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermApplicationsRead)
 	if !ok {
 		return
 	}

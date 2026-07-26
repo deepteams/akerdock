@@ -23,7 +23,7 @@ import (
 // with an empty body — the most recent previous artifact. A missing
 // artifact yields 409.
 func (a *API) RollbackApplication(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.RollbackApplicationParams) {
-	id, ok := a.require(w, r, auth.PermDeploy)
+	id, ok := a.require(w, r, auth.PermApplicationsDeploy)
 	if !ok {
 		return
 	}

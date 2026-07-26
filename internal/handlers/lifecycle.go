@@ -29,7 +29,7 @@ func (a *API) RestartApplication(w http.ResponseWriter, r *http.Request, applica
 }
 
 func (a *API) lifecycle(w http.ResponseWriter, r *http.Request, applicationUuid, action, jobType string) {
-	id, ok := a.require(w, r, auth.PermDeploy)
+	id, ok := a.require(w, r, auth.PermApplicationsLifecycle)
 	if !ok {
 		return
 	}

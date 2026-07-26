@@ -11,6 +11,21 @@ import "sort"
 // This file is the source-of-truth catalogue in code; a test cross-checks that
 // every operation's OpenAPI x-required-permission is one of these names.
 
+// Granular permission constants. Defined as they are wired into handlers,
+// domain by domain (ADR-038 migration), so a typo is a compile error rather than
+// a silent authorization hole. Every constant must be a key of Catalog
+// (enforced by TestGranularConstantsInCatalog).
+const (
+	PermApplicationsRead      Permission = "applications:read"
+	PermApplicationsCreate    Permission = "applications:create"
+	PermApplicationsUpdate    Permission = "applications:update"
+	PermApplicationsDelete    Permission = "applications:delete"
+	PermApplicationsDeploy    Permission = "applications:deploy"
+	PermApplicationsLifecycle Permission = "applications:lifecycle"
+	PermApplicationsExec      Permission = "applications:exec"
+	PermResourcesAdopt        Permission = "resources:adopt"
+)
+
 // Catalog maps every granular permission to its coarse socle.
 var Catalog = map[string]Permission{
 	// Team & access

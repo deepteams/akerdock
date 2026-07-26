@@ -89,6 +89,19 @@ func TestProjectScopesRootIsEverything(t *testing.T) {
 	}
 }
 
+func TestGranularConstantsInCatalog(t *testing.T) {
+	// Every wired granular constant must be a real catalogue permission.
+	for _, p := range []Permission{
+		PermApplicationsRead, PermApplicationsCreate, PermApplicationsUpdate,
+		PermApplicationsDelete, PermApplicationsDeploy, PermApplicationsLifecycle,
+		PermApplicationsExec, PermResourcesAdopt,
+	} {
+		if _, ok := Catalog[string(p)]; !ok {
+			t.Errorf("constant %q is not in Catalog", p)
+		}
+	}
+}
+
 func TestSplitPerm(t *testing.T) {
 	for _, ok := range []string{"applications:read", "a:b"} {
 		if _, _, valid := splitPerm(ok); !valid {

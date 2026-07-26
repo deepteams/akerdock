@@ -226,7 +226,7 @@ func (a *API) AdoptResources(w http.ResponseWriter, r *http.Request, adoptionSca
 // (permission: write): routing detached, row released — remote objects
 // untouched (§20.7 step 5).
 func (a *API) DisownApplication(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.DisownApplicationParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermResourcesAdopt)
 	if !ok {
 		return
 	}

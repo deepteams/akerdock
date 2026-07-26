@@ -86,7 +86,7 @@ func (a *API) resolveScheduledTask(w http.ResponseWriter, r *http.Request, id *a
 
 // ListScheduledTasks implements GET /applications/{uuid}/scheduled-tasks.
 func (a *API) ListScheduledTasks(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.ListScheduledTasksParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermApplicationsRead)
 	if !ok {
 		return
 	}
@@ -123,7 +123,7 @@ func (a *API) ListScheduledTasks(w http.ResponseWriter, r *http.Request, applica
 
 // CreateScheduledTask implements POST /applications/{uuid}/scheduled-tasks.
 func (a *API) CreateScheduledTask(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.CreateScheduledTaskParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermApplicationsExec)
 	if !ok {
 		return
 	}
@@ -222,7 +222,7 @@ func (a *API) GetScheduledTask(w http.ResponseWriter, r *http.Request, taskUuid 
 
 // UpdateScheduledTask implements PATCH /scheduled-tasks/{task_uuid}.
 func (a *API) UpdateScheduledTask(w http.ResponseWriter, r *http.Request, taskUuid api.TaskUuid, params api.UpdateScheduledTaskParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermApplicationsExec)
 	if !ok {
 		return
 	}
@@ -311,7 +311,7 @@ func (a *API) UpdateScheduledTask(w http.ResponseWriter, r *http.Request, taskUu
 
 // DeleteScheduledTask implements DELETE /scheduled-tasks/{task_uuid}.
 func (a *API) DeleteScheduledTask(w http.ResponseWriter, r *http.Request, taskUuid api.TaskUuid) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermApplicationsExec)
 	if !ok {
 		return
 	}
@@ -332,7 +332,7 @@ func (a *API) DeleteScheduledTask(w http.ResponseWriter, r *http.Request, taskUu
 // that ignored the policy would be a second way to do the thing the policy
 // exists to prevent.
 func (a *API) RunScheduledTask(w http.ResponseWriter, r *http.Request, taskUuid api.TaskUuid, params api.RunScheduledTaskParams) {
-	id, ok := a.require(w, r, auth.PermDeploy)
+	id, ok := a.require(w, r, auth.PermApplicationsExec)
 	if !ok {
 		return
 	}
@@ -381,7 +381,7 @@ func (a *API) RunScheduledTask(w http.ResponseWriter, r *http.Request, taskUuid 
 
 // ListTaskExecutions implements GET /scheduled-tasks/{task_uuid}/executions.
 func (a *API) ListTaskExecutions(w http.ResponseWriter, r *http.Request, taskUuid api.TaskUuid, params api.ListTaskExecutionsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermApplicationsRead)
 	if !ok {
 		return
 	}

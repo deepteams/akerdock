@@ -157,7 +157,7 @@ func (a *API) resolveApplication(w http.ResponseWriter, r *http.Request, id *aut
 
 // ListApplications implements GET /applications (permission: read).
 func (a *API) ListApplications(w http.ResponseWriter, r *http.Request, params api.ListApplicationsParams) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermApplicationsRead)
 	if !ok {
 		return
 	}
@@ -192,7 +192,7 @@ func (a *API) ListApplications(w http.ResponseWriter, r *http.Request, params ap
 // P0 of this build: docker_image source only — dockerfile and git land
 // with the build pipeline.
 func (a *API) CreateApplication(w http.ResponseWriter, r *http.Request, params api.CreateApplicationParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermApplicationsCreate)
 	if !ok {
 		return
 	}
@@ -671,7 +671,7 @@ func (a *API) CreateApplication(w http.ResponseWriter, r *http.Request, params a
 
 // GetApplication implements GET /applications/{application_uuid}.
 func (a *API) GetApplication(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermApplicationsRead)
 	if !ok {
 		return
 	}
@@ -687,7 +687,7 @@ func (a *API) GetApplication(w http.ResponseWriter, r *http.Request, application
 // (permission: write): asynchronous deletion — routing, then workloads,
 // then the logical object (§20.6). Volumes are kept unless requested.
 func (a *API) DeleteApplication(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.DeleteApplicationParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermApplicationsDelete)
 	if !ok {
 		return
 	}
@@ -727,7 +727,7 @@ func (a *API) DeleteApplication(w http.ResponseWriter, r *http.Request, applicat
 // (permission: deploy): queues a full deployment, subject to the per-server
 // queue limit (§5.5).
 func (a *API) DeployApplication(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.DeployApplicationParams) {
-	id, ok := a.require(w, r, auth.PermDeploy)
+	id, ok := a.require(w, r, auth.PermApplicationsDeploy)
 	if !ok {
 		return
 	}

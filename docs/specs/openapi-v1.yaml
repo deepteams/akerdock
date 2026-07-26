@@ -2751,7 +2751,7 @@ paths:
       tags: [Applications]
       operationId: listApplications
       summary: Lister les applications
-      x-required-permission: read
+      x-required-permission: applications:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -2804,7 +2804,7 @@ paths:
         `dockerfile` (P0), `git` public ou privé via `private_key_uuid` (P1).
         La création n'implique pas de déploiement, sauf `instant_deploy=true`
         (le `deployment_uuid` figure alors dans la réponse).
-      x-required-permission: write
+      x-required-permission: applications:create
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -2850,7 +2850,7 @@ paths:
         build, domaines, ports, health check, limites) et statut observé
         (§21.2). L'en-tête `ETag` porte la version optimiste à réutiliser
         dans `If-Match` pour `PATCH`.
-      x-required-permission: read
+      x-required-permission: applications:read
       responses:
         "200":
           description: L'application.
@@ -2879,7 +2879,7 @@ paths:
         courante dans `details` (§24.1). Les changements sont versionnés
         (INV-014) et ne prennent effet qu'au prochain déploiement, sauf
         champs à effet immédiat documentés dans le schéma.
-      x-required-permission: write
+      x-required-permission: applications:update
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
@@ -2921,7 +2921,7 @@ paths:
         workloads, puis l'objet logique. Par défaut les volumes persistants
         sont CONSERVÉS ; passer `delete_volumes=true` pour les détruire
         (INV-008).
-      x-required-permission: write
+      x-required-permission: applications:delete
       parameters:
         - name: delete_volumes
           in: query
@@ -3259,7 +3259,7 @@ paths:
       description: >-
         Passe l'état désiré à `running` et démarre les containers existants
         (sans rebuild). Opération distante longue — `202` + job.
-      x-required-permission: deploy
+      x-required-permission: applications:lifecycle
       responses:
         "202":
           description: Démarrage accepté — suivre le job.
@@ -3288,7 +3288,7 @@ paths:
       description: >-
         Passe l'état désiré à `stopped` et arrête les containers (délai de
         grâce configuré sur l'application). `202` + job.
-      x-required-permission: deploy
+      x-required-permission: applications:lifecycle
       responses:
         "202":
           description: Arrêt accepté — suivre le job.
@@ -3315,7 +3315,7 @@ paths:
       operationId: restartApplication
       summary: Redémarrer une application
       description: Redémarre les containers sans rebuild. `202` + job.
-      x-required-permission: deploy
+      x-required-permission: applications:lifecycle
       responses:
         "202":
           description: Redémarrage accepté — suivre le job.
@@ -3347,7 +3347,7 @@ paths:
         fichiers distants restent EXACTEMENT en l'état. Fonctionne sur toute
         application, adoptée ou non : c'est le chemin de sortie sans
         destruction. Opération longue — répond `202` avec un job.
-      x-required-permission: write
+      x-required-permission: resources:adopt
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
@@ -3620,7 +3620,7 @@ paths:
         `deployment_uuid` à suivre sur `GET /deployments/{uuid}`. Soumis à la
         file par serveur (`concurrent_builds`, `deployment_queue_limit`,
         §5.5) ; file pleine → `429`.
-      x-required-permission: deploy
+      x-required-permission: applications:deploy
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -3664,7 +3664,7 @@ paths:
         `image_digest` explicite, sinon la dernière image précédente encore
         disponible (registry par digest OCI si configuré, sinon rétention
         locale, §27.6). L'artifact demandé doit encore exister → sinon `409`.
-      x-required-permission: deploy
+      x-required-permission: applications:deploy
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -4910,7 +4910,7 @@ paths:
         compose-spec.md, data dictionary §9.2), avec leur statut observé
         individuel. Synchronisés à chaque déploiement. Vide pour les autres
         build packs.
-      x-required-permission: read
+      x-required-permission: applications:read
       responses:
         "200":
           description: Composants du stack.
@@ -4945,7 +4945,7 @@ paths:
         — jamais stockées. Sert au déclenchement d'une preview depuis la
         plateforme (§20.4). `409` si la source n'est pas une GitHub App
         installée.
-      x-required-permission: read
+      x-required-permission: applications:read
       responses:
         "200":
           description: PRs ouvertes.
@@ -5429,7 +5429,7 @@ paths:
       tags: [ScheduledTasks]
       operationId: listScheduledTasks
       summary: Lister les tâches planifiées d'une application
-      x-required-permission: read
+      x-required-permission: applications:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -5466,7 +5466,7 @@ paths:
         plans de backup (`@daily`, `@hourly`, …) et est validée ici : une
         expression invalide est refusée en `422`, jamais acceptée puis
         silencieusement jamais déclenchée.
-      x-required-permission: write
+      x-required-permission: applications:exec
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -5531,7 +5531,7 @@ paths:
       description: >-
         PATCH sensible — `If-Match` obligatoire (§24.1). Modifier le cron
         replanifie la prochaine occurrence ; l'historique n'est jamais réécrit.
-      x-required-permission: write
+      x-required-permission: applications:exec
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       requestBody:
@@ -5569,7 +5569,7 @@ paths:
       operationId: deleteScheduledTask
       summary: Supprimer une tâche planifiée
       description: L'historique d'exécution est supprimé avec elle (CASCADE).
-      x-required-permission: write
+      x-required-permission: applications:exec
       responses:
         "204":
           description: Tâche supprimée.
@@ -5592,7 +5592,7 @@ paths:
       description: >-
         Déclenchement manuel — même chemin d'exécution que le déclenchement
         cron, y compris la politique de chevauchement (`overlap_policy`).
-      x-required-permission: deploy
+      x-required-permission: applications:exec
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
@@ -5625,7 +5625,7 @@ paths:
         précédent encore en cours, ou instance arrêtée au moment de
         l'occurrence) apparaît avec le statut `skipped` et sa raison : un
         historique vide voudrait dire « rien n'a jamais été planifié ».
-      x-required-permission: read
+      x-required-permission: applications:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"

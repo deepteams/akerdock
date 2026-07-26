@@ -20,7 +20,7 @@ import (
 // changes are versioned (INV-014) and apply on the next deployment, except
 // domains, whose routing is regenerated immediately.
 func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.UpdateApplicationParams) {
-	id, ok := a.require(w, r, auth.PermWrite)
+	id, ok := a.require(w, r, auth.PermApplicationsUpdate)
 	if !ok {
 		return
 	}

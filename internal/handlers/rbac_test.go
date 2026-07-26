@@ -147,16 +147,48 @@ func TestEveryOperationRefusesAnonymous(t *testing.T) {
 	}
 }
 
+// isReadLevel reports whether a token holding only the coarse `read` scope would
+// satisfy this operation's permission: the coarse `read` itself, or a granular
+// permission whose socle is `read` (ADR-038). Read:sensitive/write/deploy/root
+// are NOT read-level.
+func isReadLevel(perm string) bool {
+	if perm == string(auth.PermRead) {
+		return true
+	}
+	socle, ok := auth.Catalog[perm]
+	return ok && socle == auth.PermRead
+}
+
+// Every operation's x-required-permission must be a coarse scope or a known
+// granular permission from the catalogue — catches a typo in the contract
+// during the ADR-038 migration (a bogus permission would make an endpoint
+// unreachable and go unnoticed).
+func TestContractPermissionsAreKnown(t *testing.T) {
+	coarse := map[string]bool{"read": true, "read:sensitive": true, "write": true, "deploy": true, "root": true}
+	for _, op := range contractOperations(t) {
+		if coarse[op.permission] {
+			continue
+		}
+		if _, ok := auth.Catalog[op.permission]; !ok {
+			t.Errorf("%s %s (%s): x-required-permission %q is neither a coarse scope nor a catalogue permission",
+				op.method, op.path, op.id, op.permission)
+		}
+	}
+}
+
 // A read-only token must be refused on every operation that declares it needs
 // more than read. This is the check that catches an endpoint wired to the wrong
 // permission — the failure mode nobody notices, because it works.
 func TestReadTokenCannotWrite(t *testing.T) {
+	// A real read-only token carries the coarse `read` scope EXPANDED to the
+	// granular `:read` permissions it holds (ADR-038), so it clears read-level
+	// endpoints whether they check `read` or `applications:read`.
 	router := routerWithIdentity(&auth.Identity{
 		TokenID: 1, TeamID: 1, TokenUUID: "t", TeamUUID: "team",
-		Permissions: []string{string(auth.PermRead)},
+		Permissions: auth.EffectivePermissions([]string{string(auth.PermRead)}),
 	})
 	for _, op := range contractOperations(t) {
-		if op.permission == string(auth.PermRead) {
+		if isReadLevel(op.permission) {
 			continue
 		}
 		t.Run(op.id, func(t *testing.T) {

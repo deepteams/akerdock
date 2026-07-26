@@ -332,7 +332,7 @@ func (a *API) githubForApplication(ctx context.Context, row appRow) (*githubapp.
 // ListApplicationPullRequests implements GET /applications/{uuid}/pull-requests
 // (permission: read): the repository's open PRs, read live from the provider.
 func (a *API) ListApplicationPullRequests(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid) {
-	id, ok := a.require(w, r, auth.PermRead)
+	id, ok := a.require(w, r, auth.PermApplicationsRead)
 	if !ok {
 		return
 	}
