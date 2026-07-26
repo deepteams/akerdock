@@ -50,6 +50,12 @@ export interface ClientOptions {
    */
   csrfToken?: string;
   fetch?: typeof globalThis.fetch;
+  /**
+   * Called when a request comes back 401: the session is gone (or was never
+   * there). The dashboard uses this to drop its state and route to sign-in
+   * instead of surfacing "missing or invalid bearer token" to the operator.
+   */
+  onUnauthorized?: () => void;
 }
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -73,12 +79,14 @@ export class AkerDockClient {
   private readonly token?: string;
   private readonly csrfToken?: string;
   private readonly fetchImpl: typeof globalThis.fetch;
+  private readonly onUnauthorized?: () => void;
 
   constructor(options: ClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
     this.token = options.token;
     this.csrfToken = options.csrfToken;
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
+    this.onUnauthorized = options.onUnauthorized;
   }
 
   async request<T>(method: Method, path: string, options: RequestOptions = {}): Promise<T> {
@@ -121,6 +129,9 @@ export class AkerDockClient {
 
     if (!response.ok) {
       const error = (payload ?? {}) as Error;
+      // A 401 means the session is gone: let the host route to sign-in rather
+      // than let every caller render "missing or invalid bearer token".
+      if (response.status === 401) this.onUnauthorized?.();
       throw new ApiError(
         response.status,
         error.code ?? 'unknown',

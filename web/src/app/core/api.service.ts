@@ -1,6 +1,12 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { AkerDockClient, ApiError } from '../../api/client';
-import { credentialToJSON, toCreationOptions, toRequestOptions, webAuthnSupported } from './webauthn';
+import {
+  credentialToJSON,
+  toCreationOptions,
+  toRequestOptions,
+  webAuthnSupported,
+} from './webauthn';
 
 /**
  * Authentication is by SESSION COOKIE, not by a token the page holds.
@@ -63,6 +69,7 @@ export interface LinkedIdentity {
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
+  private readonly router = inject(Router);
   private readonly user = signal<CurrentUser | null>(null);
   private readonly csrf = signal<string | null>(null);
 
@@ -74,8 +81,26 @@ export class ApiService {
       new AkerDockClient({
         baseUrl: '/api/v1',
         csrfToken: this.csrf() ?? undefined,
+        onUnauthorized: () => this.handleUnauthorized(),
       }),
   );
+
+  /**
+   * A 401 from the API means the session expired mid-use: drop what we hold and
+   * route to sign-in, so the operator sees the login page rather than a raw
+   * "missing or invalid bearer token". Guarded against loops — once signed out
+   * (or already on sign-in) it does nothing.
+   */
+  private handleUnauthorized(): void {
+    if (this.user() === null) return;
+    this.user.set(null);
+    this.csrf.set(null);
+    const returnUrl = this.router.url;
+    void this.router.navigate(
+      ['/sign-in'],
+      returnUrl && returnUrl !== '/sign-in' ? { queryParams: { returnUrl } } : {},
+    );
+  }
 
   /** True when the current user's permissions include the given one. */
   can(permission: string): boolean {

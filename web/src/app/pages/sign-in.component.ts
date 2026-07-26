@@ -271,6 +271,14 @@ export class SignInComponent {
     return this.api.passkeysSupported();
   }
 
+  /** After a successful sign-in, return to where a 401 bounced from — an
+   * internal path only (never an off-site redirect) — else the app home. */
+  private async postLogin(): Promise<void> {
+    const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
+    const safe = returnUrl && returnUrl.startsWith('/') && !returnUrl.startsWith('//');
+    await this.router.navigate([safe ? returnUrl : '/applications']);
+  }
+
   protected async oauth(provider: string): Promise<void> {
     if (this.busy()) return;
     this.busy.set(true);
@@ -289,7 +297,7 @@ export class SignInComponent {
     this.error.set(null);
     try {
       await this.api.signInWithPasskey();
-      await this.router.navigate(['/applications']);
+      await this.postLogin();
     } catch (err) {
       // A cancelled prompt surfaces as NotAllowedError with a browser-worded
       // message; keep it short rather than technical.
@@ -316,7 +324,7 @@ export class SignInComponent {
         this.challenge.set(result.challenge);
         return;
       }
-      await this.router.navigate(['/applications']);
+      await this.postLogin();
     } catch (err) {
       // The server answers the same thing for a wrong email and a wrong
       // password, on purpose: the UI must not soften that into a hint.
@@ -338,7 +346,7 @@ export class SignInComponent {
       } else {
         await this.api.verifyMfa(chal, code);
       }
-      await this.router.navigate(['/applications']);
+      await this.postLogin();
     } catch (err) {
       this.error.set(ApiService.describe(err));
       this.code = '';
