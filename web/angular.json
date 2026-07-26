@@ -47,6 +47,7 @@
                 }
               ],
               "outputHashing": "all",
+              "extractLicenses": true,
               "optimization": {
                 "scripts": true,
                 "fonts": true,

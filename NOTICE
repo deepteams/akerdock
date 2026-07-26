@@ -1,0 +1,13 @@
+AkerDock
+Copyright 2026 The AkerDock Authors
+
+This product includes software developed by third parties.
+
+Licensed under the Apache License, Version 2.0 (the "License"); see the LICENSE
+file at the root of this repository.
+
+Attribution notices for the third-party components that are compiled into the
+AkerDock binary or bundled into its web dashboard are collected in
+THIRD-PARTY-NOTICES.md. The machine-generated, exhaustive set of dependency
+license texts is produced at release time (go-licenses / syft) and shipped with
+the release artifacts and published images, per docs/specs/licensing-sbom.md.
