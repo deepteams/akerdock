@@ -101,7 +101,7 @@ func (a *API) ApprovePreviewFork(w http.ResponseWriter, r *http.Request, applica
 	if err == nil {
 		refreshed, err := a.Store.GetPreviewByID(r.Context(), preview.ID)
 		if err == nil {
-			_, _, _ = jobs.TryPromotePreview(r.Context(), a.Store, a.Logger, appRow, refreshed)
+			_, _, _ = jobs.TryPromotePreview(r.Context(), a.Store, a.Logger, appRow, refreshed, false)
 			preview = refreshed
 		}
 	}
@@ -358,6 +358,34 @@ func (a *API) ListApplicationPullRequests(w http.ResponseWriter, r *http.Request
 		})
 	}
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": data})
+}
+
+// KeepPreview implements POST /applications/{uuid}/previews/{uuid}/keep
+// (permission: write): the UI counterpart of the /keep comment command — reset
+// the inactivity TTL and clear any expiry warning.
+func (a *API) KeepPreview(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string) {
+	id, ok := a.require(w, r, auth.PermWrite)
+	if !ok {
+		return
+	}
+	row, ok := a.resolveApplication(w, r, id, applicationUuid)
+	if !ok {
+		return
+	}
+	preview, ok := a.resolvePreview(w, r, id, row.Resource.ID, previewUuid)
+	if !ok {
+		return
+	}
+	if preview.Status == store.PreviewStatusDestroyed || preview.Status == store.PreviewStatusDestroying {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "this preview is destroyed")
+		return
+	}
+	if err := a.Store.KeepPreviewAlive(r.Context(), preview.ID); err != nil {
+		a.internalError(w, r, "keep preview", err)
+		return
+	}
+	a.recordAudit(r, id, "preview.keep", "preview", preview.Uuid)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // DeployPreviewForPr implements POST /applications/{uuid}/previews

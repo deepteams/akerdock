@@ -78,8 +78,24 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
         @if (p.head_sha; as sha) {
           <span class="akd-badge akd-badge--mono">{{ sha.slice(0, 12) }}</span>
         }
+        @if (p.status !== 'destroyed' && p.status !== 'destroying') {
+          <button
+            class="akd-btn akd-btn--secondary akd-btn--sm"
+            type="button"
+            [disabled]="busy()"
+            title="Reset the inactivity TTL so this preview is not auto-destroyed"
+            (click)="keepAlive()"
+          >
+            <akd-icon name="rotate-ccw" [size]="14" />
+            Keep alive
+          </button>
+        }
       }
     </header>
+
+    @if (notice(); as message) {
+      <p class="akd-muted" role="status">{{ message }}</p>
+    }
 
     @if (error(); as message) {
       <p class="akd-error" role="alert">{{ message }}</p>
@@ -477,6 +493,7 @@ export class PreviewDetailComponent {
   protected readonly storages = signal<Storage[]>([]);
   protected readonly logs = signal<LogLine[] | null>(null);
   protected readonly error = signal<string | null>(null);
+  protected readonly notice = signal<string | null>(null);
   protected readonly busy = signal(false);
 
   protected lines = 200;
@@ -605,6 +622,21 @@ export class PreviewDetailComponent {
       this.error.set(ApiService.describe(err));
       this.follow = false;
       this.stopFollow();
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** Reset the inactivity TTL so the reaper leaves this preview alone. */
+  protected async keepAlive(): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.client().keepPreview(this.uuid(), this.previewUuid());
+      this.notice.set('Inactivity TTL reset — this preview will not be auto-destroyed for now.');
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
     } finally {
       this.busy.set(false);
     }

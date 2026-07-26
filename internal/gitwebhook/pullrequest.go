@@ -193,8 +193,10 @@ type CommentEvent struct {
 	OnPullRequest bool
 }
 
-// Command extracts the command when the FIRST line is exactly /deploy or
-// /destroy (protocols §2.7d — a command quoted mid-text must not fire).
+// Command extracts the command when the FIRST line is exactly one of the
+// supported commands (protocols §2.7d — a command quoted mid-text must not
+// fire): /deploy, /destroy, /rebuild (redeploy without build cache), /keep
+// (reset the inactivity TTL).
 func (e CommentEvent) Command() string {
 	first := e.Body
 	if i := strings.IndexAny(first, "\r\n"); i >= 0 {
@@ -205,6 +207,10 @@ func (e CommentEvent) Command() string {
 		return "deploy"
 	case "/destroy":
 		return "destroy"
+	case "/rebuild":
+		return "rebuild"
+	case "/keep":
+		return "keep"
 	default:
 		return ""
 	}

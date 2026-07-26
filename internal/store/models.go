@@ -2719,6 +2719,7 @@ type Preview struct {
 	CreatedAt      pgtype.Timestamptz
 	UpdatedAt      pgtype.Timestamptz
 	RepoReference  *string
+	ExpiryWarnedAt pgtype.Timestamptz
 }
 
 type PreviewAccessToken struct {

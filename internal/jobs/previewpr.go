@@ -233,7 +233,7 @@ func HandlePreviewPREvent(ctx context.Context, q *store.Queries, keyring *envelo
 			feedback.Notify(ctx, app, preview, "awaiting_manual_deploy")
 			return "awaiting manual deploy (preview_deploy_on_open=false)", nil
 		}
-		promoted, reason, err := TryPromotePreview(ctx, q, logger, app, preview)
+		promoted, reason, err := TryPromotePreview(ctx, q, logger, app, preview, false)
 		if err != nil {
 			return "", err
 		}
@@ -345,7 +345,7 @@ func randomToken(bytes int) (string, error) {
 
 // TryPromotePreview enqueues the preview deployment when the application has
 // capacity (§20.4.3) — shared by the PR job and the scheduler's queue drain.
-func TryPromotePreview(ctx context.Context, q PreviewPromotionStore, logger *slog.Logger, app store.GetApplicationByIDRow, preview store.Preview) (bool, string, error) {
+func TryPromotePreview(ctx context.Context, q PreviewPromotionStore, logger *slog.Logger, app store.GetApplicationByIDRow, preview store.Preview, forceRebuild bool) (bool, string, error) {
 	if app.Application.PreviewMaxConcurrent != nil {
 		live, err := q.CountLivePreviewsForApplication(ctx, app.Resource.ID)
 		if err != nil {
@@ -368,7 +368,7 @@ func TryPromotePreview(ctx context.Context, q PreviewPromotionStore, logger *slo
 	deployment, err := q.CreateDeployment(ctx, store.CreateDeploymentParams{
 		Uuid: u, ResourceID: app.Resource.ID, Trigger: store.DeploymentTriggerPreview,
 		ServerID: dest.ServerID, ConfigSnapshot: snapshot,
-		PreviewID: &preview.ID, CommitSha: preview.HeadSha,
+		PreviewID: &preview.ID, CommitSha: preview.HeadSha, ForceRebuild: forceRebuild,
 	})
 	if err != nil {
 		return false, "", err

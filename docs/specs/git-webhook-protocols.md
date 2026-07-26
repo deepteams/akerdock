@@ -238,9 +238,9 @@ Principe transversal : le feedback est **best-effort** — un échec d'appel de 
 
 **d) Commandes en commentaire (opt-in, `preview_comment_commands_enabled`)** :
 
-- Événement `issue_comment` / `created`, sur une PR uniquement (`issue.pull_request` présent), corps dont la **première ligne** est exactement `/deploy` ou `/destroy` (trim, insensible à la casse) **(défaut proposé)**.
+- Événement `issue_comment` / `created`, sur une PR uniquement (`issue.pull_request` présent), corps dont la **première ligne** est exactement `/deploy`, `/destroy`, `/rebuild` ou `/keep` (trim, insensible à la casse) **(défaut proposé)**.
 - **Vérification des droits de l'auteur, côté serveur** : `GET /repos/{owner}/{repo}/collaborators/{username}/permission` — requiert `permission ∈ {admin, maintain, write}` **(défaut proposé)**. Le champ `comment.author_association` du payload n'est jamais suffisant (déclaratif, et `CONTRIBUTOR` couvre n'importe quel auteur déjà mergé une fois).
-- `/deploy` : (re)déploie la preview au head SHA courant — y compris pour une PR de fork **si et seulement si** l'auteur de la commande est un mainteneur autorisé (la commande vaut approbation, voir e). `/destroy` : détruit la preview (cycle `destroying` §8.9).
+- `/deploy` : (re)déploie la preview au head SHA courant — y compris pour une PR de fork **si et seulement si** l'auteur de la commande est un mainteneur autorisé (la commande vaut approbation, voir e). `/destroy` : détruit la preview (cycle `destroying` §8.9). `/rebuild` : comme `/deploy` mais **sans cache de build** (`force_rebuild`). `/keep` : réarme le TTL d'inactivité (§20.4.3) et efface l'avertissement d'expiration.
 - Accusé de réception : réaction `rocket` sur le commentaire de commande (`POST /repos/{owner}/{repo}/issues/comments/{comment_id}/reactions`, `content: "rocket"`) **(défaut proposé)** ; refus de droits → aucune réaction, événement audité.
 - Chaque commande est une livraison webhook normale : dédupliquée, auditée, tracée.
 

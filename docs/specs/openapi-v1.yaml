@@ -5325,6 +5325,37 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /applications/{application_uuid}/previews/{preview_uuid}/keep:
+    parameters:
+      - $ref: "#/components/parameters/ApplicationUuid"
+      - name: preview_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Applications]
+      operationId: keepPreview
+      summary: Réarmer le TTL d'une preview
+      description: >-
+        Remet à zéro l'horloge d'inactivité (§20.4.3) et efface l'avertissement
+        d'expiration — équivalent UI de la commande `/keep`. La preview reste
+        vivante jusqu'au prochain TTL. `409` si elle est déjà détruite.
+      x-required-permission: write
+      responses:
+        "204":
+          description: TTL réarmé.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /applications/{application_uuid}/previews/{preview_uuid}/approve:
     parameters:
       - $ref: "#/components/parameters/ApplicationUuid"

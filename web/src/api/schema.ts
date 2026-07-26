@@ -2386,6 +2386,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/applications/{application_uuid}/previews/{preview_uuid}/keep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Réarmer le TTL d'une preview
+         * @description Remet à zéro l'horloge d'inactivité (§20.4.3) et efface l'avertissement d'expiration — équivalent UI de la commande `/keep`. La preview reste vivante jusqu'au prochain TTL. `409` si elle est déjà détruite.
+         */
+        post: operations["keepPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/applications/{application_uuid}/previews/{preview_uuid}/approve": {
         parameters: {
             query?: never;
@@ -10265,6 +10289,33 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PortForwardSession"];
                 };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    keepPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID de l'application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description TTL réarmé. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];

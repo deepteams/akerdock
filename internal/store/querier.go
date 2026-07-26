@@ -421,6 +421,9 @@ type Querier interface {
 	InsertInstanceSettingsIfAbsent(ctx context.Context, arg InsertInstanceSettingsIfAbsentParams) (int64, error)
 	InsertOutboxEvent(ctx context.Context, arg InsertOutboxEventParams) error
 	IsJobCancelRequested(ctx context.Context, id int64) (bool, error)
+	// /keep or the UI button: reset the inactivity clock and clear any pending
+	// expiry warning — the developer still needs this preview.
+	KeepPreviewAlive(ctx context.Context, id int64) error
 	LastSentDelivery(ctx context.Context, ruleID int64) (pgtype.Timestamptz, error)
 	ListAdoptionScansForServer(ctx context.Context, arg ListAdoptionScansForServerParams) ([]AdoptionScan, error)
 	// API token management (§10.3). Token values are never stored nor
@@ -511,6 +514,9 @@ type Querier interface {
 	// preview's id wins over the shared set's same key.
 	ListPreviewEnvVars(ctx context.Context, arg ListPreviewEnvVarsParams) ([]EnvironmentVariable, error)
 	ListPreviewsForApplication(ctx context.Context, applicationID int64) ([]Preview, error)
+	// Active previews at least 80% into their inactivity TTL and not yet warned —
+	// the heads-up window before ListExpiredPreviews reaps them.
+	ListPreviewsToWarn(ctx context.Context) ([]Preview, error)
 	// Which of these keys are actually referenced — by a server or as an
 	// application's deploy key. Answered in one round trip so a key listing does
 	// not fan out into one query per row.
@@ -705,6 +711,7 @@ type Querier interface {
 	SetOtlpConfig(ctx context.Context, otlpConfigEnc []byte) error
 	SetPlanDrillResult(ctx context.Context, arg SetPlanDrillResultParams) error
 	SetPreviewDeployed(ctx context.Context, id int64) error
+	SetPreviewExpiryWarned(ctx context.Context, id int64) error
 	SetPreviewFqdn(ctx context.Context, arg SetPreviewFqdnParams) error
 	SetPreviewStatus(ctx context.Context, arg SetPreviewStatusParams) error
 	// The operator's intent on the proxy (§3): an explicit stop must survive the

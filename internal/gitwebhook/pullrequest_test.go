@@ -208,11 +208,14 @@ func TestCommandFirstLineOnly(t *testing.T) {
 	cases := map[string]string{
 		"/deploy":            "deploy",
 		"/destroy":           "destroy",
-		"  /deploy  ":        "deploy",
+		"/rebuild":           "rebuild",
+		"/keep":              "keep",
+		"  /keep  ":          "keep",
 		"/deploy\nand more":  "deploy",
 		"please run /deploy": "",
 		"quote:\n/deploy":    "",
 		"/deployment":        "",
+		"/keeper":            "",
 		"/deploy now":        "",
 		"":                   "",
 	}

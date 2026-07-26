@@ -282,7 +282,7 @@ func TestPreviewFeedbackStatesAndRightsAdapter(t *testing.T) {
 	}
 	notifier := &previewNotifierFake{rights: true}
 	for _, state := range []string{"queued", "deploying", "success", "failure", "destroyed", "unknown"} {
-		notifyForge(context.Background(), notifier, logger, app, preview, state)
+		notifyForge(context.Background(), notifier, logger, app, preview, state, "akerdock.example.com")
 	}
 	if notifier.comments != 5 || notifier.statuses != 4 {
 		t.Fatalf("comments = %d, statuses = %d", notifier.comments, notifier.statuses)
@@ -356,13 +356,13 @@ func TestPreviewPromotionCapacityCancellationAndDestroy(t *testing.T) {
 	}
 
 	capped := &previewPromotionFake{live: 2}
-	ok, reason, err := TryPromotePreview(context.Background(), capped, logger, app, preview)
+	ok, reason, err := TryPromotePreview(context.Background(), capped, logger, app, preview, false)
 	if err != nil || ok || !strings.Contains(reason, "concurrency cap") {
 		t.Fatalf("capped = %v, %q, %v", ok, reason, err)
 	}
 
 	available := &previewPromotionFake{superseded: []int64{10}, running: []int64{11}}
-	ok, reason, err = TryPromotePreview(context.Background(), available, logger, app, preview)
+	ok, reason, err = TryPromotePreview(context.Background(), available, logger, app, preview, false)
 	if err != nil || !ok || reason != "" || available.enqueued != 1 ||
 		available.status != store.PreviewStatusDeploying {
 		t.Fatalf("promoted = %v, %q, %v; fake = %#v", ok, reason, err, available)

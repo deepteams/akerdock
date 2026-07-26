@@ -161,6 +161,10 @@ func (f *fakeSchedulerStore) ListUnvalidatedLocalhostServers(context.Context) ([
 func (f *fakeSchedulerStore) ListExpiredPreviews(context.Context) ([]store.Preview, error) {
 	return f.expired, f.err("expired")
 }
+func (f *fakeSchedulerStore) ListPreviewsToWarn(context.Context) ([]store.Preview, error) {
+	return nil, nil
+}
+func (f *fakeSchedulerStore) SetPreviewExpiryWarned(context.Context, int64) error { return nil }
 func (f *fakeSchedulerStore) ListQueuedPreviews(context.Context) ([]store.Preview, error) {
 	return f.queued, f.err("queued")
 }

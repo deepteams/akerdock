@@ -47,6 +47,11 @@ const EVENT_CATALOG: { title: string; events: CatalogEvent[] }[] = [
     events: [
       { type: 'application.preview.created.v1', label: 'Preview created', severity: 'info' },
       { type: 'application.preview.updated.v1', label: 'Preview updated', severity: 'info' },
+      {
+        type: 'application.preview.expiring.v1',
+        label: 'Preview expiring (TTL)',
+        severity: 'warning',
+      },
       { type: 'application.preview.deleted.v1', label: 'Preview deleted', severity: 'info' },
     ],
   },

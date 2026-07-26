@@ -111,7 +111,7 @@ func previewStatusURL(preview store.Preview) string {
 // commit status + THE upserted comment. Best-effort by contract — every
 // failure is logged, none is returned.
 func notifyForge(ctx context.Context, notifier gitforge.Notifier, logger *slog.Logger,
-	app store.GetApplicationByIDRow, preview store.Preview, state string,
+	app store.GetApplicationByIDRow, preview store.Preview, state, instanceFqdn string,
 ) {
 	repo := ""
 	if preview.RepoReference != nil {
@@ -123,27 +123,24 @@ func notifyForge(ctx context.Context, notifier gitforge.Notifier, logger *slog.L
 	}
 	url := previewStatusURL(preview)
 
-	var line string
+	// The commit-status state; the comment body is the shared rich renderer.
 	var status gitforge.StatusState
 	switch state {
 	case "queued":
-		line, status = "⏳ Preview queued for `"+shortSHA(preview.HeadSha)+"`.", gitforge.StatusQueued
+		status = gitforge.StatusQueued
 	case "deploying":
-		line, status = "🚀 Preview deploying `"+shortSHA(preview.HeadSha)+"`…", gitforge.StatusRunning
+		status = gitforge.StatusRunning
 	case "success":
-		line, status = "✅ Preview ready: "+url, gitforge.StatusSuccess
-		if url == "" {
-			line = "✅ Preview deployed (no domain configured)."
-		}
+		status = gitforge.StatusSuccess
 	case "failure":
-		line, status = "❌ Preview deployment failed for `"+shortSHA(preview.HeadSha)+"` — see the deployment logs in AkerDock.", gitforge.StatusFailure
+		status = gitforge.StatusFailure
 	case "destroyed":
-		line = "🧹 Preview destroyed."
+		status = ""
 	default:
 		return
 	}
 
-	body := fmt.Sprintf("**AkerDock preview — %s**\n\n%s", app.Resource.Name, line)
+	body := previewCommentBody(app, preview, state, instanceFqdn)
 	marker := fmt.Sprintf("preview-%s-%d", pguuid.String(app.Resource.Uuid), preview.PrID)
 	if err := notifier.UpsertComment(ctx, repo, int(preview.PrID), marker, body); err != nil {
 		logger.Warn("preview feedback: comment upsert failed", "error", err)

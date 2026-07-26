@@ -219,6 +219,14 @@ export class AkerDockClient {
     return this.request<void>('DELETE', `/applications/${applicationUuid}/previews/${previewUuid}`);
   }
 
+  /** Reset a preview's inactivity TTL (UI counterpart of the /keep command). */
+  keepPreview(applicationUuid: string, previewUuid: string) {
+    return this.request<void>(
+      'POST',
+      `/applications/${applicationUuid}/previews/${previewUuid}/keep`,
+    );
+  }
+
   getPreviewLogs(
     applicationUuid: string,
     previewUuid: string,

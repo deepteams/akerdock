@@ -90,6 +90,8 @@ type SchedulerStore interface {
 	ListDrillablePlans(context.Context) ([]store.ListDrillablePlansRow, error)
 	ListUnvalidatedLocalhostServers(context.Context) ([]store.Server, error)
 	ListExpiredPreviews(context.Context) ([]store.Preview, error)
+	ListPreviewsToWarn(context.Context) ([]store.Preview, error)
+	SetPreviewExpiryWarned(context.Context, int64) error
 	ListQueuedPreviews(context.Context) ([]store.Preview, error)
 	GetApplicationByID(context.Context, int64) (store.GetApplicationByIDRow, error)
 	ListSchedulableTasks(context.Context) ([]store.ListSchedulableTasksRow, error)

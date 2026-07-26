@@ -34,8 +34,28 @@ WHERE id = $1;
 UPDATE previews SET fqdn = $2, updated_at = now() WHERE id = $1;
 
 -- name: SetPreviewDeployed :exec
-UPDATE previews SET status = 'active', last_deployed_at = now(), last_activity_at = now(), updated_at = now()
+UPDATE previews SET status = 'active', last_deployed_at = now(), last_activity_at = now(),
+    expiry_warned_at = NULL, updated_at = now()
 WHERE id = $1;
+
+-- name: KeepPreviewAlive :exec
+-- /keep or the UI button: reset the inactivity clock and clear any pending
+-- expiry warning — the developer still needs this preview.
+UPDATE previews SET last_activity_at = now(), expiry_warned_at = NULL, updated_at = now()
+WHERE id = $1;
+
+-- name: SetPreviewExpiryWarned :exec
+UPDATE previews SET expiry_warned_at = now(), updated_at = now() WHERE id = $1;
+
+-- name: ListPreviewsToWarn :many
+-- Active previews at least 80% into their inactivity TTL and not yet warned —
+-- the heads-up window before ListExpiredPreviews reaps them.
+SELECT p.* FROM previews p
+JOIN applications a ON a.id = p.application_id
+WHERE p.status = 'active' AND a.preview_ttl_minutes IS NOT NULL
+  AND p.expiry_warned_at IS NULL
+  AND GREATEST(coalesce(p.last_activity_at, p.last_deployed_at), p.last_deployed_at)
+      < now() - make_interval(mins => (a.preview_ttl_minutes * 4 / 5));
 
 -- name: ApprovePreviewFork :execrows
 UPDATE previews SET fork_approved_by = $2, fork_approved_at = now(), updated_at = now()

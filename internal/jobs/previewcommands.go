@@ -124,7 +124,7 @@ func handlePreviewComment(ctx context.Context, q *store.Queries, keyring *envelo
 		if err := ensurePreviewScaffolding(ctx, q, keyring, app, &revived); err != nil {
 			return CommentOutcome{}, err
 		}
-		promoted, reason, err := TryPromotePreview(ctx, q, logger, app, revived)
+		promoted, reason, err := TryPromotePreview(ctx, q, logger, app, revived, false)
 		if err != nil {
 			return CommentOutcome{}, err
 		}
@@ -135,6 +135,45 @@ func handlePreviewComment(ctx context.Context, q *store.Queries, keyring *envelo
 		}
 		feedback.Notify(ctx, app, revived, "deploying")
 		return CommentOutcome{Accepted: "deployment queued by /deploy"}, nil
+
+	case "rebuild":
+		if preview.IsFork && !preview.ForkApprovedAt.Valid {
+			return ignored("fork waiting for maintainer approval (INV-010)"), nil
+		}
+		revived, err := q.UpsertPreview(ctx, store.UpsertPreviewParams{
+			ApplicationID: app.Resource.ID, Provider: provider, PrID: preview.PrID,
+			SourceBranch: preview.SourceBranch, HeadSha: preview.HeadSha,
+			IsFork: preview.IsFork, RepoReference: preview.RepoReference,
+		})
+		if err != nil {
+			return CommentOutcome{}, err
+		}
+		if err := ensurePreviewScaffolding(ctx, q, keyring, app, &revived); err != nil {
+			return CommentOutcome{}, err
+		}
+		// forceRebuild = true: a /rebuild exists precisely to bust the build cache.
+		promoted, reason, err := TryPromotePreview(ctx, q, logger, app, revived, true)
+		if err != nil {
+			return CommentOutcome{}, err
+		}
+		feedback := &PreviewFeedback{Store: q, Keyring: keyring, Logger: logger}
+		if !promoted {
+			feedback.Notify(ctx, app, revived, "queued")
+			return CommentOutcome{Accepted: "queued by /rebuild: " + reason}, nil
+		}
+		feedback.Notify(ctx, app, revived, "deploying")
+		return CommentOutcome{Accepted: "rebuild (no cache) queued by /rebuild"}, nil
+
+	case "keep":
+		if preview.Status == store.PreviewStatusDestroyed || preview.Status == store.PreviewStatusDestroying {
+			return ignored("preview already destroyed — /deploy to bring it back"), nil
+		}
+		// Reset the inactivity clock and clear any expiry warning: the developer
+		// is telling us they still need this preview.
+		if err := q.KeepPreviewAlive(ctx, preview.ID); err != nil {
+			return CommentOutcome{}, err
+		}
+		return CommentOutcome{Accepted: "TTL reset by /keep"}, nil
 
 	default:
 		return ignored("unknown command"), nil
@@ -173,6 +212,6 @@ func DeployPreviewForPR(ctx context.Context, q *store.Queries, keyring *envelope
 		// the next step — the caller surfaces the reason.
 		return preview, false, "fork waiting for maintainer approval (INV-010)", nil
 	}
-	promoted, reason, err := TryPromotePreview(ctx, q, logger, app, preview)
+	promoted, reason, err := TryPromotePreview(ctx, q, logger, app, preview, false)
 	return preview, promoted, reason, err
 }

@@ -93,7 +93,7 @@ func (q *Queries) GetPreviewAccessTokenByHash(ctx context.Context, tokenHash str
 }
 
 const getPreviewByHost = `-- name: GetPreviewByHost :one
-SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference FROM previews
+SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference, expiry_warned_at FROM previews
 WHERE fqdn IS NOT NULL AND (fqdn = $1::citext OR $1::citext LIKE '%-' || fqdn)
 ORDER BY length(fqdn) DESC
 LIMIT 1
@@ -124,12 +124,13 @@ func (q *Queries) GetPreviewByHost(ctx context.Context, host string) (Preview, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RepoReference,
+		&i.ExpiryWarnedAt,
 	)
 	return i, err
 }
 
 const getPreviewByID = `-- name: GetPreviewByID :one
-SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference FROM previews WHERE id = $1
+SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference, expiry_warned_at FROM previews WHERE id = $1
 `
 
 func (q *Queries) GetPreviewByID(ctx context.Context, id int64) (Preview, error) {
@@ -155,12 +156,13 @@ func (q *Queries) GetPreviewByID(ctx context.Context, id int64) (Preview, error)
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RepoReference,
+		&i.ExpiryWarnedAt,
 	)
 	return i, err
 }
 
 const getPreviewByIdentity = `-- name: GetPreviewByIdentity :one
-SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference FROM previews
+SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference, expiry_warned_at FROM previews
 WHERE application_id = $1 AND provider = $2 AND pr_id = $3
 `
 
@@ -193,12 +195,13 @@ func (q *Queries) GetPreviewByIdentity(ctx context.Context, arg GetPreviewByIden
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RepoReference,
+		&i.ExpiryWarnedAt,
 	)
 	return i, err
 }
 
 const getPreviewByUUID = `-- name: GetPreviewByUUID :one
-SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference FROM previews WHERE uuid = $1
+SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference, expiry_warned_at FROM previews WHERE uuid = $1
 `
 
 func (q *Queries) GetPreviewByUUID(ctx context.Context, uuid pgtype.UUID) (Preview, error) {
@@ -224,12 +227,13 @@ func (q *Queries) GetPreviewByUUID(ctx context.Context, uuid pgtype.UUID) (Previ
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RepoReference,
+		&i.ExpiryWarnedAt,
 	)
 	return i, err
 }
 
 const getPreviewByUUIDForTeam = `-- name: GetPreviewByUUIDForTeam :one
-SELECT p.id, p.uuid, p.application_id, p.provider, p.pr_id, p.source_branch, p.head_sha, p.is_fork, p.fork_approved_by, p.fork_approved_at, p.fqdn, p.status, p.cleanup_error, p.last_deployed_at, p.last_activity_at, p.destroyed_at, p.created_at, p.updated_at, p.repo_reference FROM previews p
+SELECT p.id, p.uuid, p.application_id, p.provider, p.pr_id, p.source_branch, p.head_sha, p.is_fork, p.fork_approved_by, p.fork_approved_at, p.fqdn, p.status, p.cleanup_error, p.last_deployed_at, p.last_activity_at, p.destroyed_at, p.created_at, p.updated_at, p.repo_reference, p.expiry_warned_at FROM previews p
 JOIN resources r ON r.id = p.application_id
 WHERE p.uuid = $1 AND r.team_id = $2
 `
@@ -263,8 +267,21 @@ func (q *Queries) GetPreviewByUUIDForTeam(ctx context.Context, arg GetPreviewByU
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RepoReference,
+		&i.ExpiryWarnedAt,
 	)
 	return i, err
+}
+
+const keepPreviewAlive = `-- name: KeepPreviewAlive :exec
+UPDATE previews SET last_activity_at = now(), expiry_warned_at = NULL, updated_at = now()
+WHERE id = $1
+`
+
+// /keep or the UI button: reset the inactivity clock and clear any pending
+// expiry warning — the developer still needs this preview.
+func (q *Queries) KeepPreviewAlive(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, keepPreviewAlive, id)
+	return err
 }
 
 const listCancellablePreviewDeploymentIDs = `-- name: ListCancellablePreviewDeploymentIDs :many
@@ -301,7 +318,7 @@ func (q *Queries) ListCancellablePreviewDeploymentIDs(ctx context.Context, arg L
 }
 
 const listExpiredPreviews = `-- name: ListExpiredPreviews :many
-SELECT p.id, p.uuid, p.application_id, p.provider, p.pr_id, p.source_branch, p.head_sha, p.is_fork, p.fork_approved_by, p.fork_approved_at, p.fqdn, p.status, p.cleanup_error, p.last_deployed_at, p.last_activity_at, p.destroyed_at, p.created_at, p.updated_at, p.repo_reference FROM previews p
+SELECT p.id, p.uuid, p.application_id, p.provider, p.pr_id, p.source_branch, p.head_sha, p.is_fork, p.fork_approved_by, p.fork_approved_at, p.fqdn, p.status, p.cleanup_error, p.last_deployed_at, p.last_activity_at, p.destroyed_at, p.created_at, p.updated_at, p.repo_reference, p.expiry_warned_at FROM previews p
 JOIN applications a ON a.id = p.application_id
 WHERE p.status = 'active' AND a.preview_ttl_minutes IS NOT NULL
   AND GREATEST(coalesce(p.last_activity_at, p.last_deployed_at), p.last_deployed_at)
@@ -338,6 +355,7 @@ func (q *Queries) ListExpiredPreviews(ctx context.Context) ([]Preview, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.RepoReference,
+			&i.ExpiryWarnedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -403,7 +421,7 @@ func (q *Queries) ListPreviewEnvVars(ctx context.Context, arg ListPreviewEnvVars
 }
 
 const listPreviewsForApplication = `-- name: ListPreviewsForApplication :many
-SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference FROM previews
+SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference, expiry_warned_at FROM previews
 WHERE application_id = $1 AND status <> 'destroyed'
 ORDER BY pr_id
 `
@@ -437,6 +455,59 @@ func (q *Queries) ListPreviewsForApplication(ctx context.Context, applicationID 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.RepoReference,
+			&i.ExpiryWarnedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPreviewsToWarn = `-- name: ListPreviewsToWarn :many
+SELECT p.id, p.uuid, p.application_id, p.provider, p.pr_id, p.source_branch, p.head_sha, p.is_fork, p.fork_approved_by, p.fork_approved_at, p.fqdn, p.status, p.cleanup_error, p.last_deployed_at, p.last_activity_at, p.destroyed_at, p.created_at, p.updated_at, p.repo_reference, p.expiry_warned_at FROM previews p
+JOIN applications a ON a.id = p.application_id
+WHERE p.status = 'active' AND a.preview_ttl_minutes IS NOT NULL
+  AND p.expiry_warned_at IS NULL
+  AND GREATEST(coalesce(p.last_activity_at, p.last_deployed_at), p.last_deployed_at)
+      < now() - make_interval(mins => (a.preview_ttl_minutes * 4 / 5))
+`
+
+// Active previews at least 80% into their inactivity TTL and not yet warned —
+// the heads-up window before ListExpiredPreviews reaps them.
+func (q *Queries) ListPreviewsToWarn(ctx context.Context) ([]Preview, error) {
+	rows, err := q.db.Query(ctx, listPreviewsToWarn)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Preview
+	for rows.Next() {
+		var i Preview
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.ApplicationID,
+			&i.Provider,
+			&i.PrID,
+			&i.SourceBranch,
+			&i.HeadSha,
+			&i.IsFork,
+			&i.ForkApprovedBy,
+			&i.ForkApprovedAt,
+			&i.Fqdn,
+			&i.Status,
+			&i.CleanupError,
+			&i.LastDeployedAt,
+			&i.LastActivityAt,
+			&i.DestroyedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.RepoReference,
+			&i.ExpiryWarnedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -449,7 +520,7 @@ func (q *Queries) ListPreviewsForApplication(ctx context.Context, applicationID 
 }
 
 const listQueuedPreviews = `-- name: ListQueuedPreviews :many
-SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference FROM previews WHERE status = 'queued' ORDER BY updated_at
+SELECT id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference, expiry_warned_at FROM previews WHERE status = 'queued' ORDER BY updated_at
 LIMIT 50
 `
 
@@ -483,6 +554,7 @@ func (q *Queries) ListQueuedPreviews(ctx context.Context) ([]Preview, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.RepoReference,
+			&i.ExpiryWarnedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -495,12 +567,22 @@ func (q *Queries) ListQueuedPreviews(ctx context.Context) ([]Preview, error) {
 }
 
 const setPreviewDeployed = `-- name: SetPreviewDeployed :exec
-UPDATE previews SET status = 'active', last_deployed_at = now(), last_activity_at = now(), updated_at = now()
+UPDATE previews SET status = 'active', last_deployed_at = now(), last_activity_at = now(),
+    expiry_warned_at = NULL, updated_at = now()
 WHERE id = $1
 `
 
 func (q *Queries) SetPreviewDeployed(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, setPreviewDeployed, id)
+	return err
+}
+
+const setPreviewExpiryWarned = `-- name: SetPreviewExpiryWarned :exec
+UPDATE previews SET expiry_warned_at = now(), updated_at = now() WHERE id = $1
+`
+
+func (q *Queries) SetPreviewExpiryWarned(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, setPreviewExpiryWarned, id)
 	return err
 }
 
@@ -640,7 +722,7 @@ ON CONFLICT (application_id, provider, pr_id) DO UPDATE SET
     status = CASE WHEN previews.status IN ('destroyed', 'failed') THEN 'queued'::preview_status ELSE previews.status END,
     destroyed_at = NULL,
     updated_at = now()
-RETURNING id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference
+RETURNING id, uuid, application_id, provider, pr_id, source_branch, head_sha, is_fork, fork_approved_by, fork_approved_at, fqdn, status, cleanup_error, last_deployed_at, last_activity_at, destroyed_at, created_at, updated_at, repo_reference, expiry_warned_at
 `
 
 type UpsertPreviewParams struct {
@@ -688,6 +770,7 @@ func (q *Queries) UpsertPreview(ctx context.Context, arg UpsertPreviewParams) (P
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RepoReference,
+		&i.ExpiryWarnedAt,
 	)
 	return i, err
 }

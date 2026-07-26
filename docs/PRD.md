@@ -283,7 +283,7 @@ Environnement éphémère déployé automatiquement **pour chaque pull request**
 ## 11. Notifications
 
 - **Canaux** : Email (SMTP ou Resend), Discord, Telegram, Slack (compatible Mattermost), Pushover, webhooks custom.
-- **Événements** (activables individuellement **par canal**) : déploiement réussi/échoué, changement de statut de container (app arrêtée/unhealthy), **preview créée / mise à jour / détruite** (`application.preview.created|updated|deleted.v1`), backup réussi/échoué, scheduled task réussie/échouée, statut du Docker cleanup, seuil d'usage disque, **serveur injoignable / de nouveau joignable**, mises à jour disponibles, proxy obsolète.
+- **Événements** (activables individuellement **par canal**) : déploiement réussi/échoué, changement de statut de container (app arrêtée/unhealthy), **preview créée / mise à jour / bientôt expirée / détruite** (`application.preview.created|updated|expiring|deleted.v1`), backup réussi/échoué, scheduled task réussie/échouée, statut du Docker cleanup, seuil d'usage disque, **serveur injoignable / de nouveau joignable**, mises à jour disponibles, proxy obsolète.
 
 ---
 
