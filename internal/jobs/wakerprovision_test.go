@@ -3,6 +3,7 @@ package jobs
 import (
 	"testing"
 
+	"github.com/deepteams/akerdock/internal/compose"
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/waker"
 )
@@ -17,7 +18,7 @@ func TestWakerConfigFromRouteGroup(t *testing.T) {
 			{FQDN: "web2-pv.example.com", Path: "/", TargetPort: 3000, Endpoint: "pv-1-web"},
 		},
 	}
-	cfg := wakerConfigFromRouteGroup("pv-1", rg)
+	cfg := wakerConfigFromRouteGroup("pv-1", rg, nil)
 
 	if len(cfg.Routes) != 3 {
 		t.Fatalf("routes = %d, want 3", len(cfg.Routes))
@@ -47,9 +48,58 @@ func TestWakerConfigSingleContainerFallback(t *testing.T) {
 		Endpoint: "pv-2",
 		Routes:   []proxy.Route{{FQDN: "pv2.example.com", Path: "/", TargetPort: 80}},
 	}
-	cfg := wakerConfigFromRouteGroup("pv-2", rg)
+	cfg := wakerConfigFromRouteGroup("pv-2", rg, nil)
 	if cfg.Routes[0].Container != "pv-2" || cfg.Resources[0].Containers[0] != "pv-2" {
 		t.Fatalf("single-container fallback wrong: %#v / %#v", cfg.Routes[0], cfg.Resources[0])
+	}
+}
+
+func TestWakerConfigWakeOrderIncludesDependencies(t *testing.T) {
+	// A compose stack: only `web` is routed, but the wake set must carry the
+	// whole stack in start order — a stopped dependency loses its DNS alias,
+	// so waking `web` alone boots it against a name that no longer resolves.
+	rg := proxy.RouteGroup{
+		AppUUID: "app-1",
+		Routes:  []proxy.Route{{FQDN: "app.example.com", Path: "/", TargetPort: 8080, Endpoint: "app-1-web"}},
+	}
+	cfg := wakerConfigFromRouteGroup("app-1", rg, []string{"app-1-nats", "app-1-postgres", "app-1-web"})
+
+	got := cfg.Resources[0].Containers
+	want := []string{"app-1-nats", "app-1-postgres", "app-1-web"}
+	if len(got) != len(want) {
+		t.Fatalf("wake set = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("wake set = %v, want %v (start order preserved)", got, want)
+		}
+	}
+}
+
+func TestWakerConfigRoutedContainerAppendedWhenMissingFromOrder(t *testing.T) {
+	// A routed container absent from the declared order (defensive: a stale
+	// plan) is appended LAST — its dependencies wake first.
+	rg := proxy.RouteGroup{
+		AppUUID: "app-1",
+		Routes:  []proxy.Route{{FQDN: "app.example.com", Path: "/", TargetPort: 8080, Endpoint: "app-1-web"}},
+	}
+	cfg := wakerConfigFromRouteGroup("app-1", rg, []string{"app-1-nats"})
+
+	got := cfg.Resources[0].Containers
+	if len(got) != 2 || got[0] != "app-1-nats" || got[1] != "app-1-web" {
+		t.Fatalf("wake set = %v, want [app-1-nats app-1-web]", got)
+	}
+}
+
+func TestStackWakeOrderSkipsOneShot(t *testing.T) {
+	plan := &compose.Plan{Services: []compose.ServicePlan{
+		{Name: "nats", ContainerName: "app-1-nats"},
+		{Name: "migrate", ContainerName: "app-1-migrate", OneShot: true},
+		{Name: "web", ContainerName: "app-1-web"},
+	}}
+	got := stackWakeOrder(plan)
+	if len(got) != 2 || got[0] != "app-1-nats" || got[1] != "app-1-web" {
+		t.Fatalf("wake order = %v, want [app-1-nats app-1-web] (one-shot excluded, order kept)", got)
 	}
 }
 

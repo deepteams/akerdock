@@ -21,6 +21,8 @@ type fakeDocker struct {
 	running    map[string]bool
 	health     map[string]string // per-container health, default "none"
 	starts     map[string]int
+	seq        []string // Start call order, to prove ordered wake
+	stops      []string // Stop call order, to prove rollback
 	inspects   int32
 	inspectErr error // when set, Inspect fails (e.g. unreachable Docker socket)
 }
@@ -33,7 +35,16 @@ func (d *fakeDocker) Start(_ context.Context, c string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.starts[c]++
+	d.seq = append(d.seq, c)
 	d.running[c] = true
+	return nil
+}
+
+func (d *fakeDocker) Stop(_ context.Context, c string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.stops = append(d.stops, c)
+	d.running[c] = false
 	return nil
 }
 
@@ -158,6 +169,77 @@ func TestWakeTimeout(t *testing.T) {
 
 	if rr.Code != http.StatusGatewayTimeout {
 		t.Fatalf("status = %d, want 504", rr.Code)
+	}
+}
+
+func TestWakeStartsInDeclaredOrder(t *testing.T) {
+	// The wake set is listed in the stack's compose start order: c1 (the
+	// dependency) must be started — and ready — before c2 (the app), exactly
+	// like the deploy did. Both wake here (StableFor=0), in order.
+	d := newFakeDocker()
+	w, _, closeFn := newTestWaker(t, d, &fakeActivity{})
+	defer closeFn()
+
+	rr := httptest.NewRecorder()
+	w.ServeHTTP(rr, request("app.example.com", ""))
+
+	if len(d.seq) != 2 || d.seq[0] != "c1" || d.seq[1] != "c2" {
+		t.Fatalf("start sequence = %v, want [c1 c2] (declared order)", d.seq)
+	}
+}
+
+func TestWakeGatesOnDependencyReadiness(t *testing.T) {
+	// A dependency stuck "starting" must HOLD the wake: the next container of
+	// the order is never started against a dependency that is not ready, and
+	// the failed wake rolls the started dependency back to stopped — otherwise
+	// the stack is left half-awake in a crash-loop the control plane believes
+	// asleep.
+	d := newFakeDocker()
+	d.health["c1"] = "starting" // never ready
+	w, _, closeFn := newTestWaker(t, d, &fakeActivity{})
+	defer closeFn()
+
+	rr := httptest.NewRecorder()
+	w.ServeHTTP(rr, request("app.example.com", ""))
+
+	if rr.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504", rr.Code)
+	}
+	if d.starts["c2"] != 0 {
+		t.Fatalf("c2 started while its dependency c1 was not ready: %v", d.starts)
+	}
+	if len(d.stops) != 1 || d.stops[0] != "c1" {
+		t.Fatalf("rollback stops = %v, want [c1]", d.stops)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.running["c1"] {
+		t.Fatal("c1 left running after a failed wake — the resource must return to its slept state")
+	}
+}
+
+func TestRollbackOnlyStopsWhatWakeStarted(t *testing.T) {
+	// c1 was already awake before the wake: a failed wake must stop ONLY the
+	// containers this attempt started (c2), never what was already running.
+	d := newFakeDocker()
+	d.running["c1"] = true
+	d.health["c2"] = "starting" // never ready
+	w, _, closeFn := newTestWaker(t, d, &fakeActivity{})
+	defer closeFn()
+
+	rr := httptest.NewRecorder()
+	w.ServeHTTP(rr, request("app.example.com", ""))
+
+	if rr.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504", rr.Code)
+	}
+	if len(d.stops) != 1 || d.stops[0] != "c2" {
+		t.Fatalf("rollback stops = %v, want [c2] only", d.stops)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.running["c1"] {
+		t.Fatal("rollback stopped c1, which the wake did not start")
 	}
 }
 

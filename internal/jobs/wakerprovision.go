@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/deepteams/akerdock/internal/compose"
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/waker"
@@ -22,12 +23,27 @@ const wakerDir = "/var/lib/akerdock/waker"
 
 // wakerConfigFromRouteGroup derives the waker routing table from a RouteGroup
 // whose endpoints still point at the REAL containers: each route's host maps to
-// its container and port, and the resource's wake set is the distinct set of
-// those containers.
-func wakerConfigFromRouteGroup(resourceUUID string, rg proxy.RouteGroup) waker.Config {
+// its container and port. wakeOrder is the resource's full wake set in stack
+// start order (ADR-037 §5): every container of the stack, not just the routed
+// ones — a stopped dependency (database, broker) loses its Docker DNS alias,
+// so waking only the routed service boots it against a name that no longer
+// resolves. Routed containers absent from wakeOrder are appended last: their
+// dependencies wake first. An empty wakeOrder — a plain single-container app —
+// falls back to the routed containers alone.
+func wakerConfigFromRouteGroup(resourceUUID string, rg proxy.RouteGroup, wakeOrder []string) waker.Config {
 	seen := map[string]bool{}
 	var containers []string
+	add := func(c string) {
+		if c != "" && !seen[c] {
+			seen[c] = true
+			containers = append(containers, c)
+		}
+	}
+	for _, c := range wakeOrder {
+		add(c)
+	}
 	var routes []waker.Route
+	var routed []string
 	for _, rt := range rg.Routes {
 		container := rt.Endpoint
 		if container == "" {
@@ -39,16 +55,31 @@ func wakerConfigFromRouteGroup(resourceUUID string, rg proxy.RouteGroup) waker.C
 		routes = append(routes, waker.Route{
 			Host: rt.FQDN, ResourceUUID: resourceUUID, Container: container, Port: rt.TargetPort,
 		})
-		if !seen[container] {
-			seen[container] = true
-			containers = append(containers, container)
-		}
+		routed = append(routed, container)
 	}
-	sort.Strings(containers)
+	sort.Strings(routed)
+	for _, c := range routed {
+		add(c)
+	}
 	return waker.Config{
 		Routes:    routes,
 		Resources: []waker.Resource{{UUID: resourceUUID, Containers: containers}},
 	}
+}
+
+// stackWakeOrder is a compose stack's scale-to-zero wake set: every service
+// container in topological start order (compose-spec §2.6). One-shot jobs
+// (restart:no, §7.3) are excluded — `docker start` on a completed job would
+// re-run it, and its exited state would never count as ready.
+func stackWakeOrder(plan *compose.Plan) []string {
+	var order []string
+	for _, sp := range plan.Services {
+		if sp.OneShot {
+			continue
+		}
+		order = append(order, sp.ContainerName)
+	}
+	return order
 }
 
 // pointRouteGroupAtWaker rewrites every route to target the waker container, so

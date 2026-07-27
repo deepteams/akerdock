@@ -35,10 +35,13 @@ type ContainerState struct {
 }
 
 // Docker is the container control the waker is code-limited to (§8.1): it only
-// starts and inspects akerdock.managed containers — never create/remove/build.
+// starts, inspects and stops akerdock.managed containers — never
+// create/remove/build. Stop exists solely to roll back a failed wake: it is
+// the same operation the control plane's sleep performs.
 type Docker interface {
 	Start(ctx context.Context, container string) error
 	Inspect(ctx context.Context, container string) (ContainerState, error)
+	Stop(ctx context.Context, container string) error
 }
 
 // Activity records the last request time of a resource so the control plane's
@@ -56,8 +59,10 @@ type Route struct {
 	Port         int    `json:"port"`
 }
 
-// Resource is the wake unit: the set of containers started together (a whole
-// compose stack, or a single container for a plain app).
+// Resource is the wake unit: the containers started together (a whole compose
+// stack, or a single container for a plain app), listed in the stack's
+// topological start order (§2.6) — the waker wakes them in this order, each
+// one ready before the next starts, exactly like the deploy did.
 type Resource struct {
 	UUID       string   `json:"uuid"`
 	Containers []string `json:"containers"`
@@ -245,9 +250,14 @@ func (w *Waker) gateFor(uuid string) *sync.Mutex {
 	return g
 }
 
-// ensureAwake starts every stopped container of the resource and blocks until
-// they are all ready or the wake budget runs out. Serialised per resource so
-// concurrent first-requests share one wake.
+// ensureAwake wakes the resource's containers in their listed order — the
+// stack's compose start order — waiting for each to be ready before starting
+// the next, so a dependency (database, broker) is up and resolvable before the
+// service that needs it boots. Blocks until all are ready or the wake budget
+// runs out. Serialised per resource so concurrent first-requests share one
+// wake. A failed wake stops the containers this attempt started, so the
+// resource returns to its slept state instead of crash-looping half-awake
+// while the control plane still believes it asleep.
 func (w *Waker) ensureAwake(ctx context.Context, uuid string) error {
 	res, ok := w.resource(uuid)
 	if !ok {
@@ -260,35 +270,60 @@ func (w *Waker) ensureAwake(ctx context.Context, uuid string) error {
 
 	deadline := w.now().Add(w.WakeTimeout)
 	firstRunning := make(map[string]time.Time)
+	startedByWake := map[string]bool{}
+	var started []string
 
-	for {
-		allReady := true
+	err := func() error {
 		for _, c := range res.Containers {
-			st, err := w.docker.Inspect(ctx, c)
-			if err != nil {
-				return err
-			}
-			if !st.Running {
-				// Idempotent: starting an already-running container is harmless.
-				if err := w.docker.Start(ctx, c); err != nil {
+			for {
+				st, err := w.docker.Inspect(ctx, c)
+				if err != nil {
 					return err
 				}
-				allReady = false
-				delete(firstRunning, c)
-				continue
+				if st.Running && w.ready(c, st, firstRunning) {
+					break // awake — move on to the next of the order
+				}
+				if !st.Running {
+					// Idempotent: starting an already-running container is harmless.
+					if err := w.docker.Start(ctx, c); err != nil {
+						return err
+					}
+					if !startedByWake[c] {
+						startedByWake[c] = true
+						started = append(started, c)
+					}
+					delete(firstRunning, c)
+				}
+				if !w.now().Before(deadline) {
+					return fmt.Errorf("%w: %s after %s", errWakeTimeout, uuid, w.WakeTimeout)
+				}
+				if err := sleepCtx(ctx, w.Poll); err != nil {
+					return err
+				}
 			}
-			if !w.ready(c, st, firstRunning) {
-				allReady = false
-			}
 		}
-		if allReady {
-			return nil
-		}
-		if !w.now().Before(deadline) {
-			return fmt.Errorf("%w: %s after %s", errWakeTimeout, uuid, w.WakeTimeout)
-		}
-		if err := sleepCtx(ctx, w.Poll); err != nil {
-			return err
+		return nil
+	}()
+	if err != nil {
+		w.rollback(uuid, started)
+	}
+	return err
+}
+
+// rollback stops the containers a failed wake started, in reverse order —
+// best-effort, on a fresh context because the request's is likely dead. This
+// also disarms the compose restart policy: a `docker stop` marks the container
+// deliberately stopped, ending any crash-loop the partial wake caused.
+func (w *Waker) rollback(uuid string, started []string) {
+	if len(started) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for i := len(started) - 1; i >= 0; i-- {
+		if err := w.docker.Stop(ctx, started[i]); err != nil {
+			w.log().Warn("waker: rollback stop failed",
+				"resource", uuid, "container", started[i], "error", err)
 		}
 	}
 }

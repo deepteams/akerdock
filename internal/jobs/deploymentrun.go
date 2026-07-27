@@ -226,6 +226,11 @@ type deploymentRun struct {
 	rolling      bool
 	target       string
 	healthBudget int
+	// stzWakeOrder is the scale-to-zero wake set in stack start order, set by
+	// the compose engine as soon as the plan exists — so every waker
+	// provisioning of this run ships the FULL stack (ADR-037 §5), not just the
+	// routed services. Nil for a plain single-container app.
+	stzWakeOrder []string
 }
 
 func (h *DeploymentRun) newRun(ctx context.Context, d store.Deployment, jobID int64) (*deploymentRun, error) {
@@ -1323,7 +1328,7 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 			if rg, ok := previewSingleRouteGroup(r.app, *r.preview, ""); ok {
 				previewUUID := pguuid.String(r.preview.Uuid)
 				if err = ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, previewUUID,
-					wakerConfigFromRouteGroup(previewUUID, rg)); err != nil {
+					wakerConfigFromRouteGroup(previewUUID, rg, r.stzWakeOrder)); err != nil {
 					return err
 				}
 				content = renderPreviewContent(pointRouteGroupAtWaker(rg), previewUUID, r.d.ID,
@@ -1346,7 +1351,7 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 		}
 		if ok && len(rg.Routes) > 0 {
 			if err = ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, appUUID,
-				wakerConfigFromRouteGroup(appUUID, rg)); err != nil {
+				wakerConfigFromRouteGroup(appUUID, rg, r.stzWakeOrder)); err != nil {
 				return err
 			}
 			content = proxy.GenerateDynamic(pointRouteGroupAtWaker(rg), r.d.ID)

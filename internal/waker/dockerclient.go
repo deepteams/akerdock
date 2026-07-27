@@ -12,12 +12,12 @@ import (
 )
 
 // DockerSocket is the local Docker Engine API socket the waker is given (§8.1).
-// The waker only ever calls start/inspect — a minimal client over this socket
-// keeps the static binary free of the full Docker SDK (ADR-021).
+// The waker only ever calls start/inspect/stop — a minimal client over this
+// socket keeps the static binary free of the full Docker SDK (ADR-021).
 const DockerSocket = "/var/run/docker.sock"
 
 // SocketDocker talks to the local Docker daemon over its unix socket. It
-// implements Docker with exactly two calls: start and inspect.
+// implements Docker with exactly three calls: start, inspect and stop.
 type SocketDocker struct {
 	http    *http.Client
 	version string // pinned Engine API version segment, e.g. "v1.45"
@@ -73,6 +73,30 @@ func (c *SocketDocker) Start(ctx context.Context, container string) error {
 	default:
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return fmt.Errorf("waker: docker start %s: %s: %s", container, resp.Status, body)
+	}
+}
+
+// Stop stops a container — the rollback of a failed wake, the same operation
+// the control plane's sleep performs, so a half-woken stack does not
+// crash-loop while the control plane believes it asleep. 204 = stopped,
+// 304 = already stopped.
+func (c *SocketDocker) Stop(ctx context.Context, container string) error {
+	u := c.endpoint("/containers/" + url.PathEscape(container) + "/stop?t=10")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	switch resp.StatusCode {
+	case http.StatusNoContent, http.StatusNotModified:
+		return nil
+	default:
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("waker: docker stop %s: %s: %s", container, resp.Status, body)
 	}
 }
 

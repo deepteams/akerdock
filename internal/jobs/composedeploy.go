@@ -150,6 +150,11 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 		return err
 	}
 	plan := result.Plan
+	// The scale-to-zero wake set (ADR-037 §5) is known as soon as the plan is:
+	// set it before the per-service loop, whose stable routing steps provision
+	// the waker — otherwise the waker would only know the routed services and
+	// wake a stack without its dependencies.
+	r.stzWakeOrder = stackWakeOrder(plan)
 	if r.service != nil {
 		for _, sp := range plan.Services {
 			if sp.Build {
@@ -859,7 +864,7 @@ func (r *deploymentRun) applyComposePreviewRouting(ctx context.Context, content 
 	// routes by Host, so only the service target changes — the protection
 	// middlewares injected below are untouched.
 	if r.app.Application.PreviewScaleToZero && len(rg.Routes) > 0 {
-		wcfg := wakerConfigFromRouteGroup(appUUID, rg)
+		wcfg := wakerConfigFromRouteGroup(appUUID, rg, stackWakeOrder(plan))
 		if err := ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, appUUID, wcfg); err != nil {
 			return err
 		}
