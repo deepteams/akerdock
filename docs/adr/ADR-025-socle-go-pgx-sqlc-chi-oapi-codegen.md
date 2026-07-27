@@ -1,26 +1,26 @@
-# ADR-025 — Socle technique Go/API : pgx + sqlc, migrations SQL versionnées, chi + oapi-codegen spec-first
+# ADR-025 — Go/API technical foundation: pgx + sqlc, versioned SQL migrations, chi + oapi-codegen spec-first
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.25, §24.1, §25.2, §18.2, ADR-002
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.25, §24.1, §25.2, §18.2, ADR-002
 
-## Contexte
+## Context
 
-Le control plane Go a besoin d'un socle d'accès aux données et d'une chaîne API. Les chemins critiques — queue, leases, outbox en PostgreSQL (ADR-002) — reposent sur du SQL précis (verrous, `SKIP LOCKED`, transactions) qu'un ORM masque ou dégrade. Côté API, le PRD exige qu'OpenAPI soit un artefact versionné et testé en CI (§24.1) et que le client TypeScript de l'UI soit généré depuis le même artefact (§25.2) pour empêcher toute dérive UI/API. Il faut fixer ces choix structurants avant la première ligne de code.
+The Go control plane needs a data-access foundation and an API toolchain. The critical paths — queue, leases, outbox in PostgreSQL (ADR-002) — rely on precise SQL (locks, `SKIP LOCKED`, transactions) that an ORM hides or degrades. On the API side, the PRD requires OpenAPI to be a versioned artifact tested in CI (§24.1) and the UI's TypeScript client to be generated from that same artifact (§25.2) to prevent any UI/API drift. These structuring choices must be fixed before the first line of code.
 
-## Décision
+## Decision
 
-- **Accès PostgreSQL via pgx + sqlc** : SQL explicite, types vérifiés à la compilation — indispensable pour les requêtes critiques de **queue/leases/outbox** ; **migrations SQL versionnées**.
-- **API spec-first** avec le router **chi** et **oapi-codegen** : les **handlers Go** et le **client TypeScript de l'UI** (§25.2) sont générés depuis le **même artefact OpenAPI** (§24.1).
+- **PostgreSQL access via pgx + sqlc**: explicit SQL, types checked at compile time — essential for the critical **queue/leases/outbox** queries; **versioned SQL migrations**.
+- **Spec-first API** with the **chi** router and **oapi-codegen**: the **Go handlers** and the **UI's TypeScript client** (§25.2) are generated from the **same OpenAPI artifact** (§24.1).
 
-## Alternatives considérées
+## Alternatives considered
 
-- **ORM (GORM/ent)** : rejeté — abstraction inadaptée aux requêtes critiques de queue/leases/outbox (verrous, `FOR UPDATE SKIP LOCKED`), coût caché en performance et en contrôle ; sqlc donne la sûreté de types sans masquer le SQL.
-- **Code-first (OpenAPI généré depuis le code Go)** : rejeté — la spec devient un sous-produit au lieu d'un contrat ; le spec-first garantit que handlers Go et client TypeScript dérivent du même artefact, sans dérive possible.
-- **Frameworks web lourds (gin, echo) ou gRPC-gateway** : rejetés — chi est un router minimal compatible `net/http` standard, suffisant et sans lock-in ; gRPC ajouterait une couche de traduction pour une API REST publique contractuelle.
+- **ORM (GORM/ent)**: rejected — an abstraction ill-suited to the critical queue/leases/outbox queries (locks, `FOR UPDATE SKIP LOCKED`), hidden cost in performance and control; sqlc provides type safety without hiding the SQL.
+- **Code-first (OpenAPI generated from the Go code)**: rejected — the spec becomes a by-product instead of a contract; spec-first guarantees that the Go handlers and the TypeScript client derive from the same artifact, with no possible drift.
+- **Heavy web frameworks (gin, echo) or gRPC-gateway**: rejected — chi is a minimal router compatible with standard `net/http`, sufficient and lock-in free; gRPC would add a translation layer for a contractual public REST API.
 
-## Conséquences
+## Consequences
 
-- **Positives** : requêtes critiques auditables et optimisables en SQL natif, vérifiées à la compilation ; contrat API unique dont dérivent serveur et client (aucune dérive UI/API possible) ; dépendances minimales et standards de l'écosystème Go ; migrations SQL explicites compatibles rolling upgrade (§18.2).
-- **Négatives** : sqlc impose d'écrire tout le SQL à la main (plus verbeux qu'un ORM pour le CRUD simple) et une étape de génération de code dans le build ; le spec-first exige de maintenir l'artefact OpenAPI en amont de chaque évolution d'endpoint, avec la discipline CI correspondante (§24.1).
-- **Risques acceptés** : couplage assumé à PostgreSQL (aucune portabilité multi-SGBD — cohérent avec ADR-002 et ADR-021) ; dépendance à des générateurs tiers (sqlc, oapi-codegen) dont les évolutions doivent être suivies ; les erreurs de conception de la spec OpenAPI se propagent mécaniquement au serveur et au client.
+- **Positive**: critical queries auditable and optimizable in native SQL, verified at compile time; a single API contract from which server and client derive (no UI/API drift possible); minimal dependencies that are standard in the Go ecosystem; explicit SQL migrations compatible with rolling upgrades (§18.2).
+- **Negative**: sqlc requires writing all SQL by hand (more verbose than an ORM for simple CRUD) and a code-generation step in the build; spec-first requires maintaining the OpenAPI artifact ahead of every endpoint change, with the corresponding CI discipline (§24.1).
+- **Accepted risks**: deliberate coupling to PostgreSQL (no multi-DBMS portability — consistent with ADR-002 and ADR-021); dependency on third-party generators (sqlc, oapi-codegen) whose evolution must be tracked; design mistakes in the OpenAPI spec propagate mechanically to the server and the client.

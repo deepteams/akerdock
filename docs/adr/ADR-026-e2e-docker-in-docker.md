@@ -1,27 +1,27 @@
-# ADR-026 — Stratégie de tests E2E : Docker-in-Docker uniquement, risque résiduel documenté
+# ADR-026 — E2E test strategy: Docker-in-Docker only, residual risk documented
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.26, §29.9, §22.4, §26.2, §26.3
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.26, §29.9, §22.4, §26.2, §26.3
 
-## Contexte
+## Context
 
-AkerDock pilote de vrais serveurs Linux : la matrice complète (OS variés, AMD64/ARM64, systemd, reboots, firewalls — §22.4) ne peut être couverte en E2E automatisé qu'au prix de VM provisionnées à chaque exécution — lentes, coûteuses et peu parallélisables. À l'inverse, des serveurs cibles simulés en containers (Docker-in-Docker) permettent des E2E rapides et gratuits sur chaque commit, mais ne reproduisent pas fidèlement un vrai serveur. Il faut arbitrer la stratégie d'automatisation et assumer explicitement ce qu'elle ne couvre pas.
+AkerDock drives real Linux servers: the full matrix (varied OSes, AMD64/ARM64, systemd, reboots, firewalls — §22.4) can only be covered by automated E2E at the cost of VMs provisioned on every run — slow, expensive and poorly parallelizable. Conversely, target servers simulated as containers (Docker-in-Docker) enable fast and free E2E on every commit, but do not faithfully reproduce a real server. The automation strategy must be settled and what it does not cover must be explicitly owned.
 
-## Décision
+## Decision
 
-Les E2E automatisés s'exécutent en **Docker-in-Docker uniquement** : les serveurs cibles sont **simulés en containers** — rapides, gratuits, **parallélisables sur chaque commit**. Le plan de tests E2E (§29.9) couvre ainsi moteurs de bases, build packs, proxies, providers Git et storages S3.
+Automated E2E runs in **Docker-in-Docker only**: target servers are **simulated as containers** — fast, free, **parallelizable on every commit**. The E2E test plan (§29.9) thus covers database engines, build packs, proxies, Git providers and S3 storages.
 
-**Risque résiduel accepté et documenté** : **systemd, les reboots réels, les firewalls, les disques pleins et ARM64 ne sont pas couverts par l'automatisation** — ces classes de bugs seront découvertes **en usage réel ou lors de validations manuelles ponctuelles**. La matrice OS/architecture reste supportée (§22.4) mais validée manuellement, hors automatisation (§29.9) ; la matrice de parité le trace explicitement (§26.2, ex. « VM/ARM64 non automatisé, risque accepté §27.26 »).
+**Accepted and documented residual risk**: **systemd, real reboots, firewalls, full disks and ARM64 are not covered by automation** — these bug classes will be discovered **in real-world usage or during occasional manual validations**. The OS/architecture matrix remains supported (§22.4) but validated manually, outside automation (§29.9); the parity matrix records this explicitly (§26.2, e.g. "VM/ARM64 not automated, risk accepted §27.26").
 
-## Alternatives considérées
+## Alternatives considered
 
-- **VM éphémères en CI (cloud ou libvirt/Vagrant)** : rejetées comme socle systématique — minutes de CI coûteuses, exécutions lentes, parallélisme limité ; la vitesse de la boucle de feedback sur chaque commit prime.
-- **Stratégie hybride (DinD sur chaque commit + VM nightly)** : non retenue à ce stade — c'est l'évolution naturelle si les classes de bugs non couvertes se matérialisent, mais aucun pipeline VM n'est engagé aujourd'hui.
-- **Ferme de matériel ARM64 dédiée** : rejetée — coût d'infrastructure et de maintenance disproportionné ; ARM64 reste supporté mais validé manuellement.
+- **Ephemeral VMs in CI (cloud or libvirt/Vagrant)**: rejected as a systematic foundation — costly CI minutes, slow runs, limited parallelism; the speed of the feedback loop on every commit takes priority.
+- **Hybrid strategy (DinD on every commit + nightly VMs)**: not retained at this stage — it is the natural evolution if the uncovered bug classes materialize, but no VM pipeline is committed to today.
+- **Dedicated ARM64 hardware farm**: rejected — disproportionate infrastructure and maintenance cost; ARM64 remains supported but validated manually.
 
-## Conséquences
+## Consequences
 
-- **Positives** : E2E sur chaque commit, sans coût d'infrastructure ni goulet de parallélisme ; les régressions du cœur (déploiements, proxy, backups, webhooks) sont détectées immédiatement ; l'exigence « au moins un E2E représentatif » de la Definition of Done (§26.3) reste tenable.
-- **Négatives** : des pans entiers du réel ne sont **jamais** exercés automatiquement — interactions systemd, comportement après reboot d'un serveur, règles firewall, disque plein en cours de déploiement, spécificités ARM64 ; les bugs de ces classes atteindront des utilisateurs avant d'être connus.
-- **Risques acceptés** : c'est le cœur de la décision — le risque résiduel (systemd, reboots, firewalls, disques pleins, ARM64 non couverts) est **explicitement accepté** et documenté partout où il compte (matrice §26.2, plan de tests §29.9) ; en contrepartie, des validations manuelles ponctuelles restent dues, et cette décision devra être révisée (nouvel ADR) si l'usage réel révèle une fréquence de bugs inacceptable dans ces classes.
+- **Positive**: E2E on every commit, with no infrastructure cost and no parallelism bottleneck; regressions in the core (deployments, proxy, backups, webhooks) are detected immediately; the "at least one representative E2E" requirement of the Definition of Done (§26.3) remains tenable.
+- **Negative**: entire slices of the real world are **never** exercised automatically — systemd interactions, behavior after a server reboot, firewall rules, disk filling up mid-deployment, ARM64 specifics; bugs in these classes will reach users before being known.
+- **Accepted risks**: this is the heart of the decision — the residual risk (systemd, reboots, firewalls, full disks, ARM64 uncovered) is **explicitly accepted** and documented everywhere it matters (matrix §26.2, test plan §29.9); in return, occasional manual validations remain due, and this decision will have to be revised (new ADR) if real-world usage reveals an unacceptable bug frequency in these classes.

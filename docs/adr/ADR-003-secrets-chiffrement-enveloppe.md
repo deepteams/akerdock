@@ -1,31 +1,31 @@
-# ADR-003 — Secrets : chiffrement enveloppe AEAD en base, interface SecretStore interne
+# ADR-003 — Secrets: AEAD envelope encryption in the database, internal SecretStore interface
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.3, §19.2, §23.2, INV-003
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.3, §19.2, §23.2, INV-003
 
-## Contexte
+## Context
 
-La plateforme stocke de nombreux secrets : clés SSH privées, variables d'environnement, webhook secrets, credentials registry/S3/cloud, OAuth client secrets, CA privées. Les chiffrer avec une clé applicative unique et globale est simple, mais ne permet ni rotation ni compartimentage. Un secret store externe (Vault, SOPS, KMS) offrirait une meilleure séparation, mais imposerait un composant supplémentaire à chaque installation self-hosted. Il faut définir le niveau de protection au repos et le point d'extension futur.
+The platform stores many secrets: private SSH keys, environment variables, webhook secrets, registry/S3/cloud credentials, OAuth client secrets, private CAs. Encrypting them with a single, global application key is simple, but allows neither rotation nor compartmentalization. An external secret store (Vault, SOPS, KMS) would offer better separation, but would impose an additional component on every self-hosted installation. The level of protection at rest and the future extension point must be defined.
 
-## Décision
+## Decision
 
-**Chiffrement enveloppe AEAD (AES-256-GCM) dans PostgreSQL** :
+**AEAD envelope encryption (AES-256-GCM) in PostgreSQL**:
 
-- La clé maître réside dans un **fichier root-only** ou une **variable d'environnement**, externe à la base (§23.2).
-- **Versionnement de clé et rotation** pris en charge dès le début : chaque secret porte la version de la clé qui l'a chiffré, et la rotation s'effectue sans réécriture bloquante de toute la base (§19.2).
-- Une interface **`SecretStore` interne existe dès le début**, mais **une seule implémentation est livrée** (chiffrement enveloppe en base). Vault/KMS ne seront envisagés que **sur demande utilisateur validée**.
+- The master key resides in a **root-only file** or an **environment variable**, external to the database (§23.2).
+- **Key versioning and rotation** are supported from the start: each secret carries the version of the key that encrypted it, and rotation is performed without a blocking rewrite of the entire database (§19.2).
+- An internal **`SecretStore` interface exists from the start**, but **a single implementation is shipped** (envelope encryption in the database). Vault/KMS will only be considered **upon validated user demand**.
 
-Les règles d'usage du §23.2 s'appliquent : secrets masqués dans UI/API/logs/audit, révélation uniquement avec la permission `read:sensitive` (INV-003), mots de passe hashés en Argon2id, tokens API hashés irréversiblement.
+The usage rules of §23.2 apply: secrets masked in UI/API/logs/audit, revealed only with the `read:sensitive` permission (INV-003), passwords hashed with Argon2id, API tokens hashed irreversibly.
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Vault/KMS dès le départ** : rejeté — composant lourd à opérer pour l'utilisateur cible (VPS modeste), contraire à l'objectif de simplicité d'exploitation ; reste possible plus tard via l'interface `SecretStore`.
-- **SOPS/fichiers chiffrés hors base** : rejeté — sépare les secrets de leur cycle de vie transactionnel (versions, audit, suppression) et complique backup/restore du control plane.
-- **Chiffrement au niveau disque uniquement (LUKS/at-rest DB)** : rejeté — ne protège ni contre un dump SQL exfiltré ni contre un accès applicatif trop large, et n'offre ni versionnement ni rotation par secret.
+- **Vault/KMS from the start**: rejected — a heavy component to operate for the target user (modest VPS), contrary to the operational simplicity goal; remains possible later via the `SecretStore` interface.
+- **SOPS/encrypted files outside the database**: rejected — separates secrets from their transactional lifecycle (versions, audit, deletion) and complicates backup/restore of the control plane.
+- **Disk-level encryption only (LUKS/at-rest DB)**: rejected — protects neither against an exfiltrated SQL dump nor against overly broad application access, and offers neither per-secret versioning nor rotation.
 
-## Conséquences
+## Consequences
 
-- **Positives** : aucune dépendance externe ; backup/restore de la base emporte les secrets (chiffrés) ; rotation de clé possible sans indisponibilité ; point d'extension propre si un jour Vault/KMS est demandé.
-- **Négatives** : la clé maître devient un point critique — sa perte rend tous les secrets irrécupérables ; sa gestion (fichier root-only, permissions, sauvegarde séparée de la base) doit être documentée dans les runbooks (§29.10).
-- **Risques acceptés** : un attaquant qui obtient à la fois un dump de la base et la clé maître (compromission du control plane) lit tous les secrets — c'est cohérent avec le modèle de menace §23.1, où le control plane est hautement privilégié ; pas d'intégration HSM/KMS tant qu'aucune demande validée n'existe.
+- **Positive**: no external dependency; a database backup/restore carries the secrets (encrypted); key rotation possible without downtime; a clean extension point if Vault/KMS is ever requested.
+- **Negative**: the master key becomes a critical point — losing it makes all secrets unrecoverable; its management (root-only file, permissions, backup separate from the database) must be documented in the runbooks (§29.10).
+- **Accepted risks**: an attacker who obtains both a database dump and the master key (control plane compromise) reads all secrets — this is consistent with the threat model §23.1, where the control plane is highly privileged; no HSM/KMS integration as long as no validated demand exists.

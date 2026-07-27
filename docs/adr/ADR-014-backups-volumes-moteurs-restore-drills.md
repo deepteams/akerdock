@@ -1,31 +1,31 @@
-# ADR-014 — Backups au-delà des bases : volumes chiffrés/dédupliqués, Redis et ClickHouse, restore drills
+# ADR-014 — Backups beyond databases: encrypted/deduplicated volumes, Redis and ClickHouse, restore drills
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.14, §20.5, §7, §15, §26.2
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.14, §20.5, §7, §15, §26.2
 
-## Contexte
+## Context
 
-Ne sauvegarder que les moteurs SQL/Mongo laisse la moitié de l'état sur la table : les données applicatives hors bases (uploads, fichiers des services one-click) ne sont pas couvertes. Et un backup qui n'a **jamais été restauré** n'offre aucune garantie (§7, §15). Il faut décider du périmètre de backup et du niveau de preuve exigé.
+Backing up only the SQL/Mongo engines leaves half the state on the table: application data outside databases (uploads, files of one-click services) is not covered. And a backup that has **never been restored** offers no guarantee (§7, §15). A decision is needed on the backup scope and the level of proof required.
 
-## Décision
+## Decision
 
-Trois extensions actées (exigences détaillées au §20.5), en plus de la parité §7 :
+Three extensions recorded (detailed requirements in §20.5), on top of §7 parity:
 
-1. **Backup des volumes applicatifs** : plans de backup sur les volumes et bind mounts des applications et services — pas seulement les bases — **chiffrés et dédupliqués** (outil type restic), avec option de quiesce/stop par ressource pour la cohérence, et la même planification, rétention locale/S3 et notifications que les backups de bases.
-2. **Moteurs additionnels** : **Redis** (snapshot RDB) et **ClickHouse** couverts nativement, levant la limitation de parité (§15).
-3. **Restore drills automatiques** : test de restauration périodique dans un environnement jetable — restauration réelle + vérification d'intégrité (checksum, comptage) — avec alerte si un plan de backup s'avère non restaurable. Un backup jamais restauré n'est pas considéré comme fiable.
+1. **Application volume backups**: backup plans on the volumes and bind mounts of applications and services — not only databases — **encrypted and deduplicated** (restic-style tool), with a per-resource quiesce/stop option for consistency, and the same scheduling, local/S3 retention and notifications as database backups.
+2. **Additional engines**: **Redis** (RDB snapshot) and **ClickHouse** covered natively, lifting the parity limitation (§15).
+3. **Automatic restore drills**: periodic restoration test in a disposable environment — real restoration + integrity verification (checksum, counting) — with an alert if a backup plan turns out to be non-restorable. A backup that has never been restored is not considered reliable.
 
-Cette capacité est classée **P1** dans la matrice de parité (§26.2).
+This capability is classified **P1** in the parity matrix (§26.2).
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Parité stricte (4 moteurs, pas de volumes)** : rejetée — laisse les données applicatives sans protection et reproduit le défaut le plus grave de la référence : des restores jamais éprouvés.
-- **Déléguer les volumes à un outil externe (restic/borg géré par l'utilisateur)** : rejeté comme réponse produit — sans intégration à la planification, à la rétention et aux notifications de la plateforme, la couverture reste aléatoire ; l'outil type restic est en revanche retenu comme brique interne.
-- **Snapshots au niveau infrastructure (LVM/cloud snapshots)** : rejetés — dépendants du fournisseur, non portables entre serveurs, hors du contrat « n'importe quel serveur Linux ».
+- **Strict parity (4 engines, no volumes)**: rejected — leaves application data unprotected and reproduces the reference's most serious flaw: restores that are never proven.
+- **Delegating volumes to an external tool (restic/borg managed by the user)**: rejected as a product answer — without integration into the platform's scheduling, retention and notifications, coverage remains hit-or-miss; the restic-style tool is however retained as an internal building block.
+- **Infrastructure-level snapshots (LVM/cloud snapshots)**: rejected — provider-dependent, not portable between servers, outside the "any Linux server" contract.
 
-## Conséquences
+## Consequences
 
-- **Positives** : couverture complète des données (bases + volumes) ; chiffrement et déduplication réduisent coût de stockage et exposition ; les drills transforment les backups en garantie mesurée plutôt qu'en espoir ; différenciateur fort classé P1.
-- **Négatives** : dépendance à un outil de backup de fichiers (type restic) à intégrer, superviser et mettre à jour ; le quiesce/stop optionnel introduit un compromis cohérence/disponibilité que l'utilisateur doit comprendre ; les drills consomment CPU, disque et temps sur une infrastructure jetable à provisionner.
-- **Risques acceptés** : un backup de volume sans quiesce peut être incohérent pour les applications qui écrivent en continu (choix par ressource, documenté) ; les drills valident la restaurabilité technique, pas la validité métier des données restaurées.
+- **Positive**: complete data coverage (databases + volumes); encryption and deduplication reduce storage cost and exposure; drills turn backups into a measured guarantee rather than a hope; a strong differentiator classified P1.
+- **Negative**: dependency on a file backup tool (restic-style) to integrate, supervise and update; the optional quiesce/stop introduces a consistency/availability trade-off the user must understand; drills consume CPU, disk and time on disposable infrastructure that must be provisioned.
+- **Accepted risks**: a volume backup without quiesce may be inconsistent for applications that write continuously (per-resource choice, documented); drills validate technical restorability, not the business validity of the restored data.

@@ -1,27 +1,27 @@
-# ADR-017 — Uptime monitoring intégré : checks HTTP/TCP simples, sans APM
+# ADR-017 — Integrated uptime monitoring: simple HTTP/TCP checks, no APM
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.17, §11, §13, §26.2
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.17, §11, §13, §26.2
 
-## Contexte
+## Context
 
-Surveiller l'état des containers et la joignabilité des serveurs ne dit pas si l'application **répond depuis Internet** (§13). Sans check externe, l'utilisateur doit installer, configurer et maintenir un second outil pour le savoir. Il faut décider si AkerDock intègre cette capacité et jusqu'où.
+Monitoring container state and server reachability does not tell you whether the application **responds from the Internet** (§13). Without an external check, the user must install, configure, and maintain a second tool to know that. We must decide whether AkerDock integrates this capability and how far.
 
-## Décision
+## Decision
 
-Des **checks HTTP/TCP simples intégrés** : cible, intervalle, seuils d'échec, **exécutés hors du workload surveillé** — avec **alerting via les canaux de notification existants** (§11) et **historique de disponibilité par ressource**.
+**Simple integrated HTTP/TCP checks**: target, interval, failure thresholds, **executed outside the monitored workload** — with **alerting via the existing notification channels** (§11) and **per-resource availability history**.
 
-**Pas d'APM** : le périmètre s'arrête au **up/down et à la latence**. Tout ce qui relève du profiling, des transactions ou des erreurs applicatives reste hors périmètre.
+**No APM**: the scope stops at **up/down and latency**. Everything related to profiling, transactions, or application errors remains out of scope.
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Parité stricte (déléguer à Uptime Kuma)** : rejetée — casse l'expérience intégrée (deuxième outil, deuxième configuration d'alerting) pour une capacité simple à fournir ; Uptime Kuma reste disponible dans le catalogue pour les besoins avancés.
-- **APM/monitoring applicatif complet** : rejeté — périmètre démesuré, marché déjà servi par des acteurs spécialisés, et contraire à l'empreinte légère du produit.
-- **Checks exécutés depuis le serveur qui héberge le workload** : rejetés — un serveur en difficulté rapporterait faussement ses propres workloads sains ou ne rapporterait rien ; les checks s'exécutent hors du workload surveillé.
+- **Strict parity (delegate to Uptime Kuma)**: rejected — breaks the integrated experience (second tool, second alerting configuration) for a capability that is simple to provide; Uptime Kuma remains available in the catalog for advanced needs.
+- **Full APM/application monitoring**: rejected — disproportionate scope, a market already served by specialized players, and contrary to the product's light footprint.
+- **Checks executed from the server hosting the workload**: rejected — a struggling server would falsely report its own workloads as healthy or would report nothing; checks are executed outside the monitored workload.
 
-## Conséquences
+## Consequences
 
-- **Positives** : réponse intégrée à la question « mon app répond-elle ? » sans outil tiers ; réutilisation directe des canaux et règles de notification (§11, ADR-019) ; historique de disponibilité par ressource dans la même UI.
-- **Négatives** : un scheduler de checks fiable (intervalles, jitter, seuils, anti-flapping) et le stockage de l'historique de disponibilité sont des composants à part entière ; « hors du workload » implique de définir précisément le ou les points d'exécution des checks et leurs angles morts réseau.
-- **Risques acceptés** : sans sondes multi-régions, un check reflète le point de vue du point d'exécution, pas celui de tous les utilisateurs finaux ; la frontière « pas d'APM » devra être défendue face aux demandes d'extension (codes d'erreur détaillés, pages de statut publiques…), qui exigeraient de nouvelles décisions.
+- **Positive**: integrated answer to the question "is my app responding?" without a third-party tool; direct reuse of notification channels and rules (§11, ADR-019); per-resource availability history in the same UI.
+- **Negative**: a reliable check scheduler (intervals, jitter, thresholds, anti-flapping) and availability history storage are full-fledged components; "outside the workload" implies precisely defining the check execution point(s) and their network blind spots.
+- **Accepted risks**: without multi-region probes, a check reflects the point of view of the execution point, not that of all end users; the "no APM" boundary will have to be defended against extension requests (detailed error codes, public status pages…), which would require new decisions.

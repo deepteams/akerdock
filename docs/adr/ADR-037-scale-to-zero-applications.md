@@ -1,113 +1,113 @@
-# ADR-037 — Scale-to-zero des applications de production
+# ADR-037 — Scale-to-zero for production applications
 
-## Statut
+## Status
 
-Accepté — **étend** [ADR-036](ADR-036-scale-to-zero-waker.md) (waker en coupure)
-aux applications de production, au-delà des previews. Ne change pas le mécanisme
-du waker ; ajoute un opt-in et des garde-fous propres à la production.
+Accepted — **extends** [ADR-036](ADR-036-scale-to-zero-waker.md) (in-path
+waker) to production applications, beyond previews. Does not change the waker
+mechanism; adds an opt-in and guardrails specific to production.
 
-## Contexte
+## Context
 
-Le scale-to-zero (ADR-036) a été livré **previews d'abord** — proxy-contract
-§8.3 dit même « jamais implicite en production ». Le waker, lui, est **générique** :
-il route par Host et réveille un ensemble de conteneurs, il ne sait rien de la
-notion de preview. Beaucoup d'apps auto-hébergées (outils internes, side-projects,
-back-offices peu sollicités) gagneraient au même « éteint quand inactif, réveillé
-à la première requête » — c'est une demande directe.
+Scale-to-zero (ADR-036) was shipped **previews first** — proxy-contract
+§8.3 even says "never implicit in production". The waker, however, is
+**generic**: it routes by Host and wakes a set of containers, it knows nothing
+about the notion of preview. Many self-hosted apps (internal tools,
+side-projects, rarely used back-offices) would benefit from the same "off when
+inactive, awake on the first request" — this is a direct request.
 
-La production n'a pourtant pas le même profil de risque qu'une preview :
+Production, however, does not have the same risk profile as a preview:
 
-- le **cold-start** est payé par un **vrai utilisateur** (jusqu'à 60 s → 504),
-  pas par un développeur qui relit sa PR ;
-- une app peut porter des **workers/crons** qu'un `docker stop` tuerait ;
-- le **monitoring uptime** pingerait l'app en continu et la garderait éveillée ;
-- « endormie » ne doit pas être confondu avec « plantée » par l'UI et les alertes.
+- the **cold-start** is paid by a **real user** (up to 60 s → 504),
+  not by a developer reviewing their PR;
+- an app may carry **workers/crons** that a `docker stop` would kill;
+- **uptime monitoring** would ping the app continuously and keep it awake;
+- "asleep" must not be confused with "crashed" by the UI and alerts.
 
-## Décision
+## Decision
 
-Le scale-to-zero est étendu aux applications, **en opt-in explicite et séparé**
-des previews, avec des garde-fous.
+Scale-to-zero is extended to applications, **as an explicit opt-in separate**
+from previews, with guardrails.
 
-### 1. Deux opt-ins distincts
+### 1. Two distinct opt-ins
 
-`scale_to_zero` (+ `scale_to_zero_after_minutes`) sur `applications` gouverne
-**l'application elle-même** ; l'ancien flag preview est **renommé**
-`preview_scale_to_zero` (+ `preview_scale_to_zero_after_minutes`). On ne couple
-pas les deux : endormir ses previews et endormir sa prod sont deux décisions de
-risque différentes. « Jamais implicite en production » (§8.3) est respecté — c'est
-un interrupteur que l'opérateur arme sciemment, jamais un défaut.
+`scale_to_zero` (+ `scale_to_zero_after_minutes`) on `applications` governs
+**the application itself**; the former preview flag is **renamed**
+`preview_scale_to_zero` (+ `preview_scale_to_zero_after_minutes`). The two are
+not coupled: putting one's previews to sleep and putting one's production to
+sleep are two different risk decisions. "Never implicit in production" (§8.3)
+is respected — it is a switch the operator arms knowingly, never a default.
 
-### 2. Périmètre et garde-fous
+### 2. Scope and guardrails
 
-- **Workloads pilotés par requête uniquement.** L'UI avertit : une app qui fait
-  tourner des workers, des consumers de queue ou des crans en tâche de fond n'est
-  **pas** un bon candidat — le `docker stop` les arrête aussi.
-- **Cold-start assumé.** L'UI affiche que la première requête après inactivité
-  peut attendre le démarrage (jusqu'à 60 s). À réserver aux apps tolérant cette
-  latence.
-- **Bases managées exclues par construction.** Le flag n'existe que sur
-  `applications`, pas sur les `databases` : on n'endort jamais une base standalone
-  (connexions coupées, fenêtres de backup). Une app *compose* embarquant sa
-  propre base reste le choix de l'opérateur (les volumes persistent).
+- **Request-driven workloads only.** The UI warns: an app running workers,
+  queue consumers or background crons is **not** a good candidate — the
+  `docker stop` stops them too.
+- **Cold-start accepted.** The UI displays that the first request after
+  inactivity may wait for startup (up to 60 s). To be reserved for apps that
+  tolerate this latency.
+- **Managed databases excluded by construction.** The flag only exists on
+  `applications`, not on `databases`: a standalone database is never put to
+  sleep (severed connections, backup windows). A *compose* app embedding its
+  own database remains the operator's choice (volumes persist).
 
-### 3. État explicite, distinct d'une panne
+### 3. Explicit state, distinct from an outage
 
-`applications.scale_slept_at` (timestamptz, NULL = éveillée) matérialise le
-sommeil **volontaire**. L'UI et le monitoring lisent cet état : une app endormie
-s'affiche « en veille (scale-to-zero) », **jamais** « down »/« unhealthy ». Le
-control plane n'endort qu'une app dont `desired_status = running` — une app
-arrêtée manuellement le reste, et un déploiement la réveille (le waker `docker
-start` le nouveau conteneur au premier hit).
+`applications.scale_slept_at` (timestamptz, NULL = awake) embodies
+**voluntary** sleep. The UI and monitoring read this state: a sleeping app is
+displayed as "asleep (scale-to-zero)", **never** "down"/"unhealthy". The
+control plane only puts to sleep an app whose `desired_status = running` — a
+manually stopped app stays stopped, and a deployment wakes it (the waker
+`docker start`s the new container on the first hit).
 
-### 4. Uptime : répondu sans réveiller une app endormie
+### 4. Uptime: answered without waking a sleeping app
 
-Un check d'uptime AkerDock porte un en-tête d'identification (`X-AkerDock-Uptime`).
-Le waker ne le compte **jamais** comme activité, et surtout :
+An AkerDock uptime check carries an identification header (`X-AkerDock-Uptime`).
+The waker **never** counts it as activity, and above all:
 
-- **app endormie** → le waker **répond directement `200`** (en-tête
-  `X-AkerDock-Scale: asleep`) **sans démarrer quoi que ce soit**. C'est honnête :
-  une app scale-to-zero endormie *est* disponible — elle se réveille au premier
-  vrai trafic. Le monitoring la voit *up*, et un check ne cold-starte pas tout le
-  stack ;
-- **app déjà éveillée** → le check est **relayé** vers l'app réelle (santé
-  réelle), toujours sans compter comme activité.
+- **sleeping app** → the waker **responds `200` directly** (header
+  `X-AkerDock-Scale: asleep`) **without starting anything**. This is honest:
+  a sleeping scale-to-zero app *is* available — it wakes on the first real
+  traffic. Monitoring sees it *up*, and a check does not cold-start the whole
+  stack;
+- **already awake app** → the check is **forwarded** to the real app (real
+  health), still without counting as activity.
 
-Ainsi le monitoring ne défait pas le scale-to-zero et ne provoque aucun réveil
-périodique. Contrepartie assumée : sur une app endormie, l'uptime mesure la
-*disponibilité du service* (capacité à répondre), pas la santé interne d'un
-conteneur arrêté — ce qui est le sens voulu du scale-to-zero. (Les alternatives —
-réveiller à chaque check, exclure l'app du monitoring, ou la laisser éveillée en
-permanence — ont été écartées.)
+Thus monitoring does not defeat scale-to-zero and causes no periodic wake-up.
+Accepted trade-off: on a sleeping app, uptime measures the *availability of
+the service* (ability to respond), not the internal health of a stopped
+container — which is the intended meaning of scale-to-zero. (The alternatives —
+waking on every check, excluding the app from monitoring, or leaving it
+permanently awake — were discarded.)
 
-### 5. Mécanisme réutilisé tel quel
+### 5. Mechanism reused as is
 
-Aucun changement au waker (ADR-036) : même conteneur (1 par serveur, partagé
-previews + apps), routage par Host, `routes.json` fusionné par ressource. Le
-`wake set` d'une app est l'ensemble de ses conteneurs (label
-`akerdock.resource_uuid`, INV-011). Le scan du scheduler pour les apps reflète
-celui des previews (lecture du fichier d'activité par SSH, `docker stop` des
-inactives, réveil des endormies dont l'activité redevient fraîche).
+No change to the waker (ADR-036): same container (1 per server, shared by
+previews + apps), routing by Host, `routes.json` merged per resource. An app's
+`wake set` is the set of its containers (label
+`akerdock.resource_uuid`, INV-011). The scheduler scan for apps mirrors the
+previews' one (reading the activity file via SSH, `docker stop` of inactive
+ones, wake-up of sleeping ones whose activity becomes fresh again).
 
-## Conséquences
+## Consequences
 
-- **Positives** : un seul mécanisme, un seul waker par serveur, couvre previews
-  **et** apps ; opt-in par app ; économie de ressources sur les apps peu
-  sollicitées sans registry ni composant supplémentaire.
-- **Négatives / limites** : cold-start sur trafic réel (à réserver aux apps qui
-  le tolèrent) ; incompatible avec les workloads à tâche de fond (documenté, non
-  bloqué techniquement — c'est un choix opérateur) ; un check uptime provoque un
-  réveil périodique. Le comportement live reste **validé en E2E** (ADR-028) ; les
-  tests unitaires couvrent la décision (endormir/réveiller, respect de
-  `desired_status`, en-tête uptime).
+- **Positive**: a single mechanism, a single waker per server, covers previews
+  **and** apps; opt-in per app; resource savings on rarely used apps without a
+  registry or an additional component.
+- **Negative / limits**: cold-start on real traffic (to be reserved for apps
+  that tolerate it); incompatible with background-task workloads (documented,
+  not technically blocked — it is an operator choice); an uptime check causes
+  a periodic wake-up. Live behavior remains **validated in E2E** (ADR-028);
+  unit tests cover the decision (sleep/wake, respect of
+  `desired_status`, uptime header).
 
-## Alternatives rejetées
+## Rejected alternatives
 
-- **Réutiliser le flag preview unique pour l'app** : coupler previews et prod
-  sous un seul interrupteur, alors que ce sont deux décisions de risque
-  distinctes. Écarté au profit de deux opt-ins séparés.
-- **Exclure les apps STZ du monitoring uptime** : prive l'opérateur de la mesure
-  de disponibilité réelle. Écarté au profit de « le check réveille mais ne compte
-  pas comme activité ».
-- **Endormir aussi les bases managées** : coupe les connexions et fragilise les
-  backups pour un gain douteux. Exclu par construction (flag sur `applications`
-  seulement).
+- **Reusing the single preview flag for the app**: couples previews and
+  production under a single switch, whereas they are two distinct risk
+  decisions. Discarded in favor of two separate opt-ins.
+- **Excluding STZ apps from uptime monitoring**: deprives the operator of the
+  real availability measurement. Discarded in favor of "the check wakes but
+  does not count as activity".
+- **Also putting managed databases to sleep**: severs connections and weakens
+  backups for a dubious gain. Excluded by construction (flag on `applications`
+  only).

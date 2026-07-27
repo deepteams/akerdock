@@ -1,27 +1,27 @@
-# ADR-002 — Queue durable PostgreSQL, sans bus externe
+# ADR-002 — Durable PostgreSQL queue, no external bus
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.2, §16.1(6), §18.1, §18.2, §18.3, §21.3
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.2, §16.1(6), §18.1, §18.2, §18.3, §21.3
 
-## Contexte
+## Context
 
-L'objectif produit est un control plane léger à opérer : un binaire Go unique + PostgreSQL, sans Redis ni runtime applicatif (§16.1(6)). La solution courante — un Redis à côté de la base pour les queues et le cache — ajoute un second système d'état à installer, sauvegarder et superviser. Un bus séparé (Redis/NATS) améliorerait le débit brut, mais ajouterait un composant à installer, sauvegarder, superviser et mettre à jour pour chaque installation self-hosted. Il faut choisir le support de la queue de jobs durable (déploiements, backups, validations serveur, etc.).
+The product goal is a control plane that is lightweight to operate: a single Go binary + PostgreSQL, with no Redis or application runtime (§16.1(6)). The common solution — a Redis next to the database for queues and cache — adds a second stateful system to install, back up and monitor. A separate bus (Redis/NATS) would improve raw throughput, but would add a component to install, back up, monitor and update for every self-hosted installation. The backing store for the durable job queue (deployments, backups, server validations, etc.) must be chosen.
 
-## Décision
+## Decision
 
-La queue durable est implémentée en **PostgreSQL**. PostgreSQL est la source de vérité unique : configuration, états, historique, audits, **leases et outbox** (§18.1). Les jobs suivent la machine à états générique du §21.3 (lease avec expiration et heartbeat, retry, dead-letter), et le pattern **transactional outbox** publie les événements après commit (§18.2).
+The durable queue is implemented in **PostgreSQL**. PostgreSQL is the single source of truth: configuration, states, history, audits, **leases and outbox** (§18.1). Jobs follow the generic state machine of §21.3 (lease with expiration and heartbeat, retry, dead-letter), and the **transactional outbox** pattern publishes events after commit (§18.2).
 
-L'**interface queue reste abstraite dans le code**, mais **aucun bus externe (Redis/NATS) n'est planifié** : une seule implémentation est livrée et maintenue.
+The **queue interface remains abstract in the code**, but **no external bus (Redis/NATS) is planned**: a single implementation is shipped and maintained.
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Redis (parité avec la référence)** : rejeté — composant supplémentaire à opérer et à sauvegarder, contraire à l'engagement d'empreinte « binaire Go + PostgreSQL uniquement ».
-- **NATS/JetStream** : rejeté — meilleur débit et sémantique de streaming, mais complexité d'exploitation injustifiée pour les volumes cibles (§22.2), qui restent atteignables avec PostgreSQL.
-- **Queue en mémoire du processus Go** : rejetée — violerait INV-013 (un job accepté doit survivre au redémarrage du processus) et interdirait le multi-instance (§18.2).
+- **Redis (parity with the reference)**: rejected — an additional component to operate and back up, contrary to the "Go binary + PostgreSQL only" footprint commitment.
+- **NATS/JetStream**: rejected — better throughput and streaming semantics, but unjustified operational complexity for the target volumes (§22.2), which remain achievable with PostgreSQL.
+- **In-memory queue in the Go process**: rejected — it would violate INV-013 (an accepted job must survive a process restart) and would rule out multi-instance operation (§18.2).
 
-## Conséquences
+## Consequences
 
-- **Positives** : un seul système d'état à installer, sauvegarder et restaurer ; transactions ACID entre mutation métier, enfilage du job et outbox (pas de fenêtre d'incohérence) ; self-hosting simplifié conformément à l'engagement produit.
-- **Négatives** : débit inférieur à un bus dédié ; les requêtes de queue/leases (SELECT … FOR UPDATE SKIP LOCKED et similaires) deviennent des chemins critiques à écrire et indexer soigneusement (d'où pgx + sqlc, cf. ADR-025) ; la charge de la queue et celle du métier se partagent la même base.
-- **Risques acceptés** : si les objectifs de capacité (§22.2 : 1 000 livraisons webhook/minute en burst, 50 builds simultanés) devenaient insuffisants, la migration vers un bus externe serait un chantier notable — atténué par l'interface queue abstraite, mais aucun travail spéculatif n'est engagé.
+- **Positive**: a single stateful system to install, back up and restore; ACID transactions across business mutation, job enqueueing and outbox (no inconsistency window); simplified self-hosting in line with the product commitment.
+- **Negative**: lower throughput than a dedicated bus; queue/lease queries (SELECT … FOR UPDATE SKIP LOCKED and similar) become critical paths to write and index carefully (hence pgx + sqlc, cf. ADR-025); the queue load and the business load share the same database.
+- **Accepted risks**: if the capacity targets (§22.2: 1,000 webhook deliveries/minute in burst, 50 concurrent builds) became insufficient, migrating to an external bus would be a substantial undertaking — mitigated by the abstract queue interface, but no speculative work is undertaken.

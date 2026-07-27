@@ -1,26 +1,26 @@
-# ADR-006 — Rollback : digests OCI en registry si configuré, rétention locale protégée sinon
+# ADR-006 — Rollback: OCI digests in a registry when configured, protected local retention otherwise
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.6, §5.5, §15, §18.3, INV-015
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.6, §5.5, §15, §18.3, INV-015
 
-## Contexte
+## Context
 
-Un rollback limité aux images encore présentes localement sur le serveur n'en est pas un : si le cleanup disque a purgé l'image, il est impossible — et un tag mutable ne garantit pas de revenir au binaire exact (§15). La source de vérité du PRD (§18.3) exige déjà d'identifier l'image déployée par **digest OCI**, pas seulement par tag. Il faut décider comment garantir un rollback reproductible sans imposer un registry à toutes les installations.
+A rollback limited to images still present locally on the server is not one: if the disk cleanup has purged the image, it is impossible — and a mutable tag does not guarantee returning to the exact binary (§15). The PRD's source of truth (§18.3) already requires identifying the deployed image by **OCI digest**, not only by tag. It must be decided how to guarantee a reproducible rollback without imposing a registry on all installations.
 
-## Décision
+## Decision
 
-- **Si un registry est configuré** : chaque déploiement est **pushé et référencé par digest OCI**. Le rollback est reproductible vers **toute version conservée** dans le registry, indépendamment de l'état du disque du serveur.
-- **Sans registry** : **rétention locale des N dernières images**, ces images étant **explicitement protégées du cleanup automatique** (INV-015 — le cleanup ne détruit jamais un objet persistant requis).
+- **If a registry is configured**: every deployment is **pushed and referenced by OCI digest**. Rollback is reproducible to **any version retained** in the registry, regardless of the state of the server's disk.
+- **Without a registry**: **local retention of the last N images**, with these images **explicitly protected from automatic cleanup** (INV-015 — cleanup never destroys a required persistent object).
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Rollback local uniquement (parité stricte)** : rejeté — le rollback devient aléatoire (dépend du passage du cleanup) et non reproductible, limitation connue de la référence (§15).
-- **Registry obligatoire pour tous** : rejeté — alourdit l'installation minimale (un VPS, pas d'infrastructure annexe) et contredit la simplicité d'exploitation ; le registry reste un choix.
-- **Re-build du commit précédent en cas de rollback** : rejeté comme mécanisme principal — un rebuild n'est pas reproductible bit à bit (dépendances, base images mutables) et est lent au moment précis où l'on veut revenir en arrière vite.
+- **Local-only rollback (strict parity)**: rejected — rollback becomes unpredictable (depends on when cleanup ran) and non-reproducible, a known limitation of the reference (§15).
+- **Registry mandatory for everyone**: rejected — burdens the minimal installation (one VPS, no ancillary infrastructure) and contradicts operational simplicity; the registry remains a choice.
+- **Rebuilding the previous commit on rollback**: rejected as the primary mechanism — a rebuild is not bit-for-bit reproducible (dependencies, mutable base images) and is slow at the very moment one wants to roll back fast.
 
-## Conséquences
+## Consequences
 
-- **Positives** : rollback déterministe par digest quand un registry existe ; sans registry, fenêtre de rollback garantie (N images protégées) au lieu du comportement aléatoire de la référence ; cohérent avec §18.3 (résolution du digest avant bascule).
-- **Négatives** : le push systématique vers le registry allonge chaque déploiement et consomme du stockage registry (rétention à gérer côté registry) ; sans registry, les N images conservées consomment du disque serveur et la profondeur de rollback est bornée.
-- **Risques acceptés** : deux chemins de rollback à tester (registry et local) ; la valeur de N et l'interaction précise avec le cleanup automatisé (§3.7) devront être spécifiées dans le moteur de déploiement (§29.4).
+- **Positive**: deterministic rollback by digest when a registry exists; without a registry, a guaranteed rollback window (N protected images) instead of the reference's unpredictable behavior; consistent with §18.3 (digest resolution before switchover).
+- **Negative**: the systematic push to the registry lengthens every deployment and consumes registry storage (retention to manage on the registry side); without a registry, the N retained images consume server disk and the rollback depth is bounded.
+- **Accepted risks**: two rollback paths to test (registry and local); the value of N and the precise interaction with automated cleanup (§3.7) will have to be specified in the deployment engine (§29.4).

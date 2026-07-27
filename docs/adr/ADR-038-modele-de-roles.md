@@ -1,144 +1,148 @@
-# ADR-038 — Modèle de rôles : admin/member/reviewer + rôles custom
+# ADR-038 — Role model: admin/member/reviewer + custom roles
 
-## Statut
+## Status
 
-Accepté — **supersede la partie « rôles » d'[ADR-007](ADR-007-rbac-fin-projet-environnement.md)**
-(l'ensemble des rôles système et le degré de granularité) et met à jour
-[rbac-matrix.md](../specs/rbac-matrix.md) (§2, §3) en conséquence. Le reste
-d'ADR-007 (permissions portées par l'Identity, scope le plus spécifique,
-anti-élévation) tient. Complète le durcissement du **root d'instance** (session
-`users.is_root`, hors modèle de team) déjà en place : cet ADR ne traite que des
-rôles **de team**.
+Accepted — **supersedes the "roles" part of [ADR-007](ADR-007-rbac-fin-projet-environnement.md)**
+(the set of system roles and the degree of granularity) and updates
+[rbac-matrix.md](../specs/rbac-matrix.md) (§2, §3) accordingly. The rest of
+ADR-007 (permissions carried by the Identity, most-specific scope,
+anti-elevation) stands. Complements the hardening of the **instance root**
+(`users.is_root` session, outside the team model) already in place: this ADR
+only deals with **team** roles.
 
-## Contexte
+## Context
 
-L'implémentation et la spec divergeaient déjà :
+The implementation and the spec already diverged:
 
-- enum `team_role` en base = `owner`, `admin`, `member` ;
-- `PermissionsForRole` : `owner` = tout + `root` (team) ; `admin` = tout sauf
-  `root` ; `member` = `read` + `deploy` (pas même `write`) ;
-- `rbac-matrix.md` décrit encore `owner / admin / developer / viewer` — des noms
-  qui n'existent nulle part dans le code.
+- `team_role` enum in the database = `owner`, `admin`, `member`;
+- `PermissionsForRole`: `owner` = everything + `root` (team); `admin` =
+  everything except `root`; `member` = `read` + `deploy` (not even `write`);
+- `rbac-matrix.md` still describes `owner / admin / developer / viewer` —
+  names that exist nowhere in the code.
 
-Le modèle voulu (clarifié avec le mainteneur) est plus simple et explicite :
+The intended model (clarified with the maintainer) is simpler and more
+explicit:
 
-- **root** — administrateur de la plateforme (tout AkerDock). *Hors team.*
-- **admin de team** — invite/exclut des membres, gère la team **et** ses
-  ressources. « owner » et « admin » sont **la même chose** : un seul rôle haut
-  de team, distinct de `root`.
-- **member** — gère les ressources.
-- **reviewer** — voit **uniquement** les PR previews.
-- **rôle custom** — composé dans l'UI.
+- **root** — platform administrator (all of AkerDock). *Outside teams.*
+- **team admin** — invites/removes members, manages the team **and** its
+  resources. "owner" and "admin" are **the same thing**: a single top team
+  role, distinct from `root`.
+- **member** — manages resources.
+- **reviewer** — sees **only** the PR previews.
+- **custom role** — composed in the UI.
 
-## Décision
+## Decision
 
-### 1. Trois rôles système de team : `admin`, `member`, `reviewer`
+### 1. Three system team roles: `admin`, `member`, `reviewer`
 
-`owner` est **fusionné dans `admin`** (il n'existe qu'un seul rôle haut de team ;
-le créateur d'une team est `admin`). `owner` disparaît du modèle — la valeur
-d'enum reste en base (PostgreSQL ne supprime pas une valeur d'enum) mais n'est
-plus jamais attribuée. `reviewer` est ajouté.
+`owner` is **merged into `admin`** (there is only one top team role; the
+creator of a team is `admin`). `owner` disappears from the model — the enum
+value remains in the database (PostgreSQL does not remove an enum value) but
+is never assigned again. `reviewer` is added.
 
-| Rôle | Permissions (socle coarse) | Portée |
+| Role | Permissions (coarse base) | Scope |
 |---|---|---|
-| `admin` | `read, read:sensitive, write, deploy, root` | Team + toutes ses ressources + gestion des membres/rôles + suppression de la team. Le `root` ici est **team-scoped** (terminal root, infra sensible de la team) — **jamais** le root d'instance. |
-| `member` | `read, write, deploy` | Crée/déploie/gère les ressources. Pas de révélation de secret (`read:sensitive`), pas de `root`, pas de gestion des membres. |
-| `reviewer` | `preview:read` | Voit les PR previews (liste, détail, logs, env, métriques) et **rien d'autre**. |
+| `admin` | `read, read:sensitive, write, deploy, root` | Team + all its resources + member/role management + team deletion. The `root` here is **team-scoped** (root terminal, sensitive team infra) — **never** the instance root. |
+| `member` | `read, write, deploy` | Creates/deploys/manages resources. No secret revelation (`read:sensitive`), no `root`, no member management. |
+| `reviewer` | `preview:read` | Sees the PR previews (list, detail, logs, env, metrics) and **nothing else**. |
 
-`member` gagne `write` (il ne l'avait pas — anomalie corrigée) ; il n'a
-toujours pas `read:sensitive` ni `root`.
+`member` gains `write` (it did not have it — anomaly fixed); it still has
+neither `read:sensitive` nor `root`.
 
-### 2. Les permissions **granulaires** deviennent l'unité d'évaluation
+### 2. **Granular** permissions become the unit of evaluation
 
-On câble enfin le modèle `domaine:action` d'ADR-007 (les ~72 permissions de
-`rbac-matrix.md` §2), aujourd'hui purement documentaire — l'enforcement réel est
-coarse (`require(auth.PermWrite)` etc.). Concrètement :
+We finally wire up the `domain:action` model of ADR-007 (the ~72 permissions
+of `rbac-matrix.md` §2), today purely documentary — the actual enforcement is
+coarse (`require(auth.PermWrite)` etc.). Concretely:
 
-- Chaque opération OpenAPI déclare son `x-required-permission` **granulaire**
-  (ex. `applications:deploy`, `databases:credentials`, `secrets:reveal`) au lieu
-  du socle coarse. C'est la **source de vérité unique** de l'autorisation.
-- `require()` vérifie la permission **granulaire** de l'opération ; l'Identity
-  porte l'ensemble granulaire des permissions.
-- **Tokens** : ils gardent leurs scopes coarse `{read, read:sensitive, write,
-  deploy, root}` (§10.3) qui sont **projetés** vers l'ensemble granulaire (table
-  « socle » de rbac-matrix §1). L'anti-élévation §4 reste : `perms(token) =
-  scopes projetés ∩ perms RBAC du créateur`.
+- Each OpenAPI operation declares its **granular** `x-required-permission`
+  (e.g. `applications:deploy`, `databases:credentials`, `secrets:reveal`)
+  instead of the coarse base. This is the **single source of truth** for
+  authorization.
+- `require()` checks the operation's **granular** permission; the Identity
+  carries the granular set of permissions.
+- **Tokens**: they keep their coarse scopes `{read, read:sensitive, write,
+  deploy, root}` (§10.3) which are **projected** onto the granular set
+  ("base" table of rbac-matrix §1). The §4 anti-elevation remains:
+  `perms(token) = projected scopes ∩ creator's RBAC perms`.
 
-Sans cela, « member déploie les apps mais pas les bases », « reviewer = previews
-seulement » ou un rôle custom fin **ne sont pas exprimables** — d'où le refus du
-raccourci coarse.
+Without this, "a member deploys apps but not databases", "reviewer = previews
+only" or a fine-grained custom role **are not expressible** — hence the
+refusal of the coarse shortcut.
 
-### 3. Dépendances entre permissions (fermeture de prérequis)
+### 3. Dependencies between permissions (prerequisite closure)
 
-Une action en implique d'autres — un rôle qui accorde `X` doit accorder ses
-prérequis, sinon il est inutilisable. Les règles (à figer en code **et** dans
-rbac-matrix, table `depends_on`) :
+An action implies others — a role granting `X` must grant its prerequisites,
+otherwise it is unusable. The rules (to be frozen in code **and** in
+rbac-matrix, `depends_on` table):
 
-- toute action de mutation/déploiement/cycle de vie d'un domaine ⇒ le `:read` du
-  même domaine (`applications:update` ⇒ `applications:read`, `databases:deploy` ⇒
-  `databases:read`, `services:manage` ⇒ `services:read`…) ;
-- `secrets:reveal` ⇒ `secrets:read` ; `databases:credentials` ⇒ `databases:read` ;
-- `members:manage` ⇒ `members:read` ; `roles:manage` ⇒ `roles:read` ;
-  `tokens:create`/`tokens:revoke` ⇒ `tokens:read` ;
-- `environments:deploy` ⇒ `resources:read` + le `:read` des ressources visées.
+- any mutation/deployment/lifecycle action of a domain ⇒ the `:read` of the
+  same domain (`applications:update` ⇒ `applications:read`, `databases:deploy` ⇒
+  `databases:read`, `services:manage` ⇒ `services:read`…);
+- `secrets:reveal` ⇒ `secrets:read`; `databases:credentials` ⇒ `databases:read`;
+- `members:manage` ⇒ `members:read`; `roles:manage` ⇒ `roles:read`;
+  `tokens:create`/`tokens:revoke` ⇒ `tokens:read`;
+- `environments:deploy` ⇒ `resources:read` + the `:read` of the targeted
+  resources.
 
-La **fermeture** (ajout transitif des prérequis) est calculée à la composition
-d'un rôle et à la résolution, jamais laissée à l'opérateur.
+The **closure** (transitive addition of prerequisites) is computed at role
+composition time and at resolution time, never left to the operator.
 
-### 4. Rôles = ensembles nommés de permissions granulaires
+### 4. Roles = named sets of granular permissions
 
-- **Système** (immuables) :
-  - `admin` = **toutes** les permissions de team (dont les actions `root`
-    team-scoped : terminal root, infra sensible) — mais **jamais** `instance:*` ;
-  - `member` = create/update/deploy/lifecycle/read sur projets, environnements,
-    applications, databases, services, secrets (`secrets:write`/`:read`), **sans**
-    `secrets:reveal`, sans gestion membres/rôles/tokens, sans `servers:*` de
-    maintenance sensible, sans actions `root` ;
-  - `reviewer` = uniquement les `:read` des **previews** (liste, détail, logs,
-    env, métriques) — rien d'autre.
-- **Custom** (par team) : ensemble **quelconque** de permissions granulaires du
-  catalogue, **avec fermeture de prérequis** (§3), **hors `root`/`instance:*`**
-  (jamais sélectionnables — garde-fou anti-élévation), et **⊆ permissions du
-  composeur** (rbac-matrix §4.3). Schéma : `custom_roles(team_id, name,
-  permissions[])` + `team_memberships.custom_role_id` (une adhésion porte soit un
-  rôle système, soit un rôle custom).
+- **System** (immutable):
+  - `admin` = **all** team permissions (including team-scoped `root`
+    actions: root terminal, sensitive infra) — but **never** `instance:*`;
+  - `member` = create/update/deploy/lifecycle/read on projects, environments,
+    applications, databases, services, secrets (`secrets:write`/`:read`),
+    **without** `secrets:reveal`, without member/role/token management,
+    without sensitive-maintenance `servers:*`, without `root` actions;
+  - `reviewer` = only the `:read` of **previews** (list, detail, logs,
+    env, metrics) — nothing else.
+- **Custom** (per team): **any** set of granular permissions from the
+  catalog, **with prerequisite closure** (§3), **excluding `root`/`instance:*`**
+  (never selectable — anti-elevation guardrail), and **⊆ composer's
+  permissions** (rbac-matrix §4.3). Schema: `custom_roles(team_id, name,
+  permissions[])` + `team_memberships.custom_role_id` (a membership carries
+  either a system role or a custom role).
 
-`PermissionsForMembership` : rôle custom si présent, sinon set du rôle système ;
-puis fermeture de prérequis ; puis intersection anti-élévation pour les tokens.
+`PermissionsForMembership`: custom role if present, otherwise the system
+role's set; then prerequisite closure; then anti-elevation intersection for
+tokens.
 
-## Conséquences
+## Consequences
 
-- **Positives** : vrai RBAC à la carte (par domaine/action) enfin appliqué, code
-  ↔ spec réconciliés (ADR-007 concrétisé), rôles custom réellement fins, reviewer
-  strict, member réparé. Contrat = source de vérité de l'autorisation
-  (`x-required-permission` granulaire).
-- **Négatives / coût** : **c'est le gros morceau** — il faut donner un
-  `x-required-permission` granulaire à **chaque** opération (~150), câbler
-  l'enforcement granulaire (remplacer les `require(coarse)`), la projection
-  token, la table de prérequis, et régénérer la grille rbac-matrix depuis le
-  contrat. Migration de données `owner→admin`. Risque à couvrir par tests (un
-  test « chaque op a une permission granulaire du catalogue » + matrice
-  rôle×op).
-- **Sécurité** : `root`/`instance:*` jamais dans un rôle custom ; anti-élévation
-  à la composition et à l'usage ; root d'instance hors modèle de team.
+- **Positive**: real à-la-carte RBAC (per domain/action) finally enforced,
+  code ↔ spec reconciled (ADR-007 made concrete), truly fine-grained custom
+  roles, strict reviewer, member fixed. The contract = source of truth for
+  authorization (granular `x-required-permission`).
+- **Negative / cost**: **this is the big piece** — every operation (~150) must
+  be given a granular `x-required-permission`, granular enforcement wired up
+  (replacing the `require(coarse)` calls), token projection, the prerequisite
+  table, and the rbac-matrix grid regenerated from the contract. Data
+  migration `owner→admin`. Risk to be covered by tests (a test "every op has
+  a granular permission from the catalog" + role×op matrix).
+- **Security**: `root`/`instance:*` never in a custom role; anti-elevation at
+  composition and at use; instance root outside the team model.
 
-## Plan d'implémentation (tranches)
+## Implementation plan (slices)
 
-1. **Socle granulaire** : catalogue des permissions en code (constantes + table
-   de prérequis) ; passer `x-required-permission` en granulaire sur toutes les
-   opérations ; enforcement granulaire ; projection token coarse→granulaire ;
-   tests de couverture (chaque op ↦ perm connue). *Aucune régression fonctionnelle
-   attendue : les rôles système gardent le même comportement effectif.*
-2. **Rôles système** : migration (enum `+reviewer`, `owner→admin`, créateur =
-   `admin`), sets granulaires admin/member/reviewer, invitations, UI dropdown.
-3. **Rôles custom** : table + `custom_role_id`, CRUD OpenAPI (`/teams/{uuid}/roles`),
-   résolution + fermeture de prérequis + anti-élévation, UI de composition.
+1. **Granular base**: permission catalog in code (constants + prerequisite
+   table); switch `x-required-permission` to granular on all operations;
+   granular enforcement; coarse→granular token projection; coverage tests
+   (every op ↦ known perm). *No functional regression expected: the system
+   roles keep the same effective behavior.*
+2. **System roles**: migration (enum `+reviewer`, `owner→admin`, creator =
+   `admin`), granular admin/member/reviewer sets, invitations, UI dropdown.
+3. **Custom roles**: table + `custom_role_id`, OpenAPI CRUD (`/teams/{uuid}/roles`),
+   resolution + prerequisite closure + anti-elevation, composition UI.
 
-## Alternatives rejetées
+## Rejected alternatives
 
-- **Rôles custom = sous-ensemble coarse {read,write,deploy,…}** : ne permet pas
-  « deploy apps mais pas bases », ignore les dépendances entre actions — rejeté
-  (c'était la première proposition, corrigée par le mainteneur).
-- **Garder `owner` + `admin` distincts** : un seul rôle haut de team voulu.
-- **En rester au coarse et ne pas câbler le granulaire** : laisse rbac-matrix
-  aspirationnel et rend les rôles custom impossibles à faire sérieusement.
+- **Custom roles = coarse subset {read,write,deploy,…}**: does not allow
+  "deploy apps but not databases", ignores the dependencies between actions —
+  rejected (it was the first proposal, corrected by the maintainer).
+- **Keeping `owner` + `admin` distinct**: a single top team role is what is
+  wanted.
+- **Staying coarse and not wiring up the granular model**: leaves rbac-matrix
+  aspirational and makes custom roles impossible to do seriously.

@@ -1,29 +1,29 @@
-# ADR-039 — Upgrade majeur du PostgreSQL de l'instance : in-place opt-in via pgautoupgrade, backup-first
+# ADR-039 — Major upgrade of the instance's PostgreSQL: opt-in in-place via pgautoupgrade, backup-first
 
-- **Statut** : Accepté
-- **Date** : 2026-07-27
-- **Sections PRD liées** : §14.3, §22.4, ADR-021, ADR-025
-- **Supersede** : la clause « pas de `pg_upgrade` in-place entre volumes de containers » du runbook `upgrade-downgrade.md` §C (formulation, pas un ADR) — remplacée par le chemin outillé ci-dessous.
+- **Status**: Accepted
+- **Date**: 2026-07-27
+- **Related PRD sections**: §14.3, §22.4, ADR-021, ADR-025
+- **Supersedes**: the clause "no in-place `pg_upgrade` between container volumes" of the `upgrade-downgrade.md` runbook §C (wording, not an ADR) — replaced by the tooled path below.
 
-## Contexte
+## Context
 
-La distribution de référence (ADR-021) épingle la version majeure de PostgreSQL dans `docker-compose.yml`. Une majeure Postgres n'est **pas compatible in-place** entre volumes de containers : bumper l'image (ex. 16 → 17) sur un volume existant fait crash-looper le container (`database files are incompatible`). Jusqu'ici la seule procédure documentée était un dump/restore manuel — long sur une grosse base, et son texte décrivait un `mv postgres` de bind-mount qui ne correspond pas au volume nommé réellement utilisé (`akerdock_pgdata`). Comme la base contient **tout** l'état de l'instance (état + queue, ADR-025), l'opération est la plus destructrice qui soit ; l'automatiser silencieusement dans `install.sh` casserait l'invariant « rien n'est perdu » de cet install.
+The reference distribution (ADR-021) pins the PostgreSQL major version in `docker-compose.yml`. A Postgres major is **not in-place compatible** between container volumes: bumping the image (e.g. 16 → 17) on an existing volume makes the container crash-loop (`database files are incompatible`). Until now the only documented procedure was a manual dump/restore — slow on a large database, and its text described a bind-mount `mv postgres` that does not match the named volume actually used (`akerdock_pgdata`). Since the database contains **all** of the instance's state (state + queue, ADR-025), the operation is the most destructive one there is; automating it silently in `install.sh` would break that install's "nothing is lost" invariant.
 
-## Décision
+## Decision
 
-- L'upgrade majeur reste **opt-in et explicite** — jamais lancé automatiquement pendant `install.sh` ni au boot.
-- `install.sh` (et le message d'erreur au boot) **détecte** l'écart entre le major du volume et celui épinglé, et **s'arrête proprement** en pointant vers l'outil — au lieu de laisser le container crash-looper. Aucune donnée touchée par la détection.
-- L'outil `scripts/pg-upgrade.sh` réalise l'upgrade **in-place** via l'image tierce **`pgautoupgrade/pgautoupgrade`** (qui embarque les binaires source + cible et exécute `pg_upgrade`), en mode one-shot, **précédé d'une copie complète du volume de données** (filesystem, agnostique de la version) conservée sous `backups/` comme unique rollback. La stack redémarre ensuite sur l'image **officielle** `postgres:<major>` — `pgautoupgrade` n'est utilisé que pendant la fenêtre de migration, jamais comme image runtime permanente.
+- The major upgrade remains **opt-in and explicit** — never launched automatically during `install.sh` nor at boot.
+- `install.sh` (and the boot error message) **detects** the gap between the volume's major and the pinned one, and **stops cleanly** while pointing to the tool — instead of letting the container crash-loop. No data is touched by the detection.
+- The `scripts/pg-upgrade.sh` tool performs the **in-place** upgrade via the third-party image **`pgautoupgrade/pgautoupgrade`** (which bundles the source + target binaries and runs `pg_upgrade`), in one-shot mode, **preceded by a full copy of the data volume** (filesystem-level, version-agnostic) kept under `backups/` as the sole rollback. The stack then restarts on the **official** `postgres:<major>` image — `pgautoupgrade` is only used during the migration window, never as a permanent runtime image.
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Auto in-place silencieux dans `install.sh`** : rejeté — opération destructrice sur le datastore sans checkpoint humain ni garantie de backup, contraire à l'éthos « ne jamais risquer l'état persistant » (INV-015).
-- **Dump/restore uniquement (statu quo)** : conservé en **repli** documenté, mais lent sur gros volumes et sans détection au boot ; `pg_upgrade` in-place est nettement plus rapide.
-- **`pgautoupgrade` comme image runtime permanente** : rejeté — supply-chain tierce en permanence (ADR-021 vise le minimal/officiel) ; on ne l'expose que le temps de la migration.
-- **Upgrade orchestré par le binaire akerdock lui-même** : rejeté — distroless sans outils `pg_*`, et le contrôle-plane parle à Postgres par le réseau, il ne peut pas migrer un format on-disk.
+- **Silent automatic in-place in `install.sh`**: rejected — destructive operation on the datastore without a human checkpoint or backup guarantee, contrary to the "never risk persistent state" ethos (INV-015).
+- **Dump/restore only (status quo)**: kept as a documented **fallback**, but slow on large volumes and without boot-time detection; in-place `pg_upgrade` is significantly faster.
+- **`pgautoupgrade` as the permanent runtime image**: rejected — permanent third-party supply chain (ADR-021 aims for minimal/official); it is only exposed for the duration of the migration.
+- **Upgrade orchestrated by the akerdock binary itself**: rejected — distroless without `pg_*` tools, and the control plane talks to Postgres over the network, it cannot migrate an on-disk format.
 
-## Conséquences
+## Consequences
 
-- **Positives** : plus de crash-loop cryptique après un bump de major (détection + arrêt guidé) ; upgrade rapide et outillé, backup-first, avec rollback explicite ; l'image runtime reste l'officielle.
-- **Négatives** : dépendance ponctuelle à une image tierce (`pgautoupgrade`), à épingler et à scanner ; l'opérateur doit disposer de ~2× l'espace du volume (copie + upgrade) le temps de la migration.
-- **Risques acceptés** : l'in-place échoué laisse potentiellement un volume à moitié migré — mitigé par la copie préalable obligatoire et un message de restauration explicite ; la copie de rollback n'est supprimée qu'après plusieurs jours de fonctionnement vérifié.
+- **Positive**: no more cryptic crash-loop after a major bump (detection + guided stop); fast, tooled, backup-first upgrade with explicit rollback; the runtime image remains the official one.
+- **Negative**: one-off dependency on a third-party image (`pgautoupgrade`), to be pinned and scanned; the operator must have ~2× the volume's space available (copy + upgrade) for the duration of the migration.
+- **Accepted risks**: a failed in-place upgrade potentially leaves a half-migrated volume — mitigated by the mandatory prior copy and an explicit restore message; the rollback copy is only deleted after several days of verified operation.

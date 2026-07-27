@@ -1,30 +1,30 @@
-# ADR-012 — Configuration as code : export YAML + apply idempotent + provider Terraform/OpenTofu officiel
+# ADR-012 — Configuration as code: YAML export + idempotent apply + official Terraform/OpenTofu provider
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.12, §24.5, §22.4, §12, §24.1
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.12, §24.5, §22.4, §12, §24.1
 
-## Contexte
+## Context
 
-Une plateforme pilotée uniquement par l'UI n'offre aucune configuration déclarative native (§12). Pour des équipes qui versionnent leur infrastructure, l'absence d'export/apply reproductible est un frein d'adoption et un facteur de dérive entre environnements. Il faut décider si AkerDock reste UI/API-first ou offre un vrai contrat de configuration déclarative.
+A platform driven solely through the UI offers no native declarative configuration (§12). For teams that version their infrastructure, the absence of reproducible export/apply is an adoption blocker and a source of drift between environments. A decision is needed on whether AkerDock remains UI/API-first or offers a real declarative configuration contract.
 
-## Décision
+## Decision
 
-Décision actée (exigences détaillées au §24.5) :
+Decision recorded (detailed requirements in §24.5):
 
-- **Export YAML complet** de toute la configuration non secrète d'une team (projets, environnements, ressources, domaines, variables non secrètes, plans de backup, tâches planifiées), dans un format **stable et versionnable en Git**, contrat versionné avec schéma publié, soumis à la même politique de compatibilité que l'API (§22.4).
-- **Apply idempotent** : la soumission du YAML fait converger l'état — création, mise à jour, et suppression **uniquement sur demande explicite** ; mode **dry-run** produisant le diff complet ; conflits détectés par version optimiste (§24.1) ; apply audité et exécuté comme job visible.
-- Les **secrets sont référencés** (nom + version), jamais inline ; leurs valeurs passent exclusivement par les endpoints dédiés.
-- Un **provider Terraform/OpenTofu officiel** est construit sur l'API et couvre au minimum le périmètre P0/P1.
+- **Complete YAML export** of all of a team's non-secret configuration (projects, environments, resources, domains, non-secret variables, backup plans, scheduled tasks), in a format that is **stable and versionable in Git**, a versioned contract with a published schema, subject to the same compatibility policy as the API (§22.4).
+- **Idempotent apply**: submitting the YAML converges the state — creation, update, and deletion **only on explicit request**; a **dry-run** mode producing the full diff; conflicts detected via optimistic versioning (§24.1); apply audited and executed as a visible job.
+- **Secrets are referenced** (name + version), never inline; their values go exclusively through the dedicated endpoints.
+- An **official Terraform/OpenTofu provider** is built on the API and covers at minimum the P0/P1 scope.
 
-## Alternatives considérées
+## Alternatives considered
 
-- **UI/API uniquement (parité)** : rejetée — reproduit une lacune connue de la référence ; la dérive de configuration entre environnements reste alors invisible et non réversible.
-- **Terraform communautaire sans engagement officiel** : rejeté — qualité et couverture non garanties ; un provider officiel est un signal d'engagement et un produit testé avec l'API.
-- **Format propriétaire riche (DSL type Pulumi/opérateur GitOps complet)** : rejeté — le YAML exporté + apply idempotent couvre le besoin sans imposer un runtime supplémentaire ; un flux GitOps peut être construit au-dessus par l'utilisateur.
+- **UI/API only (parity)**: rejected — reproduces a known gap of the reference; configuration drift between environments then remains invisible and irreversible.
+- **Community Terraform without official commitment**: rejected — quality and coverage not guaranteed; an official provider is a signal of commitment and a product tested against the API.
+- **Rich proprietary format (Pulumi-style DSL / full GitOps operator)**: rejected — the exported YAML + idempotent apply covers the need without imposing an additional runtime; a GitOps flow can be built on top by the user.
 
-## Conséquences
+## Consequences
 
-- **Positives** : configuration versionnable et revue en PR ; environnements reproductibles ; dry-run/diff avant application ; sortie du lock-in (avec l'export du §22.4) ; le provider Terraform officiel s'appuie sur l'API publique, garantissant que tout ce que fait l'UI est scriptable (§25.2).
-- **Négatives** : le format YAML devient un contrat public de plus à faire évoluer avec compatibilité descendante ; la logique de convergence (diff, ordre d'application, suppressions explicites) est un moteur à part entière à concevoir et tester (round-trip export→apply exigé, §26.2) ; le provider Terraform est un livrable et un rythme de release supplémentaires.
-- **Risques acceptés** : divergence possible entre schéma YAML, OpenAPI et modèle interne si la génération n'est pas outillée ; les suppressions restant explicites, un drift « ressources orphelines » peut subsister volontairement — c'est un choix de sécurité assumé.
+- **Positive**: configuration that is versionable and reviewed in PRs; reproducible environments; dry-run/diff before application; escape from lock-in (with the export of §22.4); the official Terraform provider relies on the public API, guaranteeing that everything the UI does is scriptable (§25.2).
+- **Negative**: the YAML format becomes one more public contract to evolve with backward compatibility; the convergence logic (diff, application order, explicit deletions) is an engine in its own right to design and test (round-trip export→apply required, §26.2); the Terraform provider is an additional deliverable and release cadence.
+- **Accepted risks**: possible divergence between the YAML schema, OpenAPI and the internal model if generation is not tooled; since deletions remain explicit, an "orphaned resources" drift may persist deliberately — this is an accepted safety choice.

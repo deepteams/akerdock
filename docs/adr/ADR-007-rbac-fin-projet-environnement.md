@@ -1,27 +1,27 @@
-# ADR-007 — RBAC fin par projet et par environnement
+# ADR-007 — Fine-grained RBAC per project and per environment
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.7, §10.1, §15, §16.3, §23.1, §29.7
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.7, §10.1, §15, §16.3, §23.1, §29.7
 
-## Contexte
+## Context
 
-Un modèle de rôles grossier — owner d'instance, puis admin et member par team — donne à un simple member le pouvoir de toucher la production de tous les projets de sa team (§15). Or AkerDock pose la team comme frontière de sécurité (§23.1) et décrit des acteurs aux besoins distincts (développeur, opérateur/SRE, pipeline CI, intégration read-only — §16.3). Il faut décider du grain du contrôle d'accès.
+A coarse role model — instance owner, then admin and member per team — gives a mere member the power to touch the production of every project of their team (§15). Yet AkerDock establishes the team as the security boundary (§23.1) and describes actors with distinct needs (developer, operator/SRE, CI pipeline, read-only integration — §16.3). The granularity of access control must be decided.
 
-## Décision
+## Decision
 
-**RBAC fin retenu** : des rôles et permissions **par projet et par environnement**, au-delà de la parité admin/member. Un développeur peut par exemple être autorisé à déployer sur `staging` d'un projet sans pouvoir toucher `production`, ni les autres projets de la team.
+**Fine-grained RBAC adopted**: roles and permissions **per project and per environment**, beyond admin/member parity. A developer may, for example, be authorized to deploy to `staging` of a project without being able to touch `production`, nor the team's other projects.
 
-Le détail (actions × types de ressources × rôles) est à spécifier dans la **matrice RBAC/permissions** (§29.7), qui est un artefact obligatoire avant implémentation complète. Les permissions API existantes (`read`, `read:sensitive`, `write`, `deploy`, `root` — §10.3, §24.1) restent le socle d'évaluation à l'action.
+The details (actions × resource types × roles) are to be specified in the **RBAC/permissions matrix** (§29.7), which is a mandatory artifact before full implementation. The existing API permissions (`read`, `read:sensitive`, `write`, `deploy`, `root` — §10.3, §24.1) remain the foundation for per-action evaluation.
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Parité stricte admin/member** : rejetée — reproduit une limitation connue et critiquée de la référence (§15) alors que le modèle team/projet/environnement de AkerDock permet mieux dès le départ.
-- **ACL par ressource individuelle** : rejetée — granularité maximale mais complexité d'administration et d'audit disproportionnée ; le grain projet/environnement couvre les cas réels (protéger `production`).
-- **Politiques externes (OPA & co)** : rejetées — dépendance et complexité d'exploitation injustifiées pour un self-hosted ; le modèle interne suffit.
+- **Strict admin/member parity**: rejected — reproduces a known and criticized limitation of the reference (§15) whereas AkerDock's team/project/environment model allows better from the start.
+- **ACL per individual resource**: rejected — maximum granularity but disproportionate administration and audit complexity; the project/environment grain covers the real cases (protecting `production`).
+- **External policies (OPA & co)**: rejected — unjustified dependency and operational complexity for a self-hosted product; the internal model suffices.
 
-## Conséquences
+## Consequences
 
-- **Positives** : moindre privilège réel (protéger la production des members), déblocage d'un point de friction connu de la référence, alignement avec les acteurs du §16.3 et l'audit (§23.4).
-- **Négatives** : toute la couche d'autorisation doit évaluer projet et environnement en plus de la team — chaque endpoint et chaque relation indirecte doivent être couverts par la matrice de tests inter-team et inter-rôle (§23.5) ; l'UI doit refléter des droits partiels (actions grisées, listes filtrées).
-- **Risques acceptés** : complexité de spécification reportée sur la matrice §29.7, qui devient bloquante avant l'implémentation ; risque de sur-granularité si l'on n'arbitre pas fermement le grain (projet/environnement, pas ressource).
+- **Positive**: real least privilege (protecting production from members), unblocking a known friction point of the reference, alignment with the actors of §16.3 and with auditing (§23.4).
+- **Negative**: the entire authorization layer must evaluate project and environment in addition to the team — every endpoint and every indirect relationship must be covered by the inter-team and inter-role test matrix (§23.5); the UI must reflect partial rights (grayed-out actions, filtered lists).
+- **Accepted risks**: specification complexity deferred to the §29.7 matrix, which becomes blocking before implementation; risk of over-granularity if the grain is not firmly settled (project/environment, not resource).

@@ -1,29 +1,29 @@
-# ADR-020 — Licence du projet : Apache 2.0
+# ADR-020 — Project license: Apache 2.0
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.20, §1, §29.11
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.20, §1, §29.11
 
-## Contexte
+## Context
 
-AkerDock doit choisir sa licence open source. Le segment du PaaS self-hosted s'est construit sur des licences permissives, et l'absence de feature paywallée est une promesse produit explicite (§1). Le paysage récent du secteur montre deux voies : licences permissives (adoption maximale) ou licences restrictives type BSL/AGPL (protection contre un « fork cloud » par un hyperscaler). Il faut trancher avant toute publication de code.
+AkerDock must choose its open source license. The self-hosted PaaS segment was built on permissive licenses, and the absence of paywalled features is an explicit product promise (§1). The sector's recent landscape shows two paths: permissive licenses (maximum adoption) or restrictive BSL/AGPL-style licenses (protection against a "cloud fork" by a hyperscaler). This must be settled before any code is published.
 
-## Décision
+## Decision
 
-**Apache 2.0** — la même licence que la référence :
+**Apache 2.0** — the same license as the reference:
 
-- adoption et contributions maximales (aucune friction juridique pour les entreprises) ;
-- **clause brevets incluse** (protection explicite des contributeurs et utilisateurs, avantage sur MIT) ;
-- le **fossé concurrentiel est le produit, pas la licence** ; le risque « fork cloud par un tiers » est **accepté**.
+- maximum adoption and contributions (no legal friction for companies);
+- **patent clause included** (explicit protection for contributors and users, an advantage over MIT);
+- the **competitive moat is the product, not the license**; the "cloud fork by a third party" risk is **accepted**.
 
-## Alternatives considérées
+## Alternatives considered
 
-- **AGPL v3** : rejetée — friction d'adoption forte en entreprise (politiques interdisant l'AGPL), à rebours de l'objectif d'adoption maximale.
-- **BSL / licences « source available » (SSPL, FSL…)** : rejetées — protègent d'un fork cloud mais excluent le projet de la définition open source, compliquent packaging et contributions, et enverraient un signal opposé à celui de la référence.
-- **MIT** : écartée au profit d'Apache 2.0 — quasi équivalente en permissivité mais sans clause brevets explicite.
+- **AGPL v3**: rejected — strong adoption friction in companies (policies forbidding AGPL), at odds with the goal of maximum adoption.
+- **BSL / "source available" licenses (SSPL, FSL…)**: rejected — protect against a cloud fork but exclude the project from the open source definition, complicate packaging and contributions, and would send a signal opposite to the reference's.
+- **MIT**: set aside in favor of Apache 2.0 — nearly equivalent in permissiveness but without an explicit patent clause.
 
-## Conséquences
+## Consequences
 
-- **Positives** : compatibilité maximale avec l'écosystème (dépendances, distributions, entreprises) ; licence permissive alignée sur celle des templates compose du domaine, ce qui simplifie leur import dans le respect des licences (§27.10, inventaire §29.11) ; protection brevets pour contributeurs et utilisateurs.
-- **Négatives** : aucune protection juridique contre un acteur qui hébergerait AkerDock en service managé concurrent sans contribuer.
-- **Risques acceptés** : le « fork cloud par un tiers » est explicitement accepté — la défense est le rythme produit, la communauté et la marque, pas la licence ; ce pari est réversible pour le code futur mais pas rétroactivement pour le code déjà publié sous Apache 2.0.
+- **Positive**: maximum compatibility with the ecosystem (dependencies, distributions, companies); permissive license aligned with that of the domain's compose templates, which simplifies importing them in compliance with their licenses (§27.10, inventory §29.11); patent protection for contributors and users.
+- **Negative**: no legal protection against an actor who would host AkerDock as a competing managed service without contributing.
+- **Accepted risks**: the "cloud fork by a third party" is explicitly accepted — the defense is product cadence, community, and brand, not the license; this bet is reversible for future code but not retroactively for code already published under Apache 2.0.

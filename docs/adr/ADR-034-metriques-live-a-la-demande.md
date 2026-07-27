@@ -1,61 +1,61 @@
-# ADR-034 — Métriques live à la demande via la connexion runtime
+# ADR-034 — On-demand live metrics via the runtime connection
 
-## Statut
+## Status
 
-Accepté — complète (ne supersede pas) [ADR-008](ADR-008-observabilite-otlp-partout.md).
+Accepted — complements (does not supersede) [ADR-008](ADR-008-observabilite-otlp-partout.md).
 
-## Contexte
+## Context
 
-ADR-008 décide que l'observabilité **historique** (métriques CPU/RAM serveur et
-container, traces, logs) transite en **OTLP** vers un stockage de séries
-temporelles externe : rien n'est modélisé dans PostgreSQL, et le protocole de
-push propriétaire de l'agent est rejeté au profit d'OTLP standard.
+ADR-008 decides that **historical** observability (server and container
+CPU/RAM metrics, traces, logs) travels over **OTLP** to an external
+time-series storage: nothing is modeled in PostgreSQL, and the agent's
+proprietary push protocol is rejected in favor of standard OTLP.
 
-Cette décision est bonne pour l'historique et l'analytique, mais elle laisse un
-trou pour l'usage le plus courant du dashboard : **« ce service consomme
-combien, maintenant ? »**. Répondre imposerait aujourd'hui à l'opérateur de
-brancher un backend OTLP + une UI tierce (Grafana), là où il veut une jauge
-immédiate à côté des logs et du shell qu'il a déjà sous la main (§13, §3.16 —
-le composant `akd-metric-chart` était spécifié mais jamais livré, faute de
-source de données côté control plane).
+That decision is right for history and analytics, but it leaves a
+gap for the dashboard's most common use: **"how much is this service
+consuming, right now?"**. Answering that would today require the operator to
+wire up an OTLP backend + a third-party UI (Grafana), where what they want is
+an immediate gauge next to the logs and the shell they already have at hand
+(§13, §3.16 — the `akd-metric-chart` component was specified but never
+shipped, for lack of a data source on the control plane side).
 
-## Décision
+## Decision
 
-Le control plane expose des **métriques live, à la demande, sans persistance** :
+The control plane exposes **live, on-demand metrics, without persistence**:
 
-- La source est un **`docker stats --no-stream`** exécuté sur le serveur cible
-  **via la connexion SSH runtime existante** (le même canal que `docker logs`,
-  le terminal et le port-forward), résolu par le nommage de container
-  déterministe `<uuid>-<service>` (INV-011).
-- La lecture est **point-in-time** : un appel = un échantillon. Le dashboard
-  rafraîchit en interrogeant périodiquement et construit une mini-tendance
-  **côté client** ; aucun échantillon n'est écrit en base ni bufferisé au-delà
-  d'une réponse HTTP.
-- Endpoints read-only sous la ressource (`GET …/metrics`), permission
-  `read` ; la métrique n'est jamais un secret.
+- The source is a **`docker stats --no-stream`** executed on the target server
+  **via the existing runtime SSH connection** (the same channel as `docker logs`,
+  the terminal and the port-forward), resolved by the deterministic container
+  naming `<uuid>-<service>` (INV-011).
+- The read is **point-in-time**: one call = one sample. The dashboard
+  refreshes by polling periodically and builds a mini-trend
+  **client-side**; no sample is written to the database or buffered beyond
+  one HTTP response.
+- Read-only endpoints under the resource (`GET …/metrics`), permission
+  `read`; a metric is never a secret.
 
-L'historique, l'alerting et l'agrégation restent **hors périmètre** de cet ADR
-et continuent de suivre ADR-008 (OTLP vers un backend externe).
+History, alerting and aggregation remain **out of scope** for this ADR
+and continue to follow ADR-008 (OTLP to an external backend).
 
-## Conséquences
+## Consequences
 
-- **Positives** : jauges CPU/RAM par service immédiates, zéro dépendance externe,
-  zéro table de métriques, zéro protocole de push à opérer — cohérent avec la
-  philosophie « Docker standard, réversible » (§16.1) et avec les autres accès
-  runtime déjà passés par SSH.
-- **Négatives / limites** : pas d'historique ni de tendance longue (c'est le
-  rôle d'ADR-008) ; chaque lecture ouvre/relaie un `docker stats` (coût borné,
-  `--no-stream`, un seul appel pour tous les containers d'un stack) ; si le
-  serveur est injoignable la réponse est un 409, comme `docker logs`.
-- La permission `metrics:read` de la grille RBAC reste réservée à l'historique
-  (backend externe) ; le live à la demande relève de `read` sur la ressource.
+- **Positive**: immediate per-service CPU/RAM gauges, zero external dependency,
+  zero metrics table, zero push protocol to operate — consistent with the
+  "standard, reversible Docker" philosophy (§16.1) and with the other runtime
+  accesses already going through SSH.
+- **Negative / limitations**: no history or long-term trend (that is the
+  role of ADR-008); each read opens/relays a `docker stats` (bounded cost,
+  `--no-stream`, a single call for all the containers of a stack); if the
+  server is unreachable the response is a 409, like `docker logs`.
+- The `metrics:read` permission of the RBAC grid remains reserved for history
+  (external backend); on-demand live falls under `read` on the resource.
 
-## Alternatives rejetées
+## Rejected alternatives
 
-- **Ressusciter le push Sentinel + rétention courte en base** : réintroduit le
-  protocole propriétaire qu'ADR-008 rejette et ajoute une table de métriques —
-  pour un simple affichage live, coût structurel disproportionné.
-- **Interroger le backend OTLP externe (PromQL)** : lie le dashboard à un
-  Prometheus/compatible que l'opérateur n'a pas forcément, et couple l'UI à un
-  format de requête tiers. Reste la bonne voie pour l'**historique** (ADR-008),
-  pas pour la jauge live.
+- **Resurrecting the Sentinel push + short retention in the database**: reintroduces the
+  proprietary protocol that ADR-008 rejects and adds a metrics table —
+  for a simple live display, a disproportionate structural cost.
+- **Querying the external OTLP backend (PromQL)**: ties the dashboard to a
+  Prometheus/compatible that the operator does not necessarily have, and couples the UI to a
+  third-party query format. Remains the right path for **history** (ADR-008),
+  not for the live gauge.

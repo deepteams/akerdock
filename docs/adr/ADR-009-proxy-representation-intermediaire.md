@@ -1,31 +1,31 @@
-# ADR-009 — Proxy : représentation intermédiaire commune, Traefik seul en P0, Caddy en P2
+# ADR-009 — Proxy: common intermediate representation, Traefik only in P0, Caddy in P2
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.9, §4.1, §18.1, §26.1, §29.6
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.9, §4.1, §18.1, §26.1, §29.6
 
-## Contexte
+## Context
 
-Supporter plusieurs proxies (Traefik, Caddy) en générant directement leurs labels de routage sur les containers fait de chaque proxy un chemin de code distinct : difficile à tester de façon équivalente, et les comportements divergent silencieusement. Il faut décider comment supporter plusieurs proxies sans dupliquer la logique de routage.
+Supporting multiple proxies (Traefik, Caddy) by directly generating their routing labels on containers makes each proxy a distinct code path: hard to test equivalently, and behaviors silently diverge. A decision is needed on how to support multiple proxies without duplicating the routing logic.
 
-## Décision
+## Decision
 
-Décision validée :
+Validated decision:
 
-- Une **représentation intermédiaire commune** du routage (domaines, paths, ports, middlewares, certificats) est la source unique ; la génération Traefik ou Caddy en dérive de façon déterministe (contrat proxy §18.1 : génération, validation, application atomique, rollback).
-- Les **labels de routage sur les containers** restent supportés (compatibilité avec les usages courants de l'écosystème).
-- Des **fixtures de conformité partagées** Traefik/Caddy garantissent un comportement identique des deux backends (§29.6).
+- A **common intermediate representation** of routing (domains, paths, ports, middlewares, certificates) is the single source; Traefik or Caddy generation is derived from it deterministically (proxy contract §18.1: generation, validation, atomic application, rollback).
+- **Routing labels on containers** remain supported (compatibility with common ecosystem usage).
+- **Shared conformance fixtures** for Traefik/Caddy guarantee identical behavior of both backends (§29.6).
 
-**Séquencement** : **Traefik seul en P0** ; **Caddy arrive en P2** via la représentation intermédiaire, **dont les fixtures existent dès P0**.
+**Sequencing**: **Traefik only in P0**; **Caddy arrives in P2** via the intermediate representation, **whose fixtures exist from P0 onward**.
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Génération directe de labels par proxy (parité stricte)** : rejetée — logique dupliquée, divergences de comportement non testables, ajout d'un troisième proxy prohibitif.
-- **Un seul proxy imposé (Traefik définitif)** : rejeté — Caddy est attendu pour la parité (P2) et l'abstraction protège aussi des évolutions de Traefik lui-même.
-- **Écrire l'abstraction plus tard, au moment d'ajouter Caddy** : rejeté — rétrofit coûteux ; les fixtures de conformité créées dès P0 rendent l'ajout de Caddy incrémental.
+- **Direct per-proxy label generation (strict parity)**: rejected — duplicated logic, untestable behavioral divergences, adding a third proxy prohibitive.
+- **A single mandated proxy (Traefik permanently)**: rejected — Caddy is expected for parity (P2) and the abstraction also protects against changes in Traefik itself.
+- **Writing the abstraction later, when adding Caddy**: rejected — costly retrofit; the conformance fixtures created from P0 make adding Caddy incremental.
 
-## Conséquences
+## Consequences
 
-- **Positives** : un seul modèle de routage à valider ; les deux proxies sont testés sur les mêmes fixtures, donc réellement interchangeables par serveur ; reload atomique et rollback définis une fois pour toutes.
-- **Négatives** : la représentation intermédiaire doit couvrir l'union des capacités utiles (basic auth, rate limiting, IP whitelisting, headers, priorités de path, certificats custom — §4.1), un travail de spécification supplémentaire en P0 (§29.6) alors qu'un seul proxy est livré.
-- **Risques acceptés** : certaines capacités spécifiques à un proxy ne rentreront pas proprement dans l'abstraction et devront être soit exclues, soit exposées comme extensions explicites ; Caddy n'étant livré qu'en P2, les fixtures écrites en P0 ne seront réellement éprouvées contre lui que tardivement.
+- **Positive**: a single routing model to validate; both proxies are tested against the same fixtures, and are therefore genuinely interchangeable per server; atomic reload and rollback defined once and for all.
+- **Negative**: the intermediate representation must cover the union of useful capabilities (basic auth, rate limiting, IP whitelisting, headers, path priorities, custom certificates — §4.1), an additional specification effort in P0 (§29.6) even though only one proxy is shipped.
+- **Accepted risks**: some proxy-specific capabilities will not fit cleanly into the abstraction and will have to be either excluded or exposed as explicit extensions; since Caddy only ships in P2, the fixtures written in P0 will only be truly proven against it late in the process.

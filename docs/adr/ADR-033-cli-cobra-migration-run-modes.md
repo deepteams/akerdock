@@ -1,62 +1,62 @@
-# ADR-033 — Passage à Cobra : modes serveur en sous-commandes
+# ADR-033 — Moving to Cobra: server modes as subcommands
 
-- **Statut** : Accepté
-- **Date** : 2026-07-25
-- **Sections PRD liées** : §12 (CLI officielle), §18.2 (modes de run), §14.1 (installation)
-- **Lié** : ADR-021 (distribution compose, binaire unique), ADR-031/ADR-032 (commandes client du CLI)
+- **Status**: Accepted
+- **Date**: 2026-07-25
+- **Related PRD sections**: §12 (official CLI), §18.2 (run modes), §14.1 (installation)
+- **Related**: ADR-021 (compose distribution, single binary), ADR-031/ADR-032 (CLI client commands)
 
-## Contexte
+## Context
 
-Le binaire `akerdock` parse aujourd'hui ses arguments à la main : le premier argument
-positionnel choisit le mode serveur (`all-in-one`, `api`, `worker`, `scheduler`) ou la
-sous-commande `healthcheck`. Le CLI local (ADR-031/032) ajoute une famille de commandes
-client (`login`, `logout`, `context`, `ls`, `logs`, `shell`, `port-forward`, `db`) avec
-flags, sous-commandes imbriquées, aide générée et complétion — que le parsing manuel ne peut
-pas porter proprement. `github.com/spf13/cobra` est déjà présent dans l'arbre de dépendances
-(en `// indirect`).
+The `akerdock` binary today parses its arguments by hand: the first positional
+argument picks the server mode (`all-in-one`, `api`, `worker`, `scheduler`) or the
+`healthcheck` subcommand. The local CLI (ADR-031/032) adds a family of client
+commands (`login`, `logout`, `context`, `ls`, `logs`, `shell`, `port-forward`, `db`) with
+flags, nested subcommands, generated help and completion — which manual parsing
+cannot carry cleanly. `github.com/spf13/cobra` is already present in the dependency
+tree (as `// indirect`).
 
-## Décision
+## Decision
 
-Le binaire adopte **Cobra pour tout l'arbre de commandes**, dans le binaire unique (ADR-021).
-Les modes serveur deviennent des sous-commandes explicites :
+The binary adopts **Cobra for the entire command tree**, in the single binary (ADR-021).
+Server modes become explicit subcommands:
 
-- `akerdock serve all-in-one|api|worker|scheduler` — anciens arguments positionnels de mode.
-- `akerdock healthcheck` — inchangé (sonde de la healthcheck compose distroless).
-- `akerdock version` — inchangé.
-- Les commandes client d'ADR-031/032 sont des sous-commandes de premier niveau.
+- `akerdock serve all-in-one|api|worker|scheduler` — former positional mode arguments.
+- `akerdock healthcheck` — unchanged (probe of the distroless compose healthcheck).
+- `akerdock version` — unchanged.
+- The client commands from ADR-031/032 are top-level subcommands.
 
-`AKERDOCK_MODE` reste lu comme défaut de `serve` (parité avec l'existant).
+`AKERDOCK_MODE` remains read as the default for `serve` (parity with the existing behavior).
 
-### Repli de compatibilité (le temps d'une version majeure)
+### Compatibility fallback (for the duration of one major version)
 
-Un `akerdock all-in-one` (argument positionnel historique, sans `serve`) **DOIT** rester
-reconnu, exécuter le mode correspondant, et émettre un **avertissement de dépréciation** sur
-stderr pointant vers `serve`. Cela évite de casser les instances existantes au premier
-`git pull && ./install.sh` avant que le compose ne soit mis à jour.
+An `akerdock all-in-one` (historical positional argument, without `serve`) **MUST** remain
+recognized, run the corresponding mode, and emit a **deprecation warning** on
+stderr pointing to `serve`. This avoids breaking existing instances at the first
+`git pull && ./install.sh` before the compose file is updated.
 
-### Migration des artefacts de lancement (dans le même changement)
+### Migration of launch artifacts (in the same change)
 
-- `docker-compose.yml` : `command: ["serve", "all-in-one"]`.
-- `Dockerfile` : la healthcheck distroless reste `["/akerdock", "healthcheck"]`.
-- `install.sh`, runbooks (`docs/runbooks/*`) et ADR-021 : commandes de lancement mises à
-  jour vers `serve …`.
+- `docker-compose.yml`: `command: ["serve", "all-in-one"]`.
+- `Dockerfile`: the distroless healthcheck remains `["/akerdock", "healthcheck"]`.
+- `install.sh`, runbooks (`docs/runbooks/*`) and ADR-021: launch commands updated
+  to `serve …`.
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Cohabitation (Cobra pour le client, modes serveur en positionnel)** : rejeté — deux
-  styles de parsing dans un même binaire, incohérent et source de confusion à long terme.
-  L'utilisateur a explicitement tranché pour le full-Cobra.
-- **Binaire client séparé (`akerdockctl`)** : rejeté — un artefact et un cycle de release de
-  plus, contraire au principe « un binaire » d'ADR-021.
-- **Rupture sèche sans repli** : rejeté — casserait toute instance déployée dont le compose
-  n'a pas encore la nouvelle commande.
+- **Cohabitation (Cobra for the client, server modes positional)**: rejected — two
+  parsing styles in the same binary, inconsistent and a source of confusion in the long run.
+  The user explicitly decided in favor of full-Cobra.
+- **Separate client binary (`akerdockctl`)**: rejected — one more artifact and release
+  cycle, contrary to the "one binary" principle of ADR-021.
+- **Hard break without fallback**: rejected — would break every deployed instance whose
+  compose does not yet have the new command.
 
-## Conséquences
+## Consequences
 
-- **Positives** : arbre de commandes cohérent, aide/complétion générées, base saine pour les
-  commandes client et les extensions v2 (`up`, `env`, `domains`…) ; Cobra passe simplement
-  de dépendance indirecte à directe.
-- **Négatives** : migration de rupture à coordonner sur compose/Dockerfile/install.sh/
-  runbooks ; un repli déprécié à porter puis retirer à la version majeure suivante.
-- **Risques acceptés** : fenêtre transitoire où l'ancienne et la nouvelle invocation
-  coexistent — bornée par le retrait annoncé du repli.
+- **Positive**: consistent command tree, generated help/completion, a sound base for the
+  client commands and v2 extensions (`up`, `env`, `domains`…); Cobra simply moves
+  from indirect to direct dependency.
+- **Negative**: a breaking migration to coordinate across compose/Dockerfile/install.sh/
+  runbooks; a deprecated fallback to carry and then remove at the next major version.
+- **Accepted risks**: a transitional window where the old and new invocations
+  coexist — bounded by the announced removal of the fallback.

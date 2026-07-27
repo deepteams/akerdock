@@ -1,28 +1,28 @@
-# ADR-015 — Fiabilité compose « by design » : zero-downtime et resource limits réellement appliqués
+# ADR-015 — Compose reliability "by design": zero-downtime and resource limits actually enforced
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.15, §15, §5.3, §5.5, §26.2, INV-005
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.15, §15, §5.3, §5.5, §26.2, INV-005
 
-## Contexte
+## Context
 
-Deux pièges structurels guettent les stacks Docker Compose (§15) : le zero-downtime y est souvent abandonné — chaque redéploiement coupe le service — et les resource limits déclarées dans le fichier ne sont pas réellement appliquées. Ces défauts touchent précisément le build pack le plus utilisé pour les services réels. Il faut décider s'ils sont acceptés ou traités dès la conception.
+Two structural pitfalls lie in wait for Docker Compose stacks (§15): zero-downtime is often abandoned there — every redeployment cuts the service — and the resource limits declared in the file are not actually enforced. These defects affect precisely the build pack most used for real services. We must decide whether they are accepted or addressed from the design stage.
 
-## Décision
+## Decision
 
-Les deux limitations sont traitées **dès la conception** :
+Both limitations are addressed **from the design stage**:
 
-1. AkerDock **DOIT fournir le zero-downtime pour les services web des stacks compose** : bascule **par service** derrière le proxy (nouveau container du service démarré, health check satisfait, bascule du trafic, arrêt de l'ancien), au lieu d'un `down`/`up` global du stack. Cohérent avec INV-005 : une application saine reste routée tant que sa remplaçante n'a pas satisfait les conditions de bascule.
-2. AkerDock **DOIT appliquer réellement les resource limits déclarées** aux ressources compose (memory/CPU, §5.3), vérifiables au niveau cgroups (preuve exigée dans la matrice §26.2 : « E2E rolling update stack compose + vérif cgroups »).
+1. AkerDock **MUST provide zero-downtime for the web services of compose stacks**: **per-service** switchover behind the proxy (new container for the service started, health check satisfied, traffic switched, old one stopped), instead of a global `down`/`up` of the stack. Consistent with INV-005: a healthy application remains routed as long as its replacement has not satisfied the switchover conditions.
+2. AkerDock **MUST actually enforce the declared resource limits** on compose resources (memory/CPU, §5.3), verifiable at the cgroups level (proof required in the §26.2 matrix: "E2E rolling update of a compose stack + cgroups verification").
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Parité stricte (reproduire les limitations)** : rejetée — ce sont des défauts reconnus de la référence, pas des comportements à préserver ; la parité visée porte sur les capacités, pas sur les bugs.
-- **Zero-downtime compose via blue/green du stack entier** : rejeté — doubler tout le stack (bases comprises) est coûteux et dangereux pour les données ; la bascule par service derrière le proxy limite le doublement aux services web.
-- **Corriger plus tard, après la parité** : rejeté — le PRD acte un traitement « by design » : rétrofiter le zero-downtime dans un moteur compose déjà écrit coûterait plus cher que de le concevoir d'emblée.
+- **Strict parity (reproducing the limitations)**: rejected — these are acknowledged defects of the reference, not behaviors to preserve; the targeted parity covers capabilities, not bugs.
+- **Compose zero-downtime via blue/green of the entire stack**: rejected — doubling the whole stack (databases included) is costly and dangerous for data; per-service switchover behind the proxy limits the doubling to web services.
+- **Fix later, after parity**: rejected — the PRD establishes a "by design" treatment: retrofitting zero-downtime into an already-written compose engine would cost more than designing it in from the start.
 
-## Conséquences
+## Consequences
 
-- **Positives** : les stacks compose deviennent des citoyens de première classe — déploiements sans coupure, limites réellement opposables — au même niveau qu'une application à container unique.
-- **Négatives** : le moteur de déploiement compose est nettement plus complexe qu'un `docker compose up` : orchestration par service, coexistence temporaire de deux versions d'un service sur le même réseau, génération de configuration proxy par service ; l'application des limits exige une transformation systématique du compose utilisateur.
-- **Risques acceptés** : le zero-downtime par service ne s'applique qu'aux services web derrière le proxy — les services non exposés (workers, bases) suivent un remplacement classique ; certains stacks (état partagé, verrous applicatifs) ne tolèrent pas deux instances simultanées d'un même service, et ce cas devra rester désactivable par service.
+- **Positive**: compose stacks become first-class citizens — deployments without downtime, limits actually enforceable — on the same level as a single-container application.
+- **Negative**: the compose deployment engine is significantly more complex than a `docker compose up`: per-service orchestration, temporary coexistence of two versions of a service on the same network, per-service proxy configuration generation; enforcing the limits requires a systematic transformation of the user's compose file.
+- **Accepted risks**: per-service zero-downtime only applies to web services behind the proxy — non-exposed services (workers, databases) follow a classic replacement; some stacks (shared state, application locks) do not tolerate two simultaneous instances of the same service, and this case must remain disableable per service.

@@ -1,27 +1,27 @@
-# ADR-008 — Observabilité : OTLP partout, exposition Prometheus, aucun protocole propriétaire
+# ADR-008 — Observability: OTLP everywhere, Prometheus exposition, no proprietary protocol
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.8, §3.8, §13
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.8, §3.8, §13
 
-## Contexte
+## Context
 
-Un agent de métriques qui pousse vers l'instance avec un protocole maison (endpoint + token) enferme les données de télémétrie : impossible de brancher l'outillage standard (collecteurs, dashboards, alerting) sans écrire un adaptateur. Il faut choisir entre un protocole propriétaire et les protocoles ouverts du domaine (§3.8).
+A metrics agent that pushes to the instance using a home-grown protocol (endpoint + token) locks in telemetry data: it is impossible to plug in standard tooling (collectors, dashboards, alerting) without writing an adapter. A choice must be made between a proprietary protocol and the domain's open protocols (§3.8).
 
-## Décision
+## Decision
 
-**OTLP partout** : l'agent serveur, le control plane et les workers émettent **métriques, traces et logs en OpenTelemetry (OTLP)**, avec **exposition Prometheus** ; **aucun protocole propriétaire** n'est introduit.
+**OTLP everywhere**: the server agent, the control plane and the workers emit **metrics, traces and logs in OpenTelemetry (OTLP)**, with **Prometheus exposition**; **no proprietary protocol** is introduced.
 
-Le principe d'un agent léger par serveur est conservé (parité Sentinel : CPU/RAM serveur et par container, disque, historique dans l'UI — §3.8, §13), mais son transport et son format sont standards.
+The principle of a lightweight agent per server is retained (Sentinel parity: server and per-container CPU/RAM, disk, history in the UI — §3.8, §13), but its transport and format are standard.
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Protocole push propriétaire (parité Sentinel)** : rejeté — enferme la télémétrie, impose de maintenir un protocole, et empêche l'utilisateur de brancher son propre backend (Grafana, Datadog, etc.).
-- **Prometheus pull uniquement, sans OTLP** : rejeté — couvre les métriques mais ni les traces ni les logs, et le pull exige des ports entrants sur les serveurs cibles, à rebours de la réduction de surface (ADR-001).
-- **Pas d'agent du tout (exec de commandes via SSH)** : rejeté — pas d'historique fiable, coût SSH répété, pas de granularité par container satisfaisante.
+- **Proprietary push protocol (Sentinel parity)**: rejected — locks in telemetry, requires maintaining a protocol, and prevents the user from plugging in their own backend (Grafana, Datadog, etc.).
+- **Prometheus pull only, without OTLP**: rejected — covers metrics but neither traces nor logs, and pull requires inbound ports on the target servers, running counter to surface reduction (ADR-001).
+- **No agent at all (executing commands over SSH)**: rejected — no reliable history, repeated SSH cost, no satisfactory per-container granularity.
 
-## Conséquences
+## Consequences
 
-- **Positives** : interopérabilité totale avec l'écosystème (collecteurs OTel, Prometheus, Grafana) ; le même standard sert l'auto-observation du control plane et le monitoring des serveurs ; instrumentation par trace/correlation ID cohérente avec les exigences d'audit et de DoD (§26.3).
-- **Négatives** : dépendance aux SDK/semconv OpenTelemetry, qui évoluent encore ; l'agent doit embarquer un exporter OTLP plutôt qu'un simple POST maison, ce qui augmente un peu son empreinte.
-- **Risques acceptés** : la volumétrie traces/logs OTLP peut être significative sur de petites installations — les fréquences et rétentions doivent rester configurables comme dans la référence ; les graphiques intégrés de l'UI doivent consommer ces données standards sans réintroduire de canal parallèle.
+- **Positive**: full interoperability with the ecosystem (OTel collectors, Prometheus, Grafana); the same standard serves both the control plane's self-observation and server monitoring; trace/correlation-ID instrumentation consistent with the audit and DoD requirements (§26.3).
+- **Negative**: dependency on the OpenTelemetry SDKs/semconv, which are still evolving; the agent must embed an OTLP exporter rather than a simple home-grown POST, which slightly increases its footprint.
+- **Accepted risks**: OTLP trace/log volume can be significant on small installations — frequencies and retentions must remain configurable as in the reference; the UI's built-in charts must consume this standard data without reintroducing a parallel channel.

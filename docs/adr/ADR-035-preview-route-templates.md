@@ -1,58 +1,60 @@
-# ADR-035 — Routes de preview par table de templates
+# ADR-035 — Preview routes via a template table
 
-## Statut
+## Status
 
-Accepté — révise la formulation « un seul `preview_url_template` » de §5.6 (PRD)
-sans toucher le reste du périmètre preview (ADR-011).
+Accepted — revises the "single `preview_url_template`" wording of §5.6 (PRD)
+without touching the rest of the preview scope (ADR-011).
 
-## Contexte
+## Context
 
-Une preview ne pouvait exposer qu'**une** URL, dérivée d'un unique
-`preview_url_template` (`{{pr_id}}`, `{{domain}}`, `{{random}}`). Le multi-service
-compose était géré par un préfixe automatique `<service>-<base>` non configurable.
+A preview could only expose **one** URL, derived from a single
+`preview_url_template` (`{{pr_id}}`, `{{domain}}`, `{{random}}`). Compose
+multi-service was handled by a non-configurable automatic `<service>-<base>`
+prefix.
 
-C'est trop pauvre pour un usage sérieux du flow PR→preview : l'opérateur veut le
-même contrôle qu'au **routing de l'application** (plusieurs hôtes, un port cible
-par route), pas un motif unique subi.
+That is too limited for serious use of the PR→preview flow: the operator wants
+the same control as with **application routing** (multiple hosts, one target
+port per route), not a single imposed pattern.
 
-## Décision
+## Decision
 
-La config d'URL des previews devient une **table ordonnée de routes**, calquée
-sur le routing d'application (ADR-034 voisin, §4.2) :
+The preview URL configuration becomes an **ordered table of routes**, modeled
+on application routing (neighboring ADR-034, §4.2):
 
-- Chaque ligne = `{ host, port? }` où `host` est un motif avec placeholders
-  **`{{pr_id}}`**, **`{{service}}`**, **`{{domain}}`** (1er domaine de l'app),
-  **`{{random}}`** (slug stable par preview).
-- Une ligne **sans `{{service}}`** = une route explicite ; le service cible est
-  résolu par le `port` (comme un domaine d'application, `resolveWebComponent`).
-- Une ligne **avec `{{service}}`** = un gabarit appliqué à **chaque service
-  servi** non déjà couvert par une ligne explicite ; le port est celui résolu du
-  service (le `port` de la ligne l'emporte).
-- Stockage : colonne `applications.preview_url_templates` (JSONB, tableau).
-  **Rétro-compatibilité** : vide/absent ⇒ comportement historique
-  (`preview_url_template` unique + auto-préfixe). Aucun backfill requis.
-- `{{random}}` s'appuie sur `previews.random_slug`, généré une fois au scaffolding
-  et réutilisé pour toutes les routes/déploiements — les hôtes restent stables
-  (pas de churn de certificat).
-- L'hôte **primaire** de la preview (`previews.fqdn`, affiché, SSO, feedback) =
-  la 1re ligne résolue (`{{service}}` → composant web principal).
+- Each row = `{ host, port? }` where `host` is a pattern with placeholders
+  **`{{pr_id}}`**, **`{{service}}`**, **`{{domain}}`** (the app's 1st domain),
+  **`{{random}}`** (stable slug per preview).
+- A row **without `{{service}}`** = an explicit route; the target service is
+  resolved via the `port` (like an application domain, `resolveWebComponent`).
+- A row **with `{{service}}`** = a template applied to **each served service**
+  not already covered by an explicit row; the port is the one resolved for the
+  service (the row's `port` takes precedence).
+- Storage: column `applications.preview_url_templates` (JSONB, array).
+  **Backward compatibility**: empty/absent ⇒ historical behavior
+  (single `preview_url_template` + auto-prefix). No backfill required.
+- `{{random}}` relies on `previews.random_slug`, generated once at scaffolding
+  and reused for all routes/deployments — hosts remain stable
+  (no certificate churn).
+- The preview's **primary** host (`previews.fqdn`, displayed, SSO, feedback) =
+  the 1st resolved row (`{{service}}` → main web component).
 
-Le wildcard un-niveau (§4.2) reste la contrainte : un motif produisant plusieurs
-niveaux sous le wildcard n'obtient pas de certificat (inchangé, énoncé).
+The single-level wildcard (§4.2) remains the constraint: a pattern producing
+multiple levels under the wildcard does not get a certificate (unchanged,
+stated).
 
-## Conséquences
+## Consequences
 
-- **Positives** : parité UX avec le routing app, multi-hôtes/ports par preview,
-  motifs maîtrisés au lieu du préfixe imposé ; rétro-compatible.
-- **Négatives** : moteur de routing preview plus riche (résolveur partagé
-  `single-container` + compose) ; `random_slug` ajouté ; surface de test accrue.
-  La logique déterministe (résolution des motifs, mapping port→service) est
-  prouvée en tests unitaires ; le comportement proxy/cert/SSO de bout en bout
-  relève de la validation manuelle/E2E (ADR-028).
+- **Positive**: UX parity with app routing, multi-hosts/ports per preview,
+  controlled patterns instead of the imposed prefix; backward-compatible.
+- **Negative**: richer preview routing engine (shared resolver
+  `single-container` + compose); `random_slug` added; increased test surface.
+  The deterministic logic (pattern resolution, port→service mapping) is
+  proven by unit tests; the end-to-end proxy/cert/SSO behavior falls under
+  manual/E2E validation (ADR-028).
 
-## Alternatives rejetées
+## Rejected alternatives
 
-- **Garder le template unique + plus de placeholders** : ne donne pas le contrôle
-  par route/port demandé.
-- **Base + overrides par service** : moins de rewrite mais deux mécanismes
-  concurrents ; la table unique est plus cohérente avec le routing app.
+- **Keep the single template + more placeholders**: does not provide the
+  requested per-route/port control.
+- **Base + per-service overrides**: less rewrite but two competing mechanisms;
+  the single table is more consistent with app routing.

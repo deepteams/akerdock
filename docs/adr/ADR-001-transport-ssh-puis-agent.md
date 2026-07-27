@@ -1,33 +1,33 @@
-# ADR-001 — Transport de contrôle : SSH d'abord, agent sortant en cible, ports configurables
+# ADR-001 — Control transport: SSH first, outbound agent as target, configurable ports
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.1, §3.1, §4.1, §10.4, §16.1(2)(6), §18.1, §25.2
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.1, §3.1, §4.1, §10.4, §16.1(2)(6), §18.1, §25.2
 
-## Contexte
+## Context
 
-Piloter les serveurs cibles en SSH (push depuis l'instance) est le modèle le plus simple à exploiter : rien à installer sur la cible, rien à versionner. Mais il impose un port entrant ouvert sur chaque serveur et ne permet pas de recevoir les événements Docker en continu (l'état est *interrogé*, jamais *poussé*). Un agent sortant (pull) réduirait la surface entrante et ouvrirait la voie aux événements temps réel, au prix du versionnement, de l'enrollment et de l'upgrade d'un agent. Il faut trancher le modèle de transport et, en corollaire, la surface réseau exposée par la plateforme.
+Driving target servers over SSH (push from the instance) is the simplest model to operate: nothing to install on the target, nothing to version. But it requires an open inbound port on every server and does not allow receiving Docker events continuously (state is *polled*, never *pushed*). An outbound (pull) agent would reduce the inbound surface and open the way to real-time events, at the cost of versioning, enrollment and upgrading an agent. The transport model must be settled and, as a corollary, the network surface exposed by the platform.
 
-## Décision
+## Decision
 
-Orientation validée en deux temps :
+Direction validated in two stages:
 
-1. **SSH pour la parité initiale** : le transport distant est une interface abstraite dont l'implémentation initiale est SSH (§18.1). Tout serveur Linux joignable en SSH peut être piloté, comme dans la référence.
-2. **Agent sortant comme cible** : un agent sortant optionnel est la direction à terme pour réduire la surface entrante des serveurs cibles et permettre la remontée d'événements Docker. Il pourra être ajouté sans modifier les services métier, grâce à l'abstraction du transport.
+1. **SSH for initial parity**: the remote transport is an abstract interface whose initial implementation is SSH (§18.1). Any Linux server reachable over SSH can be managed, as in the reference.
+2. **Outbound agent as target**: an optional outbound agent is the long-term direction to reduce the inbound surface of target servers and enable Docker event reporting. It can be added without modifying the business services, thanks to the transport abstraction.
 
-Exigences associées sur les ports :
+Associated requirements on ports:
 
-- Le proxy de chaque serveur écoute sur **80/443 par défaut**, mais ses ports d'écoute **DOIVENT être configurables par serveur** (par exemple 8080/8443 lorsqu'un reverse proxy amont détient déjà 80/443).
-- Le control plane est exposé sur **un seul port**, derrière son propre domaine/DNS : UI, API et flux temps réel le partagent (§25.2, cf. ADR-024) — un port, un certificat, une règle de firewall.
+- Each server's proxy listens on **80/443 by default**, but its listening ports **MUST be configurable per server** (for example 8080/8443 when an upstream reverse proxy already holds 80/443).
+- The control plane is exposed on **a single port**, behind its own domain/DNS: UI, API and real-time streams share it (§25.2, cf. ADR-024) — one port, one certificate, one firewall rule.
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Agent pull dès le départ** : rejeté pour la première version car il introduit d'emblée versionnement, enrollment et upgrade d'agent, et retarde la parité fonctionnelle avec la référence.
-- **SSH définitif sans trajectoire agent** : rejeté car il fige des ports entrants ouverts sur chaque serveur cible et interdit les événements Docker temps réel, alors que la réduction de surface est un objectif produit.
-- **Un port par usage (dashboard, WebSocket, terminal)** : rejeté — surface réseau inutilement large et exploitation plus complexe (trois règles de firewall, trois certificats), contraire à l'objectif « un seul port exposé » (§16.1(6)).
+- **Pull agent from the start**: rejected for the first version because it introduces agent versioning, enrollment and upgrading right away, and delays feature parity with the reference.
+- **SSH forever, with no agent trajectory**: rejected because it locks in open inbound ports on every target server and rules out real-time Docker events, while surface reduction is a product goal.
+- **One port per use (dashboard, WebSocket, terminal)**: rejected — needlessly large network surface and more complex operations (three firewall rules, three certificates), contrary to the "a single exposed port" goal (§16.1(6)).
 
-## Conséquences
+## Consequences
 
-- **Positives** : parité immédiate avec la référence (tout serveur SSH est éligible) ; surface d'exposition du control plane réduite à un port ; cohabitation possible avec un reverse proxy amont grâce aux ports proxy configurables ; la bascule future vers un agent ne touche pas les services métier.
-- **Négatives** : le modèle SSH impose de conserver des ports SSH entrants ouverts sur les serveurs cibles tant que l'agent n'existe pas ; pas d'événements Docker en push au début (polling nécessaire pour l'état observé, §18.3).
-- **Risques acceptés** : maintenir deux transports à terme (SSH + agent) augmentera la matrice de test ; l'abstraction du transport doit être conçue dès P0 pour éviter que des détails SSH ne fuient dans les services métier.
+- **Positive**: immediate parity with the reference (any SSH server is eligible); control plane exposure surface reduced to one port; possible cohabitation with an upstream reverse proxy thanks to configurable proxy ports; the future switch to an agent does not touch the business services.
+- **Negative**: the SSH model requires keeping inbound SSH ports open on target servers as long as the agent does not exist; no pushed Docker events at first (polling required for observed state, §18.3).
+- **Accepted risks**: maintaining two transports in the long run (SSH + agent) will increase the test matrix; the transport abstraction must be designed from P0 onward to prevent SSH details from leaking into the business services.

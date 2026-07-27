@@ -1,35 +1,35 @@
-# ADR-011 — Previews de PR enrichies dès la livraison, contrôles de déclenchement opt-in
+# ADR-011 — PR previews enriched from initial delivery, opt-in trigger controls
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.11, §5.6, §20.4, §26.2, INV-010
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.11, §5.6, §20.4, §26.2, INV-010
 
-## Contexte
+## Context
 
-Un preview deployment minimal — un container et une URL publique par PR, sans plafond, sans TTL, sans protection d'accès, sans support compose, avec un commentaire par déploiement — est en dessous du standard du domaine (§5.6, §15). Les plateformes de preview dédiées ont établi une barre nettement plus haute : environnements compose complets, données éphémères, TTL, accès protégé, checks Git. Il faut décider du niveau visé, et à quel moment il est livré.
+A minimal preview deployment — one container and one public URL per PR, with no cap, no TTL, no access protection, no compose support, with one comment per deployment — is below the domain standard (§5.6, §15). Dedicated preview platforms have set the bar significantly higher: full compose environments, ephemeral data, TTL, protected access, Git checks. A decision is needed on the level being targeted, and when it is delivered.
 
-## Décision
+## Decision
 
-La feature preview est **livrée d'emblée enrichie** : tout le périmètre du §20.4 est **prioritaire** et livré avec la feature, pas en extension ultérieure. Concrètement :
+The preview feature is **delivered enriched from the start**: the entire scope of §20.4 is **prioritized** and shipped with the feature, not as a later extension. Concretely:
 
-- **compose éphémère** : stack complet par PR, réseau isolé, volumes propres, magic variables par instance, destruction intégrale au cleanup ;
-- **données éphémères** : bases provisionnées par seed ou clone de snapshot, jamais partagées implicitement avec la production ou une autre preview ;
-- **TTL, plafonds et scale-to-zero** : plafond de previews simultanées par application et par serveur, TTL d'inactivité, resource limits distincts, pool de serveurs de preview optionnel, scale-to-zero souhaité au niveau proxy ;
-- **protection d'accès par défaut** : basic auth ou lien signé + `X-Robots-Tag: noindex`, exposition publique sur choix explicite ;
-- **watch paths en preview** (monorepo) ;
-- **checks Git riches** : commit statuses/checks, API Deployments GitHub, commentaire unique mis à jour en place, parité de feedback GitLab/Gitea ;
-- **forks sur approbation** : preview possible après approbation d'un mainteneur, builder isolé, aucun secret injecté (INV-010).
+- **ephemeral compose**: full stack per PR, isolated network, dedicated volumes, per-instance magic variables, full destruction on cleanup;
+- **ephemeral data**: databases provisioned by seed or snapshot clone, never implicitly shared with production or another preview;
+- **TTL, caps and scale-to-zero**: cap on simultaneous previews per application and per server, inactivity TTL, separate resource limits, optional preview server pool, scale-to-zero desired at the proxy level;
+- **access protection by default**: basic auth or signed link + `X-Robots-Tag: noindex`, public exposure by explicit choice only;
+- **watch paths for previews** (monorepo);
+- **rich Git checks**: commit statuses/checks, GitHub Deployments API, single comment updated in place, GitLab/Gitea feedback parity;
+- **forks on approval**: preview possible after a maintainer's approval, isolated builder, no secrets injected (INV-010).
 
-Les **contrôles de déclenchement** (opt-in par label de PR, commandes en commentaire `/deploy` `/destroy`, exclusion des draft PRs, annulation des builds obsolètes) sont des **options activables par application, désactivées par défaut** — le comportement de parité reste le défaut.
+The **trigger controls** (opt-in via PR label, comment commands `/deploy` `/destroy`, exclusion of draft PRs, cancellation of stale builds) are **per-application options, disabled by default** — the parity behavior remains the default.
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Parité minimale d'abord, enrichissement plus tard** : rejetée — le PRD acte que le périmètre §20.4 fait partie de la feature elle-même ; livrer le minimum créerait des previews publiques non protégées et sans plafond, défauts connus de la référence.
-- **Contrôles de déclenchement activés par défaut** : rejetés — surprendrait les utilisateurs venant de la référence ; le défaut reste le comportement de parité, chaque contrôle est opt-in individuellement.
-- **Déléguer les previews à un outil externe** : rejeté — les previews sont un différenciateur produit central et exigent l'intégration au proxy, aux secrets et au cycle de vie interne.
+- **Minimal parity first, enrichment later**: rejected — the PRD establishes that the §20.4 scope is part of the feature itself; shipping the minimum would create public previews that are unprotected and uncapped, known flaws of the reference.
+- **Trigger controls enabled by default**: rejected — would surprise users coming from the reference; the default remains the parity behavior, each control is opt-in individually.
+- **Delegating previews to an external tool**: rejected — previews are a core product differentiator and require integration with the proxy, secrets and the internal lifecycle.
 
-## Conséquences
+## Consequences
 
-- **Positives** : différenciateur produit majeur face à la référence ; sécurité par défaut (accès protégé, secrets de production jamais copiés, forks ignorés sans approbation) ; coûts maîtrisés (TTL, plafonds, scale-to-zero) là où la référence n'a aucun cap.
-- **Négatives** : périmètre de première livraison nettement plus gros que la parité — compose éphémère, cycle de vie TTL, intégrations checks multi-providers et builders isolés (dépendance sur ADR-005) doivent tous exister pour déclarer la feature complète (preuves exigées §26.2).
-- **Risques acceptés** : la richesse des intégrations Git (checks, deployments, commentaire unique) multiplie les surfaces provider-spécifiques à maintenir (GitHub/GitLab/Gitea) ; le scale-to-zero au proxy est un DEVRAIT, susceptible d'arriver après le reste du périmètre.
+- **Positive**: major product differentiator over the reference; security by default (protected access, production secrets never copied, forks ignored without approval); controlled costs (TTL, caps, scale-to-zero) where the reference has no cap at all.
+- **Negative**: a first-delivery scope significantly larger than parity — ephemeral compose, TTL lifecycle, multi-provider checks integrations and isolated builders (dependency on ADR-005) must all exist to declare the feature complete (evidence required §26.2).
+- **Accepted risks**: the richness of the Git integrations (checks, deployments, single comment) multiplies the provider-specific surfaces to maintain (GitHub/GitLab/Gitea); scale-to-zero at the proxy is a SHOULD, liable to arrive after the rest of the scope.

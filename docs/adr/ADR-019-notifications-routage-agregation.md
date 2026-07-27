@@ -1,30 +1,30 @@
-# ADR-019 — Notifications : routage par règles, agrégation/débounce, heures calmes
+# ADR-019 — Notifications: rule-based routing, aggregation/debounce, quiet hours
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.19, §11, §26.2
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.19, §11, §26.2
 
-## Contexte
+## Context
 
-Émettre un message par événement, avec pour seul réglage l'activation d'événements par canal (§11), rend le canal inutilisable : un serveur qui flappe (injoignable/joignable en boucle) génère des dizaines d'alertes identiques, et tous les projets d'une team partagent les mêmes canaux. Ce bruit détruit la valeur des alertes — les vraies finissent ignorées. Il faut décider du modèle de routage et de la lutte contre le bruit.
+Emitting one message per event, with per-channel event activation as the only setting (§11), makes the channel unusable: a flapping server (unreachable/reachable in a loop) generates dozens of identical alerts, and all of a team's projects share the same channels. This noise destroys the value of alerts — the real ones end up ignored. We must decide on the routing model and the fight against noise.
 
-## Décision
+## Decision
 
-Quatre capacités actées, au-dessus des canaux de parité (Email, Discord, Telegram, Slack, Pushover, webhooks — §11) :
+Four capabilities established, on top of the parity channels (Email, Discord, Telegram, Slack, Pushover, webhooks — §11):
 
-1. **Règles de routage** par projet, environnement et sévérité vers les canaux — et plus seulement une matrice événement × canal au niveau team.
-2. **Agrégation/débounce des événements répétitifs** : un serveur qui flappe produit une alerte agrégée, pas des dizaines de messages.
-3. **Heures calmes configurables**.
-4. **Résumé différé des événements non critiques** : ce qui n'exige pas d'action immédiate est regroupé et envoyé plus tard.
+1. **Routing rules** by project, environment, and severity toward channels — and no longer just an event × channel matrix at the team level.
+2. **Aggregation/debounce of repetitive events**: a flapping server produces one aggregated alert, not dozens of messages.
+3. **Configurable quiet hours**.
+4. **Deferred digest of non-critical events**: what does not require immediate action is grouped and sent later.
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Parité stricte (un message par événement)** : rejetée — le flapping en boucle est précisément le défaut constaté de la référence ; le bruit rend l'alerting contre-productif.
-- **Déléguer à un outil d'alerting externe (Alertmanager, PagerDuty…)** : rejeté comme réponse par défaut — impose un composant de plus à la cible self-hosted ; les webhooks custom restent disponibles pour qui veut brancher ces outils.
-- **Routage par ressource individuelle** : rejeté — grain trop fin à administrer ; projet/environnement/sévérité couvre les besoins réels (prod alerte, staging résume).
+- **Strict parity (one message per event)**: rejected — flapping in a loop is precisely the observed defect of the reference; noise makes alerting counterproductive.
+- **Delegating to an external alerting tool (Alertmanager, PagerDuty…)**: rejected as the default answer — imposes one more component on the self-hosted target; custom webhooks remain available for whoever wants to plug in these tools.
+- **Routing per individual resource**: rejected — too fine a grain to administer; project/environment/severity covers the real needs (prod alerts, staging digests).
 
-## Conséquences
+## Consequences
 
-- **Positives** : alertes actionnables (la production réveille, le staging attend le résumé) ; fin des tempêtes de messages en cas de flapping ; les heures calmes respectent les astreintes sans désactiver l'alerting.
-- **Négatives** : moteur de règles, fenêtres de débounce et files de résumés différés à concevoir, persister et tester (tests flapping/débounce exigés §26.2) ; la configuration devient plus riche donc plus complexe à présenter — des défauts sûrs et simples sont indispensables.
-- **Risques acceptés** : toute agrégation retarde ou regroupe de l'information — un événement critique mal classé en « non critique » serait différé, d'où l'importance de la taxonomie de sévérité ; le comportement par défaut doit rester simple et prévisible pour ne pas surprendre l'opérateur qui découvre le produit.
+- **Positive**: actionable alerts (production wakes you up, staging waits for the digest); end of message storms in case of flapping; quiet hours respect on-call duty without disabling alerting.
+- **Negative**: rule engine, debounce windows, and deferred digest queues to design, persist, and test (flapping/debounce tests required §26.2); the configuration becomes richer and therefore more complex to present — safe and simple defaults are indispensable.
+- **Accepted risks**: any aggregation delays or groups information — a critical event misclassified as "non-critical" would be deferred, hence the importance of the severity taxonomy; the default behavior must remain simple and predictable so as not to surprise the operator discovering the product.

@@ -1,134 +1,134 @@
-# ADR-036 — Scale-to-zero par un waker en coupure
+# ADR-036 — Scale-to-zero via an in-path waker
 
-## Statut
+## Status
 
-Accepté — précise les **défauts proposés** de
-[proxy-contract §8](../specs/proxy-contract.md) (Scale-to-zero, DEVRAIT), qu'il
-verrouille ; complète [ADR-011](ADR-011-cycle-de-vie-des-previews.md) (cycle de
-vie des previews) et [ADR-024](ADR-024-sse-et-websocket.md) sans les superséder.
+Accepted — pins down the **proposed defaults** of
+[proxy-contract §8](../specs/proxy-contract.md) (Scale-to-zero, SHOULD), which
+it locks in; complements [ADR-011](ADR-011-cycle-de-vie-des-previews.md)
+(preview lifecycle) and [ADR-024](ADR-024-sse-et-websocket.md) without
+superseding them.
 
-## Contexte
+## Context
 
-Une preview de PR passe l'essentiel de son temps **inactive** : ouverte pour une
-revue, consultée quelques minutes, puis oubliée jusqu'à la prochaine relecture ou
-son TTL. Elle consomme pourtant CPU/RAM en continu (souvent un stack complet
-nats/postgres/redis/app). Le scale-to-zero éteint la ressource après une période
-d'inactivité et la rallume à la première requête — l'objectif structurant du flow
-« CD par PR » : on peut garder beaucoup de previews vivantes sans les payer toutes
-en permanence.
+A PR preview spends most of its time **inactive**: opened for a review,
+consulted for a few minutes, then forgotten until the next review pass or its
+TTL. Yet it continuously consumes CPU/RAM (often a full nats/postgres/redis/app
+stack). Scale-to-zero shuts the resource down after a period of inactivity and
+starts it back up on the first request — the structuring goal of the
+"CD per PR" flow: many previews can be kept alive without paying for all of
+them permanently.
 
-Deux invariants encadrent le mécanisme :
+Two invariants frame the mechanism:
 
-- **INV-007** — le control plane ne proxifie jamais le trafic applicatif. Le
-  réveil doit donc se produire **côté serveur**, pas dans le control plane.
-- **push §18.1** — le serveur ne contacte jamais le control plane ; c'est le
-  control plane qui se connecte au serveur (SSH). Le réveil doit fonctionner
-  **même control plane éteint**.
+- **INV-007** — the control plane never proxies application traffic. The
+  wake-up must therefore happen **server-side**, not in the control plane.
+- **push §18.1** — the server never contacts the control plane; the control
+  plane connects to the server (SSH). Wake-up must work
+  **even with the control plane down**.
 
-proxy-contract §8 propose (toutes clauses « défaut proposé ») un conteneur helper
-`akerdock-waker` et un basculement de **deux variantes** du fichier dynamique
-(`sleeping` → route vers le waker, `awake` → route directe), échangées par un
-`mv -f` atomique au réveil. Ce défaut a deux angles morts pour notre choix de
-mesure d'inactivité : une fois **réveillée**, la variante `awake` route
-directement vers l'app, donc **le waker ne voit plus passer le trafic** et ne peut
-pas dater la dernière requête ; mesurer l'inactivité imposerait alors de parser
-les access logs du proxy.
+proxy-contract §8 proposes (all clauses being "proposed defaults") an
+`akerdock-waker` helper container and a switch between **two variants** of the
+dynamic file (`sleeping` → route to the waker, `awake` → direct route),
+swapped by an atomic `mv -f` on wake-up. This default has two blind spots for
+our choice of inactivity measurement: once **awake**, the `awake` variant
+routes directly to the app, so **the waker no longer sees the traffic** and
+cannot timestamp the last request; measuring inactivity would then require
+parsing the proxy's access logs.
 
-## Décision
+## Decision
 
-### 1. Le waker est un mode du binaire unique
+### 1. The waker is a mode of the single binary
 
-Pas de second artefact. `akerdock waker` est une sous-commande du binaire
-existant (ADR-021, full-Cobra ADR-033), déployée en conteneur helper avec la
-**même image** épinglée par la release, labellisé `akerdock.type=helper` et
-`akerdock.managed=true`, sur le réseau interne du serveur (**jamais publié**),
-avec accès au socket Docker local.
+No second artifact. `akerdock waker` is a subcommand of the existing binary
+(ADR-021, full-Cobra ADR-033), deployed as a helper container with the
+**same image** pinned by the release, labeled `akerdock.type=helper` and
+`akerdock.managed=true`, on the server's internal network (**never published**),
+with access to the local Docker socket.
 
-La référence de cette image est **gravée dans le binaire au build** (`-ldflags
--X main.image=...`, comme `version`) : une release déploie donc le waker depuis
-sa propre image sans configuration au runtime — un conteneur ne connaît pas son
-propre tag, mais le build si. `AKERDOCK_IMAGE` (env) surcharge (registre miroir,
-build local). Vide des deux côtés ⇒ le scale-to-zero reste inerte avec une
-erreur explicite au déploiement, jamais un registre deviné. Son code est **borné** à démarrer des
-conteneurs `akerdock.managed=true` : il ne crée, ne supprime, ni ne construit
-rien.
+The reference to this image is **baked into the binary at build time**
+(`-ldflags -X main.image=...`, like `version`): a release therefore deploys the
+waker from its own image without any runtime configuration — a container does
+not know its own tag, but the build does. `AKERDOCK_IMAGE` (env) overrides it
+(mirror registry, local build). Empty on both sides ⇒ scale-to-zero stays inert
+with an explicit error at deployment, never a guessed registry. Its code is
+**restricted** to starting `akerdock.managed=true` containers: it creates,
+deletes and builds nothing.
 
-### 2. Le waker reste en coupure et rapporte l'activité
+### 2. The waker stays in the traffic path and reports activity
 
-On **écarte le basculement à deux variantes** au profit d'une **variante unique** :
-pour une ressource `scale_to_zero`, le fichier dynamique route **toujours** vers le
-waker (`http://akerdock-waker:8080`, middleware ajoutant l'en-tête
-`X-AkerDock-Wake: <resource_uuid>`). Le waker est donc un reverse-proxy permanent
-**en coupure** devant les ressources STZ :
+We **discard the two-variant switch** in favor of a **single variant**: for a
+`scale_to_zero` resource, the dynamic file **always** routes to the waker
+(`http://akerdock-waker:8080`, middleware adding the
+`X-AkerDock-Wake: <resource_uuid>` header). The waker is thus a permanent
+reverse proxy **in the traffic path** in front of STZ resources:
 
-- **endormie** (`sleeping`) : le conteneur cible est arrêté. À la première requête,
-  le waker `docker start <uuid>` (idempotent, état `waking`), attend `healthy`
-  (ou *running* stable 10 s à défaut de healthcheck), délai max **60 s**, puis
-  **retient-et-relaie** la requête d'origine ;
-- **réveillée** (`running`) : le waker relaie chaque requête vers le conteneur et
-  **date la dernière activité** dans un fichier local
-  (`/var/lib/akerdock/waker/<uuid>.activity`, timestamp Unix, réécriture atomique).
+- **asleep** (`sleeping`): the target container is stopped. On the first
+  request, the waker runs `docker start <uuid>` (idempotent, `waking` state),
+  waits for `healthy` (or stable *running* for 10 s absent a healthcheck), max
+  delay **60 s**, then **holds-and-forwards** the original request;
+- **awake** (`running`): the waker forwards each request to the container and
+  **timestamps the last activity** in a local file
+  (`/var/lib/akerdock/waker/<uuid>.activity`, Unix timestamp, atomic rewrite).
 
-C'est ce fichier qui matérialise « le waker rapporte l'activité » : le control
-plane le **lit via SSH** (jamais le serveur qui appelle le control plane —
-push §18.1 préservé) lors de sa passe d'endormissement.
+This file is what embodies "the waker reports activity": the control plane
+**reads it via SSH** (never the server calling the control plane —
+push §18.1 preserved) during its sleep pass.
 
-### 3. Endormissement piloté par le control plane
+### 3. Putting to sleep is driven by the control plane
 
-Une passe du scheduler (aux côtés du reaper TTL) sélectionne les ressources STZ
-`running` dont la dernière activité (fichier waker lu par SSH) dépasse
-`scale_to_zero_after_minutes` (défaut 30) et enfile un job qui : `docker stop`
-le conteneur puis passe l'état à `sleeping`. Le fichier dynamique n'a **pas** à
-changer (il pointe déjà vers le waker) — l'endormissement est un simple
-`docker stop`, le réveil un `docker start`. Aucun basculement de fichier, aucun
-parsing d'access logs.
+A scheduler pass (alongside the TTL reaper) selects `running` STZ resources
+whose last activity (waker file read via SSH) exceeds
+`scale_to_zero_after_minutes` (default 30) and enqueues a job that:
+`docker stop`s the container then transitions the state to `sleeping`. The
+dynamic file does **not** need to change (it already points to the waker) —
+putting to sleep is a simple `docker stop`, waking is a `docker start`. No file
+switch, no access log parsing.
 
-### 4. Machine à états et limites
+### 4. State machine and limits
 
-États : `sleeping → waking → running → (inactivité) → sleeping`. Ajout des états
-`sleeping` et `waking` à l'énum `preview_status`. Limites (proxy-contract §8.3) :
-réveil > 60 s → **504** ; corps de requête retenu ≤ **1 MiB**, au-delà **503
-Retry-After: 5** ; WebSockets retenus pendant `waking` (une WS longue est un
-mauvais candidat au STZ) ; opt-in **par ressource**, **previews d'abord**, jamais
-implicite en production.
+States: `sleeping → waking → running → (inactivity) → sleeping`. Addition of
+the `sleeping` and `waking` states to the `preview_status` enum. Limits
+(proxy-contract §8.3): wake-up > 60 s → **504**; held request body ≤ **1 MiB**,
+beyond that **503 Retry-After: 5**; WebSockets held during `waking` (a long WS
+is a poor STZ candidate); opt-in **per resource**, **previews first**, never
+implicit in production.
 
-## Conséquences
+## Consequences
 
-- **Positives** : mesure d'inactivité **exacte** (par requête) sans parser de
-  logs ; réveil fonctionnel control plane éteint (INV-007, push §18.1) ; zéro
-  second artefact (ADR-021) ; endormir/réveiller = `docker stop`/`start`, sans
-  toucher au fichier dynamique ni aux certificats.
-- **Négatives / limites** : le waker est **en coupure permanente** des ressources
-  STZ — un saut interne supplémentaire (local, réseau interne, coût négligeable)
-  et un **SPOF pour les seules ressources STZ** si le waker tombe (mitigé :
-  `restart: always`, previews-first, opt-in). C'est le prix assumé du choix
-  « le waker rapporte l'activité » : la variante `awake` directe de §8.2 le
-  rendrait aveugle au trafic établi.
-- Le réveil de bout en bout (retenir-et-relayer, healthy, timeout) relève de la
-  **validation E2E** (ADR-028) : les tests unitaires couvrent la décision de
-  réveil, les limites et la génération du fichier dynamique ; le comportement live
-  passe par le parcours DinD.
-- **Distribution de l'image aux serveurs distants** : le waker tourne l'image
-  AkerDock — première image *du projet* à devoir tourner sur un serveur cible (le
-  proxy, lui, utilise une image publique). Elle y arrive par pull registry (flux
-  ghcr) ou parce qu'elle est locale (install source-only mono-hôte). Sur un
-  serveur **distant** en install source-only *sans registry*, elle manque : à
-  lever par un registry, ou par un `docker save`→`docker load` streamé en SSH pour
-  rester « sans registry » (piste notée dans `TODO.md`, non implémentée — inutile
-  tant que le déploiement reste mono-hôte).
+- **Positive**: **exact** inactivity measurement (per request) without parsing
+  logs; wake-up functional with the control plane down (INV-007, push §18.1);
+  zero second artifact (ADR-021); sleep/wake = `docker stop`/`start`, without
+  touching the dynamic file or certificates.
+- **Negative / limits**: the waker is **permanently in the traffic path** of
+  STZ resources — one additional internal hop (local, internal network,
+  negligible cost) and a **SPOF for STZ resources only** if the waker goes down
+  (mitigated: `restart: always`, previews-first, opt-in). This is the accepted
+  price of the "the waker reports activity" choice: the direct `awake` variant
+  of §8.2 would make it blind to established traffic.
+- End-to-end wake-up (hold-and-forward, healthy, timeout) falls under
+  **E2E validation** (ADR-028): unit tests cover the wake decision, the limits
+  and the dynamic file generation; live behavior goes through the DinD journey.
+- **Distributing the image to remote servers**: the waker runs the AkerDock
+  image — the first *project* image that must run on a target server (the
+  proxy, for its part, uses a public image). It gets there via a registry pull
+  (ghcr flow) or because it is local (source-only single-host install). On a
+  **remote** server with a source-only install *without a registry*, it is
+  missing: to be addressed by a registry, or by a `docker save`→`docker load`
+  streamed over SSH to remain "registry-free" (avenue noted in `TODO.md`, not
+  implemented — pointless as long as deployment stays single-host).
 
-## Alternatives rejetées
+## Rejected alternatives
 
-- **Deux variantes + `mv -f` atomique (défaut §8.2)** : rend le waker aveugle au
-  trafic une fois réveillé, donc impose de parser les access logs Traefik pour
-  mesurer l'inactivité — un couplage au format de log et une source de vérité
-  fragile, pour économiser un saut interne négligeable.
-- **Image `akerdock-waker` dédiée (littéral §8.1)** : un second binaire à
-  construire, publier, versionner et épingler, contre ADR-021 (livrable unique).
-- **Le waker rapporte l'activité au control plane (HTTP)** : violerait push §18.1
-  (le serveur ne contacte jamais le control plane) et casserait le réveil quand le
-  control plane est éteint. Le fichier local lu par SSH conserve les deux
-  invariants.
-- **Mesure via métriques Sentinel** : approximative (un conteneur idle mais vivant
-  consomme un peu de CPU/réseau) et dépendante de Sentinel activé ; le waker en
-  coupure donne l'activité réelle.
+- **Two variants + atomic `mv -f` (default §8.2)**: makes the waker blind to
+  traffic once awake, thus requires parsing Traefik access logs to measure
+  inactivity — a coupling to the log format and a fragile source of truth, to
+  save a negligible internal hop.
+- **Dedicated `akerdock-waker` image (literal §8.1)**: a second binary to
+  build, publish, version and pin, against ADR-021 (single deliverable).
+- **The waker reports activity to the control plane (HTTP)**: would violate
+  push §18.1 (the server never contacts the control plane) and would break
+  wake-up when the control plane is down. The local file read via SSH preserves
+  both invariants.
+- **Measurement via Sentinel metrics**: approximate (an idle but alive
+  container consumes a bit of CPU/network) and dependent on Sentinel being
+  enabled; the in-path waker provides the real activity.

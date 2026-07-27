@@ -1,33 +1,33 @@
-# ADR-013 — Adoption de ressources existantes sans redéploiement, prévisualisée et réversible
+# ADR-013 — Adoption of existing resources without redeployment, previewed and reversible
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.13, §20.7, §27.23, INV-015
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.13, §20.7, §27.23, INV-015
 
-## Contexte
+## Context
 
-Aucune plateforme du segment ne sait prendre le contrôle d'un container ou d'un stack compose **déjà déployé** : l'utilisateur doit tout recréer dans la plateforme puis redéployer, avec interruption et risque sur les données. Or AkerDock distingue déjà structurellement ressources gérées et non gérées (INV-015). Il faut décider si la plateforme sait « adopter » l'existant, ce qui conditionne aussi la stratégie de migration (cf. ADR-023).
+No platform in the segment knows how to take control of a container or compose stack that is **already deployed**: the user has to recreate everything in the platform and then redeploy, with interruption and risk to data. Yet AkerDock already structurally distinguishes managed from unmanaged resources (INV-015). A decision is needed on whether the platform can "adopt" existing workloads, which also conditions the migration strategy (cf. ADR-023).
 
-## Décision
+## Decision
 
-**Adoption sans redéploiement, prévisualisée et réversible** — c'est aussi le chemin d'entrée depuis n'importe quelle plateforme (ADR-023). Le workflow est celui du §20.7 :
+**Adoption without redeployment, previewed and reversible** — it is also the entry path from any platform (ADR-023). The workflow is that of §20.7:
 
-1. **Scan** d'un serveur : inventaire des containers et stacks compose non gérés (s'appuie sur INV-015).
-2. **Mapping proposé** vers le modèle AkerDock : application ou service, réseaux, volumes, variables, ports et domaines détectés par inspection et labels.
-3. **Prévisualisation** : ce qui sera géré, ce qui sera modifié (labels/metadata ajoutés), ce qui n'est pas adoptable et pourquoi.
-4. **Adoption sans redéploiement** : prise de contrôle sans redémarrer le workload lorsque c'est possible ; le premier redéploiement normalise complètement la ressource.
-5. **Réversibilité** : « désadopter » rend la ressource à son état non géré sans la détruire.
+1. **Scan** of a server: inventory of unmanaged containers and compose stacks (relies on INV-015).
+2. **Proposed mapping** to the AkerDock model: application or service, networks, volumes, variables, ports and domains detected by inspection and labels.
+3. **Preview**: what will be managed, what will be modified (labels/metadata added), what is not adoptable and why.
+4. **Adoption without redeployment**: taking control without restarting the workload when possible; the first redeployment fully normalizes the resource.
+5. **Reversibility**: "unadopting" returns the resource to its unmanaged state without destroying it.
 
-Critères d'acceptation (§20.7) : adopter un stack compose multi-services avec volumes puis le redéployer sans perte de données ; une ressource non représentable est signalée avec le motif, jamais adoptée partiellement en silence.
+Acceptance criteria (§20.7): adopt a multi-service compose stack with volumes then redeploy it without data loss; a non-representable resource is flagged with the reason, never silently partially adopted.
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Pas d'adoption (parité)** : rejetée — migrer vers AkerDock exigerait de tout redéployer, friction maximale précisément au moment où l'on veut convaincre.
-- **Import par recréation assistée (wizard qui régénère la ressource et redéploie)** : rejeté comme mécanisme principal — interruption de service et risque sur les volumes ; la recréation reste disponible via le premier redéploiement normalisateur.
-- **Adoption silencieuse automatique de tout ce qui tourne** : rejetée — violerait la frontière géré/non géré (INV-015) et créerait des prises de contrôle non consenties ; l'adoption est toujours explicite et prévisualisée.
+- **No adoption (parity)**: rejected — migrating to AkerDock would require redeploying everything, maximum friction precisely at the moment you want to convince.
+- **Import by assisted recreation (a wizard that regenerates the resource and redeploys)**: rejected as the primary mechanism — service interruption and risk to volumes; recreation remains available via the first normalizing redeployment.
+- **Silent automatic adoption of everything that is running**: rejected — would violate the managed/unmanaged boundary (INV-015) and create non-consented takeovers; adoption is always explicit and previewed.
 
-## Conséquences
+## Consequences
 
-- **Positives** : argument de migration unique sur le segment ; aucune interruption au moment de l'adoption ; réversibilité qui réduit le risque d'essai ; c'est le chemin de migration entrant du produit (ADR-023).
-- **Négatives** : le moteur de mapping (inspection Docker → modèle interne) est complexe : cas partiels, labels hétérogènes, compose non standard ; la coexistence « adopté mais pas encore normalisé » crée un état intermédiaire que l'UI et le moteur de déploiement doivent gérer explicitement.
-- **Risques acceptés** : certaines ressources resteront non adoptables (signalées avec motif) ; entre adoption et première normalisation, la ressource peut diverger du modèle interne — le redéploiement normalisateur est le point de convergence assumé.
+- **Positive**: a migration argument unique in the segment; no interruption at adoption time; reversibility that reduces the risk of trying it; it is the product's inbound migration path (ADR-023).
+- **Negative**: the mapping engine (Docker inspection → internal model) is complex: partial cases, heterogeneous labels, non-standard compose; the "adopted but not yet normalized" coexistence creates an intermediate state that the UI and the deployment engine must handle explicitly.
+- **Accepted risks**: some resources will remain non-adoptable (flagged with the reason); between adoption and first normalization, the resource may diverge from the internal model — the normalizing redeployment is the accepted convergence point.

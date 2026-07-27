@@ -1,31 +1,31 @@
-# ADR-016 — Déploiement coordonné d'un environnement : graphe, hooks de migration, rollback opt-in
+# ADR-016 — Coordinated deployment of an environment: graph, migration hooks, opt-in rollback
 
-- **Statut** : Accepté
-- **Date** : 2026-07-11
-- **Sections PRD liées** : §27.16, §20.8, §21.1, §26.2
+- **Status**: Accepted
+- **Date**: 2026-07-11
+- **Related PRD sections**: §27.16, §20.8, §21.1, §26.2
 
-## Contexte
+## Context
 
-Déployer ressource par ressource, sans notion d'ordre, de dépendances ni de hooks, laisse la coordination à l'opérateur : une application et sa migration de schéma, ou un frontend dépendant d'une API, doivent être lancés à la main dans le bon ordre. Pour des environnements multi-ressources réels, cette absence produit des bascules partielles et des fenêtres d'incohérence. Il faut décider si l'environnement devient une unité déployable.
+Deploying resource by resource, with no notion of order, dependencies, or hooks, leaves coordination to the operator: an application and its schema migration, or a frontend depending on an API, must be launched by hand in the right order. For real multi-resource environments, this absence produces partial switchovers and windows of inconsistency. We must decide whether the environment becomes a deployable unit.
 
-## Décision
+## Decision
 
-Un environnement peut être déployé **comme une unité** (workflow détaillé au §20.8) :
+An environment can be deployed **as a unit** (workflow detailed in §20.8):
 
-- **Graphe de dépendances** explicite entre ressources, ordre topologique, parallélisme au sein d'un même niveau.
-- **Hooks de migration** : job one-shot exécuté après build et avant bascule (ex. migration de schéma) ; l'échec du hook empêche toute bascule dans l'environnement.
-- **Mode atomique par niveau** (optionnel) : la bascule de trafic attend que toutes les ressources du niveau soient saines.
-- **Rollback automatique sur santé dégradée** (politique **opt-in par application**) : après bascule, fenêtre d'observation (bake time) sur les health checks ; en cas de dégradation, rollback vers l'artifact précédent vérifié, notifié et audité.
-- **Échec partiel explicite** : état de l'environnement détaillé (ressources déployées / non déployées / en échec), reprise possible au point d'échec — jamais de demi-bascule silencieuse.
+- **Explicit dependency graph** between resources, topological order, parallelism within a same level.
+- **Migration hooks**: one-shot job executed after build and before switchover (e.g. schema migration); a hook failure prevents any switchover in the environment.
+- **Per-level atomic mode** (optional): the traffic switchover waits until all resources of the level are healthy.
+- **Automatic rollback on degraded health** (policy **opt-in per application**): after switchover, observation window (bake time) on health checks; in case of degradation, rollback to the previous verified artifact, notified and audited.
+- **Explicit partial failure**: detailed environment state (resources deployed / not deployed / failed), possible resumption at the point of failure — never a silent half-switchover.
 
-## Alternatives considérées
+## Alternatives considered
 
-- **Parité stricte (déploiements indépendants uniquement)** : rejetée — laisse la coordination aux scripts des utilisateurs, précisément ce qu'un PaaS doit absorber ; les déploiements unitaires restent bien sûr disponibles.
-- **Pipelines CI externes comme réponse** : rejeté — un pipeline externe n'a ni la vision des health checks ni la main sur la bascule proxy ; il ne peut pas garantir « migration avant bascule ».
-- **Rollback automatique activé par défaut** : rejeté — un rollback automatique non désiré peut aggraver un incident (données déjà migrées) ; il reste opt-in par application.
+- **Strict parity (independent deployments only)**: rejected — leaves coordination to users' scripts, precisely what a PaaS must absorb; unit deployments of course remain available.
+- **External CI pipelines as the answer**: rejected — an external pipeline has neither visibility into health checks nor control over the proxy switchover; it cannot guarantee "migration before switchover".
+- **Automatic rollback enabled by default**: rejected — an unwanted automatic rollback can worsen an incident (data already migrated); it remains opt-in per application.
 
-## Conséquences
+## Consequences
 
-- **Positives** : déploiements multi-ressources reproductibles et ordonnés ; les migrations de schéma trouvent enfin une place canonique (avant bascule) ; le rollback sur bake time apporte une sécurité type « progressive delivery » sans orchestrateur.
-- **Négatives** : le moteur de déploiement doit gérer un graphe (cycles à détecter, niveaux, parallélisme) et des états d'environnement composites en plus des états unitaires (§21.1) ; l'UI doit représenter une timeline multi-ressources ; preuve E2E exigeante (§26.2 : graphe + hook migration + rollback sur health).
-- **Risques acceptés** : le mode atomique par niveau retient des ressources saines en attente des autres — latence de bascule assumée quand l'option est choisie ; un rollback automatique ne revient pas sur les effets de bord d'une migration déjà exécutée (la compatibilité descendante des migrations reste de la responsabilité de l'utilisateur).
+- **Positive**: reproducible and ordered multi-resource deployments; schema migrations finally find a canonical place (before switchover); rollback on bake time brings "progressive delivery"-style safety without an orchestrator.
+- **Negative**: the deployment engine must handle a graph (cycles to detect, levels, parallelism) and composite environment states in addition to unit states (§21.1); the UI must represent a multi-resource timeline; demanding E2E proof (§26.2: graph + migration hook + rollback on health).
+- **Accepted risks**: the per-level atomic mode holds healthy resources waiting for the others — switchover latency accepted when the option is chosen; an automatic rollback does not undo the side effects of an already-executed migration (backward compatibility of migrations remains the user's responsibility).
