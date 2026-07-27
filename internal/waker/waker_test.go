@@ -403,6 +403,187 @@ func TestConcurrentWakeSingleStart(t *testing.T) {
 	}
 }
 
+// browserRequest is a page navigation as a browser would send it.
+func browserRequest(host, path string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, "http://"+host+path, nil)
+	req.Host = host
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	return req
+}
+
+func TestBrowserNavigationGetsWaitingPage(t *testing.T) {
+	d := newFakeDocker() // sleeping
+	act := &fakeActivity{}
+	w, hits, closeFn := newTestWaker(t, d, act)
+	defer closeFn()
+
+	rr := httptest.NewRecorder()
+	w.ServeHTTP(rr, browserRequest("app.example.com", "/"))
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 waiting page", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Waking up") || !strings.Contains(body, "http-equiv=\"refresh\"") {
+		t.Fatalf("body is not an auto-refreshing waiting page: %q", body)
+	}
+	if !strings.Contains(body, "c1") || !strings.Contains(body, "c2") {
+		t.Fatalf("waiting page must list the stack's containers: %q", body)
+	}
+	if rr.Header().Get("X-AkerDock-Scale") != "waking" {
+		t.Fatalf("missing waking marker: %v", rr.Header())
+	}
+	if *hits != 0 {
+		t.Fatal("the navigation must not reach the backend while asleep")
+	}
+	// The wake runs in the background: the containers end up started and the
+	// triggering navigation counts as activity.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		d.mu.Lock()
+		woken := d.starts["c1"] == 1 && d.starts["c2"] == 1
+		d.mu.Unlock()
+		act.mu.Lock()
+		recorded := !act.last["res-1"].IsZero()
+		act.mu.Unlock()
+		if woken && recorded {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("background wake did not complete: starts=%v activity=%v", d.starts, act.last)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestBrowserNavigationForwardsWhenAwake(t *testing.T) {
+	d := newFakeDocker()
+	d.running["c1"], d.running["c2"] = true, true
+	w, hits, closeFn := newTestWaker(t, d, &fakeActivity{})
+	defer closeFn()
+
+	rr := httptest.NewRecorder()
+	w.ServeHTTP(rr, browserRequest("app.example.com", "/"))
+	if rr.Code != http.StatusTeapot || *hits != 1 {
+		t.Fatalf("status=%d hits=%d, want the awake app to answer, not the waiting page", rr.Code, *hits)
+	}
+}
+
+func TestWaitingPageFailureThenRetry(t *testing.T) {
+	d := newFakeDocker()
+	d.health["c1"] = "starting" // never ready → the background wake fails
+	w, _, closeFn := newTestWaker(t, d, &fakeActivity{})
+	defer closeFn()
+
+	rr := httptest.NewRecorder()
+	w.ServeHTTP(rr, browserRequest("app.example.com", "/"))
+	if rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Body.String(), "Waking up") {
+		t.Fatalf("first navigation: status=%d body=%q, want the waiting page", rr.Code, rr.Body.String())
+	}
+
+	// Poll until the page reports the failure (the wake times out at 200ms).
+	deadline := time.Now().Add(2 * time.Second)
+	var body string
+	for {
+		rr = httptest.NewRecorder()
+		w.ServeHTTP(rr, browserRequest("app.example.com", "/"))
+		body = rr.Body.String()
+		if strings.Contains(body, "could not wake up") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("failure never reported, last body: %q", body)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if strings.Contains(body, "http-equiv=\"refresh\"") {
+		t.Fatal("the failure page must stop auto-refreshing")
+	}
+	if !strings.Contains(body, retryParam) {
+		t.Fatal("the failure page must offer a retry link")
+	}
+	// The rollback stopped c1, and a plain reload must NOT retrigger a wake.
+	d.mu.Lock()
+	startsAfterFailure := d.starts["c1"]
+	d.mu.Unlock()
+	rr = httptest.NewRecorder()
+	w.ServeHTTP(rr, browserRequest("app.example.com", "/"))
+	d.mu.Lock()
+	startsAfterReload := d.starts["c1"]
+	d.mu.Unlock()
+	if startsAfterReload != startsAfterFailure {
+		t.Fatalf("a reload of the failure page retriggered a wake: %d -> %d", startsAfterFailure, startsAfterReload)
+	}
+
+	// The retry link starts a fresh attempt.
+	rr = httptest.NewRecorder()
+	w.ServeHTTP(rr, browserRequest("app.example.com", "/?"+retryParam+"=1"))
+	if !strings.Contains(rr.Body.String(), "Waking up") {
+		t.Fatalf("retry must render the waiting page again: %q", rr.Body.String())
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	for {
+		d.mu.Lock()
+		retried := d.starts["c1"] > startsAfterFailure
+		d.mu.Unlock()
+		if retried {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("retry did not start a new wake attempt")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestPostWithHTMLAcceptKeepsHoldAndForward(t *testing.T) {
+	// A form submission must never be answered with a waiting page its body
+	// cannot survive: non-GET requests keep the hold-and-forward path.
+	d := newFakeDocker() // sleeping, wakes instantly
+	w, hits, closeFn := newTestWaker(t, d, &fakeActivity{})
+	defer closeFn()
+
+	req := httptest.NewRequest(http.MethodPost, "http://app.example.com/submit", strings.NewReader("a=1"))
+	req.Host = "app.example.com"
+	req.Header.Set("Accept", "text/html")
+	rr := httptest.NewRecorder()
+	w.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTeapot || *hits != 1 {
+		t.Fatalf("status=%d hits=%d, want the POST held and forwarded", rr.Code, *hits)
+	}
+}
+
+func TestRetryParamStrippedBeforeProxy(t *testing.T) {
+	// The retry flag is the waiting page's own; the application never sees it.
+	var gotQuery string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	defer backend.Close()
+	u, _ := url.Parse(backend.URL)
+
+	d := newFakeDocker()
+	d.running["c1"], d.running["c2"] = true, true
+	cfg := Config{
+		Routes:    []Route{{Host: "app.example.com", ResourceUUID: "res-1", Container: u.Hostname(), Port: mustPort(t, u)}},
+		Resources: []Resource{{UUID: "res-1", Containers: []string{"c1", "c2"}}},
+	}
+	w := New(cfg, d, &fakeActivity{}, nil)
+	w.Poll, w.StableFor, w.WakeTimeout = time.Millisecond, 0, 200*time.Millisecond
+
+	rr := httptest.NewRecorder()
+	w.ServeHTTP(rr, browserRequest("app.example.com", "/?"+retryParam+"=1&keep=yes"))
+
+	if rr.Code != http.StatusTeapot {
+		t.Fatalf("status = %d, want forwarded", rr.Code)
+	}
+	if strings.Contains(gotQuery, retryParam) || !strings.Contains(gotQuery, "keep=yes") {
+		t.Fatalf("proxied query = %q, want retry flag stripped and the rest kept", gotQuery)
+	}
+}
+
 func TestActivityRoundTrip(t *testing.T) {
 	at := time.Unix(1_700_000_000, 0)
 	got, err := ParseActivity("  1700000000\n")

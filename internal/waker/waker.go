@@ -120,6 +120,20 @@ type Waker struct {
 	// gate serialises the wake of one resource so N concurrent first-requests
 	// trigger a single docker start (single-flight).
 	gate map[string]*sync.Mutex
+	// wakes tracks the asynchronous wakes behind the waiting page (§8.2): a
+	// browser navigation is answered immediately with the page, and the wake
+	// runs in a background goroutine whose outcome is rendered on the next
+	// auto-refresh. A config reload rebuilds the Waker and loses this state;
+	// the worst case is a duplicate wake attempt, which docker start absorbs
+	// (idempotent) and the per-resource gate serialises.
+	wakes map[string]*wakeState
+}
+
+// wakeState is the lifecycle of one asynchronous wake: in progress, or failed
+// with its cause until a retry clears it.
+type wakeState struct {
+	waking bool
+	err    error
 }
 
 // New builds a Waker from a routing config. now defaults to time.Now.
@@ -137,6 +151,7 @@ func New(cfg Config, docker Docker, activity Activity, now func() time.Time) *Wa
 		byHost:      make(map[string]Route, len(cfg.Routes)),
 		resources:   make(map[string]Resource, len(cfg.Resources)),
 		gate:        make(map[string]*sync.Mutex),
+		wakes:       make(map[string]*wakeState),
 	}
 	for _, r := range cfg.Routes {
 		w.byHost[r.Host] = r
@@ -191,6 +206,16 @@ func (w *Waker) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// A browser navigation on a sleeping resource gets the waiting page (§8.2)
+	// instead of a connection held through the whole cold start: the wake runs
+	// in the background and the page auto-refreshes with each container's
+	// state until the stack answers for itself. Only safe navigations qualify —
+	// holding stays correct for API clients and for bodies a page cannot replay.
+	if isBrowserNavigation(req) && !w.isRunning(req.Context(), route.ResourceUUID) {
+		w.serveWaitingPage(rw, req, route)
+		return
+	}
+
 	if err := w.ensureAwake(req.Context(), route.ResourceUUID); err != nil {
 		w.log().Warn("waker: wake failed", "host", hostname(req.Host),
 			"resource", route.ResourceUUID, "container", route.Container, "error", err)
@@ -213,7 +238,184 @@ func (w *Waker) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	target := &url.URL{Scheme: "http", Host: fmt.Sprintf("%s:%d", route.Container, route.Port)}
+	stripWakeParams(req)
 	w.newProxy(target).ServeHTTP(rw, req)
+}
+
+// retryParam is the query flag of the waiting page's retry link: it clears a
+// failed wake and starts a new attempt. Stripped before proxying so the app
+// never sees it.
+const retryParam = "akd_wake_retry"
+
+// isBrowserNavigation reports whether the request is a page navigation a human
+// is watching: a safe method with an HTML Accept. Anything else — API calls,
+// form posts, uploads — keeps the hold-and-forward path, whose reply the
+// client can actually consume.
+func isBrowserNavigation(req *http.Request) bool {
+	if req.Method != http.MethodGet && req.Method != http.MethodHead {
+		return false
+	}
+	return strings.Contains(req.Header.Get("Accept"), "text/html")
+}
+
+// stripWakeParams removes the waiting page's own query flags before the
+// request reaches the application.
+func stripWakeParams(req *http.Request) {
+	if !strings.Contains(req.URL.RawQuery, retryParam) {
+		return
+	}
+	q := req.URL.Query()
+	q.Del(retryParam)
+	req.URL.RawQuery = q.Encode()
+}
+
+// serveWaitingPage answers a browser navigation on a sleeping resource: it
+// kicks the wake off in the background (single-flight) and renders each
+// container's state, auto-refreshing until the stack is up — at which point
+// the refresh is proxied like any request. A failed wake renders its cause
+// and stops refreshing; the retry link starts a fresh attempt.
+func (w *Waker) serveWaitingPage(rw http.ResponseWriter, req *http.Request, route Route) {
+	uuid := route.ResourceUUID
+	retry := req.URL.Query().Has(retryParam)
+
+	w.mu.Lock()
+	ws := w.wakes[uuid]
+	if ws == nil {
+		ws = &wakeState{}
+		w.wakes[uuid] = ws
+	}
+	failed := ws.err
+	if !ws.waking && (failed == nil || retry) {
+		ws.waking, ws.err = true, nil
+		failed = nil
+		go w.wakeInBackground(uuid, ws)
+	}
+	w.mu.Unlock()
+
+	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+	rw.Header().Set("Cache-Control", "no-store")
+	rw.Header().Set("X-AkerDock-Scale", "waking")
+	if failed == nil {
+		rw.Header().Set("Retry-After", "2")
+	}
+	rw.WriteHeader(http.StatusServiceUnavailable)
+	if req.Method == http.MethodHead {
+		return
+	}
+	_, _ = rw.Write([]byte(w.renderWaitingPage(req.Context(), hostname(req.Host), uuid, failed)))
+}
+
+// wakeInBackground runs one wake attempt detached from the request that
+// triggered it — the browser already got its page. Success records the
+// activity of that original navigation; failure is kept for the page to show.
+func (w *Waker) wakeInBackground(uuid string, ws *wakeState) {
+	ctx, cancel := context.WithTimeout(context.Background(), w.WakeTimeout+30*time.Second)
+	defer cancel()
+	err := w.ensureAwake(ctx, uuid)
+	if err != nil {
+		w.log().Warn("waker: background wake failed", "resource", uuid, "error", err)
+	} else if w.activity != nil {
+		_ = w.activity.Record(uuid, w.now())
+	}
+	w.mu.Lock()
+	ws.waking, ws.err = false, err
+	w.mu.Unlock()
+}
+
+// containerDisplayState is the waiting page's view of one container of the
+// wake set, in start order.
+type containerDisplayState struct {
+	Name  string // service name, resource prefix trimmed
+	State string // waiting | starting | running | ready | unhealthy
+}
+
+// wakeDisplayStates snapshots the wake set for the page. Inspect errors render
+// as "waiting" rather than failing the page — the wake goroutine will surface
+// a real error if there is one.
+func (w *Waker) wakeDisplayStates(ctx context.Context, uuid string) []containerDisplayState {
+	res, ok := w.resource(uuid)
+	if !ok {
+		return nil
+	}
+	out := make([]containerDisplayState, 0, len(res.Containers))
+	for _, c := range res.Containers {
+		name := strings.TrimPrefix(c, uuid+"-")
+		if name == uuid || name == "" {
+			name = "app"
+		}
+		state := "waiting"
+		if st, err := w.docker.Inspect(ctx, c); err == nil {
+			switch {
+			case !st.Running:
+				state = "waiting"
+			case st.Health == "healthy":
+				state = "ready"
+			case st.Health == "starting":
+				state = "starting"
+			case st.Health == "unhealthy":
+				state = "unhealthy"
+			default: // no healthcheck: running is all we can observe
+				state = "running"
+			}
+		}
+		out = append(out, containerDisplayState{Name: name, State: state})
+	}
+	return out
+}
+
+// renderWaitingPage builds the self-contained HTML: no external assets (the
+// stack serving them is asleep), auto-refresh while waking, a retry link on
+// failure. English, like every UI string (§25.2).
+func (w *Waker) renderWaitingPage(ctx context.Context, host, uuid string, failed error) string {
+	var b strings.Builder
+	b.WriteString("<!doctype html><html><head><meta charset=\"utf-8\">")
+	b.WriteString("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
+	if failed == nil {
+		b.WriteString("<meta http-equiv=\"refresh\" content=\"2\">")
+	}
+	fmt.Fprintf(&b, "<title>Waking up — %s</title>", htmlEscape(host))
+	b.WriteString("<style>")
+	b.WriteString("body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;" +
+		"background:#101014;color:#e6e6ea;font:15px/1.5 system-ui,sans-serif}" +
+		"main{max-width:26rem;padding:2rem}" +
+		"h1{font-size:1.15rem;font-weight:600;margin:0 0 .35rem}" +
+		"p{margin:.25rem 0;color:#9a9aa5}" +
+		"ul{list-style:none;margin:1.25rem 0 0;padding:0}" +
+		"li{display:flex;align-items:center;gap:.6rem;padding:.3rem 0;font-family:ui-monospace,monospace;font-size:.85rem}" +
+		".dot{width:.55rem;height:.55rem;border-radius:50%;flex:none}" +
+		".waiting .dot{background:#3a3a44}" +
+		".starting .dot,.running .dot{background:#d9a441;animation:p 1.2s ease-in-out infinite}" +
+		".ready .dot{background:#4cb782}" +
+		".unhealthy .dot{background:#d9534f}" +
+		".state{margin-left:auto;color:#9a9aa5}" +
+		".err{margin-top:1rem;padding:.75rem 1rem;border:1px solid #5a2e2e;border-radius:.5rem;background:#1d1416;color:#e0a5a2;font-size:.85rem;word-break:break-word}" +
+		"a{color:#7aa2f7}" +
+		"@keyframes p{50%{opacity:.35}}")
+	b.WriteString("</style></head><body><main>")
+	if failed == nil {
+		fmt.Fprintf(&b, "<h1>Waking up %s…</h1>", htmlEscape(host))
+		b.WriteString("<p>This application was asleep. Its services are starting; the page refreshes by itself.</p>")
+	} else {
+		fmt.Fprintf(&b, "<h1>%s could not wake up</h1>", htmlEscape(host))
+		b.WriteString("<p>The application was put back to sleep.</p>")
+	}
+	b.WriteString("<ul>")
+	for _, c := range w.wakeDisplayStates(ctx, uuid) {
+		fmt.Fprintf(&b, "<li class=\"%s\"><span class=\"dot\"></span>%s<span class=\"state\">%s</span></li>",
+			c.State, htmlEscape(c.Name), c.State)
+	}
+	b.WriteString("</ul>")
+	if failed != nil {
+		fmt.Fprintf(&b, "<div class=\"err\">%s</div>", htmlEscape(failed.Error()))
+		fmt.Fprintf(&b, "<p><a href=\"?%s=1\">Try again</a></p>", retryParam)
+	}
+	b.WriteString("</main></body></html>")
+	return b.String()
+}
+
+func htmlEscape(s string) string {
+	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;")
+	return r.Replace(s)
 }
 
 // isRunning reports whether every container of the resource is already running,
