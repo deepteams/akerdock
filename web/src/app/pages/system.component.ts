@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
@@ -755,6 +755,11 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
 })
 export class SystemComponent {
   private readonly api = inject(ApiService);
+  // The Instance tab binds plain properties via ngModel, not signals. load()
+  // populates them after an await but only sets signals consumed by OTHER tabs,
+  // so (zoneless + OnPush) the active Instance view is never marked dirty on
+  // load — its inputs would stay empty. markForCheck() after the fetch fixes it.
+  private readonly cdr = inject(ChangeDetectorRef);
 
   protected readonly tab = signal<SystemTab>('instance');
   protected readonly tabs: { key: SystemTab; label: string }[] = [
@@ -877,6 +882,9 @@ export class SystemComponent {
       this.otlpTraces = telemetry.configured ? !!telemetry.traces : true;
       this.otlpMetrics = telemetry.configured ? !!telemetry.metrics : true;
       this.otlpLogs = telemetry.configured ? !!telemetry.logs : true;
+      // The Instance tab's inputs are plain properties: nothing above dirtied the
+      // active view, so mark it explicitly (zoneless + OnPush).
+      this.cdr.markForCheck();
     } catch (err) {
       this.error.set(ApiService.describe(err));
     }
