@@ -44,26 +44,34 @@ func newClient(contextFlag string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	name := cfg.resolveContextName(contextFlag)
-	if name == "" {
-		return nil, fmt.Errorf("no context selected — run `akerdock login` first")
+	dir, err := loadDirConfig()
+	if err != nil {
+		return nil, err
 	}
-	ctx, ok := cfg.Contexts[name]
+	// Resolve context and team through the full precedence chain (spec §4):
+	// the explicit contextFlag first, then env, then .akerdock, then global.
+	f := flags
+	f.context = contextFlag
+	s := resolveSettings(f, cfg, dir)
+	if s.ContextName == "" {
+		return nil, fmt.Errorf("no context selected — run `akerdock login`, or set `context:` in a .akerdock file")
+	}
+	ctx, ok := cfg.Contexts[s.ContextName]
 	if !ok {
-		return nil, fmt.Errorf("unknown context %q — see `akerdock context list`", name)
+		return nil, fmt.Errorf("unknown context %q — see `akerdock context list`", s.ContextName)
 	}
 	creds, err := loadCredentials()
 	if err != nil {
 		return nil, err
 	}
-	token := creds.Tokens[name]
+	token := creds.Tokens[s.ContextName]
 	if token == "" {
-		return nil, fmt.Errorf("context %q has no token — run `akerdock login --context %s`", name, name)
+		return nil, fmt.Errorf("context %q has no token — run `akerdock login --context %s`", s.ContextName, s.ContextName)
 	}
 	return &Client{
 		base:  strings.TrimRight(ctx.URL, "/"),
 		token: token,
-		team:  ctx.TeamUUID,
+		team:  s.Team,
 		http:  &http.Client{Timeout: 30 * time.Second},
 	}, nil
 }

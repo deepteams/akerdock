@@ -20,11 +20,18 @@ func usageArgs(n int, usage, example string) cobra.PositionalArgs {
 	}
 }
 
-// persistent flags shared by every client command.
+// persistent flags shared by every client command. context/team and the target
+// defaults each override the .akerdock file and the global config (spec §4:
+// flags > env > .akerdock > global).
 type globalFlags struct {
-	context string
-	output  string // table | json
-	quiet   bool
+	context     string
+	team        string
+	project     string
+	application string
+	environment string
+	component   string
+	output      string // table | json
+	quiet       bool
 }
 
 var flags globalFlags
@@ -32,7 +39,11 @@ var flags globalFlags
 // AddCommands registers the client subcommands on the root command (ADR-033).
 func AddCommands(root *cobra.Command, _ string) {
 	pf := root.PersistentFlags()
-	pf.StringVar(&flags.context, "context", "", "context to use (default: current, or $AKERDOCK_CONTEXT)")
+	pf.StringVar(&flags.context, "context", "", "context to use (default: .akerdock or current, or $AKERDOCK_CONTEXT)")
+	pf.StringVar(&flags.team, "team", "", "team uuid or name (default: .akerdock, $AKERDOCK_TEAM, or the context's)")
+	pf.StringVar(&flags.project, "project", "", "default project (default: .akerdock or $AKERDOCK_PROJECT)")
+	pf.StringVar(&flags.application, "application", "", "default application/target (default: .akerdock or $AKERDOCK_APPLICATION)")
+	pf.StringVar(&flags.environment, "environment", "", "default environment (default: .akerdock or $AKERDOCK_ENVIRONMENT)")
 	pf.StringVarP(&flags.output, "output", "o", "table", "output format: table|json")
 	pf.BoolVar(&flags.quiet, "quiet", false, "print only essential output")
 

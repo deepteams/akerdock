@@ -69,6 +69,26 @@ scripting) ; `--quiet`. `NO_COLOR` respecté. **Codes de sortie** : `0` succès,
 Un contexte = une instance + une team active. `login` crée ou met à jour le contexte courant.
 Le trousseau OS est un **DEVRAIT (v1.x)** (voir ADR-031 pour l'écart assumé).
 
+**Config par répertoire (`.akerdock`).** Un fichier `.akerdock` (YAML) posé dans un dépôt
+fixe les défauts de la CLI pour ce répertoire et ses sous-répertoires — trouvé en remontant
+l'arborescence depuis le répertoire courant, façon `.git` (un répertoire `.akerdock`, comme le
+`~/.akerdock` global, est ignoré : seul un **fichier** compte). Il **ne contient jamais de
+token** (ceux-ci restent dans `~/.akerdock/credentials.yaml`), il est donc committable. Champs,
+tous optionnels : `context` (nom d'un contexte global), `team`, `project`, `application`
+(cible par défaut), `environment`, `component`.
+
+**Précédence (DOIT).** Chaque paramètre se résout dans cet ordre, du plus fort au plus faible :
+
+```
+flag CLI  >  variable d'env AKERDOCK_*  >  .akerdock (répertoire)  >  ~/.akerdock (global)
+```
+
+Variables d'env : `AKERDOCK_CONTEXT`, `AKERDOCK_TEAM`, `AKERDOCK_PROJECT`,
+`AKERDOCK_APPLICATION`, `AKERDOCK_ENVIRONMENT`, `AKERDOCK_COMPONENT`. Ainsi, depuis un dépôt
+avec un `.akerdock` qui pointe `context:` et `application:`, `akerdock logs` (sans REF, sans
+`--context`) cible l'app par défaut de l'instance configurée ; un `--context`/`REF` explicite
+l'emporte toujours.
+
 ## 5. Login (ADR-031)
 
 Flux **poll + code de confirmation lié par PKCE** — aucun port ouvert, tout en sortie HTTPS.

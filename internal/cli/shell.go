@@ -20,22 +20,23 @@ import (
 func shellCmd() *cobra.Command {
 	var component string
 	cmd := &cobra.Command{
-		Use:     "shell REF",
+		Use:     "shell [REF]",
 		Short:   "Open an interactive shell in a container",
-		Example: "  akerdock shell app/varuna\n  akerdock shell app/varuna -c postgres",
-		Args:    usageArgs(1, "shell <type/name>", "shell app/varuna"),
+		Example: "  akerdock shell app/varuna\n  akerdock shell -c postgres   # default app from .akerdock",
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := newClient(flags.context)
 			if err != nil {
 				return err
 			}
-			r, err := parseRef(args[0])
+			r, err := refFromArgs(args)
 			if err != nil {
 				return err
 			}
 			if r.kind != "apps" {
 				return fmt.Errorf("shell currently supports app/… references")
 			}
+			component = defaultComponent(component)
 			res, err := c.resolve(cmd.Context(), r)
 			if err != nil {
 				return err

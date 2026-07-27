@@ -25,6 +25,36 @@ var pathForKind = map[string]string{
 	"apps": "/applications", "databases": "/databases", "services": "/services",
 }
 
+// refFromArgs resolves the REF to act on: the positional argument when present,
+// otherwise the default application from the resolved settings (flag > env >
+// .akerdock, spec §4), as `app/<name>`. This is what lets `akerdock logs` run
+// with no argument inside a repository that carries a .akerdock.
+func refFromArgs(args []string) (ref, error) {
+	if len(args) >= 1 {
+		return parseRef(args[0])
+	}
+	s, err := settings()
+	if err != nil {
+		return ref{}, err
+	}
+	if s.Application != "" {
+		return ref{kind: "apps", name: s.Application}, nil
+	}
+	return ref{}, fmt.Errorf("no target given and no default application set — pass a REF (e.g. app/varuna) or set `application:` in a .akerdock file")
+}
+
+// defaultComponent returns the explicit --component when set, else the resolved
+// default (env or .akerdock).
+func defaultComponent(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if s, err := settings(); err == nil {
+		return s.Component
+	}
+	return ""
+}
+
 func parseRef(s string) (ref, error) {
 	prefix, name, ok := strings.Cut(s, "/")
 	if !ok || name == "" {

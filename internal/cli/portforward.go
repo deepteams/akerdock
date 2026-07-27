@@ -32,20 +32,27 @@ func portForwardCmd() *cobra.Command {
 		Example: "  akerdock port-forward db/pg 15432:5432\n" +
 			"  akerdock port-forward app/varuna 15432:5432 -c postgres\n" +
 			"  akerdock port-forward app/varuna 15432:5432 -c postgres --pr 8   # a PR preview",
-		Args: usageArgs(2, "port-forward <type/name> [LOCAL:]REMOTE", "port-forward db/pg 15432:5432"),
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := newClient(flags.context)
 			if err != nil {
 				return err
 			}
-			r, err := parseRef(args[0])
+			// The ports argument is always last; a leading REF is optional when a
+			// default application is configured (.akerdock, spec §4).
+			var refArgs []string
+			if len(args) == 2 {
+				refArgs = args[:1]
+			}
+			r, err := refFromArgs(refArgs)
 			if err != nil {
 				return err
 			}
-			localPort, remotePort, err := parsePorts(args[1])
+			localPort, remotePort, err := parsePorts(args[len(args)-1])
 			if err != nil {
 				return err
 			}
+			component = defaultComponent(component)
 			res, err := c.resolve(cmd.Context(), r)
 			if err != nil {
 				return err

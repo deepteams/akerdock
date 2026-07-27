@@ -30,22 +30,23 @@ func logsCmd() *cobra.Command {
 		deployFlag bool
 	)
 	cmd := &cobra.Command{
-		Use:     "logs REF",
+		Use:     "logs [REF]",
 		Short:   "Show container logs (snapshot or -f), or a deployment's logs",
-		Example: "  akerdock logs app/varuna\n  akerdock logs app/varuna -f -c postgres",
-		Args:    usageArgs(1, "logs <type/name>", "logs app/varuna"),
+		Example: "  akerdock logs app/varuna\n  akerdock logs -f -c postgres   # default app from .akerdock",
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := newClient(flags.context)
 			if err != nil {
 				return err
 			}
-			r, err := parseRef(args[0])
+			r, err := refFromArgs(args)
 			if err != nil {
 				return err
 			}
 			if r.kind != "apps" {
 				return fmt.Errorf("logs currently support app/… references")
 			}
+			component = defaultComponent(component)
 			res, err := c.resolve(cmd.Context(), r)
 			if err != nil {
 				return err
