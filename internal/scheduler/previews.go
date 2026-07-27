@@ -79,6 +79,25 @@ func (s *Scheduler) reapPreviews(ctx context.Context) {
 	}
 }
 
+// emitPreviewEvent publishes a preview lifecycle event to the outbox — the SSE
+// feed the UI listens to (ADR-024): the previews tab reloads on it, so a
+// scheduler-driven sleep or wake shows up without a manual page refresh.
+func (s *Scheduler) emitPreviewEvent(ctx context.Context, eventType string, applicationID int64, previewUUID pgtype.UUID, prID int32) {
+	app, err := s.Store.GetApplicationByID(ctx, applicationID)
+	if err != nil {
+		return
+	}
+	var teamUUID pgtype.UUID
+	if team, err := s.Store.GetTeamByID(ctx, app.Resource.TeamID); err == nil {
+		teamUUID = team.Uuid
+	}
+	s.Audit.Outbox(ctx, s.Store, eventType, teamUUID, app.Resource.Uuid,
+		"preview:"+pguuid.String(previewUUID), map[string]any{
+			"preview_uuid": pguuid.String(previewUUID),
+			"pr_id":        prID,
+		})
+}
+
 // idlePastWindow reports whether a resource last active at `last` has been idle
 // for at least `windowMin` minutes as of `now` (ADR-036). A non-positive window
 // falls back to the default so a misconfiguration never sleeps instantly.
@@ -145,6 +164,7 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 			s.Logger.Warn("scale-to-zero status update failed", "preview", uuid, "error", err)
 			continue
 		}
+		s.emitPreviewEvent(ctx, "application.preview.slept.v1", p.ApplicationID, p.Uuid, p.PrID)
 		s.Logger.Info("preview scaled to zero (asleep)", "preview", uuid, "pr", p.PrID, "idle_since", last)
 	}
 
@@ -168,6 +188,7 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 				s.Logger.Warn("scale-to-zero wake update failed", "preview", uuid, "error", err)
 				continue
 			}
+			s.emitPreviewEvent(ctx, "application.preview.woken.v1", p.ApplicationID, p.Uuid, p.PrID)
 			s.Logger.Info("preview woken by waker", "preview", uuid, "pr", p.PrID)
 		}
 	}
