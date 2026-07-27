@@ -350,7 +350,10 @@ func (r *deploymentRun) streamStep(ctx context.Context, name string, fn func(onO
 	onOutput := func(chunk string) {
 		mu.Lock()
 		buf.WriteString(chunk)
-		flush := time.Since(lastFlush) >= time.Second
+		// Flush new complete lines several times a second so the stream reads
+		// line-by-line rather than in one-second blocks — still coalesced enough
+		// to spare the database a write per line on a chatty build.
+		flush := time.Since(lastFlush) >= 200*time.Millisecond
 		var text string
 		if flush {
 			lastFlush = time.Now()
@@ -733,25 +736,35 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	if err := r.setStatus(ctx, store.DeploymentStatusHealthchecking); err != nil {
 		return err
 	}
-	if err := r.step(ctx, "healthcheck", func() (*sshexec.Result, error) {
+	// The container's own stdout/stderr is followed LIVE during the wait, so an
+	// operator sees the app boot (and why it fails) in the deployment stream
+	// instead of a silent "starting". `docker logs -f` runs in the background and
+	// is killed the moment the verdict is reached, so it never delays the switch.
+	if err := r.streamStep(ctx, "healthcheck", func(onOutput func(string)) (*sshexec.Result, error) {
+		var cmd string
 		if !hasHealthCheck {
 			// No health check: wait for a stable running state (§4).
-			res, err := r.client.Run(ctx, fmt.Sprintf("sleep 10; docker inspect --format '{{.State.Status}}' %s", target))
-			if err == nil && res.ExitCode == 0 && firstLine(res.Stdout) != "running" {
-				return res, r.candidateFailure(ctx, target, fmt.Sprintf("container is %q, expected running", firstLine(res.Stdout)))
-			}
-			return res, err
+			cmd = fmt.Sprintf(
+				"docker logs -f --tail 50 %s 2>&1 & LP=$!; sleep 10; "+
+					"st=$(docker inspect --format '{{.State.Status}}' %s 2>/dev/null); "+
+					"kill $LP 2>/dev/null; wait $LP 2>/dev/null; echo \"--- container status: $st ---\"; "+
+					"[ \"$st\" = running ] && exit 0 || exit 1",
+				target, target)
+		} else {
+			// Poll the container health until healthy, bounded by the configured
+			// budget: start_period + (interval + timeout) × retries + 30 s (§4).
+			cmd = fmt.Sprintf(
+				"docker logs -f --tail 50 %s 2>&1 & LP=$!; "+
+					"deadline=$(( $(date +%%s) + %d )); verdict=timeout; while [ $(date +%%s) -lt $deadline ]; do "+
+					"st=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' %s 2>/dev/null); "+
+					"case \"$st\" in healthy) verdict=healthy; break;; unhealthy) verdict=unhealthy; break;; none) verdict=none; break;; esac; "+
+					"sleep 2; done; kill $LP 2>/dev/null; wait $LP 2>/dev/null; echo \"--- health: $verdict ---\"; "+
+					"case \"$verdict\" in healthy|none) exit 0;; *) exit 1;; esac",
+				target, r.healthBudget, target)
 		}
-		// Poll the container health until healthy, bounded by the configured
-		// budget: start_period + (interval + timeout) × retries + 30 s (§4).
-		res, err := r.client.Run(ctx, fmt.Sprintf(
-			"deadline=$(( $(date +%%s) + %d )); while [ $(date +%%s) -lt $deadline ]; do "+
-				"st=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' %s 2>/dev/null); "+
-				"case \"$st\" in healthy) echo healthy; exit 0;; unhealthy) echo unhealthy; exit 1;; "+
-				"none) echo no-healthcheck; exit 0;; esac; sleep 2; done; echo timeout; exit 1",
-			r.healthBudget, target))
-		if err == nil && res.ExitCode != 0 {
-			return res, r.candidateFailure(ctx, target, "the health check did not turn healthy ("+firstLine(res.Stdout)+")")
+		res, err := r.client.RunStream(ctx, cmd, onOutput)
+		if err == nil && res != nil && res.ExitCode != 0 {
+			return res, r.candidateFailure(ctx, target, "the new container did not become healthy in time")
 		}
 		return res, err
 	}); err != nil {

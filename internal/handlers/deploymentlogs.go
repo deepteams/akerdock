@@ -136,7 +136,9 @@ func (a *API) streamDeploymentLogs(w http.ResponseWriter, r *http.Request, d sto
 		}
 	}
 
-	ticker := time.NewTicker(time.Second)
+	// Poll a few times a second so streamed build/boot output reaches the client
+	// line-by-line rather than in one-second blocks (matches the worker's flush).
+	ticker := time.NewTicker(400 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		steps, err := a.Store.ListDeploymentSteps(r.Context(), d.ID)
