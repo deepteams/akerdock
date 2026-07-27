@@ -1,32 +1,39 @@
 # AkerDock
 
-PaaS self-hosted en Go : déployez applications, bases de données et services en containers Docker sur vos propres serveurs, avec reverse proxy, SSL automatique, backups et monitoring — sans vendor lock-in.
+Self-hosted PaaS in Go. Deploy applications, databases and Docker Compose stacks
+to **your own servers** over SSH, with a managed reverse proxy, automatic HTTPS,
+PR previews, backups and monitoring — no vendor lock-in.
 
-AkerDock déploie applications, bases de données et stacks Docker Compose sur vos propres serveurs (voir le [PRD](docs/PRD.md)) : binaire Go statique unique, PostgreSQL comme seule dépendance (état **et** queue de jobs), API spec-first.
+A single static Go binary. **PostgreSQL is the only dependency** — it holds both
+the state and the job queue (no Redis, no external bus). The API is spec-first
+(OpenAPI), and the control plane never runs your workloads: it drives Docker on
+your servers over SSH.
 
-> **Statut : phase de conception terminée, développement non commencé.** Ce dépôt contient aujourd'hui le socle documentaire (PRD, ADRs, specs, runbooks) qui sert de référence au développement.
+> Design docs (PRD, ADRs, specs) are written in French; code, the CLI and this
+> README are in English.
 
-## Documentation
+## What it does
 
-| Répertoire | Contenu |
-|---|---|
-| [`docs/PRD.md`](docs/PRD.md) | Spécification produit : périmètre fonctionnel et exigences vérifiables |
-| [`docs/adr/`](docs/adr/README.md) | 26 Architecture Decision Records, tous acceptés |
-| [`docs/specs/`](docs/specs/) | Specs techniques : [OpenAPI v1](docs/specs/openapi-v1.yaml), ERD, threat model, matrice RBAC, contrat proxy, plan E2E… |
-| [`docs/runbooks/`](docs/runbooks/README.md) | Runbooks opérationnels (installation, pannes, rotation de clés…) |
+- **Deploy** apps from a Dockerfile, a git repo (Nixpacks / Dockerfile / static)
+  or a Docker image; **databases** (Postgres, MySQL, Redis…) and **Docker
+  Compose** stacks — with zero-downtime rolling switches when a health check is
+  configured.
+- **Reverse proxy + automatic HTTPS** (Traefik + Let's Encrypt, HTTP-01 or
+  DNS-01 wildcard), per server.
+- **PR previews**: every pull request gets its own isolated instance and URL,
+  torn down on merge/close.
+- **Backups** of databases and volumes with local + S3 retention and restore
+  drills.
+- **Auth**: password, passkeys (WebAuthn), OIDC SSO (Google, Entra…), enforced
+  MFA, and SCIM 2.0 provisioning; granular team RBAC.
+- **Adopt** containers and compose stacks already running on a server, without
+  restarting them (migrate in place).
+- **Local CLI** for day-to-day debugging: logs, shell, TCP port-forward and typed
+  DB consoles — see [Using the CLI](#using-the-cli).
 
-## Décisions structurantes
+## Run your own instance
 
-- **Transport** : SSH d'abord, agent sortant en cible ([ADR-001](docs/adr/ADR-001-transport-ssh-puis-agent.md))
-- **Queue durable dans PostgreSQL**, aucun bus externe ([ADR-002](docs/adr/ADR-002-queue-postgresql.md))
-- **Runtime Docker standalone** — Kubernetes et Swarm écartés ([ADR-004](docs/adr/ADR-004-runtime-docker-standalone.md))
-- **Socle Go** : pgx + sqlc, chi + oapi-codegen, spec-first ([ADR-025](docs/adr/ADR-025-socle-go-pgx-sqlc-chi-oapi-codegen.md))
-- **Distribution** : docker-compose minimal à 2 services (AkerDock + PostgreSQL) ([ADR-021](docs/adr/ADR-021-distribution-compose-deux-services.md))
-- **Temps réel** : SSE, WebSocket réservé au terminal ([ADR-024](docs/adr/ADR-024-temps-reel-sse-websocket-terminal.md))
-
-## Installation depuis les sources
-
-Prérequis : Docker Engine ≥ 24 avec Compose v2, et `openssl`.
+Requirements: Docker Engine ≥ 24 with Compose v2, and `openssl`.
 
 ```sh
 git clone https://github.com/deepteams/akerdock.git
@@ -34,24 +41,151 @@ cd akerdock
 ./install.sh
 ```
 
-Le script construit l'image depuis le Dockerfile local (aucune image AkerDock publiée n'est requise), génère la clé maître (`keys/master.key` — **à sauvegarder hors machine immédiatement**) et la configuration (`.env`), puis démarre la stack de référence (ADR-021) et affiche les identifiants du premier root user. Pour mettre à jour une instance existante : `git pull && ./install.sh` — le script reconstruit l'image et redéploie, les migrations s'appliquent au démarrage et l'état persiste dans les volumes. Le port et le premier utilisateur se personnalisent au premier lancement via `AKERDOCK_PORT`, `AKERDOCK_ROOT_EMAIL`, etc. (voir l'en-tête du script) ; l'installation manuelle détaillée reste documentée dans [docs/runbooks/install.md](docs/runbooks/install.md).
+`install.sh` builds the image from the local Dockerfile (no published image
+needed), generates the master key (`keys/master.key` — **back it up off the
+machine immediately**) and the `.env`, starts the reference two-service stack
+(AkerDock + PostgreSQL), and prints the first root user's credentials. Customise
+the first run with `AKERDOCK_PORT`, `AKERDOCK_INSTANCE_FQDN`,
+`AKERDOCK_ROOT_EMAIL`, etc. (see the script header).
 
-### Migrer depuis une autre plateforme
+Update an existing instance: `git pull && ./install.sh` — the image is rebuilt,
+migrations apply at boot, and state persists in the named volumes. The manual
+install is documented in [docs/runbooks/install.md](docs/runbooks/install.md).
 
-AkerDock **adopte** les containers et stacks compose déjà déployés, sans les redémarrer (PRD §20.7, ADR-013/023) : scan du serveur, prévisualisation du mapping, adoption, puis normalisation au premier redéploiement — volumes et domaines conservés, désadoption possible à tout moment. Pour un serveur Coolify, [`scripts/migrate/coolify.sh`](scripts/migrate/coolify.sh) orchestre toute la migration au-dessus de l'API publique (dry-run par défaut).
+### Migrating from another platform
 
-## Développement
+AkerDock **adopts** containers and compose stacks already deployed, without
+restarting them (PRD §20.7): scan the server, preview the mapping, adopt, then
+normalise on the first redeploy — volumes and domains kept, de-adoption possible
+at any time. For a Coolify server,
+[`scripts/migrate/coolify.sh`](scripts/migrate/coolify.sh) drives the whole
+migration over the public API (dry-run by default).
 
-Prérequis : Go ≥ 1.26 et [golangci-lint](https://golangci-lint.run) v2 (les autres outils — sqlc, oapi-codegen, goose — sont épinglés dans `go.mod` et invoqués via `go tool`).
+## Using the CLI
+
+`akerdock` is the same binary as the server (Cobra subcommands). It talks **only
+to your instance over HTTPS**, opens **no local port**, and works from anywhere —
+behind a proxy, over SSH, in a container. This is what team members use to debug
+a resource without a manual SSH tunnel.
+
+### Get the CLI
 
 ```sh
-make generate   # régénère le code depuis la spec OpenAPI et les requêtes sqlc
-make build      # compile bin/akerdock
-make test lint  # tests et lint
+# straight from the repo — installs `akerdock` into $GOBIN (usually ~/go/bin):
+go install github.com/deepteams/akerdock/cmd/akerdock@latest
+
+# or build from a checkout, or grab a release binary:
+go build -o akerdock ./cmd/akerdock && sudo mv akerdock /usr/local/bin/
 ```
 
-Les conventions (langue, commits, workflow spec-first, migrations) sont décrites dans [CONTRIBUTING.md](CONTRIBUTING.md).
+Make sure `$GOBIN` (or `$(go env GOPATH)/bin`) is on your `PATH`.
 
-## Licence
+### Log in
+
+```sh
+akerdock login --url https://manager.example.com
+```
+
+This opens your browser to authorise (SSO / password / passkey), then stores a
+named, revocable token under `~/.akerdock/` (config `0700`, tokens `0600`). No
+port is opened; the browser flow uses a confirmation code you match on screen.
+CI or headless? Paste an existing API token instead:
+
+```sh
+akerdock login --url https://manager.example.com --with-token < token.txt
+```
+
+### Everyday commands
+
+A resource is addressed by a `REF` of the form `type/name`:
+`app/…`, `db/…`, `svc/…`, `preview/…`.
+
+```sh
+akerdock ls                              # apps, databases and services in the team
+akerdock logs app/varuna -f              # follow container logs
+akerdock logs app/varuna --deployment    # logs of the latest build/deploy
+akerdock shell app/varuna                # interactive shell in the container
+akerdock shell app/varuna -c postgres    # a specific compose service
+
+# Tunnel a container port to localhost through the manager (never exposes it):
+akerdock port-forward db/pg 15432:5432
+akerdock port-forward app/varuna 15432:5432 -c postgres --pr 8   # a PR preview
+
+# Typed console: opens a forward + the right client (psql/redis-cli/…):
+akerdock db db/pg
+```
+
+Output is human tables by default; add `-o json` for scripting, `--quiet` for
+bare output.
+
+### Contexts (multiple instances)
+
+Each `login` creates a **context** (an instance + active team). Switch between
+them without re-typing the URL:
+
+```sh
+akerdock context list
+akerdock context use staging
+akerdock logout --context staging --revoke   # also revoke the server-side token
+```
+
+### Per-directory defaults (`.akerdock`)
+
+Drop a committable `.akerdock` file in a repo to set defaults for that directory
+tree — no more repeating `--context`, `--team` or the target on every command
+(found by walking up, like `.git`; it never holds secrets):
+
+```yaml
+# .akerdock
+context: prod
+application: varuna
+component: web
+```
+
+Then, from that repo:
+
+```sh
+akerdock logs -f          # follows the default app on the configured instance
+akerdock shell            # shell into it
+```
+
+Resolution precedence (most specific wins):
+`flags > AKERDOCK_* env vars > .akerdock > ~/.akerdock (global)`.
+
+## Documentation
+
+| Directory | Contents |
+|---|---|
+| [`docs/PRD.md`](docs/PRD.md) | Product spec: functional scope and verifiable requirements |
+| [`docs/adr/`](docs/adr/README.md) | Architecture Decision Records (accepted) |
+| [`docs/specs/`](docs/specs/) | Technical specs: [OpenAPI v1](docs/specs/openapi-v1.yaml), [CLI](docs/specs/cli.md), ERD, threat model, RBAC matrix, proxy contract, deployment engine… |
+| [`docs/runbooks/`](docs/runbooks/README.md) | Operational runbooks (install, failures, key rotation, upgrades…) |
+
+## Key architecture decisions
+
+- **Transport**: SSH first, outbound agent on the target ([ADR-001](docs/adr/ADR-001-transport-ssh-puis-agent.md))
+- **Durable queue in PostgreSQL**, no external bus ([ADR-002](docs/adr/ADR-002-queue-postgresql.md))
+- **Standalone Docker runtime** — Kubernetes and Swarm ruled out ([ADR-004](docs/adr/ADR-004-runtime-docker-standalone.md))
+- **Go core**: pgx + sqlc, chi + oapi-codegen, spec-first ([ADR-025](docs/adr/ADR-025-socle-go-pgx-sqlc-chi-oapi-codegen.md))
+- **Distribution**: minimal two-service compose (AkerDock + PostgreSQL) ([ADR-021](docs/adr/ADR-021-distribution-compose-deux-services.md))
+- **Real-time**: SSE, WebSocket reserved for the terminal and tunnels ([ADR-024](docs/adr/ADR-024-temps-reel-sse-websocket-terminal.md))
+- **Single-binary CLI** (Cobra), client and server modes ([ADR-033](docs/adr/ADR-033-cli-cobra-migration-run-modes.md))
+
+## Development
+
+Requirements: Go ≥ 1.26 and [golangci-lint](https://golangci-lint.run) v2 (the
+other tools — sqlc, oapi-codegen, goose — are pinned in `go.mod` and run via
+`go tool`).
+
+```sh
+make generate   # regenerate code from the OpenAPI spec and sqlc queries
+make build      # compile bin/akerdock
+make test lint  # tests and lint
+```
+
+Conventions (commits, spec-first workflow, migrations) are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
 
 [Apache 2.0](LICENSE) ([ADR-020](docs/adr/ADR-020-licence-apache-2-0.md)).
