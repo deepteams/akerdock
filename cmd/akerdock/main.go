@@ -258,9 +258,18 @@ func serveRun(mode string) int {
 
 	recorder := &audit.Recorder{Store: q, Logger: logger, Metrics: metrics}
 	broker := events.NewBroker()
-	// The outbox publisher runs wherever the API serves SSE, and in workers
-	// (a worker-only deployment still has to publish its events).
-	go (&events.Publisher{Store: q, Broker: broker, Logger: logger}).Run(ctx)
+	// The outbox publisher runs ONLY where SSE clients connect (api or
+	// all-in-one). It CLAIMS events — marks them published — before feeding
+	// its process-local broker: a publisher in a worker or scheduler process
+	// would race the api's (both tick every 500 ms), win half the claims, and
+	// broadcast those events into a broker with zero subscribers. The api's
+	// stream then never sees them: statuses freeze in the UI until a manual
+	// reload. Worker/scheduler emitters just insert into the outbox; the
+	// api-side publisher — always present in a deployment — claims, broadcasts
+	// and thereby feeds the published purge.
+	if cfg.Mode == config.ModeAPI || cfg.Mode == config.ModeAllInOne {
+		go (&events.Publisher{Store: q, Broker: broker, Logger: logger}).Run(ctx)
+	}
 
 	// Maintenance crons run in scheduler and all-in-one modes, under a
 	// PostgreSQL advisory lock so only one instance is active (§18.2).
