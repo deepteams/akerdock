@@ -51,6 +51,23 @@ UPDATE invitations SET accepted_at = now()
 WHERE token_hash = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
 RETURNING team_id, email, role, custom_role_id;
 
+-- name: ListPendingInvitationsByEmail :many
+-- Every still-pending invitation issued to an email. Used by the OAuth/SSO
+-- signup path: an invitation authorizes account creation even when open
+-- registration is off — the admin who issued it vouched for this exact address.
+SELECT id, team_id, role, custom_role_id
+FROM invitations
+WHERE lower(email) = lower(sqlc.arg(email)::text)
+  AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now();
+
+-- name: AcceptInvitationByID :one
+-- Atomically claim one pending invitation by id (the email-based signup already
+-- matched the address). Same single-use guard as AcceptInvitation; no match
+-- when it was revoked or expired between the listing and the claim.
+UPDATE invitations SET accepted_at = now()
+WHERE id = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+RETURNING team_id, role, custom_role_id;
+
 -- name: ListInvitationsPage :many
 SELECT i.*, cr.uuid AS custom_role_uuid, cr.name AS custom_role_name
 FROM invitations i

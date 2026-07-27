@@ -55,4 +55,8 @@ type Store interface {
 	CreateUser(context.Context, store.CreateUserParams) (store.User, error)
 	CreatePersonalTeam(context.Context, string) (store.Team, error)
 	AddTeamMember(context.Context, store.AddTeamMemberParams) error
+	// Invitation-driven SSO signup (§10.2): a pending invitation authorizes
+	// account creation on first OAuth login even when open registration is off.
+	ListPendingInvitationsByEmail(context.Context, string) ([]store.ListPendingInvitationsByEmailRow, error)
+	AcceptInvitationByID(context.Context, int64) (store.AcceptInvitationByIDRow, error)
 }

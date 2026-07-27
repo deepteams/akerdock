@@ -9503,6 +9503,14 @@ components:
           description: >-
             État du verrou de l'API publique (§10.3). Les sessions du dashboard
             sont exemptées ; basculer via POST /system/api/enable|disable.
+        registration_enabled:
+          type: boolean
+          readOnly: true
+          description: >-
+            Inscription en libre-service (§10.2). Fermée par défaut : personne ne
+            crée de compte seul. Une invitation en attente autorise malgré tout
+            la création de compte au premier login SSO, indépendamment de ce
+            drapeau.
         mfa_required:
           type: boolean
           readOnly: true
@@ -9539,6 +9547,10 @@ components:
           type: string
           nullable: true
           description: Chaîne vide ou `null` — efface le contact.
+        registration_enabled:
+          type: boolean
+          nullable: true
+          description: Ouvre/ferme l'inscription en libre-service (§10.2). Absent = inchangé.
         mfa_required:
           type: boolean
           nullable: true

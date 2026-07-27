@@ -16,6 +16,10 @@ type Querier interface {
 	// the target team, role and optional custom role so the caller can add the
 	// membership. Team-scoping is inherent — the invitation names its own team.
 	AcceptInvitation(ctx context.Context, tokenHash string) (AcceptInvitationRow, error)
+	// Atomically claim one pending invitation by id (the email-based signup already
+	// matched the address). Same single-use guard as AcceptInvitation; no match
+	// when it was revoked or expired between the listing and the claim.
+	AcceptInvitationByID(ctx context.Context, id int64) (AcceptInvitationByIDRow, error)
 	AddTeamMember(ctx context.Context, arg AddTeamMemberParams) error
 	// Bind the pending request to the approving user/team and permissions.
 	ApproveCliAuthCode(ctx context.Context, arg ApproveCliAuthCodeParams) (int64, error)
@@ -564,6 +568,10 @@ type Querier interface {
 	ListPasskeysForUser(ctx context.Context, userID int64) ([]PasskeyCredential, error)
 	// What the digest of this rule stands for.
 	ListPendingDigestDeliveries(ctx context.Context, ruleID int64) ([]ListPendingDigestDeliveriesRow, error)
+	// Every still-pending invitation issued to an email. Used by the OAuth/SSO
+	// signup path: an invitation authorizes account creation even when open
+	// registration is off — the admin who issued it vouched for this exact address.
+	ListPendingInvitationsByEmail(ctx context.Context, email string) ([]ListPendingInvitationsByEmailRow, error)
 	// Same, scoped to one preview: its images live under akerdock/<preview_uuid>,
 	// a namespace distinct from production (deployment engine §5.7).
 	ListPreviewArtifactsOnServer(ctx context.Context, arg ListPreviewArtifactsOnServerParams) ([]ListPreviewArtifactsOnServerRow, error)
@@ -815,6 +823,9 @@ type Querier interface {
 	// drift reconciliation — a proxy someone deliberately stopped is not drift.
 	SetProxyDesiredState(ctx context.Context, arg SetProxyDesiredStateParams) error
 	SetProxyObservedStatus(ctx context.Context, arg SetProxyObservedStatusParams) error
+	// Open/close self-service signup (§10.2). Closed is the default; with SSO an
+	// invitation still authorizes account creation regardless of this flag.
+	SetRegistrationEnabled(ctx context.Context, registrationEnabled bool) (InstanceSetting, error)
 	// Marks a resource as adopted and not yet normalized: the JSONB points at
 	// the real remote objects (container name, compose project).
 	SetResourceAdoption(ctx context.Context, arg SetResourceAdoptionParams) error

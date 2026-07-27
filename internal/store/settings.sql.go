@@ -194,3 +194,40 @@ func (q *Queries) SetPasswordLoginDisabled(ctx context.Context, passwordLoginDis
 	)
 	return i, err
 }
+
+const setRegistrationEnabled = `-- name: SetRegistrationEnabled :one
+UPDATE instance_settings
+SET registration_enabled = $1, updated_at = now(), version = version + 1
+WHERE id = 1
+RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled, image_retention_count
+`
+
+// Open/close self-service signup (§10.2). Closed is the default; with SSO an
+// invitation still authorizes account creation regardless of this flag.
+func (q *Queries) SetRegistrationEnabled(ctx context.Context, registrationEnabled bool) (InstanceSetting, error) {
+	row := q.db.QueryRow(ctx, setRegistrationEnabled, registrationEnabled)
+	var i InstanceSetting
+	err := row.Scan(
+		&i.ID,
+		&i.Fqdn,
+		&i.Timezone,
+		&i.RegistrationEnabled,
+		&i.ApiEnabled,
+		&i.DnsValidationServer,
+		&i.TransactionalEmailConfigEnc,
+		&i.AutoUpdateEnabled,
+		&i.AutoUpdateCron,
+		&i.OnboardingCompletedAt,
+		&i.UpdatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+		&i.AcmeEmail,
+		&i.LocalhostSeeded,
+		&i.OtlpConfigEnc,
+		&i.MfaRequired,
+		&i.PasswordLoginDisabled,
+		&i.ImageRetentionCount,
+	)
+	return i, err
+}

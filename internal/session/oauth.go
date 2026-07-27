@@ -277,17 +277,26 @@ func (o *OAuth) resolveLoginUser(ctx context.Context, provider string, who *oidc
 		return zero, ErrOAuthAccountCollision
 	}
 
-	settings, err := o.Settings.Get(ctx)
+	// Two ways to a new account. An invitation issued to this exact address
+	// authorizes creation even when open registration is off — the admin who
+	// sent it vouched for it (§10.2). Otherwise, open registration must be on.
+	pending, err := o.Store.ListPendingInvitationsByEmail(ctx, who.Email)
 	if err != nil {
 		return zero, err
 	}
-	if !settings.RegistrationEnabled {
-		return zero, ErrOAuthRegistrationDisabled
+	if len(pending) == 0 {
+		settings, err := o.Settings.Get(ctx)
+		if err != nil {
+			return zero, err
+		}
+		if !settings.RegistrationEnabled {
+			return zero, ErrOAuthRegistrationDisabled
+		}
 	}
 
-	// First sign-in of a new account: user (no password), personal team,
-	// owner membership, identity — the bootstrap sequence, because an
-	// account with no team can authenticate and then do nothing.
+	// First sign-in of a new account: user (no password), then membership and
+	// identity — the bootstrap sequence, because an account with no team can
+	// authenticate and then do nothing.
 	name := who.Name
 	if name == "" {
 		name = who.Email
@@ -296,15 +305,36 @@ func (o *OAuth) resolveLoginUser(ctx context.Context, provider string, who *oidc
 	if err != nil {
 		return zero, err
 	}
-	team, err := o.Store.CreatePersonalTeam(ctx, name)
-	if err != nil {
-		return zero, err
+	// An invited account joins its invited team(s) with the invited role; each
+	// claim is atomic, so a link revoked between the listing and here is skipped.
+	joined := 0
+	for _, inv := range pending {
+		acc, err := o.Store.AcceptInvitationByID(ctx, inv.ID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return zero, err
+		}
+		if err := o.Store.AddTeamMember(ctx, store.AddTeamMemberParams{
+			TeamID: acc.TeamID, UserID: user.ID, Role: acc.Role, CustomRoleID: acc.CustomRoleID,
+		}); err != nil {
+			return zero, err
+		}
+		joined++
 	}
-	// The team creator is `admin`, the top team role (ADR-038 — `owner` merged in).
-	if err := o.Store.AddTeamMember(ctx, store.AddTeamMemberParams{
-		TeamID: team.ID, UserID: user.ID, Role: store.TeamRoleAdmin,
-	}); err != nil {
-		return zero, err
+	if joined == 0 {
+		// Open-registration signup (or every invite raced away): a personal team
+		// with the top role, so the account is never left teamless.
+		team, err := o.Store.CreatePersonalTeam(ctx, name)
+		if err != nil {
+			return zero, err
+		}
+		if err := o.Store.AddTeamMember(ctx, store.AddTeamMemberParams{
+			TeamID: team.ID, UserID: user.ID, Role: store.TeamRoleAdmin,
+		}); err != nil {
+			return zero, err
+		}
 	}
 	if _, err := o.Store.CreateIdentity(ctx, store.CreateIdentityParams{
 		UserID: user.ID, Provider: store.OauthProvider(provider),

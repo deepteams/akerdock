@@ -40,6 +40,28 @@ func (q *Queries) AcceptInvitation(ctx context.Context, tokenHash string) (Accep
 	return i, err
 }
 
+const acceptInvitationByID = `-- name: AcceptInvitationByID :one
+UPDATE invitations SET accepted_at = now()
+WHERE id = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+RETURNING team_id, role, custom_role_id
+`
+
+type AcceptInvitationByIDRow struct {
+	TeamID       int64
+	Role         TeamRole
+	CustomRoleID *int64
+}
+
+// Atomically claim one pending invitation by id (the email-based signup already
+// matched the address). Same single-use guard as AcceptInvitation; no match
+// when it was revoked or expired between the listing and the claim.
+func (q *Queries) AcceptInvitationByID(ctx context.Context, id int64) (AcceptInvitationByIDRow, error) {
+	row := q.db.QueryRow(ctx, acceptInvitationByID, id)
+	var i AcceptInvitationByIDRow
+	err := row.Scan(&i.TeamID, &i.Role, &i.CustomRoleID)
+	return i, err
+}
+
 const createInvitation = `-- name: CreateInvitation :one
 
 INSERT INTO invitations (team_id, email, role, token_hash, expires_at, custom_role_id)
@@ -191,6 +213,48 @@ func (q *Queries) ListInvitationsPage(ctx context.Context, arg ListInvitationsPa
 			&i.CustomRoleID,
 			&i.CustomRoleUuid,
 			&i.CustomRoleName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingInvitationsByEmail = `-- name: ListPendingInvitationsByEmail :many
+SELECT id, team_id, role, custom_role_id
+FROM invitations
+WHERE lower(email) = lower($1::text)
+  AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+`
+
+type ListPendingInvitationsByEmailRow struct {
+	ID           int64
+	TeamID       int64
+	Role         TeamRole
+	CustomRoleID *int64
+}
+
+// Every still-pending invitation issued to an email. Used by the OAuth/SSO
+// signup path: an invitation authorizes account creation even when open
+// registration is off — the admin who issued it vouched for this exact address.
+func (q *Queries) ListPendingInvitationsByEmail(ctx context.Context, email string) ([]ListPendingInvitationsByEmailRow, error) {
+	rows, err := q.db.Query(ctx, listPendingInvitationsByEmail, email)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPendingInvitationsByEmailRow
+	for rows.Next() {
+		var i ListPendingInvitationsByEmailRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TeamID,
+			&i.Role,
+			&i.CustomRoleID,
 		); err != nil {
 			return nil, err
 		}

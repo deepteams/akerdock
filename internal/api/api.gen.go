@@ -3432,8 +3432,11 @@ type InstanceIdentity struct {
 	MfaRequired *bool `json:"mfa_required,omitempty"`
 
 	// PasswordLoginDisabled SSO obligatoire (§10.2) : quand vrai, le login par mot de passe est refusé (sauf l'administrateur d'instance) — seuls les providers OIDC authentifient.
-	PasswordLoginDisabled *bool   `json:"password_login_disabled,omitempty"`
-	Timezone              *string `json:"timezone,omitempty"`
+	PasswordLoginDisabled *bool `json:"password_login_disabled,omitempty"`
+
+	// RegistrationEnabled Inscription en libre-service (§10.2). Fermée par défaut : personne ne crée de compte seul. Une invitation en attente autorise malgré tout la création de compte au premier login SSO, indépendamment de ce drapeau.
+	RegistrationEnabled *bool   `json:"registration_enabled,omitempty"`
+	Timezone            *string `json:"timezone,omitempty"`
 }
 
 // InstanceIdentityUpdate defines model for InstanceIdentityUpdate.
@@ -3452,6 +3455,9 @@ type InstanceIdentityUpdate struct {
 
 	// PasswordLoginDisabled Active/désactive le mode SSO obligatoire (§10.2). Refusé si aucun provider OIDC n'est activé. Absent = inchangé.
 	PasswordLoginDisabled *bool `json:"password_login_disabled,omitempty"`
+
+	// RegistrationEnabled Ouvre/ferme l'inscription en libre-service (§10.2). Absent = inchangé.
+	RegistrationEnabled *bool `json:"registration_enabled,omitempty"`
 }
 
 // Invitation Invitation d'un membre dans une team.

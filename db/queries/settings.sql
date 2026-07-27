@@ -6,6 +6,14 @@ SET api_enabled = $1, updated_at = now(), version = version + 1
 WHERE id = 1
 RETURNING *;
 
+-- name: SetRegistrationEnabled :one
+-- Open/close self-service signup (§10.2). Closed is the default; with SSO an
+-- invitation still authorizes account creation regardless of this flag.
+UPDATE instance_settings
+SET registration_enabled = $1, updated_at = now(), version = version + 1
+WHERE id = 1
+RETURNING *;
+
 -- name: SetMfaRequired :one
 UPDATE instance_settings
 SET mfa_required = $1, updated_at = now(), version = version + 1
