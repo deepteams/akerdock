@@ -487,10 +487,20 @@ func (w *Waker) ensureAwake(ctx context.Context, uuid string) error {
 				if err != nil {
 					return err
 				}
-				if st.Running && w.ready(c, st, firstRunning) {
-					break // awake — move on to the next of the order
-				}
-				if !st.Running {
+				if st.Running {
+					// A container already running before this wake is not this
+					// cold start's to gate: if it is unhealthy, the app must
+					// say so through the proxied response — exactly as it
+					// would without scale-to-zero. Holding every request on
+					// its readiness would queue the whole resource behind the
+					// single-flight gate, 60 s per request, indefinitely.
+					if !startedByWake[c] {
+						break
+					}
+					if w.ready(c, st, firstRunning) {
+						break // awake — move on to the next of the order
+					}
+				} else {
 					// Idempotent: starting an already-running container is harmless.
 					if err := w.docker.Start(ctx, c); err != nil {
 						return err

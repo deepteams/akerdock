@@ -539,6 +539,34 @@ func TestWaitingPageFailureThenRetry(t *testing.T) {
 	}
 }
 
+func TestAwakeButUnhealthyForwardsImmediately(t *testing.T) {
+	// Regression for the production hang of 2026-07-27: every container of an
+	// AWAKE stack was running but one healthcheck was failing; the waker held
+	// each request 60 s on the single-flight gate waiting for readiness, and
+	// the queue never drained — infinite loading with no response at all. A
+	// container the wake did not start is not its to gate: forward, and let
+	// the app answer for its own health.
+	d := newFakeDocker()
+	d.running["c1"], d.running["c2"] = true, true
+	d.health["c2"] = "unhealthy"
+	w, hits, closeFn := newTestWaker(t, d, &fakeActivity{})
+	defer closeFn()
+
+	start := time.Now()
+	rr := httptest.NewRecorder()
+	w.ServeHTTP(rr, request("app.example.com", ""))
+
+	if rr.Code != http.StatusTeapot || *hits != 1 {
+		t.Fatalf("status=%d hits=%d, want forwarded to the running app", rr.Code, *hits)
+	}
+	if elapsed := time.Since(start); elapsed > w.WakeTimeout/2 {
+		t.Fatalf("request held %s on a running stack — must forward immediately", elapsed)
+	}
+	if len(d.starts) != 0 || len(d.stops) != 0 {
+		t.Fatalf("no start/stop expected on a running stack: starts=%v stops=%v", d.starts, d.stops)
+	}
+}
+
 func TestPostWithHTMLAcceptKeepsHoldAndForward(t *testing.T) {
 	// A form submission must never be answered with a waiting page its body
 	// cannot survive: non-GET requests keep the hold-and-forward path.
