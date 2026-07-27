@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
@@ -125,6 +126,18 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
             }
           </tbody>
         </table>
+        @if (hasMore()) {
+          <div class="load-more">
+            <button
+              class="akd-btn akd-btn--ghost akd-btn--sm"
+              type="button"
+              [disabled]="loadingMore()"
+              (click)="loadMore()"
+            >
+              {{ loadingMore() ? 'Loading…' : 'Load more' }}
+            </button>
+          </div>
+        }
       </akd-card>
     }
   `,
@@ -137,6 +150,12 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
       }
       .commit-msg {
         font-size: var(--text-sm);
+      }
+      .load-more {
+        display: flex;
+        justify-content: center;
+        padding: var(--space-3);
+        border-top: 1px solid var(--border-1);
       }
       .clickable {
         cursor: pointer;
@@ -159,6 +178,10 @@ export class ApplicationDeploymentsTabComponent {
 
   protected readonly deployments = signal<Deployment[]>([]);
   protected readonly loading = signal(true);
+  protected readonly loadingMore = signal(false);
+  /** Opaque cursor of the next page; null once the history is exhausted. */
+  private readonly cursor = signal<string | null>(null);
+  protected readonly hasMore = computed(() => this.cursor() !== null);
   protected readonly error = signal<string | null>(null);
   protected readonly notice = signal<string | null>(null);
   protected readonly busy = signal(false);
@@ -193,10 +216,29 @@ export class ApplicationDeploymentsTabComponent {
     try {
       const page = await this.api.client().listApplicationDeployments(uuid, { limit: 50 });
       this.deployments.set(page.data);
+      this.cursor.set(page.next_cursor ?? null);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  /** Append the next page, following the cursor until the history is exhausted. */
+  protected async loadMore(): Promise<void> {
+    const cursor = this.cursor();
+    if (cursor === null || this.loadingMore()) return;
+    this.loadingMore.set(true);
+    try {
+      const page = await this.api
+        .client()
+        .listApplicationDeployments(this.uuid(), { limit: 50, cursor });
+      this.deployments.update((rows) => [...rows, ...page.data]);
+      this.cursor.set(page.next_cursor ?? null);
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.loadingMore.set(false);
     }
   }
 

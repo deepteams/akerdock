@@ -160,6 +160,18 @@ const TYPE_ICONS: Record<string, string> = {
                 }
               </tbody>
             </table>
+            @if (hasMore()) {
+              <div class="load-more">
+                <button
+                  class="akd-btn akd-btn--ghost akd-btn--sm"
+                  type="button"
+                  [disabled]="loadingMore()"
+                  (click)="loadMore()"
+                >
+                  {{ loadingMore() ? 'Loading…' : 'Load more' }}
+                </button>
+              </div>
+            }
           </akd-card>
         }
       }
@@ -171,6 +183,12 @@ const TYPE_ICONS: Record<string, string> = {
         display: flex;
         align-items: center;
         gap: var(--space-2);
+      }
+      .load-more {
+        display: flex;
+        justify-content: center;
+        padding: var(--space-3);
+        border-top: 1px solid var(--border-1);
       }
       .chip-clear {
         all: unset;
@@ -212,6 +230,10 @@ export class JobsComponent {
   protected readonly queues = QUEUES;
   protected readonly jobs = signal<Job[]>([]);
   protected readonly loading = signal(true);
+  protected readonly loadingMore = signal(false);
+  /** Opaque cursor of the next page; null once the list is exhausted. */
+  private readonly cursor = signal<string | null>(null);
+  protected readonly hasMore = computed(() => this.cursor() !== null);
   protected readonly error = signal<string | null>(null);
 
   /** Counts derived from the loaded page only — no extra API call. */
@@ -257,10 +279,33 @@ export class JobsComponent {
         type: this.type || undefined,
       });
       this.jobs.set(page.data);
+      this.cursor.set(page.next_cursor ?? null);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  /** Append the next page, following the cursor until the list is exhausted. */
+  protected async loadMore(): Promise<void> {
+    const cursor = this.cursor();
+    if (cursor === null || this.loadingMore()) return;
+    this.loadingMore.set(true);
+    try {
+      const page = await this.api.client().listJobs({
+        limit: 100,
+        cursor,
+        status: this.status || undefined,
+        queue: this.queue || undefined,
+        type: this.type || undefined,
+      });
+      this.jobs.update((rows) => [...rows, ...page.data]);
+      this.cursor.set(page.next_cursor ?? null);
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.loadingMore.set(false);
     }
   }
 }
