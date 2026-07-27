@@ -3,6 +3,8 @@ package session
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -32,6 +34,9 @@ type fakeSessionStore struct {
 	oauthStates  map[string]store.OauthLoginState
 	identity     store.Identity
 	team         store.Team
+
+	pendingInvites  []store.ListPendingInvitationsByEmailRow
+	acceptedInvites []int64
 
 	failedLogins       []store.RecordFailedLoginParams
 	clearedLogins      []int64
@@ -273,4 +278,18 @@ func (f *fakeSessionStore) CreatePersonalTeam(context.Context, string) (store.Te
 func (f *fakeSessionStore) AddTeamMember(_ context.Context, arg store.AddTeamMemberParams) error {
 	f.membershipCreates = append(f.membershipCreates, arg)
 	return f.err("addMember")
+}
+
+func (f *fakeSessionStore) ListPendingInvitationsByEmail(context.Context, string) ([]store.ListPendingInvitationsByEmailRow, error) {
+	return f.pendingInvites, f.err("listPendingInvites")
+}
+
+func (f *fakeSessionStore) AcceptInvitationByID(_ context.Context, id int64) (store.AcceptInvitationByIDRow, error) {
+	f.acceptedInvites = append(f.acceptedInvites, id)
+	for _, inv := range f.pendingInvites {
+		if inv.ID == id {
+			return store.AcceptInvitationByIDRow{TeamID: inv.TeamID, Role: inv.Role, CustomRoleID: inv.CustomRoleID}, nil
+		}
+	}
+	return store.AcceptInvitationByIDRow{}, pgx.ErrNoRows
 }

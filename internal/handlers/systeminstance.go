@@ -36,6 +36,7 @@ func (a *API) instanceIdentity(r *http.Request) (api.InstanceIdentity, error) {
 		AcmeEmail:             settings.AcmeEmail,
 		Timezone:              ptr(settings.Timezone),
 		ApiEnabled:            ptr(settings.ApiEnabled),
+		RegistrationEnabled:   ptr(settings.RegistrationEnabled),
 		MfaRequired:           ptr(settings.MfaRequired),
 		PasswordLoginDisabled: ptr(settings.PasswordLoginDisabled),
 		ImageRetentionCount:   ptr(int(settings.ImageRetentionCount)),
@@ -83,6 +84,15 @@ func (a *API) SetInstanceSettings(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		a.internalError(w, r, "set instance settings", err)
 		return
+	}
+	// Self-service signup: only touched when explicitly present. Closed by
+	// default; an invitation still authorizes SSO signup regardless (§10.2).
+	if body.RegistrationEnabled != nil {
+		if _, err := a.Store.SetRegistrationEnabled(r.Context(), *body.RegistrationEnabled); err != nil {
+			a.internalError(w, r, "set instance settings", err)
+			return
+		}
+		a.recordAudit(r, id, "instance.registration_enabled_updated", "instance", pgtype.UUID{})
 	}
 	// MFA requirement is a separate switch: only touched when explicitly present.
 	if body.MfaRequired != nil {

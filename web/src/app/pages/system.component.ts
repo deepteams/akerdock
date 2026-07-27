@@ -92,6 +92,16 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
               </div>
               <div class="akd-field">
                 <label class="akd-check">
+                  <input type="checkbox" name="registrationEnabled" [(ngModel)]="instanceRegistrationEnabled" [disabled]="busy()" />
+                  Allow self-service sign-up
+                </label>
+                <span class="akd-field__hint">
+                  When off, nobody creates an account on their own. A pending invitation still lets
+                  its recipient sign up on first SSO login, whatever this setting.
+                </span>
+              </div>
+              <div class="akd-field">
+                <label class="akd-check">
                   <input type="checkbox" name="mfaRequired" [(ngModel)]="instanceMfaRequired" [disabled]="busy()" />
                   Require two-factor authentication for every user
                 </label>
@@ -778,6 +788,7 @@ export class SystemComponent {
   protected readonly instanceNotice = signal<string | null>(null);
   protected instanceFqdn = '';
   protected instanceAcmeEmail = '';
+  protected instanceRegistrationEnabled = false;
   protected instanceMfaRequired = false;
   protected instancePasswordLoginDisabled = false;
   protected instanceImageRetention = 5;
@@ -814,12 +825,14 @@ export class SystemComponent {
       const updated = await this.api.client().setInstanceSettings({
         fqdn: this.instanceFqdn.trim() || null,
         acme_email: this.instanceAcmeEmail.trim() || null,
+        registration_enabled: this.instanceRegistrationEnabled,
         mfa_required: this.instanceMfaRequired,
         password_login_disabled: this.instancePasswordLoginDisabled,
         image_retention_count: Math.max(1, Math.trunc(this.instanceImageRetention) || 5),
       });
       this.instanceFqdn = updated.fqdn ?? '';
       this.instanceAcmeEmail = updated.acme_email ?? '';
+      this.instanceRegistrationEnabled = updated.registration_enabled ?? false;
       this.instanceMfaRequired = updated.mfa_required ?? false;
       this.instancePasswordLoginDisabled = updated.password_login_disabled ?? false;
       this.instanceImageRetention = updated.image_retention_count ?? 5;
@@ -847,6 +860,7 @@ export class SystemComponent {
       ]);
       this.instanceFqdn = instance.fqdn ?? '';
       this.instanceAcmeEmail = instance.acme_email ?? '';
+      this.instanceRegistrationEnabled = instance.registration_enabled ?? false;
       this.instanceMfaRequired = instance.mfa_required ?? false;
       this.instancePasswordLoginDisabled = instance.password_login_disabled ?? false;
       this.instanceImageRetention = instance.image_retention_count ?? 5;

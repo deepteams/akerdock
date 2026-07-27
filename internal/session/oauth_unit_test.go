@@ -276,6 +276,32 @@ func TestResolveOAuthLoginUser(t *testing.T) {
 			t.Fatalf("fallback name = %q", database.userCreates[0].Name)
 		}
 	})
+	t.Run("a pending invitation authorizes signup even when registration is closed", func(t *testing.T) {
+		database := &fakeSessionStore{
+			user: store.User{ID: 7},
+			pendingInvites: []store.ListPendingInvitationsByEmailRow{
+				{ID: 1, TeamID: 42, Role: store.TeamRoleMember},
+			},
+			errs: map[string]error{
+				"identity": errors.New("missing"), "userIncludingDeleted": errors.New("missing"),
+			},
+		}
+		// registration=false: without the invitation this path returns
+		// ErrOAuthRegistrationDisabled.
+		got, err := oauthService(t, database, &fakeOAuthClient{}, false).
+			resolveLoginUser(context.Background(), "github", who)
+		if err != nil {
+			t.Fatalf("invited signup refused: %v", err)
+		}
+		if got.ID != 7 || len(database.acceptedInvites) != 1 || database.acceptedInvites[0] != 1 {
+			t.Fatalf("invitation not claimed atomically: %#v", database.acceptedInvites)
+		}
+		// Joined the invited team with the invited role — not a personal team.
+		if len(database.membershipCreates) != 1 || database.membershipCreates[0].TeamID != 42 ||
+			database.membershipCreates[0].Role != store.TeamRoleMember {
+			t.Fatalf("did not join the invited team with its role: %#v", database.membershipCreates)
+		}
+	})
 	t.Run("registration stage failures", func(t *testing.T) {
 		for _, key := range []string{"createUser", "createTeam", "addMember", "createIdentity"} {
 			database := &fakeSessionStore{
