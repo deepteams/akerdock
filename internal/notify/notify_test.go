@@ -87,10 +87,24 @@ func TestNoQuietHours(t *testing.T) {
 func TestEventText(t *testing.T) {
 	e := Event{Type: "deployment.failed.v1", Severity: "critical", Resource: "abc", Suppressed: 12}
 	got := e.Text()
-	for _, want := range []string{"🔴", "deployment.failed", "abc", "and 12 similar events"} {
+	for _, want := range []string{"🔴", "Deployment failed", "abc", "and 12 similar events"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Text() = %q, missing %q", got, want)
 		}
+	}
+
+	// A payload-rich event names the resource and the actionable facts.
+	rich := Event{Type: "deployment.failed.v1", Severity: "critical", Resource: "uuid-x", Payload: map[string]any{
+		"name": "varuna", "pr_id": float64(8), "commit_sha": "abcdef1234567890", "error": "the health check did not turn healthy\nmore",
+	}}
+	rt := rich.Text()
+	for _, want := range []string{"varuna", "PR #8", "abcdef12", "the health check did not turn healthy"} {
+		if !strings.Contains(rt, want) {
+			t.Errorf("rich Text() = %q, missing %q", rt, want)
+		}
+	}
+	if strings.Contains(rt, "uuid-x") {
+		t.Errorf("rich Text() should prefer the name over the uuid: %q", rt)
 	}
 	if strings.Contains(got, ".v1") {
 		t.Errorf("the version suffix must not reach a human message: %q", got)

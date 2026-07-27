@@ -39,8 +39,8 @@ func TestTelegramPayload(t *testing.T) {
 		if body["chat_id"] != "-100123" {
 			t.Errorf("chat_id = %v, want -100123", body["chat_id"])
 		}
-		if !strings.Contains(body["text"].(string), "deployment.failed") {
-			t.Errorf("text does not name the event: %v", body["text"])
+		if !strings.Contains(body["text"].(string), "web") {
+			t.Errorf("text does not name the event subject: %v", body["text"])
 		}
 	})
 	defer srv.Close()

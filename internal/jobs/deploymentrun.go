@@ -426,11 +426,37 @@ func (r *deploymentRun) setStatus(ctx context.Context, s store.DeploymentStatus)
 		if team, err := r.h.Store.GetTeamByID(ctx, r.app.Resource.TeamID); err == nil {
 			teamUUID = team.Uuid
 		}
+		// Enough context for a notification to be actionable on its own: the
+		// resource NAME (not a bare uuid), what triggered it, the commit, and —
+		// on failure — the error. Chat channels render these as fields.
+		payload := map[string]any{
+			"deployment_uuid": pguuid.String(r.d.Uuid),
+			"status":          string(s),
+			"name":            r.app.Resource.Name,
+			"trigger":         string(r.d.Trigger),
+		}
+		if r.d.CommitSha != nil && *r.d.CommitSha != "" {
+			payload["commit_sha"] = *r.d.CommitSha
+		}
+		if r.d.GitBranch != nil && *r.d.GitBranch != "" {
+			payload["branch"] = *r.d.GitBranch
+		}
+		if s == store.DeploymentStatusFailed && r.d.ErrorMessage != nil && *r.d.ErrorMessage != "" {
+			payload["error"] = *r.d.ErrorMessage
+		}
+		if r.preview != nil {
+			payload["pr_id"] = r.preview.PrID
+			if r.preview.Fqdn != nil && *r.preview.Fqdn != "" {
+				payload["url"] = "https://" + *r.preview.Fqdn
+			}
+		} else if s == store.DeploymentStatusSucceeded {
+			// The app's own URL, only on success (one domain lookup, not per step).
+			if dep := r.deploymentRefs(ctx); dep["deployment.url"] != "" {
+				payload["url"] = dep["deployment.url"]
+			}
+		}
 		r.h.Audit.Outbox(ctx, r.h.Store, "deployment."+string(s)+".v1", teamUUID, r.app.Resource.Uuid,
-			"deployment:"+pguuid.String(r.d.Uuid), map[string]any{
-				"deployment_uuid": pguuid.String(r.d.Uuid),
-				"status":          string(s),
-			})
+			"deployment:"+pguuid.String(r.d.Uuid), payload)
 
 		// A preview's own lifecycle event, once its deployment succeeds: the
 		// first successful deploy CREATED it, any later one UPDATED it (a new
@@ -1766,7 +1792,10 @@ func (r *deploymentRun) markFailed(ctx context.Context, cause error) {
 	}
 	msg := cause.Error()
 	_ = r.h.Store.SetDeploymentError(ctx, store.SetDeploymentErrorParams{ID: r.d.ID, ErrorMessage: &msg})
-	_ = r.h.Store.SetDeploymentStatus(ctx, store.SetDeploymentStatusParams{ID: r.d.ID, Status: store.DeploymentStatusFailed})
+	r.d.ErrorMessage = &msg
+	// Through setStatus, so the deployment.failed.v1 outbox event is emitted
+	// (enriched with the error): a failure MUST notify, not just flip a row.
+	_ = r.setStatus(ctx, store.DeploymentStatusFailed)
 	if r.app.Resource.ID != 0 {
 		_ = r.h.Store.SetResourceObservedStatus(ctx, store.SetResourceObservedStatusParams{ID: r.app.Resource.ID, ObservedStatus: store.ResourceObservedStatusUnknown})
 	}

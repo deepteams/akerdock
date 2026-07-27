@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/smtp"
@@ -97,30 +98,159 @@ type Event struct {
 	Suppressed int `json:"suppressed_count,omitempty"`
 }
 
-// Text renders the human-readable line sent to chat channels.
-func (e Event) Text() string {
-	var b strings.Builder
-	switch e.Severity {
+// severityEmoji is the leading glyph of a chat line.
+func severityEmoji(severity string) string {
+	switch severity {
 	case "critical":
-		b.WriteString("🔴 ")
+		return "🔴"
 	case "warning":
-		b.WriteString("🟠 ")
+		return "🟠"
 	default:
-		b.WriteString("🟢 ")
+		return "🟢"
 	}
+}
+
+// humanType turns "deployment.succeeded.v1" into "Deployment succeeded".
+func humanType(t string) string {
+	t = strings.TrimSuffix(t, ".v1")
+	t = strings.NewReplacer(".", " ", "_", " ").Replace(t)
+	if t == "" {
+		return "event"
+	}
+	return strings.ToUpper(t[:1]) + t[1:]
+}
+
+// payloadStr extracts a payload value as a string, coping with the numeric
+// types a JSON round-trip produces (pr_id comes back as float64).
+func payloadStr(p map[string]any, key string) string {
+	v, ok := p[key]
+	if !ok || v == nil {
+		return ""
+	}
+	switch t := v.(type) {
+	case string:
+		return t
+	case float64:
+		if t == math.Trunc(t) {
+			return strconv.FormatInt(int64(t), 10)
+		}
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case json.Number:
+		return t.String()
+	case bool:
+		return strconv.FormatBool(t)
+	default:
+		return fmt.Sprint(t)
+	}
+}
+
+func shortCommit(sha string) string {
+	if len(sha) > 8 {
+		return sha[:8]
+	}
+	return sha
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return strings.TrimSpace(s)
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
+}
+
+// Text renders the human-readable line sent to chat channels — the resource
+// NAME, not a bare uuid, plus the facts that make it actionable (PR, commit, the
+// error). Also the fallback/preview line for the rich Slack message.
+func (e Event) Text() string {
+	emoji := severityEmoji(e.Severity)
 	if e.Type == "notification.digest.v1" {
-		fmt.Fprintf(&b, "digest — %v events since %s", e.Payload["total"], e.Payload["since"])
-		return b.String()
+		return fmt.Sprintf("%s Digest — %v events since %s", emoji, e.Payload["total"], e.Payload["since"])
 	}
-	b.WriteString(strings.TrimSuffix(e.Type, ".v1"))
-	if e.Resource != "" {
-		b.WriteString(" — ")
-		b.WriteString(e.Resource)
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s", emoji, humanType(e.Type))
+	if name := payloadStr(e.Payload, "name"); name != "" {
+		fmt.Fprintf(&b, " — %s", name)
+	} else if e.Resource != "" {
+		fmt.Fprintf(&b, " — %s", e.Resource)
+	}
+	if pr := payloadStr(e.Payload, "pr_id"); pr != "" {
+		fmt.Fprintf(&b, " (PR #%s)", pr)
+	}
+	if c := payloadStr(e.Payload, "commit_sha"); c != "" {
+		fmt.Fprintf(&b, " · %s", shortCommit(c))
+	}
+	if msg := payloadStr(e.Payload, "error"); msg != "" {
+		fmt.Fprintf(&b, " — %s", firstLine(msg))
 	}
 	if e.Suppressed > 0 {
 		fmt.Fprintf(&b, " (and %d similar events)", e.Suppressed)
 	}
 	return b.String()
+}
+
+// slackMessage renders the Slack Block Kit payload: a coloured attachment with a
+// header, a fields grid (resource, status, PR, commit…), the error as a code
+// block, and an "Open" button when the deployment has a public URL.
+func slackMessage(e Event) map[string]any {
+	color := "#2eb67d"
+	switch e.Severity {
+	case "critical":
+		color = "#e01e5a"
+	case "warning":
+		color = "#ecb22e"
+	}
+
+	var fields []map[string]any
+	field := func(label, val string) {
+		if val != "" {
+			fields = append(fields, map[string]any{"type": "mrkdwn", "text": "*" + label + ":*\n" + val})
+		}
+	}
+	field("Resource", payloadStr(e.Payload, "name"))
+	field("Status", payloadStr(e.Payload, "status"))
+	if pr := payloadStr(e.Payload, "pr_id"); pr != "" {
+		field("PR", "#"+pr)
+	}
+	field("Trigger", payloadStr(e.Payload, "trigger"))
+	field("Branch", payloadStr(e.Payload, "branch"))
+	if c := payloadStr(e.Payload, "commit_sha"); c != "" {
+		field("Commit", shortCommit(c))
+	}
+	if !e.OccurredAt.IsZero() {
+		field("When", e.OccurredAt.UTC().Format("2006-01-02 15:04 UTC"))
+	}
+
+	blocks := []map[string]any{
+		{"type": "header", "text": map[string]any{"type": "plain_text", "text": truncate(severityEmoji(e.Severity)+" "+humanType(e.Type), 150), "emoji": true}},
+	}
+	if len(fields) > 0 {
+		blocks = append(blocks, map[string]any{"type": "section", "fields": fields})
+	}
+	if msg := payloadStr(e.Payload, "error"); msg != "" {
+		blocks = append(blocks, map[string]any{"type": "section", "text": map[string]any{"type": "mrkdwn", "text": "*Error:*\n```" + truncate(firstLine(msg), 2500) + "```"}})
+	}
+	if url := payloadStr(e.Payload, "url"); url != "" {
+		blocks = append(blocks, map[string]any{"type": "actions", "elements": []map[string]any{
+			{"type": "button", "text": map[string]any{"type": "plain_text", "text": "Open", "emoji": true}, "url": url},
+		}})
+	}
+	if e.Suppressed > 0 {
+		blocks = append(blocks, map[string]any{"type": "context", "elements": []map[string]any{
+			{"type": "mrkdwn", "text": fmt.Sprintf("and %d similar events", e.Suppressed)},
+		}})
+	}
+
+	return map[string]any{
+		"text":        e.Text(), // notification preview + accessibility fallback
+		"attachments": []map[string]any{{"color": color, "blocks": blocks}},
+	}
 }
 
 // Config is the decrypted configuration of a channel. Only the fields the
@@ -269,7 +399,7 @@ func (s *Sender) Send(ctx context.Context, kind string, cfg Config, e Event) err
 	headers := map[string]string{}
 	switch Kind(kind) {
 	case KindSlack:
-		body = map[string]any{"text": e.Text(), "event": e}
+		body = slackMessage(e)
 	case KindDiscord:
 		body = map[string]any{"content": e.Text(), "event": e}
 	case KindWebhook:

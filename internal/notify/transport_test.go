@@ -55,7 +55,7 @@ func TestEventTextVariants(t *testing.T) {
 			"total": 3, "since": "yesterday",
 		},
 	}
-	if got := digest.Text(); !strings.Contains(got, "digest — 3 events since yesterday") {
+	if got := digest.Text(); !strings.Contains(got, "Digest — 3 events since yesterday") {
 		t.Fatalf("digest text = %q", got)
 	}
 }
@@ -158,7 +158,7 @@ func TestSenderHTTPProviders(t *testing.T) {
 		}
 		switch tc.kind {
 		case "slack":
-			if got.body["text"] == nil || got.body["event"] == nil {
+			if got.body["text"] == nil || got.body["attachments"] == nil {
 				t.Errorf("slack payload = %#v", got.body)
 			}
 		case "discord":
