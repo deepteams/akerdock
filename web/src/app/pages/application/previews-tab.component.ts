@@ -13,6 +13,7 @@ import { CardComponent } from '../../../ui/card/card.component';
 import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
 import { ModalComponent } from '../../../ui/modal/modal.component';
 import { IconComponent } from '../../../ui/icon/icon.component';
+import { StatusBadgeComponent } from '../../../ui/status-badge/status-badge.component';
 import { ApiService } from '../../core/api.service';
 import type { components } from '../../../api/schema';
 
@@ -30,7 +31,15 @@ type PullRequestInfo =
 @Component({
   selector: 'app-application-previews-tab',
   standalone: true,
-  imports: [RouterLink, FormsModule, CardComponent, EmptyStateComponent, ModalComponent, IconComponent],
+  imports: [
+    RouterLink,
+    FormsModule,
+    CardComponent,
+    EmptyStateComponent,
+    ModalComponent,
+    IconComponent,
+    StatusBadgeComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (error(); as message) {
@@ -92,7 +101,7 @@ type PullRequestInfo =
                     <span class="akd-muted">(fork)</span>
                   }
                 </td>
-                <td>{{ p.status }}</td>
+                <td><akd-status-badge domain="preview" [state]="p.status" /></td>
                 <td>
                   @if (p.fqdn) {
                     <a class="akd-mono" [href]="'https://' + p.fqdn" target="_blank" rel="noopener">

@@ -13,6 +13,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
+import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import {
   StackComponentsComponent,
   type StackComponentAction,
@@ -71,6 +72,7 @@ function browsableRepo(raw: string | null | undefined): string {
     RouterLink,
     CardComponent,
     IconComponent,
+    StatusBadgeComponent,
     StackComponentsComponent,
     ApplicationEnvsTabComponent,
     TerminalComponent,
@@ -88,7 +90,7 @@ function browsableRepo(raw: string | null | undefined): string {
       </a>
       <h1 class="name">PR #{{ preview()?.pr_id ?? '…' }}</h1>
       @if (preview(); as p) {
-        <span class="akd-badge">{{ p.status }}</span>
+        <akd-status-badge domain="preview" [state]="p.status" />
         @if (p.is_fork) {
           <span class="akd-badge akd-badge--accent">fork</span>
         }
@@ -167,7 +169,7 @@ function browsableRepo(raw: string | null | undefined): string {
             <dl class="facts">
               <div>
                 <dt>Status</dt>
-                <dd>{{ p.status }}</dd>
+                <dd><akd-status-badge domain="preview" [state]="p.status" /></dd>
               </div>
               <div>
                 <dt>Branch</dt>

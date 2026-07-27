@@ -4773,8 +4773,11 @@ export interface components {
             readonly is_fork?: boolean;
             readonly fork_approved?: boolean;
             readonly fqdn?: string | null;
-            /** @enum {string} */
-            readonly status: "queued" | "deploying" | "active" | "failed" | "destroying" | "cleanup_failed" | "destroyed";
+            /**
+             * @description État de la preview (§20.4). `sleeping`/`waking` = scale-to-zero (ADR-036) : endormie par inactivité (arrêt volontaire, pas un « down »), et réveillée à la volée par le waker sur la première requête.
+             * @enum {string}
+             */
+            readonly status: "queued" | "deploying" | "active" | "failed" | "destroying" | "cleanup_failed" | "destroyed" | "sleeping" | "waking";
             /** Format: date-time */
             readonly last_deployed_at?: string | null;
             /** Format: date-time */

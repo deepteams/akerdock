@@ -1219,6 +1219,8 @@ const (
 	PreviewStatusDestroying    PreviewStatus = "destroying"
 	PreviewStatusFailed        PreviewStatus = "failed"
 	PreviewStatusQueued        PreviewStatus = "queued"
+	PreviewStatusSleeping      PreviewStatus = "sleeping"
+	PreviewStatusWaking        PreviewStatus = "waking"
 )
 
 // Valid indicates whether the value is a known member of the PreviewStatus enum.
@@ -1237,6 +1239,10 @@ func (e PreviewStatus) Valid() bool {
 	case PreviewStatusFailed:
 		return true
 	case PreviewStatusQueued:
+		return true
+	case PreviewStatusSleeping:
+		return true
+	case PreviewStatusWaking:
 		return true
 	default:
 		return false
@@ -3853,20 +3859,22 @@ type PortForwardSession struct {
 
 // Preview Environnement éphémère d'une PR (§20.4, data dictionary §8.9).
 type Preview struct {
-	CreatedAt      *time.Time     `json:"created_at,omitempty"`
-	ForkApproved   *bool          `json:"fork_approved,omitempty"`
-	Fqdn           *string        `json:"fqdn,omitempty"`
-	HeadSha        *string        `json:"head_sha,omitempty"`
-	IsFork         *bool          `json:"is_fork,omitempty"`
-	LastDeployedAt *time.Time     `json:"last_deployed_at,omitempty"`
-	PrId           *int           `json:"pr_id,omitempty"`
-	Provider       *string        `json:"provider,omitempty"`
-	SourceBranch   *string        `json:"source_branch,omitempty"`
-	Status         *PreviewStatus `json:"status,omitempty"`
-	Uuid           *string        `json:"uuid,omitempty"`
+	CreatedAt      *time.Time `json:"created_at,omitempty"`
+	ForkApproved   *bool      `json:"fork_approved,omitempty"`
+	Fqdn           *string    `json:"fqdn,omitempty"`
+	HeadSha        *string    `json:"head_sha,omitempty"`
+	IsFork         *bool      `json:"is_fork,omitempty"`
+	LastDeployedAt *time.Time `json:"last_deployed_at,omitempty"`
+	PrId           *int       `json:"pr_id,omitempty"`
+	Provider       *string    `json:"provider,omitempty"`
+	SourceBranch   *string    `json:"source_branch,omitempty"`
+
+	// Status État de la preview (§20.4). `sleeping`/`waking` = scale-to-zero (ADR-036) : endormie par inactivité (arrêt volontaire, pas un « down »), et réveillée à la volée par le waker sur la première requête.
+	Status *PreviewStatus `json:"status,omitempty"`
+	Uuid   *string        `json:"uuid,omitempty"`
 }
 
-// PreviewStatus defines model for Preview.Status.
+// PreviewStatus État de la preview (§20.4). `sleeping`/`waking` = scale-to-zero (ADR-036) : endormie par inactivité (arrêt volontaire, pas un « down »), et réveillée à la volée par le waker sur la première requête.
 type PreviewStatus string
 
 // PreviewRouteTemplate Une route de preview (ADR-035). `host` accepte {{pr_id}}, {{service}}, {{domain}}, {{random}}. Un `host` avec {{service}} est appliqué à chaque service servi ; sans {{service}}, le service cible est résolu par `port`.

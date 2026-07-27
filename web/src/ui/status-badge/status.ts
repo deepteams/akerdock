@@ -89,13 +89,34 @@ const TASK: Record<string, StatusMeaning> = {
   skipped: { family: 'neutral', modifier: 'superseded' },
 };
 
-export type StatusDomain = 'deployment' | 'resource' | 'job' | 'task';
+/**
+ * PR preview states (§20.4). `destroying`/`waking` are transitional and animate;
+ * `cleanup_failed` is a warning — the teardown left resources behind and needs
+ * attention, distinct from the preview itself having failed to deploy;
+ * `destroyed` is a clean terminal end, neutral like a stopped resource.
+ * `sleeping` (scale-to-zero, ADR-036) is a DELIBERATE stop, not a `down`: it is
+ * neutral, and wakes on the first request — never shown as a failure.
+ */
+const PREVIEW: Record<string, StatusMeaning> = {
+  queued: { family: 'progress', modifier: 'none' },
+  deploying: { family: 'progress', modifier: 'none' },
+  active: { family: 'success', modifier: 'none' },
+  failed: { family: 'danger', modifier: 'none' },
+  destroying: { family: 'progress', modifier: 'none' },
+  cleanup_failed: { family: 'warning', modifier: 'none' },
+  destroyed: { family: 'neutral', modifier: 'none' },
+  sleeping: { family: 'neutral', modifier: 'none' },
+  waking: { family: 'progress', modifier: 'none' },
+};
+
+export type StatusDomain = 'deployment' | 'resource' | 'job' | 'task' | 'preview';
 
 const TABLES: Record<StatusDomain, Record<string, StatusMeaning>> = {
   deployment: DEPLOYMENT,
   resource: RESOURCE,
   job: JOB,
   task: TASK,
+  preview: PREVIEW,
 };
 
 /**

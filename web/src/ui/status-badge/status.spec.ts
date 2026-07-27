@@ -60,6 +60,18 @@ const TASK_STATES: components['schemas']['TaskExecutionStatus'][] = [
   'skipped',
 ];
 
+const PREVIEW_STATES: components['schemas']['Preview']['status'][] = [
+  'queued',
+  'deploying',
+  'active',
+  'failed',
+  'destroying',
+  'cleanup_failed',
+  'destroyed',
+  'sleeping',
+  'waking',
+];
+
 describe('status mapping', () => {
   function assertMapped(domain: StatusDomain, states: string[]) {
     const known = new Set(knownStates(domain));
@@ -86,6 +98,18 @@ describe('status mapping', () => {
 
   it('maps every task execution state the contract can return', () => {
     assertMapped('task', TASK_STATES);
+  });
+
+  it('maps every preview state the contract can return', () => {
+    assertMapped('preview', PREVIEW_STATES);
+  });
+
+  // Scale-to-zero (ADR-036) is a deliberate stop, not an outage: a sleeping
+  // preview must never look like a failure, and waking is in-flight progress.
+  it('treats a sleeping preview as neutral and waking as progress, never danger', () => {
+    expect(statusMeaning('preview', 'sleeping').family).toBe('neutral');
+    expect(statusMeaning('preview', 'waking').family).toBe('progress');
+    expect(statusMeaning('preview', 'sleeping').family).not.toBe('danger');
   });
 
   // A skipped occurrence is NOT a success: it never ran.
