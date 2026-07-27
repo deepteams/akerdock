@@ -1,6 +1,6 @@
 # Matrice RBAC / Permissions — AkerDock (artefact §29.7)
 
-> ⚠️ **Modèle de rôles mis à jour par [ADR-038](../adr/ADR-038-modele-de-roles.md)**
+> ⚠️ **Modèle de rôles mis à jour par [ADR-038](../adr/ADR-038-roles-model.md)**
 > (supersede la partie rôles d'ADR-007). Rôles de team = **`admin` / `member` /
 > `reviewer`** + **rôles custom** ; `owner` est fusionné dans `admin` ; le **root
 > est réservé à l'instance** (`users.is_root`, hors modèle de team). ADR-038 acte

@@ -163,12 +163,12 @@ Resolution precedence (most specific wins):
 
 ## Key architecture decisions
 
-- **Transport**: SSH first, outbound agent on the target ([ADR-001](docs/adr/ADR-001-transport-ssh-puis-agent.md))
-- **Durable queue in PostgreSQL**, no external bus ([ADR-002](docs/adr/ADR-002-queue-postgresql.md))
-- **Standalone Docker runtime** — Kubernetes and Swarm ruled out ([ADR-004](docs/adr/ADR-004-runtime-docker-standalone.md))
-- **Go core**: pgx + sqlc, chi + oapi-codegen, spec-first ([ADR-025](docs/adr/ADR-025-socle-go-pgx-sqlc-chi-oapi-codegen.md))
-- **Distribution**: minimal two-service compose (AkerDock + PostgreSQL) ([ADR-021](docs/adr/ADR-021-distribution-compose-deux-services.md))
-- **Real-time**: SSE, WebSocket reserved for the terminal and tunnels ([ADR-024](docs/adr/ADR-024-temps-reel-sse-websocket-terminal.md))
+- **Transport**: SSH first, outbound agent on the target ([ADR-001](docs/adr/ADR-001-transport-ssh-then-agent.md))
+- **Durable queue in PostgreSQL**, no external bus ([ADR-002](docs/adr/ADR-002-postgresql-queue.md))
+- **Standalone Docker runtime** — Kubernetes and Swarm ruled out ([ADR-004](docs/adr/ADR-004-standalone-docker-runtime.md))
+- **Go core**: pgx + sqlc, chi + oapi-codegen, spec-first ([ADR-025](docs/adr/ADR-025-go-stack-pgx-sqlc-chi-oapi-codegen.md))
+- **Distribution**: minimal two-service compose (AkerDock + PostgreSQL) ([ADR-021](docs/adr/ADR-021-compose-distribution-two-services.md))
+- **Real-time**: SSE, WebSocket reserved for the terminal and tunnels ([ADR-024](docs/adr/ADR-024-realtime-sse-websocket-terminal.md))
 - **Single-binary CLI** (Cobra), client and server modes ([ADR-033](docs/adr/ADR-033-cli-cobra-migration-run-modes.md))
 
 ## Development
@@ -188,4 +188,4 @@ Conventions (commits, spec-first workflow, migrations) are in
 
 ## License
 
-[Apache 2.0](LICENSE) ([ADR-020](docs/adr/ADR-020-licence-apache-2-0.md)).
+[Apache 2.0](LICENSE) ([ADR-020](docs/adr/ADR-020-apache-2-0-license.md)).

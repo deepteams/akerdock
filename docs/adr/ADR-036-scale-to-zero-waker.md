@@ -4,8 +4,8 @@
 
 Accepted — pins down the **proposed defaults** of
 [proxy-contract §8](../specs/proxy-contract.md) (Scale-to-zero, SHOULD), which
-it locks in; complements [ADR-011](ADR-011-cycle-de-vie-des-previews.md)
-(preview lifecycle) and [ADR-024](ADR-024-sse-et-websocket.md) without
+it locks in; complements [ADR-011](ADR-011-enriched-previews-from-delivery.md)
+(preview lifecycle) and [ADR-024](ADR-024-realtime-sse-websocket-terminal.md) without
 superseding them.
 
 ## Context

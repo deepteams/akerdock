@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — complements (does not supersede) [ADR-008](ADR-008-observabilite-otlp-partout.md).
+Accepted — complements (does not supersede) [ADR-008](ADR-008-observability-otlp-everywhere.md).
 
 ## Context
 
