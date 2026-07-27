@@ -200,7 +200,7 @@ docker exec "$DIND_CTR" sh -c '
   docker rm -f $(docker ps -aq) >/dev/null 2>&1
   docker volume prune -f >/dev/null 2>&1
   docker network prune -f >/dev/null 2>&1
-  rm -rf /data/akerdock
+  rm -rf /var/lib/akerdock
   exit 0' || true
 # `apk add` reaches the network. Retry transient mirror errors and surface the
 # actual failure rather than a generic "sshd setup failed".
@@ -269,7 +269,7 @@ JU=$(api POST "/servers/$S/validate" | jsonq "d['job_uuid']")
 PJU=$(api POST "/servers/$S/proxy/start" | jsonq "d['job_uuid']")
 [ "$(wait_job "$PJU" 180)" = "succeeded" ] || die_job "$PJU" "explicit proxy start failed"
 docker exec "$DIND_CTR" docker inspect --format '{{.State.Status}}' akerdock-proxy | grep -q running || die "proxy not running"
-docker exec "$DIND_CTR" grep -q "ops@akerdock.test" /data/akerdock/proxy/traefik.yaml ||
+docker exec "$DIND_CTR" grep -q "ops@akerdock.test" /var/lib/akerdock/proxy/traefik.yaml ||
   die "the explicit ACME contact is missing from Traefik configuration"
 ok "server validated, explicit Traefik start bootstrapped the proxy"
 
