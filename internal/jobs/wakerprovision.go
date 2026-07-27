@@ -145,10 +145,11 @@ func ensureWaker(ctx context.Context, client *sshexec.Client, network, image, re
 }
 
 // wakerSpec is the run-spec generation of the waker container. Bump it whenever
-// the `docker run` flags change (not just the image): the deploy recreates the
-// container when EITHER the image OR this spec differs, so a flag fix propagates
-// even when the image tag is unchanged (local "dirty" builds reuse a tag).
-const wakerSpec = "2"
+// the `docker run` flags change — or when the waker's own behavior changes and
+// must reach servers whose image tag is unchanged (local "dirty" builds reuse a
+// tag): the deploy recreates the container when EITHER the image OR this spec
+// differs. 3: ordered wake set + rollback + waiting page, per-container budget.
+const wakerSpec = "3"
 
 // WakerEnsureCommand is the idempotent deploy of the waker helper. It recreates
 // the container when the running image OR the run spec differs (or when it is

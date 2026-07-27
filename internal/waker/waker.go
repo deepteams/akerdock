@@ -470,13 +470,18 @@ func (w *Waker) ensureAwake(ctx context.Context, uuid string) error {
 	g.Lock()
 	defer g.Unlock()
 
-	deadline := w.now().Add(w.WakeTimeout)
 	firstRunning := make(map[string]time.Time)
 	startedByWake := map[string]bool{}
 	var started []string
 
 	err := func() error {
 		for _, c := range res.Containers {
+			// Each container gets the full wake budget from the moment it
+			// becomes the current one: a five-service stack is not asked to
+			// cold-start inside the budget of a single container — the
+			// stability windows and start_periods of its predecessors would
+			// eat it whole (the deploy budgets per service the same way).
+			deadline := w.now().Add(w.WakeTimeout)
 			for {
 				st, err := w.docker.Inspect(ctx, c)
 				if err != nil {
@@ -497,7 +502,8 @@ func (w *Waker) ensureAwake(ctx context.Context, uuid string) error {
 					delete(firstRunning, c)
 				}
 				if !w.now().Before(deadline) {
-					return fmt.Errorf("%w: %s after %s", errWakeTimeout, uuid, w.WakeTimeout)
+					return fmt.Errorf("%w: %s waiting for %s after %s",
+						errWakeTimeout, uuid, c, w.WakeTimeout)
 				}
 				if err := sleepCtx(ctx, w.Poll); err != nil {
 					return err

@@ -502,6 +502,9 @@ func TestWaitingPageFailureThenRetry(t *testing.T) {
 	if !strings.Contains(body, retryParam) {
 		t.Fatal("the failure page must offer a retry link")
 	}
+	if !strings.Contains(body, "waiting for c1") {
+		t.Fatalf("the failure must name the blocking container: %q", body)
+	}
 	// The rollback stopped c1, and a plain reload must NOT retrigger a wake.
 	d.mu.Lock()
 	startsAfterFailure := d.starts["c1"]

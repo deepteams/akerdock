@@ -664,7 +664,7 @@ States: sleeping ──(1st request)──▶ waking ──(healthy + file swap)
 
 ### 8.3 Accepted limits
 
-- **Wake timeout**: beyond 60 s (long cold start), `504` + explicit error page; the waker **stops the containers this wake started** (rollback, reverse order) so the resource returns to `sleeping` — never left half-awake in a restart crash-loop the control plane believes asleep.
+- **Wake timeout**: 60 s (proposed default) **per container of the wake set**, counted from the moment it becomes the current one in the start order — a five-service stack is not asked to cold-start inside the budget of a single container (the deploy budgets per service the same way). On overrun: `504` (or the failure variant of the waiting page, naming the blocking container) and the waker **stops the containers this wake started** (rollback, reverse order) so the resource returns to `sleeping` — never left half-awake in a restart crash-loop the control plane believes asleep.
 - **Request body**: hold-and-forward capped at **1 MiB (proposed default)**; beyond, `503` + `Retry-After: 5` (the client replays).
 - **WebSockets**: an upgrade during `waking` is held then proxied once the container is healthy, within the timeout limit; long-lived WS moreover prevent inactivity detection — a resource with persistent WS is a poor scale-to-zero candidate (documented).
 - The first response byte incurs the full startup latency; scale-to-zero is enabled per resource, previews first, never implicitly in production.
