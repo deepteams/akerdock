@@ -596,6 +596,75 @@ const EXPIRY_WARN_DAYS = 14;
             </form>
           </akd-card>
 
+          <akd-card title="Automated cleanup">
+            <p class="akd-muted intro">
+              Reclaims the Docker build cache, dangling images and dead deployment candidates on a
+              schedule or when the disk crosses a threshold (§3.7). It is deferred while a deployment
+              is running, and never touches tagged images (rollback artifacts) or named volumes.
+            </p>
+            <form class="form" (ngSubmit)="saveCleanup()">
+              <div class="akd-field">
+                <label class="akd-check">
+                  <input type="checkbox" name="cleanupEnabled" [(ngModel)]="cleanupEnabled" [disabled]="busy()" />
+                  Enable automated cleanup
+                </label>
+              </div>
+              <div class="akd-field">
+                <label class="akd-field__label" for="sd-cleanup-threshold">Disk usage threshold (%)</label>
+                <input
+                  id="sd-cleanup-threshold"
+                  name="cleanupThreshold"
+                  class="akd-input akd-input--mono"
+                  type="number"
+                  min="1"
+                  max="100"
+                  placeholder="e.g. 70"
+                  [(ngModel)]="cleanupDiskThreshold"
+                  [disabled]="busy() || !cleanupEnabled"
+                />
+                <span class="akd-field__hint">
+                  Runs a cleanup when disk usage crosses this percentage. Empty = no threshold trigger.
+                </span>
+              </div>
+              <div class="akd-field">
+                <label class="akd-field__label" for="sd-cleanup-cron">Schedule (cron)</label>
+                <input
+                  id="sd-cleanup-cron"
+                  name="cleanupCron"
+                  class="akd-input akd-input--mono"
+                  placeholder="daily"
+                  [(ngModel)]="cleanupCron"
+                  [disabled]="busy() || !cleanupEnabled"
+                />
+                <span class="akd-field__hint">
+                  A 5-field cron expression, or a preset: hourly, daily, weekly, monthly. Empty = no
+                  scheduled run. Set a threshold and/or a schedule — at least one is needed to fire.
+                </span>
+              </div>
+              <div class="akd-field">
+                <label class="akd-check">
+                  <input type="checkbox" name="cleanupPruneVolumes" [(ngModel)]="cleanupPruneVolumes" [disabled]="busy() || !cleanupEnabled" />
+                  Also prune anonymous volumes (named and data volumes are never touched)
+                </label>
+              </div>
+              <div class="akd-field">
+                <label class="akd-check">
+                  <input type="checkbox" name="cleanupPruneNetworks" [(ngModel)]="cleanupPruneNetworks" [disabled]="busy() || !cleanupEnabled" />
+                  Also prune unused managed networks
+                </label>
+              </div>
+              @if (cleanupLastRunAt(); as last) {
+                <p class="akd-muted sm">Last cleanup: {{ last }}</p>
+              }
+              <div class="cleanup-actions">
+                <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">Save cleanup</button>
+                <button class="akd-btn akd-btn--secondary" type="button" [disabled]="busy()" (click)="runCleanup()">
+                  Run cleanup now
+                </button>
+              </div>
+            </form>
+          </akd-card>
+
           <akd-card title="Database CA certificate">
             <p class="akd-muted intro">
               Databases with SSL serve certificates signed by this per-server CA. Clients verify
@@ -794,6 +863,11 @@ const EXPIRY_WARN_DAYS = 14;
         gap: var(--space-4);
         max-width: 44rem;
       }
+      .cleanup-actions {
+        display: flex;
+        gap: var(--space-2);
+        flex-wrap: wrap;
+      }
       .row {
         display: flex;
         align-items: end;
@@ -880,6 +954,15 @@ export class ServerDetailComponent {
   protected proxyHttpsPort = 443;
   protected wildcardDomain = '';
   protected dnsCredentialUuid = '';
+
+  // Automated Docker cleanup (§3.7): reclaims build cache, dangling images and
+  // dead candidates so a busy server does not fill its disk.
+  protected cleanupEnabled = false;
+  protected cleanupDiskThreshold: number | null = null;
+  protected cleanupCron = '';
+  protected cleanupPruneVolumes = false;
+  protected cleanupPruneNetworks = false;
+  protected readonly cleanupLastRunAt = signal<string | null>(null);
 
   constructor() {
     effect(() => {
@@ -986,6 +1069,12 @@ export class ServerDetailComponent {
     this.proxyHttpsPort = server.proxy_https_port ?? 443;
     this.wildcardDomain = server.wildcard_domain ?? '';
     this.dnsCredentialUuid = server.dns_credential_uuid ?? '';
+    this.cleanupEnabled = server.cleanup_enabled ?? false;
+    this.cleanupDiskThreshold = server.cleanup_disk_threshold_pct ?? null;
+    this.cleanupCron = server.cleanup_cron ?? '';
+    this.cleanupPruneVolumes = server.cleanup_prune_volumes ?? false;
+    this.cleanupPruneNetworks = server.cleanup_prune_networks ?? false;
+    this.cleanupLastRunAt.set(server.cleanup_last_run_at ?? null);
   }
 
   private async refresh(): Promise<void> {
@@ -1072,6 +1161,60 @@ export class ServerDetailComponent {
       } else {
         this.error.set(ApiService.describe(err));
       }
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async saveCleanup(): Promise<void> {
+    const server = this.server();
+    if (!server || this.busy()) return;
+    this.busy.set(true);
+    this.error.set(null);
+    this.notice.set(null);
+    try {
+      const threshold =
+        this.cleanupDiskThreshold != null && this.cleanupDiskThreshold > 0
+          ? Math.min(100, Math.max(1, Math.trunc(this.cleanupDiskThreshold)))
+          : null;
+      const updated = await this.api.client().updateServer(this.uuid(), server.version, {
+        cleanup_enabled: this.cleanupEnabled,
+        cleanup_disk_threshold_pct: threshold,
+        cleanup_cron: this.cleanupCron.trim() || null,
+        cleanup_prune_volumes: this.cleanupPruneVolumes,
+        cleanup_prune_networks: this.cleanupPruneNetworks,
+      });
+      this.setServer(updated);
+      this.notice.set(
+        this.cleanupEnabled
+          ? 'Automated cleanup saved.'
+          : 'Automated cleanup disabled — the server disk is no longer reclaimed automatically.',
+      );
+    } catch (err) {
+      if (err instanceof ApiError && err.isVersionConflict) {
+        await this.refresh();
+        this.error.set(
+          'Your edit raced a concurrent change: the latest configuration was reloaded. Re-apply your edit on top of it.',
+        );
+      } else {
+        this.error.set(ApiService.describe(err));
+      }
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** One-off cleanup (202): enqueues the same job the schedule fires. */
+  protected async runCleanup(): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.error.set(null);
+    this.notice.set(null);
+    try {
+      await this.api.client().runServerCleanup(this.uuid());
+      this.notice.set('Cleanup queued — build cache, dangling images and dead candidates are reclaimed.');
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
     } finally {
       this.busy.set(false);
     }
