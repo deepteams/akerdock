@@ -4132,6 +4132,8 @@ export interface components {
             readonly mfa_required?: boolean;
             /** @description SSO obligatoire (§10.2) : quand vrai, le login par mot de passe est refusé (sauf l'administrateur d'instance) — seuls les providers OIDC authentifient. */
             readonly password_login_disabled?: boolean;
+            /** @description Nombre d'images de déploiement conservées localement par application (et par preview) pour le rollback (ADR-006, §29.4). Au-delà, les plus anciennes sont récupérées après un déploiement réussi ; l'image en service est toujours protégée. Défaut 5. */
+            readonly image_retention_count?: number;
         };
         InstanceIdentityUpdate: {
             /** @description Nom d'hôte nu (`[a-z0-9.-]`, au moins un point). Chaîne vide ou `null` : efface le FQDN. */
@@ -4142,6 +4144,8 @@ export interface components {
             mfa_required?: boolean | null;
             /** @description Active/désactive le mode SSO obligatoire (§10.2). Refusé si aucun provider OIDC n'est activé. Absent = inchangé. */
             password_login_disabled?: boolean | null;
+            /** @description Nombre d'images de déploiement conservées par application/preview pour le rollback (ADR-006). Minimum 1. Absent = inchangé. */
+            image_retention_count?: number | null;
         };
         TransactionalEmail: {
             readonly configured: boolean;

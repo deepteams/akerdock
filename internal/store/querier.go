@@ -244,6 +244,9 @@ type Querier interface {
 	// surviving row locks the URL against any future application, forever.
 	DeleteComponentDomainsForResource(ctx context.Context, resourceID int64) error
 	DeleteCustomRole(ctx context.Context, arg DeleteCustomRoleParams) (int64, error)
+	// The image it referenced has been reclaimed: drop the now-dangling rollback
+	// pointer so it is never offered as a target.
+	DeleteDeploymentArtifact(ctx context.Context, id int64) error
 	DeleteDomainsForApplication(ctx context.Context, applicationID *int64) error
 	DeleteEnvVar(ctx context.Context, id int64) (int64, error)
 	DeleteEnvVarsNotInKeys(ctx context.Context, arg DeleteEnvVarsNotInKeysParams) error
@@ -462,6 +465,11 @@ type Querier interface {
 	// API token management (§10.3). Token values are never stored nor
 	// returned: only the SHA-256 hash and the identification prefix.
 	ListApiTokensPage(ctx context.Context, arg ListApiTokensPageParams) ([]ApiToken, error)
+	// Every local rollback image of the application (non-preview deployments) on
+	// one server, newest first — the caller keeps the N most recent and reclaims
+	// the rest (ADR-006 retention, §29.4). The live image is the newest here, so a
+	// retention >= 1 always protects it.
+	ListAppArtifactsOnServer(ctx context.Context, arg ListAppArtifactsOnServerParams) ([]ListAppArtifactsOnServerRow, error)
 	// Fan-out of an app-level push webhook (protocols §2.4): every application
 	// bound to the pushed repository, matched by the provider-side repo ID —
 	// exact identity, never a URL comparison (INV-009, §23.5).
@@ -556,6 +564,9 @@ type Querier interface {
 	ListPasskeysForUser(ctx context.Context, userID int64) ([]PasskeyCredential, error)
 	// What the digest of this rule stands for.
 	ListPendingDigestDeliveries(ctx context.Context, ruleID int64) ([]ListPendingDigestDeliveriesRow, error)
+	// Same, scoped to one preview: its images live under akerdock/<preview_uuid>,
+	// a namespace distinct from production (deployment engine §5.7).
+	ListPreviewArtifactsOnServer(ctx context.Context, arg ListPreviewArtifactsOnServerParams) ([]ListPreviewArtifactsOnServerRow, error)
 	// The DEDICATED preview variable set (INV-010): production secrets are never
 	// copied implicitly. Per-PR overrides sit on top: a row carrying THIS
 	// preview's id wins over the shared set's same key.
@@ -777,6 +788,9 @@ type Querier interface {
 	SetGitSourceAPIURL(ctx context.Context, arg SetGitSourceAPIURLParams) error
 	// First of the two redundant installation signals wins (§2.1 step 7).
 	SetGithubAppInstallation(ctx context.Context, arg SetGithubAppInstallationParams) (int64, error)
+	// Rollback image retention (ADR-006, §29.4). The CHECK (>= 1) keeps the live
+	// image protected even at the smallest setting.
+	SetImageRetentionCount(ctx context.Context, imageRetentionCount int32) (InstanceSetting, error)
 	// FQDN + contact ACME (§14.2) : la base fait foi après le premier démarrage,
 	// c'est donc ici — et nulle part ailleurs — qu'ils se modifient.
 	SetInstanceIdentity(ctx context.Context, arg SetInstanceIdentityParams) (InstanceSetting, error)

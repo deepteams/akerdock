@@ -9517,6 +9517,15 @@ components:
             SSO obligatoire (§10.2) : quand vrai, le login par mot de passe est
             refusé (sauf l'administrateur d'instance) — seuls les providers OIDC
             authentifient.
+        image_retention_count:
+          type: integer
+          minimum: 1
+          readOnly: true
+          description: >-
+            Nombre d'images de déploiement conservées localement par application
+            (et par preview) pour le rollback (ADR-006, §29.4). Au-delà, les plus
+            anciennes sont récupérées après un déploiement réussi ; l'image en
+            service est toujours protégée. Défaut 5.
     InstanceIdentityUpdate:
       type: object
       properties:
@@ -9540,6 +9549,13 @@ components:
           description: >-
             Active/désactive le mode SSO obligatoire (§10.2). Refusé si aucun
             provider OIDC n'est activé. Absent = inchangé.
+        image_retention_count:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: >-
+            Nombre d'images de déploiement conservées par application/preview
+            pour le rollback (ADR-006). Minimum 1. Absent = inchangé.
     TransactionalEmail:
       type: object
       required: [configured]

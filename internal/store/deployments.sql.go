@@ -233,6 +233,17 @@ func (q *Queries) CreateRollbackDeployment(ctx context.Context, arg CreateRollba
 	return i, err
 }
 
+const deleteDeploymentArtifact = `-- name: DeleteDeploymentArtifact :exec
+DELETE FROM deployment_artifacts WHERE id = $1
+`
+
+// The image it referenced has been reclaimed: drop the now-dangling rollback
+// pointer so it is never offered as a target.
+func (q *Queries) DeleteDeploymentArtifact(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, deleteDeploymentArtifact, id)
+	return err
+}
+
 const finishDeploymentStep = `-- name: FinishDeploymentStep :exec
 UPDATE deployment_steps SET status = $2, exit_code = $3, log = $4, finished_at = now()
 WHERE id = $1
@@ -444,6 +455,50 @@ func (q *Queries) GetPreviousArtifact(ctx context.Context, resourceID int64) (De
 	return i, err
 }
 
+const listAppArtifactsOnServer = `-- name: ListAppArtifactsOnServer :many
+SELECT a.id, a.image_name, a.image_tag
+FROM deployment_artifacts a
+JOIN deployments d ON d.id = a.deployment_id
+WHERE d.resource_id = $1 AND d.preview_id IS NULL AND d.status = 'succeeded'
+  AND a.server_id = $2 AND a.image_tag IS NOT NULL
+ORDER BY a.id DESC
+`
+
+type ListAppArtifactsOnServerParams struct {
+	ResourceID int64
+	ServerID   *int64
+}
+
+type ListAppArtifactsOnServerRow struct {
+	ID        int64
+	ImageName string
+	ImageTag  *string
+}
+
+// Every local rollback image of the application (non-preview deployments) on
+// one server, newest first — the caller keeps the N most recent and reclaims
+// the rest (ADR-006 retention, §29.4). The live image is the newest here, so a
+// retention >= 1 always protects it.
+func (q *Queries) ListAppArtifactsOnServer(ctx context.Context, arg ListAppArtifactsOnServerParams) ([]ListAppArtifactsOnServerRow, error) {
+	rows, err := q.db.Query(ctx, listAppArtifactsOnServer, arg.ResourceID, arg.ServerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAppArtifactsOnServerRow
+	for rows.Next() {
+		var i ListAppArtifactsOnServerRow
+		if err := rows.Scan(&i.ID, &i.ImageName, &i.ImageTag); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDeploymentSteps = `-- name: ListDeploymentSteps :many
 SELECT id, deployment_id, seq, name, status, exit_code, log, started_at, finished_at, created_at FROM deployment_steps WHERE deployment_id = $1 ORDER BY seq
 `
@@ -534,6 +589,48 @@ func (q *Queries) ListDeploymentsForResource(ctx context.Context, arg ListDeploy
 			&i.UpdatedAt,
 			&i.PreviewID,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPreviewArtifactsOnServer = `-- name: ListPreviewArtifactsOnServer :many
+SELECT a.id, a.image_name, a.image_tag
+FROM deployment_artifacts a
+JOIN deployments d ON d.id = a.deployment_id
+WHERE d.preview_id = $1 AND d.status = 'succeeded'
+  AND a.server_id = $2 AND a.image_tag IS NOT NULL
+ORDER BY a.id DESC
+`
+
+type ListPreviewArtifactsOnServerParams struct {
+	PreviewID *int64
+	ServerID  *int64
+}
+
+type ListPreviewArtifactsOnServerRow struct {
+	ID        int64
+	ImageName string
+	ImageTag  *string
+}
+
+// Same, scoped to one preview: its images live under akerdock/<preview_uuid>,
+// a namespace distinct from production (deployment engine §5.7).
+func (q *Queries) ListPreviewArtifactsOnServer(ctx context.Context, arg ListPreviewArtifactsOnServerParams) ([]ListPreviewArtifactsOnServerRow, error) {
+	rows, err := q.db.Query(ctx, listPreviewArtifactsOnServer, arg.PreviewID, arg.ServerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPreviewArtifactsOnServerRow
+	for rows.Next() {
+		var i ListPreviewArtifactsOnServerRow
+		if err := rows.Scan(&i.ID, &i.ImageName, &i.ImageTag); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -94,6 +94,33 @@ WHERE d.resource_id = $1 AND d.status = 'succeeded'
 ORDER BY a.id DESC
 LIMIT 1;
 
+-- name: ListAppArtifactsOnServer :many
+-- Every local rollback image of the application (non-preview deployments) on
+-- one server, newest first — the caller keeps the N most recent and reclaims
+-- the rest (ADR-006 retention, §29.4). The live image is the newest here, so a
+-- retention >= 1 always protects it.
+SELECT a.id, a.image_name, a.image_tag
+FROM deployment_artifacts a
+JOIN deployments d ON d.id = a.deployment_id
+WHERE d.resource_id = $1 AND d.preview_id IS NULL AND d.status = 'succeeded'
+  AND a.server_id = $2 AND a.image_tag IS NOT NULL
+ORDER BY a.id DESC;
+
+-- name: ListPreviewArtifactsOnServer :many
+-- Same, scoped to one preview: its images live under akerdock/<preview_uuid>,
+-- a namespace distinct from production (deployment engine §5.7).
+SELECT a.id, a.image_name, a.image_tag
+FROM deployment_artifacts a
+JOIN deployments d ON d.id = a.deployment_id
+WHERE d.preview_id = $1 AND d.status = 'succeeded'
+  AND a.server_id = $2 AND a.image_tag IS NOT NULL
+ORDER BY a.id DESC;
+
+-- name: DeleteDeploymentArtifact :exec
+-- The image it referenced has been reclaimed: drop the now-dangling rollback
+-- pointer so it is never offered as a target.
+DELETE FROM deployment_artifacts WHERE id = $1;
+
 -- name: CreateRollbackDeployment :one
 INSERT INTO deployments (uuid, resource_id, trigger, api_token_id, is_rollback, image_name, image_tag, image_digest, server_id, config_snapshot)
 VALUES ($1, $2, $3, $4, true, $5, $6, $7, $8, $9)

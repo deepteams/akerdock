@@ -1406,6 +1406,7 @@ Réglages d'instance (§14.2) — **ajout au §19.1**, impliqué par les feature
 | `auto_update_enabled` | `boolean` | non | `true` | — | non | Vérification périodique, désactivable (§14.3). |
 | `auto_update_cron` | `text` | oui | — | CHECK validation cron | non | Cron d'auto-update configurable (§14.3). |
 | `onboarding_completed_at` | `timestamptz` | oui | — | — | non | Assistant premier démarrage (§14.2, §25.1). |
+| `image_retention_count` | `integer` | non | `5` | CHECK `(>= 1)` | non | Images de rollback conservées par app/preview sans registry (ADR-006, §29.4) ; le minimum protège l'image en service. |
 | `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | Réservé au root (§10.1). |
 | `created_at` | `timestamptz` | non | `now()` | — | non | — |
 | `updated_at` | `timestamptz` | non | `now()` | — | non | — |

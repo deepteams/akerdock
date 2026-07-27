@@ -2495,6 +2495,7 @@ type InstanceSetting struct {
 	OtlpConfigEnc               []byte
 	MfaRequired                 bool
 	PasswordLoginDisabled       bool
+	ImageRetentionCount         int32
 }
 
 type Invitation struct {

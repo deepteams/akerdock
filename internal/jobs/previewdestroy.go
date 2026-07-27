@@ -102,8 +102,12 @@ func (h *PreviewDestroy) Execute(ctx context.Context, job store.Job, rec *queue.
 			"docker volume ls -q --filter label=akerdock.resource_uuid=%s | xargs -r docker volume rm -f >/dev/null 2>&1; "+
 			"docker volume ls -q --filter label=akerdock.preview_uuid=%s | xargs -r docker volume rm -f >/dev/null 2>&1; "+
 			"docker network ls -q --filter label=akerdock.preview_uuid=%s | xargs -r docker network rm >/dev/null 2>&1; "+
+			// The PR is closed/merged: unlike the per-deployment retention, NONE of
+			// this preview's rollback images survive (ADR-006). They live under the
+			// preview-uuid namespace, so no production image matches (INV-011).
+			"docker images -q akerdock/%s | sort -u | xargs -r docker rmi -f >/dev/null 2>&1; "+
 			"rm -rf /var/lib/akerdock/previews/%s",
-		previewUUID, previewUUID, previewUUID, previewUUID, previewUUID, previewUUID, previewUUID)
+		previewUUID, previewUUID, previewUUID, previewUUID, previewUUID, previewUUID, previewUUID, previewUUID)
 	if res, err := client.Run(ctx, cmd); err != nil || res.ExitCode != 0 {
 		if err == nil {
 			err = fmt.Errorf("remote cleanup exited with code %d", res.ExitCode)

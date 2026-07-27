@@ -1577,6 +1577,99 @@ func (r *deploymentRun) recordArtifact(ctx context.Context) {
 	}
 }
 
+// prunableImage is one rollback artifact considered for reclamation.
+type prunableImage struct {
+	id  int64
+	ref string
+}
+
+// pruneOldImages enforces the rollback retention (ADR-006, §29.4): after a
+// successful deployment it keeps the N most recent images of this application —
+// or, for a preview, of that single PR — on the server, and reclaims the older
+// ones (`docker rmi`). N is the instance setting image_retention_count (min 1,
+// so the live image, which is the newest artifact, is always kept). Best-effort:
+// a rebuild reproduces any pruned image, so a failure here never fails the
+// deployment. Rollbacks reclaim nothing — they redeploy an existing artifact.
+func (r *deploymentRun) pruneOldImages(ctx context.Context) {
+	if r.d.IsRollback || r.client == nil {
+		return
+	}
+	keep := 5
+	if st, err := r.h.Store.GetInstanceSettings(ctx); err == nil && st.ImageRetentionCount > 0 {
+		keep = int(st.ImageRetentionCount)
+	}
+
+	// Collect the artifacts newest-first, scoped to this app or this preview.
+	var arts []prunableImage
+	collect := func(id int64, name string, tag *string) {
+		if tag == nil {
+			return
+		}
+		arts = append(arts, prunableImage{id: id, ref: name + ":" + *tag})
+	}
+	if r.preview != nil {
+		rows, err := r.h.Store.ListPreviewArtifactsOnServer(ctx, store.ListPreviewArtifactsOnServerParams{
+			PreviewID: &r.preview.ID, ServerID: &r.server.ID,
+		})
+		if err != nil {
+			r.h.Logger.Warn("image retention: list preview artifacts failed", "error", err)
+			return
+		}
+		for _, a := range rows {
+			collect(a.ID, a.ImageName, a.ImageTag)
+		}
+	} else {
+		rows, err := r.h.Store.ListAppArtifactsOnServer(ctx, store.ListAppArtifactsOnServerParams{
+			ResourceID: r.app.Resource.ID, ServerID: &r.server.ID,
+		})
+		if err != nil {
+			r.h.Logger.Warn("image retention: list app artifacts failed", "error", err)
+			return
+		}
+		for _, a := range rows {
+			collect(a.ID, a.ImageName, a.ImageTag)
+		}
+	}
+	for _, a := range imagesToReclaim(arts, keep) {
+		if a.ref != "" {
+			_, _ = r.client.Run(ctx, "docker rmi "+a.ref+" >/dev/null 2>&1 || true")
+		}
+		// Drop the pointer whether or not the rmi reclaimed anything: beyond the
+		// retention window it is no longer a valid rollback target.
+		if err := r.h.Store.DeleteDeploymentArtifact(ctx, a.id); err != nil {
+			r.h.Logger.Warn("image retention: drop artifact pointer failed", "artifact_id", a.id, "error", err)
+		}
+	}
+}
+
+// imagesToReclaim picks, from artifacts ordered newest-first, those beyond the
+// retention window (ADR-006). The N most recent are kept; older ones are
+// returned for removal — but an older artifact whose image reference is still
+// referenced by a kept one (a constant registry tag reused across deployments)
+// keeps a blank ref, so its stale pointer is dropped without reclaiming the
+// image a live deployment still uses.
+func imagesToReclaim(arts []prunableImage, keep int) []prunableImage {
+	if keep < 1 {
+		keep = 1
+	}
+	if len(arts) <= keep {
+		return nil
+	}
+	kept := make(map[string]bool, keep)
+	for _, a := range arts[:keep] {
+		kept[a.ref] = true
+	}
+	out := make([]prunableImage, 0, len(arts)-keep)
+	for _, a := range arts[keep:] {
+		if kept[a.ref] {
+			out = append(out, prunableImage{id: a.id, ref: ""})
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
 // markFailed applies compensation C2 (remove the candidate, never touch the
 // serving container) and records the terminal failed state (§9).
 func (r *deploymentRun) markFailed(ctx context.Context, cause error) {
@@ -1914,6 +2007,9 @@ func (r *deploymentRun) finish(ctx context.Context, appUUID string) error {
 		_ = r.h.Store.ClearResourceAdoption(ctx, r.app.Resource.ID)
 	}
 	r.recordArtifact(ctx)
+	// Reclaim images beyond the rollback retention now that the new one is the
+	// newest (ADR-006, §29.4) — keeps the server's disk bounded per deployment.
+	r.pruneOldImages(ctx)
 	if r.preview != nil {
 		_ = r.h.Store.SetPreviewDeployed(ctx, r.preview.ID)
 		(&PreviewFeedback{Store: r.h.Store, Keyring: r.h.Keyring, Logger: r.h.Logger}).Notify(ctx, r.app, *r.preview, "success")

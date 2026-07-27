@@ -3425,6 +3425,9 @@ type InstanceIdentity struct {
 	// Fqdn Nom d'hôte nu, sans schéma ni chemin (ex. `deploy.example.com`). `null` : instance sans FQDN, cookies non-`Secure`, HTTP simple toléré.
 	Fqdn *string `json:"fqdn,omitempty"`
 
+	// ImageRetentionCount Nombre d'images de déploiement conservées localement par application (et par preview) pour le rollback (ADR-006, §29.4). Au-delà, les plus anciennes sont récupérées après un déploiement réussi ; l'image en service est toujours protégée. Défaut 5.
+	ImageRetentionCount *int `json:"image_retention_count,omitempty"`
+
 	// MfaRequired Quand vrai, la double authentification est obligatoire : un utilisateur sans facteur confirmé est forcé de l'enrôler avant de pouvoir utiliser l'instance (§10.2).
 	MfaRequired *bool `json:"mfa_required,omitempty"`
 
@@ -3440,6 +3443,9 @@ type InstanceIdentityUpdate struct {
 
 	// Fqdn Nom d'hôte nu (`[a-z0-9.-]`, au moins un point). Chaîne vide ou `null` : efface le FQDN.
 	Fqdn *string `json:"fqdn,omitempty"`
+
+	// ImageRetentionCount Nombre d'images de déploiement conservées par application/preview pour le rollback (ADR-006). Minimum 1. Absent = inchangé.
+	ImageRetentionCount *int `json:"image_retention_count,omitempty"`
 
 	// MfaRequired Active/désactive l'obligation de double authentification (§10.2). Absent = inchangé.
 	MfaRequired *bool `json:"mfa_required,omitempty"`

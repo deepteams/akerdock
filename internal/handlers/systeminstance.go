@@ -38,6 +38,7 @@ func (a *API) instanceIdentity(r *http.Request) (api.InstanceIdentity, error) {
 		ApiEnabled:            ptr(settings.ApiEnabled),
 		MfaRequired:           ptr(settings.MfaRequired),
 		PasswordLoginDisabled: ptr(settings.PasswordLoginDisabled),
+		ImageRetentionCount:   ptr(int(settings.ImageRetentionCount)),
 	}, nil
 }
 
@@ -106,6 +107,22 @@ func (a *API) SetInstanceSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.recordAudit(r, id, "instance.password_login_disabled_updated", "instance", pgtype.UUID{})
+	}
+	// Rollback image retention (ADR-006): at least one, so the live image is
+	// always kept; the database CHECK is the backstop.
+	if body.ImageRetentionCount != nil {
+		if *body.ImageRetentionCount < 1 {
+			httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+				Field: ptr("image_retention_count"), Code: ptr("out_of_range"),
+				Message: "at least 1 image must be retained",
+			}})
+			return
+		}
+		if _, err := a.Store.SetImageRetentionCount(r.Context(), int32(*body.ImageRetentionCount)); err != nil {
+			a.internalError(w, r, "set instance settings", err)
+			return
+		}
+		a.recordAudit(r, id, "instance.image_retention_updated", "instance", pgtype.UUID{})
 	}
 	a.Settings.Invalidate()
 	a.recordAudit(r, id, "instance.identity_updated", "instance", pgtype.UUID{})

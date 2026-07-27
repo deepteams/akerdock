@@ -110,6 +110,23 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
                   administrator can always fall back to a password.
                 </span>
               </div>
+              <div class="akd-field">
+                <label class="akd-field__label" for="inst-retention">Rollback images kept per app</label>
+                <input
+                  id="inst-retention"
+                  name="imageRetention"
+                  type="number"
+                  min="1"
+                  class="akd-input"
+                  [(ngModel)]="instanceImageRetention"
+                  [disabled]="busy()"
+                />
+                <span class="akd-field__hint">
+                  How many recent images each server keeps for rollback — per application and per
+                  preview. Older ones are reclaimed after a successful deployment; a preview's images
+                  are all removed when its PR is merged or closed. Minimum 1.
+                </span>
+              </div>
               @if (instanceNotice(); as message) {
                 <p class="akd-muted sm" role="status">{{ message }}</p>
               }
@@ -763,6 +780,7 @@ export class SystemComponent {
   protected instanceAcmeEmail = '';
   protected instanceMfaRequired = false;
   protected instancePasswordLoginDisabled = false;
+  protected instanceImageRetention = 5;
 
   protected emailKind: 'smtp' | 'resend' = 'smtp';
   protected emailFrom = '';
@@ -798,11 +816,13 @@ export class SystemComponent {
         acme_email: this.instanceAcmeEmail.trim() || null,
         mfa_required: this.instanceMfaRequired,
         password_login_disabled: this.instancePasswordLoginDisabled,
+        image_retention_count: Math.max(1, Math.trunc(this.instanceImageRetention) || 5),
       });
       this.instanceFqdn = updated.fqdn ?? '';
       this.instanceAcmeEmail = updated.acme_email ?? '';
       this.instanceMfaRequired = updated.mfa_required ?? false;
       this.instancePasswordLoginDisabled = updated.password_login_disabled ?? false;
+      this.instanceImageRetention = updated.image_retention_count ?? 5;
       this.instanceNotice.set(
         updated.fqdn
           ? 'Saved. Session cookie security follows the FQDN at the next restart of the binary.'
@@ -829,6 +849,7 @@ export class SystemComponent {
       this.instanceAcmeEmail = instance.acme_email ?? '';
       this.instanceMfaRequired = instance.mfa_required ?? false;
       this.instancePasswordLoginDisabled = instance.password_login_disabled ?? false;
+      this.instanceImageRetention = instance.image_retention_count ?? 5;
       this.apiOn = instance.api_enabled ?? true;
       this.email.set(email);
       this.encryption.set(encryption);
