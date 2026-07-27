@@ -171,7 +171,7 @@ fi
 # --- infrastructure ----------------------------------------------------------
 say "starting PostgreSQL and the DinD target server"
 docker rm -f "$PG_CTR" "$DIND_CTR" >/dev/null 2>&1 || true
-docker run -d --rm --name "$PG_CTR" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=akerdock -p "${PG_PORT}:5432" postgres:17-alpine >/dev/null
+docker run -d --rm --name "$PG_CTR" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=akerdock -p "${PG_PORT}:5432" postgres:18-alpine >/dev/null
 # The DinD keeps its image store in a named volume: without it, every run
 # re-pulls nginx, PostgreSQL and Traefik. E2E_FRESH=1 wipes it.
 DIND_CACHE=${DIND_CACHE:-akerdock-e2e-images-$SHARD}

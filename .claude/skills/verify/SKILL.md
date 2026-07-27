@@ -10,7 +10,7 @@ description: Lancer AkerDock en local contre un Postgres jetable et piloter l'AP
 ```bash
 # Postgres jetable (l'image officielle contient citext)
 docker run -d --rm --name akd-verify -e POSTGRES_USER=akerdock \
-  -e POSTGRES_PASSWORD=verify -e POSTGRES_DB=akerdock -p 15477:5432 postgres:17-alpine
+  -e POSTGRES_PASSWORD=verify -e POSTGRES_DB=akerdock -p 15477:5432 postgres:18-alpine
 
 export AKERDOCK_DATABASE_URL="postgres://akerdock:verify@localhost:15477/akerdock?sslmode=disable"
 export AKERDOCK_MASTER_KEY="1:$(openssl rand -base64 32)"

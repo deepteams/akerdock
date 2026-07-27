@@ -86,12 +86,13 @@ services:
         condition: service_healthy
 
   postgres:
-    image: postgres:17                            # tag épinglé par la release
+    image: postgres:18                            # tag épinglé par la release
     restart: unless-stopped
     environment:
       POSTGRES_USER: AkerDock
       POSTGRES_DB: AkerDock
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data   # PG18 a déplacé le PGDATA par défaut : l'épingler garde les données dans le volume monté
     volumes:
       - ./postgres:/var/lib/postgresql/data
       - ./backups:/backups

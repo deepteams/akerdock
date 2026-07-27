@@ -16,7 +16,7 @@ jobs:
     # the SQL: they are tested against a real PostgreSQL, not a mock.
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_PASSWORD: test
           POSTGRES_DB: akerdock

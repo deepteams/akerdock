@@ -183,12 +183,13 @@ services:
     stop_grace_period: 40s               # > AKERDOCK_SHUTDOWN_TIMEOUT (30 s, §6.5)
 
   postgres:
-    image: postgres:17                   # tag exact épinglé par les notes de release (≥ 15, data dictionary §2)
+    image: postgres:18                   # tag exact épinglé par les notes de release (≥ 15, data dictionary §2)
     restart: unless-stopped
     environment:
       POSTGRES_USER: akerdock
       POSTGRES_DB: akerdock
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?requis (openssl rand -hex 24)}
+      PGDATA: /var/lib/postgresql/data   # chemin stable : PG18 a déplacé le PGDATA par défaut vers un sous-dossier versionné — l'épingler garde les données dans le volume monté (ADR-039)
     volumes:
       - akerdock_pgdata:/var/lib/postgresql/data
       - ./backups:/backups               # dumps locaux visibles sur l'hôte (§5.1)

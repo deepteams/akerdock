@@ -62,12 +62,18 @@ services:
     stop_grace_period: 40s               # > AKERDOCK_SHUTDOWN_TIMEOUT (30s, §6.5)
 
   postgres:
-    image: postgres:17
+    image: postgres:18
     restart: unless-stopped
     environment:
       POSTGRES_USER: akerdock
       POSTGRES_DB: akerdock
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required (openssl rand -hex 24)}
+      # Pin the data path: PostgreSQL 18's image moved its default PGDATA to a
+      # per-version subdir (/var/lib/postgresql/18/docker). Without this, a bump
+      # would write outside the mounted volume — data lost on restart — and an
+      # existing volume would be ignored. Keeping the stable path also lets the
+      # in-place major upgrade (ADR-039) run at one location across versions.
+      PGDATA: /var/lib/postgresql/data
     volumes:
       - akerdock_pgdata:/var/lib/postgresql/data
       - ./backups:/backups               # local dumps, visible from the host (§5.1)

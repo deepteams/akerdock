@@ -80,12 +80,17 @@ docker run --rm -v "$PGVOL":/from:ro -v "$PWD/backups":/to busybox \
   tar czf "/to/$archive" -C /from .
 [ -s "backups/$archive" ] || die "the backup archive is empty — aborting before touching the data"
 
-img="pgautoupgrade/pgautoupgrade:${target_major}-bookworm"
+# The -debian variant is glibc-based like the official postgres image we ship:
+# the data dir keeps the same libc collations across the upgrade (a musl/alpine
+# tool on a glibc-inited cluster risks index corruption). It tracks the current
+# Debian per major, so it exists for every major we might target.
+img="pgautoupgrade/pgautoupgrade:${target_major}-debian"
 say "running the in-place upgrade with $img"
 docker pull "$img" >/dev/null
 if ! docker run --rm \
     -e POSTGRES_USER=akerdock -e POSTGRES_DB=akerdock -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     -e PGAUTO_ONESHOT=yes \
+    -e PGDATA=/var/lib/postgresql/data \
     -v "$PGVOL":/var/lib/postgresql/data \
     "$img"; then
   warn "the in-place upgrade FAILED — the data volume may be partially migrated."
