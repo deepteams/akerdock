@@ -32,6 +32,32 @@ type Storage = components['schemas']['PersistentStorage'];
 type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
 
 /**
+ * Normalise a git remote (scp-like `git@host:owner/repo.git`, `ssh://…`, or an
+ * http(s) URL) into the browsable https base — so a PR/commit path can be
+ * appended. Empty stays empty. Mirror of the backend `browsableRepo` helper.
+ */
+function browsableRepo(raw: string | null | undefined): string {
+  let s = (raw ?? '').trim();
+  if (!s) return '';
+  s = s.replace(/\.git$/, '');
+  if (s.startsWith('git@')) {
+    const rest = s.slice(4);
+    const i = rest.indexOf(':');
+    if (i >= 0) s = 'https://' + rest.slice(0, i) + '/' + rest.slice(i + 1).replace(/^\//, '');
+  } else if (s.startsWith('ssh://')) {
+    try {
+      const u = new URL(s);
+      s = 'https://' + u.host.replace(/^.*@/, '') + u.pathname;
+    } catch {
+      /* leave as-is */
+    }
+  } else if (s.startsWith('http://')) {
+    s = 'https://' + s.slice('http://'.length);
+  }
+  return s.replace(/\/+$/, '');
+}
+
+/**
  * Everything of ONE PR instance, in the same tabbed layout as the
  * application page (§20.4): logs of its containers, its derived volumes,
  * the preview variable set, and its own danger zone — because debugging a
@@ -73,10 +99,28 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
         }
         <span class="spacer"></span>
         @if (p.source_branch) {
-          <span class="akd-badge akd-badge--mono">{{ p.source_branch }}</span>
+          @if (links()?.pr; as href) {
+            <a
+              class="akd-badge akd-badge--mono gitlink"
+              [href]="href"
+              target="_blank"
+              rel="noopener"
+              [title]="'Open PR #' + p.pr_id"
+            >
+              <akd-icon name="git-branch" [size]="13" />{{ p.source_branch }}
+            </a>
+          } @else {
+            <span class="akd-badge akd-badge--mono">{{ p.source_branch }}</span>
+          }
         }
         @if (p.head_sha; as sha) {
-          <span class="akd-badge akd-badge--mono">{{ sha.slice(0, 12) }}</span>
+          @if (links()?.commit; as href) {
+            <a class="akd-badge akd-badge--mono gitlink" [href]="href" target="_blank" rel="noopener">
+              {{ sha.slice(0, 8) }}
+            </a>
+          } @else {
+            <span class="akd-badge akd-badge--mono">{{ sha.slice(0, 8) }}</span>
+          }
         }
         @if (p.status !== 'destroyed' && p.status !== 'destroying') {
           <button
@@ -127,11 +171,31 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
               </div>
               <div>
                 <dt>Branch</dt>
-                <dd class="akd-mono">{{ p.source_branch ?? '—' }}</dd>
+                <dd class="akd-mono">
+                  @if (p.source_branch; as b) {
+                    @if (links()?.pr; as href) {
+                      <a [href]="href" target="_blank" rel="noopener">{{ b }}</a>
+                    } @else {
+                      {{ b }}
+                    }
+                  } @else {
+                    —
+                  }
+                </dd>
               </div>
               <div>
                 <dt>Head</dt>
-                <dd class="akd-mono">{{ p.head_sha ?? '—' }}</dd>
+                <dd class="akd-mono">
+                  @if (p.head_sha; as sha) {
+                    @if (links()?.commit; as href) {
+                      <a [href]="href" target="_blank" rel="noopener">{{ sha.slice(0, 8) }}</a>
+                    } @else {
+                      {{ sha.slice(0, 8) }}
+                    }
+                  } @else {
+                    —
+                  }
+                </dd>
               </div>
               <div>
                 <dt>URL</dt>
@@ -354,6 +418,15 @@ type TabId = 'overview' | 'logs' | 'terminal' | 'envs' | 'storages' | 'danger';
       .spacer {
         flex: 1;
       }
+      a.gitlink {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-1);
+        text-decoration: none;
+      }
+      a.gitlink:hover {
+        text-decoration: underline;
+      }
       .akd-tabs {
         margin-bottom: var(--space-4);
       }
@@ -470,7 +543,33 @@ export class PreviewDetailComponent {
   protected readonly appName = signal<string>('');
   /** Build pack of the parent app — single-container unless 'compose'. */
   protected readonly appBuildPack = signal<string | null>(null);
+  /** Raw git remote of the parent app (git source) — used to build forge links. */
+  private readonly appRepo = signal<string | null>(null);
   protected readonly components = signal<ServiceComponent[]>([]);
+
+  /**
+   * Browsable forge links for this PR: the pull request itself and the head
+   * commit. Built from the app's git remote (normalised to https) + the
+   * preview's provider/pr_id/head_sha. Null when the data is missing or the
+   * forge is unknown.
+   */
+  protected readonly links = computed(() => {
+    const p = this.preview();
+    const base = browsableRepo(this.appRepo());
+    if (!p || !base) return null;
+    const paths: Record<string, { commit: string; pr: string }> = {
+      github: { commit: '/commit/', pr: '/pull/' },
+      gitlab: { commit: '/-/commit/', pr: '/-/merge_requests/' },
+      gitea: { commit: '/commit/', pr: '/pulls/' },
+      bitbucket: { commit: '/commits/', pr: '/pull-requests/' },
+    };
+    const forge = p.provider ? paths[p.provider] : undefined;
+    return {
+      repo: base,
+      pr: forge && p.pr_id ? base + forge.pr + p.pr_id : null,
+      commit: forge && p.head_sha ? base + forge.commit + p.head_sha : null,
+    };
+  });
 
   /** A single-container preview (no compose services): show one instance panel. */
   protected readonly single = computed(() => !!this.preview() && this.appBuildPack() !== 'compose');
@@ -567,6 +666,7 @@ export class PreviewDetailComponent {
       }
       this.appName.set(application.name);
       this.appBuildPack.set(application.build_pack ?? null);
+      this.appRepo.set(application.git_repository ?? null);
       this.preview.set(preview);
       this.components.set(comps.data);
       this.storages.set(storages.data);

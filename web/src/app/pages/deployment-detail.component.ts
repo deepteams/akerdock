@@ -279,11 +279,14 @@ export class DeploymentDetailComponent {
     };
     const p = d.provider ? paths[d.provider] : undefined;
     const enc = (s: string) => s.split('/').map(encodeURIComponent).join('/');
+    const pr = p && d.pr_id ? base + p.pr + d.pr_id : null;
     return {
       repo: base,
-      branch: p && d.branch ? base + p.branch + enc(d.branch) : null,
+      // A preview deployment: send the branch straight to its PR — that is what
+      // is actually useful. A plain branch deploy links to the branch tree.
+      branch: pr ?? (p && d.branch ? base + p.branch + enc(d.branch) : null),
       commit: p && d.commit_sha ? base + p.commit + d.commit_sha : null,
-      pr: p && d.pr_id ? base + p.pr + d.pr_id : null,
+      pr,
     };
   });
 
