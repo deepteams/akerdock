@@ -54,7 +54,7 @@ func TestWakerConfigSingleContainerFallback(t *testing.T) {
 	}
 }
 
-func TestWakerConfigWakeOrderIncludesDependencies(t *testing.T) {
+func TestWakerConfigWakeSetIncludesDependencies(t *testing.T) {
 	// A compose stack: only `web` is routed, but the wake set must carry the
 	// whole stack in start order — a stopped dependency loses its DNS alias,
 	// so waking `web` alone boots it against a name that no longer resolves.
@@ -62,7 +62,11 @@ func TestWakerConfigWakeOrderIncludesDependencies(t *testing.T) {
 		AppUUID: "app-1",
 		Routes:  []proxy.Route{{FQDN: "app.example.com", Path: "/", TargetPort: 8080, Endpoint: "app-1-web"}},
 	}
-	cfg := wakerConfigFromRouteGroup("app-1", rg, []string{"app-1-nats", "app-1-postgres", "app-1-web"})
+	cfg := wakerConfigFromRouteGroup("app-1", rg, []waker.WakeContainer{
+		{Container: "app-1-nats"},
+		{Container: "app-1-postgres"},
+		{Container: "app-1-web", Needs: []string{"app-1-nats", "app-1-postgres"}},
+	})
 
 	got := cfg.Resources[0].Containers
 	want := []string{"app-1-nats", "app-1-postgres", "app-1-web"}
@@ -74,16 +78,21 @@ func TestWakerConfigWakeOrderIncludesDependencies(t *testing.T) {
 			t.Fatalf("wake set = %v, want %v (start order preserved)", got, want)
 		}
 	}
+	// The dependency graph ships with the config.
+	ws := cfg.Resources[0].WakeSet
+	if len(ws) != 3 || ws[2].Container != "app-1-web" || len(ws[2].Needs) != 2 {
+		t.Fatalf("wake graph = %#v, want web needing nats+postgres", ws)
+	}
 }
 
-func TestWakerConfigRoutedContainerAppendedWhenMissingFromOrder(t *testing.T) {
-	// A routed container absent from the declared order (defensive: a stale
-	// plan) is appended LAST — its dependencies wake first.
+func TestWakerConfigRoutedContainerAppendedWhenMissingFromSet(t *testing.T) {
+	// A routed container absent from the declared set (defensive: a stale
+	// plan) is appended LAST, dependency-free.
 	rg := proxy.RouteGroup{
 		AppUUID: "app-1",
 		Routes:  []proxy.Route{{FQDN: "app.example.com", Path: "/", TargetPort: 8080, Endpoint: "app-1-web"}},
 	}
-	cfg := wakerConfigFromRouteGroup("app-1", rg, []string{"app-1-nats"})
+	cfg := wakerConfigFromRouteGroup("app-1", rg, []waker.WakeContainer{{Container: "app-1-nats"}})
 
 	got := cfg.Resources[0].Containers
 	if len(got) != 2 || got[0] != "app-1-nats" || got[1] != "app-1-web" {
@@ -91,15 +100,30 @@ func TestWakerConfigRoutedContainerAppendedWhenMissingFromOrder(t *testing.T) {
 	}
 }
 
-func TestStackWakeOrderSkipsOneShot(t *testing.T) {
+func TestStackWakeSetSkipsOneShotAndResolvesDeps(t *testing.T) {
 	plan := &compose.Plan{Services: []compose.ServicePlan{
 		{Name: "nats", ContainerName: "app-1-nats"},
-		{Name: "migrate", ContainerName: "app-1-migrate", OneShot: true},
-		{Name: "web", ContainerName: "app-1-web"},
+		{Name: "migrate", ContainerName: "app-1-migrate", OneShot: true,
+			DependsOn: []compose.Dependency{{Service: "nats", Condition: "service_started"}}},
+		{Name: "web", ContainerName: "app-1-web", DependsOn: []compose.Dependency{
+			{Service: "nats", Condition: "service_started"},
+			{Service: "migrate", Condition: "service_completed_successfully"},
+		}},
+		{Name: "worker", ContainerName: "app-1-worker", DependsOn: []compose.Dependency{
+			{Service: "nats", Condition: "service_started"},
+		}},
 	}}
-	got := stackWakeOrder(plan)
-	if len(got) != 2 || got[0] != "app-1-nats" || got[1] != "app-1-web" {
-		t.Fatalf("wake order = %v, want [app-1-nats app-1-web] (one-shot excluded, order kept)", got)
+	got := stackWakeSet(plan)
+	if len(got) != 3 || got[0].Container != "app-1-nats" || got[1].Container != "app-1-web" || got[2].Container != "app-1-worker" {
+		t.Fatalf("wake set = %#v, want [nats web worker] (one-shot excluded, order kept)", got)
+	}
+	// web's edge to the one-shot migrate job is dropped (it ran at deploy);
+	// its edge to nats is container-resolved. worker does NOT depend on web.
+	if len(got[1].Needs) != 1 || got[1].Needs[0] != "app-1-nats" {
+		t.Fatalf("web needs = %v, want [app-1-nats] only", got[1].Needs)
+	}
+	if len(got[2].Needs) != 1 || got[2].Needs[0] != "app-1-nats" {
+		t.Fatalf("worker needs = %v, want [app-1-nats] — independent of web", got[2].Needs)
 	}
 }
 

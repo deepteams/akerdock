@@ -77,8 +77,9 @@ func (a *fakeActivity) Record(uuid string, at time.Time) error {
 	return nil
 }
 
-// newTestWaker wires a Waker to a backend httptest server and fast timings.
-func newTestWaker(t *testing.T, d *fakeDocker, act Activity) (*Waker, *int32, func()) {
+// newTestWakerRes wires a Waker with an explicit wake resource to a backend
+// httptest server and fast timings.
+func newTestWakerRes(t *testing.T, d *fakeDocker, act Activity, res Resource) (*Waker, *int32, func()) {
 	t.Helper()
 	var hits int32
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -87,14 +88,20 @@ func newTestWaker(t *testing.T, d *fakeDocker, act Activity) (*Waker, *int32, fu
 	}))
 	u, _ := url.Parse(backend.URL)
 	cfg := Config{
-		Routes:    []Route{{Host: "app.example.com", ResourceUUID: "res-1", Container: u.Hostname(), Port: mustPort(t, u)}},
-		Resources: []Resource{{UUID: "res-1", Containers: []string{"c1", "c2"}}},
+		Routes:    []Route{{Host: "app.example.com", ResourceUUID: res.UUID, Container: u.Hostname(), Port: mustPort(t, u)}},
+		Resources: []Resource{res},
 	}
 	w := New(cfg, d, act, nil)
 	w.Poll = time.Millisecond
 	w.StableFor = 0
 	w.WakeTimeout = 200 * time.Millisecond
 	return w, &hits, backend.Close
+}
+
+// newTestWaker is newTestWakerRes with the default two-container flat resource.
+func newTestWaker(t *testing.T, d *fakeDocker, act Activity) (*Waker, *int32, func()) {
+	t.Helper()
+	return newTestWakerRes(t, d, act, Resource{UUID: "res-1", Containers: []string{"c1", "c2"}})
 }
 
 func mustPort(t *testing.T, u *url.URL) int {
@@ -173,9 +180,8 @@ func TestWakeTimeout(t *testing.T) {
 }
 
 func TestWakeStartsInDeclaredOrder(t *testing.T) {
-	// The wake set is listed in the stack's compose start order: c1 (the
-	// dependency) must be started — and ready — before c2 (the app), exactly
-	// like the deploy did. Both wake here (StableFor=0), in order.
+	// A dependency-free set starts within one pass, in the declared order —
+	// like `docker compose up` starting independent services together.
 	d := newFakeDocker()
 	w, _, closeFn := newTestWaker(t, d, &fakeActivity{})
 	defer closeFn()
@@ -189,14 +195,21 @@ func TestWakeStartsInDeclaredOrder(t *testing.T) {
 }
 
 func TestWakeGatesOnDependencyReadiness(t *testing.T) {
-	// A dependency stuck "starting" must HOLD the wake: the next container of
-	// the order is never started against a dependency that is not ready, and
+	// A declared dependency (c2 needs c1) stuck "starting" must HOLD c2's
+	// start: it is never booted against a dependency that is not ready, and
 	// the failed wake rolls the started dependency back to stopped — otherwise
 	// the stack is left half-awake in a crash-loop the control plane believes
 	// asleep.
 	d := newFakeDocker()
 	d.health["c1"] = "starting" // never ready
-	w, _, closeFn := newTestWaker(t, d, &fakeActivity{})
+	w, _, closeFn := newTestWakerRes(t, d, &fakeActivity{}, Resource{
+		UUID:       "res-1",
+		Containers: []string{"c1", "c2"},
+		WakeSet: []WakeContainer{
+			{Container: "c1"},
+			{Container: "c2", Needs: []string{"c1"}},
+		},
+	})
 	defer closeFn()
 
 	rr := httptest.NewRecorder()
@@ -215,6 +228,42 @@ func TestWakeGatesOnDependencyReadiness(t *testing.T) {
 	defer d.mu.Unlock()
 	if d.running["c1"] {
 		t.Fatal("c1 left running after a failed wake — the resource must return to its slept state")
+	}
+}
+
+func TestIndependentServiceNotHostageToSibling(t *testing.T) {
+	// The worker case of 2026-07-27: `worker` does not depend on `frontend`,
+	// so it must start as soon as ITS dependencies are met, even while
+	// frontend is still failing its healthcheck — exactly like `docker
+	// compose up`. The wake still fails on frontend and rolls BOTH back.
+	d := newFakeDocker()
+	d.health["frontend"] = "starting" // never ready
+	w, _, closeFn := newTestWakerRes(t, d, &fakeActivity{}, Resource{
+		UUID:       "res-1",
+		Containers: []string{"nats", "frontend", "worker"},
+		WakeSet: []WakeContainer{
+			{Container: "nats"},
+			{Container: "frontend", Needs: []string{"nats"}},
+			{Container: "worker", Needs: []string{"nats"}},
+		},
+	})
+	defer closeFn()
+
+	rr := httptest.NewRecorder()
+	w.ServeHTTP(rr, request("app.example.com", ""))
+
+	if rr.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504 (frontend never ready)", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "frontend") {
+		t.Fatalf("failure must name the blocker: %q", rr.Body.String())
+	}
+	if d.starts["worker"] != 1 {
+		t.Fatalf("worker must start behind nats without waiting for frontend: %v", d.starts)
+	}
+	// Rollback stops everything this wake started, in reverse start order.
+	if len(d.stops) != 3 {
+		t.Fatalf("rollback stops = %v, want the three wake-started containers", d.stops)
 	}
 }
 

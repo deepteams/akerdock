@@ -30,16 +30,18 @@ const wakerDir = "/var/lib/akerdock/waker"
 // resolves. Routed containers absent from wakeOrder are appended last: their
 // dependencies wake first. An empty wakeOrder — a plain single-container app —
 // falls back to the routed containers alone.
-func wakerConfigFromRouteGroup(resourceUUID string, rg proxy.RouteGroup, wakeOrder []string) waker.Config {
+func wakerConfigFromRouteGroup(resourceUUID string, rg proxy.RouteGroup, wakeSet []waker.WakeContainer) waker.Config {
 	seen := map[string]bool{}
 	var containers []string
-	add := func(c string) {
-		if c != "" && !seen[c] {
-			seen[c] = true
-			containers = append(containers, c)
+	var set []waker.WakeContainer
+	add := func(c waker.WakeContainer) {
+		if c.Container != "" && !seen[c.Container] {
+			seen[c.Container] = true
+			containers = append(containers, c.Container)
+			set = append(set, c)
 		}
 	}
-	for _, c := range wakeOrder {
+	for _, c := range wakeSet {
 		add(c)
 	}
 	var routes []waker.Route
@@ -59,27 +61,55 @@ func wakerConfigFromRouteGroup(resourceUUID string, rg proxy.RouteGroup, wakeOrd
 	}
 	sort.Strings(routed)
 	for _, c := range routed {
-		add(c)
+		add(waker.WakeContainer{Container: c})
+	}
+	res := waker.Resource{UUID: resourceUUID, Containers: containers}
+	// The dependency graph is only worth shipping when edges exist; a flat set
+	// (plain app, routed-only fallback) wakes dependency-free either way.
+	for _, c := range set {
+		if len(c.Needs) > 0 {
+			res.WakeSet = set
+			break
+		}
 	}
 	return waker.Config{
 		Routes:    routes,
-		Resources: []waker.Resource{{UUID: resourceUUID, Containers: containers}},
+		Resources: []waker.Resource{res},
 	}
 }
 
-// stackWakeOrder is a compose stack's scale-to-zero wake set: every service
-// container in topological start order (compose-spec §2.6). One-shot jobs
-// (restart:no, §7.3) are excluded — `docker start` on a completed job would
+// stackWakeSet is a compose stack's scale-to-zero wake set: every service
+// container in topological start order (compose-spec §2.6), each carrying its
+// depends_on edges container-resolved — so the waker reproduces `docker
+// compose up`'s start behavior. One-shot jobs (restart:no, §7.3) are excluded
+// from the set and from the edges — `docker start` on a completed job would
 // re-run it, and its exited state would never count as ready.
-func stackWakeOrder(plan *compose.Plan) []string {
-	var order []string
+func stackWakeSet(plan *compose.Plan) []waker.WakeContainer {
+	oneShot := map[string]bool{}
+	containerOf := map[string]string{}
+	for _, sp := range plan.Services {
+		containerOf[sp.Name] = sp.ContainerName
+		if sp.OneShot {
+			oneShot[sp.Name] = true
+		}
+	}
+	var set []waker.WakeContainer
 	for _, sp := range plan.Services {
 		if sp.OneShot {
 			continue
 		}
-		order = append(order, sp.ContainerName)
+		wc := waker.WakeContainer{Container: sp.ContainerName}
+		for _, dep := range sp.DependsOn {
+			if oneShot[dep.Service] {
+				continue
+			}
+			if cn, ok := containerOf[dep.Service]; ok {
+				wc.Needs = append(wc.Needs, cn)
+			}
+		}
+		set = append(set, wc)
 	}
-	return order
+	return set
 }
 
 // pointRouteGroupAtWaker rewrites every route to target the waker container, so

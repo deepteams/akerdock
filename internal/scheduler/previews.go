@@ -127,8 +127,12 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 		scan.reconcile(server, network, client)
 		uuid := pguuid.String(p.Uuid)
 		last := readWakerActivity(ctx, client, uuid)
-		if last.IsZero() { // no activity yet: fall back to the last known times
-			last = latestOf(p.LastActivityAt, p.LastDeployedAt)
+		// A redeploy IS activity: the waker file only moves on proxied
+		// requests, so a preview relaunched after it slept would otherwise
+		// read as idle since its stale file and be re-slept — and shown
+		// sleeping — right after deploying. Take the latest of every signal.
+		if dbLast := latestOf(p.LastActivityAt, p.LastDeployedAt); dbLast.After(last) {
+			last = dbLast
 		}
 		if last.IsZero() || !idlePastWindow(last, p.ScaleToZeroAfterMinutes, now) {
 			continue
@@ -205,7 +209,10 @@ func (s *Scheduler) scaleZeroApplications(ctx context.Context) {
 		scan.reconcile(server, network, client)
 		uuid := pguuid.String(a.Uuid)
 		last := readWakerActivity(ctx, client, uuid)
-		if last.IsZero() { // no request recorded yet: fall back to the last deploy/update
+		// Same rule as previews: a fresh deploy/update counts as activity, or
+		// a stale waker file would put a just-redeployed app straight back to
+		// sleep.
+		if a.UpdatedAt.Valid && a.UpdatedAt.Time.After(last) {
 			last = a.UpdatedAt.Time
 		}
 		if last.IsZero() || !idlePastWindow(last, a.ScaleToZeroAfterMinutes, now) {

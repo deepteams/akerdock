@@ -60,12 +60,40 @@ type Route struct {
 }
 
 // Resource is the wake unit: the containers started together (a whole compose
-// stack, or a single container for a plain app), listed in the stack's
-// topological start order (§2.6) — the waker wakes them in this order, each
-// one ready before the next starts, exactly like the deploy did.
+// stack, or a single container for a plain app). Containers is the full set in
+// topological start order (§2.6) — used for the readiness fast-path and the
+// waiting page. WakeSet carries the compose depends_on graph: each container
+// starts as soon as ITS dependencies are satisfied, like `docker compose up` —
+// independent services wake in parallel, never hostage to an unrelated
+// sibling's healthcheck. Absent WakeSet (older configs, plain apps), the
+// containers are dependency-free.
 type Resource struct {
-	UUID       string   `json:"uuid"`
-	Containers []string `json:"containers"`
+	UUID       string          `json:"uuid"`
+	Containers []string        `json:"containers"`
+	WakeSet    []WakeContainer `json:"wake_set,omitempty"`
+}
+
+// WakeContainer is one member of the wake set with its start dependencies.
+type WakeContainer struct {
+	Container string `json:"container"`
+	// Needs lists the containers this one waits for before starting — the
+	// compose depends_on edges, container-name resolved. A dependency this
+	// wake started must be READY (healthy, or running-stable); one already
+	// running before the wake satisfies its edge as-is.
+	Needs []string `json:"needs,omitempty"`
+}
+
+// wakeSet returns the resource's wake plan: the declared dependency graph, or
+// a dependency-free set derived from Containers for configs predating it.
+func (r Resource) wakeSet() []WakeContainer {
+	if len(r.WakeSet) > 0 {
+		return r.WakeSet
+	}
+	out := make([]WakeContainer, 0, len(r.Containers))
+	for _, c := range r.Containers {
+		out = append(out, WakeContainer{Container: c})
+	}
+	return out
 }
 
 // Config is the routing table the control plane deposits for the waker
@@ -220,7 +248,8 @@ func (w *Waker) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		w.log().Warn("waker: wake failed", "host", hostname(req.Host),
 			"resource", route.ResourceUUID, "container", route.Container, "error", err)
 		if errors.Is(err, errWakeTimeout) {
-			http.Error(rw, "wake timed out", http.StatusGatewayTimeout)
+			// The full error names the container the wake stalled on.
+			http.Error(rw, err.Error(), http.StatusGatewayTimeout)
 		} else {
 			// Operational failure (Docker socket unreachable, container missing,
 			// API version…): report it instead of masking it as a timeout.
@@ -452,14 +481,18 @@ func (w *Waker) gateFor(uuid string) *sync.Mutex {
 	return g
 }
 
-// ensureAwake wakes the resource's containers in their listed order — the
-// stack's compose start order — waiting for each to be ready before starting
-// the next, so a dependency (database, broker) is up and resolvable before the
-// service that needs it boots. Blocks until all are ready or the wake budget
-// runs out. Serialised per resource so concurrent first-requests share one
-// wake. A failed wake stops the containers this attempt started, so the
-// resource returns to its slept state instead of crash-looping half-awake
-// while the control plane still believes it asleep.
+// ensureAwake wakes the resource's containers along the compose depends_on
+// graph, like `docker compose up`: a container starts as soon as its own
+// dependencies are satisfied, so independent services wake in parallel and a
+// dependency (database, broker) is up and resolvable before the service that
+// needs it boots. Containers already running before the wake are not gated:
+// if one is unhealthy, the app must say so through the proxied response —
+// holding requests on its readiness would queue the whole resource behind the
+// single-flight gate indefinitely. Blocks until every container is released
+// or the wake stalls past the budget. Serialised per resource so concurrent
+// first-requests share one wake. A failed wake stops the containers this
+// attempt started, so the resource returns to its slept state instead of
+// crash-looping half-awake while the control plane still believes it asleep.
 func (w *Waker) ensureAwake(ctx context.Context, uuid string) error {
 	res, ok := w.resource(uuid)
 	if !ok {
@@ -470,62 +503,88 @@ func (w *Waker) ensureAwake(ctx context.Context, uuid string) error {
 	g.Lock()
 	defer g.Unlock()
 
+	set := res.wakeSet()
+	inSet := make(map[string]bool, len(set))
+	for _, c := range set {
+		inSet[c.Container] = true
+	}
 	firstRunning := make(map[string]time.Time)
 	startedByWake := map[string]bool{}
+	released := map[string]bool{}
 	var started []string
 
 	err := func() error {
-		for _, c := range res.Containers {
-			// Each container gets the full wake budget from the moment it
-			// becomes the current one: a five-service stack is not asked to
-			// cold-start inside the budget of a single container — the
-			// stability windows and start_periods of its predecessors would
-			// eat it whole (the deploy budgets per service the same way).
-			deadline := w.now().Add(w.WakeTimeout)
-			for {
-				st, err := w.docker.Inspect(ctx, c)
+		// The budget is per progress step, not global: the deadline re-arms
+		// every time a container is newly released, so a five-service stack
+		// is not asked to cold-start inside the budget of one container, and
+		// a genuinely stuck container still fails within one budget.
+		deadline := w.now().Add(w.WakeTimeout)
+		for {
+			progress := false
+			blocked := ""
+			for _, c := range set {
+				if released[c.Container] {
+					continue
+				}
+				st, err := w.docker.Inspect(ctx, c.Container)
 				if err != nil {
 					return err
 				}
-				if st.Running {
-					// A container already running before this wake is not this
-					// cold start's to gate: if it is unhealthy, the app must
-					// say so through the proxied response — exactly as it
-					// would without scale-to-zero. Holding every request on
-					// its readiness would queue the whole resource behind the
-					// single-flight gate, 60 s per request, indefinitely.
-					if !startedByWake[c] {
-						break
-					}
-					if w.ready(c, st, firstRunning) {
-						break // awake — move on to the next of the order
-					}
-				} else {
+				switch {
+				case st.Running && (!startedByWake[c.Container] || w.ready(c.Container, st, firstRunning)):
+					released[c.Container] = true
+					progress = true
+				case !st.Running && w.depsMet(c, released, inSet):
 					// Idempotent: starting an already-running container is harmless.
-					if err := w.docker.Start(ctx, c); err != nil {
+					if err := w.docker.Start(ctx, c.Container); err != nil {
 						return err
 					}
-					if !startedByWake[c] {
-						startedByWake[c] = true
-						started = append(started, c)
+					if !startedByWake[c.Container] {
+						startedByWake[c.Container] = true
+						started = append(started, c.Container)
 					}
-					delete(firstRunning, c)
-				}
-				if !w.now().Before(deadline) {
-					return fmt.Errorf("%w: %s waiting for %s after %s",
-						errWakeTimeout, uuid, c, w.WakeTimeout)
-				}
-				if err := sleepCtx(ctx, w.Poll); err != nil {
-					return err
+					delete(firstRunning, c.Container)
+					if blocked == "" {
+						blocked = c.Container
+					}
+				default:
+					if blocked == "" {
+						blocked = c.Container
+					}
 				}
 			}
+			if len(released) == len(set) {
+				return nil
+			}
+			if progress {
+				deadline = w.now().Add(w.WakeTimeout)
+			}
+			if !w.now().Before(deadline) {
+				return fmt.Errorf("%w: %s waiting for %s after %s",
+					errWakeTimeout, uuid, blocked, w.WakeTimeout)
+			}
+			if err := sleepCtx(ctx, w.Poll); err != nil {
+				return err
+			}
 		}
-		return nil
 	}()
 	if err != nil {
 		w.rollback(uuid, started)
 	}
 	return err
+}
+
+// depsMet reports whether every depends_on edge of c is satisfied: the
+// dependency is released — running as found, or ready when this wake started
+// it. Edges to containers outside the wake set (one-shot jobs) are satisfied
+// by construction: they ran at deploy time.
+func (w *Waker) depsMet(c WakeContainer, released, inSet map[string]bool) bool {
+	for _, dep := range c.Needs {
+		if inSet[dep] && !released[dep] {
+			return false
+		}
+	}
+	return true
 }
 
 // rollback stops the containers a failed wake started, in reverse order —
