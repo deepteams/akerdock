@@ -1160,6 +1160,10 @@ func (r *deploymentRun) renderBuildEnv(ctx context.Context) (string, buildInputs
 			return "", buildInputs{}, err
 		}
 	}
+	// {{deployment.*}} resolves in build-time values too, so a frontend can bake
+	// its own URL / CORS origin at build (interpolation into a value the operator
+	// wrote — not a new auto --build-arg, so no Dockerfile ARG warnings).
+	r.mergeDeploymentRefs(&shared, r.deploymentRefs(ctx))
 	var b strings.Builder
 	var inputs buildInputs
 	for _, v := range vars {
@@ -1420,6 +1424,44 @@ func chownEmptyVolumesScript(imageRef string, volumes []string) string {
 	return b.String()
 }
 
+// deploymentRefs are the {{deployment.*}} interpolation values and the source
+// of the AKERDOCK_FQDN/URL/PR_ID predefined variables: the deployment's OWN
+// public identity, resolved identically in production (the application's primary
+// domain) and previews (the generated preview FQDN, which changes per PR). Empty
+// fqdn/url when the deployment has no domain yet.
+func (r *deploymentRun) deploymentRefs(ctx context.Context) map[string]string {
+	refs := map[string]string{}
+	fqdn := ""
+	if r.preview != nil {
+		refs["deployment.pr_id"] = strconv.Itoa(int(r.preview.PrID))
+		if r.preview.Fqdn != nil {
+			fqdn = *r.preview.Fqdn
+		}
+	} else if domains, err := r.h.Store.ListDomainsForApplication(ctx, &r.app.Resource.ID); err == nil && len(domains) > 0 {
+		fqdn = domains[0].Fqdn
+	}
+	if fqdn != "" {
+		refs["deployment.fqdn"] = fqdn
+		refs["deployment.url"] = "https://" + fqdn
+	}
+	return refs
+}
+
+// mergeDeploymentRefs adds the {{deployment.*}} pseudo-scope to a resolved
+// sharedEnv so interpolation resolves it — for previews too, where the plain
+// shared set is skipped (INV-010): a deployment's own FQDN is not a secret.
+func (r *deploymentRun) mergeDeploymentRefs(shared *sharedEnv, dep map[string]string) {
+	if len(dep) == 0 {
+		return
+	}
+	if shared.refs == nil {
+		shared.refs = map[string]string{}
+	}
+	for k, v := range dep {
+		shared.refs[k] = v
+	}
+}
+
 // renderRuntimeEnv decrypts the application's variables into the
 // the shell file sourced before `docker create` (§5.2). Values are
 // shell-quoted, so multiline secrets survive intact.
@@ -1446,6 +1488,8 @@ func (r *deploymentRun) renderRuntimeEnv(ctx context.Context) (string, []string,
 			return "", nil, err
 		}
 	}
+	dep := r.deploymentRefs(ctx)
+	r.mergeDeploymentRefs(&shared, dep)
 	var b strings.Builder
 	keys := make([]string, 0, len(vars))
 	seen := map[string]bool{}
@@ -1474,14 +1518,17 @@ func (r *deploymentRun) renderRuntimeEnv(ctx context.Context) (string, []string,
 		fmt.Fprintf(&b, "export %s=%s\n", k, shellQuote(shared.server[k]))
 		keys = append(keys, k)
 	}
-	if r.preview != nil {
-		fmt.Fprintf(&b, "export AKERDOCK_PR_ID=%d\n", r.preview.PrID)
+	// The same deployment identity as the {{deployment.*}} tokens, also exposed
+	// as standalone predefined variables (§5.2) for apps that read them directly:
+	// AKERDOCK_FQDN/URL (own public address) and AKERDOCK_PR_ID (previews).
+	if v := dep["deployment.pr_id"]; v != "" {
+		fmt.Fprintf(&b, "export AKERDOCK_PR_ID=%s\n", shellQuote(v))
 		keys = append(keys, "AKERDOCK_PR_ID")
-		if r.preview.Fqdn != nil && *r.preview.Fqdn != "" {
-			fmt.Fprintf(&b, "export AKERDOCK_FQDN=%s\n", shellQuote(*r.preview.Fqdn))
-			fmt.Fprintf(&b, "export AKERDOCK_URL=%s\n", shellQuote("https://"+*r.preview.Fqdn))
-			keys = append(keys, "AKERDOCK_FQDN", "AKERDOCK_URL")
-		}
+	}
+	if v := dep["deployment.fqdn"]; v != "" {
+		fmt.Fprintf(&b, "export AKERDOCK_FQDN=%s\n", shellQuote(v))
+		fmt.Fprintf(&b, "export AKERDOCK_URL=%s\n", shellQuote(dep["deployment.url"]))
+		keys = append(keys, "AKERDOCK_FQDN", "AKERDOCK_URL")
 	}
 	return b.String(), keys, nil
 }

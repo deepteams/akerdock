@@ -246,7 +246,7 @@ Les build packs sans étape de build (docker image, rollback) traversent `clonin
 | Prédéfinies (décision §27.22) | Injectées dans `runtime.env` : `AKERDOCK_FQDN`, `AKERDOCK_URL`, `AKERDOCK_BRANCH`, `AKERDOCK_RESOURCE_UUID`, `AKERDOCK_CONTAINER_NAME`, `PORT`, `HOST`, `AKERDOCK_PR_ID` (previews) ; `SOURCE_COMMIT` en build arg **opt-in** (§5.2 PRD) | Comme les catégories ci-dessus |
 
 Règles :
-- Interpolation des shared variables (`{{team.VAR}}`…) et vérification des variables requises `${VAR:?}` **côté control plane, avant enqueue** — un manquement bloque le déploiement en validation, pas à mi-build.
+- Interpolation des shared variables (`{{team.VAR}}`…) et du pseudo-scope `deployment` (`{{deployment.fqdn}}`, `{{deployment.url}}`, `{{deployment.pr_id}}` — l'identité propre du déploiement, résolue au domaine primaire en production et au FQDN de preview qui change par PR ; clés insensibles à la casse) et vérification des variables requises `${VAR:?}` **côté control plane, avant enqueue** — un manquement bloque le déploiement en validation, pas à mi-build.
 - Transfert des fichiers par **SFTP** (contenu jamais dans argv ni dans un heredoc de commande loggée), mode `0600` posé à l'upload.
 - Les fichiers `env/` sont réécrits à chaque déploiement depuis le snapshot ; un déploiement rejoué reproduit exactement les mêmes fichiers (INV-014).
 

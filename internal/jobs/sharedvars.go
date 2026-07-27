@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/pguuid"
@@ -13,10 +14,13 @@ import (
 // Shared variables (§5.4, §3.1): {{team.VAR}} / {{project.VAR}} /
 // {{environment.VAR}} references interpolated inside resource variables,
 // plus server-scoped variables injected into every resource deployed on
-// that server.
+// that server. The `deployment` scope is a built-in pseudo-scope carrying the
+// deployment's OWN identity — {{deployment.fqdn}}, {{deployment.url}},
+// {{deployment.pr_id}} — resolved the same in production and previews, so a
+// value can reference an FQDN that changes per PR (e.g. a CORS origin).
 
 // sharedRefRe matches one {{scope.KEY}} reference.
-var sharedRefRe = regexp.MustCompile(`\{\{(team|project|environment)\.([A-Za-z_][A-Za-z0-9_]*)\}\}`)
+var sharedRefRe = regexp.MustCompile(`\{\{(team|project|environment|deployment)\.([A-Za-z_][A-Za-z0-9_]*)\}\}`)
 
 // sharedEnv is the resolved inheritance of one resource.
 type sharedEnv struct {
@@ -58,7 +62,13 @@ func (s sharedEnv) interpolate(value string) string {
 	}
 	return sharedRefRe.ReplaceAllStringFunc(value, func(m string) string {
 		parts := sharedRefRe.FindStringSubmatch(m)
-		if v, ok := s.refs[parts[1]+"."+parts[2]]; ok {
+		key := parts[1] + "." + parts[2]
+		// The deployment pseudo-scope has fixed keys (fqdn/url/pr_id); accept any
+		// case so {{deployment.URL}} and {{deployment.url}} both resolve.
+		if parts[1] == "deployment" {
+			key = "deployment." + strings.ToLower(parts[2])
+		}
+		if v, ok := s.refs[key]; ok {
 			return v
 		}
 		return m

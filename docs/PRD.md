@@ -149,6 +149,7 @@ Retiré du périmètre produit (ADR-027, réévaluable sur demande avérée). La
 - Types spéciaux : **multiline** (clés, certificats), **literal** (pas d'interpolation), **locked** (masquée, non rééditable).
 - Deux vues : Normal (cartes) et **Developer** (éditeur `.env` bulk).
 - **Shared variables** hiérarchiques : `{{team.VAR}}`, `{{project.VAR}}`, `{{environment.VAR}}`, complétées par les variables partagées du serveur cible.
+- **Pseudo-scope `deployment`** (identité propre du déploiement) : `{{deployment.fqdn}}`, `{{deployment.url}}`, `{{deployment.pr_id}}`, interpolables dans une valeur (build et runtime) — résolus au domaine primaire de l'app en production et au FQDN généré en preview (qui change par PR), utile pour composer une origine CORS ou une URL de callback. Exposés aussi comme prédéfinies `AKERDOCK_FQDN`/`AKERDOCK_URL`/`AKERDOCK_PR_ID`.
 - Variables prédéfinies : `AKERDOCK_FQDN`, `AKERDOCK_URL`, `AKERDOCK_BRANCH`, `AKERDOCK_RESOURCE_UUID`, `AKERDOCK_CONTAINER_NAME`, `SOURCE_COMMIT`, `PORT`, `HOST`, `AKERDOCK_PR_ID` (ADR-022).
 - **Magic variables** (compose/services) : `SERVICE_<TYPE>_<ID>` — `URL`, `FQDN`, `USER`, `PASSWORD(_64)`, `PASSWORDWITHSYMBOLS(_64)`, `BASE64_32/64/128`, `REALBASE64_*`, `HEX_*`. Générées par la plateforme, persistantes entre redéploiements, partagées entre services du stack, éditables en UI.
 - Variables requises : syntaxe `${VAR:?}` (bloque le déploiement si vide).

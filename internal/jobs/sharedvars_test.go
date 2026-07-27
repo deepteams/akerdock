@@ -31,3 +31,27 @@ func TestSharedInterpolate(t *testing.T) {
 		t.Fatalf("empty env must pass through: %q", got)
 	}
 }
+
+func TestDeploymentScopeInterpolate(t *testing.T) {
+	s := sharedEnv{refs: map[string]string{
+		"deployment.fqdn":  "pr-42.example.com",
+		"deployment.url":   "https://pr-42.example.com",
+		"deployment.pr_id": "42",
+	}}
+	cases := map[string]string{
+		"{{deployment.url}}":                        "https://pr-42.example.com",
+		"{{deployment.fqdn}}":                       "pr-42.example.com",
+		"cors: {{deployment.url}},https://other.io": "cors: https://pr-42.example.com,https://other.io",
+		// The deployment pseudo-scope has fixed keys — accept any case.
+		"{{deployment.URL}}":      "https://pr-42.example.com",
+		"{{deployment.Fqdn}}":     "pr-42.example.com",
+		"pr={{deployment.PR_ID}}": "pr=42",
+		// An unknown deployment key stays verbatim, like any other scope.
+		"{{deployment.region}}": "{{deployment.region}}",
+	}
+	for in, want := range cases {
+		if got := s.interpolate(in); got != want {
+			t.Fatalf("interpolate(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
