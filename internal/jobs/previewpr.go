@@ -231,7 +231,7 @@ func HandlePreviewPREvent(ctx context.Context, q *store.Queries, keyring *envelo
 		// credential are already settled above). A human deploys it from AkerDock
 		// or with /deploy; once it is engaged (deploying/active/failed), later
 		// pushes keep updating it here as usual.
-		if !app.Application.PreviewDeployOnOpen && !previewEngaged(preview) {
+		if ManualFirstReserved(app, preview) {
 			feedback := &PreviewFeedback{Store: q, Keyring: keyring, Logger: logger}
 			feedback.Notify(ctx, app, preview, "awaiting_manual_deploy")
 			return "awaiting manual deploy (preview_deploy_on_open=false)", nil
@@ -252,18 +252,27 @@ func HandlePreviewPREvent(ctx context.Context, q *store.Queries, keyring *envelo
 	}
 }
 
-// previewEngaged reports whether a deployment has already been triggered for
+// PreviewEngaged reports whether a deployment has already been triggered for
 // this preview: a fresh row sits at the default 'queued' status with no deploy
 // timestamp, while any promotion moves it to deploying/active (or failed on a
 // bad build). Used by the manual-first policy to tell "never deployed" (gate
 // the webhook) from "already live" (let pushes keep updating it).
-func previewEngaged(p store.Preview) bool {
+func PreviewEngaged(p store.Preview) bool {
 	switch p.Status {
 	case store.PreviewStatusDeploying, store.PreviewStatusActive, store.PreviewStatusFailed:
 		return true
 	default:
 		return p.LastDeployedAt.Valid
 	}
+}
+
+// ManualFirstReserved reports whether a preview exists only as a RESERVATION
+// under the manual-first policy (preview_deploy_on_open=false): no deployment
+// ever ran, and no human ordered one (deploy_requested_at unset). Neither the
+// PR webhook nor the scheduler's capacity queue may promote it — the first
+// deployment belongs to a human (the Previews tab, /deploy) (§20.4).
+func ManualFirstReserved(app store.GetApplicationByIDRow, p store.Preview) bool {
+	return !app.Application.PreviewDeployOnOpen && !p.DeployRequestedAt.Valid && !PreviewEngaged(p)
 }
 
 // ensurePreviewScaffolding gives the preview its URL and the application its

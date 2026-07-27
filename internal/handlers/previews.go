@@ -101,6 +101,9 @@ func (a *API) ApprovePreviewFork(w http.ResponseWriter, r *http.Request, applica
 	if err == nil {
 		refreshed, err := a.Store.GetPreviewByID(r.Context(), preview.ID)
 		if err == nil {
+			// Approving a fork is consenting to build it (§20.4.8) — that is a
+			// deploy order under the manual-first policy too.
+			_ = a.Store.MarkPreviewDeployRequested(r.Context(), refreshed.ID)
 			_, _, _ = jobs.TryPromotePreview(r.Context(), a.Store, a.Logger, appRow, refreshed, false)
 			preview = refreshed
 		}

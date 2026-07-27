@@ -975,8 +975,10 @@ func TestPreviewReaper(t *testing.T) {
 		expired: []store.Preview{{ID: 10, Uuid: testUUID()}},
 		queued:  []store.Preview{fork, disabled, promotable},
 		application: store.GetApplicationByIDRow{
-			Resource:    store.Resource{ID: 3, TeamID: 4, DestinationID: 5},
-			Application: store.Application{PreviewsEnabled: true},
+			Resource: store.Resource{ID: 3, TeamID: 4, DestinationID: 5},
+			// PreviewDeployOnOpen mirrors the DB default (true): the capacity
+			// queue promotes freely in auto mode.
+			Application: store.Application{PreviewsEnabled: true, PreviewDeployOnOpen: true},
 		},
 		destination: store.Destination{ServerID: 6},
 	}
@@ -986,6 +988,22 @@ func TestPreviewReaper(t *testing.T) {
 	}
 	if len(database.previewStatuses) != 3 {
 		t.Fatalf("preview statuses = %#v", database.previewStatuses)
+	}
+
+	// Manual-first policy (preview_deploy_on_open=false): a reserved preview —
+	// no human deploy order, never engaged — shares the 'queued' status, and
+	// the capacity queue must NOT promote it. This was the auto-deploy bypass.
+	manualFirst := &fakeSchedulerStore{
+		queued: []store.Preview{{ID: 7, Uuid: testUUID(), ApplicationID: 3}},
+		application: store.GetApplicationByIDRow{
+			Resource:    store.Resource{ID: 3, TeamID: 4, DestinationID: 5},
+			Application: store.Application{PreviewsEnabled: true},
+		},
+		destination: store.Destination{ServerID: 6},
+	}
+	newScheduler(t, manualFirst).reapPreviews(context.Background())
+	if len(manualFirst.enqueueArgs) != 0 {
+		t.Fatalf("manual-first reservation was promoted by the capacity queue: %#v", manualFirst.enqueueArgs)
 	}
 
 	newScheduler(t, &fakeSchedulerStore{errs: map[string]error{"expired": errors.New("x")}}).

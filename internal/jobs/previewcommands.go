@@ -126,6 +126,9 @@ func handlePreviewComment(ctx context.Context, q *store.Queries, keyring *envelo
 		if err := ensurePreviewScaffolding(ctx, q, keyring, app, &revived); err != nil {
 			return CommentOutcome{}, err
 		}
+		// A /deploy IS the explicit order the manual-first policy waits for:
+		// even capacity-queued, the scheduler may now promote this preview.
+		_ = q.MarkPreviewDeployRequested(ctx, revived.ID)
 		promoted, reason, err := TryPromotePreview(ctx, q, logger, app, revived, false)
 		if err != nil {
 			return CommentOutcome{}, err
@@ -153,6 +156,8 @@ func handlePreviewComment(ctx context.Context, q *store.Queries, keyring *envelo
 		if err := ensurePreviewScaffolding(ctx, q, keyring, app, &revived); err != nil {
 			return CommentOutcome{}, err
 		}
+		// A /rebuild is a deploy order too (manual-first policy marker).
+		_ = q.MarkPreviewDeployRequested(ctx, revived.ID)
 		// forceRebuild = true: a /rebuild exists precisely to bust the build cache.
 		promoted, reason, err := TryPromotePreview(ctx, q, logger, app, revived, true)
 		if err != nil {
@@ -214,6 +219,9 @@ func DeployPreviewForPR(ctx context.Context, q *store.Queries, keyring *envelope
 		// the next step — the caller surfaces the reason.
 		return preview, false, "fork waiting for maintainer approval (INV-010)", nil
 	}
+	// The platform-side /deploy is the explicit order the manual-first policy
+	// waits for: even capacity-queued, the scheduler may now promote it.
+	_ = q.MarkPreviewDeployRequested(ctx, preview.ID)
 	promoted, reason, err := TryPromotePreview(ctx, q, logger, app, preview, false)
 	return preview, promoted, reason, err
 }

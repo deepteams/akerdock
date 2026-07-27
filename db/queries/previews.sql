@@ -12,12 +12,23 @@ ON CONFLICT (application_id, provider, pr_id) DO UPDATE SET
     is_fork = excluded.is_fork,
     repo_reference = COALESCE(excluded.repo_reference, previews.repo_reference),
     status = CASE WHEN previews.status IN ('destroyed', 'failed') THEN 'queued'::preview_status ELSE previews.status END,
+    -- Reviving a DESTROYED preview is a fresh start under the manual-first
+    -- policy: a reopened PR behaves like an opened one — reservation only,
+    -- the old deploy order does not carry over. A failed preview keeps it
+    -- (the attempt engaged it; pushes may retry).
+    deploy_requested_at = CASE WHEN previews.status = 'destroyed' THEN NULL ELSE previews.deploy_requested_at END,
     destroyed_at = NULL,
     updated_at = now()
 RETURNING *;
 
 -- name: GetPreviewByID :one
 SELECT * FROM previews WHERE id = $1;
+
+-- name: MarkPreviewDeployRequested :exec
+-- Records an explicit human deploy order (/deploy, /rebuild, the Previews
+-- tab, a fork approval): under the manual-first policy the capacity queue
+-- only promotes a queued preview once this is set (§20.4).
+UPDATE previews SET deploy_requested_at = now(), updated_at = now() WHERE id = $1;
 
 -- name: GetPreviewByIdentity :one
 SELECT * FROM previews

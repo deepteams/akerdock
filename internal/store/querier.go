@@ -678,6 +678,10 @@ type Querier interface {
 	MarkDigestDeliveriesFailed(ctx context.Context, arg MarkDigestDeliveriesFailedParams) error
 	MarkDigestDeliveriesSent(ctx context.Context, deliveryIds []int64) error
 	MarkJobRunning(ctx context.Context, arg MarkJobRunningParams) (int64, error)
+	// Records an explicit human deploy order (/deploy, /rebuild, the Previews
+	// tab, a fork approval): under the manual-first policy the capacity queue
+	// only promotes a queued preview once this is set (§20.4).
+	MarkPreviewDeployRequested(ctx context.Context, id int64) error
 	MarkProxyRevisionApplied(ctx context.Context, id int64) error
 	MarkProxyRevisionFailed(ctx context.Context, arg MarkProxyRevisionFailedParams) error
 	MarkProxyRevisionRolledBack(ctx context.Context, id int64) error

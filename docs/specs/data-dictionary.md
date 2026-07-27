@@ -931,6 +931,7 @@ Ephemeral PR/MR environment (§5.6, §20.4). Deterministic identity `(applicatio
 | `status` | `preview_status` | no | `'queued'` | partial index `WHERE status NOT IN ('destroyed')` | no | Includes `cleanup_failed`: notified and retried (§20.4). |
 | `cleanup_error` | `text` | yes | — | — | no | Last cleanup error. |
 | `last_deployed_at` | `timestamptz` | yes | — | — | no | — |
+| `deploy_requested_at` | `timestamptz` | yes | — | — | no | First explicit human deploy order (/deploy, /rebuild, Previews tab, fork approval). Manual-first policy (`preview_deploy_on_open=false`): a `queued` preview without it is a reservation — neither the webhook nor the capacity queue promotes it (§20.4). |
 | `last_activity_at` | `timestamptz` | yes | — | index | no | Last request received: inactivity TTL and scale-to-zero (§20.4.3). |
 | `random_slug` | `text` | yes | — | — | no | Stable value behind `{{random}}` in preview templates (ADR-035), generated once. |
 | `destroyed_at` | `timestamptz` | yes | — | — | no | PR closed/merged or TTL (§5.6). |

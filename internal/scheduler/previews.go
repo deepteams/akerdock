@@ -73,6 +73,13 @@ func (s *Scheduler) reapPreviews(ctx context.Context) {
 		if err != nil || !app.Application.PreviewsEnabled {
 			continue
 		}
+		// A manual-first reservation (preview_deploy_on_open=false, no human
+		// deploy order yet) shares the 'queued' status with capacity-queued
+		// deploys — promoting it here would auto-deploy a preview the setting
+		// promised to leave alone.
+		if jobs.ManualFirstReserved(app, preview) {
+			continue
+		}
 		if promoted, _, err := jobs.TryPromotePreview(ctx, s.Store, s.Logger, app, preview, false); err == nil && promoted {
 			s.Logger.Info("queued preview promoted", "preview", pguuid.String(preview.Uuid), "pr", preview.PrID)
 		}

@@ -29,10 +29,50 @@ func TestPreviewEngaged(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := previewEngaged(store.Preview{Status: tc.status, LastDeployedAt: tc.last})
+			got := PreviewEngaged(store.Preview{Status: tc.status, LastDeployedAt: tc.last})
 			if got != tc.want {
-				t.Fatalf("previewEngaged(status=%s, deployed=%v) = %v, want %v",
+				t.Fatalf("PreviewEngaged(status=%s, deployed=%v) = %v, want %v",
 					tc.status, tc.last.Valid, got, tc.want)
+			}
+		})
+	}
+}
+
+// ManualFirstReserved is the gate shared by the PR webhook and the scheduler's
+// capacity queue: a reserved preview (manual-first policy, no human deploy
+// order) must never be auto-promoted — the bug was the scheduler promoting
+// every 'queued' row, deploying previews the setting promised to leave alone.
+func TestManualFirstReserved(t *testing.T) {
+	set := pgtype.Timestamptz{Valid: true}
+	appWith := func(deployOnOpen bool) store.GetApplicationByIDRow {
+		var row store.GetApplicationByIDRow
+		row.Application.PreviewDeployOnOpen = deployOnOpen
+		return row
+	}
+
+	cases := []struct {
+		name     string
+		onOpen   bool
+		preview  store.Preview
+		reserved bool
+	}{
+		{"auto mode: fresh queued row is promotable", true,
+			store.Preview{Status: store.PreviewStatusQueued}, false},
+		{"manual mode: fresh queued row is RESERVED", false,
+			store.Preview{Status: store.PreviewStatusQueued}, true},
+		{"manual mode: human requested deploy — promotable", false,
+			store.Preview{Status: store.PreviewStatusQueued, DeployRequestedAt: set}, false},
+		{"manual mode: already engaged (active) — pushes keep updating", false,
+			store.Preview{Status: store.PreviewStatusActive}, false},
+		{"manual mode: deployed once then queued again — promotable", false,
+			store.Preview{Status: store.PreviewStatusQueued, LastDeployedAt: set}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ManualFirstReserved(appWith(tc.onOpen), tc.preview)
+			if got != tc.reserved {
+				t.Fatalf("ManualFirstReserved(onOpen=%v, %+v) = %v, want %v",
+					tc.onOpen, tc.preview, got, tc.reserved)
 			}
 		})
 	}

@@ -2726,27 +2726,28 @@ type PortForwardSession struct {
 }
 
 type Preview struct {
-	ID             int64
-	Uuid           pgtype.UUID
-	ApplicationID  int64
-	Provider       GitProvider
-	PrID           int32
-	SourceBranch   *string
-	HeadSha        *string
-	IsFork         bool
-	ForkApprovedBy *int64
-	ForkApprovedAt pgtype.Timestamptz
-	Fqdn           *string
-	Status         PreviewStatus
-	CleanupError   *string
-	LastDeployedAt pgtype.Timestamptz
-	LastActivityAt pgtype.Timestamptz
-	DestroyedAt    pgtype.Timestamptz
-	CreatedAt      pgtype.Timestamptz
-	UpdatedAt      pgtype.Timestamptz
-	RepoReference  *string
-	ExpiryWarnedAt pgtype.Timestamptz
-	RandomSlug     *string
+	ID                int64
+	Uuid              pgtype.UUID
+	ApplicationID     int64
+	Provider          GitProvider
+	PrID              int32
+	SourceBranch      *string
+	HeadSha           *string
+	IsFork            bool
+	ForkApprovedBy    *int64
+	ForkApprovedAt    pgtype.Timestamptz
+	Fqdn              *string
+	Status            PreviewStatus
+	CleanupError      *string
+	LastDeployedAt    pgtype.Timestamptz
+	LastActivityAt    pgtype.Timestamptz
+	DestroyedAt       pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	RepoReference     *string
+	ExpiryWarnedAt    pgtype.Timestamptz
+	RandomSlug        *string
+	DeployRequestedAt pgtype.Timestamptz
 }
 
 type PreviewAccessToken struct {
