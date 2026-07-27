@@ -1,253 +1,253 @@
-# Inventaire licences et SBOM — AkerDock
+# License inventory and SBOM — AkerDock
 
-> Artefact §29.11 du PRD (`docs/PRD.md`). Couvre la licence du projet (ADR-020, §27.20), la politique de licences des dépendances de la stack retenue (§27.25, ADR-025), les images helper et runtime orchestrées (§6.1, §7, §16.2), le catalogue de templates (§9, §27.10, ADR-010), les exigences SBOM/signature/scan du §23.5 et la distribution compose (§27.21, ADR-021). Le PRD et les ADR sont la source de vérité ; ce document en dérive les règles opérationnelles.
+> Artifact §29.11 of the PRD (`docs/PRD.md`). Covers the project license (ADR-020, §27.20), the dependency license policy for the chosen stack (§27.25, ADR-025), the orchestrated helper and runtime images (§6.1, §7, §16.2), the template catalog (§9, §27.10, ADR-010), the SBOM/signing/scanning requirements of §23.5 and the compose distribution (§27.21, ADR-021). The PRD and the ADRs are the source of truth; this document derives the operational rules from them.
 
-Conventions : les identifiants de licences utilisent la nomenclature SPDX (`MIT`, `Apache-2.0`, `BSD-3-Clause`…). Les décisions non encore actées par ADR sont marquées **« (défaut proposé) »**. Les licences non vérifiées à la source (fichier LICENSE du projet upstream à la version épinglée) sont marquées **« (à vérifier) »** — aucune affirmation de licence douteuse n'est faite sans ce marqueur.
+Conventions: license identifiers use the SPDX nomenclature (`MIT`, `Apache-2.0`, `BSD-3-Clause`…). Decisions not yet ratified by an ADR are marked **"(proposed default)"**. Licenses not verified at the source (the upstream project's LICENSE file at the pinned version) are marked **"(to be verified)"** — no doubtful license claim is made without this marker.
 
 ---
 
-## 1. Licence du projet
+## 1. Project license
 
-**Apache-2.0** (ADR-020) : adoption maximale, clause brevets explicite, et alignement avec la licence dominante des templates compose du domaine — ce qui rend leur import propre (§27.10). Le risque « fork cloud » est accepté ; il n'est pas traité par la licence.
+**Apache-2.0** (ADR-020): maximum adoption, explicit patent clause, and alignment with the dominant license of the domain's compose templates — which makes importing them clean (§27.10). The "cloud fork" risk is accepted; it is not addressed by the license.
 
-### 1.1 Fichiers requis à la racine du dépôt
+### 1.1 Required files at the repository root
 
-| Fichier | Contenu | Obligation |
+| File | Content | Obligation |
 |---|---|---|
-| `LICENSE` | Texte intégral Apache License 2.0, non modifié | Obligatoire avant toute publication de code (ADR-020) |
-| `NOTICE` | Nom du projet, ligne de copyright, attributions requises (cf. §1.3) | Obligatoire dès qu'une dépendance Apache-2.0 avec son propre `NOTICE` est embarquée ; créé dès le départ |
-| `THIRD-PARTY-NOTICES` (ou `licenses/` généré) | Concaténation des licences des dépendances embarquées dans le binaire et l'UI, générée automatiquement (`go-licenses save` + équivalent npm) | Généré à chaque release, joint aux artefacts ; **(défaut proposé)** exposé aussi via `AkerDock licenses` en CLI et une page « Licences » dans l'UI |
+| `LICENSE` | Full Apache License 2.0 text, unmodified | Mandatory before any code publication (ADR-020) |
+| `NOTICE` | Project name, copyright line, required attributions (cf. §1.3) | Mandatory as soon as an Apache-2.0 dependency with its own `NOTICE` is embedded; created from the start |
+| `THIRD-PARTY-NOTICES` (or generated `licenses/`) | Concatenation of the licenses of the dependencies embedded in the binary and the UI, generated automatically (`go-licenses save` + npm equivalent) | Generated at every release, attached to the artifacts; **(proposed default)** also exposed via `AkerDock licenses` in the CLI and a "Licenses" page in the UI |
 
-### 1.2 En-têtes de fichiers
+### 1.2 File headers
 
-**Politique : pas d'en-tête de licence par fichier ; le `LICENSE` racine fait foi pour tout le dépôt. (défaut proposé)**
+**Policy: no per-file license header; the root `LICENSE` is authoritative for the whole repository. (proposed default)**
 
-- Rationale : Apache-2.0 n'exige pas d'en-tête par fichier (l'appendice du texte de licence est une recommandation, pas une condition) ; les en-têtes créent du bruit de diff et sont systématiquement oubliés.
-- Exception : un fichier **copié ou dérivé d'un projet tiers** conserve obligatoirement l'en-tête de copyright d'origine et une mention de provenance (URL + commit), et son projet source est ajouté au `NOTICE`.
-- Si la politique change (ex. exigence d'un partenaire), l'ajout d'en-têtes est automatisable (`addlicense`) et fera l'objet d'une révision de ce document.
+- Rationale: Apache-2.0 does not require a per-file header (the appendix of the license text is a recommendation, not a condition); headers create diff noise and are systematically forgotten.
+- Exception: a file **copied or derived from a third-party project** mandatorily keeps its original copyright header and a provenance note (URL + commit), and its source project is added to the `NOTICE`.
+- If the policy changes (e.g. a partner requirement), adding headers is automatable (`addlicense`) and will be the subject of a revision of this document.
 
-### 1.3 Gestion du copyright
+### 1.3 Copyright management
 
-- Ligne de copyright unique : `Copyright <année de première publication>-<année courante> The AkerDock Authors` — **(défaut proposé)** le modèle « The X Authors » (pratique Go/Kubernetes) évite de maintenir une liste nominative et reste correct avec le DCO (§7) : chaque contributeur conserve son copyright, la licence Apache-2.0 porte la concession de droits.
-- Le `NOTICE` contient : cette ligne de copyright, la mention « This product includes software developed by third parties » et les attributions héritées des `NOTICE` de dépendances Apache-2.0 (collectées automatiquement, cf. §2.3).
-- Pas de cession de copyright demandée aux contributeurs (pas de CLA, cf. §7).
+- Single copyright line: `Copyright <year of first publication>-<current year> The AkerDock Authors` — **(proposed default)** the "The X Authors" model (Go/Kubernetes practice) avoids maintaining a name list and remains correct with the DCO (§7): each contributor keeps their copyright, the Apache-2.0 license carries the grant of rights.
+- The `NOTICE` contains: this copyright line, the mention "This product includes software developed by third parties" and the attributions inherited from the `NOTICE` files of Apache-2.0 dependencies (collected automatically, cf. §2.3).
+- No copyright assignment requested from contributors (no CLA, cf. §7).
 
 ---
 
-## 2. Politique de licences des dépendances
+## 2. Dependency license policy
 
-Contexte : AkerDock distribue un **binaire Go liant statiquement toutes ses dépendances** (ADR-021 : binaire statique dans une image distroless) et des **assets UI bundlés** (§25.2 : Angular compilé embarqué dans le binaire). Toute dépendance Go du graphe de compilation et tout paquet npm présent dans le bundle final sont donc **redistribués** sous Apache-2.0 : leur licence doit le permettre.
+Context: AkerDock distributes a **Go binary statically linking all of its dependencies** (ADR-021: static binary in a distroless image) and **bundled UI assets** (§25.2: compiled Angular embedded in the binary). Every Go dependency in the compilation graph and every npm package present in the final bundle is therefore **redistributed** under Apache-2.0: their license must allow it.
 
-### 2.1 Matrice autorisé / à examiner / interdit
+### 2.1 Allowed / to review / forbidden matrix
 
-| Statut | Licences (SPDX) | Justification |
+| Status | Licenses (SPDX) | Justification |
 |---|---|---|
-| **Autorisées** | `MIT`, `BSD-2-Clause`, `BSD-3-Clause`, `Apache-2.0`, `ISC`, `MPL-2.0`, `Unlicense`, `0BSD`, `Zlib`, `PostgreSQL`, `BlueOak-1.0.0` | Permissives, compatibles avec une redistribution sous Apache-2.0. MPL-2.0 : copyleft **fichier par fichier** — autorisée tant que les fichiers MPL ne sont pas modifiés ; toute modification d'un fichier MPL doit être republiée sous MPL (contrainte tracée dans le fichier d'exceptions, §2.4) |
-| **À examiner (cas par cas)** | `LGPL-2.1`, `LGPL-3.0`, `CDDL-1.0`, `EPL-2.0`, licences custom / non-SPDX | LGPL : la **liaison statique Go** rend l'exigence de « relinkabilité » (LGPL §4) difficile à satisfaire — un module Go LGPL lié dans le binaire est de facto problématique ; acceptable uniquement en outil externe exécuté (pas linké) ou avec analyse juridique. Licences custom : lecture intégrale obligatoire |
-| **Interdites (en dépendance liée)** | `GPL-2.0`, `GPL-3.0`, `AGPL-3.0`, `SSPL-1.0`, `BUSL-1.1`, `Elastic-2.0`, `CC-BY-NC-*`, toute licence « non-commercial » ou « source available » | Copyleft fort : lier du GPL/AGPL dans le binaire imposerait de relicencier AkerDock ; SSPL/BUSL/Elv2 ne sont pas open source et sont incompatibles avec une redistribution Apache-2.0. **Interdit = interdit dans le graphe de liaison du binaire et dans le bundle UI** — pas dans les images tierces orchestrées (§4) ni les templates (§5), qui ne sont pas des dépendances liées |
-| **Interdites (partout)** | Dépendances sans licence identifiable, « WTFPL »-like douteuses, licences propriétaires sans droit de redistribution | Risque juridique non évaluable |
+| **Allowed** | `MIT`, `BSD-2-Clause`, `BSD-3-Clause`, `Apache-2.0`, `ISC`, `MPL-2.0`, `Unlicense`, `0BSD`, `Zlib`, `PostgreSQL`, `BlueOak-1.0.0` | Permissive, compatible with redistribution under Apache-2.0. MPL-2.0: **file-by-file** copyleft — allowed as long as MPL files are not modified; any modification of an MPL file must be republished under MPL (constraint tracked in the exceptions file, §2.4) |
+| **To review (case by case)** | `LGPL-2.1`, `LGPL-3.0`, `CDDL-1.0`, `EPL-2.0`, custom / non-SPDX licenses | LGPL: **Go static linking** makes the "relinkability" requirement (LGPL §4) hard to satisfy — an LGPL Go module linked into the binary is de facto problematic; acceptable only as an executed external tool (not linked) or with legal analysis. Custom licenses: full reading mandatory |
+| **Forbidden (as a linked dependency)** | `GPL-2.0`, `GPL-3.0`, `AGPL-3.0`, `SSPL-1.0`, `BUSL-1.1`, `Elastic-2.0`, `CC-BY-NC-*`, any "non-commercial" or "source available" license | Strong copyleft: linking GPL/AGPL into the binary would force relicensing AkerDock; SSPL/BUSL/Elv2 are not open source and are incompatible with Apache-2.0 redistribution. **Forbidden = forbidden in the binary's link graph and in the UI bundle** — not in orchestrated third-party images (§4) nor in templates (§5), which are not linked dependencies |
+| **Forbidden (everywhere)** | Dependencies without an identifiable license, dubious "WTFPL"-likes, proprietary licenses without redistribution rights | Unassessable legal risk |
 
-Cas particuliers :
+Special cases:
 
-- **Outils de build et de génération de code** (sqlc, oapi-codegen en mode générateur, Angular CLI, syft…) : leur licence ne contamine pas le binaire — seul le **code généré** (qui nous appartient) et les éventuels **paquets runtime** importés comptent. Un outil GPL utilisé en build serait acceptable (à documenter), mais aucun n'est prévu.
-- **Outils de test** (Pebble, images Gitea/MinIO en E2E…) : jamais redistribués, licence libre de contrainte pour nous ; inventoriés quand même (§3) pour éviter une bascule accidentelle vers une dépendance liée.
-- **Logiciels orchestrés** (Docker, Traefik, Nixpacks…) : cf. §3 et §4 — non-objectif explicite de les réimplémenter ou de les embarquer (§16.2), donc jamais liés ni redistribués.
+- **Build and code-generation tools** (sqlc, oapi-codegen in generator mode, Angular CLI, syft…): their license does not contaminate the binary — only the **generated code** (which is ours) and any imported **runtime packages** count. A GPL tool used at build time would be acceptable (to be documented), but none is planned.
+- **Test tools** (Pebble, Gitea/MinIO images in E2E…): never redistributed, license free of constraints for us; inventoried anyway (§3) to avoid an accidental switch to a linked dependency.
+- **Orchestrated software** (Docker, Traefik, Nixpacks…): cf. §3 and §4 — reimplementing or embedding them is an explicit non-goal (§16.2), so never linked nor redistributed.
 
-### 2.2 Vérification automatisée en CI
+### 2.2 Automated verification in CI
 
-- **Go** : `go-licenses check ./... --allowed_licenses=<liste §2.1>` (ou équivalent : `golicense`, `licensei`) sur chaque PR ; échec bloquant si une licence hors liste apparaît dans le graphe de compilation. `go-licenses report`/`save` génère le `THIRD-PARTY-NOTICES` à la release. **(défaut proposé : go-licenses, outil Google Apache-2.0)**
-- **npm / UI Angular** : vérification équivalente sur les dépendances de production du bundle (`license-checker` ou lockfile-lint + revue des `licenses` du lockfile), même liste d'autorisation ; les devDependencies (build only) sont exclues du contrôle bloquant mais inventoriées.
-- Le contrôle tourne : sur chaque PR touchant `go.mod`/`go.sum`/lockfile npm, sur chaque release, et en job planifié hebdomadaire (détection des **changements de licence upstream** entre versions — cas Redis, MinIO, Elastic : une dépendance permissive peut devenir non libre à la version suivante).
-- Toute montée de version majeure d'une dépendance directe passe par une PR où le diff de licence est vérifié.
+- **Go**: `go-licenses check ./... --allowed_licenses=<list §2.1>` (or equivalent: `golicense`, `licensei`) on every PR; blocking failure if a license outside the list appears in the compilation graph. `go-licenses report`/`save` generates the `THIRD-PARTY-NOTICES` at release. **(proposed default: go-licenses, an Apache-2.0 Google tool)**
+- **npm / Angular UI**: equivalent check on the bundle's production dependencies (`license-checker` or lockfile-lint + review of the lockfile's `licenses`), same allow list; devDependencies (build only) are excluded from the blocking check but inventoried.
+- The check runs: on every PR touching `go.mod`/`go.sum`/the npm lockfile, on every release, and as a weekly scheduled job (detection of **upstream license changes** between versions — the Redis, MinIO, Elastic cases: a permissive dependency can become non-free at the next version).
+- Every major version bump of a direct dependency goes through a PR where the license diff is checked.
 
-### 2.3 Processus d'exception
+### 2.3 Exception process
 
-1. Ouvrir une issue « license-exception » : dépendance, version, licence, usage exact (liée / outil / test), alternatives évaluées.
-2. Décision par les mainteneurs ; si structurante (ex. première LGPL), un ADR est requis.
-3. L'exception acceptée est consignée dans un fichier versionné (`.licenses/exceptions.yaml` — **défaut proposé**) lu par le job CI : chaque entrée porte dépendance, version(s) couverte(s), justification, date, et échéance de réexamen.
-4. Une exception sans échéance est interdite ; le job hebdomadaire alerte sur les exceptions expirées.
+1. Open a "license-exception" issue: dependency, version, license, exact usage (linked / tool / test), evaluated alternatives.
+2. Decision by the maintainers; if structural (e.g. first LGPL), an ADR is required.
+3. The accepted exception is recorded in a versioned file (`.licenses/exceptions.yaml` — **proposed default**) read by the CI job: each entry carries dependency, covered version(s), justification, date, and a re-review deadline.
+4. An exception without a deadline is forbidden; the weekly job alerts on expired exceptions.
 
 ---
 
-## 3. Dépendances directes prévues et leurs licences
+## 3. Planned direct dependencies and their licenses
 
-Inventaire de la stack connue (§27.25 / ADR-025, §25.2, §16.2). Colonne **Nature** : `linké` = compilé dans le binaire ou bundlé dans l'UI (redistribué → matrice §2.1 applicable) ; `image orchestrée` = logiciel tiers que AkerDock pilote via `docker pull`/`run` chez l'utilisateur (jamais redistribué par nous, cf. §4) ; `outil de build` = utilisé en CI/génération, absent des artefacts ; `outil de test` = utilisé en E2E/intégration uniquement.
+Inventory of the known stack (§27.25 / ADR-025, §25.2, §16.2). **Nature** column: `linked` = compiled into the binary or bundled into the UI (redistributed → matrix §2.1 applies); `orchestrated image` = third-party software that AkerDock drives via `docker pull`/`run` on the user's machine (never redistributed by us, cf. §4); `build tool` = used in CI/generation, absent from the artifacts; `test tool` = used in E2E/integration only.
 
-| Composant | Licence | Nature | Remarques |
+| Component | License | Nature | Remarks |
 |---|---|---|---|
-| Go (stdlib + toolchain) | BSD-3-Clause | linké (stdlib) / outil de build (toolchain) | |
-| `golang.org/x/*` | BSD-3-Clause | linké | Quasi certain d'apparaître dans le graphe (crypto/ssh notamment) |
-| pgx (`jackc/pgx`) | MIT | linké | Driver PostgreSQL (ADR-025) |
-| sqlc | MIT (à vérifier) | **outil de build** | Génère du code Go qui nous appartient ; non linké |
-| chi (`go-chi/chi`) | MIT | linké | Router HTTP |
-| oapi-codegen | Apache-2.0 (à vérifier) | outil de build + **paquet runtime linké** | Le générateur est un outil ; les petits paquets runtime (`oapi-codegen/runtime`) sont linkés — même licence à confirmer sur les deux modules |
-| Bibliothèque SSH (x/crypto/ssh attendu) | BSD-3-Clause | linké | Transport ADR-001 |
-| Client OpenTelemetry Go (`go.opentelemetry.io/otel`) | Apache-2.0 | linké | ADR-008 (OTLP partout) |
-| Bibliothèque WebSocket (terminal, ADR-024 ; choix non arrêté : `coder/websocket` ou équivalent) | MIT / ISC (à vérifier selon le choix) | linké | À figer à l'implémentation |
-| Bibliothèque ACME/DNS-01 si linkée (lego) | MIT (à vérifier) | linké (si retenu) | L'ACME HTTP-01 de parité est porté par Traefik (orchestré) ; lego ne serait linké que pour du DNS-01 côté control plane — décision d'implémentation |
-| Angular (framework + CLI) | MIT | linké (runtime bundlé) / outil de build (CLI) | §25.2 : assets compilés embarqués dans le binaire |
-| xterm.js | MIT | linké (bundlé UI) | Terminal web §5.7 |
-| Docker Engine / Compose / BuildKit (Moby) | Apache-2.0 | image/logiciel **orchestré** côté serveur cible | Non-objectif de le réimplémenter ou l'embarquer (§16.2) ; installé chez l'utilisateur via script/paquets Docker, jamais redistribué par nous |
-| Traefik | MIT | image orchestrée | Proxy par défaut §4.1 |
-| Caddy | Apache-2.0 | image orchestrée | P2, ADR-009 |
-| Nixpacks | MIT | outil **orchestré** sur le serveur de build | AkerDock l'invoque, ne le réimplémente pas (§16.2) ; il produit un plan/Dockerfile — l'image applicative résultante appartient à l'utilisateur |
-| Railpack | MIT (à vérifier) | outil orchestré sur le serveur de build | Successeur de Nixpacks (§5.2), licence à confirmer à la version épinglée |
-| restic | BSD-2-Clause | image/outil orchestré (backups volumes, §20.5/ADR-014) | Vérifier si utilisé via image helper (cf. §4) ou binaire installé |
-| MinIO `mc` (client S3, parité §7.2) | AGPL-3.0 | image/outil orchestré | **Point d'attention majeur** : cf. §4.2 — jamais linké, et de préférence jamais rebundlé dans une image que nous publions |
-| PostgreSQL (base interne de l'instance, ADR-021) | PostgreSQL License | image orchestrée | Image officielle pullée par le compose de distribution ; nous ne la redistribuons pas |
-| Pebble (`letsencrypt/pebble`) | MPL-2.0 (à vérifier) | outil de test | Serveur ACME de test (E2E TLS) |
-| Gitea | MIT | outil de test | Provider Git en E2E (ADR-026) |
-| MinIO (serveur) | AGPL-3.0 | outil de test | Cible S3 en E2E uniquement ; jamais distribué |
-| go-licenses, syft, grype, trivy, cosign | Apache-2.0 (à vérifier individuellement) | outils de build/CI | Chaîne licences/SBOM/signature elle-même |
+| Go (stdlib + toolchain) | BSD-3-Clause | linked (stdlib) / build tool (toolchain) | |
+| `golang.org/x/*` | BSD-3-Clause | linked | Almost certain to appear in the graph (crypto/ssh in particular) |
+| pgx (`jackc/pgx`) | MIT | linked | PostgreSQL driver (ADR-025) |
+| sqlc | MIT (to be verified) | **build tool** | Generates Go code that belongs to us; not linked |
+| chi (`go-chi/chi`) | MIT | linked | HTTP router |
+| oapi-codegen | Apache-2.0 (to be verified) | build tool + **linked runtime package** | The generator is a tool; the small runtime packages (`oapi-codegen/runtime`) are linked — same license to confirm on both modules |
+| SSH library (x/crypto/ssh expected) | BSD-3-Clause | linked | ADR-001 transport |
+| OpenTelemetry Go client (`go.opentelemetry.io/otel`) | Apache-2.0 | linked | ADR-008 (OTLP everywhere) |
+| WebSocket library (terminal, ADR-024; choice not settled: `coder/websocket` or equivalent) | MIT / ISC (to be verified depending on the choice) | linked | To be frozen at implementation time |
+| ACME/DNS-01 library if linked (lego) | MIT (to be verified) | linked (if chosen) | The parity HTTP-01 ACME is carried by Traefik (orchestrated); lego would only be linked for DNS-01 on the control plane side — implementation decision |
+| Angular (framework + CLI) | MIT | linked (bundled runtime) / build tool (CLI) | §25.2: compiled assets embedded in the binary |
+| xterm.js | MIT | linked (UI bundled) | Web terminal §5.7 |
+| Docker Engine / Compose / BuildKit (Moby) | Apache-2.0 | image/software **orchestrated** on the target server | Non-goal to reimplement or embed it (§16.2); installed on the user's machine via Docker's script/packages, never redistributed by us |
+| Traefik | MIT | orchestrated image | Default proxy §4.1 |
+| Caddy | Apache-2.0 | orchestrated image | P2, ADR-009 |
+| Nixpacks | MIT | tool **orchestrated** on the build server | AkerDock invokes it, does not reimplement it (§16.2); it produces a plan/Dockerfile — the resulting application image belongs to the user |
+| Railpack | MIT (to be verified) | tool orchestrated on the build server | Successor of Nixpacks (§5.2), license to confirm at the pinned version |
+| restic | BSD-2-Clause | orchestrated image/tool (volume backups, §20.5/ADR-014) | Check whether used via a helper image (cf. §4) or an installed binary |
+| MinIO `mc` (S3 client, parity §7.2) | AGPL-3.0 | orchestrated image/tool | **Major point of attention**: cf. §4.2 — never linked, and preferably never rebundled into an image we publish |
+| PostgreSQL (internal instance database, ADR-021) | PostgreSQL License | orchestrated image | Official image pulled by the distribution compose; we do not redistribute it |
+| Pebble (`letsencrypt/pebble`) | MPL-2.0 (to be verified) | test tool | Test ACME server (TLS E2E) |
+| Gitea | MIT | test tool | Git provider in E2E (ADR-026) |
+| MinIO (server) | AGPL-3.0 | test tool | S3 target in E2E only; never distributed |
+| go-licenses, syft, grype, trivy, cosign | Apache-2.0 (to be verified individually) | build/CI tools | The licenses/SBOM/signing chain itself |
 
-Règles :
+Rules:
 
-- Ce tableau est un **instantané de conception** ; la vérité opérationnelle est le rapport `go-licenses` + SBOM généré à chaque release (§6). Toute dépendance directe ajoutée à `go.mod` ou au `package.json` de prod doit être conforme à la matrice §2.1 — le CI l'impose.
-- Les licences « (à vérifier) » sont confirmées **à la version épinglée** au moment du premier `go get`/`npm install`, pas depuis le README upstream.
-- Un composant ne change jamais silencieusement de colonne « Nature » : passer un outil orchestré (ex. restic) en bibliothèque linkée est une décision explicite soumise à la matrice §2.1.
+- This table is a **design snapshot**; the operational truth is the `go-licenses` report + the SBOM generated at every release (§6). Any direct dependency added to `go.mod` or the production `package.json` must comply with matrix §2.1 — the CI enforces it.
+- "(to be verified)" licenses are confirmed **at the pinned version** at the time of the first `go get`/`npm install`, not from the upstream README.
+- A component never silently changes "Nature" column: turning an orchestrated tool (e.g. restic) into a linked library is an explicit decision subject to matrix §2.1.
 
 ---
 
-## 4. Images helper et runtime déployées chez l'utilisateur
+## 4. Helper and runtime images deployed on the user's machine
 
-### 4.1 Le point clé : orchestrer n'est pas redistribuer
+### 4.1 The key point: orchestrating is not redistributing
 
-AkerDock ne **redistribue pas** les images tierces : il ordonne un `docker pull` **depuis les registries upstream, directement sur le serveur de l'utilisateur**. Conséquences :
+AkerDock does **not redistribute** third-party images: it orders a `docker pull` **from the upstream registries, directly on the user's server**. Consequences:
 
-- **Aucune obligation de redistribution** (attribution, fourniture des sources, NOTICE) ne pèse sur le projet pour ces images : c'est l'utilisateur qui obtient le logiciel de son éditeur, AkerDock n'est qu'un installateur/orchestrateur — même position qu'un gestionnaire de paquets.
-- Les licences copyleft réseau (AGPL du serveur MinIO, par exemple) s'appliquent à **l'utilisateur qui exploite le service**, pas à AkerDock ; pour un usage non modifié d'images officielles, l'AGPL n'impose rien de plus que la disponibilité des sources upstream.
-- En revanche, **dès que nous publions une image sous notre namespace** (registry du projet), nous devenons redistributeur : SBOM, respect des licences de tout le contenu de l'image, et pour de l'AGPL/GPL, obligation de source. D'où la règle §4.3.
-- Obligation résiduelle de notre côté : **information de l'utilisateur** (licence affichée avant déploiement, §5) et **épinglage** d'images officielles non modifiées.
+- **No redistribution obligation** (attribution, source availability, NOTICE) falls on the project for these images: the user obtains the software from its publisher, AkerDock is only an installer/orchestrator — the same position as a package manager.
+- Network copyleft licenses (the MinIO server's AGPL, for example) apply to **the user operating the service**, not to AkerDock; for unmodified use of official images, the AGPL imposes nothing beyond the availability of the upstream sources.
+- However, **as soon as we publish an image under our namespace** (the project's registry), we become a redistributor: SBOM, compliance with the licenses of everything in the image, and for AGPL/GPL, source obligation. Hence rule §4.3.
+- Residual obligation on our side: **informing the user** (license displayed before deployment, §5) and **pinning** unmodified official images.
 
-### 4.2 Inventaire des images orchestrées
+### 4.2 Inventory of orchestrated images
 
-| Image | Rôle | Licence du logiciel | Publiée par nous ? | Implication |
+| Image | Role | Software license | Published by us? | Implication |
 |---|---|---|---|---|
-| `traefik` | Proxy par serveur (§4.1 PRD) | MIT | Non — upstream | Aucune obligation ; épingler tag + digest |
-| `caddy` | Proxy alternatif P2 | Apache-2.0 | Non — upstream | Idem |
-| `postgres` | Base interne de l'instance (ADR-021) + moteur managé §6.1 | PostgreSQL License | Non — upstream | Idem |
-| `mysql` | Moteur managé §6.1 | GPL-2.0 | Non — upstream | OK en orchestration ; ne jamais rebundler ni linker de client GPL |
-| `mariadb` | Moteur managé §6.1 | GPL-2.0 | Non — upstream | Idem |
-| `mongo` | Moteur managé §6.1 | **SSPL-1.0** (non open source) | Non — upstream | OK en orchestration (usage utilisateur) ; licence affichée à l'utilisateur ; ne jamais redistribuer |
-| `redis` | Moteur managé §6.1 | ≤ 7.2 : BSD-3-Clause ; ≥ 7.4 : tri-licence RSALv2 / SSPLv1 / AGPL-3.0 (AGPL ajoutée avec Redis 8) (à vérifier au tag épinglé) | Non — upstream | Choisir et documenter le tag par défaut en connaissance de cause ; alternative BSD : `valkey` (BSD-3-Clause) — décision produit à tracer |
-| `eqalpha/keydb` | Moteur managé §6.1 | BSD-3-Clause (à vérifier) | Non — upstream | Projet peu actif — surveiller |
-| `dragonflydb/dragonfly` | Moteur managé §6.1 | **BUSL-1.1** (non open source) | Non — upstream | OK en orchestration ; licence affichée ; usage « non concurrent » — c'est l'utilisateur que ça engage |
-| `clickhouse/clickhouse-server` | Moteur managé §6.1 | Apache-2.0 | Non — upstream | Aucune obligation |
-| `minio/mc` | Upload S3 des backups (parité §7.2) | **AGPL-3.0** | À décider | Si pullée upstream : OK. **Ne jamais copier `mc` dans une image publiée par nous** sans assumer les obligations AGPL. **(défaut proposé)** : remplacer `mc` par un client S3 permissif — SDK Go AWS (Apache-2.0) linké côté worker, ou `rclone` (MIT) — et réserver `mc` à la stricte parité si nécessaire |
-| `restic/restic` | Backups volumes (ADR-014) | BSD-2-Clause | À décider | Permissif : rebundle possible sans contrainte forte si une image helper s'avère nécessaire |
-| Image(s) helper AkerDock (cleanup §3.7, exécuteurs de backup/restore §7, proxy TCP dynamique §6.2 — inventaire exact à figer avec `deployment-engine.md`) | Outillage plateforme sur le serveur cible | Apache-2.0 (notre code) + contenu de base | **Oui** — namespace du projet | **Redistribution assumée** : base distroless/alpine documentée, SBOM par image, scan CVE, signature cosign, `THIRD-PARTY-NOTICES` inclus — mêmes exigences que l'image AkerDock (§6) |
-| Image Sentinel/agent (si conteneurisé, §3.8) | Agent métriques | Apache-2.0 (notre code) | **Oui** | Idem |
-| `nginx` | Build pack static (§5.2) | BSD-2-Clause | Non — upstream | Aucune obligation |
+| `traefik` | Per-server proxy (PRD §4.1) | MIT | No — upstream | No obligation; pin tag + digest |
+| `caddy` | Alternative proxy P2 | Apache-2.0 | No — upstream | Same |
+| `postgres` | Internal instance database (ADR-021) + managed engine §6.1 | PostgreSQL License | No — upstream | Same |
+| `mysql` | Managed engine §6.1 | GPL-2.0 | No — upstream | OK in orchestration; never rebundle nor link a GPL client |
+| `mariadb` | Managed engine §6.1 | GPL-2.0 | No — upstream | Same |
+| `mongo` | Managed engine §6.1 | **SSPL-1.0** (not open source) | No — upstream | OK in orchestration (user usage); license displayed to the user; never redistribute |
+| `redis` | Managed engine §6.1 | ≤ 7.2: BSD-3-Clause; ≥ 7.4: tri-license RSALv2 / SSPLv1 / AGPL-3.0 (AGPL added with Redis 8) (to be verified at the pinned tag) | No — upstream | Choose and document the default tag knowingly; BSD alternative: `valkey` (BSD-3-Clause) — product decision to record |
+| `eqalpha/keydb` | Managed engine §6.1 | BSD-3-Clause (to be verified) | No — upstream | Project not very active — monitor |
+| `dragonflydb/dragonfly` | Managed engine §6.1 | **BUSL-1.1** (not open source) | No — upstream | OK in orchestration; license displayed; "non-compete" usage — it is the user this binds |
+| `clickhouse/clickhouse-server` | Managed engine §6.1 | Apache-2.0 | No — upstream | No obligation |
+| `minio/mc` | S3 upload of backups (parity §7.2) | **AGPL-3.0** | To be decided | If pulled upstream: OK. **Never copy `mc` into an image published by us** without assuming the AGPL obligations. **(proposed default)**: replace `mc` with a permissive S3 client — AWS Go SDK (Apache-2.0) linked on the worker side, or `rclone` (MIT) — and reserve `mc` for strict parity if necessary |
+| `restic/restic` | Volume backups (ADR-014) | BSD-2-Clause | To be decided | Permissive: rebundling possible without strong constraint if a helper image proves necessary |
+| AkerDock helper image(s) (cleanup §3.7, backup/restore executors §7, dynamic TCP proxy §6.2 — exact inventory to be frozen with `deployment-engine.md`) | Platform tooling on the target server | Apache-2.0 (our code) + base content | **Yes** — project namespace | **Redistribution assumed**: documented distroless/alpine base, SBOM per image, CVE scan, cosign signature, `THIRD-PARTY-NOTICES` included — same requirements as the AkerDock image (§6) |
+| Sentinel/agent image (if containerized, §3.8) | Metrics agent | Apache-2.0 (our code) | **Yes** | Same |
+| `nginx` | Static build pack (§5.2) | BSD-2-Clause | No — upstream | No obligation |
 
-### 4.3 Règles
+### 4.3 Rules
 
-1. **Par défaut, aucune image tierce n'est republiée sous le namespace du projet.** Un miroir (pour résilience/rate-limit Docker Hub) est une décision explicite qui fait de nous un redistributeur : elle exige la revue des obligations de la licence concernée (trivial pour MIT/Apache, engageant pour AGPL/SSPL — et pour SSPL/BUSL, probablement interdit ou inutilement risqué).
-2. Toute image **publiée par le projet** (AkerDock, helpers, agent) suit le pipeline complet du §6 : SBOM, scan, signature, notices.
-3. Les images par défaut des moteurs managés (§6.1) sont épinglées **tag + digest** dans le code/catalogue ; l'utilisateur peut les changer (champ image/tag libre, §6.2 PRD) — sa responsabilité est alors affichée.
-4. Les logiciels sous licence non libre orchestrés par défaut (MongoDB SSPL, Dragonfly BUSL, Redis ≥ 8) sont signalés dans l'UI au moment du choix du moteur, avec la même mécanique d'affichage de licence que les templates (§5.2).
-
----
-
-## 5. Catalogue de templates (§27.10, ADR-010)
-
-Les templates one-click référencent des images upstream aux licences très variées, y compris non libres : MinIO (AGPL-3.0), Elasticsearch (tri-licence AGPL-3.0 / SSPL-1.0 / Elastic-2.0 depuis 2024 — à vérifier à la version référencée), n8n (Sustainable Use License, fair-code non open source), Grafana (AGPL-3.0), MongoDB (SSPL), etc. Le critère d'admission de la référence (≥ 1000 stars) ne dit rien de la licence : la nôtre doit être explicite.
-
-### 5.1 Licence des templates eux-mêmes
-
-- Le **template** (fichier compose + métadonnées + éventuels scripts d'init) publié dans le dépôt de templates du projet est sous **Apache-2.0**, comme le reste du projet — c'est notre œuvre, ou une réécriture substantielle d'un template importé. Tout template dérivé d'un catalogue tiers conserve son **attribution** et n'est importé que si sa licence le permet (permissive) : l'inventaire ci-dessous en fait foi.
-- La licence du template ne dit **rien** de la licence du logiciel qu'il déploie : les deux informations sont séparées partout (UI, métadonnées, docs).
-- Les templates des **dépôts utilisateur** (ADR-010) restent sous la licence choisie par leur auteur ; AkerDock ne l'impose ni ne la vérifie — il valide la syntaxe, pas le droit.
-
-### 5.2 Affichage de la licence du logiciel déployé (défaut proposé)
-
-- Champ **`license`** obligatoire dans les métadonnées de template du dépôt officiel : identifiant SPDX ou expression (`AGPL-3.0-only`, `SSPL-1.0`, `Elastic-2.0 OR SSPL-1.0 OR AGPL-3.0`, `LicenseRef-n8n-Sustainable-Use`…), plus un champ optionnel `license_url` vers la licence upstream.
-- L'UI affiche licence + lien **avant le déploiement** (écran de confirmation du one-click), avec un badge distinct pour les licences non-OSI (« source available », « fair-code ») — information, pas blocage : le choix appartient à l'utilisateur, qui exécute le logiciel chez lui.
-- Le pipeline de validation du dépôt de templates (ADR-010) refuse un template officiel sans champ `license` ; pour les dépôts utilisateur, le champ est recommandé, absent = « licence inconnue » affiché.
-- Un stack multi-images porte la licence de chaque composant significatif (au minimum l'image principale ; idéalement `license` par service).
-
-### 5.3 Logos et marques
-
-- Les logos du catalogue sont utilisés en **usage nominatif** (désigner le logiciel qu'un template déploie), ce qui est l'usage classique des catalogues one-click — mais chaque marque reste la propriété de son titulaire et certaines chartes (Elastic, MongoDB, Redis…) encadrent strictement cet usage.
-- Guidelines internes : logo **non modifié** (pas de recoloration, déformation, détourage agressif), accompagné du nom du projet upstream et d'un **lien vers le site officiel** ; aucun logo dans un contexte laissant croire à une affiliation, un partenariat ou une certification ; fichier de provenance par logo (source, date, éventuelles brand guidelines upstream) dans le dépôt de templates.
-- **Procédure de retrait sur demande** : contact public documenté dans le dépôt de templates (fichier `TRADEMARKS.md` — défaut proposé) ; retrait ou remplacement du logo sous 14 jours après demande vérifiée d'un titulaire de marque, sans contestation par défaut ; le template survit au retrait du logo (icône générique).
-- Le nom « AkerDock » lui-même : à noter que « Docker » est une marque de Docker, Inc. — point à valider (risque de confusion nominale) avant communication publique ; hors périmètre de ce document mais signalé.
+1. **By default, no third-party image is republished under the project's namespace.** A mirror (for resilience/Docker Hub rate limits) is an explicit decision that makes us a redistributor: it requires reviewing the obligations of the license in question (trivial for MIT/Apache, binding for AGPL/SSPL — and for SSPL/BUSL, probably forbidden or needlessly risky).
+2. Every image **published by the project** (AkerDock, helpers, agent) follows the full §6 pipeline: SBOM, scan, signature, notices.
+3. The default images of the managed engines (§6.1) are pinned **tag + digest** in the code/catalog; the user can change them (free image/tag field, PRD §6.2) — their responsibility is then displayed.
+4. Non-free-licensed software orchestrated by default (MongoDB SSPL, Dragonfly BUSL, Redis ≥ 8) is flagged in the UI at engine-selection time, with the same license-display mechanics as the templates (§5.2).
 
 ---
 
-## 6. SBOM, signature et politique CVE
+## 5. Template catalog (§27.10, ADR-010)
 
-Concrétise §23.5 (« SAST, dependency/container scanning, SBOM et images signées pour les releases AkerDock ») et la chaîne de confiance du catalogue (ADR-010).
+The one-click templates reference upstream images with widely varying licenses, including non-free ones: MinIO (AGPL-3.0), Elasticsearch (tri-license AGPL-3.0 / SSPL-1.0 / Elastic-2.0 since 2024 — to be verified at the referenced version), n8n (Sustainable Use License, fair-code, not open source), Grafana (AGPL-3.0), MongoDB (SSPL), etc. The reference admission criterion (≥ 1000 stars) says nothing about the license: ours must be explicit.
 
-### 6.1 Génération des SBOM (par release, en CI)
+### 5.1 License of the templates themselves
 
-| Artefact | Outil | Formats | Publication |
+- The **template** (compose file + metadata + any init scripts) published in the project's template repository is under **Apache-2.0**, like the rest of the project — it is our work, or a substantial rewrite of an imported template. Any template derived from a third-party catalog keeps its **attribution** and is only imported if its license allows it (permissive): the inventory below attests to this.
+- The template's license says **nothing** about the license of the software it deploys: the two pieces of information are kept separate everywhere (UI, metadata, docs).
+- Templates from **user repositories** (ADR-010) remain under the license chosen by their author; AkerDock neither imposes nor verifies it — it validates the syntax, not the law.
+
+### 5.2 Displaying the deployed software's license (proposed default)
+
+- Mandatory **`license`** field in the template metadata of the official repository: SPDX identifier or expression (`AGPL-3.0-only`, `SSPL-1.0`, `Elastic-2.0 OR SSPL-1.0 OR AGPL-3.0`, `LicenseRef-n8n-Sustainable-Use`…), plus an optional `license_url` field pointing to the upstream license.
+- The UI displays license + link **before deployment** (one-click confirmation screen), with a distinct badge for non-OSI licenses ("source available", "fair-code") — information, not blocking: the choice belongs to the user, who runs the software on their own machine.
+- The template repository's validation pipeline (ADR-010) rejects an official template without a `license` field; for user repositories, the field is recommended, absent = "unknown license" displayed.
+- A multi-image stack carries the license of each significant component (at minimum the main image; ideally a `license` per service).
+
+### 5.3 Logos and trademarks
+
+- The catalog's logos are used **nominatively** (to designate the software a template deploys), which is the classic usage of one-click catalogs — but each trademark remains the property of its holder and some brand guidelines (Elastic, MongoDB, Redis…) strictly govern this usage.
+- Internal guidelines: logo **unmodified** (no recoloring, distortion, aggressive cropping), accompanied by the upstream project's name and a **link to the official site**; no logo in a context suggesting affiliation, partnership or certification; a provenance file per logo (source, date, any upstream brand guidelines) in the template repository.
+- **Takedown-on-request procedure**: public contact documented in the template repository (`TRADEMARKS.md` file — proposed default); removal or replacement of the logo within 14 days of a verified request from a trademark holder, without contesting by default; the template survives the logo's removal (generic icon).
+- The name "AkerDock" itself: note that "Docker" is a trademark of Docker, Inc. — a point to validate (risk of nominal confusion) before public communication; out of scope for this document but flagged.
+
+---
+
+## 6. SBOM, signing and CVE policy
+
+Concretizes §23.5 ("SAST, dependency/container scanning, SBOM and signed images for AkerDock releases") and the catalog's chain of trust (ADR-010).
+
+### 6.1 SBOM generation (per release, in CI)
+
+| Artifact | Tool | Formats | Publication |
 |---|---|---|---|
-| Binaire Go (par OS/arch publié) | syft (source + binaire ; complété par `go version -m`) | **CycloneDX JSON + SPDX JSON** (les deux) | Attachés à la release (assets `akerdock-<ver>-sbom.cdx.json` / `.spdx.json`) |
-| Bundle UI (dépendances npm de prod) | syft sur le lockfile/bundle | CycloneDX + SPDX | Fusionné ou joint au SBOM du binaire (l'UI est embarquée dedans) |
-| Image `AkerDock` (et chaque image publiée : helpers, agent — §4.2) | syft sur l'image | CycloneDX + SPDX | Asset de release **et** attestation attachée à l'image (`cosign attest --type spdxjson`) |
-| Catalogue de templates | Manifeste du catalogue (liste templates + versions + images référencées + licences §5.2) | JSON signé | Publié avec chaque version du catalogue |
+| Go binary (per published OS/arch) | syft (source + binary; supplemented by `go version -m`) | **CycloneDX JSON + SPDX JSON** (both) | Attached to the release (assets `akerdock-<ver>-sbom.cdx.json` / `.spdx.json`) |
+| UI bundle (production npm dependencies) | syft on the lockfile/bundle | CycloneDX + SPDX | Merged into or attached to the binary's SBOM (the UI is embedded in it) |
+| `AkerDock` image (and every published image: helpers, agent — §4.2) | syft on the image | CycloneDX + SPDX | Release asset **and** attestation attached to the image (`cosign attest --type spdxjson`) |
+| Template catalog | Catalog manifest (list of templates + versions + referenced images + licenses §5.2) | Signed JSON | Published with each catalog version |
 
-**(défaut proposé : syft.** Alternative équivalente : trivy en mode SBOM ; l'important est le double format CycloneDX + SPDX et la reproductibilité en CI.)
+**(proposed default: syft.** Equivalent alternative: trivy in SBOM mode; what matters is the dual CycloneDX + SPDX format and reproducibility in CI.)
 
-### 6.2 Signature des releases et du catalogue (défaut proposé : cosign/Sigstore)
+### 6.2 Signing of releases and catalog (proposed default: cosign/Sigstore)
 
-- **Images** publiées par le projet : signées avec **cosign en mode keyless** (OIDC du pipeline CI, certificats Fulcio, journal Rekor) — pas de clé longue durée à protéger ; l'identité signante est le workflow de release du dépôt officiel.
-- **Binaires et archives de release** : `cosign sign-blob` keyless + checksums SHA-256 signés ; instructions de vérification documentées dans les release notes.
-- **Catalogue de templates** (ADR-010) : le JSON compilé du catalogue est signé (`cosign sign-blob` — défaut proposé, cohérent avec le reste de la chaîne) ; l'instance AkerDock **vérifie la signature avant d'accepter un rafraîchissement** du catalogue officiel ; les dépôts utilisateur ne sont pas signés par le projet (risque accepté, ADR-010).
-- Provenance : attestation SLSA/provenance du build attachée aux images **(défaut proposé, non bloquant pour la première release)**.
-- Point d'attention keyless : lie la confiance à l'identité CI (GitHub Actions OIDC) — documenter l'identité attendue pour que la vérification soit effective ; une clé projet hors-CI reste l'alternative si le keyless est jugé trop couplé à la forge.
+- **Images** published by the project: signed with **cosign in keyless mode** (CI pipeline OIDC, Fulcio certificates, Rekor log) — no long-lived key to protect; the signing identity is the official repository's release workflow.
+- **Binaries and release archives**: keyless `cosign sign-blob` + signed SHA-256 checksums; verification instructions documented in the release notes.
+- **Template catalog** (ADR-010): the compiled catalog JSON is signed (`cosign sign-blob` — proposed default, consistent with the rest of the chain); the AkerDock instance **verifies the signature before accepting a refresh** of the official catalog; user repositories are not signed by the project (accepted risk, ADR-010).
+- Provenance: SLSA/provenance attestation of the build attached to the images **(proposed default, non-blocking for the first release)**.
+- Keyless point of attention: ties trust to the CI identity (GitHub Actions OIDC) — document the expected identity so that verification is effective; a project key outside CI remains the alternative if keyless is deemed too coupled to the forge.
 
-### 6.3 Scan de vulnérabilités et SLA de correction
+### 6.3 Vulnerability scanning and remediation SLA
 
-- **CI** : scan **grype** (ou trivy — en choisir un comme bloquant, l'autre optionnel en second avis, défaut proposé : grype, cohérent avec syft) sur le binaire + chaque image publiée, à chaque PR touchant les dépendances et à chaque release ; SAST (`gosec`/CodeQL) et `govulncheck` (qui filtre par atteignabilité des symboles Go) en complément.
-- **Post-release** : re-scan **planifié quotidien** des artefacts de la dernière release stable (les CVE apparaissent après la publication, pas seulement pendant).
-- **SLA de correction proposés** (déclenchés à partir de la confirmation qu'une CVE affecte un artefact publié, `govulncheck`/analyse d'atteignabilité faisant foi pour le binaire Go) :
+- **CI**: **grype** scan (or trivy — pick one as blocking, the other optional as a second opinion, proposed default: grype, consistent with syft) on the binary + every published image, on every PR touching dependencies and at every release; SAST (`gosec`/CodeQL) and `govulncheck` (which filters by reachability of Go symbols) as a complement.
+- **Post-release**: **scheduled daily** re-scan of the artifacts of the latest stable release (CVEs appear after publication, not only during it).
+- **Proposed remediation SLAs** (triggered from the confirmation that a CVE affects a published artifact, with `govulncheck`/reachability analysis being authoritative for the Go binary):
 
-| Sévérité (CVSS) | Correctif ou mitigation publiée | Véhicule |
+| Severity (CVSS) | Fix or mitigation published | Vehicle |
 |---|---|---|
-| Critique (9.0+) ou exploitée activement | **≤ 7 jours** | Release patch dédiée + advisory |
-| Haute (7.0–8.9) | **≤ 30 jours** | Release patch |
-| Moyenne (4.0–6.9) | **≤ 90 jours** | Prochaine release mineure/patch |
-| Basse (< 4.0) | Au fil de l'eau | Prochaine release |
+| Critical (9.0+) or actively exploited | **≤ 7 days** | Dedicated patch release + advisory |
+| High (7.0–8.9) | **≤ 30 days** | Patch release |
+| Medium (4.0–6.9) | **≤ 90 days** | Next minor/patch release |
+| Low (< 4.0) | As we go | Next release |
 
-- Les CVE **non atteignables** (dépendance vulnérable mais code vulnérable non appelé) peuvent être déclassées avec justification versionnée (fichier `.grype.yaml`/VEX — chaque suppression porte CVE, justification, échéance de réexamen, comme les exceptions de licence §2.3).
-- Les images de base (distroless) sont reconstruites/re-releasées si une CVE haute+ touche la base même sans changement du code Go.
-
----
-
-## 7. Contributions : DCO (défaut proposé)
-
-**DCO (Developer Certificate of Origin, `Signed-off-by` sur chaque commit) plutôt que CLA.**
-
-- **Pour** : friction quasi nulle (un flag `-s`), standard des projets Linux/CNCF, suffisant juridiquement pour attester du droit de contribuer sous Apache-2.0 dont la clause 5 couvre déjà la concession de licence des contributions.
-- **Contre** : contrairement à un CLA, pas de pouvoir de relicenciement futur du code contribué — cohérent avec ADR-020 qui acte que le choix Apache-2.0 n'est « pas rétroactivement réversible » ; risque accepté.
-- Application : check DCO en CI (bot/action bloquante), documenté dans `CONTRIBUTING.md`.
+- **Unreachable** CVEs (vulnerable dependency but vulnerable code never called) can be downgraded with a versioned justification (`.grype.yaml`/VEX file — each suppression carries CVE, justification, re-review deadline, like the license exceptions §2.3).
+- Base images (distroless) are rebuilt/re-released if a high+ CVE affects the base even without a Go code change.
 
 ---
 
-## 8. Checklist de release
+## 7. Contributions: DCO (proposed default)
 
-Tout doit être vrai avant de publier une release du binaire/image ou une version du catalogue :
+**DCO (Developer Certificate of Origin, `Signed-off-by` on each commit) rather than a CLA.**
 
-**Licences**
-- [ ] `go-licenses check` et le contrôle npm passent sans nouvelle exception non validée (§2.2) ; aucune exception expirée (§2.3).
-- [ ] Diff de licences depuis la release précédente revu (aucune dépendance n'a changé de licence upstream).
-- [ ] `LICENSE` intact ; `NOTICE` à jour (nouvelles attributions Apache-2.0, fichiers dérivés §1.2) ; `THIRD-PARTY-NOTICES` régénéré et embarqué dans binaire + images.
+- **For**: near-zero friction (a `-s` flag), standard of Linux/CNCF projects, legally sufficient to attest the right to contribute under Apache-2.0, whose clause 5 already covers the license grant of contributions.
+- **Against**: unlike a CLA, no future relicensing power over contributed code — consistent with ADR-020, which records that the Apache-2.0 choice is "not retroactively reversible"; accepted risk.
+- Enforcement: DCO check in CI (blocking bot/action), documented in `CONTRIBUTING.md`.
 
-**SBOM et vulnérabilités**
-- [ ] SBOM CycloneDX + SPDX générés pour binaire(s), bundle UI et chaque image publiée ; attachés à la release et attestés sur les images (§6.1).
-- [ ] Scan grype/trivy + `govulncheck` + SAST passés ; aucune CVE critique/haute atteignable sans mitigation documentée ; suppressions VEX à jour (§6.3).
+---
 
-**Signature et intégrité**
-- [ ] Toutes les images publiées signées (cosign) ; binaires/checksums signés ; identité de signature conforme à celle documentée (§6.2).
-- [ ] Vérification de signature rejouée depuis un environnement vierge (la commande documentée fonctionne réellement).
+## 8. Release checklist
 
-**Catalogue de templates** (si release du catalogue)
-- [ ] Pipeline de validation passé (lint compose, métadonnées, magic variables — ADR-010) ; champ `license` présent sur 100 % des templates officiels (§5.2).
-- [ ] Images référencées épinglées ; licences non-OSI correctement badgées ; provenance des logos à jour, aucune demande de retrait en attente (§5.3).
-- [ ] JSON du catalogue signé et vérification testée côté instance (§6.2).
+Everything must be true before publishing a binary/image release or a catalog version:
 
-**Divers**
-- [ ] Commits de la release conformes DCO (§7).
-- [ ] Images tierces par défaut (proxy, postgres, moteurs §6.1) toujours épinglées tag + digest, et re-vérifiées si le tag par défaut a changé (§4.3).
-- [ ] Ce document mis à jour si une entrée d'inventaire (§3, §4.2) a changé de licence, de version majeure ou de « Nature ».
+**Licenses**
+- [ ] `go-licenses check` and the npm check pass with no new unvalidated exception (§2.2); no expired exception (§2.3).
+- [ ] License diff since the previous release reviewed (no dependency changed its upstream license).
+- [ ] `LICENSE` intact; `NOTICE` up to date (new Apache-2.0 attributions, derived files §1.2); `THIRD-PARTY-NOTICES` regenerated and embedded in binary + images.
+
+**SBOM and vulnerabilities**
+- [ ] CycloneDX + SPDX SBOMs generated for binary/binaries, UI bundle and every published image; attached to the release and attested on the images (§6.1).
+- [ ] grype/trivy scan + `govulncheck` + SAST passed; no reachable critical/high CVE without documented mitigation; VEX suppressions up to date (§6.3).
+
+**Signing and integrity**
+- [ ] All published images signed (cosign); binaries/checksums signed; signing identity conforming to the documented one (§6.2).
+- [ ] Signature verification replayed from a clean environment (the documented command actually works).
+
+**Template catalog** (if catalog release)
+- [ ] Validation pipeline passed (compose lint, metadata, magic variables — ADR-010); `license` field present on 100% of official templates (§5.2).
+- [ ] Referenced images pinned; non-OSI licenses correctly badged; logo provenance up to date, no pending takedown request (§5.3).
+- [ ] Catalog JSON signed and verification tested on the instance side (§6.2).
+
+**Miscellaneous**
+- [ ] Release commits DCO-compliant (§7).
+- [ ] Default third-party images (proxy, postgres, engines §6.1) still pinned tag + digest, and re-verified if the default tag changed (§4.3).
+- [ ] This document updated if an inventory entry (§3, §4.2) changed license, major version or "Nature".

@@ -1,54 +1,54 @@
-# Runbooks opérateur — AkerDock
+# Operator runbooks — AkerDock
 
-> Artefact §29.10 du PRD (`docs/PRD.md`). Ces runbooks s'appuient exclusivement sur la distribution réelle (compose 2 services — ADR-021), les tables du data dictionary (`docs/specs/data-dictionary.md`), les endpoints de l'OpenAPI (`docs/specs/openapi-v1.yaml`) et la spécification du moteur de déploiement (`docs/specs/deployment-engine.md`). Quand une commande CLI dédiée serait idéale mais n'existe pas encore, la requête SQL/API équivalente est donnée et marquée **(candidat CLI futur)**. Les valeurs non fixées par les specs sont marquées **(défaut proposé)**.
+> Artifact §29.10 of the PRD (`docs/PRD.md`). These runbooks rely exclusively on the actual distribution (2-service compose — ADR-021), the data dictionary tables (`docs/specs/data-dictionary.md`), the OpenAPI endpoints (`docs/specs/openapi-v1.yaml`) and the deployment engine specification (`docs/specs/deployment-engine.md`). When a dedicated CLI command would be ideal but does not exist yet, the equivalent SQL/API request is given and marked **(future CLI candidate)**. Values not fixed by the specs are marked **(proposed default)**.
 
 ## Index
 
-| Runbook | Quand l'utiliser | Criticité |
+| Runbook | When to use it | Criticality |
 |---|---|---|
-| [install.md](install.md) | Installation d'une nouvelle instance (compose 2 services), clé maître, clés SSH, premier root user | Moyenne (opération planifiée) |
-| [upgrade-downgrade.md](upgrade-downgrade.md) | Mise à jour de release par tag d'image, rollback de release, upgrade majeur du PostgreSQL interne | Haute (fenêtre de maintenance) |
-| [key-rotation.md](key-rotation.md) | Rotation de la clé maître, d'une clé SSH serveur, des secrets webhook/OAuth ; révocation d'urgence de tokens API | Haute à critique (selon contexte) |
-| [postgres-failure.md](postgres-failure.md) | Base PostgreSQL interne en panne ou corrompue ; restore depuis backup ; reprise des jobs | **Critique** |
-| [control-plane-restore.md](control-plane-restore.md) | Perte totale de la machine hébergeant l'instance ; restore complet sur machine neuve | **Critique** |
-| [compromised-server.md](compromised-server.md) | Suspicion ou confirmation de compromission d'un serveur cible | **Critique** (incident de sécurité) |
-| [stuck-cleanup.md](stuck-cleanup.md) | Cleanup Docker bloqué, ou soupçon qu'il a touché une ressource gérée/persistante | Moyenne à haute |
-| [orphaned-deployment.md](orphaned-deployment.md) | Déploiement figé : worker mort, lease expirée, container `-next` qui traîne, verrou non libéré | Haute |
-| [queue-dead-letter.md](queue-dead-letter.md) | Jobs en dead-letter : triage, retry/forget, causes récurrentes | Moyenne |
-| [proxy-outage.md](proxy-outage.md) | Proxy d'un serveur en panne ou configuration dynamique corrompue | **Critique** (trafic entrant coupé) |
-| [certificates.md](certificates.md) | Échecs ACME, fallback self-signed actif, certificats expirés, custom certs, wildcard DNS-01 | Haute |
+| [install.md](install.md) | Installation of a new instance (2-service compose), master key, SSH keys, first root user | Medium (planned operation) |
+| [upgrade-downgrade.md](upgrade-downgrade.md) | Release update by image tag, release rollback, major upgrade of the internal PostgreSQL | High (maintenance window) |
+| [key-rotation.md](key-rotation.md) | Rotation of the master key, of a server SSH key, of webhook/OAuth secrets; emergency revocation of API tokens | High to critical (depending on context) |
+| [postgres-failure.md](postgres-failure.md) | Internal PostgreSQL database down or corrupted; restore from backup; job recovery | **Critical** |
+| [control-plane-restore.md](control-plane-restore.md) | Total loss of the machine hosting the instance; full restore on a fresh machine | **Critical** |
+| [compromised-server.md](compromised-server.md) | Suspected or confirmed compromise of a target server | **Critical** (security incident) |
+| [stuck-cleanup.md](stuck-cleanup.md) | Docker cleanup stuck, or suspicion that it touched a managed/persistent resource | Medium to high |
+| [orphaned-deployment.md](orphaned-deployment.md) | Frozen deployment: dead worker, expired lease, lingering `-next` container, unreleased lock | High |
+| [queue-dead-letter.md](queue-dead-letter.md) | Dead-lettered jobs: triage, retry/forget, recurring causes | Medium |
+| [proxy-outage.md](proxy-outage.md) | Server proxy down or corrupted dynamic configuration | **Critical** (inbound traffic cut off) |
+| [certificates.md](certificates.md) | ACME failures, active self-signed fallback, expired certificates, custom certs, DNS-01 wildcard | High |
 
-## Conventions communes à tous les runbooks
+## Conventions common to all runbooks
 
-### Anatomie de l'instance (ADR-021, §27.21)
+### Anatomy of the instance (ADR-021, §27.21)
 
-L'instance = **2 services Docker Compose** : l'image `AkerDock` (binaire Go statique, image distroless, modes `all-in-one`/`api`/`worker`) + PostgreSQL. Arborescence sur la machine hôte **(défaut proposé)** :
+The instance = **2 Docker Compose services**: the `AkerDock` image (static Go binary, distroless image, `all-in-one`/`api`/`worker` modes) + PostgreSQL. Directory tree on the host machine **(proposed default)**:
 
 ```text
-/var/lib/akerdock/                  # racine de l'instance sur l'hôte du control plane
-├── docker-compose.yml            # définition des 2 services
-├── .env                          # configuration non secrète (tag d'image, port…)
-├── keys/master.key               # clé maître de chiffrement enveloppe (0600, root) — ADR-003
-├── postgres/                     # répertoire de données PostgreSQL (bind mount)
-└── backups/                      # backups locaux de la base interne (§7.2)
+/var/lib/akerdock/                  # instance root on the control plane host
+├── docker-compose.yml            # definition of the 2 services
+├── .env                          # non-secret configuration (image tag, port…)
+├── keys/master.key               # envelope encryption master key (0600, root) — ADR-003
+├── postgres/                     # PostgreSQL data directory (bind mount)
+└── backups/                      # local backups of the internal database (§7.2)
 ```
 
-> Ne pas confondre avec `/var/lib/akerdock/` **sur les serveurs cibles** (arborescence normative §5.1 de la spec deployment-engine : `applications/`, `proxy/`, `backups/`, `tmp/`). Si le serveur `localhost` est utilisé, les deux cohabitent — l'instance vit alors dans un sous-répertoire dédié, ex. `/var/lib/akerdock/instance/` **(défaut proposé)**.
+> Not to be confused with `/var/lib/akerdock/` **on the target servers** (normative directory tree §5.1 of the deployment-engine spec: `applications/`, `proxy/`, `backups/`, `tmp/`). If the `localhost` server is used, both coexist — the instance then lives in a dedicated subdirectory, e.g. `/var/lib/akerdock/instance/` **(proposed default)**.
 
-### Accès aux outils
+### Tool access
 
-- **Toutes les commandes `docker compose`** s'exécutent depuis `/var/lib/akerdock/` sur l'hôte du control plane.
-- **L'image AkerDock est distroless** (ADR-021) : pas de shell dans le container. Tout diagnostic passe par les logs (`docker compose logs AkerDock`), l'API et `psql` exécuté dans le container PostgreSQL.
-- **psql** :
+- **All `docker compose` commands** are run from `/var/lib/akerdock/` on the control plane host.
+- **The AkerDock image is distroless** (ADR-021): no shell in the container. All diagnostics go through the logs (`docker compose logs AkerDock`), the API and `psql` executed inside the PostgreSQL container.
+- **psql**:
   ```sh
   cd /var/lib/akerdock
   docker compose exec postgres psql -U AkerDock AkerDock
   ```
-- **API** : base `https://<fqdn-instance>/api/v1`, auth `Authorization: Bearer $TOKEN`. Rappel : l'API est **désactivée par défaut** (§10.3) — l'activer dans les settings avant un incident, ou passer par l'UI/SQL. Dans les exemples : `export AKD=https://akerdock.example.com/api/v1` et `export TOKEN=akd_…`.
-- Les mutations SQL directes sont un **dernier recours** : elles contournent l'audit (§23.4) et le verrou optimiste. Chaque runbook les signale comme telles.
+- **API**: base `https://<instance-fqdn>/api/v1`, auth `Authorization: Bearer $TOKEN`. Reminder: the API is **disabled by default** (§10.3) — enable it in the settings before an incident, or go through the UI/SQL. In the examples: `export AKD=https://akerdock.example.com/api/v1` and `export TOKEN=akd_…`.
+- Direct SQL mutations are a **last resort**: they bypass the audit (§23.4) and the optimistic lock. Each runbook flags them as such.
 
-### Symboles
+### Symbols
 
-- ⚠️ **Point de non-retour** : au-delà de cette étape, on ne peut plus revenir en arrière sans restore/perte.
-- **(défaut proposé)** : valeur ou nom non fixé par le PRD/les specs ; à confirmer à l'implémentation.
-- **(candidat CLI futur)** : opération qui mérite une commande `AkerDock` dédiée ; en attendant, SQL/API.
+- ⚠️ **Point of no return**: beyond this step, there is no going back without a restore/loss.
+- **(proposed default)**: value or name not fixed by the PRD/specs; to be confirmed at implementation time.
+- **(future CLI candidate)**: operation that deserves a dedicated `AkerDock` command; SQL/API in the meantime.

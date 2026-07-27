@@ -1,144 +1,144 @@
-# Spécification — Configuration de l'instance AkerDock
+# Specification — AkerDock instance configuration
 
-> Contrat de configuration du control plane AkerDock. Sources de vérité amont : PRD (`docs/PRD.md`) §10.2, §14.1–14.3, §18.2, §22.1, §23.2, §27.1, §27.3, §27.21 ; ADR-003 (chiffrement enveloppe, clé maître versionnée) ; ADR-008 (OTLP partout) ; ADR-021 (distribution compose 2 services) ; data dictionary §2.7 (format `*_enc`) et §11.7 (`instance_settings`). Cette spécification **rend normatifs** les défauts posés en « (défaut proposé) » par les runbooks [install.md](../runbooks/install.md), [key-rotation.md](../runbooks/key-rotation.md), [upgrade-downgrade.md](../runbooks/upgrade-downgrade.md) et [control-plane-restore.md](../runbooks/control-plane-restore.md) ; les runbooks référencent désormais les sections correspondantes.
+> Configuration contract of the AkerDock control plane. Upstream sources of truth: PRD (`docs/PRD.md`) §10.2, §14.1–14.3, §18.2, §22.1, §23.2, §27.1, §27.3, §27.21; ADR-003 (envelope encryption, versioned master key); ADR-008 (OTLP everywhere); ADR-021 (2-service compose distribution); data dictionary §2.7 (`*_enc` format) and §11.7 (`instance_settings`). This specification **makes normative** the defaults posed as “(proposed default)” by the runbooks [install.md](../runbooks/install.md), [key-rotation.md](../runbooks/key-rotation.md), [upgrade-downgrade.md](../runbooks/upgrade-downgrade.md) and [control-plane-restore.md](../runbooks/control-plane-restore.md); the runbooks now reference the corresponding sections.
 >
-> Périmètre : configuration du **processus AkerDock** (l'instance/control plane) et de sa distribution compose. L'arborescence des **serveurs cibles** est hors périmètre — elle est définie par la spec deployment-engine §5.1. Les réglages persistés modifiables à chaud (FQDN, email transactionnel, API on/off…) relèvent de la table `instance_settings` (data dictionary §11.7), pas de ce document — sauf leur amorçage au premier démarrage (§6).
+> Scope: configuration of the **AkerDock process** (the instance/control plane) and of its compose distribution. The directory tree of the **target servers** is out of scope — it is defined by the deployment-engine spec §5.1. Persisted settings modifiable at runtime (FQDN, transactional email, API on/off…) belong to the `instance_settings` table (data dictionary §11.7), not to this document — except their bootstrapping at first startup (§6).
 >
-> Écarts assumés vis-à-vis des extraits des runbooks (justifiés en note) : identifiants techniques en minuscules (`akerdock` comme nom de service compose, user et base PostgreSQL — §4, note N1) ; volumes nommés plutôt que bind mounts pour l'état des services (§4, note N2).
+> Assumed deviations from the runbook excerpts (justified in a note): technical identifiers in lowercase (`akerdock` as the compose service name, PostgreSQL user and database — §4, note N1); named volumes rather than bind mounts for the services' state (§4, note N2).
 
 ---
 
-## 1. Vue d'ensemble
+## 1. Overview
 
-### 1.1 Sources de configuration et précédence
+### 1.1 Configuration sources and precedence
 
-Trois sources, par ordre de précédence décroissant :
+Three sources, in decreasing order of precedence:
 
-1. **Variables d'environnement** `AKERDOCK_*` (plus les variables standard `OTEL_*`, §2.4) — source recommandée, c'est celle que la distribution compose (§4) utilise ;
-2. **Fichier de configuration optionnel** (YAML), chemin donné par `AKERDOCK_CONFIG_FILE` — clés en `snake_case` sans le préfixe (ex. `port: 8080`, `log_level: debug`). Aucun fichier n'est cherché par défaut : sans `AKERDOCK_CONFIG_FILE`, cette source n'existe pas ;
-3. **Défauts compilés** dans le binaire (colonne « Défaut » du §2).
+1. **Environment variables** `AKERDOCK_*` (plus the standard `OTEL_*` variables, §2.4) — recommended source, the one the compose distribution (§4) uses;
+2. **Optional configuration file** (YAML), path given by `AKERDOCK_CONFIG_FILE` — keys in `snake_case` without the prefix (e.g. `port: 8080`, `log_level: debug`). No file is looked for by default: without `AKERDOCK_CONFIG_FILE`, this source does not exist;
+3. **Compiled-in defaults** in the binary (the “Default” column of §2).
 
-La configuration est lue **une seule fois au démarrage** : toute modification exige un redémarrage du processus. Les réglages modifiables à chaud vivent dans `instance_settings` et dans l'UI/API — jamais dans les deux à la fois : quand une valeur existe côté base, l'environnement ne sert qu'à l'amorçage du premier démarrage (§6.2).
+The configuration is read **once at startup**: any change requires a process restart. Settings modifiable at runtime live in `instance_settings` and in the UI/API — never in both at once: when a value exists on the database side, the environment only serves to bootstrap the first startup (§6.2).
 
-### 1.2 Principe : zéro configuration obligatoire hors DB et clé maître
+### 1.2 Principle: zero mandatory configuration besides the DB and the master key
 
-Une instance démarre avec exactement **deux éléments fournis par l'opérateur** :
+An instance starts with exactly **two elements provided by the operator**:
 
-- `AKERDOCK_DATABASE_URL` — l'accès PostgreSQL (ADR-002, ADR-021) ;
-- `AKERDOCK_MASTER_KEY_FILE` (ou, déconseillé, `AKERDOCK_MASTER_KEY`) — la clé maître de chiffrement (ADR-003).
+- `AKERDOCK_DATABASE_URL` — PostgreSQL access (ADR-002, ADR-021);
+- `AKERDOCK_MASTER_KEY_FILE` (or, discouraged, `AKERDOCK_MASTER_KEY`) — the encryption master key (ADR-003).
 
-Tout le reste a un défaut sûr et documenté. Corollaires : aucun défaut ne peut être « deviné » silencieusement (pas de génération automatique de clé maître, pas de base embarquée) ; et l'absence de l'un des deux éléments est une **erreur fatale au démarrage** avec message explicite (§6.4, §7) — jamais un mode dégradé.
-
----
-
-## 2. Variables d'environnement normatives
-
-### 2.1 Variables lues par le binaire
-
-| Nom | Requis | Défaut | Description | Sensible |
-|---|---|---|---|---|
-| `AKERDOCK_DATABASE_URL` | **oui** | — | DSN PostgreSQL (`postgres://user:pass@host:5432/db?sslmode=…`). PostgreSQL ≥ 15 (data dictionary §2). | **oui** (contient le mot de passe) |
-| `AKERDOCK_MASTER_KEY_FILE` | **oui**¹ | — | Chemin du fichier de clé maître multi-versions (§3). Dans la distribution compose : `/run/secrets/master.key`. | non (le chemin ; le contenu l'est) |
-| `AKERDOCK_MASTER_KEY` | non¹ (**déconseillé**) | — | Alternative : contenu du fichier de clé directement en variable (même format qu'au §3, lignes séparées par `\n`). Émet un avertissement au démarrage (§7.2) : l'environnement d'un processus est plus exposé qu'un fichier `0600` (inspection `/proc`, `docker inspect`, logs d'orchestrateur). | **oui** |
-| `AKERDOCK_MODE` | non | `all-in-one` | Mode du monolithe modulaire (§18.2 PRD) : `all-in-one` \| `api` \| `worker` \| `scheduler`. Le premier argument de la ligne de commande (ex. `command: ["all-in-one"]`) a précédence sur la variable. Plusieurs `api`/`worker` peuvent coexister (§22.1) ; plusieurs `scheduler` sont sûrs (élection par verrou advisory PostgreSQL). | non |
-| `AKERDOCK_PORT` | non | `8080` | **Port unique** du control plane (§27.1 PRD, ADR-021) : UI, API, SSE, WebSocket terminal et `/api/v1/health` — rien d'autre n'écoute. Dans la distribution compose, c'est aussi le port publié (§4). | non |
-| `AKERDOCK_INSTANCE_FQDN` | non | — | FQDN de l'instance (§14.2 PRD). Sert uniquement à amorcer `instance_settings.fqdn` au premier démarrage (§6.2) ; ensuite la valeur en base fait foi (modifiable dans l'UI). | non |
-| `AKERDOCK_INSTANCE_PORT` | non | = `AKERDOCK_PORT` | Port auquel l'instance est joignable **sur son hôte** — la cible de la route proxy `00-control-plane` (proxy-contract §5.7). Diffère de `AKERDOCK_PORT` sous la distribution compose : le mapping publie `${AKERDOCK_PORT}:8080` et le processus écoute toujours 8080 dans le container, donc le compose transmet le port publié via cette variable (§4). Un binaire lancé directement sur l'hôte n'a pas à la définir. | non |
-| `AKERDOCK_ROOT_EMAIL` | non² | — | Bootstrap non interactif du premier root user (§10.2 PRD). Email validé strictement. | non |
-| `AKERDOCK_ROOT_NAME` | non² | — | Nom du root user. Non vide après trim, ≤ 255 caractères. | non |
-| `AKERDOCK_ROOT_PASSWORD` | non² | — | Mot de passe du root user, validation stricte (≥ 12 caractères — §10.2 PRD) ; hashé Argon2id, jamais journalisé. À retirer de l'environnement après le premier démarrage (§6.3, §7.2). | **oui** |
-| `AKERDOCK_TIMEZONE` | non | `UTC` | Timezone IANA (ex. `Europe/Paris`). Amorce `instance_settings.timezone` au premier démarrage (défaut aligné sur le data dictionary §11.7) ; ensuite la valeur en base fait foi. Les timestamps stockés et journalisés restent en UTC. | non |
-| `AKERDOCK_LOCALHOST_HOST` | non | `host.docker.internal` | Adresse par laquelle le processus joint la machine hôte en SSH pour le serveur `localhost` pré-enregistré (§6.2). Lue à l'amorçage seulement ; ensuite la fiche serveur en base fait foi (modifiable via `PATCH /servers/{uuid}`). Dans la distribution compose, le nom est résolu par `extra_hosts: host-gateway` (§4.1). | non |
-| `AKERDOCK_GITHUB_CA_FILE` | non | — | Certificat(s) CA additionnel(s) (PEM) pour joindre un GitHub Enterprise Server à CA privée (git-webhook-protocols §2.6). Ajouté aux racines système pour les appels à l'API GitHub uniquement. | non |
-| `AKERDOCK_LOCALHOST_USER` | non | `root` | Utilisateur SSH du serveur `localhost` pré-enregistré (§6.2). `install.sh` y place l'utilisateur qui exécute l'installation. Lue à l'amorçage seulement. | non |
-| `AKERDOCK_LOG_LEVEL` | non | `info` | `debug` \| `info` \| `warn` \| `error`. | non |
-| `AKERDOCK_LOG_FORMAT` | non | `json` | `json` (production, une ligne par événement) \| `text` (lisible, développement). | non |
-| `AKERDOCK_DATA_DIR` | non | `/var/lib/akerdock` | Répertoire de données du processus (§5.2). Dans la distribution compose : volume nommé `akerdock_data`. Créé au démarrage s'il n'existe pas ; non inscriptible = erreur fatale. | non |
-| `AKERDOCK_WORKER_CONCURRENCY` | non | `10` | Nombre maximal de jobs exécutés en parallèle **par processus** en mode `worker` ou `all-in-one` (entier ≥ 1). Défaut calibré sur le gabarit minimal 2 vCPU / 2 GB (§14.1 PRD) ; les plafonds par serveur et par team (§22.2 PRD) s'appliquent en plus, côté queue. | non |
-| `AKERDOCK_SHUTDOWN_TIMEOUT` | non | `30s` | Délai de drain à l'arrêt gracieux (§6.5) : durée Go (`30s`, `2m`). Doit rester inférieur au `stop_grace_period` du compose (40 s, §4) et à l'expiration de lease des jobs (90 s, deployment-engine §2.5). | non |
-| `AKERDOCK_TERMINAL_IDLE_TIMEOUT` | non | `15m` | Inactivité (aucune frappe) au-delà de laquelle une session terminal web est fermée (§24.4 PRD, ADR-024) : durée Go. La sortie du terminal ne compte pas comme activité — un spinner ne maintient pas un shell root oublié. | non |
-| `AKERDOCK_TERMINAL_MAX_DURATION` | non | `4h` | Durée maximum d'une session terminal web, quelle que soit l'activité (§24.4 PRD) : durée Go. La fermeture est garantie (kill du PTY distant) et journalisée avec sa raison. | non |
-| `AKERDOCK_CONFIG_FILE` | non | — | Chemin d'un fichier de configuration YAML optionnel (§1.1). Fichier illisible ou invalide = erreur fatale. | non |
-
-¹ Exactement une des deux sources de clé maître doit être fournie. Les deux à la fois = erreur fatale (ambigu) ; aucune = erreur fatale (§6.4).
-² Les trois variables `AKERDOCK_ROOT_*` forment un trio tout-ou-rien : en fournir une seule ou deux = erreur fatale. Elles ne sont **lues que si aucun utilisateur n'existe** en base, et consommées une seule fois (§6.3).
-
-### 2.2 Variables consommées par le compose (pas par le binaire)
-
-Ces variables vivent dans `/var/lib/akerdock/.env` et sont interpolées par Docker Compose (§4) ; le binaire ne les lit pas :
-
-| Nom | Requis | Défaut | Description | Sensible |
-|---|---|---|---|---|
-| `AKERDOCK_TAG` | **oui** | — | Tag d'image explicite (`v1.0.0`) — jamais `latest` (runbook upgrade-downgrade). Le compose refuse de démarrer sans (`:?`). | non |
-| `POSTGRES_PASSWORD` | **oui** | — | Mot de passe du PostgreSQL interne (généré à l'installation : `openssl rand -hex 24`). | **oui** |
-
-`AKERDOCK_PORT` et les `AKERDOCK_ROOT_*`/`AKERDOCK_INSTANCE_FQDN` peuvent aussi figurer dans `.env` : le compose les transmet au service (§4).
-
-### 2.3 Règles de nommage
-
-Préfixe **`AKERDOCK_*` uniquement**, sans alias sous une autre marque (décision §27.22, ADR-022). Ces variables d'instance sont un espace de noms distinct des variables prédéfinies injectées dans les workloads (`AKERDOCK_FQDN`, `AKERDOCK_URL`, `AKERDOCK_BRANCH`, `AKERDOCK_PR_ID`… — deployment-engine §5.2) : aucune variable de la table §2.1 n'est injectée dans un container déployé.
-
-### 2.4 Télémétrie : variables standard OpenTelemetry (ADR-008)
-
-Conformément à « OTLP partout, aucun protocole propriétaire », l'export de télémétrie se configure par les variables **standard** du SDK OpenTelemetry — c'est l'unique exception assumée au préfixe `AKERDOCK_*` (une variable propriétaire dupliquant `OTEL_EXPORTER_OTLP_ENDPOINT` recréerait le protocole maison qu'ADR-008 rejette) :
-
-| Nom | Requis | Défaut | Description | Sensible |
-|---|---|---|---|---|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | non | — (export désactivé) | Endpoint OTLP (gRPC 4317 ou HTTP 4318) pour métriques, traces et logs du control plane et des workers. Absente = aucune tentative d'export, aucun warning répété. | non |
-| `OTEL_SERVICE_NAME` | non | `akerdock` | Nom de service émis. | non |
-| Autres `OTEL_*` | non | défauts SDK | Toutes les variables standard du SDK OTel Go sont honorées telles quelles (`OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_TRACES_SAMPLER`…). | selon variable (`…_HEADERS` peut porter un token : **oui**) |
+Everything else has a safe, documented default. Corollaries: no default may be silently “guessed” (no automatic master key generation, no embedded database); and the absence of either of the two elements is a **fatal startup error** with an explicit message (§6.4, §7) — never a degraded mode.
 
 ---
 
-## 3. Fichier de clé maître multi-versions (normatif — ADR-003)
+## 2. Normative environment variables
+
+### 2.1 Variables read by the binary
+
+| Name | Required | Default | Description | Sensitive |
+|---|---|---|---|---|
+| `AKERDOCK_DATABASE_URL` | **yes** | — | PostgreSQL DSN (`postgres://user:pass@host:5432/db?sslmode=…`). PostgreSQL ≥ 15 (data dictionary §2). | **yes** (contains the password) |
+| `AKERDOCK_MASTER_KEY_FILE` | **yes**¹ | — | Path of the multi-version master key file (§3). In the compose distribution: `/run/secrets/master.key`. | no (the path; its content is) |
+| `AKERDOCK_MASTER_KEY` | no¹ (**discouraged**) | — | Alternative: content of the key file directly in a variable (same format as §3, lines separated by `\n`). Emits a warning at startup (§7.2): a process's environment is more exposed than a `0600` file (`/proc` inspection, `docker inspect`, orchestrator logs). | **yes** |
+| `AKERDOCK_MODE` | no | `all-in-one` | Mode of the modular monolith (PRD §18.2): `all-in-one` \| `api` \| `worker` \| `scheduler`. The first command-line argument (e.g. `command: ["all-in-one"]`) takes precedence over the variable. Several `api`/`worker` can coexist (§22.1); several `scheduler` are safe (election via PostgreSQL advisory lock). | no |
+| `AKERDOCK_PORT` | no | `8080` | **Single port** of the control plane (PRD §27.1, ADR-021): UI, API, SSE, terminal WebSocket and `/api/v1/health` — nothing else listens. In the compose distribution, it is also the published port (§4). | no |
+| `AKERDOCK_INSTANCE_FQDN` | no | — | FQDN of the instance (PRD §14.2). Only serves to bootstrap `instance_settings.fqdn` at first startup (§6.2); afterwards the value in the database is authoritative (modifiable in the UI). | no |
+| `AKERDOCK_INSTANCE_PORT` | no | = `AKERDOCK_PORT` | Port at which the instance is reachable **on its host** — the target of the `00-control-plane` proxy route (proxy-contract §5.7). Differs from `AKERDOCK_PORT` under the compose distribution: the mapping publishes `${AKERDOCK_PORT}:8080` and the process always listens on 8080 inside the container, so the compose forwards the published port through this variable (§4). A binary launched directly on the host does not need to set it. | no |
+| `AKERDOCK_ROOT_EMAIL` | no² | — | Non-interactive bootstrap of the first root user (PRD §10.2). Strictly validated email. | no |
+| `AKERDOCK_ROOT_NAME` | no² | — | Name of the root user. Non-empty after trim, ≤ 255 characters. | no |
+| `AKERDOCK_ROOT_PASSWORD` | no² | — | Password of the root user, strict validation (≥ 12 characters — PRD §10.2); hashed with Argon2id, never logged. To be removed from the environment after the first startup (§6.3, §7.2). | **yes** |
+| `AKERDOCK_TIMEZONE` | no | `UTC` | IANA timezone (e.g. `Europe/Paris`). Bootstraps `instance_settings.timezone` at first startup (default aligned with data dictionary §11.7); afterwards the value in the database is authoritative. Stored and logged timestamps remain in UTC. | no |
+| `AKERDOCK_LOCALHOST_HOST` | no | `host.docker.internal` | Address through which the process reaches the host machine over SSH for the pre-registered `localhost` server (§6.2). Read at bootstrap only; afterwards the server record in the database is authoritative (modifiable via `PATCH /servers/{uuid}`). In the compose distribution, the name is resolved by `extra_hosts: host-gateway` (§4.1). | no |
+| `AKERDOCK_GITHUB_CA_FILE` | no | — | Additional CA certificate(s) (PEM) to reach a GitHub Enterprise Server with a private CA (git-webhook-protocols §2.6). Added to the system roots for calls to the GitHub API only. | no |
+| `AKERDOCK_LOCALHOST_USER` | no | `root` | SSH user of the pre-registered `localhost` server (§6.2). `install.sh` puts there the user who runs the installation. Read at bootstrap only. | no |
+| `AKERDOCK_LOG_LEVEL` | no | `info` | `debug` \| `info` \| `warn` \| `error`. | no |
+| `AKERDOCK_LOG_FORMAT` | no | `json` | `json` (production, one line per event) \| `text` (readable, development). | no |
+| `AKERDOCK_DATA_DIR` | no | `/var/lib/akerdock` | Data directory of the process (§5.2). In the compose distribution: named volume `akerdock_data`. Created at startup if it does not exist; not writable = fatal error. | no |
+| `AKERDOCK_WORKER_CONCURRENCY` | no | `10` | Maximum number of jobs executed in parallel **per process** in `worker` or `all-in-one` mode (integer ≥ 1). Default calibrated on the minimal 2 vCPU / 2 GB sizing (PRD §14.1); the per-server and per-team caps (PRD §22.2) apply on top, on the queue side. | no |
+| `AKERDOCK_SHUTDOWN_TIMEOUT` | no | `30s` | Drain delay on graceful shutdown (§6.5): Go duration (`30s`, `2m`). MUST remain below the compose `stop_grace_period` (40 s, §4) and the jobs' lease expiration (90 s, deployment-engine §2.5). | no |
+| `AKERDOCK_TERMINAL_IDLE_TIMEOUT` | no | `15m` | Inactivity (no keystroke) beyond which a web terminal session is closed (PRD §24.4, ADR-024): Go duration. Terminal output does not count as activity — a spinner does not keep a forgotten root shell alive. | no |
+| `AKERDOCK_TERMINAL_MAX_DURATION` | no | `4h` | Maximum duration of a web terminal session, regardless of activity (PRD §24.4): Go duration. Closure is guaranteed (kill of the remote PTY) and logged with its reason. | no |
+| `AKERDOCK_CONFIG_FILE` | no | — | Path of an optional YAML configuration file (§1.1). Unreadable or invalid file = fatal error. | no |
+
+¹ Exactly one of the two master key sources must be provided. Both at once = fatal error (ambiguous); neither = fatal error (§6.4).
+² The three `AKERDOCK_ROOT_*` variables form an all-or-nothing trio: providing only one or two = fatal error. They are **read only if no user exists** in the database, and consumed only once (§6.3).
+
+### 2.2 Variables consumed by the compose (not by the binary)
+
+These variables live in `/var/lib/akerdock/.env` and are interpolated by Docker Compose (§4); the binary does not read them:
+
+| Name | Required | Default | Description | Sensitive |
+|---|---|---|---|---|
+| `AKERDOCK_TAG` | **yes** | — | Explicit image tag (`v1.0.0`) — never `latest` (upgrade-downgrade runbook). The compose refuses to start without it (`:?`). | no |
+| `POSTGRES_PASSWORD` | **yes** | — | Password of the internal PostgreSQL (generated at installation: `openssl rand -hex 24`). | **yes** |
+
+`AKERDOCK_PORT` and the `AKERDOCK_ROOT_*`/`AKERDOCK_INSTANCE_FQDN` variables may also appear in `.env`: the compose forwards them to the service (§4).
+
+### 2.3 Naming rules
+
+Prefix **`AKERDOCK_*` only**, with no alias under another brand (decision §27.22, ADR-022). These instance variables are a namespace distinct from the predefined variables injected into workloads (`AKERDOCK_FQDN`, `AKERDOCK_URL`, `AKERDOCK_BRANCH`, `AKERDOCK_PR_ID`… — deployment-engine §5.2): no variable from the §2.1 table is injected into a deployed container.
+
+### 2.4 Telemetry: standard OpenTelemetry variables (ADR-008)
+
+In accordance with “OTLP everywhere, no proprietary protocol”, telemetry export is configured through the **standard** variables of the OpenTelemetry SDK — this is the single assumed exception to the `AKERDOCK_*` prefix (a proprietary variable duplicating `OTEL_EXPORTER_OTLP_ENDPOINT` would recreate the home-grown protocol that ADR-008 rejects):
+
+| Name | Required | Default | Description | Sensitive |
+|---|---|---|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | no | — (export disabled) | OTLP endpoint (gRPC 4317 or HTTP 4318) for metrics, traces and logs of the control plane and the workers. Absent = no export attempt, no repeated warning. | no |
+| `OTEL_SERVICE_NAME` | no | `akerdock` | Emitted service name. | no |
+| Other `OTEL_*` | no | SDK defaults | All standard variables of the OTel Go SDK are honored as-is (`OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_TRACES_SAMPLER`…). | depends on the variable (`…_HEADERS` may carry a token: **yes**) |
+
+---
+
+## 3. Multi-version master key file (normative — ADR-003)
 
 ### 3.1 Format
 
-Fichier texte UTF-8, **une ligne par version de clé** :
+UTF-8 text file, **one line per key version**:
 
 ```text
-<version>:<clé en base64 standard, 32 octets décodés>
+<version>:<key in standard base64, 32 decoded bytes>
 ```
 
-- `<version>` : entier décimal **de 1 à 4294967295** (uint32 — exactement l'espace du préfixe `key_version` sur 4 octets big-endian des colonnes `*_enc`, data dictionary §2.7), sans zéros de tête. Chaque version est **unique** dans le fichier ;
-- `<clé>` : base64 standard (RFC 4648, avec padding) décodant **exactement 32 octets** (AES-256-GCM, §27.3 PRD) ;
-- séparateur : `:`, sans espaces autour ; fin de ligne `\n` ;
-- lignes vides et lignes commençant par `#` : ignorées (commentaires d'opérateur autorisés) ;
-- toute autre ligne, une version dupliquée, une base64 invalide ou une clé d'une autre longueur : fichier **invalide** → refus de démarrer (§6.4).
+- `<version>`: decimal integer **from 1 to 4294967295** (uint32 — exactly the space of the 4-byte big-endian `key_version` prefix of the `*_enc` columns, data dictionary §2.7), without leading zeros. Each version is **unique** within the file;
+- `<key>`: standard base64 (RFC 4648, with padding) decoding to **exactly 32 bytes** (AES-256-GCM, PRD §27.3);
+- separator: `:`, without surrounding spaces; line ending `\n`;
+- empty lines and lines starting with `#`: ignored (operator comments allowed);
+- any other line, a duplicated version, invalid base64 or a key of another length: **invalid** file → refusal to start (§6.4).
 
-La **version active** — celle qui chiffre toute nouvelle écriture — est la **version de numéro le plus élevé** présente dans le fichier. Aucun marqueur explicite : c'est le comportement que le runbook [key-rotation.md](../runbooks/key-rotation.md) rend opérationnel (ajouter une ligne suffit à activer la nouvelle clé au rechargement).
+The **active version** — the one that encrypts every new write — is the **highest-numbered version** present in the file. No explicit marker: this is the behavior the [key-rotation.md](../runbooks/key-rotation.md) runbook makes operational (adding a line is enough to activate the new key at reload).
 
-### 3.2 Exemple complet
+### 3.2 Complete example
 
 ```text
 # /var/lib/akerdock/keys/master.key — 0600 root:root
-# v1 : installation 2026-07-11 ; v2 : rotation planifiée 2027-01-15
+# v1: installed 2026-07-11; v2: planned rotation 2027-01-15
 1:m4C9Zk0vG8kQ2m1H0cVvXHkq3D3jUj0F3q5m8Q2xX9s=
 2:Zk3q8W1mB7hT4nJ6cR9vY0dL2aP5sG8uK1oE4wI7xN0=
 ```
 
-Ici la version active est **2** ; la version 1 reste présente pour déchiffrer les données qui la référencent encore.
+Here the active version is **2**; version 1 stays present to decrypt the data that still references it.
 
-### 3.3 Permissions et emplacement
+### 3.3 Permissions and location
 
-- Hôte : `/var/lib/akerdock/keys/master.key`, propriétaire `root:root`, mode **`0600`**, répertoire `keys/` en `0700` (§23.2 PRD) ;
-- Container : monté **en lecture seule** sur `/run/secrets/master.key` (§4) ;
-- Au démarrage, le binaire vérifie les permissions du fichier : lisible ou inscriptible par « other » = **erreur fatale** ; tout autre écart avec `0600` = avertissement (§7.2).
+- Host: `/var/lib/akerdock/keys/master.key`, owner `root:root`, mode **`0600`**, `keys/` directory in `0700` (PRD §23.2);
+- Container: mounted **read-only** on `/run/secrets/master.key` (§4);
+- At startup, the binary checks the file's permissions: readable or writable by “other” = **fatal error**; any other deviation from `0600` = warning (§7.2).
 
-### 3.4 Règles de gestion des versions
+### 3.4 Version management rules
 
-1. **Ajout d'une version = rotation** : ajouter une ligne de version strictement supérieure aux existantes en fait la version active au prochain démarrage/rechargement (`docker compose up -d akerdock`). Les versions n'ont pas besoin d'être contiguës ;
-2. **Ne jamais supprimer une version tant que des données chiffrées la référencent** : chaque valeur `*_enc` en base commence par la `key_version` (4 octets big-endian) qui l'a chiffrée (data dictionary §2.7) — retirer une version encore référencée rend ces ciphertexts définitivement illisibles. La procédure de vérification (histogramme SQL des versions colonne par colonne, sur les 16 colonnes chiffrées du data dictionary §12) est dans [key-rotation.md](../runbooks/key-rotation.md) ;
-3. **Démarrage** : si une opération de déchiffrement rencontre une `key_version` absente du fichier, l'erreur est explicite (version manquante nommée) et l'opération échoue — l'instance ne masque jamais une clé manquante (§6.4). Le re-chiffrement vers la version active est paresseux, sans réécriture bloquante (§19.2 PRD, ADR-003) ;
-4. **Sauvegarde** : le fichier (toutes versions) est copié hors machine, séparément des dumps de base (§23.1 PRD) — voir [install.md](../runbooks/install.md) étape 2 et [control-plane-restore.md](../runbooks/control-plane-restore.md) (« les 3 pièces »).
+1. **Adding a version = rotation**: adding a line with a version strictly greater than the existing ones makes it the active version at the next startup/reload (`docker compose up -d akerdock`). Versions do not need to be contiguous;
+2. **Never remove a version while encrypted data references it**: each `*_enc` value in the database begins with the `key_version` (4 bytes big-endian) that encrypted it (data dictionary §2.7) — removing a still-referenced version makes those ciphertexts permanently unreadable. The verification procedure (SQL histogram of versions column by column, over the 16 encrypted columns of the data dictionary §12) is in [key-rotation.md](../runbooks/key-rotation.md);
+3. **Startup**: if a decryption operation encounters a `key_version` absent from the file, the error is explicit (missing version named) and the operation fails — the instance never masks a missing key (§6.4). Re-encryption towards the active version is lazy, without a blocking rewrite (PRD §19.2, ADR-003);
+4. **Backup**: the file (all versions) is copied off-machine, separately from the database dumps (PRD §23.1) — see [install.md](../runbooks/install.md) step 2 and [control-plane-restore.md](../runbooks/control-plane-restore.md) (“the 3 pieces”).
 
 ---
 
-## 4. Distribution compose de référence (normatif — ADR-021)
+## 4. Reference compose distribution (normative — ADR-021)
 
 ### 4.1 `docker-compose.yml`
 
-Deux services, un seul port publié, volumes nommés, healthchecks sur les deux services, tags épinglés. Fichier de référence, livré avec chaque release à l'emplacement `/var/lib/akerdock/docker-compose.yml` :
+Two services, a single published port, named volumes, healthchecks on both services, pinned tags. Reference file, shipped with each release at the location `/var/lib/akerdock/docker-compose.yml`:
 
 ```yaml
 name: akerdock
@@ -146,35 +146,35 @@ name: akerdock
 services:
   akerdock:
     image: ghcr.io/deepteams/akerdock:${AKERDOCK_TAG:?tag d'image explicite requis (jamais latest)}
-    command: ["all-in-one"]              # modes all-in-one|api|worker|scheduler (§18.2 PRD, §2.1)
+    command: ["all-in-one"]              # modes all-in-one|api|worker|scheduler (PRD §18.2, §2.1)
     restart: unless-stopped
     ports:
-      - "${AKERDOCK_PORT:-8080}:8080"    # l'unique port publié du control plane (§27.1)
+      - "${AKERDOCK_PORT:-8080}:8080"    # the single published port of the control plane (§27.1)
     environment:
       AKERDOCK_DATABASE_URL: postgres://akerdock:${POSTGRES_PASSWORD}@postgres:5432/akerdock?sslmode=disable
       AKERDOCK_MASTER_KEY_FILE: /run/secrets/master.key
       AKERDOCK_INSTANCE_FQDN: ${AKERDOCK_INSTANCE_FQDN:-}
-      # Bootstrap du premier root user (§10.2 PRD) — lu uniquement si aucun utilisateur n'existe (§6.3)
+      # Bootstrap of the first root user (PRD §10.2) — read only if no user exists (§6.3)
       AKERDOCK_ROOT_EMAIL: ${AKERDOCK_ROOT_EMAIL:-}
       AKERDOCK_ROOT_NAME: ${AKERDOCK_ROOT_NAME:-}
       AKERDOCK_ROOT_PASSWORD: ${AKERDOCK_ROOT_PASSWORD:-}
-      # Serveur localhost pré-enregistré (§6.2) — lu à l'amorçage seulement
+      # Pre-registered localhost server (§6.2) — read at bootstrap only
       AKERDOCK_LOCALHOST_USER: ${AKERDOCK_LOCALHOST_USER:-}
     volumes:
       - ./keys/master.key:/run/secrets/master.key:ro
       - akerdock_data:/var/lib/akerdock
     networks: [akerdock]
     extra_hosts:
-      # Fait résoudre host.docker.internal vers la passerelle du réseau compose
-      # sur Linux (natif sur Docker Desktop) : c'est l'adresse SSH du serveur
-      # localhost pré-enregistré (§6.2).
+      # Makes host.docker.internal resolve to the compose network gateway
+      # on Linux (native on Docker Desktop): it is the SSH address of the
+      # pre-registered localhost server (§6.2).
       - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      # Image distroless sans shell : le binaire embarque une sous-commande `healthcheck`
-      # qui interroge http://127.0.0.1:8080/api/v1/health et sort en 0/1 (§6.6).
+      # Distroless image without a shell: the binary embeds a `healthcheck` subcommand
+      # that queries http://127.0.0.1:8080/api/v1/health and exits with 0/1 (§6.6).
       test: ["CMD", "/akerdock", "healthcheck"]
       interval: 30s
       timeout: 5s
@@ -183,16 +183,16 @@ services:
     stop_grace_period: 40s               # > AKERDOCK_SHUTDOWN_TIMEOUT (30 s, §6.5)
 
   postgres:
-    image: postgres:18                   # tag exact épinglé par les notes de release (≥ 15, data dictionary §2)
+    image: postgres:18                   # exact tag pinned by the release notes (≥ 15, data dictionary §2)
     restart: unless-stopped
     environment:
       POSTGRES_USER: akerdock
       POSTGRES_DB: akerdock
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?requis (openssl rand -hex 24)}
-      PGDATA: /var/lib/postgresql/data   # chemin stable : PG18 a déplacé le PGDATA par défaut vers un sous-dossier versionné — l'épingler garde les données dans le volume monté (ADR-039)
+      PGDATA: /var/lib/postgresql/data   # stable path: PG18 moved the default PGDATA to a versioned subfolder — pinning it keeps the data in the mounted volume (ADR-039)
     volumes:
       - akerdock_pgdata:/var/lib/postgresql/data
-      - ./backups:/backups               # dumps locaux visibles sur l'hôte (§5.1)
+      - ./backups:/backups               # local dumps visible on the host (§5.1)
     networks: [akerdock]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U akerdock -d akerdock"]
@@ -209,18 +209,18 @@ volumes:
   akerdock_pgdata:
 ```
 
-Propriétés garanties (ADR-021) : un seul `docker compose up -d` installe ; l'upgrade est un changement de `AKERDOCK_TAG` ([upgrade-downgrade.md](../runbooks/upgrade-downgrade.md)) ; PostgreSQL n'est **pas** publié sur l'hôte ; `sslmode=disable` est acceptable uniquement parce que le trafic reste sur le réseau compose privé `akerdock` — toute base externe exige `sslmode=verify-full` (avertissement §7.2 sinon).
+Guaranteed properties (ADR-021): a single `docker compose up -d` installs; an upgrade is a change of `AKERDOCK_TAG` ([upgrade-downgrade.md](../runbooks/upgrade-downgrade.md)); PostgreSQL is **not** published on the host; `sslmode=disable` is acceptable only because the traffic stays on the private `akerdock` compose network — any external database requires `sslmode=verify-full` (§7.2 warning otherwise).
 
-> **Note N1 — identifiants en minuscules.** Le nom de service compose, l'utilisateur et la base PostgreSQL sont `akerdock` (minuscules). Les extraits du runbook [install.md](../runbooks/install.md) écrits avant cette spec utilisent la casse `AkerDock` : c'est la présente spec qui fait foi — les identifiants techniques sont en minuscules (un rôle PostgreSQL en casse mixte créé via `POSTGRES_USER` exigerait des identifiants cités dans chaque commande `psql`/`pg_dump`, source d'erreurs opérateur).
+> **Note N1 — lowercase identifiers.** The compose service name, the PostgreSQL user and database are `akerdock` (lowercase). The excerpts of the [install.md](../runbooks/install.md) runbook written before this spec use the `AkerDock` casing: the present spec is authoritative — technical identifiers are lowercase (a mixed-case PostgreSQL role created via `POSTGRES_USER` would require quoted identifiers in every `psql`/`pg_dump` command, a source of operator errors).
 >
-> **Note N2 — volumes nommés (écart justifié avec install.md).** Le runbook d'installation proposait des bind mounts (`./postgres`, implicitement l'état applicatif sur l'hôte). Cette spec retient les **volumes nommés** `akerdock_pgdata` et `akerdock_data` : gestion des UID/permissions par Docker (l'image distroless tourne non-root, l'image postgres avec son propre UID — les bind mounts imposent des chown manuels), sémantique de sauvegarde claire (l'état restaurable passe par `pg_dump`/`pg_restore`, jamais par une copie de fichiers — ADR-021 « backups PostgreSQL standards »), et volume déplaçable indépendamment du répertoire compose. Les éléments que l'opérateur doit toucher ou exfiltrer restent des fichiers de l'hôte sous `/var/lib/akerdock/` (compose, `.env`, `keys/master.key`, `backups/` — §5.1) : la procédure « 3 pièces » de [control-plane-restore.md](../runbooks/control-plane-restore.md) est inchangée, aucun volume nommé n'a besoin d'être sauvegardé (§5.3).
+> **Note N2 — named volumes (justified deviation from install.md).** The installation runbook proposed bind mounts (`./postgres`, implicitly the application state on the host). This spec retains the **named volumes** `akerdock_pgdata` and `akerdock_data`: UID/permission management by Docker (the distroless image runs non-root, the postgres image with its own UID — bind mounts require manual chowns), clear backup semantics (the restorable state goes through `pg_dump`/`pg_restore`, never through a file copy — ADR-021 “standard PostgreSQL backups”), and a volume movable independently of the compose directory. The elements the operator must touch or exfiltrate remain host files under `/var/lib/akerdock/` (compose, `.env`, `keys/master.key`, `backups/` — §5.1): the “3 pieces” procedure of [control-plane-restore.md](../runbooks/control-plane-restore.md) is unchanged, no named volume needs to be backed up (§5.3).
 
-### 4.2 `docker-compose.override.yml` — customisations persistantes
+### 4.2 `docker-compose.override.yml` — persistent customizations
 
-Les personnalisations locales vont dans `/var/lib/akerdock/docker-compose.override.yml`, chargé automatiquement par Compose v2 et **jamais touché par les upgrades** (parité avec le `docker-compose.custom.yml` de la référence, §14.1 PRD) : les releases ne remplacent que `docker-compose.yml`. Exemple documenté :
+Local customizations go into `/var/lib/akerdock/docker-compose.override.yml`, loaded automatically by Compose v2 and **never touched by upgrades** (parity with the reference's `docker-compose.custom.yml`, PRD §14.1): releases only replace `docker-compose.yml`. Documented example:
 
 ```yaml
-# /var/lib/akerdock/docker-compose.override.yml — personnalisations locales, survivent aux upgrades
+# /var/lib/akerdock/docker-compose.override.yml — local customizations, survive upgrades
 services:
   akerdock:
     environment:
@@ -236,107 +236,107 @@ networks:
   akerdock:
     ipam:
       config:
-        - subnet: 172.30.0.0/24        # plage CIDR Docker custom (§14.1 PRD)
+        - subnet: 172.30.0.0/24        # custom Docker CIDR range (PRD §14.1)
 ```
 
-Règles : l'override ne doit **ni** changer les images/tags (l'upgrade passe par `AKERDOCK_TAG`), **ni** publier de port supplémentaire (§27.1), **ni** retirer les healthchecks. Un override qui casse ces invariants est hors support.
+Rules: the override MUST **neither** change the images/tags (upgrades go through `AKERDOCK_TAG`), **nor** publish an additional port (§27.1), **nor** remove the healthchecks. An override that breaks these invariants is out of support.
 
 ---
 
-## 5. Arborescence `/var/lib/akerdock/` de l'instance
+## 5. `/var/lib/akerdock/` tree of the instance
 
-Distincte de l'arborescence `/var/lib/akerdock/` **des serveurs cibles** (applications, proxy, sources — deployment-engine §5.1, normative là-bas) : même nom de racine (parité §7.5 PRD, « tout l'état = un répertoire »), contenus différents. Quand l'instance gère aussi son propre hôte comme serveur cible (`localhost`), les deux arborescences coexistent sous la même racine sans collision de sous-répertoires.
+Distinct from the `/var/lib/akerdock/` tree **of the target servers** (applications, proxy, sources — deployment-engine §5.1, normative over there): same root name (PRD §7.5 parity, “all the state = one directory”), different contents. When the instance also manages its own host as a target server (`localhost`), the two trees coexist under the same root without subdirectory collision.
 
-### 5.1 Sur l'hôte de l'instance
+### 5.1 On the instance host
 
 ```text
-/var/lib/akerdock/                          # racine, 0750, root
-├── docker-compose.yml                   # fichier de référence de la release (§4.1), remplacé à l'upgrade
-├── docker-compose.override.yml          # optionnel — customisations persistantes (§4.2)
+/var/lib/akerdock/                          # root, 0750, root
+├── docker-compose.yml                   # reference file of the release (§4.1), replaced at upgrade
+├── docker-compose.override.yml          # optional — persistent customizations (§4.2)
 ├── .env                                 # 0600 — AKERDOCK_TAG, POSTGRES_PASSWORD, AKERDOCK_PORT, AKERDOCK_ROOT_*…
 ├── keys/                                # 0700
-│   └── master.key                       # 0600 root:root — clé maître multi-versions (§3)
-└── backups/                             # dumps locaux (pré-upgrade, « Backup Now ») — monté dans postgres (/backups)
+│   └── master.key                       # 0600 root:root — multi-version master key (§3)
+└── backups/                             # local dumps (pre-upgrade, “Backup Now”) — mounted into postgres (/backups)
 ```
 
-C'est exactement le périmètre à exfiltrer hors machine : `docker-compose.yml` + override + `.env` + `keys/master.key` (+ les dumps, dont la copie de référence vit sur S3 via le plan `is_instance_backup`) — les « 3 pièces » de [control-plane-restore.md](../runbooks/control-plane-restore.md).
+This is exactly the perimeter to exfiltrate off-machine: `docker-compose.yml` + override + `.env` + `keys/master.key` (+ the dumps, whose reference copy lives on S3 via the `is_instance_backup` plan) — the “3 pieces” of [control-plane-restore.md](../runbooks/control-plane-restore.md).
 
-### 5.2 Dans le volume `akerdock_data` (monté sur `AKERDOCK_DATA_DIR`, défaut `/var/lib/akerdock` dans le container)
+### 5.2 In the `akerdock_data` volume (mounted on `AKERDOCK_DATA_DIR`, default `/var/lib/akerdock` in the container)
 
 ```text
-/var/lib/akerdock/                          # dans le container = volume nommé akerdock_data
+/var/lib/akerdock/                          # in the container = named volume akerdock_data
 ├── ssh/
-│   └── instance_ed25519.pub             # copie de la clé publique d'instance (§6.2) — la privée est en base, chiffrée
-└── tmp/                                 # espace temporaire du processus (téléchargements, staging), purgé au démarrage
+│   └── instance_ed25519.pub             # copy of the instance's public key (§6.2) — the private one is in the database, encrypted
+└── tmp/                                 # temporary space of the process (downloads, staging), purged at startup
 ```
 
-### 5.3 Invariant : rien d'irrécupérable hors base + clé maître
+### 5.3 Invariant: nothing irrecoverable outside database + master key
 
-Le volume `akerdock_data` ne contient **aucun état irrécupérable** : tout ce qui s'y trouve est régénérable depuis PostgreSQL + `master.key` (la clé SSH privée d'instance est stockée chiffrée dans `private_keys`, pas dans le volume). Conséquence : ni `akerdock_data` ni `akerdock_pgdata` (couvert par `pg_dump`) n'entrent dans le plan de sauvegarde — le contrat de restore reste « dump + `master.key` + compose/`.env` » (§22.1 PRD).
+The `akerdock_data` volume contains **no irrecoverable state**: everything in it can be regenerated from PostgreSQL + `master.key` (the instance's private SSH key is stored encrypted in `private_keys`, not in the volume). Consequence: neither `akerdock_data` nor `akerdock_pgdata` (covered by `pg_dump`) enters the backup plan — the restore contract remains “dump + `master.key` + compose/`.env`” (PRD §22.1).
 
 ---
 
-## 6. Cycle de vie
+## 6. Lifecycle
 
-### 6.1 Séquence de démarrage (tous démarrages)
+### 6.1 Startup sequence (all startups)
 
-Ordre normatif, chaque étape bloquante :
+Normative order, each step blocking:
 
-1. **Chargement et validation de la configuration** (§7) — toute erreur est fatale, listée exhaustivement ;
-2. **Connexion PostgreSQL** — retry avec backoff pendant 30 s au plus (couvre la fenêtre `depends_on: service_healthy`), puis erreur fatale ;
-3. **Migrations SQL versionnées, automatiques** (ADR-025) — appliquées au boot par le binaire, avant toute écoute réseau ; conçues compatibles rolling upgrade (§18.2 PRD) pour les modes multi-instance. Log explicite `migrations applied` (repère utilisé par [upgrade-downgrade.md](../runbooks/upgrade-downgrade.md)). Une migration en échec = arrêt immédiat, base laissée dans l'état de la dernière migration complète (chaque migration est transactionnelle) ;
-4. **Chargement de la clé maître** (§3) — parsing strict, contrôle des permissions, auto-test chiffrer/déchiffrer avec la version active ; tout échec = refus de démarrer (§6.4) ;
-5. **Amorçages de premier démarrage** (§6.2) et **bootstrap du root user** (§6.3), le cas échéant ;
-6. **Écoute** sur `0.0.0.0:AKERDOCK_PORT` et démarrage des composants du mode (`api` : HTTP seul ; `worker` : consommation de la queue ; `scheduler` : crons sous verrou advisory ; `all-in-one` : les trois). En modes `worker`/`scheduler` purs, le port ne sert que `/api/v1/health`.
+1. **Loading and validation of the configuration** (§7) — any error is fatal, listed exhaustively;
+2. **PostgreSQL connection** — retry with backoff for at most 30 s (covers the `depends_on: service_healthy` window), then fatal error;
+3. **Versioned, automatic SQL migrations** (ADR-025) — applied at boot by the binary, before any network listening; designed to be rolling-upgrade compatible (PRD §18.2) for the multi-instance modes. Explicit log `migrations applied` (marker used by [upgrade-downgrade.md](../runbooks/upgrade-downgrade.md)). A failed migration = immediate stop, database left in the state of the last complete migration (each migration is transactional);
+4. **Loading of the master key** (§3) — strict parsing, permission check, encrypt/decrypt self-test with the active version; any failure = refusal to start (§6.4);
+5. **First-startup bootstraps** (§6.2) and **root user bootstrap** (§6.3), if applicable;
+6. **Listening** on `0.0.0.0:AKERDOCK_PORT` and startup of the mode's components (`api`: HTTP only; `worker`: queue consumption; `scheduler`: crons under advisory lock; `all-in-one`: all three). In pure `worker`/`scheduler` modes, the port only serves `/api/v1/health`.
 
-### 6.2 Premier démarrage (idempotent, rejouable)
+### 6.2 First startup (idempotent, replayable)
 
-Détecté par l'état de la base, pas par un fichier marqueur — chaque action est individuellement idempotente :
+Detected by the state of the database, not by a marker file — each action is individually idempotent:
 
-- **Singleton `instance_settings`** créé s'il n'existe pas, amorcé avec `AKERDOCK_INSTANCE_FQDN` (si présente) et `AKERDOCK_TIMEZONE`. Aux démarrages suivants, ces variables **n'écrasent jamais** la base ; une divergence produit un avertissement (§7.2) ;
-- **Clé SSH d'instance** : génération d'une paire ed25519 sans passphrase si aucune clé d'instance n'existe — privée chiffrée en base (`private_keys`, chiffrement enveloppe §2.7 du data dictionary), publique recopiée en `AKERDOCK_DATA_DIR/ssh/instance_ed25519.pub` pour que l'opérateur puisse la déposer sur le serveur `localhost` ou un premier serveur cible ;
-- **Bootstrap root user** (§6.3) ;
-- **Serveur `localhost` pré-enregistré** (PRD §3) : dès qu'une team existe (celle du root — au même démarrage si le trio `AKERDOCK_ROOT_*` est fourni, sinon à un démarrage ultérieur), une fiche serveur nommée `localhost` (`is_localhost = true`, statut `pending`) est créée dans la team la plus ancienne, pointant `AKERDOCK_LOCALHOST_HOST`:22 avec l'utilisateur `AKERDOCK_LOCALHOST_USER` et la clé SSH d'instance. Amorçage **une seule fois** dans la vie de l'instance (`instance_settings.localhost_seeded`) : si l'opérateur supprime ce serveur, il n'est jamais recréé — l'amorçage ne recrée pas ce que l'opérateur a détruit. Tant que ce serveur n'a **jamais** été validé, le scheduler retente sa validation à chaque tick de maintenance, pendant 24 h après sa création : dès que la clé publique d'instance est autorisée sur l'hôte — ce que `install.sh` fait automatiquement pour l'utilisateur qui installe — il passe `ready` sans action de l'opérateur. Passé ce délai, ou après une première validation réussie, son cycle de vie redevient entièrement celui d'un serveur ordinaire (validation manuelle PRD §20.1).
+- **`instance_settings` singleton** created if it does not exist, bootstrapped with `AKERDOCK_INSTANCE_FQDN` (if present) and `AKERDOCK_TIMEZONE`. At subsequent startups, these variables **never overwrite** the database; a divergence produces a warning (§7.2);
+- **Instance SSH key**: generation of an ed25519 pair without a passphrase if no instance key exists — the private key encrypted in the database (`private_keys`, envelope encryption §2.7 of the data dictionary), the public key copied to `AKERDOCK_DATA_DIR/ssh/instance_ed25519.pub` so the operator can deposit it on the `localhost` server or a first target server;
+- **Root user bootstrap** (§6.3);
+- **Pre-registered `localhost` server** (PRD §3): as soon as a team exists (the root's team — at the same startup if the `AKERDOCK_ROOT_*` trio is provided, otherwise at a later startup), a server record named `localhost` (`is_localhost = true`, status `pending`) is created in the oldest team, pointing at `AKERDOCK_LOCALHOST_HOST`:22 with the user `AKERDOCK_LOCALHOST_USER` and the instance SSH key. Bootstrapped **only once** in the instance's lifetime (`instance_settings.localhost_seeded`): if the operator deletes this server, it is never recreated — bootstrapping does not recreate what the operator has destroyed. As long as this server has **never** been validated, the scheduler retries its validation at each maintenance tick, for 24 h after its creation: as soon as the instance's public key is authorized on the host — which `install.sh` does automatically for the installing user — it becomes `ready` without operator action. Past this delay, or after a first successful validation, its lifecycle becomes entirely that of an ordinary server again (manual validation, PRD §20.1).
 
-### 6.3 Bootstrap du premier root user (§10.2 PRD)
+### 6.3 Bootstrap of the first root user (PRD §10.2)
 
-- Les variables `AKERDOCK_ROOT_EMAIL` / `AKERDOCK_ROOT_NAME` / `AKERDOCK_ROOT_PASSWORD` ne sont **lues que si aucun utilisateur n'existe** en base ; elles sont **consommées une seule fois** — dès qu'un utilisateur existe, elles sont ignorées (avertissement si encore présentes, §7.2) ;
-- Validation **stricte et bloquante** : email syntaxiquement valide et normalisé, nom non vide (§2.1), mot de passe ≥ 12 caractères ; tout échec = **erreur fatale** au démarrage (jamais de root créé « au rabais », jamais de démarrage sans root alors que le trio était fourni) ;
-- Le mot de passe est hashé Argon2id (§23.2 PRD) et n'apparaît dans aucun log ni événement d'audit ; la création du root est auditée (§23.4) ;
-- Alternative sans variables : l'onboarding guidé de l'UI crée le root au premier accès (§14.2 PRD) ;
-- Après le premier démarrage réussi, retirer `AKERDOCK_ROOT_PASSWORD` de `.env` ([install.md](../runbooks/install.md) étape 4).
+- The `AKERDOCK_ROOT_EMAIL` / `AKERDOCK_ROOT_NAME` / `AKERDOCK_ROOT_PASSWORD` variables are **read only if no user exists** in the database; they are **consumed only once** — as soon as a user exists, they are ignored (warning if still present, §7.2);
+- **Strict and blocking** validation: syntactically valid and normalized email, non-empty name (§2.1), password ≥ 12 characters; any failure = **fatal error** at startup (never a root created “on the cheap”, never a startup without a root when the trio was provided);
+- The password is hashed with Argon2id (PRD §23.2) and appears in no log or audit event; the creation of the root is audited (§23.4);
+- Alternative without variables: the UI's guided onboarding creates the root at first access (PRD §14.2);
+- After the first successful startup, remove `AKERDOCK_ROOT_PASSWORD` from `.env` ([install.md](../runbooks/install.md) step 4).
 
-### 6.4 Clé maître absente ou invalide : refus de démarrer
+### 6.4 Missing or invalid master key: refusal to start
 
-Aucun mode dégradé silencieux, dans tous les cas ci-dessous l'instance **refuse de démarrer** avec un message actionnable nommant le problème exact :
+No silent degraded mode; in all the cases below the instance **refuses to start** with an actionable message naming the exact problem:
 
-| Situation | Message (contenu minimal) |
+| Situation | Message (minimal content) |
 |---|---|
-| Ni `AKERDOCK_MASTER_KEY_FILE` ni `AKERDOCK_MASTER_KEY` | variable manquante + renvoi vers [install.md](../runbooks/install.md) étape 2 |
-| Les deux fournies | conflit de sources, en retirer une |
-| Fichier absent / illisible | chemin exact + permissions attendues |
-| Format invalide (§3.1) | numéro de ligne fautive + règle violée (sans jamais journaliser le contenu de la ligne) |
-| Permissions trop ouvertes (lisible/inscriptible par « other ») | mode actuel vs `0600` attendu |
-| Auto-test AEAD en échec | version active concernée |
+| Neither `AKERDOCK_MASTER_KEY_FILE` nor `AKERDOCK_MASTER_KEY` | missing variable + pointer to [install.md](../runbooks/install.md) step 2 |
+| Both provided | source conflict, remove one |
+| File missing / unreadable | exact path + expected permissions |
+| Invalid format (§3.1) | offending line number + violated rule (without ever logging the line's content) |
+| Permissions too open (readable/writable by “other”) | current mode vs expected `0600` |
+| AEAD self-test failure | affected active version |
 
-À chaud, une `key_version` référencée en base mais absente du fichier produit une erreur explicite par opération (§3.4.3) et un compteur d'erreurs OTLP — jamais une valeur vide ou un secret « sauté ».
+At runtime, a `key_version` referenced in the database but absent from the file produces an explicit error per operation (§3.4.3) and an OTLP error counter — never an empty value or a “skipped” secret.
 
-### 6.5 Arrêt gracieux
+### 6.5 Graceful shutdown
 
-Sur `SIGTERM`/`SIGINT` : arrêt de l'écoute des nouvelles requêtes et du leasing de nouveaux jobs, drain des jobs en cours pendant au plus `AKERDOCK_SHUTDOWN_TIMEOUT` (défaut 30 s), heartbeats maintenus pendant le drain, puis arrêt. Les jobs non terminés sont repris après expiration de leur lease (90 s) par inspection distante, jamais rejoués à l'aveugle (§22.1 PRD, deployment-engine §2.5). Le `stop_grace_period: 40s` du compose (§4.1) laisse le drain se terminer avant le `SIGKILL` de Docker.
+On `SIGTERM`/`SIGINT`: stop listening for new requests and leasing new jobs, drain in-flight jobs for at most `AKERDOCK_SHUTDOWN_TIMEOUT` (default 30 s), heartbeats maintained during the drain, then stop. Unfinished jobs are resumed after their lease expires (90 s) through remote inspection, never blindly replayed (PRD §22.1, deployment-engine §2.5). The compose `stop_grace_period: 40s` (§4.1) lets the drain finish before Docker's `SIGKILL`.
 
 ### 6.6 Healthcheck
 
-- Endpoint HTTP : **`GET /api/v1/health`**, non authentifié, disponible même API désactivée (OpenAPI `/health`), sur le port unique. `200` = processus vivant, base joignable, clé maître chargée ;
-- Sous-commande **`/akerdock healthcheck`** : requête locale sur `/api/v1/health`, code de sortie 0/1 — c'est le healthcheck du compose (l'image distroless n'ayant ni shell ni curl, ADR-021).
+- HTTP endpoint: **`GET /api/v1/health`**, unauthenticated, available even with the API disabled (OpenAPI `/health`), on the single port. `200` = process alive, database reachable, master key loaded;
+- **`/akerdock healthcheck`** subcommand: local request to `/api/v1/health`, exit code 0/1 — this is the compose healthcheck (the distroless image having neither shell nor curl, ADR-021).
 
 ---
 
-## 7. Validation au démarrage
+## 7. Startup validation
 
-### 7.1 Erreurs fatales — collecte exhaustive, jamais de démarrage partiel
+### 7.1 Fatal errors — exhaustive collection, never a partial startup
 
-Toutes les vérifications de configuration sont exécutées **avant** d'ouvrir le port et de toucher la queue ; les erreurs sont **toutes collectées puis listées ensemble** (l'opérateur corrige tout en un cycle), et le processus sort en code `1` :
+All configuration checks are executed **before** opening the port and touching the queue; the errors are **all collected then listed together** (the operator fixes everything in one cycle), and the process exits with code `1`:
 
 ```text
 FATAL configuration invalide (3 erreurs) :
@@ -345,27 +345,27 @@ FATAL configuration invalide (3 erreurs) :
   - AKERDOCK_ROOT_EMAIL : fournie sans AKERDOCK_ROOT_NAME/AKERDOCK_ROOT_PASSWORD (trio tout-ou-rien)
 ```
 
-Sont fatals notamment : variable requise absente (§1.2) ; valeur hors domaine (`AKERDOCK_MODE`, `AKERDOCK_LOG_LEVEL`, `AKERDOCK_LOG_FORMAT`) ; `AKERDOCK_PORT` hors `1–65535` ; DSN non parsable ; timezone IANA inconnue ; durée/entier non parsable (`AKERDOCK_SHUTDOWN_TIMEOUT`, `AKERDOCK_WORKER_CONCURRENCY < 1`) ; trio `AKERDOCK_ROOT_*` incomplet ou invalide (§6.3) ; conflits et invalidités de clé maître (§6.4) ; `AKERDOCK_CONFIG_FILE` illisible ou YAML invalide ; `AKERDOCK_DATA_DIR` non inscriptible. Les messages d'erreur ne reproduisent **jamais** la valeur d'une variable sensible (§2, colonne « sensible »).
+Notably fatal: a required variable missing (§1.2); a value outside its domain (`AKERDOCK_MODE`, `AKERDOCK_LOG_LEVEL`, `AKERDOCK_LOG_FORMAT`); `AKERDOCK_PORT` outside `1–65535`; unparsable DSN; unknown IANA timezone; unparsable duration/integer (`AKERDOCK_SHUTDOWN_TIMEOUT`, `AKERDOCK_WORKER_CONCURRENCY < 1`); incomplete or invalid `AKERDOCK_ROOT_*` trio (§6.3); master key conflicts and invalidities (§6.4); `AKERDOCK_CONFIG_FILE` unreadable or invalid YAML; `AKERDOCK_DATA_DIR` not writable. Error messages **never** reproduce the value of a sensitive variable (§2, “Sensitive” column).
 
-### 7.2 Avertissements (démarrage autorisé, log `warn` au boot)
+### 7.2 Warnings (startup allowed, `warn` log at boot)
 
-- `AKERDOCK_MASTER_KEY` utilisée au lieu d'un fichier (§2.1) ;
-- variables `AKERDOCK_ROOT_*` encore présentes alors que des utilisateurs existent — recommander leur retrait ([install.md](../runbooks/install.md)) ;
-- permissions de `master.key` différentes de `0600` sans être ouvertes à « other » (§3.3) ;
-- `AKERDOCK_INSTANCE_FQDN`/`AKERDOCK_TIMEZONE` divergeant de la valeur en base après le premier démarrage (la base fait foi, §6.2) ;
-- `sslmode=disable` dans `AKERDOCK_DATABASE_URL` vers un hôte hors du réseau compose (§4.1) ;
-- variable d'environnement `AKERDOCK_*` inconnue (détection de faute de frappe : `AKERDOCK_LOGLEVEL` → suggestion `AKERDOCK_LOG_LEVEL`).
+- `AKERDOCK_MASTER_KEY` used instead of a file (§2.1);
+- `AKERDOCK_ROOT_*` variables still present while users exist — recommend their removal ([install.md](../runbooks/install.md));
+- `master.key` permissions different from `0600` without being open to “other” (§3.3);
+- `AKERDOCK_INSTANCE_FQDN`/`AKERDOCK_TIMEZONE` diverging from the value in the database after the first startup (the database is authoritative, §6.2);
+- `sslmode=disable` in `AKERDOCK_DATABASE_URL` towards a host outside the compose network (§4.1);
+- unknown `AKERDOCK_*` environment variable (typo detection: `AKERDOCK_LOGLEVEL` → suggestion `AKERDOCK_LOG_LEVEL`).
 
-Chaque avertissement est émis une fois au démarrage, en clair dans les logs — jamais répété en boucle, jamais silencieux.
+Each warning is emitted once at startup, in clear text in the logs — never repeated in a loop, never silent.
 
 ---
 
-## Traçabilité
+## Traceability
 
-| Section | Rend normatif | Référencé par |
+| Section | Makes normative | Referenced by |
 |---|---|---|
-| §2 (port 8080, noms de variables) | §27.1 PRD, ADR-022 | install.md (prérequis réseau, `.env`) |
-| §3 (format `version:base64`, active = plus haute) | ADR-003, §23.2/§27.3 PRD, data dictionary §2.7 | install.md étape 2, key-rotation.md §A |
-| §4 (compose 2 services) | ADR-021, §27.21/§14.1 PRD | install.md étape 3 |
-| §6 (migrations auto au boot, bootstrap root une seule fois) | ADR-025, §10.2/§18.2 PRD | install.md étape 4, upgrade-downgrade.md §A |
-| §5–§6 (arborescence instance, `/api/v1/health`, arrêt gracieux) | §7.5/§22.1 PRD, OpenAPI `/health` | control-plane-restore.md, install.md (vérification) |
+| §2 (port 8080, variable names) | PRD §27.1, ADR-022 | install.md (network prerequisites, `.env`) |
+| §3 (`version:base64` format, active = highest) | ADR-003, PRD §23.2/§27.3, data dictionary §2.7 | install.md step 2, key-rotation.md §A |
+| §4 (2-service compose) | ADR-021, PRD §27.21/§14.1 | install.md step 3 |
+| §6 (auto migrations at boot, root bootstrap only once) | ADR-025, PRD §10.2/§18.2 | install.md step 4, upgrade-downgrade.md §A |
+| §5–§6 (instance tree, `/api/v1/health`, graceful shutdown) | PRD §7.5/§22.1, OpenAPI `/health` | control-plane-restore.md, install.md (verification) |

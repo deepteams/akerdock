@@ -1,66 +1,66 @@
-# Threat Model STRIDE — AkerDock (artefact §29.7)
+# STRIDE Threat Model — AkerDock (artifact §29.7)
 
-> Document de spécification sécurité (artefact §29.7 du PRD, `docs/PRD.md`).
-> Base de référence : §23 (sécurité et modèle de menace), §17 (invariants INV-xxx),
-> §16.3 (acteurs), §10 (auth/tokens), §20.4 (previews/forks), et les ADR de `docs/adr/`.
+> Security specification document (artifact §29.7 of the PRD, `docs/PRD.md`).
+> Reference baseline: §23 (security and threat model), §17 (INV-xxx invariants),
+> §16.3 (actors), §10 (auth/tokens), §20.4 (previews/forks), and the ADRs in `docs/adr/`.
 >
-> Méthodologie : STRIDE (Spoofing, Tampering, Repudiation, Information disclosure,
-> Denial of service, Elevation of privilege) appliqué composant par composant, sur la
-> base des frontières de confiance décrites en §18.1 et §23.1.
+> Methodology: STRIDE (Spoofing, Tampering, Repudiation, Information disclosure,
+> Denial of service, Elevation of privilege) applied component by component, based
+> on the trust boundaries described in §18.1 and §23.1.
 >
-> Convention de traçabilité : chaque contrôle référence un invariant (`INV-xxx`), une
-> sous-section §23.x, une décision ADR (`ADR-0xx` / §27.x), ou est marqué
-> **« manquant »** s'il reste à implémenter. Les défauts proposés au-delà de la
-> parité sont marqués **(défaut proposé)**.
+> Traceability convention: each control references an invariant (`INV-xxx`), a
+> §23.x subsection, an ADR decision (`ADR-0xx` / §27.x), or is marked
+> **"missing"** if it remains to be implemented. Defaults proposed beyond
+> parity are marked **(proposed default)**.
 
 ---
 
-## 1. Diagramme de flux de données et frontières de confiance
+## 1. Data flow diagram and trust boundaries
 
-### 1.1 Vue d'ensemble
+### 1.1 Overview
 
 ```mermaid
 flowchart TB
-    subgraph ext_clients["Zone client (non fiable — Internet)"]
-        BROWSER["Navigateur<br/>(SPA Angular, session cookie)"]
+    subgraph ext_clients["Client zone (untrusted — Internet)"]
+        BROWSER["Browser<br/>(SPA Angular, session cookie)"]
         CLI["CLI AkerDock<br/>(token API Bearer)"]
         CI["Pipeline CI<br/>(token deploy)"]
-        MCP["Intégration MCP / read-only<br/>(token read)"]
+        MCP["MCP integration / read-only<br/>(token read)"]
     end
 
-    subgraph ext_git["Fournisseurs externes (semi-fiables)"]
+    subgraph ext_git["External providers (semi-trusted)"]
         GIT["Providers Git<br/>GitHub / GitLab / Bitbucket / Gitea"]
         CLOUD["Providers DNS/S3<br/>(Cloudflare, Hetzner…)"]
         S3["Object storage S3<br/>(AWS / R2 / MinIO…)"]
         REG["Container registry"]
     end
 
-    subgraph tb_cp["=== FRONTIÈRE DE CONFIANCE 1 : Control plane (fiable, privilégié) ==="]
-        API["API + Auth + Policy<br/>(chi, oapi-codegen)<br/>port unique 443"]
-        WHIN["Endpoint webhooks entrants<br/>/deploy, /webhooks/git/*"]
-        RT["Realtime hub SSE<br/>(logs, statuts, progression)"]
+    subgraph tb_cp["=== TRUST BOUNDARY 1: Control plane (trusted, privileged) ==="]
+        API["API + Auth + Policy<br/>(chi, oapi-codegen)<br/>single port 443"]
+        WHIN["Inbound webhooks endpoint<br/>/deploy, /webhooks/git/*"]
+        RT["Realtime hub SSE<br/>(logs, statuses, progress)"]
         WSTERM["Terminal WebSocket<br/>(PTY <-> SSH)"]
-        subgraph tb_data["Données"]
-            PG[("PostgreSQL<br/>config, états, audit,<br/>queue, outbox, leases")]
-            SECRETS[["Secret store<br/>AEAD AES-256-GCM<br/>clé maître root-only"]]
+        subgraph tb_data["Data"]
+            PG[("PostgreSQL<br/>config, states, audit,<br/>queue, outbox, leases")]
+            SECRETS[["Secret store<br/>AEAD AES-256-GCM<br/>root-only master key"]]
         end
         QUEUE["Job queue durable (PG)"]
         WORKERS["Workers<br/>deploy / backup / validation /<br/>cleanup / notif / git-sync"]
     end
 
-    subgraph tb_transport["=== FRONTIÈRE DE CONFIANCE 2 : Transport distant ==="]
-        SSH["Adaptateur SSH<br/>(clé privée par serveur)"]
+    subgraph tb_transport["=== TRUST BOUNDARY 2: Remote transport ==="]
+        SSH["SSH adapter<br/>(per-server private key)"]
     end
 
-    subgraph tb_target["=== FRONTIÈRE DE CONFIANCE 3 : Serveur cible (confiance LIMITÉE à son périmètre) ==="]
+    subgraph tb_target["=== TRUST BOUNDARY 3: Target server (trust LIMITED to its perimeter) ==="]
         DOCKER["Docker Engine / BuildKit"]
-        BUILDER["Builder<br/>(code potentiellement non fiable :<br/>preview/fork)"]
+        BUILDER["Builder<br/>(potentially untrusted code:<br/>preview/fork)"]
         PROXY["Reverse proxy<br/>Traefik/Caddy (80/443 conf.)"]
-        SENTINEL["Agent métriques OTLP"]
-        WORKLOAD["Containers applicatifs<br/>+ bases managées"]
+        SENTINEL["OTLP metrics agent"]
+        WORKLOAD["Application containers<br/>+ managed databases"]
     end
 
-    ENDUSER["Utilisateur final de l'app<br/>(hors périmètre control plane)"]
+    ENDUSER["App end user<br/>(outside control-plane scope)"]
 
     BROWSER -->|"HTTPS + cookie CSRF"| API
     CLI -->|"Bearer token"| API
@@ -69,21 +69,21 @@ flowchart TB
     BROWSER -.->|"SSE"| RT
     BROWSER -.->|"WSS terminal"| WSTERM
 
-    GIT -->|"webhook signé HMAC"| WHIN
+    GIT -->|"HMAC-signed webhook"| WHIN
     WHIN --> API
     API --> PG
     API --> SECRETS
     API --> QUEUE
     QUEUE --> WORKERS
     WORKERS --> PG
-    WORKERS -->|"secrets au besoin"| SECRETS
+    WORKERS -->|"secrets as needed"| SECRETS
     WORKERS --> SSH
-    WORKERS -->|"clone au SHA"| GIT
+    WORKERS -->|"clone at SHA"| GIT
     WORKERS -->|"provision"| CLOUD
     WORKERS -->|"upload backup"| S3
     WORKERS -->|"push/pull image"| REG
 
-    SSH -->|"commandes typées / échappées"| DOCKER
+    SSH -->|"typed / escaped commands"| DOCKER
     SSH --> PROXY
     DOCKER --> BUILDER
     BUILDER -->|"pull deps / templates"| GIT
@@ -95,269 +95,269 @@ flowchart TB
     PROXY --> WORKLOAD
 ```
 
-### 1.2 Frontières de confiance (résumé)
+### 1.2 Trust boundaries (summary)
 
-| # | Frontière | Direction du flux | Ce qui la traverse | Contrôle de passage |
+| # | Boundary | Flow direction | What crosses it | Crossing control |
 |---|---|---|---|---|
-| TB-1 | Client Internet → Control plane | entrant | requêtes API, SSE, WS terminal, webhooks | Auth (session/token/HMAC), policy RBAC, rate limit, validation (§23.3) |
-| TB-2 | Control plane → Transport distant | sortant | commandes de déploiement/lifecycle | commandes typées/échappées (INV-012), clé SSH par serveur (§23.1) |
-| TB-3 | Transport → Serveur cible | bidirectionnel | exec Docker, flux logs/PTY, métriques | serveur cible = confiance limitée à son périmètre (§16.3, §23.1) |
-| TB-4 | Serveur cible → Fournisseurs Git/DNS/S3/registry | sortant | clone, push, upload, challenge DNS-01 | credentials minimaux, allow/deny SSRF (§23.3), rotation (§16.3) |
-| TB-5 | Builder → reste du serveur/control plane | interne au serveur | exécution de code non fiable | builder rootless isolé, sans credentials control plane (ADR-005, §23.1) |
-| TB-6 | Serveur cible → End-user (trafic applicatif) | sortant du serveur | requêtes HTTP applicatives | hors control plane (INV-007) ; ne remonte jamais au control plane |
+| TB-1 | Internet client → Control plane | inbound | API requests, SSE, terminal WS, webhooks | Auth (session/token/HMAC), RBAC policy, rate limit, validation (§23.3) |
+| TB-2 | Control plane → Remote transport | outbound | deployment/lifecycle commands | typed/escaped commands (INV-012), per-server SSH key (§23.1) |
+| TB-3 | Transport → Target server | bidirectional | Docker exec, logs/PTY streams, metrics | target server = trust limited to its perimeter (§16.3, §23.1) |
+| TB-4 | Target server → Git/DNS/S3/registry providers | outbound | clone, push, upload, DNS-01 challenge | minimal credentials, SSRF allow/deny (§23.3), rotation (§16.3) |
+| TB-5 | Builder → rest of the server/control plane | server-internal | execution of untrusted code | isolated rootless builder, without control plane credentials (ADR-005, §23.1) |
+| TB-6 | Target server → End-user (application traffic) | outbound from server | application HTTP requests | outside the control plane (INV-007); never goes back up to the control plane |
 
-**Invariant structurant** : le trafic applicatif ne passe **jamais** par le control plane (INV-007, §3.3). Une compromission d'un serveur cible ne doit pas pivoter vers les autres serveurs ni vers le control plane (§23.1).
+**Structuring invariant**: application traffic **never** passes through the control plane (INV-007, §3.3). A compromise of a target server must not pivot to the other servers nor to the control plane (§23.1).
 
 ---
 
-## 2. Inventaire des assets et des acteurs/menaces
+## 2. Inventory of assets and threat actors
 
-### 2.1 Assets (par sensibilité et impact)
+### 2.1 Assets (by sensitivity and impact)
 
-| Asset | Localisation | Sensibilité | Impact si compromis | Contrôles clés |
+| Asset | Location | Sensitivity | Impact if compromised | Key controls |
 |---|---|---|---|---|
-| Clé maître de chiffrement | Fichier root-only / env du control plane | Critique | Déchiffrement de tous les secrets | ADR-003, root-only, versionnée, rotation (§23.2) |
-| Clés SSH privées serveurs | `private_keys.private_key_enc` (AEAD) | Critique | Contrôle root de tous les serveurs | Chiffré enveloppe, fichiers `0600`, séparation par team (§23.1/§23.2) |
-| Secrets applicatifs / env vars | `environment_variables` (enveloppe) | Élevée | Fuite credentials clients | INV-003, `read:sensitive` requis, jamais dans logs |
-| Credentials DNS-01 / S3 / registry | `cloud_credentials`, `s3_storages`, `registry_credentials` | Élevée | Détournement DNS et émission de certificats frauduleux, vol de backups | Secret store commun (§23.2), SSRF policy (§23.3) |
-| CA de bases managées (clé privée) | Secret store | Élevée | MITM connexions DB | Régénération UI, rotation double-contrôle (§6.3, §23.4) |
-| Code source client (repos) | Cloné éphémèrement sur builder | Élevée | Fuite propriété intellectuelle | Clone isolé, cleanup, builder rootless (ADR-005) |
-| Images / artifacts de build | Registry ou local serveur | Moyenne | Supply chain, rollback empoisonné | Digest OCI, images signées releases (ADR-006, §23.5) |
-| Base PostgreSQL du control plane | Instance control plane | Critique | Toute la config + hash + audit | Backup chiffré/checksumé (§22.3), APP_KEY séparée |
-| Webhook secrets | `webhook_endpoints` / sources | Élevée | Forge de déploiements | HMAC + secret store (INV-009, §23.2) |
-| Sessions / tokens API | `sessions.token_hash`, `api_tokens.token_hash` | Élevée | Usurpation d'acteur | SHA-256 hash, rotation, IP allowlist (§10.3, §23.3) |
-| Codes de récupération MFA / secret TOTP | `mfa_factors` (hash / enveloppe) | Élevée | Contournement 2FA | Hash SHA-256 / enveloppe (§23.3) |
-| Backups (DB + volumes) | Local `/data` + S3 | Élevée | Exfiltration de données clients | Chiffrement, vérification objet distant (§20.5) |
-| Audit trail | `audit_events` (append-only) | Moyenne | Effacement de traces | Append-only, exportable (§23.4) |
+| Encryption master key | Root-only file / control plane env | Critical | Decryption of all secrets | ADR-003, root-only, versioned, rotation (§23.2) |
+| Server private SSH keys | `private_keys.private_key_enc` (AEAD) | Critical | Root control of all servers | Envelope encrypted, `0600` files, per-team separation (§23.1/§23.2) |
+| Application secrets / env vars | `environment_variables` (envelope) | High | Customer credential leak | INV-003, `read:sensitive` required, never in logs |
+| DNS-01 / S3 / registry credentials | `cloud_credentials`, `s3_storages`, `registry_credentials` | High | DNS hijacking and fraudulent certificate issuance, backup theft | Common secret store (§23.2), SSRF policy (§23.3) |
+| Managed database CA (private key) | Secret store | High | MITM on DB connections | UI regeneration, dual-control rotation (§6.3, §23.4) |
+| Customer source code (repos) | Ephemerally cloned on builder | High | Intellectual property leak | Isolated clone, cleanup, rootless builder (ADR-005) |
+| Build images / artifacts | Registry or local server | Medium | Supply chain, poisoned rollback | OCI digest, signed release images (ADR-006, §23.5) |
+| Control plane PostgreSQL database | Control plane instance | Critical | All config + hashes + audit | Encrypted/checksummed backup (§22.3), separate APP_KEY |
+| Webhook secrets | `webhook_endpoints` / sources | High | Deployment forgery | HMAC + secret store (INV-009, §23.2) |
+| Sessions / API tokens | `sessions.token_hash`, `api_tokens.token_hash` | High | Actor impersonation | SHA-256 hash, rotation, IP allowlist (§10.3, §23.3) |
+| MFA recovery codes / TOTP secret | `mfa_factors` (hash / envelope) | High | 2FA bypass | SHA-256 hash / envelope (§23.3) |
+| Backups (DB + volumes) | Local `/data` + S3 | High | Exfiltration of customer data | Encryption, remote object verification (§20.5) |
+| Audit trail | `audit_events` (append-only) | Medium | Trace erasure | Append-only, exportable (§23.4) |
 
-### 2.2 Acteurs et menaces (threat agents)
+### 2.2 Threat agents
 
-| Acteur / menace | Motivation / capacité | Position | Cibles principales |
+| Actor / threat | Motivation / capability | Position | Main targets |
 |---|---|---|---|
-| Utilisateur d'une autre team | Accès à des ressources hors team via UUID valide | Authentifié, autre team | INV-002 (isolation team) |
-| PR de fork malveillante | Exfiltrer secrets/capacités du runner via code non fiable | Contributeur externe non fiable | INV-010, secrets preview, builder |
-| Serveur cible compromis | Pivoter vers autres serveurs / control plane | Root sur un serveur cible | Clés SSH d'autres serveurs, control plane |
-| Réseau hostile / MITM | Interception, replay, injection | Sur le chemin réseau | TLS, webhooks, terminal, SSH |
-| Insider member (peu privilégié) | Élévation, accès secrets, actions destructives | Authentifié dans la team | RBAC, `read:sensitive`, audit |
-| Dépendance / template empoisonné | Supply chain via catalogue ou deps de build | Auteur de template / mainteneur amont | Catalogue signé, builder rootless |
-| Attaquant externe non authentifié | Force brute, découverte, DoS | Internet | Login, endpoints publics, rate limit |
-| Token API fuité | Rejeu des permissions du token | Détenteur du token | Scope token, IP allowlist, expiration |
+| User of another team | Access to out-of-team resources via a valid UUID | Authenticated, other team | INV-002 (team isolation) |
+| Malicious fork PR | Exfiltrate runner secrets/capabilities via untrusted code | Untrusted external contributor | INV-010, preview secrets, builder |
+| Compromised target server | Pivot to other servers / control plane | Root on a target server | SSH keys of other servers, control plane |
+| Hostile network / MITM | Interception, replay, injection | On the network path | TLS, webhooks, terminal, SSH |
+| Insider member (low-privileged) | Elevation, access to secrets, destructive actions | Authenticated within the team | RBAC, `read:sensitive`, audit |
+| Poisoned dependency / template | Supply chain via catalog or build deps | Template author / upstream maintainer | Signed catalog, rootless builder |
+| Unauthenticated external attacker | Brute force, discovery, DoS | Internet | Login, public endpoints, rate limit |
+| Leaked API token | Replay of the token's permissions | Token holder | Token scope, IP allowlist, expiration |
 
 ---
 
-## 3. Analyse STRIDE par composant
+## 3. STRIDE analysis per component
 
-> Colonnes : **Menace (catégorie STRIDE)** → **Scénario concret** → **Contrôle existant** (réf. INV/§23.x/ADR) → **Contrôle manquant à implémenter**.
+> Columns: **Threat (STRIDE category)** → **Concrete scenario** → **Existing control** (ref. INV/§23.x/ADR) → **Missing control to implement**.
 
 ### 3.1 API + Auth + Policy
 
-| STRIDE | Scénario concret | Contrôle existant | Contrôle manquant |
+| STRIDE | Concrete scenario | Existing control | Missing control |
 |---|---|---|---|
-| **S** — Spoofing | Vol de cookie de session ou de token Bearer pour se faire passer pour un acteur | Cookies Secure/HttpOnly/SameSite, rotation session, tokens hashés SHA-256 + préfixe, IP allowlist CIDR (§23.3, §10.3, `api_tokens`) | Détection d'anomalie de session (nouvelle IP/UA) et alerte optionnelle **(défaut proposé : notification)** |
-| **T** — Tampering | Modification du `team_id` dans le corps/paramètre pour écrire dans une autre team | `team_id` injecté depuis le contexte authentifié, jamais du client (§23.1, INV-002) | Test de non-régression systématique inter-team sur chaque handler (§6 tests) |
-| **R** — Repudiation | Un admin nie avoir supprimé une ressource | Audit append-only avec acteur/token, IP, UA, diff redacted (§23.4) | Signature/chaînage cryptographique des entrées d'audit **(défaut proposé)** |
-| **I** — Information disclosure | Un secret renvoyé sans droit, ou dans un message d'erreur | INV-003, `is_redacted`, format d'erreur sans stack (§24.1), permission `read:sensitive` | Scanner CI anti-fuite (secret dans réponse/log) sur les fixtures OpenAPI |
-| **D** — Denial of service | Flood API épuisant PG/CPU | Rate limit 200 req/min par token, pagination obligatoire (§22.2), curseurs opaques | Quotas par team + backpressure global ; circuit breaker fournisseurs (§22.1, partiellement spécifié) |
-| **E** — Elevation | Création d'un token portant plus de droits que le créateur | Garde anti-élévation à `createApiToken` (OpenAPI, `403` sinon) | Formaliser `tokens:create` + réévaluation à l'usage (voir rbac-matrix §4) **manquant** |
+| **S** — Spoofing | Theft of a session cookie or Bearer token to impersonate an actor | Secure/HttpOnly/SameSite cookies, session rotation, tokens hashed SHA-256 + prefix, CIDR IP allowlist (§23.3, §10.3, `api_tokens`) | Session anomaly detection (new IP/UA) and optional alert **(proposed default: notification)** |
+| **T** — Tampering | Modification of the `team_id` in the body/parameter to write into another team | `team_id` injected from the authenticated context, never from the client (§23.1, INV-002) | Systematic cross-team non-regression test on every handler (§6 tests) |
+| **R** — Repudiation | An admin denies having deleted a resource | Append-only audit with actor/token, IP, UA, redacted diff (§23.4) | Cryptographic signing/chaining of audit entries **(proposed default)** |
+| **I** — Information disclosure | A secret returned without the right, or in an error message | INV-003, `is_redacted`, error format without stack (§24.1), `read:sensitive` permission | CI anti-leak scanner (secret in response/log) on the OpenAPI fixtures |
+| **D** — Denial of service | API flood exhausting PG/CPU | Rate limit 200 req/min per token, mandatory pagination (§22.2), opaque cursors | Per-team quotas + global backpressure; provider circuit breaker (§22.1, partially specified) |
+| **E** — Elevation | Creation of a token carrying more rights than the creator | Anti-elevation guard at `createApiToken` (OpenAPI, `403` otherwise) | Formalize `tokens:create` + re-evaluation at use time (see rbac-matrix §4) **missing** |
 
-### 3.2 Realtime / SSE (logs, statuts, progression)
+### 3.2 Realtime / SSE (logs, statuses, progress)
 
-| STRIDE | Scénario concret | Contrôle existant | Contrôle manquant |
+| STRIDE | Concrete scenario | Existing control | Missing control |
 |---|---|---|---|
-| **S** | Écoute d'un flux de logs d'une autre team via UUID de déploiement deviné | Flux protégé par la même policy que l'endpoint REST équivalent (§24.4), INV-002 | Token realtime borné à la ressource et mono-usage (§24.4) — **à implémenter** |
-| **T** | Injection de séquences ANSI/HTML dans les logs affichés (log poisoning) | Neutralisation ANSI/HTML, rendu HTML neutralisé (§5.7, §23.3) | Tests de fuzzing d'affichage de logs |
-| **R** | Consommation de logs sans trace | Audit des accès sensibles (§23.4) | Les lectures de logs non sensibles ne sont pas auditées (choix assumé) |
-| **I** | Un secret imprimé par le build fuit dans le stream de logs | INV-003 (pas de secret en log), Docker build secrets BuildKit (§5.4) | Filtrage/redaction à la volée des motifs de secrets connus dans le stream **(défaut proposé)** |
-| **D** | Milliers de flux SSE ouverts saturant les connexions | Buffer borné, backpressure, curseur, signal de lignes abandonnées (§22.2) ; cible 500 flux (§22.2) | Cap explicite de flux concurrents par team/utilisateur **manquant** |
-| **E** | Réutilisation d'un token realtime pour un autre flux | Token court, révocation à la fermeture (§24.4) | Liaison stricte token→(ressource, type de flux) **à implémenter** |
+| **S** | Listening to another team's log stream via a guessed deployment UUID | Stream protected by the same policy as the equivalent REST endpoint (§24.4), INV-002 | Realtime token bound to the resource and single-use (§24.4) — **to be implemented** |
+| **T** | Injection of ANSI/HTML sequences into displayed logs (log poisoning) | ANSI/HTML neutralization, neutralized HTML rendering (§5.7, §23.3) | Log display fuzzing tests |
+| **R** | Log consumption without a trace | Audit of sensitive accesses (§23.4) | Reads of non-sensitive logs are not audited (accepted choice) |
+| **I** | A secret printed by the build leaks into the log stream | INV-003 (no secret in logs), Docker build secrets BuildKit (§5.4) | On-the-fly filtering/redaction of known secret patterns in the stream **(proposed default)** |
+| **D** | Thousands of open SSE streams saturating connections | Bounded buffer, backpressure, cursor, dropped-lines signal (§22.2); target 500 streams (§22.2) | Explicit cap of concurrent streams per team/user **missing** |
+| **E** | Reuse of a realtime token for another stream | Short-lived token, revocation on close (§24.4) | Strict token→(resource, stream type) binding **to be implemented** |
 
-### 3.3 Terminal WebSocket (PTY → SSH)
+### 3.3 WebSocket terminal (PTY → SSH)
 
-| STRIDE | Scénario concret | Contrôle existant | Contrôle manquant |
+| STRIDE | Concrete scenario | Existing control | Missing control |
 |---|---|---|---|
-| **S** | Détournement d'une session terminal ouverte (vol de token d'attache) | Token **mono-usage** consommé atomiquement en SQL (`WHERE claimed_at IS NULL RETURNING` — un rejeu ne matche aucune ligne), TTL 60 s, hash seul en base ; émis par une opération authentifiée et bornée à la team (§10.4, §24.4) | Binding du token au fingerprint de connexion **(défaut proposé)** — le token voyage en query string faute d'en-tête possible sur un WebSocket navigateur |
-| **T** | Injection de commandes via resize/escape sequences | Resize borné (1–1000 colonnes/lignes) et parsé côté serveur, jamais réinjecté dans un shell ; le rendu est délégué à xterm.js (§23.3, §24.4) | Fuzzing des séquences de contrôle terminal (§23.5) |
-| **R** | Actions destructives en terminal root non imputables | Ouverture **et** fermeture auditées, avec la raison de fin (§24.4, §23.4) | Frappes non enregistrées par défaut (choix privacy §24.4) ; mode réglementaire opt-in **(défaut proposé : off)** |
-| **I** | Capture de secrets tapés au clavier dans les logs | Frappes non enregistrées (§24.4) — le pont déplace des octets, il n'en retient aucun ; prouvé E2E (aucune frappe dans la table d'audit) | — (conforme) |
-| **D** | Sessions terminal laissées ouvertes indéfiniment | Idle timeout (la **sortie** ne compte pas comme activité) et durée max configurables, kill du pty garanti à la déconnexion/expiration ; balayage des lignes orphelines après un crash du control plane (§24.4) ; **cap de sessions concurrentes par team** (les tokens encore réclamables comptent) | — (conforme) |
-| **E** | Ouverture d'un terminal root sans droit / sur une autre team | Isolation team (une autre team reçoit `404`, jamais `403`) ; terminal container = permission `write` ; terminal **serveur** = terminal root : **double contrôle** — step-up passkey récent pour une session navigateur, permission `root` pour un token API (rbac §5, §10.4) | — (conforme ; le step-up s'appuie sur le passkey, le MFA TOTP restant à venir) |
+| **S** | Hijacking of an open terminal session (attach token theft) | **Single-use** token consumed atomically in SQL (`WHERE claimed_at IS NULL RETURNING` — a replay matches no row), TTL 60 s, hash only in database; issued by an authenticated operation bounded to the team (§10.4, §24.4) | Binding of the token to the connection fingerprint **(proposed default)** — the token travels in the query string since no header is possible on a browser WebSocket |
+| **T** | Command injection via resize/escape sequences | Resize bounded (1–1000 columns/rows) and parsed server-side, never re-injected into a shell; rendering is delegated to xterm.js (§23.3, §24.4) | Fuzzing of terminal control sequences (§23.5) |
+| **R** | Destructive actions in a root terminal not attributable | Opening **and** closing audited, with the end reason (§24.4, §23.4) | Keystrokes not recorded by default (privacy choice §24.4); opt-in regulatory mode **(proposed default: off)** |
+| **I** | Capture of secrets typed at the keyboard in the logs | Keystrokes not recorded (§24.4) — the bridge moves bytes, it retains none; proven E2E (no keystroke in the audit table) | — (compliant) |
+| **D** | Terminal sessions left open indefinitely | Idle timeout (**output** does not count as activity) and configurable max duration, guaranteed pty kill on disconnect/expiration; sweep of orphaned rows after a control plane crash (§24.4); **cap of concurrent sessions per team** (still-claimable tokens count) | — (compliant) |
+| **E** | Opening a root terminal without the right / on another team | Team isolation (another team receives `404`, never `403`); container terminal = `write` permission; **server** terminal = root terminal: **dual control** — recent passkey step-up for a browser session, `root` permission for an API token (rbac §5, §10.4) | — (compliant; step-up relies on the passkey, TOTP MFA still to come) |
 
-### 3.3bis CLI locale : login et tunnel TCP (ADR-031, ADR-032)
+### 3.3bis Local CLI: login and TCP tunnel (ADR-031, ADR-032)
 
-| STRIDE | Scénario concret | Contrôle existant | Contrôle manquant |
+| STRIDE | Concrete scenario | Existing control | Missing control |
 |---|---|---|---|
-| **S** | Phishing de la page de consentement : un attaquant pousse la victime à approuver *sa* demande de login | Le **code de confirmation** est généré par la CLI et affiché des deux côtés ; l'utilisateur doit confronter `user_code` terminal ↔ navigateur avant d'approuver (ADR-031) ; approbation en POST+CSRF sous session | Notification à l'utilisateur lors de la frappe d'un nouveau token CLI **(défaut proposé)** |
-| **T** | Interception du code d'autorisation (URL, historique, logs de proxy) pour obtenir un token | **PKCE** : le token n'est délivré qu'à l'échange vérifiant `SHA-256(verifier)==challenge` ; le `verifier` ne quitte jamais le process CLI ; code mono-usage hashé, TTL 10 min (ADR-031) | — (conforme) |
-| **R** | Impossible d'attribuer l'émission d'un token CLI | `start`/`approve`/`token` audités (acteur, IP, team, permissions), token nommé `cli — <user>@<host>`, listé et révocable (§23.4, ADR-031) | — (conforme) |
-| **I** | Fuite du token au repos sur le poste | Fichier `~/.akerdock/credentials.yaml` en `0600`, TTL 30 j, révocable | Trousseau OS — **DEVRAIT v1.x**, écart assumé (binaire statique ADR-021, ADR-031) au lieu du « défaut proposé » keychain |
-| **D** | Tunnels laissés ouverts / saturation | Token d'attache mono-usage TTL 60 s, idle 15 min, durée max 4 h, heartbeat, teardown garanti, **cap par team** `port_forward_limit`, 32 streams/session (ADR-032) | — (conforme) |
-| **E** | Tunnel/shell vers un container d'une autre team ou non autorisé | Frappe du token contrainte aux permissions de la session (⊆) ; ouverture de port-forward = `write` sur la ressource ; isolation team (`404`) ; cible **figée et autorisée au mint** (ADR-032) | Frontière au grain de la **ressource, pas du port** — assumé et documenté (cf. terminal `docker exec`) |
+| **S** | Phishing of the consent page: an attacker pushes the victim to approve *their* login request | The **confirmation code** is generated by the CLI and displayed on both sides; the user must compare `user_code` terminal ↔ browser before approving (ADR-031); approval via POST+CSRF under a session | Notification to the user when a new CLI token is minted **(proposed default)** |
+| **T** | Interception of the authorization code (URL, history, proxy logs) to obtain a token | **PKCE**: the token is only delivered at the exchange verifying `SHA-256(verifier)==challenge`; the `verifier` never leaves the CLI process; single-use hashed code, TTL 10 min (ADR-031) | — (compliant) |
+| **R** | Impossible to attribute the issuance of a CLI token | `start`/`approve`/`token` audited (actor, IP, team, permissions), token named `cli — <user>@<host>`, listed and revocable (§23.4, ADR-031) | — (compliant) |
+| **I** | Token leak at rest on the workstation | `~/.akerdock/credentials.yaml` file with `0600`, TTL 30 d, revocable | OS keychain — **SHOULD v1.x**, accepted gap (static binary ADR-021, ADR-031) instead of the keychain "proposed default" |
+| **D** | Tunnels left open / saturation | Single-use attach token TTL 60 s, idle 15 min, max duration 4 h, heartbeat, guaranteed teardown, **per-team cap** `port_forward_limit`, 32 streams/session (ADR-032) | — (compliant) |
+| **E** | Tunnel/shell to a container of another team or unauthorized | Token minting constrained to the session's permissions (⊆); opening a port-forward = `write` on the resource; team isolation (`404`); target **frozen and authorized at mint time** (ADR-032) | Boundary at the granularity of the **resource, not the port** — accepted and documented (cf. terminal `docker exec`) |
 
-### 3.4 Workers SSH (transport distant)
+### 3.4 SSH workers (remote transport)
 
-| STRIDE | Scénario concret | Contrôle existant | Contrôle manquant |
+| STRIDE | Concrete scenario | Existing control | Missing control |
 |---|---|---|---|
-| **S** | MITM sur la connexion SSH vers un serveur (mauvais host key) | Vérification host key/politique SSH à l'onboarding (§20.1), erreur distincte sur mauvais host key (§20.1 acceptation) | Épinglage strict + alerte sur changement de host key **(défaut proposé)** |
-| **T** | Injection shell via une entrée utilisateur (domaine, custom docker options) passée à une commande distante | INV-012 (arguments typés/échappés, lib centralisée), validation centralisée (§23.3) | Fuzzing systématique des parseurs + tests d'injection shell (§23.5) **à compléter** |
-| **R** | Impossible d'attribuer une commande distante à un acteur | Audit des changements serveur, correlation ID (§23.4) | — (conforme) |
-| **I** | Clé SSH d'une team utilisée pour un serveur d'une autre | Sélection de clé par team, appartenance vérifiée (INV-002, §23.2), clé d'une autre team rejetée (§20.1) | — (conforme) |
-| **D** | Un serveur injoignable bloque les workers | Timeout, cancellation, retry borné avec jitter, circuit breaker (§22.1) | — (conforme, à tester) |
-| **E** | Un serveur cible compromis exfiltre la clé SSH et pivote | Clés séparables par serveur, secrets au strict besoin, un serveur ≠ accès aux autres (§23.1) | Cible agent sortant pull pour réduire la surface (ADR-001) — **futur** |
+| **S** | MITM on the SSH connection to a server (bad host key) | Host key/SSH policy verification at onboarding (§20.1), distinct error on bad host key (§20.1 acceptance) | Strict pinning + alert on host key change **(proposed default)** |
+| **T** | Shell injection via user input (domain, custom docker options) passed to a remote command | INV-012 (typed/escaped arguments, centralized lib), centralized validation (§23.3) | Systematic parser fuzzing + shell injection tests (§23.5) **to be completed** |
+| **R** | Impossible to attribute a remote command to an actor | Audit of server changes, correlation ID (§23.4) | — (compliant) |
+| **I** | A team's SSH key used for another team's server | Per-team key selection, membership verified (INV-002, §23.2), another team's key rejected (§20.1) | — (compliant) |
+| **D** | An unreachable server blocks the workers | Timeout, cancellation, bounded retry with jitter, circuit breaker (§22.1) | — (compliant, to be tested) |
+| **E** | A compromised target server exfiltrates the SSH key and pivots | Keys separable per server, secrets on a strict need basis, one server ≠ access to the others (§23.1) | Outbound pull agent target to reduce the surface (ADR-001) — **future** |
 
-### 3.5 Builders (BuildKit, code non fiable)
+### 3.5 Builders (BuildKit, untrusted code)
 
-| STRIDE | Scénario concret | Contrôle existant | Contrôle manquant |
+| STRIDE | Concrete scenario | Existing control | Missing control |
 |---|---|---|---|
-| **S** | Un build usurpe l'identité du control plane pour appeler l'API | Builder isolé des credentials du control plane (§23.1) | Segmentation réseau builder ↔ control plane **à implémenter** |
-| **T** | Un Dockerfile monte le socket Docker et altère d'autres containers | Isolation du socket Docker global quand possible (§23.1) | Builders BuildKit rootless dédiés **obligatoires pour code non fiable** (ADR-005 / §27.5) — **à implémenter au plus tard avec forks approuvés** |
-| **R** | Un build malveillant efface ses traces | Build logs structurés conservés (§20.2), audit déploiement (§23.4) | — (conforme) |
-| **I** | Exfiltration des secrets de build via metadata d'image | Docker Build Secrets BuildKit (`--secret`, hors metadata) (§5.4) | Refuser build args pour secrets sensibles par défaut **(défaut proposé)** |
-| **D** | Build infini / fork bomb saturant le serveur | Resource limits, slots de build (`concurrent_builds`), timeouts (§5.5, §22.2) | Application effective des limits aux builds non fiables (cgroups) **à vérifier** |
-| **E** | Évasion du builder vers l'hôte (container escape) | Builder rootless (ADR-005), isolation réseau (§23.1) | microVM/VM pour previews publiques (§23.1 « isolation renforcée ») **(défaut proposé, futur)** |
+| **S** | A build impersonates the control plane to call the API | Builder isolated from control plane credentials (§23.1) | Builder ↔ control plane network segmentation **to be implemented** |
+| **T** | A Dockerfile mounts the Docker socket and tampers with other containers | Isolation of the global Docker socket when possible (§23.1) | Dedicated rootless BuildKit builders **mandatory for untrusted code** (ADR-005 / §27.5) — **to be implemented at the latest with approved forks** |
+| **R** | A malicious build erases its traces | Structured build logs retained (§20.2), deployment audit (§23.4) | — (compliant) |
+| **I** | Exfiltration of build secrets via image metadata | Docker Build Secrets BuildKit (`--secret`, outside metadata) (§5.4) | Refuse build args for sensitive secrets by default **(proposed default)** |
+| **D** | Infinite build / fork bomb saturating the server | Resource limits, build slots (`concurrent_builds`), timeouts (§5.5, §22.2) | Effective application of limits to untrusted builds (cgroups) **to be verified** |
+| **E** | Builder escape to the host (container escape) | Rootless builder (ADR-005), network isolation (§23.1) | microVM/VM for public previews (§23.1 "reinforced isolation") **(proposed default, future)** |
 
 ### 3.6 Reverse proxy (Traefik/Caddy)
 
-| STRIDE | Scénario concret | Contrôle existant | Contrôle manquant |
+| STRIDE | Concrete scenario | Existing control | Missing control |
 |---|---|---|---|
-| **S** | Un attaquant enregistre un domaine se faisant passer pour une app existante | Génération de config déterministe + validation + checksum (§18.3), unicité des noms Docker (INV-011) | Détection de collision de domaine cross-team **à vérifier** |
-| **T** | Modification manuelle de la config proxy contournant l'app active | Application atomique + rollback, revision de config proxy (`ProxyConfigRevision`, §18.1) | Réconciliation qui restaure la config gérée si dérive (INV-015) |
-| **R** | Changement de proxy non tracé | Audit changements serveur/proxy (§23.4) | — (conforme) |
-| **I** | Fuite de labels contenant des secrets | Secrets jamais en labels (INV-003), labels système fixes (§5.3) | Validation anti-secret dans labels custom **(défaut proposé)** |
-| **D** | Arrêt du proxy coupant tout le trafic entrant | Avertissement explicite avant arrêt (§4.1), INV-007 (indépendance control plane) | — (comportement documenté) |
-| **E** | Options docker/labels custom montant des capacités (`--cap-add`, `--privileged`) | Validation centralisée des custom Docker options (§23.3, INV-012) | Allowlist stricte des options autorisées par rôle **à implémenter** |
+| **S** | An attacker registers a domain impersonating an existing app | Deterministic config generation + validation + checksum (§18.3), unique Docker names (INV-011) | Cross-team domain collision detection **to be verified** |
+| **T** | Manual modification of the proxy config bypassing the active app | Atomic application + rollback, proxy config revision (`ProxyConfigRevision`, §18.1) | Reconciliation that restores the managed config on drift (INV-015) |
+| **R** | Untracked proxy change | Audit of server/proxy changes (§23.4) | — (compliant) |
+| **I** | Leak of labels containing secrets | Secrets never in labels (INV-003), fixed system labels (§5.3) | Anti-secret validation in custom labels **(proposed default)** |
+| **D** | Proxy shutdown cutting all inbound traffic | Explicit warning before shutdown (§4.1), INV-007 (control plane independence) | — (documented behavior) |
+| **E** | Custom docker options/labels mounting capabilities (`--cap-add`, `--privileged`) | Centralized validation of custom Docker options (§23.3, INV-012) | Strict allowlist of options authorized per role **to be implemented** |
 
-### 3.7 Webhooks entrants (Git, CI)
+### 3.7 Inbound webhooks (Git, CI)
 
-| STRIDE | Scénario concret | Contrôle existant | Contrôle manquant |
+| STRIDE | Concrete scenario | Existing control | Missing control |
 |---|---|---|---|
-| **S** | Forge d'un événement webhook sans le secret | Signature HMAC vérifiée + horodatage (INV-009, §20.3), secret store (§23.2) | — (conforme) |
-| **T** | Payload modifié pour cibler une autre ressource/branche | Association exacte provider/installation/repo/branch/PR à une ressource de la même team (INV-009, §20.3) | — (conforme) |
-| **R** | Déni d'un déclenchement de déploiement | Persistance de la livraison, audit des appels webhook (§23.4, §13) | — (conforme) |
-| **I** | Repo au nom préfixe usurpant un repo légitime | Association exacte au dépôt (INV-009), scénario « repo au nom préfixe » testé (§23.5) | — (couvert par tests §23.5) |
-| **D** | Flood de webhooks (1000/min burst) | Limite de taille, réponse 2xx rapide puis async, mise en file sans perte (§20.3, §22.2) | Rate limit par source/IP **(défaut proposé)** |
-| **E** | Replay d'une livraison pour redéclencher un déploiement | Déduplication par provider + delivery ID (INV-009, §20.3.2) | — (conforme, testé §23.5) |
+| **S** | Forging a webhook event without the secret | Verified HMAC signature + timestamp (INV-009, §20.3), secret store (§23.2) | — (compliant) |
+| **T** | Payload modified to target another resource/branch | Exact provider/installation/repo/branch/PR association to a resource of the same team (INV-009, §20.3) | — (compliant) |
+| **R** | Denial of a deployment trigger | Delivery persistence, audit of webhook calls (§23.4, §13) | — (compliant) |
+| **I** | Repo with a prefix name impersonating a legitimate repo | Exact repository association (INV-009), "prefix-named repo" scenario tested (§23.5) | — (covered by §23.5 tests) |
+| **D** | Webhook flood (1000/min burst) | Size limit, fast 2xx response then async, lossless queueing (§20.3, §22.2) | Rate limit per source/IP **(proposed default)** |
+| **E** | Replay of a delivery to re-trigger a deployment | Deduplication by provider + delivery ID (INV-009, §20.3.2) | — (compliant, tested §23.5) |
 
 ### 3.8 Previews (PR / forks)
 
-| STRIDE | Scénario concret | Contrôle existant | Contrôle manquant |
+| STRIDE | Concrete scenario | Existing control | Missing control |
 |---|---|---|---|
-| **S** | Une PR de fork se fait passer pour un contributeur de confiance | Scoped deployments (members/collaborators par défaut), forks ignorés par défaut (§5.6, INV-010) | — (conforme) |
-| **T** | Code de PR modifie la config de production | Variables preview séparées, réseau/volumes isolés par instance (§20.4, §5.6) | — (conforme) |
-| **R** | Preview déclenchée sans trace d'approbation | Approbation manuelle mainteneur pour forks, auditée (§20.4.8, §23.4) | Journalisation explicite de l'acteur d'approbation **à confirmer** |
-| **I** | **PR de fork exfiltrant les secrets de production** | INV-010 (aucun secret prod), jeu de variables preview dédié, builder isolé sans secret injecté (§20.4.8) | Builder rootless/microVM obligatoire pour forks approuvés (ADR-005) — **à implémenter** |
-| **D** | Ouverture massive de PR créant des previews sans limite | Plafond de previews par app/serveur + file d'attente, TTL d'inactivité, scale-to-zero (§20.4.3) | Application effective des caps **à implémenter** (divergence P2) |
-| **E** | Preview publique indexée/accessible sans contrôle | Protection par défaut (basic auth/lien signé) + `X-Robots-Tag: noindex` (§20.4.4) | Exposition publique = choix explicite par app (conforme) |
+| **S** | A fork PR impersonates a trusted contributor | Scoped deployments (members/collaborators by default), forks ignored by default (§5.6, INV-010) | — (compliant) |
+| **T** | PR code modifies the production config | Separate preview variables, per-instance isolated network/volumes (§20.4, §5.6) | — (compliant) |
+| **R** | Preview triggered without an approval trace | Manual maintainer approval for forks, audited (§20.4.8, §23.4) | Explicit logging of the approving actor **to be confirmed** |
+| **I** | **Fork PR exfiltrating production secrets** | INV-010 (no prod secrets), dedicated preview variable set, isolated builder with no secret injected (§20.4.8) | Rootless builder/microVM mandatory for approved forks (ADR-005) — **to be implemented** |
+| **D** | Massive PR opening creating previews without limit | Preview cap per app/server + queue, inactivity TTL, scale-to-zero (§20.4.3) | Effective application of the caps **to be implemented** (P2 divergence) |
+| **E** | Public preview indexed/accessible without control | Protection by default (basic auth/signed link) + `X-Robots-Tag: noindex` (§20.4.4) | Public exposure = explicit per-app choice (compliant) |
 
 ### 3.9 Secret store
 
-| STRIDE | Scénario concret | Contrôle existant | Contrôle manquant |
+| STRIDE | Concrete scenario | Existing control | Missing control |
 |---|---|---|---|
-| **S** | Un composant non autorisé demande un secret | Interface `SecretStore` interne, accès workers au strict besoin (ADR-003, §23.1) | Autorisation fine par appelant/scope **à formaliser** |
-| **T** | Altération d'un secret chiffré sans détection | AEAD AES-256-GCM (authentifié) détecte l'altération (ADR-003, §23.2) | — (conforme) |
-| **R** | Mutation de secret non tracée | Audit des mutations de secret (§23.4) | — (conforme) |
-| **I** | Vol du blob chiffré sans la clé maître | Clé maître externe/root-only, chiffrement enveloppe versionné (§23.2, ADR-003) | Support KMS/HSM externe (ADR-003 : sur demande) — **futur** |
-| **D** | Indisponibilité du secret store bloque les déploiements | Secrets en PG (même dispo que le reste) (ADR-002/003) | — (conforme) |
-| **E** | Rotation de clé exposant une fenêtre de clair | Rotation sans réécriture bloquante, version de clé (§19.2, §23.2) | Procédure de rotation testée (runbook §29.10) **à écrire** |
+| **S** | An unauthorized component requests a secret | Internal `SecretStore` interface, worker access on a strict need basis (ADR-003, §23.1) | Fine-grained authorization per caller/scope **to be formalized** |
+| **T** | Tampering of an encrypted secret without detection | AEAD AES-256-GCM (authenticated) detects tampering (ADR-003, §23.2) | — (compliant) |
+| **R** | Untracked secret mutation | Audit of secret mutations (§23.4) | — (compliant) |
+| **I** | Theft of the encrypted blob without the master key | External/root-only master key, versioned envelope encryption (§23.2, ADR-003) | External KMS/HSM support (ADR-003: on demand) — **future** |
+| **D** | Secret store unavailability blocks deployments | Secrets in PG (same availability as the rest) (ADR-002/003) | — (compliant) |
+| **E** | Key rotation exposing a plaintext window | Rotation without blocking rewrite, key version (§19.2, §23.2) | Tested rotation procedure (runbook §29.10) **to be written** |
 
-### 3.10 Catalogue de templates
+### 3.10 Template catalog
 
-| STRIDE | Scénario concret | Contrôle existant | Contrôle manquant |
+| STRIDE | Concrete scenario | Existing control | Missing control |
 |---|---|---|---|
-| **S** | Template usurpant un service officiel | Catalogue projet signé + validé, repos utilisateur distincts (ADR-010, §27.10) | Affichage clair de la provenance (officiel vs team) **(défaut proposé)** |
-| **T** | **Template one-click malveillant** injecte un compose hostile | Validation à l'import, catalogue versionné/signé (ADR-010), validation parseur compose (§23.3/§23.5) | Sandbox de validation + scan des options dangereuses avant déploiement **à implémenter** |
-| **R** | Origine d'un template non traçable | Catalogue versionné, provenance par repo (ADR-010) | Audit de l'import de template **(défaut proposé)** |
-| **I** | Template exfiltrant des magic variables/secrets générés | Magic variables scoping par stack (§9), INV-003 | Revue des `content:`/`command:` avant exécution **à implémenter** |
-| **D** | Template déployant des ressources illimitées | Resource limits, quotas (§22.2, ADR-015) | Limites par template/team **(défaut proposé)** |
-| **E** | Template avec `--privileged`/host mount escaladant | Validation centralisée des options Docker (§23.3, INV-012) | Allowlist d'options + refus host mounts sensibles par défaut **à implémenter** |
+| **S** | Template impersonating an official service | Signed + validated project catalog, distinct user repos (ADR-010, §27.10) | Clear display of provenance (official vs team) **(proposed default)** |
+| **T** | **Malicious one-click template** injects a hostile compose | Validation at import, versioned/signed catalog (ADR-010), compose parser validation (§23.3/§23.5) | Validation sandbox + scan of dangerous options before deployment **to be implemented** |
+| **R** | Untraceable template origin | Versioned catalog, per-repo provenance (ADR-010) | Audit of template import **(proposed default)** |
+| **I** | Template exfiltrating generated magic variables/secrets | Magic variables scoping per stack (§9), INV-003 | Review of `content:`/`command:` before execution **to be implemented** |
+| **D** | Template deploying unlimited resources | Resource limits, quotas (§22.2, ADR-015) | Per-template/team limits **(proposed default)** |
+| **E** | Template with `--privileged`/host mount escalating | Centralized validation of Docker options (§23.3, INV-012) | Options allowlist + refusal of sensitive host mounts by default **to be implemented** |
 
 ### 3.11 CLI / config-as-code
 
-| STRIDE | Scénario concret | Contrôle existant | Contrôle manquant |
+| STRIDE | Concrete scenario | Existing control | Missing control |
 |---|---|---|---|
-| **S** | Vol du token CLI stocké en clair sur un poste | Token hashé côté serveur, IP allowlist, expiration (§10.3) | Stockage sécurisé côté CLI (keychain) **(défaut proposé)** |
-| **T** | Apply YAML modifiant des ressources hors périmètre autorisé | Apply évalué avec les permissions de l'acteur, version optimiste, dry-run/diff (§24.5, §24.1) | Vérification RBAC par ressource ciblée dans l'apply **à implémenter** |
-| **R** | Apply non tracé | Apply audité comme toute mutation, job visible (§24.5) | — (conforme) |
-| **I** | Secrets inline dans l'export YAML | Secrets référencés (nom+version), jamais inline (§24.5, INV-003) | — (conforme) |
-| **D** | Apply massif saturant les workers | Exécuté comme job visible avec étapes/annulation (§24.5, §22.5) | Limite de taille d'apply **(défaut proposé)** |
-| **E** | Apply créant un token/rôle élevé (`akerdock up` local) | Déploiement local marqué, jamais d'auto-deploy (§27.18) | Garde anti-élévation appliquée aussi via config-as-code (voir rbac §4) **à implémenter** |
+| **S** | Theft of the CLI token stored in plaintext on a workstation | Token hashed server-side, IP allowlist, expiration (§10.3) | Secure storage on the CLI side (keychain) **(proposed default)** |
+| **T** | YAML apply modifying resources outside the authorized perimeter | Apply evaluated with the actor's permissions, optimistic versioning, dry-run/diff (§24.5, §24.1) | RBAC verification per targeted resource within the apply **to be implemented** |
+| **R** | Untracked apply | Apply audited like any mutation, visible job (§24.5) | — (compliant) |
+| **I** | Inline secrets in the YAML export | Secrets referenced (name+version), never inline (§24.5, INV-003) | — (compliant) |
+| **D** | Massive apply saturating the workers | Executed as a visible job with steps/cancellation (§24.5, §22.5) | Apply size limit **(proposed default)** |
+| **E** | Apply creating an elevated token/role (local `akerdock up`) | Local deployment flagged, never auto-deploy (§27.18) | Anti-elevation guard also applied via config-as-code (see rbac §4) **to be implemented** |
 
 ---
 
-## 4. Les 10 scénarios d'abus prioritaires (kill chains)
+## 4. The 10 priority abuse scenarios (kill chains)
 
-> Format : objectif → kill chain courte → invariant/mitigation en face.
+> Format: objective → short kill chain → invariant/mitigation facing it.
 
-### AB-01 — PR de fork exfiltrant les secrets de production
-**Kill chain** : contributeur externe ouvre une PR depuis un fork → CI/preview build le code non fiable → le code lit `env` et POST vers un serveur externe.
-**Mitigation** : forks ignorés par défaut (INV-010, §5.6) ; preview de fork uniquement sur approbation mainteneur, builder rootless isolé, **aucun secret prod injecté** (§20.4.8, ADR-005) ; jeu de variables preview dédié (§20.4).
-**Statut** : builder rootless obligatoire = **à implémenter** (ADR-005) ; reste conforme par défaut.
+### AB-01 — Fork PR exfiltrating production secrets
+**Kill chain**: external contributor opens a PR from a fork → CI/preview builds the untrusted code → the code reads `env` and POSTs to an external server.
+**Mitigation**: forks ignored by default (INV-010, §5.6); fork preview only on maintainer approval, isolated rootless builder, **no prod secrets injected** (§20.4.8, ADR-005); dedicated preview variable set (§20.4).
+**Status**: mandatory rootless builder = **to be implemented** (ADR-005); otherwise compliant by default.
 
-### AB-02 — Accès à une ressource d'une autre team via UUID valide
-**Kill chain** : un member obtient l'UUID d'un serveur/clé/ressource d'une autre team → l'utilise dans une requête API.
-**Mitigation** : INV-002 — `team_id` du contexte authentifié, jamais du client (§23.1) ; réponse `not_found` (pas `403`, pas d'oracle). Matrice inter-team testée (§23.5, §6 de rbac).
+### AB-02 — Access to another team's resource via a valid UUID
+**Kill chain**: a member obtains the UUID of another team's server/key/resource → uses it in an API request.
+**Mitigation**: INV-002 — `team_id` from the authenticated context, never from the client (§23.1); `not_found` response (not `403`, no oracle). Cross-team matrix tested (§23.5, rbac §6).
 
-### AB-03 — Injection shell via custom docker options / domaines
-**Kill chain** : un utilisateur saisit `--label x; rm -rf /` (ou domaine forgé) → concaténé dans une commande SSH distante.
-**Mitigation** : INV-012 — arguments typés ou échappement via lib centralisée testée ; validation centralisée des options Docker/domaines/CIDR/cron (§23.3) ; tests d'injection shell + fuzzing (§23.5).
+### AB-03 — Shell injection via custom docker options / domains
+**Kill chain**: a user enters `--label x; rm -rf /` (or a forged domain) → concatenated into a remote SSH command.
+**Mitigation**: INV-012 — typed arguments or escaping via a tested centralized lib; centralized validation of Docker options/domains/CIDR/cron (§23.3); shell injection tests + fuzzing (§23.5).
 
-### AB-04 — Replay de webhook pour redéclencher un déploiement
-**Kill chain** : réseau hostile capture une livraison webhook signée → la rejoue.
-**Mitigation** : INV-009 — signature HMAC + horodatage + déduplication par provider + delivery ID (§20.3) ; scénario replay testé (§23.5).
+### AB-04 — Webhook replay to re-trigger a deployment
+**Kill chain**: hostile network captures a signed webhook delivery → replays it.
+**Mitigation**: INV-009 — HMAC signature + timestamp + deduplication by provider + delivery ID (§20.3); replay scenario tested (§23.5).
 
-### AB-05 — Template one-click malveillant
-**Kill chain** : team enregistre un repo de templates → template contient `privileged: true` + bind mount `/` → déploiement escalade sur l'hôte.
-**Mitigation** : validation à l'import + catalogue signé (ADR-010) ; validation centralisée des options Docker (INV-012, §23.3) ; **manquant** : allowlist d'options + refus host mounts sensibles par défaut.
+### AB-05 — Malicious one-click template
+**Kill chain**: team registers a template repo → template contains `privileged: true` + bind mount `/` → deployment escalates on the host.
+**Mitigation**: validation at import + signed catalog (ADR-010); centralized validation of Docker options (INV-012, §23.3); **missing**: options allowlist + refusal of sensitive host mounts by default.
 
-### AB-06 — Vol de session terminal (root)
-**Kill chain** : attaquant récupère un token d'attache terminal → rejoue la connexion WS.
-**Mitigation** : le rejeu **ne peut pas aboutir** — le token est consommé atomiquement en SQL à la première attache (`WHERE claimed_at IS NULL RETURNING`), donc un second usage ne matche aucune ligne quelle que soit la course ; TTL 60 s, hash seul en base (§23.2, §24.4). Session bornée à la team active (§10.4) ; idle timeout + kill garanti du pty (§24.4) ; ouverture/fermeture auditées avec la raison (§23.4). Terminal root = double contrôle (rbac §5 : step-up passkey ou token `root`). Vérifié E2E : rejeu et token forgé répondent `401`.
+### AB-06 — Terminal session theft (root)
+**Kill chain**: attacker obtains a terminal attach token → replays the WS connection.
+**Mitigation**: the replay **cannot succeed** — the token is consumed atomically in SQL at first attach (`WHERE claimed_at IS NULL RETURNING`), so a second use matches no row whatever the race; TTL 60 s, hash only in database (§23.2, §24.4). Session bounded to the active team (§10.4); idle timeout + guaranteed pty kill (§24.4); opening/closing audited with the reason (§23.4). Root terminal = dual control (rbac §5: passkey step-up or `root` token). Verified E2E: replay and forged token return `401`.
 
-### AB-07 — Serveur cible compromis pivotant vers les autres
-**Kill chain** : attaquant obtient root sur un serveur → cherche la clé SSH pour atteindre d'autres serveurs/control plane.
-**Mitigation** : §23.1 — clés/credentials **séparables par serveur**, secrets distribués au strict besoin, un serveur compromis ≠ accès aux autres ; INV-007 (control plane hors chemin) ; cible agent pull (ADR-001) pour réduire la surface entrante.
+### AB-07 — Compromised target server pivoting to the others
+**Kill chain**: attacker obtains root on a server → looks for the SSH key to reach other servers/control plane.
+**Mitigation**: §23.1 — keys/credentials **separable per server**, secrets distributed on a strict need basis, one compromised server ≠ access to the others; INV-007 (control plane off the path); pull agent target (ADR-001) to reduce the inbound surface.
 
-### AB-08 — Élévation de privilèges via création de token
-**Kill chain** : un acteur `write` crée un token `root`/`deploy` qu'il ne possède pas, puis l'utilise.
-**Mitigation** : garde anti-élévation à `createApiToken` — un token ne peut créer un token portant des permissions qu'il ne possède pas (OpenAPI, `403`) ; formalisé en `tokens:create` + réévaluation à l'usage : token = (perms token) ∩ (perms RBAC créateur) (rbac §4).
+### AB-08 — Privilege elevation via token creation
+**Kill chain**: a `write` actor creates a `root`/`deploy` token they do not hold, then uses it.
+**Mitigation**: anti-elevation guard at `createApiToken` — a token cannot create a token carrying permissions it does not hold (OpenAPI, `403`); formalized as `tokens:create` + re-evaluation at use time: token = (token perms) ∩ (creator's RBAC perms) (rbac §4).
 
-### AB-09 — Fuite de secret via logs / messages d'erreur
-**Kill chain** : un déploiement échoue → la commande complète avec un secret est renvoyée dans l'erreur ou le log de build.
-**Mitigation** : INV-003 — jamais de secret en logs/événements/erreurs ; format d'erreur sans commande sensible (§24.1) ; neutralisation ANSI/HTML (§23.3) ; Docker Build Secrets (§5.4). **Manquant** : redaction à la volée dans le stream + scanner CI.
+### AB-09 — Secret leak via logs / error messages
+**Kill chain**: a deployment fails → the full command with a secret is returned in the error or the build log.
+**Mitigation**: INV-003 — never a secret in logs/events/errors; error format without the sensitive command (§24.1); ANSI/HTML neutralization (§23.3); Docker Build Secrets (§5.4). **Missing**: on-the-fly redaction in the stream + CI scanner.
 
-### AB-10 — SSRF via URL Git/registry/webhook vers metadata cloud
-**Kill chain** : un utilisateur configure une source Git/registry pointant vers `http://169.254.169.254/` → le worker fetch et fuit des credentials cloud.
-**Mitigation** : §23.3 — allow/deny policy sur URLs Git/registry/S3/webhook/proxy, **blocage metadata cloud/link-local par défaut** ; validation centralisée des URLs. Tests SSRF **à ajouter** (§23.5).
-
----
-
-## 5. Hypothèses et hors-périmètre explicites
-
-### 5.1 Hypothèses de confiance
-- Le control plane, ses administrateurs root et toute personne disposant d'un terminal root sont **hautement privilégiés** et de confiance (§23.1). Le modèle ne protège pas contre un root d'instance malveillant.
-- La clé maître de chiffrement est correctement protégée par l'opérateur (fichier root-only / secret d'orchestrateur) — sa compromission est hors du contrôle applicatif (§23.2, ADR-003).
-- PostgreSQL et son réseau interne sont dans le périmètre de confiance du control plane (§18.1).
-- Les fournisseurs Git/cloud/S3 respectent leurs contrats de signature et d'authentification ; leur compromission propre est traitée par rotation de credentials (§16.3), pas par ce modèle.
-
-### 5.2 Hors-périmètre explicite
-- **Hardening OS des serveurs cibles** : à la charge de l'utilisateur (§10.4). Docker bypasse UFW ; firewall du cloud provider recommandé (§10.4). AkerDock n'audite pas la configuration OS.
-- **DoS volumétrique / réseau (L3/L4)** : hors périmètre applicatif ; relève de l'infrastructure amont (CDN, anti-DDoS du provider). Le modèle couvre le DoS applicatif (rate limit, backpressure, quotas).
-- **Sécurité physique** des serveurs et de l'hôte du control plane : hors périmètre.
-- **Sécurité des workloads applicatifs clients eux-mêmes** : AkerDock déploie du Docker standard ; la sécurité du code applicatif client relève du client (§16.1). Le trafic applicatif ne transite jamais par le control plane (INV-007).
-- **Docker Swarm / multi-serveurs HA** : expérimental/déprécié (§3.5, ADR-004), non couvert par le durcissement prioritaire.
-- **ARM64, systemd, reboots réels, disques pleins, firewalls** : non couverts par l'automatisation E2E (Docker-in-Docker uniquement) ; risque résiduel accepté et documenté (§27.26, ADR-026).
+### AB-10 — SSRF via Git/registry/webhook URL to cloud metadata
+**Kill chain**: a user configures a Git source/registry pointing to `http://169.254.169.254/` → the worker fetches and leaks cloud credentials.
+**Mitigation**: §23.3 — allow/deny policy on Git/registry/S3/webhook/proxy URLs, **cloud metadata/link-local blocked by default**; centralized URL validation. SSRF tests **to be added** (§23.5).
 
 ---
 
-## 6. Traçabilité vers les tests de sécurité obligatoires (§23.5)
+## 5. Assumptions and explicit out-of-scope
 
-| Menace couverte | Test exigé (§23.5) | Scénario d'abus |
+### 5.1 Trust assumptions
+- The control plane, its root administrators and anyone with a root terminal are **highly privileged** and trusted (§23.1). The model does not protect against a malicious instance root.
+- The encryption master key is properly protected by the operator (root-only file / orchestrator secret) — its compromise is outside application control (§23.2, ADR-003).
+- PostgreSQL and its internal network are within the control plane's trust perimeter (§18.1).
+- Git/cloud/S3 providers honor their signature and authentication contracts; their own compromise is handled by credential rotation (§16.3), not by this model.
+
+### 5.2 Explicit out-of-scope
+- **OS hardening of target servers**: the user's responsibility (§10.4). Docker bypasses UFW; the cloud provider's firewall is recommended (§10.4). AkerDock does not audit the OS configuration.
+- **Volumetric / network DoS (L3/L4)**: outside the application perimeter; belongs to upstream infrastructure (CDN, provider anti-DDoS). The model covers application-level DoS (rate limit, backpressure, quotas).
+- **Physical security** of the servers and the control plane host: out of scope.
+- **Security of customer application workloads themselves**: AkerDock deploys standard Docker; the security of customer application code is the customer's responsibility (§16.1). Application traffic never transits through the control plane (INV-007).
+- **Docker Swarm / multi-server HA**: experimental/deprecated (§3.5, ADR-004), not covered by priority hardening.
+- **ARM64, systemd, real reboots, full disks, firewalls**: not covered by E2E automation (Docker-in-Docker only); residual risk accepted and documented (§27.26, ADR-026).
+
+---
+
+## 6. Traceability to the mandatory security tests (§23.5)
+
+| Threat covered | Required test (§23.5) | Abuse scenario |
 |---|---|---|
-| Isolation team | Matrice inter-team sur chaque endpoint et relation indirecte | AB-02 |
-| Injection | Fuzzing parseurs (Compose, env, cron, domaines, ports, docker options) + tests d'injection shell | AB-03, AB-05 |
-| Webhooks | Replay, mauvaise signature, repo au nom préfixe, fork, payload volumineux, désordre | AB-01, AB-04 |
-| Concurrence | Double deploy, delete pendant deploy, rotation de clé pendant job, double restore | (§21, §22.3) |
-| Supply chain | SAST, dependency/container scanning, SBOM, images signées | AB-05, AB-09 |
-| Élévation par token | (à ajouter §23.5) test dédié anti-élévation création de token | AB-08 |
-| SSRF | (à ajouter §23.5) test metadata cloud/link-local bloqués | AB-10 |
+| Team isolation | Cross-team matrix on every endpoint and indirect relation | AB-02 |
+| Injection | Parser fuzzing (Compose, env, cron, domains, ports, docker options) + shell injection tests | AB-03, AB-05 |
+| Webhooks | Replay, bad signature, prefix-named repo, fork, large payload, out-of-order | AB-01, AB-04 |
+| Concurrency | Double deploy, delete during deploy, key rotation during job, double restore | (§21, §22.3) |
+| Supply chain | SAST, dependency/container scanning, SBOM, signed images | AB-05, AB-09 |
+| Elevation via token | (to be added §23.5) dedicated token creation anti-elevation test | AB-08 |
+| SSRF | (to be added §23.5) cloud metadata/link-local blocked test | AB-10 |
 
-> Recommandation : ajouter explicitement à la liste §23.5 deux familles manquantes — **élévation par création de token** (AB-08) et **SSRF metadata** (AB-10) — actuellement traitées par contrôle mais non listées comme tests obligatoires.
+> Recommendation: explicitly add to the §23.5 list two missing families — **elevation via token creation** (AB-08) and **metadata SSRF** (AB-10) — currently handled by a control but not listed as mandatory tests.

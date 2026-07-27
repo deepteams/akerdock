@@ -1,181 +1,181 @@
-# Spécification — CLI locale AkerDock (`akerdock`)
+# Specification — AkerDock local CLI (`akerdock`)
 
-> Contrat du client en ligne de commande. Sources de vérité amont : PRD (`docs/PRD.md`)
-> §12 (API/CLI), §5.7 (exploitation : logs, terminal), §27.18 (`akerdock up`, v2) ;
-> ADR-018 (déploiement local, v2), ADR-021 (binaire unique), ADR-024 (temps réel :
-> SSE + WebSocket), ADR-027 (chemins d'accès), ADR-031 (auth CLI), ADR-032 (tunnel TCP),
-> ADR-033 (Cobra). Contrat d'API : `docs/specs/openapi-v1.yaml`. Autorisations :
-> `docs/specs/rbac-matrix.md`. Menaces : `docs/specs/threat-model.md`.
+> Contract of the command-line client. Upstream sources of truth: PRD (`docs/PRD.md`)
+> §12 (API/CLI), §5.7 (operations: logs, terminal), §27.18 (`akerdock up`, v2);
+> ADR-018 (local deployment, v2), ADR-021 (single binary), ADR-024 (real time:
+> SSE + WebSocket), ADR-027 (access paths), ADR-031 (CLI auth), ADR-032 (TCP tunnel),
+> ADR-033 (Cobra). API contract: `docs/specs/openapi-v1.yaml`. Authorizations:
+> `docs/specs/rbac-matrix.md`. Threats: `docs/specs/threat-model.md`.
 >
-> Périmètre : **v1 « debug »** — `login`, contextes, listing, logs (dont `-f`), shell,
-> port-forward TCP, console de base typée. Le déploiement depuis le poste (`akerdock up`,
-> ADR-018) et la gestion env/domaines/clés relèvent de **v2** et ne sont pas spécifiés ici.
+> Scope: **v1 "debug"** — `login`, contexts, listing, logs (including `-f`), shell,
+> TCP port-forward, basic typed console. Deployment from the workstation (`akerdock up`,
+> ADR-018) and env/domains/keys management belong to **v2** and are not specified here.
 >
-> Les défauts non tranchés par le PRD sont marqués **(défaut proposé)**.
+> Defaults not settled by the PRD are marked **(proposed default)**.
 
 ---
 
-## 1. Périmètre et non-buts
+## 1. Scope and non-goals
 
-**Buts v1.** Donner à un développeur, depuis son poste, un accès de debug à ses ressources
-sans les exposer : s'authentifier (y compris en SSO/OIDC), lister les ressources, lire les
-logs (snapshot et streaming), ouvrir un shell dans un conteneur, établir un tunnel TCP vers
-un service (base, redis, …), et une console typée de confort.
+**v1 goals.** Give a developer, from their workstation, debug access to their resources
+without exposing them: authenticate (including via SSO/OIDC), list resources, read
+logs (snapshot and streaming), open a shell in a container, establish a TCP tunnel to
+a service (database, redis, …), and a typed console for convenience.
 
-**Non-buts v1.** Déploiement (`up`, rollback, `deploy`), gestion des variables d'env, des
-domaines, des clés, des backups, des membres. La CLI **NE réimplémente jamais** de logique
-métier : elle consomme l'API publique (§18.2 PRD), rien d'autre.
+**v1 non-goals.** Deployment (`up`, rollback, `deploy`), management of env variables,
+domains, keys, backups, members. The CLI **NEVER reimplements** business logic:
+it consumes the public API (PRD §18.2), nothing else.
 
-## 2. Invariant de transport
+## 2. Transport invariant
 
-- La CLI **NE se connecte qu'au** FQDN du manager du contexte actif, **sur 443** (80
-  uniquement pour un éventuel redirect→HTTPS). Aucune autre destination réseau.
-- La CLI **n'ouvre aucun port** entrant ni loopback — uniquement des requêtes sortantes.
-- `shell` et `port-forward` ouvrent un `wss://<manager>/…` sur 443 (en-têtes Upgrade
-  WebSocket standard, comme le terminal web, qui traverse déjà proxies et load-balancers).
-  Le tunnel vers le **serveur cible** est établi côté manager (SSH) — jamais côté client.
-- Tout **DOIT** fonctionner à travers un proxy/LB intermédiaire ; les heartbeats (20 s)
-  maintiennent les WebSockets ouvertes malgré les idle-timeouts des LB.
+- The CLI **only connects to** the manager FQDN of the active context, **on 443** (80
+  only for a possible redirect→HTTPS). No other network destination.
+- The CLI **opens no** inbound or loopback port — only outbound requests.
+- `shell` and `port-forward` open a `wss://<manager>/…` on 443 (standard WebSocket
+  Upgrade headers, like the web terminal, which already traverses proxies and load-balancers).
+  The tunnel to the **target server** is established on the manager side (SSH) — never on the client side.
+- Everything **MUST** work through an intermediate proxy/LB; heartbeats (20 s)
+  keep the WebSockets open despite LB idle-timeouts.
 
-## 3. Commandes
+## 3. Commands
 
-`REF` désigne une ressource : `app/<nom|uuid>`, `db/<nom|uuid>`, `svc/<nom|uuid>`,
-`preview/<pr|uuid>`. La team vient du contexte actif ; `--team`/`-a` l'emporte.
+`REF` designates a resource: `app/<name|uuid>`, `db/<name|uuid>`, `svc/<name|uuid>`,
+`preview/<pr|uuid>`. The team comes from the active context; `--team`/`-a` takes precedence.
 
-| Commande | Rôle |
+| Command | Role |
 |---|---|
-| `akerdock serve all-in-one\|api\|worker\|scheduler` | Modes serveur (ADR-033). |
-| `akerdock healthcheck` | Sonde de la healthcheck compose. |
-| `akerdock login [--url URL] [--context NAME] [--scopes read,write] [--with-token] [--no-browser]` | Authentification (§5). |
-| `akerdock logout [--context NAME] [--revoke]` | Efface le credential local ; `--revoke` supprime aussi le token côté serveur. |
+| `akerdock serve all-in-one\|api\|worker\|scheduler` | Server modes (ADR-033). |
+| `akerdock healthcheck` | Probe for the compose healthcheck. |
+| `akerdock login [--url URL] [--context NAME] [--scopes read,write] [--with-token] [--no-browser]` | Authentication (§5). |
+| `akerdock logout [--context NAME] [--revoke]` | Clears the local credential; `--revoke` also deletes the token server-side. |
 | `akerdock context list \| current \| use NAME \| remove NAME` | Multi-instances. |
-| `akerdock ls [apps\|databases\|services\|previews\|servers]` | Listing ; défaut : liste transverse des ressources. |
-| `akerdock logs REF [--component C] [-n LINES] [-f] [--deployment [UUID]]` | Logs conteneur (snapshot ou `-f` streaming) ou logs d'un déploiement. |
-| `akerdock shell REF [--component C]` | Shell interactif dans le conteneur (§6). |
-| `akerdock port-forward REF [LOCAL:]REMOTE [--component C] [--pr N]` | Tunnel TCP (§7) ; `--pr N` cible l'instance de preview de la PR N au lieu de la production. |
-| `akerdock db REF [--component C] [--pr N]` | Confort : ouvre un forward et lance le client local du moteur détecté (§8) ; accepte une base autonome (`db/…`) ou un **service base d'un stack compose** (`app/… -c C`), `--pr N` visant la preview. |
+| `akerdock ls [apps\|databases\|services\|previews\|servers]` | Listing; default: cross-resource list. |
+| `akerdock logs REF [--component C] [-n LINES] [-f] [--deployment [UUID]]` | Container logs (snapshot or `-f` streaming) or logs of a deployment. |
+| `akerdock shell REF [--component C]` | Interactive shell in the container (§6). |
+| `akerdock port-forward REF [LOCAL:]REMOTE [--component C] [--pr N]` | TCP tunnel (§7); `--pr N` targets the preview instance of PR N instead of production. |
+| `akerdock db REF [--component C] [--pr N]` | Convenience: opens a forward and launches the local client of the detected engine (§8); accepts a standalone database (`db/…`) or a **database service of a compose stack** (`app/… -c C`), with `--pr N` targeting the preview. |
 
-**Flags globaux.** `--context NAME` ; `-o table|json` (`json` = objets API bruts, pour le
-scripting) ; `--quiet`. `NO_COLOR` respecté. **Codes de sortie** : `0` succès, `1` erreur,
+**Global flags.** `--context NAME`; `-o table|json` (`json` = raw API objects, for
+scripting); `--quiet`. `NO_COLOR` honored. **Exit codes**: `0` success, `1` error,
 `2` usage.
 
-## 4. Contextes et stockage
+## 4. Contexts and storage
 
-`~/.akerdock/` (répertoire `0700`) :
-- `config.yaml` (`0600`) — `current_context` + `contexts: {nom → {url, fqdn, team_uuid}}`.
-- `credentials.yaml` (`0600`) — `{contexte → token}`, séparé pour inspecter/partager la
-  config sans exposer les tokens.
+`~/.akerdock/` (directory `0700`):
+- `config.yaml` (`0600`) — `current_context` + `contexts: {name → {url, fqdn, team_uuid}}`.
+- `credentials.yaml` (`0600`) — `{context → token}`, kept separate so the config can be
+  inspected/shared without exposing tokens.
 
-Un contexte = une instance + une team active. `login` crée ou met à jour le contexte courant.
-Le trousseau OS est un **DEVRAIT (v1.x)** (voir ADR-031 pour l'écart assumé).
+A context = one instance + one active team. `login` creates or updates the current context.
+The OS keychain is a **SHOULD (v1.x)** (see ADR-031 for the accepted gap).
 
-**Config par répertoire (`.akerdock`).** Un fichier `.akerdock` (YAML) posé dans un dépôt
-fixe les défauts de la CLI pour ce répertoire et ses sous-répertoires — trouvé en remontant
-l'arborescence depuis le répertoire courant, façon `.git` (un répertoire `.akerdock`, comme le
-`~/.akerdock` global, est ignoré : seul un **fichier** compte). Il **ne contient jamais de
-token** (ceux-ci restent dans `~/.akerdock/credentials.yaml`), il est donc committable. Champs,
-tous optionnels : `context` (nom d'un contexte global), `team`, `project`, `application`
-(cible par défaut), `environment`, `component`.
+**Per-directory config (`.akerdock`).** A `.akerdock` file (YAML) placed in a repository
+sets the CLI defaults for that directory and its subdirectories — found by walking up
+the tree from the current directory, `.git`-style (a `.akerdock` directory, like the
+global `~/.akerdock`, is ignored: only a **file** counts). It **never contains a
+token** (those stay in `~/.akerdock/credentials.yaml`), so it is committable. Fields,
+all optional: `context` (name of a global context), `team`, `project`, `application`
+(default target), `environment`, `component`.
 
-**Précédence (DOIT).** Chaque paramètre se résout dans cet ordre, du plus fort au plus faible :
+**Precedence (MUST).** Each parameter resolves in this order, from strongest to weakest:
 
 ```
-flag CLI  >  variable d'env AKERDOCK_*  >  .akerdock (répertoire)  >  ~/.akerdock (global)
+CLI flag  >  AKERDOCK_* env variable  >  .akerdock (directory)  >  ~/.akerdock (global)
 ```
 
-Variables d'env : `AKERDOCK_CONTEXT`, `AKERDOCK_TEAM`, `AKERDOCK_PROJECT`,
-`AKERDOCK_APPLICATION`, `AKERDOCK_ENVIRONMENT`, `AKERDOCK_COMPONENT`. Ainsi, depuis un dépôt
-avec un `.akerdock` qui pointe `context:` et `application:`, `akerdock logs` (sans REF, sans
-`--context`) cible l'app par défaut de l'instance configurée ; un `--context`/`REF` explicite
-l'emporte toujours.
+Env variables: `AKERDOCK_CONTEXT`, `AKERDOCK_TEAM`, `AKERDOCK_PROJECT`,
+`AKERDOCK_APPLICATION`, `AKERDOCK_ENVIRONMENT`, `AKERDOCK_COMPONENT`. Thus, from a repository
+with a `.akerdock` that points to `context:` and `application:`, `akerdock logs` (without REF, without
+`--context`) targets the default app of the configured instance; an explicit `--context`/`REF`
+always wins.
 
 ## 5. Login (ADR-031)
 
-Flux **poll + code de confirmation lié par PKCE** — aucun port ouvert, tout en sortie HTTPS.
+**Poll + confirmation code bound by PKCE** flow — no open port, everything outbound over HTTPS.
 
-1. La CLI génère `verifier` + `challenge = SHA-256(verifier)`, `POST /auth/cli/start
+1. The CLI generates `verifier` + `challenge = SHA-256(verifier)`, `POST /auth/cli/start
    {challenge, name}` → `{request_id, user_code, verify_url, interval, expires_in}`.
-2. Affiche `user_code` + l'URL, ouvre le navigateur sur `/cli/authorize?request_id=…`
-   (ou imprime si `--no-browser`).
-3. Consentement navigateur : login (mot de passe/passkey/OIDC), team, permissions, **et
-   confrontation du `user_code`** ; approbation → `POST /auth/cli/approve` (session + CSRF).
-4. La CLI poll `POST /auth/cli/token {request_id, verifier}` → à l'approbation, token `akd_`
-   (TTL 30 j, nom `cli — <user>@<host>`) écrit en `0600`.
+2. Displays `user_code` + the URL, opens the browser on `/cli/authorize?request_id=…`
+   (or prints it if `--no-browser`).
+3. Browser consent: login (password/passkey/OIDC), team, permissions, **and
+   confrontation of the `user_code`**; approval → `POST /auth/cli/approve` (session + CSRF).
+4. The CLI polls `POST /auth/cli/token {request_id, verifier}` → upon approval, an `akd_`
+   token (TTL 30 d, name `cli — <user>@<host>`) is written with `0600`.
 
-**Exigences** (détail normatif dans ADR-031) : codes usage-unique et hashés ; `verifier`
-jamais transmis au navigateur ; `SHA-256(verifier) == challenge` vérifié à l'échange ;
-approbation POST+CSRF ; correspondance du `user_code` exigée ; permissions ⊆ session ;
-défaut `read,write`, jamais `root`/`deploy`/`read:sensitive` par défaut ; tout audité.
-Repli `--with-token` pour les machines sans navigateur.
+**Requirements** (normative detail in ADR-031): single-use, hashed codes; `verifier`
+never transmitted to the browser; `SHA-256(verifier) == challenge` checked at exchange;
+POST+CSRF approval; `user_code` match required; permissions ⊆ session;
+default `read,write`, never `root`/`deploy`/`read:sensitive` by default; everything audited.
+`--with-token` fallback for machines without a browser.
 
 ## 6. Shell
 
-Réemploi **intégral** des sessions terminal existantes (§5.7, §24.4, ADR-024) : `POST
-/applications/{uuid}/terminal-sessions` (+ `component`) frappe un token d'attache à usage
-unique, la CLI ouvre `wss://<manager>/terminal/ws?token=…&cols=&rows=`, met le TTY local en
-mode raw et pont le flux binaire ↔ PTY, en transmettant les changements de taille de
-fenêtre. Idle timeout, durée max, heartbeat et kill garanti s'appliquent inchangés. La CLI
-**NE définit ni ne spécifie** de nouveau protocole ici.
+**Full** reuse of the existing terminal sessions (§5.7, §24.4, ADR-024): `POST
+/applications/{uuid}/terminal-sessions` (+ `component`) mints a single-use attach
+token, the CLI opens `wss://<manager>/terminal/ws?token=…&cols=&rows=`, puts the local TTY in
+raw mode and bridges the binary stream ↔ PTY, forwarding window size
+changes. Idle timeout, max duration, heartbeat and guaranteed kill apply unchanged. The CLI
+**neither defines nor specifies** a new protocol here.
 
 ## 7. Port-forward (ADR-032)
 
-`akerdock port-forward db/varuna 15432:5432` établit un tunnel du `127.0.0.1:15432` **local
-au processus CLI** (écoute loopback du CLI, hors de l'invariant §2 qui ne concerne que les
-connexions réseau sortantes) vers le port `5432` du conteneur cible, via le manager.
+`akerdock port-forward db/varuna 15432:5432` establishes a tunnel from `127.0.0.1:15432` **local
+to the CLI process** (CLI loopback listener, outside the §2 invariant which only concerns
+outbound network connections) to port `5432` of the target container, via the manager.
 
-- **Mint** : `POST /{applications|databases|services}/{uuid}/port-forwards` (+ previews),
-  `x-required-permission: write`, corps `{port}`, cible figée et autorisée au mint, plafond
-  `port_forward_limit` (défaut **10**) → `PortForwardSession{uuid, token akdp_, websocket_path
+- **Mint**: `POST /{applications|databases|services}/{uuid}/port-forwards` (+ previews),
+  `x-required-permission: write`, body `{port}`, target frozen and authorized at mint time, cap
+  `port_forward_limit` (default **10**) → `PortForwardSession{uuid, token akdp_, websocket_path
   "/tunnel/ws", expires_at}`.
-- **Redeem** : `GET /tunnel/ws?token=akdp_…` (hors contrat), sous-protocole
-  `akerdock-tunnel-v1` : une WS multiplexée par session, trames texte de contrôle
-  (`open`/`open_ok`/`open_err`/`eof`/`close` par `id`) + trames binaires `[u32 id][charge]`.
-- **Limites** : 32 streams/session, buffer 1 MiB/stream, idle 15 min, max 4 h, heartbeat
-  20 s, teardown garanti, ouverture/fermeture auditées.
-- **Frontière d'autorisation = la ressource, pas le port** : la cible est un conteneur
-  autorisé au mint ; tout port de ce conteneur est atteignable (Docker ne filtre pas
-  hôte→conteneur), au même titre que `shell` donne tout le conteneur. Énoncé, non masqué.
-- **Serveurs exclus** : pas de `port-forward` au niveau serveur (= `ssh -L`).
+- **Redeem**: `GET /tunnel/ws?token=akdp_…` (outside the contract), subprotocol
+  `akerdock-tunnel-v1`: one multiplexed WS per session, text control frames
+  (`open`/`open_ok`/`open_err`/`eof`/`close` by `id`) + binary frames `[u32 id][payload]`.
+- **Limits**: 32 streams/session, 1 MiB buffer/stream, idle 15 min, max 4 h, heartbeat
+  20 s, guaranteed teardown, open/close audited.
+- **Authorization boundary = the resource, not the port**: the target is a container
+  authorized at mint time; every port of that container is reachable (Docker does not filter
+  host→container), just as `shell` gives the whole container. Stated, not hidden.
+- **Servers excluded**: no server-level `port-forward` (= `ssh -L`).
 
-## 8. Console typée (`akerdock db`)
+## 8. Typed console (`akerdock db`)
 
-Confort au-dessus du §7. `akerdock db REF` détecte le moteur de la ressource (postgres /
-mysql / redis / mongo), ouvre un port-forward éphémère et lance le client local correspondant
-(`psql`, `mysql`, `redis-cli`, `mongosh`) préconfiguré avec les identifiants de la ressource.
+Convenience on top of §7. `akerdock db REF` detects the resource's engine (postgres /
+mysql / redis / mongo), opens an ephemeral port-forward and launches the corresponding local client
+(`psql`, `mysql`, `redis-cli`, `mongosh`) preconfigured with the resource's credentials.
 
-**Cibles.** Une base autonome (`db/<nom>`) **ou** un service base d'un stack compose
-(`app/<nom> -c <service>`, moteur lu depuis le composant, §9.2) ; `--pr N` vise le service de
-l'instance de preview de la PR N. Pour un service compose, les identifiants sont lus au mieux
-depuis les **variables magiques générées** (`SERVICE_USER_<ID>` / `SERVICE_PASSWORD_<ID>`,
-§5.4) : sans `read:sensitive` elles sont expurgées (`value: null`), la CLI imprime alors la
-commande de connexion et laisse le forward ouvert plutôt que de lancer un client sans
-identifiant. Si le client local est absent, même repli. La CLI **NE stocke ni ne relaie** de
-mot de passe en clair au-delà du lancement du processus enfant.
+**Targets.** A standalone database (`db/<name>`) **or** a database service of a compose stack
+(`app/<name> -c <service>`, engine read from the component, §9.2); `--pr N` targets the service of
+the preview instance of PR N. For a compose service, credentials are read on a best-effort basis
+from the **generated magic variables** (`SERVICE_USER_<ID>` / `SERVICE_PASSWORD_<ID>`,
+§5.4): without `read:sensitive` they are redacted (`value: null`), in which case the CLI prints the
+connection command and leaves the forward open rather than launching a client without
+credentials. If the local client is missing, same fallback. The CLI **neither stores nor relays** a
+cleartext password beyond launching the child process.
 
-## 9. Sécurité (delta au threat-model)
+## 9. Security (delta to the threat model)
 
-- **T — interception loopback** : neutralisée par PKCE (le `verifier` ne quitte pas la CLI),
+- **T — loopback interception**: neutralized by PKCE (the `verifier` never leaves the CLI),
   cf. ADR-031.
-- **S — phishing de la page de consentement** : la confrontation du `user_code` (généré par
-  la CLI, affiché des deux côtés) casse le vecteur device-flow classique.
-- **E — tunnel/shell vers un conteneur non autorisé** : autorisation au mint (`write` sur la
-  ressource), team-scoping (INV-001), cible figée à la création de session.
-- **Repudiation** : `start`/`approve`/`token`, ouverture/fermeture de shell et de
-  port-forward, création et révocation de token — tous audités (§23.4).
-- **Stockage** : token `akd_` au repos en `0600`, TTL 30 j, révocable (écart keychain assumé,
+- **S — phishing of the consent page**: the confrontation of the `user_code` (generated by
+  the CLI, displayed on both sides) breaks the classic device-flow vector.
+- **E — tunnel/shell to an unauthorized container**: authorization at mint time (`write` on the
+  resource), team-scoping (INV-001), target frozen at session creation.
+- **Repudiation**: `start`/`approve`/`token`, shell and port-forward open/close,
+  token creation and revocation — all audited (§23.4).
+- **Storage**: `akd_` token at rest with `0600`, TTL 30 d, revocable (accepted keychain gap,
   ADR-031).
 
-## 10. Audit et observabilité
+## 10. Audit and observability
 
-Chaque action à effet distant est auditée avec acteur/token, IP, horodatage (§23.4) : login
-(succès/échec), ouverture/fermeture de session terminal et de port-forward, révocation.
-Les frappes du shell et les octets du tunnel **NE sont jamais** journalisés (§24.4).
+Every action with a remote effect is audited with actor/token, IP, timestamp (§23.4): login
+(success/failure), terminal session and port-forward open/close, revocation.
+Shell keystrokes and tunnel bytes are **never** logged (§24.4).
 
 ## 11. Tests
 
-Conformément à la pyramide de tests (ADR-026/028, plan de tests §2) : la logique déterministe
-est prouvée en **tests unitaires/module** — parsing des `REF`, résolution de contexte, machine
-d'état du login (start/poll/approve/échange, vérification PKCE), multiplexage du tunnel
-(framing `open`/`eof`/`close`, cap de streams, buffer). Le shell et le port-forward de bout en
-bout sont validés **manuellement** ponctuellement ; le parcours E2E produit unique
-(Docker-in-Docker) n'est **pas** étendu pour la CLI (ADR-028).
+In accordance with the test pyramid (ADR-026/028, test plan §2): deterministic logic
+is proven with **unit/module tests** — `REF` parsing, context resolution, login state
+machine (start/poll/approve/exchange, PKCE verification), tunnel multiplexing
+(`open`/`eof`/`close` framing, stream cap, buffer). End-to-end shell and port-forward
+are validated **manually** on an ad-hoc basis; the single E2E product journey
+(Docker-in-Docker) is **not** extended for the CLI (ADR-028).

@@ -1,36 +1,36 @@
-# Runbook — Serveur cible compromis
+# Runbook — Compromised target server
 
-> Références : PRD §23.1 (« Un serveur cible compromis ne doit pas donner accès aux autres serveurs : clés/credentials séparables et secrets distribués au strict besoin »), §23.2, §20.7 (adoption), INV-008 ; spec deployment-engine §5.1–5.2 (ce qui est matérialisé sur le serveur) ; data dictionary §6.1 (`servers`), §6.3 (`private_keys`), §12.
+> References: PRD §23.1 ("A compromised target server must not give access to the other servers: separable keys/credentials and secrets distributed on a strict need-to-know basis"), §23.2, §20.7 (adoption), INV-008; deployment-engine spec §5.1–5.2 (what is materialized on the server); data dictionary §6.1 (`servers`), §6.3 (`private_keys`), §12.
 
-## Symptômes
+## Symptoms
 
-- Alerte sécurité (IDS, provider cloud, abuse report), containers/processus inconnus, trafic sortant anormal, métriques Sentinel incohérentes, modification inexpliquée de `/var/lib/akerdock/` sur le serveur.
-- Côté AkerDock : déploiements qui échouent bizarrement sur ce serveur, dérive de checksum proxy, ressources non gérées apparues (`docker ps` sans label `akerdock.managed`).
+- Security alert (IDS, cloud provider, abuse report), unknown containers/processes, abnormal outbound traffic, inconsistent Sentinel metrics, unexplained modification of `/var/lib/akerdock/` on the server.
+- On the AkerDock side: deployments failing strangely on this server, proxy checksum drift, unmanaged resources appearing (`docker ps` without the `akerdock.managed` label).
 
 ## Impact
 
-Ce que l'attaquant possède (root sur le serveur cible) :
+What the attacker possesses (root on the target server):
 
-- **Tous les workloads du serveur** et leurs données (volumes, bases y résidant).
-- **Les secrets distribués au serveur** — et uniquement eux (§23.1, distribution au strict besoin) : fichiers `runtime.env`/`build.env`/`secrets/` sous `/var/lib/akerdock/applications/*/env/` (spec §5.1–5.2), certificats TLS (`/var/lib/akerdock/proxy/`), credentials registry présents dans `/root/.docker/config.json` après `docker login`, token Sentinel du serveur.
-- Ce que l'attaquant **ne possède pas** : la base du control plane, la clé maître, les **clés SSH privées** (elles ne quittent jamais le control plane ; seule la clé *publique* est dans `authorized_keys`), les secrets des autres serveurs/teams. L'architecture est push : le serveur n'a aucun credential pour contacter le control plane, hormis le token Sentinel (limité au push de métriques).
+- **All the server's workloads** and their data (volumes, databases residing there).
+- **The secrets distributed to the server** — and only those (§23.1, need-to-know distribution): `runtime.env`/`build.env`/`secrets/` files under `/var/lib/akerdock/applications/*/env/` (spec §5.1–5.2), TLS certificates (`/var/lib/akerdock/proxy/`), registry credentials present in `/root/.docker/config.json` after `docker login`, the server's Sentinel token.
+- What the attacker does **not** possess: the control plane database, the master key, the **private SSH keys** (they never leave the control plane; only the *public* key is in `authorized_keys`), the secrets of other servers/teams. The architecture is push-based: the server has no credential to contact the control plane, apart from the Sentinel token (limited to metrics push).
 
-## Diagnostic
+## Diagnosis
 
-1. **Périmètre de la clé SSH** — la clé du serveur est-elle partagée ? (elle ne devrait pas l'être) :
+1. **Scope of the SSH key** — is the server's key shared? (it should not be):
    ```sql
    SELECT s2.uuid, s2.name FROM servers s1
    JOIN servers s2 ON s2.private_key_id = s1.private_key_id AND s2.deleted_at IS NULL
    WHERE s1.uuid = '<server_uuid>';
-   -- + git sources utilisant cette clé (deploy keys) : vérifier les références de private_keys
+   -- + git sources using this key (deploy keys): check the private_keys references
    ```
-2. **Inventaire de ce qui était exposé sur ce serveur** :
+2. **Inventory of what was exposed on this server**:
    ```sh
    curl -sS "$AKD/servers/$SERVER_UUID/resources" -H "Authorization: Bearer $TOKEN"
    ```
    ```sql
-   -- Variables d'environnement des ressources du serveur
-   -- (les valeurs étaient matérialisées en clair dans runtime.env/build.env sur le serveur, spec §5.2) :
+   -- Environment variables of the server's resources
+   -- (the values were materialized in cleartext in runtime.env/build.env on the server, spec §5.2):
    SELECT r.uuid AS resource_uuid, r.name, r.resource_type, ev.key, ev.is_secret, ev.is_preview
    FROM resources r
    JOIN destinations d ON d.id = r.destination_id
@@ -39,59 +39,59 @@ Ce que l'attaquant possède (root sur le serveur cible) :
    WHERE s.uuid = '<server_uuid>' AND r.deleted_at IS NULL
    ORDER BY r.name, ev.key;
    ```
-   Compléter l'inventaire : credentials **registry** utilisés par les apps du serveur (`registry_credentials` référencés par leurs build configs), **S3** utilisés par les plans de backup des bases du serveur, **domaines/certificats** servis par son proxy, **bases de données** y résidant (`database_credentials`).
-3. **Ce que l'attaquant a pu faire côté AkerDock** : rien directement (pas de credential entrant), mais vérifier l'audit pour toute activité anormale autour du serveur :
+   Complete the inventory: **registry** credentials used by the server's apps (`registry_credentials` referenced by their build configs), **S3** credentials used by the backup plans of the server's databases, **domains/certificates** served by its proxy, **databases** residing there (`database_credentials`).
+3. **What the attacker could have done on the AkerDock side**: nothing directly (no inbound credential), but check the audit for any abnormal activity around the server:
    ```sql
    SELECT occurred_at, actor_kind, actor_display, action, result, ip
    FROM audit_events WHERE target_uuid = '<server_uuid>' ORDER BY occurred_at DESC LIMIT 50;
    ```
 
-## Résolution pas à pas
+## Step-by-step resolution
 
-### 1. Isoler (sans détruire les preuves)
+### 1. Isolate (without destroying evidence)
 
-1. **Geler le pilotage** : passer le serveur en maintenance pour empêcher tout nouveau job de le cibler (l'état `preparing` exige un serveur `ready`, spec §4) — pas d'endpoint dédié dans l'OpenAPI v1 **(candidat CLI/API futur)** :
+1. **Freeze orchestration**: put the server in maintenance to prevent any new job from targeting it (the `preparing` state requires a `ready` server, spec §4) — no dedicated endpoint in OpenAPI v1 **(future CLI/API candidate)**:
    ```sql
    UPDATE servers SET status = 'maintenance', updated_at = now() WHERE uuid = '<server_uuid>';
    ```
-2. **Révoquer uniquement la clé SSH de ce serveur** (les clés sont séparables, §23.1 — les autres serveurs ne sont pas touchés). La clé privée n'a pas fuité, mais on coupe le canal de pilotage vers une machine hostile et on prépare la ré-installation : ne plus l'utiliser, et si la clé était partagée (diagnostic 1), **rotation immédiate sur les autres serveurs** via [key-rotation.md](key-rotation.md) §B.
-3. **Isoler réseau** au niveau du firewall du provider cloud (§10.4 : ne pas compter sur UFW, Docker le bypasse) : bloquer tout sauf votre IP d'investigation. Si le serveur portait du trafic de production, c'est une coupure de service assumée — un serveur compromis ne doit pas continuer à servir vos utilisateurs.
-4. **Révoquer le token Sentinel** du serveur (régénération dans l'UI serveur ; le hash `servers.sentinel_token_hash` change) pour couper le seul canal entrant vers l'instance.
+2. **Revoke only this server's SSH key** (keys are separable, §23.1 — the other servers are not affected). The private key has not leaked, but we cut the orchestration channel to a hostile machine and prepare the re-installation: stop using it, and if the key was shared (diagnosis 1), **rotate immediately on the other servers** via [key-rotation.md](key-rotation.md) §B.
+3. **Isolate the network** at the cloud provider's firewall level (§10.4: do not rely on UFW, Docker bypasses it): block everything except your investigation IP. If the server carried production traffic, this is an assumed service outage — a compromised server must not keep serving your users.
+4. **Revoke the server's Sentinel token** (regeneration in the server UI; the `servers.sentinel_token_hash` hash changes) to cut the only inbound channel to the instance.
 
-⚠️ Ne pas supprimer l'objet `Server` : la suppression est RESTRICT tant que des ressources y sont rattachées (INV-008), et vous perdriez l'inventaire. « Retirer de AkerDock » ≠ « détruire le VPS » (§3.2) — et ni l'un ni l'autre ne se fait avant la fin de l'investigation.
+⚠️ Do not delete the `Server` object: deletion is RESTRICT as long as resources are attached to it (INV-008), and you would lose the inventory. "Remove from AkerDock" ≠ "destroy the VPS" (§3.2) — and neither is done before the investigation is over.
 
-### 2. Rotation ciblée (tout ce qui était distribué au serveur)
+### 2. Targeted rotation (everything that was distributed to the server)
 
-Traiter comme compromis, **à la source** :
+Treat as compromised, **at the source**:
 
-- Toutes les **variables secrètes** des ressources du serveur (inventaire du Diagnostic 2) : régénérer les valeurs chez les fournisseurs concernés (API keys tierces, etc.) et les mettre à jour dans AkerDock.
-- **Mots de passe des bases** hébergées sur le serveur (`database_credentials`) et de toute base externe dont l'URL figurait dans un `runtime.env` du serveur.
-- **Credentials registry** utilisés par les apps du serveur (rotation côté registry + mise à jour `registry_credentials`).
-- **Credentials S3** des plans de backup exécutés depuis ce serveur (rotation côté provider + mise à jour `s3_storages` ; re-vérification `ListObjectsV2` §7.4).
-- **Certificats TLS** : les clés privées étaient sur le serveur (`/var/lib/akerdock/proxy/certs`, storage ACME) — révoquer les customs, forcer la ré-émission ACME sur le serveur de remplacement ([certificates.md](certificates.md)).
-- **CA SSL bases** du serveur (`servers.ca_key_enc`) : régénérer depuis l'UI (§6.3).
-- **Deploy keys Git** : normalement supprimées après clone (spec §5.3.1), mais si une compromission longue est suspectée, les retirer des repos et en générer de nouvelles.
+- All **secret variables** of the server's resources (inventory from Diagnosis 2): regenerate the values at the relevant providers (third-party API keys, etc.) and update them in AkerDock.
+- **Passwords of the databases** hosted on the server (`database_credentials`) and of any external database whose URL appeared in a `runtime.env` on the server.
+- **Registry credentials** used by the server's apps (rotation on the registry side + `registry_credentials` update).
+- **S3 credentials** of the backup plans executed from this server (rotation on the provider side + `s3_storages` update; `ListObjectsV2` re-verification §7.4).
+- **TLS certificates**: the private keys were on the server (`/var/lib/akerdock/proxy/certs`, ACME storage) — revoke the custom ones, force ACME re-issuance on the replacement server ([certificates.md](certificates.md)).
+- **Database SSL CA** of the server (`servers.ca_key_enc`): regenerate from the UI (§6.3).
+- **Git deploy keys**: normally deleted after clone (spec §5.3.1), but if a long-lived compromise is suspected, remove them from the repos and generate new ones.
 
-### 3. Décision : réinstaller ou adopter
+### 3. Decision: reinstall or adopt
 
-- **Réinstaller (fortement recommandé)** : OS réinstallé chez le provider → nouveau serveur AkerDock (nouvelle clé SSH dédiée, `POST /servers` + validate) → redéployer les ressources depuis leur configuration (source de vérité = PostgreSQL, §18.3) → restaurer les **données** (volumes, bases) **uniquement depuis des backups antérieurs à la compromission**, après contrôle des checksums (`backup_executions.checksum_sha256`). ⚠️ Un backup postérieur à l'intrusion peut être piégé/altéré.
-- **Adopter (§20.7)** : seulement si le forensic conclut à un faux positif ou à une compromission strictement confinée (ex. un seul container applicatif sans échappée) : rotation ciblée quand même, puis revalidation du serveur. En cas de doute : réinstaller.
+- **Reinstall (strongly recommended)**: OS reinstalled at the provider → new AkerDock server (new dedicated SSH key, `POST /servers` + validate) → redeploy the resources from their configuration (source of truth = PostgreSQL, §18.3) → restore the **data** (volumes, databases) **only from backups predating the compromise**, after checking the checksums (`backup_executions.checksum_sha256`). ⚠️ A backup made after the intrusion may be booby-trapped/tampered with.
+- **Adopt (§20.7)**: only if the forensics conclude a false positive or a strictly contained compromise (e.g. a single application container with no escape): targeted rotation anyway, then revalidation of the server. When in doubt: reinstall.
 
-### 4. Clôture
+### 4. Closure
 
-Une fois les ressources re-déployées ailleurs ou sur le serveur réinstallé : supprimer les ressources restantes de l'ancien objet serveur (prévisualisation + choix explicite données/objet, §20.6), puis le serveur ; enfin détruire le VPS chez le provider (action distincte et confirmée, §3.2). Consigner l'incident (timeline, périmètre, rotations effectuées).
+Once the resources are redeployed elsewhere or on the reinstalled server: delete the remaining resources of the old server object (preview + explicit data/object choice, §20.6), then the server; finally destroy the VPS at the provider (a separate, confirmed action, §3.2). Record the incident (timeline, scope, rotations performed).
 
-## Vérification
+## Verification
 
-- L'ancienne clé publique n'ouvre plus rien (elle n'est plus dans aucun `authorized_keys` actif) ; la clé n'est plus référencée (`private_keys` supprimable sans RESTRICT).
-- Les secrets rotés fonctionnent : déploiement de test OK, backups OK (S3 re-vérifié `is_usable = true`), webhooks OK.
-- Aucune ressource de l'inventaire n'a été oubliée : re-dérouler la requête d'inventaire → liste vide ou ressources migrées.
-- Audit : les rotations et suppressions apparaissent dans `audit_events`.
+- The old public key no longer opens anything (it is no longer in any active `authorized_keys`); the key is no longer referenced (`private_keys` deletable without RESTRICT).
+- The rotated secrets work: test deployment OK, backups OK (S3 re-verified `is_usable = true`), webhooks OK.
+- No resource from the inventory has been forgotten: re-run the inventory query → empty list or migrated resources.
+- Audit: the rotations and deletions appear in `audit_events`.
 
-## Prévention
+## Prevention
 
-- **Une clé SSH par serveur**, jamais partagée (rend ce runbook local au lieu de global).
-- Secrets distribués au strict besoin (§23.1) : ne pas mettre des variables « de confort » globales dans les ressources ; utiliser les build secrets BuildKit (hors image, spec §5.2).
-- Builders isolés pour le code non fiable (ADR-005) ; previews de forks sans secrets (INV-010).
-- Firewall provider restrictif (SSH depuis l'IP de l'instance uniquement si possible) ; patching serveur régulier — à la charge de l'opérateur, hors périmètre produit (ADR-027).
-- Backups avec checksums et rétention suffisante pour disposer d'un point **antérieur** à une intrusion découverte tardivement.
+- **One SSH key per server**, never shared (makes this runbook local instead of global).
+- Secrets distributed on a strict need-to-know basis (§23.1): do not put global "convenience" variables in resources; use BuildKit build secrets (outside the image, spec §5.2).
+- Isolated builders for untrusted code (ADR-005); fork previews without secrets (INV-010).
+- Restrictive provider firewall (SSH from the instance's IP only if possible); regular server patching — the operator's responsibility, outside the product's scope (ADR-027).
+- Backups with checksums and sufficient retention to have a point **predating** an intrusion discovered late.

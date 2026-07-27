@@ -12,7 +12,7 @@ Three naming ambiguities make the removal treacherous: **Cloudflare** remains a 
 
 ## Decision
 
-**Cloudflare tunnels, cloud provisioning (provider tokens + VPS creation) and server patching are removed from the product scope.** PRD sections §3.2 and §3.6 are emptied in favor of a reference to this ADR (section numbering is stable, it does not move); the §26.2 grid carries the row with the status `Abandonné`.
+**Cloudflare tunnels, cloud provisioning (provider tokens + VPS creation) and server patching are removed from the product scope.** PRD sections §3.2 and §3.6 are emptied in favor of a reference to this ADR (section numbering is stable, it does not move); the §26.2 grid carries the row with the status `Abandoned`.
 
 **Not** affected: DNS-01 (Cloudflare, Hetzner and any Lego provider — shipped), S3-compatible providers (Hetzner included), the `cloud_credentials` table (real, it carries the DNS-01 credentials — the dictionary is corrected to say what the database actually does), and the cloud provider firewall recommended by the threat model (the user's responsibility, as before).
 

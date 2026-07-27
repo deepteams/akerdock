@@ -1,66 +1,66 @@
 # Data dictionary — AkerDock
 
-> Artefact §29.1 du PRD (`docs/PRD.md`). Couvre toutes les entités du modèle de données logique (§19.1), les contraintes du §19.2, les machines à états du §21, les exigences de sécurité du §23.2 et les tables techniques (queue §21.3, outbox §18.2/§24.2, audit §23.4). Le PRD est la source de vérité ; toute divergence est signalée explicitement.
+> Artifact §29.1 of the PRD (`docs/PRD.md`). Covers all entities of the logical data model (§19.1), the constraints of §19.2, the state machines of §21, the security requirements of §23.2 and the technical tables (queue §21.3, outbox §18.2/§24.2, audit §23.4). The PRD is the source of truth; any divergence is flagged explicitly.
 
-Conventions de nommage : noms de tables et de colonnes en anglais `snake_case`, tables au pluriel. Le document lui-même est en français.
+Naming conventions: table and column names in English `snake_case`, tables in the plural. The document itself is in English.
 
 ---
 
-## 1. Glossaire
+## 1. Glossary
 
-| Terme | Définition |
+| Term | Definition |
 |---|---|
-| **Team** | Périmètre d'isolation et frontière de sécurité (§2, §23.1). Toute ressource, clé, token ou notification appartient à exactement une team (INV-001) ; aucun accès inter-team n'est possible (INV-002). |
-| **Project** | Regroupement logique au sein d'une team ; contient des environments (défaut : `production`). |
-| **Environment** | Jeu de ressources et de variables partagées au sein d'un project (production, staging…). Peut être déployé comme une unité (§20.8). |
-| **Resource** | Union logique `Application \| Database \| Service` (§19.1) : champs communs (UUID, team, environnement, destination, statuts désiré/observé, politique de suppression). |
-| **Application** | Ressource construite depuis un dépôt Git, un Dockerfile, un compose ou une image, déployée en container(s) derrière le proxy (§5). |
-| **Database** | Base de données managée one-click (PostgreSQL, MySQL, MariaDB, MongoDB, Redis, KeyDB, Dragonfly, ClickHouse — §6) avec credentials générés, SSL et backups. |
-| **Service** | Stack Docker Compose multi-containers issu du catalogue one-click ou d'un compose utilisateur (§9), composé de service components. |
-| **Service component** | Sous-container d'un service (un service du fichier compose) : statut, domaine, logs et restart individuels (§9). |
-| **Server** | Machine Linux pilotée en SSH, hébergeant Docker, un proxy et éventuellement l'agent Sentinel (§3). Machine à états §21.2. |
-| **Destination** | Réseau Docker cible sur un serveur ; une ressource est déployée sur exactement une destination (§2). |
-| **Private key** | Clé SSH privée stockée chiffrée, scopée par team, utilisée pour les serveurs et les deploy keys Git (§3.1, §23.2). |
-| **Git source** | Connexion à un fournisseur Git : dépôt public, deploy key ou GitHub App (§5.1). |
-| **Build pack** | Stratégie de build d'une application : Nixpacks, Railpack, Static, Dockerfile, Docker Compose ou image pré-construite (§5.2). |
-| **Deployment** | Exécution versionnée du pipeline de déploiement d'une ressource (machine à états §21.1), avec SHA, digest OCI, snapshot de configuration (INV-014) et logs par étape. |
-| **Preview** | Environnement éphémère déployé pour une PR/MR : identité déterministe `(application, provider, pr_id)`, URL dédiée, variables séparées, TTL et cleanup (§5.6, §20.4). |
-| **Magic variable** | Variable `SERVICE_<TYPE>_<ID>` générée par la plateforme (URL, FQDN, mots de passe…), persistante entre redéploiements et partagée entre les services d'un stack (§5.4, §9). |
-| **Variable partagée** | Variable héritée `{{team.VAR}}` / `{{project.VAR}}` / `{{environment.VAR}}` ou variable de serveur, interpolée dans les ressources (§5.4, §3.1). |
-| **Persistent storage** | Stockage d'une ressource : volume Docker nommé, bind mount ou file mount à contenu éditable (§8). |
-| **Backup plan / execution** | Planification cron d'un backup de base (locale, S3, rétention §7) et trace de chaque exécution (statut, taille, checksum). |
-| **S3 storage** | Configuration d'un stockage objet compatible S3 (credentials chiffrés, vérification obligatoire — §7.4). |
-| **Proxy config revision** | Révision versionnée et checksummée de la configuration proxy générée pour un serveur, appliquée atomiquement avec rollback (§18.1, §18.3). |
-| **Job / Lease** | Unité de travail durable dans la queue PostgreSQL : lease avec expiration, heartbeat, retry borné et dead-letter (§21.3, INV-013). |
-| **Outbox** | Table d'événements internes publiés après commit (pattern transactional outbox, §18.2, §24.2) ; garantit la cohérence entre mutation et événement. |
-| **Audit event** | Enregistrement append-only d'une action sensible (login, secret, terminal, déploiement, suppression… — §23.4), sans jamais contenir de valeur secrète (INV-003). |
-| **API token** | Token Bearer à permissions granulaires (`read`, `read:sensitive`, `write`, `deploy`, `root`), hashé SHA-256, avec préfixe d'identification, expiration et IP allowlist (§10.3). |
-| **Webhook delivery** | Livraison entrante d'un fournisseur Git : authentifiée, associée exactement au bon dépôt et dédupliquée par `(provider, delivery_id)` avant tout déclenchement (INV-009, §20.3). |
-| **Statut désiré / observé** | Double statut de toute ressource : l'intention stockée en base vs l'état constaté sur le serveur, avec `observed_at` (au-delà d'un seuil : « inconnu/stale », jamais un faux `running` — §19.2, §21.2). |
+| **Team** | Isolation perimeter and security boundary (§2, §23.1). Every resource, key, token or notification belongs to exactly one team (INV-001); no cross-team access is possible (INV-002). |
+| **Project** | Logical grouping within a team; contains environments (default: `production`). |
+| **Environment** | Set of resources and shared variables within a project (production, staging…). Can be deployed as a unit (§20.8). |
+| **Resource** | Logical union `Application \| Database \| Service` (§19.1): common fields (UUID, team, environment, destination, desired/observed statuses, deletion policy). |
+| **Application** | Resource built from a Git repository, a Dockerfile, a compose file or an image, deployed as container(s) behind the proxy (§5). |
+| **Database** | One-click managed database (PostgreSQL, MySQL, MariaDB, MongoDB, Redis, KeyDB, Dragonfly, ClickHouse — §6) with generated credentials, SSL and backups. |
+| **Service** | Multi-container Docker Compose stack from the one-click catalog or a user-provided compose file (§9), made up of service components. |
+| **Service component** | Sub-container of a service (one service of the compose file): individual status, domain, logs and restart (§9). |
+| **Server** | Linux machine driven over SSH, hosting Docker, a proxy and optionally the Sentinel agent (§3). State machine §21.2. |
+| **Destination** | Target Docker network on a server; a resource is deployed on exactly one destination (§2). |
+| **Private key** | Private SSH key stored encrypted, scoped by team, used for servers and Git deploy keys (§3.1, §23.2). |
+| **Git source** | Connection to a Git provider: public repository, deploy key or GitHub App (§5.1). |
+| **Build pack** | Build strategy for an application: Nixpacks, Railpack, Static, Dockerfile, Docker Compose or pre-built image (§5.2). |
+| **Deployment** | Versioned execution of a resource's deployment pipeline (state machine §21.1), with SHA, OCI digest, configuration snapshot (INV-014) and per-step logs. |
+| **Preview** | Ephemeral environment deployed for a PR/MR: deterministic identity `(application, provider, pr_id)`, dedicated URL, separate variables, TTL and cleanup (§5.6, §20.4). |
+| **Magic variable** | `SERVICE_<TYPE>_<ID>` variable generated by the platform (URL, FQDN, passwords…), persistent across redeployments and shared between the services of a stack (§5.4, §9). |
+| **Shared variable** | Inherited variable `{{team.VAR}}` / `{{project.VAR}}` / `{{environment.VAR}}` or server variable, interpolated into resources (§5.4, §3.1). |
+| **Persistent storage** | Storage of a resource: named Docker volume, bind mount or file mount with editable content (§8). |
+| **Backup plan / execution** | Cron schedule of a database backup (local, S3, retention §7) and trace of each execution (status, size, checksum). |
+| **S3 storage** | Configuration of an S3-compatible object storage (encrypted credentials, mandatory verification — §7.4). |
+| **Proxy config revision** | Versioned, checksummed revision of the proxy configuration generated for a server, applied atomically with rollback (§18.1, §18.3). |
+| **Job / Lease** | Durable unit of work in the PostgreSQL queue: lease with expiration, heartbeat, bounded retry and dead-letter (§21.3, INV-013). |
+| **Outbox** | Table of internal events published after commit (transactional outbox pattern, §18.2, §24.2); guarantees consistency between mutation and event. |
+| **Audit event** | Append-only record of a sensitive action (login, secret, terminal, deployment, deletion… — §23.4), never containing any secret value (INV-003). |
+| **API token** | Bearer token with granular permissions (`read`, `read:sensitive`, `write`, `deploy`, `root`), SHA-256 hashed, with identification prefix, expiration and IP allowlist (§10.3). |
+| **Webhook delivery** | Inbound delivery from a Git provider: authenticated, associated with exactly the right repository and deduplicated by `(provider, delivery_id)` before any triggering (INV-009, §20.3). |
+| **Desired / observed status** | Dual status of every resource: the intent stored in the database vs the state observed on the server, with `observed_at` (beyond a threshold: "unknown/stale", never a false `running` — §19.2, §21.2). |
 
 ---
 
-## 2. Conventions transverses (§19.2, §27.25)
+## 2. Cross-cutting conventions (§19.2, §27.25)
 
-Sauf mention contraire dans une table, les règles suivantes s'appliquent partout :
+Unless stated otherwise in a table, the following rules apply everywhere:
 
-1. **Identifiants** : `id bigint GENERATED ALWAYS AS IDENTITY` est la clé primaire interne (jointures, jamais exposée) ; `uuid uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE` est l'identifiant public aléatoire, non séquentiel, utilisé dans l'API et comme base des noms Docker (INV-011). Les tables d'association pures (ex. `resource_tags`, `team_memberships`) peuvent omettre `uuid`.
-2. **Ownership team (INV-001)** : chaque table porte `team_id` directement, ou y remonte par une chaîne parent documentée dans la section « Ownership » de `docs/specs/erd.md`. Le `team_id` provient toujours du contexte authentifié (§23.1).
-3. **Timestamps** : `created_at timestamptz NOT NULL DEFAULT now()` et `updated_at timestamptz NOT NULL DEFAULT now()` partout ; tous les timestamps sont UTC (§22.3). `deleted_at timestamptz NULL` pour le soft delete/tombstone quand la rétention ou la réconciliation l'exige.
-4. **Traçabilité** : `created_by` / `updated_by` (`bigint NULL REFERENCES users(id) ON DELETE SET NULL`) sur les agrégats mutables. Aucune cascade depuis un utilisateur supprimé (§19.2) : les utilisateurs sont soft-deleted et l'audit conserve des snapshots.
-5. **Verrou optimiste** : colonne `version integer NOT NULL DEFAULT 1`, incrémentée à chaque mutation, sur les agrégats éditables en UI/API (§22.3, §24.1 : réponse `409` en cas de conflit). Les tables enfant 1—1 d'un agrégat (ex. `build_configs`) sont verrouillées via la `version` de leur racine.
-6. **Statuts** : état désiré et état observé dans des colonnes séparées ; tout statut observé est accompagné de `observed_at` (§19.2). Les statuts des machines à états du §21 sont des **enums PostgreSQL** (voir §3 ci-dessous) ; les enums ne sont étendus que par `ALTER TYPE … ADD VALUE` (additif, compatible rolling upgrade).
-7. **Chiffrement enveloppe (décision §27.3, §23.2)** : toute colonne `*_enc` est un `bytea` au format `key_version (4 octets big-endian) || nonce (12 octets) || ciphertext AES-256-GCM (tag inclus)`, avec comme AAD `nom_table || nom_colonne || uuid de la ligne` (empêche le rejeu d'un ciphertext d'une ligne vers une autre). La rotation de clé maître réécrit les lignes paresseusement par `key_version`, sans blocage global (§19.2). Les mots de passe utilisateur sont hashés **Argon2id**, les tokens (API, session, invitation, Sentinel) sont hashés **SHA-256** avec préfixe d'identification — jamais chiffrés, car jamais restitués.
-8. **Suppression** : trois régimes, indiqués par table — **RESTRICT** (interdite tant que référencée : clés, sources, destinations, storages, serveurs — §19.2) ; **CASCADE explicite** (uniquement après prévisualisation et confirmation applicative — §20.6, la FK `ON DELETE CASCADE` ne sert que de filet une fois la décision prise) ; **tombstone** (`deleted_at` + restes distants réconciliables — §20.6.4). « Retirer de AkerDock » est toujours distinct de « supprimer les données » (INV-008).
-9. **Rétention** : historiques (déploiements, exécutions de backup/tâches, audit, livraisons webhook, jobs terminés) purgés par un job de rétention configurable (§19.2, §22.2) ; jamais par cascade accidentelle.
+1. **Identifiers**: `id bigint GENERATED ALWAYS AS IDENTITY` is the internal primary key (joins, never exposed); `uuid uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE` is the random, non-sequential public identifier, used in the API and as the basis for Docker names (INV-011). Pure association tables (e.g. `resource_tags`, `team_memberships`) MAY omit `uuid`.
+2. **Team ownership (INV-001)**: each table carries `team_id` directly, or reaches it through a parent chain documented in the "Ownership" section of `docs/specs/erd.md`. The `team_id` always comes from the authenticated context (§23.1).
+3. **Timestamps**: `created_at timestamptz NOT NULL DEFAULT now()` and `updated_at timestamptz NOT NULL DEFAULT now()` everywhere; all timestamps are UTC (§22.3). `deleted_at timestamptz NULL` for soft delete/tombstone whenever retention or reconciliation requires it.
+4. **Traceability**: `created_by` / `updated_by` (`bigint NULL REFERENCES users(id) ON DELETE SET NULL`) on mutable aggregates. No cascade from a deleted user (§19.2): users are soft-deleted and the audit log keeps snapshots.
+5. **Optimistic locking**: `version integer NOT NULL DEFAULT 1` column, incremented on every mutation, on aggregates editable via UI/API (§22.3, §24.1: `409` response on conflict). The 1—1 child tables of an aggregate (e.g. `build_configs`) are locked through their root's `version`.
+6. **Statuses**: desired state and observed state in separate columns; every observed status is accompanied by `observed_at` (§19.2). The statuses of the §21 state machines are **PostgreSQL enums** (see §3 below); enums are only extended via `ALTER TYPE … ADD VALUE` (additive, rolling-upgrade compatible).
+7. **Envelope encryption (decision §27.3, §23.2)**: every `*_enc` column is a `bytea` in the format `key_version (4 bytes big-endian) || nonce (12 bytes) || AES-256-GCM ciphertext (tag included)`, with `table_name || column_name || row uuid` as AAD (prevents replaying a ciphertext from one row to another). Master key rotation rewrites rows lazily by `key_version`, without global locking (§19.2). User passwords are hashed with **Argon2id**; tokens (API, session, invitation, Sentinel) are hashed with **SHA-256** with an identification prefix — never encrypted, because never returned.
+8. **Deletion**: three regimes, indicated per table — **RESTRICT** (forbidden while referenced: keys, sources, destinations, storages, servers — §19.2); **explicit CASCADE** (only after preview and application-level confirmation — §20.6, the `ON DELETE CASCADE` FK only serves as a safety net once the decision is made); **tombstone** (`deleted_at` + reconcilable remote remnants — §20.6.4). "Remove from AkerDock" is always distinct from "delete the data" (INV-008).
+9. **Retention**: histories (deployments, backup/task executions, audit, webhook deliveries, finished jobs) purged by a configurable retention job (§19.2, §22.2); never by accidental cascade.
 
-Extensions PostgreSQL requises : `citext` (emails), `pgcrypto` (`gen_random_uuid()` natif ≥ PG13, extension conservée pour compat). Contrainte `UNIQUE NULLS NOT DISTINCT` : requiert PostgreSQL ≥ 15 (plage de versions testée, §22.4).
+Required PostgreSQL extensions: `citext` (emails), `pgcrypto` (`gen_random_uuid()` native ≥ PG13, extension kept for compat). `UNIQUE NULLS NOT DISTINCT` constraint: requires PostgreSQL ≥ 15 (tested version range, §22.4).
 
 ---
 
-## 3. Types énumérés PostgreSQL
+## 3. PostgreSQL enumerated types
 
-| Type | Valeurs | Référence PRD |
+| Type | Values | PRD reference |
 |---|---|---|
 | `team_role` | `owner`, `admin`, `member` | §10.1 |
 | `oauth_provider` | `github`, `gitlab`, `google`, `azure`, `bitbucket`, `oidc` | §10.2 |
@@ -86,7 +86,7 @@ Extensions PostgreSQL requises : `citext` (emails), `pgcrypto` (`gen_random_uuid
 | `db_engine` | `postgresql`, `mysql`, `mariadb`, `mongodb`, `redis`, `keydb`, `dragonfly`, `clickhouse` | §6.1 |
 | `public_access_mode` | `port_mapping`, `tcp_proxy` | §6.2 |
 | `backup_execution_status` | `running`, `succeeded`, `partial`, `failed` | §20.5 |
-| `deployment_status` | `queued`, `preparing`, `cloning`, `building`, `pushing`, `starting`, `healthchecking`, `switching`, `finishing`, `succeeded`, `failed`, `cancelled`, `retrying`, `superseded` | §21.1 (`superseded` : coalescing §20.3.5, terminal assimilé à `cancelled`) |
+| `deployment_status` | `queued`, `preparing`, `cloning`, `building`, `pushing`, `starting`, `healthchecking`, `switching`, `finishing`, `succeeded`, `failed`, `cancelled`, `retrying`, `superseded` | §21.1 (`superseded`: coalescing §20.3.5, terminal, treated like `cancelled`) |
 | `deployment_step_status` | `pending`, `running`, `succeeded`, `failed`, `skipped`, `cancelled` | §20.2 |
 | `deployment_trigger` | `manual`, `webhook`, `api`, `preview`, `schedule`, `config_apply`, `cli_local` | §5.5, §24.5, §27.18 |
 | `artifact_kind` | `local_image`, `registry_image` | §27.6 |
@@ -108,1365 +108,1365 @@ Extensions PostgreSQL requises : `citext` (emails), `pgcrypto` (`gen_random_uuid
 
 ---
 
-## 4. Agrégat Identité
+## 4. Identity aggregate
 
 ### 4.1 `users`
 
-Utilisateur du control plane. Suppression : **tombstone** (`deleted_at`) — jamais de cascade vers teams ou ressources (§10.1, §19.2) ; les teams orphelines sont traitées explicitement avant suppression.
+Control plane user. Deletion: **tombstone** (`deleted_at`) — never any cascade to teams or resources (§10.1, §19.2); orphaned teams are handled explicitly before deletion.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | Identifiant interne. |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | Identifiant public. |
-| `email` | `citext` | non | — | UNIQUE partiel `WHERE deleted_at IS NULL` | non | Email de connexion, normalisé (§23.3). |
-| `name` | `text` | non | — | — | non | Nom affiché. |
-| `password_hash` | `text` | oui | — | — | non (hash Argon2id) | NULL si compte OAuth/OIDC uniquement. |
-| `is_root` | `boolean` | non | `false` | index partiel `WHERE is_root` | non | Root d'instance (premier utilisateur, §10.1) ; bootstrap possible par variables d'env (§10.2). |
-| `email_verified_at` | `timestamptz` | oui | — | — | non | Vérification d'email. |
-| `failed_login_count` | `integer` | non | `0` | — | non | Anti-bruteforce (§23.3). |
-| `locked_until` | `timestamptz` | oui | — | — | non | Verrouillage progressif après échecs de login. |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `deleted_at` | `timestamptz` | oui | — | — | non | Tombstone. |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
+| `id` | `bigint` | no | identity | PK | no | Internal identifier. |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | Public identifier. |
+| `email` | `citext` | no | — | partial UNIQUE `WHERE deleted_at IS NULL` | no | Login email, normalized (§23.3). |
+| `name` | `text` | no | — | — | no | Display name. |
+| `password_hash` | `text` | yes | — | — | no (Argon2id hash) | NULL if OAuth/OIDC-only account. |
+| `is_root` | `boolean` | no | `false` | partial index `WHERE is_root` | no | Instance root (first user, §10.1); bootstrap possible via env variables (§10.2). |
+| `email_verified_at` | `timestamptz` | yes | — | — | no | Email verification. |
+| `failed_login_count` | `integer` | no | `0` | — | no | Anti-bruteforce (§23.3). |
+| `locked_until` | `timestamptz` | yes | — | — | no | Progressive lockout after failed logins. |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `deleted_at` | `timestamptz` | yes | — | — | no | Tombstone. |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock. |
 
 ### 4.2 `identities`
 
-Identité fédérée (OAuth dashboard, SSO OIDC — §10.2). Liaison de compte explicite contre la collision d'email (§23.3). Suppression : **CASCADE** avec l'utilisateur (délestage du tombstone : conservées tant que l'utilisateur est soft-deleted).
+Federated identity (dashboard OAuth, OIDC SSO — §10.2). Explicit account linking against email collision (§23.3). Deletion: **CASCADE** with the user (offloaded by the tombstone: kept as long as the user is soft-deleted).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `user_id` | `bigint` | non | — | FK `users(id)` ON DELETE CASCADE, index | non | Compte lié. |
-| `provider` | `oauth_provider` | non | — | UNIQUE `(provider, provider_subject)` | non | Fournisseur d'identité. |
-| `provider_subject` | `text` | non | — | (cf. ci-dessus) | non | `sub` OIDC / ID du compte fournisseur. |
-| `email` | `citext` | oui | — | — | non | Email rapporté par le fournisseur (informatif). |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `user_id` | `bigint` | no | — | FK `users(id)` ON DELETE CASCADE, index | no | Linked account. |
+| `provider` | `oauth_provider` | no | — | UNIQUE `(provider, provider_subject)` | no | Identity provider. |
+| `provider_subject` | `text` | no | — | (see above) | no | OIDC `sub` / provider account ID. |
+| `email` | `citext` | yes | — | — | no | Email reported by the provider (informational). |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 4.3 `mfa_factors`
 
-Facteur 2FA TOTP avec codes de récupération (§10.2, §23.3). Suppression : **CASCADE** avec l'utilisateur ; désactivation auditée.
+TOTP 2FA factor with recovery codes (§10.2, §23.3). Deletion: **CASCADE** with the user; deactivation is audited.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `user_id` | `bigint` | non | — | FK `users(id)` ON DELETE CASCADE | non | — |
-| `type` | `mfa_type` | non | `'totp'` | UNIQUE `(user_id, type)` | non | Type de facteur. |
-| `secret_enc` | `bytea` | non | — | — | **oui** | Secret TOTP, chiffré enveloppe. |
-| `recovery_code_hashes` | `text[]` | non | `'{}'` | — | non (hash SHA-256) | Codes de récupération hashés, consommés un par un. |
-| `confirmed_at` | `timestamptz` | oui | — | — | non | NULL tant que le facteur n'est pas validé par un premier code. |
-| `last_used_at` | `timestamptz` | oui | — | — | non | Anti-rejeu du même pas TOTP. |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `user_id` | `bigint` | no | — | FK `users(id)` ON DELETE CASCADE | no | — |
+| `type` | `mfa_type` | no | `'totp'` | UNIQUE `(user_id, type)` | no | Factor type. |
+| `secret_enc` | `bytea` | no | — | — | **yes** | TOTP secret, envelope-encrypted. |
+| `recovery_code_hashes` | `text[]` | no | `'{}'` | — | no (SHA-256 hash) | Hashed recovery codes, consumed one by one. |
+| `confirmed_at` | `timestamptz` | yes | — | — | no | NULL until the factor is validated by a first code. |
+| `last_used_at` | `timestamptz` | yes | — | — | no | Anti-replay of the same TOTP step. |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 4.4 `sessions`
 
-Session navigateur (cookies Secure/HttpOnly/SameSite, rotation après login/élévation — §23.3). Suppression : **purge physique** après expiration/révocation (rétention courte).
+Browser session (Secure/HttpOnly/SameSite cookies, rotation after login/elevation — §23.3). Deletion: **physical purge** after expiration/revocation (short retention).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `user_id` | `bigint` | non | — | FK `users(id)` ON DELETE CASCADE, index | non | — |
-| `token_hash` | `text` | non | — | UNIQUE | non (hash SHA-256) | Hash du token de session ; le token clair n'est jamais stocké. |
-| `current_team_id` | `bigint` | oui | — | FK `teams(id)` ON DELETE SET NULL | non | Team active de la session (§10.4 : sessions bornées à la team active). |
-| `mfa_verified_at` | `timestamptz` | oui | — | — | non | Étape 2FA franchie. |
-| `ip` | `inet` | oui | — | — | non | IP de création. |
-| `user_agent` | `text` | oui | — | — | non | — |
-| `last_seen_at` | `timestamptz` | non | `now()` | — | non | Activité (idle timeout). |
-| `expires_at` | `timestamptz` | non | — | index | non | Expiration absolue. |
-| `revoked_at` | `timestamptz` | oui | — | — | non | Invalidation à logout/changement de rôle (§23.3). |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `user_id` | `bigint` | no | — | FK `users(id)` ON DELETE CASCADE, index | no | — |
+| `token_hash` | `text` | no | — | UNIQUE | no (SHA-256 hash) | Hash of the session token; the plaintext token is never stored. |
+| `current_team_id` | `bigint` | yes | — | FK `teams(id)` ON DELETE SET NULL | no | Active team of the session (§10.4: sessions bounded to the active team). |
+| `mfa_verified_at` | `timestamptz` | yes | — | — | no | 2FA step passed. |
+| `ip` | `inet` | yes | — | — | no | Creation IP. |
+| `user_agent` | `text` | yes | — | — | no | — |
+| `last_seen_at` | `timestamptz` | no | `now()` | — | no | Activity (idle timeout). |
+| `expires_at` | `timestamptz` | no | — | index | no | Absolute expiration. |
+| `revoked_at` | `timestamptz` | yes | — | — | no | Invalidation on logout/role change (§23.3). |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 4.5 `teams`
 
-Frontière d'isolation (§2, §23.1). Suppression : **RESTRICT** tant qu'il existe des projets, serveurs, clés, storages ou tokens ; procédure explicite, jamais de cascade silencieuse (§10.1).
+Isolation boundary (§2, §23.1). Deletion: **RESTRICT** while projects, servers, keys, storages or tokens exist; explicit procedure, never a silent cascade (§10.1).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `name` | `text` | non | — | — | non | Nom affiché. |
-| `description` | `text` | oui | — | — | non | — |
-| `personal` | `boolean` | non | `false` | — | non | Team personnelle créée automatiquement avec l'utilisateur (§10.1 ; exposée par le schéma OpenAPI `Team`). |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `deleted_at` | `timestamptz` | oui | — | — | non | Tombstone. |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `name` | `text` | no | — | — | no | Display name. |
+| `description` | `text` | yes | — | — | no | — |
+| `personal` | `boolean` | no | `false` | — | no | Personal team created automatically with the user (§10.1; exposed by the `Team` OpenAPI schema). |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `deleted_at` | `timestamptz` | yes | — | — | no | Tombstone. |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock. |
 
 ### 4.6 `team_memberships`
 
-Appartenance et rôle d'un utilisateur dans une team (§10.1 ; RBAC fin par projet/environnement à venir — décision §27.7, matrice §29.7). Suppression : **CASCADE** avec la team ou l'utilisateur (le retrait d'un membre est audité).
+Membership and role of a user within a team (§10.1; fine-grained RBAC per project/environment to come — decision §27.7, matrix §29.7). Deletion: **CASCADE** with the team or the user (removing a member is audited).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE CASCADE ; UNIQUE `(team_id, user_id)` | non | — |
-| `user_id` | `bigint` | non | — | FK `users(id)` ON DELETE CASCADE, index | non | — |
-| `role` | `team_role` | non | `'member'` | — | non | `owner` / `admin` / `member`. |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | Changement de rôle. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE CASCADE ; UNIQUE `(team_id, user_id)` | no | — |
+| `user_id` | `bigint` | no | — | FK `users(id)` ON DELETE CASCADE, index | no | — |
+| `role` | `team_role` | no | `'member'` | — | no | `owner` / `admin` / `member`. |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | Role change. |
 
 ### 4.7 `invitations`
 
-Invitation d'un membre par email (§10.1). Suppression : **purge** après expiration/acceptation (rétention courte).
+Invitation of a member by email (§10.1). Deletion: **purge** after expiration/acceptance (short retention).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE CASCADE | non | — |
-| `email` | `citext` | non | — | UNIQUE partiel `(team_id, email) WHERE accepted_at IS NULL AND revoked_at IS NULL` | non | Destinataire. |
-| `role` | `team_role` | non | `'member'` | CHECK `role <> 'owner'` | non | Rôle proposé. |
-| `token_hash` | `text` | non | — | UNIQUE | non (hash SHA-256) | Hash du lien d'invitation. |
-| `invited_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `expires_at` | `timestamptz` | non | — | — | non | — |
-| `accepted_at` | `timestamptz` | oui | — | — | non | — |
-| `revoked_at` | `timestamptz` | oui | — | — | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE CASCADE | no | — |
+| `email` | `citext` | no | — | partial UNIQUE `(team_id, email) WHERE accepted_at IS NULL AND revoked_at IS NULL` | no | Recipient. |
+| `role` | `team_role` | no | `'member'` | CHECK `role <> 'owner'` | no | Proposed role. |
+| `token_hash` | `text` | no | — | UNIQUE | no (SHA-256 hash) | Hash of the invitation link. |
+| `invited_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `expires_at` | `timestamptz` | no | — | — | no | — |
+| `accepted_at` | `timestamptz` | yes | — | — | no | — |
+| `revoked_at` | `timestamptz` | yes | — | — | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 4.8 `api_tokens`
 
-Token API à permissions granulaires (§10.3, §23.2). Affiché une seule fois ; stocké en hash SHA-256 irréversible avec préfixe d'identification. Suppression : révocation (`revoked_at`) puis purge selon rétention ; l'audit conserve un snapshot de l'acteur.
+API token with granular permissions (§10.3, §23.2). Shown only once; stored as an irreversible SHA-256 hash with an identification prefix. Deletion: revocation (`revoked_at`) then purge per retention; the audit log keeps a snapshot of the actor.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE CASCADE, index `(team_id, id DESC)` | non | Scope team du token (§10.3). |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `name` | `text` | non | — | — | non | Libellé. |
-| `token_prefix` | `text` | non | — | index | non | Préfixe public d'identification (§23.2), ex. `akd_a1b2c3`. |
-| `token_hash` | `text` | non | — | UNIQUE | non (hash SHA-256) | Hash du token complet ; jamais chiffré car jamais restitué. |
-| `permissions` | `text[]` | non | `'{read}'` | CHECK ⊆ `{read, read:sensitive, write, deploy, root}` | non | Permissions évaluées à l'action (§24.1). |
-| `ip_allowlist` | `cidr[]` | oui | — | — | non | Restriction CIDR (§10.3). |
-| `expires_at` | `timestamptz` | oui | — | — | non | NULL = sans expiration. |
-| `last_used_at` | `timestamptz` | oui | — | — | non | Mis à jour de façon paresseuse (pas à chaque requête). |
-| `revoked_at` | `timestamptz` | oui | — | — | non | Révocation. |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE CASCADE, index `(team_id, id DESC)` | no | Team scope of the token (§10.3). |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `name` | `text` | no | — | — | no | Label. |
+| `token_prefix` | `text` | no | — | index | no | Public identification prefix (§23.2), e.g. `akd_a1b2c3`. |
+| `token_hash` | `text` | no | — | UNIQUE | no (SHA-256 hash) | Hash of the full token; never encrypted because never returned. |
+| `permissions` | `text[]` | no | `'{read}'` | CHECK ⊆ `{read, read:sensitive, write, deploy, root}` | no | Permissions evaluated at action time (§24.1). |
+| `ip_allowlist` | `cidr[]` | yes | — | — | no | CIDR restriction (§10.3). |
+| `expires_at` | `timestamptz` | yes | — | — | no | NULL = no expiration. |
+| `last_used_at` | `timestamptz` | yes | — | — | no | Updated lazily (not on every request). |
+| `revoked_at` | `timestamptz` | yes | — | — | no | Revocation. |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ---
 
-## 5. Agrégat Organisation
+## 5. Organization aggregate
 
 ### 5.1 `projects`
 
-Regroupement logique dans une team (§2). Suppression : **interdite tant que des environments contiennent des ressources** ; cascade explicite prévisualisée et confirmée sinon (§19.2, §20.6).
+Logical grouping within a team (§2). Deletion: **forbidden while environments contain resources**; explicit cascade previewed and confirmed otherwise (§19.2, §20.6).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE RESTRICT, index `(team_id, id DESC)` | non | Ownership direct (INV-001). |
-| `name` | `text` | non | — | — | non | Nom affiché. |
-| `slug` | `text` | non | — | UNIQUE partiel `(team_id, slug) WHERE deleted_at IS NULL` ; CHECK format slug | non | Unicité dans le parent (§19.2). |
-| `description` | `text` | oui | — | — | non | — |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `deleted_at` | `timestamptz` | oui | — | — | non | Tombstone. |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE RESTRICT, index `(team_id, id DESC)` | no | Direct ownership (INV-001). |
+| `name` | `text` | no | — | — | no | Display name. |
+| `slug` | `text` | no | — | partial UNIQUE `(team_id, slug) WHERE deleted_at IS NULL` ; CHECK slug format | no | Uniqueness within the parent (§19.2). |
+| `description` | `text` | yes | — | — | no | — |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `deleted_at` | `timestamptz` | yes | — | — | no | Tombstone. |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock. |
 
 ### 5.2 `environments`
 
-Jeu de ressources d'un project (défaut `production`) ; déployable comme une unité (§20.8). Suppression : identique à `projects` (interdite si non vide, cascade prévisualisée sinon).
+Set of resources of a project (default `production`); deployable as a unit (§20.8). Deletion: same as `projects` (forbidden if non-empty, previewed cascade otherwise).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `project_id` | `bigint` | non | — | FK `projects(id)` ON DELETE RESTRICT, index | non | Ownership par chaîne (INV-001). |
-| `name` | `text` | non | — | — | non | Ex. « Production ». |
-| `slug` | `text` | non | — | UNIQUE partiel `(project_id, slug) WHERE deleted_at IS NULL` ; CHECK format slug | non | Unicité dans le parent (§19.2). |
-| `description` | `text` | oui | — | — | non | — |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `deleted_at` | `timestamptz` | oui | — | — | non | Tombstone. |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `project_id` | `bigint` | no | — | FK `projects(id)` ON DELETE RESTRICT, index | no | Ownership by chain (INV-001). |
+| `name` | `text` | no | — | — | no | E.g. "Production". |
+| `slug` | `text` | no | — | partial UNIQUE `(project_id, slug) WHERE deleted_at IS NULL` ; CHECK slug format | no | Uniqueness within the parent (§19.2). |
+| `description` | `text` | yes | — | — | no | — |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `deleted_at` | `timestamptz` | yes | — | — | no | Tombstone. |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock. |
 
 ### 5.3 `resources`
 
-Table de base de l'union logique `Application | Database | Service` (§19.1) : porte tous les champs communs. Les tables `applications`, `databases` et `services` sont des extensions 1—1 (héritage par classe : `PK = FK resources(id)`). `team_id` est **dénormalisé** depuis la chaîne environment → project → team (cohérence garantie par trigger) pour permettre les vérifications INV-002 et les listes paginées par team sans double jointure. Suppression : **tombstone** + job de suppression idempotent (§20.6) — routage retiré d'abord, puis workloads, puis objet logique ; les restes distants sont conservés dans `remnants`.
+Base table of the logical union `Application | Database | Service` (§19.1): carries all the common fields. The `applications`, `databases` and `services` tables are 1—1 extensions (class-table inheritance: `PK = FK resources(id)`). `team_id` is **denormalized** from the environment → project → team chain (consistency guaranteed by trigger) to allow INV-002 checks and team-scoped paginated lists without a double join. Deletion: **tombstone** + idempotent deletion job (§20.6) — routing removed first, then workloads, then the logical object; remote leftovers are kept in `remnants`.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | Base des noms Docker déterministes (INV-011) et hostname interne (§2). |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE RESTRICT, index `(team_id, id DESC)` | non | Dénormalisé ; cohérent avec `environment_id` (trigger). |
-| `environment_id` | `bigint` | non | — | FK `environments(id)` ON DELETE RESTRICT, index | non | Parent organisationnel. |
-| `destination_id` | `bigint` | non | — | FK `destinations(id)` ON DELETE RESTRICT, index | non | Réseau Docker cible (§2). Multi-serveur HA (§3.3, P3) : table d'extension future, hors périmètre. |
-| `resource_type` | `resource_type` | non | — | — | non | Discriminant de l'union ; cohérence avec la table d'extension garantie par trigger. |
-| `name` | `text` | non | — | UNIQUE partiel `(environment_id, name) WHERE deleted_at IS NULL` | non | Nom affiché, unique dans l'environnement. |
-| `description` | `text` | oui | — | — | non | — |
-| `desired_status` | `resource_desired_status` | non | `'stopped'` | — | non | Intention (§21.2). |
-| `observed_status` | `resource_observed_status` | non | `'unknown'` | — | non | État constaté (§21.2). |
-| `observed_at` | `timestamptz` | oui | — | — | non | Fraîcheur de l'observation ; au-delà d'un seuil, l'UI affiche « stale » (§19.2). |
-| `last_online_at` | `timestamptz` | oui | — | — | non | Dernière observation `healthy`/`running` (§6.2). |
-| `remnants` | `jsonb` | oui | — | — | non | Restes distants après échec de suppression, pour retry/forget (§20.6.4). |
-| `adopted_at` | `timestamptz` | oui | — | — | non | Ressource entrée par adoption (§20.7, ADR-013) ; conservé après normalisation (historique, et politique compose `AllowExternalObjects`). |
-| `adoption` | `jsonb` | oui | — | — | non | Pointeur vers les objets distants d'origine (`container_name`, `compose_project`, `scan_uuid`) **tant que la ressource n'est pas normalisée** ; le premier déploiement réussi l'efface. Lifecycle, logs, terminal et moteur ciblent ces noms tant qu'il est présent. |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `deleted_at` | `timestamptz` | oui | — | — | non | Tombstone (INV-008). |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste de tout l'agrégat (config incluse — INV-014). |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | Basis for deterministic Docker names (INV-011) and internal hostname (§2). |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE RESTRICT, index `(team_id, id DESC)` | no | Denormalized; consistent with `environment_id` (trigger). |
+| `environment_id` | `bigint` | no | — | FK `environments(id)` ON DELETE RESTRICT, index | no | Organizational parent. |
+| `destination_id` | `bigint` | no | — | FK `destinations(id)` ON DELETE RESTRICT, index | no | Target Docker network (§2). Multi-server HA (§3.3, P3): future extension table, out of scope. |
+| `resource_type` | `resource_type` | no | — | — | no | Discriminant of the union; consistency with the extension table guaranteed by trigger. |
+| `name` | `text` | no | — | partial UNIQUE `(environment_id, name) WHERE deleted_at IS NULL` | no | Display name, unique within the environment. |
+| `description` | `text` | yes | — | — | no | — |
+| `desired_status` | `resource_desired_status` | no | `'stopped'` | — | no | Intent (§21.2). |
+| `observed_status` | `resource_observed_status` | no | `'unknown'` | — | no | Observed state (§21.2). |
+| `observed_at` | `timestamptz` | yes | — | — | no | Freshness of the observation; beyond a threshold, the UI shows "stale" (§19.2). |
+| `last_online_at` | `timestamptz` | yes | — | — | no | Last `healthy`/`running` observation (§6.2). |
+| `remnants` | `jsonb` | yes | — | — | no | Remote leftovers after a failed deletion, for retry/forget (§20.6.4). |
+| `adopted_at` | `timestamptz` | yes | — | — | no | Resource brought in via adoption (§20.7, ADR-013); kept after normalization (history, and `AllowExternalObjects` compose policy). |
+| `adoption` | `jsonb` | yes | — | — | no | Pointer to the original remote objects (`container_name`, `compose_project`, `scan_uuid`) **as long as the resource is not normalized**; the first successful deployment clears it. Lifecycle, logs, terminal and engine target those names while it is present. |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `deleted_at` | `timestamptz` | yes | — | — | no | Tombstone (INV-008). |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock over the whole aggregate (config included — INV-014). |
 
 ### 5.4 `tags`
 
-Étiquette libre, N—N avec les ressources (§19.1) ; utilisée notamment pour le deploy par tag (§5.5). Suppression : libre (**CASCADE** sur `resource_tags`).
+Free-form label, N—N with resources (§19.1); notably used for deploy-by-tag (§5.5). Deletion: unrestricted (**CASCADE** onto `resource_tags`).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE CASCADE | non | — |
-| `name` | `citext` | non | — | UNIQUE `(team_id, name)` | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE CASCADE | no | — |
+| `name` | `citext` | no | — | UNIQUE `(team_id, name)` | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 5.5 `resource_tags`
 
-Association N—N ressource ↔ tag. Suppression : **CASCADE** des deux côtés.
+N—N association resource ↔ tag. Deletion: **CASCADE** on both sides.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `resource_id` | `bigint` | non | — | PK composite, FK `resources(id)` ON DELETE CASCADE | non | — |
-| `tag_id` | `bigint` | non | — | PK composite, FK `tags(id)` ON DELETE CASCADE, index | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `resource_id` | `bigint` | no | — | composite PK, FK `resources(id)` ON DELETE CASCADE | no | — |
+| `tag_id` | `bigint` | no | — | composite PK, FK `tags(id)` ON DELETE CASCADE, index | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ---
 
-## 6. Agrégat Infrastructure
+## 6. Infrastructure aggregate
 
 ### 6.1 `servers`
 
-Machine Linux pilotée en SSH (§3), machine à états §21.2. Suppression : **RESTRICT** tant que des destinations/ressources y sont rattachées ; « retirer de AkerDock » toujours distinct de « détruire le VPS fournisseur » (§3.2, INV-008) ; tombstone (`deleted_at`) pendant le retrait.
+Linux machine driven over SSH (§3), state machine §21.2. Deletion: **RESTRICT** while destinations/resources are attached to it; "remove from AkerDock" always distinct from "destroy the provider VPS" (§3.2, INV-008); tombstone (`deleted_at`) during removal.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE RESTRICT, index `(team_id, id DESC)` | non | Ownership direct (INV-001). |
-| `name` | `text` | non | — | UNIQUE partiel `(team_id, name) WHERE deleted_at IS NULL` | non | — |
-| `description` | `text` | oui | — | — | non | — |
-| `host` | `text` | non | — | — | non | IP ou FQDN SSH. |
-| `port` | `integer` | non | `22` | CHECK `1..65535` | non | Port SSH. |
-| `ssh_user` | `text` | non | `'root'` | — | non | Points acceptés dans le nom (§3.1) ; non-root expérimental. |
-| `use_sudo` | `boolean` | non | `false` | — | non | Utilisateur non-root avec `sudo NOPASSWD: ALL` (§3.1). |
-| `ssh_timeout_seconds` | `integer` | non | `30` | CHECK `> 0` | non | Timeout de connexion configurable (§3.1). |
-| `private_key_id` | `bigint` | non | — | FK `private_keys(id)` ON DELETE RESTRICT | non | Clé SSH d'accès (même team, INV-002). |
-| `status` | `server_status` | non | `'pending'` | index partiel `WHERE status <> 'ready'` | non | Machine à états §21.2. |
-| `observed_at` | `timestamptz` | oui | — | — | non | Dernière vérification de joignabilité/faits. |
-| `unreachable_since` | `timestamptz` | oui | — | — | non | Début d'injoignabilité (notification §11). |
-| `os_name` | `text` | oui | — | — | non | Observé lors de la validation (§20.1). |
-| `architecture` | `text` | oui | — | CHECK `IN ('amd64','arm64')` | non | Observée ; conditionne build servers (§3.4). |
-| `docker_version` | `text` | oui | — | — | non | Observée ; Docker ≥ 24 requis, snap refusé (§3.1). |
-| `is_localhost` | `boolean` | non | `false` | — | non | Serveur hébergeant l'instance (§3.1). |
-| `is_build_server` | `boolean` | non | `false` | — | non | Serveur dédié au build, n'héberge pas d'applications (§3.4). |
-| `wildcard_domain` | `text` | oui | — | — | non | Génération `<uuid>.example.com` ; fallback sslip.io (§4.2). |
-| `proxy_type` | `proxy_type` | non | `'traefik'` | — | non | Traefik (défaut) / Caddy (P2) / none (§4.1, §27.9). |
-| `proxy_desired_state` | `proxy_desired_state` | non | `'running'` | — | non | Start/stop du proxy (§4.1). |
-| `proxy_observed_status` | `resource_observed_status` | non | `'unknown'` | — | non | Statut observé du container proxy. |
-| `proxy_http_port` | `integer` | non | `80` | CHECK `1..65535` | non | Configurable par serveur (décision §27.1). |
-| `proxy_https_port` | `integer` | non | `443` | CHECK `1..65535` | non | Configurable par serveur (décision §27.1). |
-| `concurrent_builds` | `integer` | non | `2` | CHECK `> 0` | non | Slots de build simultanés (§5.5). |
-| `deployment_queue_limit` | `integer` | non | `25` | CHECK `> 0` | non | Taille max de file par serveur (§5.5). |
-| `cleanup_enabled` | `boolean` | non | `false` | — | non | Automated Docker Cleanup (§3.7). |
-| `cleanup_disk_threshold_pct` | `integer` | oui | — | CHECK `1..100` | non | Seuil d'usage disque déclencheur. |
-| `cleanup_cron` | `text` | oui | — | — | non | Planification cron du cleanup. |
-| `cleanup_prune_volumes` | `boolean` | non | `false` | — | non | Opt-in volumes inutilisés (§3.7). |
-| `cleanup_prune_networks` | `boolean` | non | `false` | — | non | Opt-in réseaux **gérés** inutilisés (§3.7, INV-015). |
-| `cleanup_next_run_at` | `timestamptz` | oui | — | — | non | Fenêtre cron du cleanup (§3.7), possédée par le scheduler — mêmes règles que `database_backup_plans.next_run_at`. |
-| `cleanup_last_run_at` | `timestamptz` | oui | — | — | non | Dernier cleanup effectivement exécuté (cron, seuil ou manuel). |
-| `sentinel_enabled` | `boolean` | non | `false` | — | non | Agent de métriques (§3.8, OTLP §27.8). |
-| `sentinel_token_hash` | `text` | oui | — | — | non (hash SHA-256) | Token push de l'agent ; vérifié par hash, jamais restitué. |
-| `sentinel_push_interval_seconds` | `integer` | non | `10` | CHECK `> 0` | non | Fréquence configurable (§3.8). |
-| `sentinel_metrics_retention_days` | `integer` | non | `7` | CHECK `> 0` | non | Rétention configurable (§3.8). |
-| `log_drain_kind` | `log_drain_kind` | non | `'none'` | — | non | Log drain par serveur (§13). |
-| `log_drain_config_enc` | `bytea` | oui | — | — | **oui** | Config du drain (tokens Axiom/New Relic, config Fluent Bit), chiffrée. |
-| `ca_cert` | `text` | oui | — | — | non | Certificat CA plateforme pour SSL des bases (§6.3), montable côté clients. |
-| `ca_key_enc` | `bytea` | oui | — | — | **oui** | Clé privée de la CA, chiffrée ; régénérable depuis l'UI (§6.3). |
-| `cloud_credential_id` | `bigint` | oui | — | FK `cloud_credentials(id)` ON DELETE SET NULL | non | Provenance si provisionné via un fournisseur cloud (§3.2). |
-| `cloud_external_id` | `text` | oui | — | — | non | ID du VPS chez le fournisseur (destruction = action distincte, §3.2). |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `deleted_at` | `timestamptz` | oui | — | — | non | Tombstone. |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE RESTRICT, index `(team_id, id DESC)` | no | Direct ownership (INV-001). |
+| `name` | `text` | no | — | partial UNIQUE `(team_id, name) WHERE deleted_at IS NULL` | no | — |
+| `description` | `text` | yes | — | — | no | — |
+| `host` | `text` | no | — | — | no | SSH IP or FQDN. |
+| `port` | `integer` | no | `22` | CHECK `1..65535` | no | SSH port. |
+| `ssh_user` | `text` | no | `'root'` | — | no | Dots accepted in the name (§3.1); non-root experimental. |
+| `use_sudo` | `boolean` | no | `false` | — | no | Non-root user with `sudo NOPASSWD: ALL` (§3.1). |
+| `ssh_timeout_seconds` | `integer` | no | `30` | CHECK `> 0` | no | Configurable connection timeout (§3.1). |
+| `private_key_id` | `bigint` | no | — | FK `private_keys(id)` ON DELETE RESTRICT | no | SSH access key (same team, INV-002). |
+| `status` | `server_status` | no | `'pending'` | partial index `WHERE status <> 'ready'` | no | State machine §21.2. |
+| `observed_at` | `timestamptz` | yes | — | — | no | Last reachability/facts check. |
+| `unreachable_since` | `timestamptz` | yes | — | — | no | Start of unreachability (notification §11). |
+| `os_name` | `text` | yes | — | — | no | Observed during validation (§20.1). |
+| `architecture` | `text` | yes | — | CHECK `IN ('amd64','arm64')` | no | Observed; conditions build servers (§3.4). |
+| `docker_version` | `text` | yes | — | — | no | Observed; Docker ≥ 24 required, snap refused (§3.1). |
+| `is_localhost` | `boolean` | no | `false` | — | no | Server hosting the instance (§3.1). |
+| `is_build_server` | `boolean` | no | `false` | — | no | Server dedicated to builds, does not host applications (§3.4). |
+| `wildcard_domain` | `text` | yes | — | — | no | `<uuid>.example.com` generation; sslip.io fallback (§4.2). |
+| `proxy_type` | `proxy_type` | no | `'traefik'` | — | no | Traefik (default) / Caddy (P2) / none (§4.1, §27.9). |
+| `proxy_desired_state` | `proxy_desired_state` | no | `'running'` | — | no | Proxy start/stop (§4.1). |
+| `proxy_observed_status` | `resource_observed_status` | no | `'unknown'` | — | no | Observed status of the proxy container. |
+| `proxy_http_port` | `integer` | no | `80` | CHECK `1..65535` | no | Configurable per server (decision §27.1). |
+| `proxy_https_port` | `integer` | no | `443` | CHECK `1..65535` | no | Configurable per server (decision §27.1). |
+| `concurrent_builds` | `integer` | no | `2` | CHECK `> 0` | no | Simultaneous build slots (§5.5). |
+| `deployment_queue_limit` | `integer` | no | `25` | CHECK `> 0` | no | Max queue size per server (§5.5). |
+| `cleanup_enabled` | `boolean` | no | `false` | — | no | Automated Docker Cleanup (§3.7). |
+| `cleanup_disk_threshold_pct` | `integer` | yes | — | CHECK `1..100` | no | Triggering disk usage threshold. |
+| `cleanup_cron` | `text` | yes | — | — | no | Cleanup cron schedule. |
+| `cleanup_prune_volumes` | `boolean` | no | `false` | — | no | Opt-in unused volumes (§3.7). |
+| `cleanup_prune_networks` | `boolean` | no | `false` | — | no | Opt-in unused **managed** networks (§3.7, INV-015). |
+| `cleanup_next_run_at` | `timestamptz` | yes | — | — | no | Cleanup cron window (§3.7), owned by the scheduler — same rules as `database_backup_plans.next_run_at`. |
+| `cleanup_last_run_at` | `timestamptz` | yes | — | — | no | Last cleanup actually executed (cron, threshold or manual). |
+| `sentinel_enabled` | `boolean` | no | `false` | — | no | Metrics agent (§3.8, OTLP §27.8). |
+| `sentinel_token_hash` | `text` | yes | — | — | no (SHA-256 hash) | Agent push token; verified by hash, never returned. |
+| `sentinel_push_interval_seconds` | `integer` | no | `10` | CHECK `> 0` | no | Configurable frequency (§3.8). |
+| `sentinel_metrics_retention_days` | `integer` | no | `7` | CHECK `> 0` | no | Configurable retention (§3.8). |
+| `log_drain_kind` | `log_drain_kind` | no | `'none'` | — | no | Per-server log drain (§13). |
+| `log_drain_config_enc` | `bytea` | yes | — | — | **yes** | Drain configuration (Axiom/New Relic tokens, Fluent Bit config), encrypted. |
+| `ca_cert` | `text` | yes | — | — | no | Platform CA certificate for database SSL (§6.3), mountable on the client side. |
+| `ca_key_enc` | `bytea` | yes | — | — | **yes** | CA private key, encrypted; regenerable from the UI (§6.3). |
+| `cloud_credential_id` | `bigint` | yes | — | FK `cloud_credentials(id)` ON DELETE SET NULL | no | Provenance if provisioned via a cloud provider (§3.2). |
+| `cloud_external_id` | `text` | yes | — | — | no | VPS ID at the provider (destruction = separate action, §3.2). |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `deleted_at` | `timestamptz` | yes | — | — | no | Tombstone. |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock. |
 
-> Les métriques historiques de Sentinel (CPU/RAM/disque, §3.8) ne sont pas modélisées ici : elles transitent en OTLP (décision §27.8) vers un stockage de séries temporelles hors du modèle relationnel.
+> Sentinel's historical metrics (CPU/RAM/disk, §3.8) are not modeled here: they transit over OTLP (decision §27.8) to a time-series store outside the relational model.
 
 ### 6.2 `destinations`
 
-Réseau Docker cible sur un serveur (§2). Suppression : **RESTRICT** tant que des ressources la référencent (§19.2).
+Target Docker network on a server (§2). Deletion: **RESTRICT** while resources reference it (§19.2).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `server_id` | `bigint` | non | — | FK `servers(id)` ON DELETE RESTRICT, index | non | Ownership par chaîne server → team. |
-| `name` | `text` | non | — | — | non | Nom affiché. |
-| `network` | `text` | non | — | UNIQUE `(server_id, network)` | non | Nom du réseau Docker (unicité des noms Docker par destination, §19.2). |
-| `is_default` | `boolean` | non | `false` | UNIQUE partiel `(server_id) WHERE is_default` | non | Destination proposée par défaut sur le serveur. |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `server_id` | `bigint` | no | — | FK `servers(id)` ON DELETE RESTRICT, index | no | Ownership through the server → team chain. |
+| `name` | `text` | no | — | — | no | Display name. |
+| `network` | `text` | no | — | UNIQUE `(server_id, network)` | no | Docker network name (uniqueness of Docker names per destination, §19.2). |
+| `is_default` | `boolean` | no | `false` | partial UNIQUE `(server_id) WHERE is_default` | no | Destination proposed by default on the server. |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 6.3 `private_keys`
 
-Clé SSH privée, chiffrée au repos (§3.1, §23.2) ; fichiers distants `0600`/répertoire `0700`. Suppression : **RESTRICT** tant que référencée par un serveur ou une git source (§19.2) ; rotation assistée. Exception à l'ownership direct : la **clé d'instance** (instance-config §6.2), générée au premier démarrage avant toute team, porte `is_instance = true` et `team_id NULL` — contrainte `CHECK (team_id IS NOT NULL OR is_instance)` et unicité partielle (une seule clé d'instance) ; elle n'apparaît dans aucune liste scopée par team.
+Private SSH key, encrypted at rest (§3.1, §23.2); remote files `0600`/directory `0700`. Deletion: **RESTRICT** while referenced by a server or a git source (§19.2); assisted rotation. Exception to direct ownership: the **instance key** (instance-config §6.2), generated at first startup before any team, carries `is_instance = true` and `team_id NULL` — constraint `CHECK (team_id IS NOT NULL OR is_instance)` and partial uniqueness (a single instance key); it never appears in any team-scoped list.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | oui¹ | — | FK `teams(id)` ON DELETE RESTRICT, index ; CHECK `(team_id IS NOT NULL OR is_instance)` | non | Sélection par team (§23.2). ¹NULL uniquement pour la clé d'instance. |
-| `is_instance` | `boolean` | non | `false` | UNIQUE partiel `WHERE is_instance` | non | Clé SSH d'instance générée au premier démarrage (instance-config §6.2). |
-| `name` | `text` | non | — | — | non | — |
-| `description` | `text` | oui | — | — | non | — |
-| `fingerprint_sha256` | `text` | non | — | UNIQUE `(team_id, fingerprint_sha256)` | non | Empreinte publique ; anti-doublon. |
-| `public_key` | `text` | non | — | — | non | Clé publique (affichable, copiable — §22.5). |
-| `private_key_enc` | `bytea` | non | — | — | **oui** | Clé privée PEM/OpenSSH, chiffrée enveloppe ; sans passphrase (§3.1) ; restitution soumise à `read:sensitive` (INV-003). |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | yes¹ | — | FK `teams(id)` ON DELETE RESTRICT, index ; CHECK `(team_id IS NOT NULL OR is_instance)` | no | Selection by team (§23.2). ¹NULL only for the instance key. |
+| `is_instance` | `boolean` | no | `false` | partial UNIQUE `WHERE is_instance` | no | Instance SSH key generated at first startup (instance-config §6.2). |
+| `name` | `text` | no | — | — | no | — |
+| `description` | `text` | yes | — | — | no | — |
+| `fingerprint_sha256` | `text` | no | — | UNIQUE `(team_id, fingerprint_sha256)` | no | Public fingerprint; anti-duplicate. |
+| `public_key` | `text` | no | — | — | no | Public key (displayable, copyable — §22.5). |
+| `private_key_enc` | `bytea` | no | — | — | **yes** | PEM/OpenSSH private key, envelope-encrypted; without passphrase (§3.1); retrieval subject to `read:sensitive` (INV-003). |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock. |
 
 ### 6.4 `cloud_credentials`
 
-Credential **DNS-01** d'une team (proxy-contract §7.2, PRD §4.3, amendement n°21) : le jeu de variables d'environnement attendu par Lego pour un provider DNS (`CF_DNS_API_TOKEN`, `AWS_ACCESS_KEY_ID`, …), chiffré enveloppe, matérialisé sur le serveur en `acme.env` (0600) et injecté par `--env-file` — jamais dans un fichier de config généré, jamais en argv (INV-003/INV-012). Historique : la table décrivait initialement les tokens de **provisioning cloud**, retiré du périmètre (ADR-027) — cette entrée documente la table telle que la migration 00035 l'a réellement créée. Suppression : tombstone ; **RESTRICT** tant que référencée par un serveur (`servers.dns_credential_id`) ou un certificat.
+**DNS-01** credential of a team (proxy-contract §7.2, PRD §4.3, amendment No. 21): the set of environment variables expected by Lego for a DNS provider (`CF_DNS_API_TOKEN`, `AWS_ACCESS_KEY_ID`, …), envelope-encrypted, materialized on the server as `acme.env` (0600) and injected via `--env-file` — never in a generated config file, never in argv (INV-003/INV-012). History: the table initially described **cloud provisioning** tokens, removed from scope (ADR-027) — this entry documents the table as migration 00035 actually created it. Deletion: tombstone; **RESTRICT** while referenced by a server (`servers.dns_credential_id`) or a certificate.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE RESTRICT, index | non | — |
-| `name` | `text` | non | — | UNIQUE `(team_id, name)` | non | — |
-| `provider` | `text` | non | — | grammaire fermée (INV-012) | non | Identifiant **Lego** (`cloudflare`, `route53`, `ovh`, `hetzner`, …) ; devient le nom du resolver `dns01-<provider>`, donc atteint un fichier de config. |
-| `config_enc` | `bytea` | non | — | — | **oui** | Variables d'environnement Lego, chiffrées enveloppe. |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `deleted_at` | `timestamptz` | oui | — | — | non | Tombstone. |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE RESTRICT, index | no | — |
+| `name` | `text` | no | — | UNIQUE `(team_id, name)` | no | — |
+| `provider` | `text` | no | — | closed grammar (INV-012) | no | **Lego** identifier (`cloudflare`, `route53`, `ovh`, `hetzner`, …); becomes the resolver name `dns01-<provider>`, so it reaches a config file. |
+| `config_enc` | `bytea` | no | — | — | **yes** | Lego environment variables, envelope-encrypted. |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `deleted_at` | `timestamptz` | yes | — | — | no | Tombstone. |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock. |
 
 ### 6.5 `registry_credentials`
 
-Credentials d'un container registry privé (`docker login`, push post-build — §5.1, §5.2). Suppression : **RESTRICT** tant que référencés par une config de build ou un artifact.
+Credentials for a private container registry (`docker login`, post-build push — §5.1, §5.2). Deletion: **RESTRICT** while referenced by a build config or an artifact.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE RESTRICT, index | non | — |
-| `name` | `text` | non | — | UNIQUE `(team_id, name)` | non | — |
-| `registry_url` | `text` | non | — | — | non | Ex. `ghcr.io`, `registry.gitlab.com` ; validé par la policy SSRF (§23.3). |
-| `username` | `text` | non | — | — | non | — |
-| `password_enc` | `bytea` | non | — | — | **oui** | Mot de passe / token registry, chiffré enveloppe. |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE RESTRICT, index | no | — |
+| `name` | `text` | no | — | UNIQUE `(team_id, name)` | no | — |
+| `registry_url` | `text` | no | — | — | no | E.g. `ghcr.io`, `registry.gitlab.com`; validated by the SSRF policy (§23.3). |
+| `username` | `text` | no | — | — | no | — |
+| `password_enc` | `bytea` | no | — | — | **yes** | Registry password / token, envelope-encrypted. |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock. |
 
 ### 6.6 `s3_storages`
 
-Stockage objet compatible S3 pour les backups (§7.4). Vérification `ListObjectsV2` obligatoire avant usage ; flag d'utilisabilité + alerte si dégradé. Suppression : **RESTRICT** tant que référencé par un plan de backup (§19.2).
+S3-compatible object storage for backups (§7.4). Mandatory `ListObjectsV2` verification before use; usability flag + alert if degraded. Deletion: **RESTRICT** while referenced by a backup plan (§19.2).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE RESTRICT, index | non | — |
-| `name` | `text` | non | — | UNIQUE `(team_id, name)` | non | — |
-| `endpoint` | `text` | non | — | — | non | URL du endpoint (policy SSRF §23.3). |
-| `bucket` | `text` | non | — | — | non | — |
-| `region` | `text` | oui | — | — | non | — |
-| `path_style` | `boolean` | non | `true` | — | non | Path-style vs virtual-host (§7.4). |
-| `access_key_enc` | `bytea` | non | — | — | **oui** | Access key, chiffrée enveloppe (§7.4 « chiffrés en base »). |
-| `secret_key_enc` | `bytea` | non | — | — | **oui** | Secret key, chiffrée enveloppe. |
-| `is_usable` | `boolean` | non | `false` | — | non | Passe à `true` après vérification réussie ; alerte si redevient `false` (§7.4). |
-| `last_verified_at` | `timestamptz` | oui | — | — | non | — |
-| `unusable_since` | `timestamptz` | oui | — | — | non | Début d'indisponibilité constatée. |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE RESTRICT, index | no | — |
+| `name` | `text` | no | — | UNIQUE `(team_id, name)` | no | — |
+| `endpoint` | `text` | no | — | — | no | Endpoint URL (SSRF policy §23.3). |
+| `bucket` | `text` | no | — | — | no | — |
+| `region` | `text` | yes | — | — | no | — |
+| `path_style` | `boolean` | no | `true` | — | no | Path-style vs virtual-host (§7.4). |
+| `access_key_enc` | `bytea` | no | — | — | **yes** | Access key, envelope-encrypted (§7.4 "encrypted in database"). |
+| `secret_key_enc` | `bytea` | no | — | — | **yes** | Secret key, envelope-encrypted. |
+| `is_usable` | `boolean` | no | `false` | — | no | Becomes `true` after successful verification; alert if it becomes `false` again (§7.4). |
+| `last_verified_at` | `timestamptz` | yes | — | — | no | — |
+| `unusable_since` | `timestamptz` | yes | — | — | no | Start of observed unavailability. |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock. |
 
 ### 6.7 `certificates`
 
-**Reflet observé** du sous-système certificats d'un serveur (§4.3, §6.3 ; proxy-contract §7). L'état réel vit sur le serveur — `acme.json` (`/var/lib/akerdock/proxy/acme.json`) et les fichiers de `/var/lib/akerdock/proxy/certs/` — cette table n'est **jamais** une source de vérité : elle est mise à jour par le worker après chaque application de configuration proxy et par la réconciliation périodique (§18.3), à des fins d'inventaire et d'alerte d'expiration (J-30/J-7, proxy-contract §7.3/§7.6). La CA gérée par plateforme pour le SSL des bases (§6.3) n'est pas dupliquée ici : elle reste portée par `servers.ca_cert` / `servers.ca_key_enc` (§6.1). Le matériel de clé privée ne quitte jamais le serveur (jamais en base, proxy-contract §7.3). Suppression : **CASCADE** avec le serveur ; une ligne dont le certificat a disparu du serveur est supprimée par la synchronisation (reflet, pas de tombstone ni de verrou optimiste — table non éditable en UI/API).
+**Observed reflection** of a server's certificate subsystem (§4.3, §6.3; proxy-contract §7). The real state lives on the server — `acme.json` (`/var/lib/akerdock/proxy/acme.json`) and the files in `/var/lib/akerdock/proxy/certs/` — this table is **never** a source of truth: it is updated by the worker after each proxy configuration application and by the periodic reconciliation (§18.3), for inventory purposes and expiration alerting (D-30/D-7, proxy-contract §7.3/§7.6). The platform-managed CA for database SSL (§6.3) is not duplicated here: it remains carried by `servers.ca_cert` / `servers.ca_key_enc` (§6.1). Private key material never leaves the server (never in database, proxy-contract §7.3). Deletion: **CASCADE** with the server; a row whose certificate has disappeared from the server is deleted by the synchronization (reflection, no tombstone nor optimistic lock — table not editable via UI/API).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `server_id` | `bigint` | non | — | FK `servers(id)` ON DELETE CASCADE, index | non | Ownership par chaîne server → team. |
-| `kind` | `certificate_kind` | non | — | UNIQUE `(server_id, kind, main_domain)` ; CHECK : `acme_dns01` ⇒ `dns_provider` non NULL | non | Mode d'obtention (§4.3) ; `self_signed` = fallback servi en attendant une émission valide (proxy-contract §7.4). |
-| `main_domain` | `citext` | non | — | (cf. `kind`) | non | Domaine principal couvert (CN / premier SAN). |
-| `sans` | `citext[]` | non | `'{}'` | — | non | Domaines alternatifs couverts, wildcards inclus (`*.preview.example.com` ⇒ DNS-01 obligatoire, proxy-contract §7.2). |
-| `issuer` | `text` | oui | — | — | non | Émetteur observé (ex. `Let's Encrypt R11`) ; NULL tant que rien n'est émis. |
-| `not_before` | `timestamptz` | oui | — | — | non | Début de validité observé. |
-| `not_after` | `timestamptz` | oui | — | index | non | **Expiration observée — donnée clé du monitoring** : alerte à J-30/J-7 et filtre `expiring_within_days` de l'API. |
-| `status` | `certificate_status` | non | `'pending'` | — | non | `pending` = émission en cours (fallback self-signed servi) ; `failed` = échec d'émission/renouvellement (§7.5 proxy-contract). |
-| `last_error` | `text` | oui | — | — | non | Dernière erreur d'émission/renouvellement (cause extraite des logs proxy : challenge, rate limit, CAA…) ; jamais de secret (INV-003). |
-| `dns_provider` | `text` | oui | — | — | non | Identifiant provider **Lego** (`cloudflare`, `route53`…) pour `acme_dns01` (proxy-contract §7.2). |
-| `dns_credential_id` | `bigint` | oui | — | FK `cloud_credentials(id)` ON DELETE RESTRICT | non | Credential DNS-01 (même team, INV-002). Le secret vit dans `cloud_credentials.config_enc` (§6.4) — **aucune colonne secrète ici**. Matérialisé en `/var/lib/akerdock/proxy/acme.env` (0600) à la génération. |
-| `cert_path` | `text` | oui | — | — | non | Chemin distant du certificat sur le serveur (`/var/lib/akerdock/proxy/certs/…` pour `custom`) ; NULL pour ACME (matériel dans `acme.json`). |
-| `key_path` | `text` | oui | — | — | non | Chemin distant de la clé privée (0600, `custom`) ; le matériel n'est **jamais** rapatrié en base. |
-| `observed_at` | `timestamptz` | oui | — | — | non | Fraîcheur du reflet (§19.2) ; au-delà d'un seuil, l'UI affiche « stale », jamais un faux `issued`. |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | Dernière synchronisation. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `server_id` | `bigint` | no | — | FK `servers(id)` ON DELETE CASCADE, index | no | Ownership through the server → team chain. |
+| `kind` | `certificate_kind` | no | — | UNIQUE `(server_id, kind, main_domain)` ; CHECK: `acme_dns01` ⇒ `dns_provider` not NULL | no | Acquisition mode (§4.3); `self_signed` = fallback served while awaiting a valid issuance (proxy-contract §7.4). |
+| `main_domain` | `citext` | no | — | (see `kind`) | no | Main covered domain (CN / first SAN). |
+| `sans` | `citext[]` | no | `'{}'` | — | no | Alternative covered domains, wildcards included (`*.preview.example.com` ⇒ DNS-01 mandatory, proxy-contract §7.2). |
+| `issuer` | `text` | yes | — | — | no | Observed issuer (e.g. `Let's Encrypt R11`); NULL while nothing has been issued. |
+| `not_before` | `timestamptz` | yes | — | — | no | Observed validity start. |
+| `not_after` | `timestamptz` | yes | — | index | no | **Observed expiration — key monitoring datum**: alert at D-30/D-7 and `expiring_within_days` API filter. |
+| `status` | `certificate_status` | no | `'pending'` | — | no | `pending` = issuance in progress (self-signed fallback served); `failed` = issuance/renewal failure (proxy-contract §7.5). |
+| `last_error` | `text` | yes | — | — | no | Last issuance/renewal error (cause extracted from proxy logs: challenge, rate limit, CAA…); never a secret (INV-003). |
+| `dns_provider` | `text` | yes | — | — | no | **Lego** provider identifier (`cloudflare`, `route53`…) for `acme_dns01` (proxy-contract §7.2). |
+| `dns_credential_id` | `bigint` | yes | — | FK `cloud_credentials(id)` ON DELETE RESTRICT | no | DNS-01 credential (same team, INV-002). The secret lives in `cloud_credentials.config_enc` (§6.4) — **no secret column here**. Materialized as `/var/lib/akerdock/proxy/acme.env` (0600) at generation time. |
+| `cert_path` | `text` | yes | — | — | no | Remote path of the certificate on the server (`/var/lib/akerdock/proxy/certs/…` for `custom`); NULL for ACME (material in `acme.json`). |
+| `key_path` | `text` | yes | — | — | no | Remote path of the private key (0600, `custom`); the material is **never** brought back into the database. |
+| `observed_at` | `timestamptz` | yes | — | — | no | Freshness of the reflection (§19.2); beyond a threshold, the UI shows "stale", never a false `issued`. |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | Last synchronization. |
 
 ### 6.8 `adoption_scans`
 
-Un scan d'adoption (§20.7, ADR-013/ADR-023) : inventaire des containers et stacks compose **non gérés** d'un serveur, avec le mapping proposé vers le modèle AkerDock. `candidates` porte les candidats tels que servis par l'API (adoptables et non adoptables, avec motifs), **plus** deux champs internes au scan (`compose_content` réécrit, `compose_working_dir`) que le handler ne réémet jamais. Les **noms** de variables d'environnement y figurent, **jamais les valeurs** (INV-003) : celles-ci sont capturées et chiffrées enveloppe au moment de l'adoption. Suppression : **CASCADE** avec le serveur — un scan est un instantané, pas une ressource.
+An adoption scan (§20.7, ADR-013/ADR-023): inventory of a server's **unmanaged** containers and compose stacks, with the proposed mapping to the AkerDock model. `candidates` carries the candidates as served by the API (adoptable and non-adoptable, with reasons), **plus** two scan-internal fields (rewritten `compose_content`, `compose_working_dir`) that the handler never re-emits. The **names** of environment variables appear there, **never the values** (INV-003): those are captured and envelope-encrypted at adoption time. Deletion: **CASCADE** with the server — a scan is a snapshot, not a resource.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE CASCADE, index `(team_id, id DESC)` | non | Isolation team (INV-002). |
-| `server_id` | `bigint` | non | — | FK `servers(id)` ON DELETE CASCADE, index `(server_id, id DESC)` | non | Serveur scanné. |
-| `status` | `adoption_scan_status` | non | `'pending'` | enum `pending/running/completed/failed` | non | — |
-| `error` | `text` | oui | — | — | non | Cause quand `failed`. |
-| `candidates` | `jsonb` | oui | — | — | non | Candidats au format API + champs internes (voir ci-dessus). Rempli quand `completed`. |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `completed_at` | `timestamptz` | oui | — | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE CASCADE, index `(team_id, id DESC)` | no | Team isolation (INV-002). |
+| `server_id` | `bigint` | no | — | FK `servers(id)` ON DELETE CASCADE, index `(server_id, id DESC)` | no | Scanned server. |
+| `status` | `adoption_scan_status` | no | `'pending'` | enum `pending/running/completed/failed` | no | — |
+| `error` | `text` | yes | — | — | no | Cause when `failed`. |
+| `candidates` | `jsonb` | yes | — | — | no | Candidates in API format + internal fields (see above). Filled when `completed`. |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `completed_at` | `timestamptz` | yes | — | — | no | — |
 
 ### 6.9 `uptime_checks`
 
-Un check d'uptime (ADR-017) : sonde HTTP/TCP exécutée **depuis le control plane** — hors du workload surveillé —, verdict à seuils (le basculement après N résultats consécutifs EST l'anti-flapping ; le notifier ne voit que les transitions). La fenêtre (`next_run_at`) est possédée par le scheduler ; la granularité effective est bornée par son tick. Suppression : tombstone ; l'historique suit en CASCADE.
+An uptime check (ADR-017): HTTP/TCP probe executed **from the control plane** — outside the monitored workload —, threshold-based verdict (flipping after N consecutive results IS the anti-flapping; the notifier only sees transitions). The window (`next_run_at`) is owned by the scheduler; the effective granularity is bounded by its tick. Deletion: tombstone; the history follows via CASCADE.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE CASCADE, index `(team_id, id DESC)` | non | Isolation team (INV-002). |
-| `resource_id` | `bigint` | oui | — | FK `resources(id)` ON DELETE CASCADE | non | Lien optionnel : l'historique « par ressource » d'ADR-017. |
-| `name` | `text` | non | — | UNIQUE `(team_id, name)` | non | — |
-| `kind` | `uptime_check_kind` | non | — | — | non | `http` (URL, up = réponse < 400) ou `tcp` (host:port, up = connexion). |
-| `target` | `text` | non | — | — | non | URL ou `host:port`, validé à l'entrée. |
-| `interval_seconds` | `integer` | non | `60` | CHECK `>= 10` | non | — |
-| `timeout_seconds` | `integer` | non | `10` | CHECK `1..60` | non | — |
-| `failure_threshold` | `integer` | non | `3` | CHECK `> 0` | non | Échecs consécutifs avant `down`. |
-| `success_threshold` | `integer` | non | `2` | CHECK `> 0` | non | Succès consécutifs avant retour `up` (depuis `unknown`, un seul suffit). |
-| `enabled` | `boolean` | non | `true` | — | non | — |
-| `status` | `uptime_status` | non | `'unknown'` | — | non | Verdict courant — écrit par le prober seul. |
-| `status_since` | `timestamptz` | oui | — | — | non | Début du verdict courant. |
-| `consecutive_failures` | `integer` | non | `0` | — | non | Compteur de la machine à états. |
-| `consecutive_successes` | `integer` | non | `0` | — | non | — |
-| `last_checked_at` | `timestamptz` | oui | — | — | non | — |
-| `last_latency_ms` | `integer` | oui | — | — | non | — |
-| `last_error` | `text` | oui | — | — | non | Dernier motif d'échec. |
-| `next_run_at` | `timestamptz` | oui | — | — | non | Fenêtre du prober ; NULL = à resemer (création ou édition). |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `deleted_at` | `timestamptz` | oui | — | — | non | Tombstone. |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste (les écritures du prober ne le bumpent jamais). |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE CASCADE, index `(team_id, id DESC)` | no | Team isolation (INV-002). |
+| `resource_id` | `bigint` | yes | — | FK `resources(id)` ON DELETE CASCADE | no | Optional link: the "per resource" history of ADR-017. |
+| `name` | `text` | no | — | UNIQUE `(team_id, name)` | no | — |
+| `kind` | `uptime_check_kind` | no | — | — | no | `http` (URL, up = response < 400) or `tcp` (host:port, up = connection). |
+| `target` | `text` | no | — | — | no | URL or `host:port`, validated on input. |
+| `interval_seconds` | `integer` | no | `60` | CHECK `>= 10` | no | — |
+| `timeout_seconds` | `integer` | no | `10` | CHECK `1..60` | no | — |
+| `failure_threshold` | `integer` | no | `3` | CHECK `> 0` | no | Consecutive failures before `down`. |
+| `success_threshold` | `integer` | no | `2` | CHECK `> 0` | no | Consecutive successes before returning to `up` (from `unknown`, a single one suffices). |
+| `enabled` | `boolean` | no | `true` | — | no | — |
+| `status` | `uptime_status` | no | `'unknown'` | — | no | Current verdict — written by the prober alone. |
+| `status_since` | `timestamptz` | yes | — | — | no | Start of the current verdict. |
+| `consecutive_failures` | `integer` | no | `0` | — | no | State machine counter. |
+| `consecutive_successes` | `integer` | no | `0` | — | no | — |
+| `last_checked_at` | `timestamptz` | yes | — | — | no | — |
+| `last_latency_ms` | `integer` | yes | — | — | no | — |
+| `last_error` | `text` | yes | — | — | no | Last failure reason. |
+| `next_run_at` | `timestamptz` | yes | — | — | no | Prober window; NULL = to be reseeded (creation or edit). |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `deleted_at` | `timestamptz` | yes | — | — | no | Tombstone. |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock (the prober's writes never bump it). |
 
 ### 6.10 `uptime_check_results`
 
-L'historique brut des sondes, borné par rétention (30 jours) — le verdict courant vit sur le check. Suppression : **CASCADE** avec le check.
+The raw probe history, bounded by retention (30 days) — the current verdict lives on the check. Deletion: **CASCADE** with the check.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `check_id` | `bigint` | non | — | FK `uptime_checks(id)` ON DELETE CASCADE, index `(check_id, id DESC)` | non | — |
-| `checked_at` | `timestamptz` | non | `now()` | — | non | — |
-| `ok` | `boolean` | non | — | — | non | — |
-| `latency_ms` | `integer` | oui | — | — | non | — |
-| `status_code` | `integer` | oui | — | — | non | HTTP seulement. |
-| `error` | `text` | oui | — | — | non | Motif d'échec de la sonde. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `check_id` | `bigint` | no | — | FK `uptime_checks(id)` ON DELETE CASCADE, index `(check_id, id DESC)` | no | — |
+| `checked_at` | `timestamptz` | no | `now()` | — | no | — |
+| `ok` | `boolean` | no | — | — | no | — |
+| `latency_ms` | `integer` | yes | — | — | no | — |
+| `status_code` | `integer` | yes | — | — | no | HTTP only. |
+| `error` | `text` | yes | — | — | no | Probe failure reason. |
 
 ---
 
-## 7. Agrégat Source
+## 7. Source aggregate
 
 ### 7.1 `git_sources`
 
-Connexion à un fournisseur Git (§5.1) : dépôt public, deploy key (clé SSH) ou GitHub App. Suppression : **RESTRICT** tant que référencée par une application (§19.2).
+Connection to a Git provider (§5.1): public repository, deploy key (SSH key) or GitHub App. Deletion: **RESTRICT** while referenced by an application (§19.2).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE RESTRICT, index | non | — |
-| `name` | `text` | non | — | UNIQUE `(team_id, name)` | non | — |
-| `kind` | `git_source_kind` | non | — | CHECK cohérence : `deploy_key` ⇒ `private_key_id` non NULL ; `github_app` ⇒ `github_app_id` non NULL | non | Type de connexion (§5.1). |
-| `provider` | `git_provider` | non | — | — | non | GitHub, GitLab, Bitbucket, Gitea, autre. |
-| `api_url` | `text` | oui | — | — | non | Endpoint API (self-hosted / GitHub Enterprise, §5.1). |
-| `html_url` | `text` | oui | — | — | non | Base des URLs web du fournisseur. |
-| `api_token_enc` | `bytea` | oui | — | chiffrement enveloppe (§23.2) | **oui** | Token API du provider (protocols §3-§6) : feedback de preview dégradé et vérification des droits des commandes sans GitHub App. Write-only (INV-003). |
-| `private_key_id` | `bigint` | oui | — | FK `private_keys(id)` ON DELETE RESTRICT | non | Deploy key (même team, INV-002). |
-| `github_app_id` | `bigint` | oui | — | FK `github_apps(id)` ON DELETE RESTRICT | non | Intégration GitHub App. |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE RESTRICT, index | no | — |
+| `name` | `text` | no | — | UNIQUE `(team_id, name)` | no | — |
+| `kind` | `git_source_kind` | no | — | consistency CHECK: `deploy_key` ⇒ `private_key_id` not NULL ; `github_app` ⇒ `github_app_id` not NULL | no | Connection type (§5.1). |
+| `provider` | `git_provider` | no | — | — | no | GitHub, GitLab, Bitbucket, Gitea, other. |
+| `api_url` | `text` | yes | — | — | no | API endpoint (self-hosted / GitHub Enterprise, §5.1). |
+| `html_url` | `text` | yes | — | — | no | Base of the provider's web URLs. |
+| `api_token_enc` | `bytea` | yes | — | envelope encryption (§23.2) | **yes** | Provider API token (protocols §3-§6): degraded preview feedback and permission checks for commands without a GitHub App. Write-only (INV-003). |
+| `private_key_id` | `bigint` | yes | — | FK `private_keys(id)` ON DELETE RESTRICT | no | Deploy key (same team, INV-002). |
+| `github_app_id` | `bigint` | yes | — | FK `github_apps(id)` ON DELETE RESTRICT | no | GitHub App integration. |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock. |
 
 ### 7.2 `github_apps`
 
-GitHub App enregistrée : discovery des repos, auto-deploy, previews, commentaires de PR (§5.1) ; GitHub Enterprise supporté. Suppression : **RESTRICT** tant que référencée par une git source.
+Registered GitHub App: repo discovery, auto-deploy, previews, PR comments (§5.1); GitHub Enterprise supported. Deletion: **RESTRICT** while referenced by a git source.
 
-> **Amendement (migration 00039)** : le manifest flow (git-webhook-protocols §2.1) crée la ligne en **brouillon** — `app_id`, `client_id` et les secrets chiffrés sont donc **nullables** jusqu'à la conversion (l'unicité `(team_id, app_id)` est un index partiel `WHERE app_id IS NOT NULL`). Colonnes ajoutées : `slug` (URL d'installation), `manifest_state_hash` / `manifest_state_expires_at` (state anti-CSRF du callback, haché, usage unique, 10 min).
+> **Amendment (migration 00039)**: the manifest flow (git-webhook-protocols §2.1) creates the row as a **draft** — `app_id`, `client_id` and the encrypted secrets are therefore **nullable** until conversion (the `(team_id, app_id)` uniqueness is a partial index `WHERE app_id IS NOT NULL`). Added columns: `slug` (installation URL), `manifest_state_hash` / `manifest_state_expires_at` (anti-CSRF callback state, hashed, single-use, 10 min).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE RESTRICT, index | non | — |
-| `name` | `text` | non | — | — | non | Nom de l'app GitHub. |
-| `app_id` | `bigint` | non | — | UNIQUE `(team_id, app_id)` | non | ID de l'application chez GitHub. |
-| `installation_id` | `bigint` | oui | — | — | non | NULL tant que l'app n'est pas installée sur un compte/org. |
-| `client_id` | `text` | oui | — | — | non | OAuth client ID de l'app. |
-| `client_secret_enc` | `bytea` | oui | — | — | **oui** | OAuth client secret, chiffré enveloppe (§23.2). |
-| `webhook_secret_enc` | `bytea` | oui | — | — | **oui** | Secret HMAC des webhooks de l'app, chiffré (INV-009). |
-| `app_private_key_enc` | `bytea` | non | — | — | **oui** | Clé privée RSA (PEM) de l'app, chiffrée ; signe les JWT d'installation. |
-| `api_url` | `text` | non | `'https://api.github.com'` | — | non | GitHub Enterprise : URL custom. |
-| `html_url` | `text` | non | `'https://github.com'` | — | non | — |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE RESTRICT, index | no | — |
+| `name` | `text` | no | — | — | no | Name of the GitHub app. |
+| `app_id` | `bigint` | no | — | UNIQUE `(team_id, app_id)` | no | Application ID at GitHub. |
+| `installation_id` | `bigint` | yes | — | — | no | NULL while the app is not installed on an account/org. |
+| `client_id` | `text` | yes | — | — | no | OAuth client ID of the app. |
+| `client_secret_enc` | `bytea` | yes | — | — | **yes** | OAuth client secret, envelope-encrypted (§23.2). |
+| `webhook_secret_enc` | `bytea` | yes | — | — | **yes** | HMAC secret of the app's webhooks, encrypted (INV-009). |
+| `app_private_key_enc` | `bytea` | no | — | — | **yes** | RSA private key (PEM) of the app, encrypted; signs installation JWTs. |
+| `api_url` | `text` | no | `'https://api.github.com'` | — | no | GitHub Enterprise: custom URL. |
+| `html_url` | `text` | no | `'https://github.com'` | — | no | — |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock. |
 
 ### 7.3 `repositories`
 
-Cache des dépôts découverts via une source (discovery GitHub App, §5.1) ; sert à l'association exacte webhook → ressource (INV-009, §20.3). Suppression : **CASCADE** avec la source (cache resynchronisable) ; les applications y pointent en `SET NULL`.
+Cache of the repositories discovered through a source (GitHub App discovery, §5.1); used for the exact webhook → resource association (INV-009, §20.3). Deletion: **CASCADE** with the source (resynchronizable cache); applications point to it with `SET NULL`.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `git_source_id` | `bigint` | non | — | FK `git_sources(id)` ON DELETE CASCADE, index | non | Ownership par chaîne source → team. |
-| `external_id` | `text` | non | — | UNIQUE `(git_source_id, external_id)` | non | ID du repo chez le fournisseur (stable au renommage). |
-| `full_name` | `text` | non | — | index | non | `owner/name` ; comparaison exacte, jamais par préfixe (§23.5). |
-| `default_branch` | `text` | oui | — | — | non | — |
-| `html_url` | `text` | oui | — | — | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | Dernière resynchronisation. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `git_source_id` | `bigint` | no | — | FK `git_sources(id)` ON DELETE CASCADE, index | no | Ownership through the source → team chain. |
+| `external_id` | `text` | no | — | UNIQUE `(git_source_id, external_id)` | no | Repo ID at the provider (stable across renames). |
+| `full_name` | `text` | no | — | index | no | `owner/name`; exact comparison, never by prefix (§23.5). |
+| `default_branch` | `text` | yes | — | — | no | — |
+| `html_url` | `text` | yes | — | — | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | Last resynchronization. |
 
 ### 7.4 `webhook_endpoints`
 
-Configuration d'un webhook entrant par application : provider Git (webhooks manuels §5.1/§5.5) ou `generic` (deploy webhook CI custom §12). Suppression : **CASCADE** avec l'application.
+Configuration of an inbound webhook per application: Git provider (manual webhooks §5.1/§5.5) or `generic` (custom CI deploy webhook §12). Deletion: **CASCADE** with the application.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | Entre dans l'URL de réception. |
-| `application_id` | `bigint` | non | — | FK `applications(id)` ON DELETE CASCADE ; UNIQUE `(application_id, provider)` | non | Ressource cible. |
-| `provider` | `webhook_provider` | non | — | — | non | GitHub / GitLab / Bitbucket / Gitea / générique. |
-| `secret_enc` | `bytea` | non | — | — | **oui** | Secret HMAC de validation de signature (§5.5, §23.2), chiffré enveloppe. |
-| `enabled` | `boolean` | non | `true` | — | non | — |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | Part of the receiving URL. |
+| `application_id` | `bigint` | no | — | FK `applications(id)` ON DELETE CASCADE ; UNIQUE `(application_id, provider)` | no | Target resource. |
+| `provider` | `webhook_provider` | no | — | — | no | GitHub / GitLab / Bitbucket / Gitea / generic. |
+| `secret_enc` | `bytea` | no | — | — | **yes** | HMAC signature validation secret (§5.5, §23.2), envelope-encrypted. |
+| `enabled` | `boolean` | no | `true` | — | no | — |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 7.5 `webhook_deliveries`
 
-Livraison webhook entrante, persistée avant réponse `2xx` puis traitée asynchronement (§20.3) ; déduplication par `(provider, delivery_id)` (INV-009). Suppression : **purge** par rétention (1 000 livraisons/min en burst, §22.2).
+Inbound webhook delivery, persisted before the `2xx` response then processed asynchronously (§20.3); deduplication by `(provider, delivery_id)` (INV-009). Deletion: **purge** per retention (1,000 deliveries/min in burst, §22.2).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `provider` | `webhook_provider` | non | — | UNIQUE `(provider, delivery_id)` | non | — |
-| `delivery_id` | `text` | non | — | (cf. ci-dessus) | non | ID de livraison du fournisseur (ex. `X-GitHub-Delivery`) ; généré si absent (generic). |
-| `webhook_endpoint_id` | `bigint` | oui | — | FK `webhook_endpoints(id)` ON DELETE SET NULL | non | Endpoint destinataire (webhooks manuels/génériques). |
-| `github_app_id` | `bigint` | oui | — | FK `github_apps(id)` ON DELETE SET NULL | non | Livraisons reçues au niveau GitHub App. |
-| `event_type` | `text` | oui | — | — | non | Ex. `push`, `pull_request`, `merge_request`. |
-| `signature_valid` | `boolean` | non | `false` | — | non | Résultat de la vérification HMAC/horodatage (§20.3). |
-| `status` | `webhook_delivery_status` | non | `'received'` | index partiel `WHERE status = 'received'` | non | Cycle accepté/ignoré/dupliqué/échoué. |
-| `ignore_reason` | `text` | oui | — | — | non | Ex. `skip_ci`, `fork_untrusted` (INV-010), `watch_paths`, `auto_deploy_disabled`. |
-| `payload` | `jsonb` | oui | — | — | non | Payload tronqué à la limite de taille (§20.3) ; jamais de secret. |
-| `team_id` | `bigint` | oui | — | FK `teams(id)` ON DELETE SET NULL, index | non | Résolue lors de l'association à une ressource. |
-| `application_id` | `bigint` | oui | — | FK `applications(id)` ON DELETE SET NULL | non | Ressource associée (exactement une, même team — §20.3). |
-| `received_at` | `timestamptz` | non | `now()` | index | non | Réception (< 500 ms avant `2xx`, §16.4). |
-| `processed_at` | `timestamptz` | oui | — | — | non | Fin du traitement asynchrone. |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `provider` | `webhook_provider` | no | — | UNIQUE `(provider, delivery_id)` | no | — |
+| `delivery_id` | `text` | no | — | (see above) | no | Provider delivery ID (e.g. `X-GitHub-Delivery`); generated if absent (generic). |
+| `webhook_endpoint_id` | `bigint` | yes | — | FK `webhook_endpoints(id)` ON DELETE SET NULL | no | Recipient endpoint (manual/generic webhooks). |
+| `github_app_id` | `bigint` | yes | — | FK `github_apps(id)` ON DELETE SET NULL | no | Deliveries received at the GitHub App level. |
+| `event_type` | `text` | yes | — | — | no | E.g. `push`, `pull_request`, `merge_request`. |
+| `signature_valid` | `boolean` | no | `false` | — | no | Result of the HMAC/timestamp verification (§20.3). |
+| `status` | `webhook_delivery_status` | no | `'received'` | partial index `WHERE status = 'received'` | no | Accepted/ignored/duplicate/failed cycle. |
+| `ignore_reason` | `text` | yes | — | — | no | E.g. `skip_ci`, `fork_untrusted` (INV-010), `watch_paths`, `auto_deploy_disabled`. |
+| `payload` | `jsonb` | yes | — | — | no | Payload truncated at the size limit (§20.3); never a secret. |
+| `team_id` | `bigint` | yes | — | FK `teams(id)` ON DELETE SET NULL, index | no | Resolved upon association with a resource. |
+| `application_id` | `bigint` | yes | — | FK `applications(id)` ON DELETE SET NULL | no | Associated resource (exactly one, same team — §20.3). |
+| `received_at` | `timestamptz` | no | `now()` | index | no | Reception (< 500 ms before `2xx`, §16.4). |
+| `processed_at` | `timestamptz` | yes | — | — | no | End of the asynchronous processing. |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ---
 
-## 8. Agrégat Application
+## 8. Application aggregate
 
 ### 8.1 `applications`
 
-Extension 1—1 de `resources` (`resource_type = 'application'`) : identité de la source et politiques de déploiement/preview (§5). Suppression : **CASCADE** technique avec la ligne `resources` (la décision passe par le workflow tombstone de la ressource, §20.6). Champs communs (statuts, team, destination, version…) : voir `resources` (§5.3).
+1—1 extension of `resources` (`resource_type = 'application'`): identity of the source and deployment/preview policies (§5). Deletion: technical **CASCADE** with the `resources` row (the decision goes through the resource's tombstone workflow, §20.6). Common fields (statuses, team, destination, version…): see `resources` (§5.3).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | — | PK, FK `resources(id)` ON DELETE CASCADE | non | Héritage par classe. |
-| `git_source_id` | `bigint` | oui | — | FK `git_sources(id)` ON DELETE RESTRICT | non | NULL pour les apps « image » ou Dockerfile inline. |
-| `repository_id` | `bigint` | oui | — | FK `repositories(id)` ON DELETE SET NULL | non | Repo découvert (GitHub App) ; association webhook exacte (INV-009). |
-| `git_repository_url` | `text` | oui | — | — | non | URL HTTPS d'un repo public (§5.1) ; policy SSRF (§23.3). |
-| `git_branch` | `text` | oui | — | — | non | Branche suivie. |
-| `base_directory` | `text` | non | `'/'` | — | non | Racine de build (monorepos, §5.1). |
-| `enable_submodules` | `boolean` | non | `false` | — | non | §5.1. |
-| `enable_lfs` | `boolean` | non | `false` | — | non | §5.1. |
-| `enable_shallow_clone` | `boolean` | non | `false` | — | non | §5.1. |
-| `auto_deploy_enabled` | `boolean` | non | `true` | — | non | Toggle « Auto Deploy » : événements webhook ignorés si `false` (§5.5). |
-| `watch_paths` | `text` | oui | — | — | non | Patterns (un par ligne) limitant l'auto-deploy en monorepo (§5.5) ; appliqués aussi aux previews (§20.4.5). |
-| `previews_enabled` | `boolean` | non | `false` | — | non | Preview par PR/MR (§5.6). |
-| `preview_url_template` | `text` | non | `'{{pr_id}}.{{domain}}'` | — | non | Legacy — motif unique, fallback quand `preview_url_templates` est vide (§5.6). |
-| `preview_url_templates` | `jsonb` | oui | — | — | non | Table de routes de preview `[{host, port}]` (ADR-035) ; placeholders `{{pr_id}}`/`{{service}}`/`{{domain}}`/`{{random}}`. Vide/NULL = comportement legacy. |
-| `preview_public_prs_enabled` | `boolean` | non | `false` | — | non | Opt-in PR publiques (§5.6) ; forks ignorés par défaut (INV-010). |
-| `preview_fork_approval_enabled` | `boolean` | non | `false` | — | non | Forks sur approbation d'un mainteneur, builder isolé, zéro secret (§20.4.8). |
-| `preview_max_concurrent` | `integer` | oui | — | CHECK `> 0` | non | Plafond de previews simultanées ; NULL = défaut instance (§20.4.3). |
-| `preview_ttl_minutes` | `integer` | oui | — | CHECK `> 0` | non | TTL d'inactivité avant destruction automatique (§20.4.3). |
-| `preview_protection` | `preview_protection` | non | `'basic_auth'` | — | non | Protégée par défaut + `X-Robots-Tag: noindex` ; `none` = choix explicite (§20.4.4). |
-| `preview_require_label` | `text` | oui | — | — | non | Opt-in par label de PR (§20.4.7) ; NULL = désactivé. |
-| `preview_comment_commands_enabled` | `boolean` | non | `false` | — | non | Commandes `/deploy`, `/destroy` en commentaire (§20.4.7). |
-| `preview_exclude_drafts` | `boolean` | non | `false` | — | non | §20.4.7. |
-| `preview_deploy_on_open` | `boolean` | non | `true` | — | non | Auto-déploiement à l'ouverture d'une PR ; `false` = premier déploiement manuel (UI ou `/deploy`), §20.4.7. |
-| `preview_cancel_obsolete_builds` | `boolean` | non | `false` | — | non | Annulation du build de preview rendu obsolète (§20.4.7). |
-| `rollback_on_degraded_health` | `boolean` | non | `false` | — | non | Rollback auto opt-in après bascule (§20.8). |
-| `bake_time_seconds` | `integer` | oui | — | CHECK `> 0` | non | Fenêtre d'observation post-bascule (§20.8). |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | — | PK, FK `resources(id)` ON DELETE CASCADE | no | Class-table inheritance. |
+| `git_source_id` | `bigint` | yes | — | FK `git_sources(id)` ON DELETE RESTRICT | no | NULL for "image" or inline-Dockerfile apps. |
+| `repository_id` | `bigint` | yes | — | FK `repositories(id)` ON DELETE SET NULL | no | Discovered repo (GitHub App); exact webhook association (INV-009). |
+| `git_repository_url` | `text` | yes | — | — | no | HTTPS URL of a public repo (§5.1); SSRF policy (§23.3). |
+| `git_branch` | `text` | yes | — | — | no | Tracked branch. |
+| `base_directory` | `text` | no | `'/'` | — | no | Build root (monorepos, §5.1). |
+| `enable_submodules` | `boolean` | no | `false` | — | no | §5.1. |
+| `enable_lfs` | `boolean` | no | `false` | — | no | §5.1. |
+| `enable_shallow_clone` | `boolean` | no | `false` | — | no | §5.1. |
+| `auto_deploy_enabled` | `boolean` | no | `true` | — | no | "Auto Deploy" toggle: webhook events ignored if `false` (§5.5). |
+| `watch_paths` | `text` | yes | — | — | no | Patterns (one per line) restricting auto-deploy in a monorepo (§5.5); also applied to previews (§20.4.5). |
+| `previews_enabled` | `boolean` | no | `false` | — | no | Per-PR/MR preview (§5.6). |
+| `preview_url_template` | `text` | no | `'{{pr_id}}.{{domain}}'` | — | no | Legacy — single pattern, fallback when `preview_url_templates` is empty (§5.6). |
+| `preview_url_templates` | `jsonb` | yes | — | — | no | Preview route table `[{host, port}]` (ADR-035); placeholders `{{pr_id}}`/`{{service}}`/`{{domain}}`/`{{random}}`. Empty/NULL = legacy behavior. |
+| `preview_public_prs_enabled` | `boolean` | no | `false` | — | no | Opt-in public PRs (§5.6); forks ignored by default (INV-010). |
+| `preview_fork_approval_enabled` | `boolean` | no | `false` | — | no | Forks upon maintainer approval, isolated builder, zero secrets (§20.4.8). |
+| `preview_max_concurrent` | `integer` | yes | — | CHECK `> 0` | no | Cap on simultaneous previews; NULL = instance default (§20.4.3). |
+| `preview_ttl_minutes` | `integer` | yes | — | CHECK `> 0` | no | Inactivity TTL before automatic destruction (§20.4.3). |
+| `preview_protection` | `preview_protection` | no | `'basic_auth'` | — | no | Protected by default + `X-Robots-Tag: noindex`; `none` = explicit choice (§20.4.4). |
+| `preview_require_label` | `text` | yes | — | — | no | Opt-in via PR label (§20.4.7); NULL = disabled. |
+| `preview_comment_commands_enabled` | `boolean` | no | `false` | — | no | `/deploy`, `/destroy` commands in comments (§20.4.7). |
+| `preview_exclude_drafts` | `boolean` | no | `false` | — | no | §20.4.7. |
+| `preview_deploy_on_open` | `boolean` | no | `true` | — | no | Auto-deployment when a PR opens; `false` = first deployment manual (UI or `/deploy`), §20.4.7. |
+| `preview_cancel_obsolete_builds` | `boolean` | no | `false` | — | no | Cancellation of a preview build made obsolete (§20.4.7). |
+| `rollback_on_degraded_health` | `boolean` | no | `false` | — | no | Opt-in auto rollback after switchover (§20.8). |
+| `bake_time_seconds` | `integer` | yes | — | CHECK `> 0` | no | Post-switchover observation window (§20.8). |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 8.2 `build_configs`
 
-Configuration de build d'une application (§5.2), 1—1. Versionnée via `resources.version` et snapshotée dans chaque déploiement (INV-014). Suppression : **CASCADE** avec l'application.
+Build configuration of an application (§5.2), 1—1. Versioned through `resources.version` and snapshotted into every deployment (INV-014). Deletion: **CASCADE** with the application.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `application_id` | `bigint` | non | — | UNIQUE, FK `applications(id)` ON DELETE CASCADE | non | — |
-| `build_pack` | `build_pack` | non | `'nixpacks'` | — | non | Nixpacks / Railpack (bêta) / Static / Dockerfile / Compose / Image (§5.2). |
-| `install_command` | `text` | oui | — | — | non | Override Nixpacks/Railpack (§5.2). |
-| `build_command` | `text` | oui | — | — | non | Override. |
-| `start_command` | `text` | oui | — | — | non | Override. |
-| `publish_directory` | `text` | oui | — | — | non | Mode static : répertoire publié (§5.2). |
-| `is_spa` | `boolean` | non | `false` | — | non | Option SPA du pack static. |
-| `custom_nginx_config` | `text` | oui | — | — | non | Config Nginx éditable (pack static). |
-| `dockerfile_path` | `text` | oui | — | — | non | Chemin du Dockerfile dans le repo. |
-| `dockerfile_content` | `text` | oui | — | — | non | Dockerfile inline (§5.1). |
-| `auto_inject_build_args` | `boolean` | non | `true` | — | non | Build args auto-injectés, désactivable (§5.2). |
-| `inject_source_commit` | `boolean` | non | `false` | — | non | `SOURCE_COMMIT` opt-in (§5.2). |
-| `compose_file_path` | `text` | oui | — | — | non | Chemin du fichier compose dans le repo (§5.2). |
-| `raw_compose` | `boolean` | non | `false` | — | non | Mode « raw compose » avancé (§5.2). |
-| `image_name` | `text` | oui | — | — | non | Source « Docker Image » : image pré-construite (§5.1) ; validée (§23.3). |
-| `image_tag` | `text` | oui | — | — | non | — |
-| `registry_credential_id` | `bigint` | oui | — | FK `registry_credentials(id)` ON DELETE RESTRICT | non | Pull depuis un registry privé. |
-| `push_enabled` | `boolean` | non | `false` | — | non | Push post-build (requis build servers, §3.4/§5.2). |
-| `push_image_name` | `text` | oui | — | — | non | Image cible du push. |
-| `push_image_tag` | `text` | oui | — | — | non | Tag custom (§5.2). |
-| `push_tag_with_commit_sha` | `boolean` | non | `false` | — | non | Tag SHA du commit (§5.2). |
-| `push_registry_credential_id` | `bigint` | oui | — | FK `registry_credentials(id)` ON DELETE RESTRICT | non | — |
-| `use_build_server` | `boolean` | non | `false` | — | non | « Use a Build Server? » (§3.4). |
-| `use_build_secrets` | `boolean` | non | `false` | — | non | Docker Build Secrets BuildKit `--secret` (§5.4). |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `application_id` | `bigint` | no | — | UNIQUE, FK `applications(id)` ON DELETE CASCADE | no | — |
+| `build_pack` | `build_pack` | no | `'nixpacks'` | — | no | Nixpacks / Railpack (beta) / Static / Dockerfile / Compose / Image (§5.2). |
+| `install_command` | `text` | yes | — | — | no | Nixpacks/Railpack override (§5.2). |
+| `build_command` | `text` | yes | — | — | no | Override. |
+| `start_command` | `text` | yes | — | — | no | Override. |
+| `publish_directory` | `text` | yes | — | — | no | Static mode: published directory (§5.2). |
+| `is_spa` | `boolean` | no | `false` | — | no | SPA option of the static pack. |
+| `custom_nginx_config` | `text` | yes | — | — | no | Editable Nginx config (static pack). |
+| `dockerfile_path` | `text` | yes | — | — | no | Path of the Dockerfile in the repo. |
+| `dockerfile_content` | `text` | yes | — | — | no | Inline Dockerfile (§5.1). |
+| `auto_inject_build_args` | `boolean` | no | `true` | — | no | Auto-injected build args, can be disabled (§5.2). |
+| `inject_source_commit` | `boolean` | no | `false` | — | no | `SOURCE_COMMIT` opt-in (§5.2). |
+| `compose_file_path` | `text` | yes | — | — | no | Path of the compose file in the repo (§5.2). |
+| `raw_compose` | `boolean` | no | `false` | — | no | Advanced "raw compose" mode (§5.2). |
+| `image_name` | `text` | yes | — | — | no | "Docker Image" source: pre-built image (§5.1); validated (§23.3). |
+| `image_tag` | `text` | yes | — | — | no | — |
+| `registry_credential_id` | `bigint` | yes | — | FK `registry_credentials(id)` ON DELETE RESTRICT | no | Pull from a private registry. |
+| `push_enabled` | `boolean` | no | `false` | — | no | Post-build push (required for build servers, §3.4/§5.2). |
+| `push_image_name` | `text` | yes | — | — | no | Target image of the push. |
+| `push_image_tag` | `text` | yes | — | — | no | Custom tag (§5.2). |
+| `push_tag_with_commit_sha` | `boolean` | no | `false` | — | no | Commit SHA tag (§5.2). |
+| `push_registry_credential_id` | `bigint` | yes | — | FK `registry_credentials(id)` ON DELETE RESTRICT | no | — |
+| `use_build_server` | `boolean` | no | `false` | — | no | "Use a Build Server?" (§3.4). |
+| `use_build_secrets` | `boolean` | no | `false` | — | no | Docker Build Secrets BuildKit `--secret` (§5.4). |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 8.3 `runtime_configs`
 
-Configuration d'exécution d'une application (§5.3), 1—1. Suppression : **CASCADE** avec l'application.
+Runtime configuration of an application (§5.3), 1—1. Deletion: **CASCADE** with the application.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `application_id` | `bigint` | non | — | UNIQUE, FK `applications(id)` ON DELETE CASCADE | non | — |
-| `ports_exposes` | `text` | oui | — | — | non | Port(s) interne(s) pour le proxy ; optionnel sans trafic entrant (§5.3). |
-| `ports_mappings` | `jsonb` | oui | — | — | non | Mappings hôte `[{host_ip, host_port, container_port, protocol}]`, TCP/UDP/SCTP (§5.3) ; désactive le rolling update (§15). |
-| `custom_docker_options` | `text` | oui | — | — | non | Options `docker run` validées (`--cap-add`, `--gpus`… — §5.3, §23.3, INV-012). |
-| `custom_labels` | `text` | oui | — | — | non | Labels containers éditables ; labels système `AkerDock.*` injectés en sus (§5.3). |
-| `pre_deployment_command` | `text` | oui | — | — | non | Exécutée dans le container existant avant déploiement (§5.3). |
-| `post_deployment_command` | `text` | oui | — | — | non | Exécutée dans le nouveau container ; échec = déploiement échoué (§5.3). |
-| `stop_grace_period_seconds` | `integer` | non | `10` | CHECK `>= 0` | non | Délai de grâce d'arrêt (§5.3). |
-| `restart_limit` | `integer` | oui | — | CHECK `> 0` | non | Plafond de boucles de redémarrage (§5.3). |
-| `memory_limit` | `text` | oui | — | — | non | Ex. `512m` (§5.3) ; appliqué aussi aux stacks compose (décision §27.15). |
-| `memory_reservation` | `text` | oui | — | — | non | — |
-| `memory_swap` | `text` | oui | — | — | non | — |
-| `memory_swappiness` | `integer` | oui | — | CHECK `0..100` | non | — |
-| `cpu_limit` | `numeric(6,2)` | oui | — | CHECK `> 0` | non | — |
-| `cpu_sets` | `text` | oui | — | — | non | Ex. `0-2`. |
-| `cpu_shares` | `integer` | oui | — | CHECK `> 0` | non | — |
-| `force_https` | `boolean` | non | `true` | — | non | Redirection HTTPS par application (§4.3). |
-| `redirect_direction` | `redirect_direction` | non | `'both'` | — | non | www / non-www (§4.2). |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `application_id` | `bigint` | no | — | UNIQUE, FK `applications(id)` ON DELETE CASCADE | no | — |
+| `ports_exposes` | `text` | yes | — | — | no | Internal port(s) for the proxy; optional without inbound traffic (§5.3). |
+| `ports_mappings` | `jsonb` | yes | — | — | no | Host mappings `[{host_ip, host_port, container_port, protocol}]`, TCP/UDP/SCTP (§5.3); disables rolling update (§15). |
+| `custom_docker_options` | `text` | yes | — | — | no | Validated `docker run` options (`--cap-add`, `--gpus`… — §5.3, §23.3, INV-012). |
+| `custom_labels` | `text` | yes | — | — | no | Editable container labels; `AkerDock.*` system labels injected on top (§5.3). |
+| `pre_deployment_command` | `text` | yes | — | — | no | Executed in the existing container before deployment (§5.3). |
+| `post_deployment_command` | `text` | yes | — | — | no | Executed in the new container; failure = failed deployment (§5.3). |
+| `stop_grace_period_seconds` | `integer` | no | `10` | CHECK `>= 0` | no | Stop grace period (§5.3). |
+| `restart_limit` | `integer` | yes | — | CHECK `> 0` | no | Cap on restart loops (§5.3). |
+| `memory_limit` | `text` | yes | — | — | no | E.g. `512m` (§5.3); also applied to compose stacks (decision §27.15). |
+| `memory_reservation` | `text` | yes | — | — | no | — |
+| `memory_swap` | `text` | yes | — | — | no | — |
+| `memory_swappiness` | `integer` | yes | — | CHECK `0..100` | no | — |
+| `cpu_limit` | `numeric(6,2)` | yes | — | CHECK `> 0` | no | — |
+| `cpu_sets` | `text` | yes | — | — | no | E.g. `0-2`. |
+| `cpu_shares` | `integer` | yes | — | CHECK `> 0` | no | — |
+| `force_https` | `boolean` | no | `true` | — | no | Per-application HTTPS redirect (§4.3). |
+| `redirect_direction` | `redirect_direction` | no | `'both'` | — | no | www / non-www (§4.2). |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 8.4 `domains`
 
-Domaine routé par le proxy : FQDN, port interne cible et path (§4.2). Attaché à une application **ou** à un service component (domaine par sous-service, §9). Suppression : **CASCADE** avec son propriétaire (le retrait de routage précède la suppression du workload, §20.6).
+Domain routed by the proxy: FQDN, target internal port and path (§4.2). Attached to an application **or** to a service component (per-subservice domain, §9). Deletion: **CASCADE** with its owner (routing removal precedes workload deletion, §20.6).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `application_id` | `bigint` | oui | — | FK `applications(id)` ON DELETE CASCADE ; CHECK exactement un propriétaire non NULL | non | — |
-| `service_component_id` | `bigint` | oui | — | FK `service_components(id)` ON DELETE CASCADE | non | — |
-| `fqdn` | `citext` | non | — | UNIQUE `(fqdn, path)` ; CHECK format domaine (§23.3) | non | Sans schéma ; multi-domaines = plusieurs lignes (§4.2). |
-| `path` | `text` | non | `'/'` | (cf. `fqdn`) | non | Path-based routing, priorité au plus spécifique (§4.2). |
-| `target_port` | `integer` | oui | — | CHECK `1..65535` | non | Syntaxe `domaine:port` → port interne précis (§4.2) ; NULL = port exposé par défaut. |
-| `is_generated` | `boolean` | non | `false` | — | non | Issu du wildcard serveur `<uuid>.example.com` / sslip.io (§4.2). |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `application_id` | `bigint` | yes | — | FK `applications(id)` ON DELETE CASCADE ; CHECK exactly one non-NULL owner | no | — |
+| `service_component_id` | `bigint` | yes | — | FK `service_components(id)` ON DELETE CASCADE | no | — |
+| `fqdn` | `citext` | no | — | UNIQUE `(fqdn, path)` ; CHECK domain format (§23.3) | no | Without scheme; multi-domain = multiple rows (§4.2). |
+| `path` | `text` | no | `'/'` | (see `fqdn`) | no | Path-based routing, most specific takes priority (§4.2). |
+| `target_port` | `integer` | yes | — | CHECK `1..65535` | no | `domain:port` syntax → specific internal port (§4.2); NULL = default exposed port. |
+| `is_generated` | `boolean` | no | `false` | — | no | Produced from the server wildcard `<uuid>.example.com` / sslip.io (§4.2). |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
-> La contrainte `UNIQUE (fqdn, path)` est **globale à l'instance** : plus stricte que le strict nécessaire (deux serveurs pourraient servir le même FQDN), mais elle élimine toute ambiguïté de routage et les collisions inter-team sur un même serveur (INV-002). Le certificat, l'émission ACME et son état vivent dans les révisions proxy (`proxy_config_revisions`, §11.1) et sur le serveur, pas en base.
+> The `UNIQUE (fqdn, path)` constraint is **global to the instance**: stricter than strictly necessary (two servers could serve the same FQDN), but it eliminates any routing ambiguity and cross-team collisions on the same server (INV-002). The certificate, the ACME issuance and its state live in the proxy revisions (`proxy_config_revisions`, §11.1) and on the server, not in the database.
 
 ### 8.5 `environment_variables`
 
-Variable d'environnement d'une ressource (application, database, service — §5.4), y compris le jeu séparé preview (§5.6) et les magic variables générées (§5.4, §9). Toutes les **valeurs sont chiffrées** enveloppe, `is_secret` ne pilotant que le masquage/`read:sensitive` (INV-003) — évite toute erreur de classification. Suppression : **CASCADE** avec la ressource.
+Environment variable of a resource (application, database, service — §5.4), including the separate preview set (§5.6) and the generated magic variables (§5.4, §9). All **values are envelope-encrypted**, with `is_secret` only driving masking/`read:sensitive` (INV-003) — avoids any classification mistake. Deletion: **CASCADE** with the resource.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `resource_id` | `bigint` | non | — | FK `resources(id)` ON DELETE CASCADE ; UNIQUE `(resource_id, key, is_preview)` | non | Ressource propriétaire. |
-| `key` | `text` | non | — | CHECK format `[A-Za-z_][A-Za-z0-9_]*` | non | Nom de la variable. |
-| `value_enc` | `bytea` | non | — | — | **oui** | Valeur chiffrée enveloppe (secrète ou non). |
-| `is_secret` | `boolean` | non | `false` | — | non | Masquée en UI/API sans `read:sensitive` (INV-003). |
-| `is_build_time` | `boolean` | non | `false` | — | non | Disponible au build (`ARG`/BuildKit), stockée hors image (§5.4). |
-| `is_literal` | `boolean` | non | `false` | — | non | Pas d'interpolation (§5.4). |
-| `is_multiline` | `boolean` | non | `false` | — | non | Clés, certificats (§5.4). |
-| `is_locked` | `boolean` | non | `false` | — | non | Masquée et non rééditable (§5.4). |
-| `is_preview` | `boolean` | non | `false` | — | non | Jeu dédié aux previews — jamais de fuite des secrets de production (§5.6, INV-010). |
-| `is_generated` | `boolean` | non | `false` | — | non | Magic variable `SERVICE_<TYPE>_<ID>` : générée, persistante entre redéploiements, éditable (§5.4). |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `resource_id` | `bigint` | no | — | FK `resources(id)` ON DELETE CASCADE ; UNIQUE `(resource_id, key, is_preview)` | no | Owning resource. |
+| `key` | `text` | no | — | CHECK format `[A-Za-z_][A-Za-z0-9_]*` | no | Variable name. |
+| `value_enc` | `bytea` | no | — | — | **yes** | Envelope-encrypted value (secret or not). |
+| `is_secret` | `boolean` | no | `false` | — | no | Masked in UI/API without `read:sensitive` (INV-003). |
+| `is_build_time` | `boolean` | no | `false` | — | no | Available at build time (`ARG`/BuildKit), stored outside the image (§5.4). |
+| `is_literal` | `boolean` | no | `false` | — | no | No interpolation (§5.4). |
+| `is_multiline` | `boolean` | no | `false` | — | no | Keys, certificates (§5.4). |
+| `is_locked` | `boolean` | no | `false` | — | no | Masked and not re-editable (§5.4). |
+| `is_preview` | `boolean` | no | `false` | — | no | Set dedicated to previews — never any leak of production secrets (§5.6, INV-010). |
+| `is_generated` | `boolean` | no | `false` | — | no | Magic variable `SERVICE_<TYPE>_<ID>`: generated, persistent across redeployments, editable (§5.4). |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 8.6 `shared_variables`
 
-Variable partagée hiérarchique `{{team.VAR}}` / `{{project.VAR}}` / `{{environment.VAR}}` et variables de serveur héritées (§5.4, §3.1). `team_id` toujours renseigné (INV-001), le scope précisant le niveau. Suppression : **CASCADE** avec son scope.
+Hierarchical shared variable `{{team.VAR}}` / `{{project.VAR}}` / `{{environment.VAR}}` and inherited server variables (§5.4, §3.1). `team_id` always populated (INV-001), with the scope specifying the level. Deletion: **CASCADE** with its scope.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE CASCADE, index | non | Toujours présent, quel que soit le scope. |
-| `scope` | `shared_variable_scope` | non | — | CHECK : `project` ⇒ `project_id` non NULL ; `environment` ⇒ `environment_id` non NULL ; `server` ⇒ `server_id` non NULL ; `team` ⇒ tous NULL | non | Niveau d'héritage. |
-| `project_id` | `bigint` | oui | — | FK `projects(id)` ON DELETE CASCADE | non | — |
-| `environment_id` | `bigint` | oui | — | FK `environments(id)` ON DELETE CASCADE | non | — |
-| `server_id` | `bigint` | oui | — | FK `servers(id)` ON DELETE CASCADE | non | Variables partagées au niveau serveur (§3.1). |
-| `key` | `text` | non | — | UNIQUE partiel par scope : `(team_id, key) WHERE scope='team'`, `(project_id, key) WHERE scope='project'`, `(environment_id, key) WHERE scope='environment'`, `(server_id, key) WHERE scope='server'` ; CHECK format | non | — |
-| `value_enc` | `bytea` | non | — | — | **oui** | Valeur chiffrée enveloppe. |
-| `is_secret` | `boolean` | non | `false` | — | non | Masquage (INV-003). |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE CASCADE, index | no | Always present, whatever the scope. |
+| `scope` | `shared_variable_scope` | no | — | CHECK: `project` ⇒ `project_id` not NULL ; `environment` ⇒ `environment_id` not NULL ; `server` ⇒ `server_id` not NULL ; `team` ⇒ all NULL | no | Inheritance level. |
+| `project_id` | `bigint` | yes | — | FK `projects(id)` ON DELETE CASCADE | no | — |
+| `environment_id` | `bigint` | yes | — | FK `environments(id)` ON DELETE CASCADE | no | — |
+| `server_id` | `bigint` | yes | — | FK `servers(id)` ON DELETE CASCADE | no | Server-level shared variables (§3.1). |
+| `key` | `text` | no | — | partial UNIQUE per scope: `(team_id, key) WHERE scope='team'`, `(project_id, key) WHERE scope='project'`, `(environment_id, key) WHERE scope='environment'`, `(server_id, key) WHERE scope='server'` ; CHECK format | no | — |
+| `value_enc` | `bytea` | no | — | — | **yes** | Envelope-encrypted value. |
+| `is_secret` | `boolean` | no | `false` | — | no | Masking (INV-003). |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 8.7 `persistent_storages`
 
-Stockage persistant d'une ressource : volume nommé, bind mount ou file mount à contenu éditable (§8). Suppression : la ligne suit la ressource (**CASCADE**) ; les **données distantes** suivent le choix explicite « conserver / supprimer » du workflow §20.6 (INV-006, INV-008).
+Persistent storage of a resource: named volume, bind mount or file mount with editable content (§8). Deletion: the row follows the resource (**CASCADE**); the **remote data** follows the explicit "keep / delete" choice of the §20.6 workflow (INV-006, INV-008).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `resource_id` | `bigint` | non | — | FK `resources(id)` ON DELETE CASCADE ; UNIQUE `(resource_id, mount_path)` | non | — |
-| `kind` | `storage_kind` | non | — | CHECK cohérence : `volume` ⇒ `name` non NULL ; `bind`/`file` ⇒ `host_path` non NULL | non | volume / bind / file (§8). |
-| `name` | `text` | oui | — | — | non | Nom du volume, préfixé par l'UUID de la ressource (anti-collision, §8, INV-011). |
-| `external_name` | `text` | oui | — | — | non | Volume **adopté** (§20.7) : nom Docker d'origine, monté tel quel — le préfixer remonterait un volume vide (INV-008). Jamais monté dans une preview (INV-010). |
-| `host_path` | `text` | oui | — | CHECK anti path traversal (§23.3) | non | Chemin hôte (bind/file). |
-| `mount_path` | `text` | non | — | — | non | Chemin dans le container. |
-| `content` | `text` | oui | — | CHECK `length(content) <= 5*1024*1024` | non | Contenu du file mount, éditable en UI (≤ 5 MiB, §23.3) ; rechargement depuis le serveur (§8). |
-| `is_directory` | `boolean` | non | `false` | — | non | Extension compose `is_directory: true` (§8) ; conversion fichier ↔ répertoire. |
-| `file_mode` | `text` | oui | — | CHECK format octal | non | chmod (§8). |
-| `owner_uid` | `integer` | oui | — | — | non | chown (§8). |
-| `group_gid` | `integer` | oui | — | — | non | chown (§8). |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `resource_id` | `bigint` | no | — | FK `resources(id)` ON DELETE CASCADE ; UNIQUE `(resource_id, mount_path)` | no | — |
+| `kind` | `storage_kind` | no | — | consistency CHECK: `volume` ⇒ `name` not NULL ; `bind`/`file` ⇒ `host_path` not NULL | no | volume / bind / file (§8). |
+| `name` | `text` | yes | — | — | no | Volume name, prefixed by the resource UUID (anti-collision, §8, INV-011). |
+| `external_name` | `text` | yes | — | — | no | **Adopted** volume (§20.7): original Docker name, mounted as-is — prefixing it would mount an empty volume (INV-008). Never mounted in a preview (INV-010). |
+| `host_path` | `text` | yes | — | CHECK anti path traversal (§23.3) | no | Host path (bind/file). |
+| `mount_path` | `text` | no | — | — | no | Path inside the container. |
+| `content` | `text` | yes | — | CHECK `length(content) <= 5*1024*1024` | no | File mount content, editable in the UI (≤ 5 MiB, §23.3); reload from the server (§8). |
+| `is_directory` | `boolean` | no | `false` | — | no | Compose extension `is_directory: true` (§8); file ↔ directory conversion. |
+| `file_mode` | `text` | yes | — | CHECK octal format | no | chmod (§8). |
+| `owner_uid` | `integer` | yes | — | — | no | chown (§8). |
+| `group_gid` | `integer` | yes | — | — | no | chown (§8). |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 8.8 `health_checks`
 
-Health check applicatif (§5.3) : conditionne le routage et le rolling update (INV-005) ; le `HEALTHCHECK` Dockerfile reste prioritaire. Une ligne par ressource (applications et bases, §6.2). Suppression : **CASCADE** avec la ressource.
+Application health check (§5.3): conditions routing and rolling update (INV-005); the Dockerfile `HEALTHCHECK` keeps priority. One row per resource (applications and databases, §6.2). Deletion: **CASCADE** with the resource.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `resource_id` | `bigint` | non | — | UNIQUE, FK `resources(id)` ON DELETE CASCADE | non | — |
-| `enabled` | `boolean` | non | `false` | — | non | — |
-| `method` | `text` | non | `'GET'` | — | non | Méthode HTTP (§5.3). |
-| `path` | `text` | non | `'/'` | — | non | — |
-| `port` | `integer` | oui | — | CHECK `1..65535` | non | NULL = port exposé. |
-| `interval_seconds` | `integer` | non | `30` | CHECK `> 0` | non | — |
-| `timeout_seconds` | `integer` | non | `5` | CHECK `> 0` | non | — |
-| `retries` | `integer` | non | `3` | CHECK `> 0` | non | — |
-| `start_period_seconds` | `integer` | non | `5` | CHECK `>= 0` | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `resource_id` | `bigint` | no | — | UNIQUE, FK `resources(id)` ON DELETE CASCADE | no | — |
+| `enabled` | `boolean` | no | `false` | — | no | — |
+| `method` | `text` | no | `'GET'` | — | no | HTTP method (§5.3). |
+| `path` | `text` | no | `'/'` | — | no | — |
+| `port` | `integer` | yes | — | CHECK `1..65535` | no | NULL = exposed port. |
+| `interval_seconds` | `integer` | no | `30` | CHECK `> 0` | no | — |
+| `timeout_seconds` | `integer` | no | `5` | CHECK `> 0` | no | — |
+| `retries` | `integer` | no | `3` | CHECK `> 0` | no | — |
+| `start_period_seconds` | `integer` | no | `5` | CHECK `>= 0` | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 8.9 `previews`
 
-Environnement éphémère de PR/MR (§5.6, §20.4). Identité déterministe `(application, provider, pr_id)`, jamais recyclée pour une autre application. Suppression : cycle `destroying → destroyed` (ou `cleanup_failed` + retry, §20.4) ; purge des lignes `destroyed` selon rétention.
+Ephemeral PR/MR environment (§5.6, §20.4). Deterministic identity `(application, provider, pr_id)`, never recycled for another application. Deletion: `destroying → destroyed` cycle (or `cleanup_failed` + retry, §20.4); purge of `destroyed` rows per retention.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | Base des noms Docker de l'instance de preview (INV-011). |
-| `application_id` | `bigint` | non | — | FK `applications(id)` ON DELETE CASCADE ; UNIQUE `(application_id, provider, pr_id)` | non | Identité déterministe (§20.4). |
-| `provider` | `git_provider` | non | — | (cf. ci-dessus) | non | GitHub PR / GitLab MR / Gitea (§20.4.6). |
-| `pr_id` | `integer` | non | — | (cf. ci-dessus) | non | Numéro de PR/MR (`AKERDOCK_PR_ID`, §27.22). |
-| `source_branch` | `text` | oui | — | — | non | Branche source de la PR. |
-| `head_sha` | `text` | oui | — | — | non | Dernier SHA déployé (redeploy à chaque commit, §5.6). |
-| `is_fork` | `boolean` | non | `false` | — | non | PR issue d'un fork (INV-010). |
-| `repo_reference` | `text` | oui | — | — | non | Référence du dépôt chez le provider pour le feedback (§20.4.6) : project id GitLab, `owner/repo` Gitea/GitHub. Capturée de la livraison authentifiée ; NULL sur le chemin GitHub App (cache `repositories`). |
-| `fork_approved_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | Approbation mainteneur (§20.4.8) ; NULL = non approuvée. |
-| `fork_approved_at` | `timestamptz` | oui | — | — | non | — |
-| `fqdn` | `citext` | oui | — | — | non | URL de la preview (template `{{pr_id}}.{{domain}}`, §5.6). |
-| `status` | `preview_status` | non | `'queued'` | index partiel `WHERE status NOT IN ('destroyed')` | non | Inclut `cleanup_failed` : notifié et réessayé (§20.4). |
-| `cleanup_error` | `text` | oui | — | — | non | Dernière erreur de cleanup. |
-| `last_deployed_at` | `timestamptz` | oui | — | — | non | — |
-| `last_activity_at` | `timestamptz` | oui | — | index | non | Dernière requête reçue : TTL d'inactivité et scale-to-zero (§20.4.3). |
-| `random_slug` | `text` | oui | — | — | non | Valeur stable derrière `{{random}}` des templates de preview (ADR-035), générée une fois. |
-| `destroyed_at` | `timestamptz` | oui | — | — | non | Fermeture/merge de la PR ou TTL (§5.6). |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | Basis for the Docker names of the preview instance (INV-011). |
+| `application_id` | `bigint` | no | — | FK `applications(id)` ON DELETE CASCADE ; UNIQUE `(application_id, provider, pr_id)` | no | Deterministic identity (§20.4). |
+| `provider` | `git_provider` | no | — | (see above) | no | GitHub PR / GitLab MR / Gitea (§20.4.6). |
+| `pr_id` | `integer` | no | — | (see above) | no | PR/MR number (`AKERDOCK_PR_ID`, §27.22). |
+| `source_branch` | `text` | yes | — | — | no | Source branch of the PR. |
+| `head_sha` | `text` | yes | — | — | no | Last deployed SHA (redeploy on every commit, §5.6). |
+| `is_fork` | `boolean` | no | `false` | — | no | PR coming from a fork (INV-010). |
+| `repo_reference` | `text` | yes | — | — | no | Repository reference at the provider for feedback (§20.4.6): GitLab project id, `owner/repo` for Gitea/GitHub. Captured from the authenticated delivery; NULL on the GitHub App path (`repositories` cache). |
+| `fork_approved_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | Maintainer approval (§20.4.8); NULL = not approved. |
+| `fork_approved_at` | `timestamptz` | yes | — | — | no | — |
+| `fqdn` | `citext` | yes | — | — | no | Preview URL (template `{{pr_id}}.{{domain}}`, §5.6). |
+| `status` | `preview_status` | no | `'queued'` | partial index `WHERE status NOT IN ('destroyed')` | no | Includes `cleanup_failed`: notified and retried (§20.4). |
+| `cleanup_error` | `text` | yes | — | — | no | Last cleanup error. |
+| `last_deployed_at` | `timestamptz` | yes | — | — | no | — |
+| `last_activity_at` | `timestamptz` | yes | — | index | no | Last request received: inactivity TTL and scale-to-zero (§20.4.3). |
+| `random_slug` | `text` | yes | — | — | no | Stable value behind `{{random}}` in preview templates (ADR-035), generated once. |
+| `destroyed_at` | `timestamptz` | yes | — | — | no | PR closed/merged or TTL (§5.6). |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
-> Les variables du jeu preview sont dans `environment_variables.is_preview` (partagées par toutes les previews d'une application, parité §5.6) ; les commentaires/checks Git (§20.4.6 : commentaire unique mis à jour en place) sont des identifiants externes conservés dans le `payload` des jobs/événements, pas des colonnes dédiées.
+> The variables of the preview set live in `environment_variables.is_preview` (shared by all previews of an application, parity §5.6); the Git comments/checks (§20.4.6: single comment updated in place) are external identifiers kept in the `payload` of jobs/events, not dedicated columns.
 
 ---
 
-## 9. Agrégat Service / Database
+## 9. Service / Database aggregate
 
 ### 9.1 `services`
 
-Extension 1—1 de `resources` (`resource_type = 'service'`) : stack Docker Compose one-click ou utilisateur (§9). Le fichier compose est la source de vérité (§5.2). Suppression : **CASCADE** technique avec `resources` (workflow §20.6).
+1—1 extension of `resources` (`resource_type = 'service'`): one-click or user-provided Docker Compose stack (§9). The compose file is the source of truth (§5.2). Deletion: technical **CASCADE** with `resources` (workflow §20.6).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | — | PK, FK `resources(id)` ON DELETE CASCADE | non | Héritage par classe. |
-| `compose_content` | `text` | non | — | — | non | Fichier compose éditable en UI (§9) ; extensions `is_directory`, `content`, `exclude_from_hc` (§5.2). |
-| `template_slug` | `text` | oui | — | — | non | Slug du template one-click d'origine (§9) ; NULL = compose libre. |
-| `template_version` | `text` | oui | — | — | non | Version du catalogue à l'instanciation (catalogue versionné/signé, §27.10). |
-| `template_repository` | `text` | oui | — | — | non | Dépôt de templates d'origine (officiel ou dépôt de team, §27.10). |
-| `connect_to_predefined_network` | `boolean` | non | `false` | — | non | Communication inter-stacks (§9). |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | — | PK, FK `resources(id)` ON DELETE CASCADE | no | Class-table inheritance. |
+| `compose_content` | `text` | no | — | — | no | Compose file editable in the UI (§9); extensions `is_directory`, `content`, `exclude_from_hc` (§5.2). |
+| `template_slug` | `text` | yes | — | — | no | Slug of the original one-click template (§9); NULL = free-form compose. |
+| `template_version` | `text` | yes | — | — | no | Catalog version at instantiation (versioned/signed catalog, §27.10). |
+| `template_repository` | `text` | yes | — | — | no | Original template repository (official or team repository, §27.10). |
+| `connect_to_predefined_network` | `boolean` | no | `false` | — | no | Inter-stack communication (§9). |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 9.2 `service_components`
 
-Sous-container d'un stack (un service du compose) : statut, image, domaine, logs et restart individuels (§9). Recréés par synchronisation à chaque édition du compose. Suppression : **CASCADE** avec la ressource.
+Sub-container of a stack (one service of the compose file): individual status, image, domain, logs and restart (§9). Recreated by synchronization on every compose edit. Deletion: **CASCADE** with the resource.
 
-> **Amendement (migration 00038)** : la FK porte sur `resources(id)` et non `services(id)` — une **application en build pack compose** (§5.2 PRD, « domaine par service ») porte aussi des composants, et les deux extensions partagent l'identité `resources`. Pour un stack `service`, la valeur est identique (`services.id = resources.id`, héritage par classe).
+> **Amendment (migration 00038)**: the FK targets `resources(id)` and not `services(id)` — an **application with the compose build pack** (PRD §5.2, "per-service domain") also carries components, and the two extensions share the `resources` identity. For a `service` stack, the value is identical (`services.id = resources.id`, class-table inheritance).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `resource_id` | `bigint` | non | — | FK `resources(id)` ON DELETE CASCADE ; UNIQUE `(resource_id, name)` | non | Stack `service` ou application en build pack compose. |
-| `name` | `text` | non | — | (cf. ci-dessus) | non | Nom du service dans le compose. |
-| `image` | `text` | oui | — | — | non | Image résolue (informatif). |
-| `is_database` | `boolean` | non | `false` | — | non | Détection par image postgres/mysql/mariadb/mongo → backupable (§7.1). |
-| `database_engine` | `db_engine` | oui | — | — | non | Moteur détecté si `is_database`. |
-| `exclude_from_hc` | `boolean` | non | `false` | — | non | Jobs one-shot exclus du health check du stack (§9). |
-| `default_route_port` | `integer` | oui | — | CHECK 1–65535 | non | Port de routage par défaut (compose-spec §6) : premier `expose`, résolu à la validation. |
-| `observed_status` | `resource_observed_status` | non | `'unknown'` | — | non | Statut par sous-container (§5.7, §9). |
-| `observed_at` | `timestamptz` | oui | — | — | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `resource_id` | `bigint` | no | — | FK `resources(id)` ON DELETE CASCADE ; UNIQUE `(resource_id, name)` | no | `service` stack or application with the compose build pack. |
+| `name` | `text` | no | — | (see above) | no | Name of the service in the compose file. |
+| `image` | `text` | yes | — | — | no | Resolved image (informational). |
+| `is_database` | `boolean` | no | `false` | — | no | Detection via postgres/mysql/mariadb/mongo image → backupable (§7.1). |
+| `database_engine` | `db_engine` | yes | — | — | no | Detected engine if `is_database`. |
+| `exclude_from_hc` | `boolean` | no | `false` | — | no | One-shot jobs excluded from the stack health check (§9). |
+| `default_route_port` | `integer` | yes | — | CHECK 1–65535 | no | Default routing port (compose-spec §6): first `expose`, resolved at validation. |
+| `observed_status` | `resource_observed_status` | no | `'unknown'` | — | no | Per-sub-container status (§5.7, §9). |
+| `observed_at` | `timestamptz` | yes | — | — | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 9.3 `databases`
 
-Extension 1—1 de `resources` (`resource_type = 'database'`) : base managée one-click (§6). `server_id` est dénormalisé depuis la destination (trigger) pour porter la contrainte d'unicité du port public par serveur (forte cohérence exigée sur la réservation de port, §22.3). Suppression : **CASCADE** technique avec `resources` (workflow §20.6 — question distincte sur les volumes de données).
+1—1 extension of `resources` (`resource_type = 'database'`): one-click managed database (§6). `server_id` is denormalized from the destination (trigger) to carry the per-server public port uniqueness constraint (strong consistency required on port reservation, §22.3). Deletion: technical **CASCADE** with `resources` (workflow §20.6 — separate question about the data volumes).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | — | PK, FK `resources(id)` ON DELETE CASCADE | non | Héritage par classe. |
-| `engine` | `db_engine` | non | — | — | non | PostgreSQL, MySQL, MariaDB, MongoDB, Redis, KeyDB, Dragonfly, ClickHouse (§6.1). |
-| `image` | `text` | oui | — | — | non | Image/tag libre (§6.2) ; NULL = image par défaut du moteur. |
-| `image_tag` | `text` | oui | — | — | non | — |
-| `custom_config` | `text` | oui | — | — | non | `postgres_conf` / `mysql_conf` / `redis_conf`… ; refusé pour Dragonfly/ClickHouse (§6.2). |
-| `initdb_args` | `text` | oui | — | — | non | PostgreSQL : arguments `initdb` (§6.2) ; init scripts via file mounts (§8). |
-| `server_id` | `bigint` | non | — | FK `servers(id)` ON DELETE RESTRICT ; UNIQUE partiel `(server_id, public_port) WHERE is_public` | non | Dénormalisé depuis `resources.destination_id` (trigger). |
-| `is_public` | `boolean` | non | `false` | — | non | Accès public activé (§6.2). |
-| `public_access_mode` | `public_access_mode` | oui | — | CHECK : `is_public` ⇒ non NULL | non | Port mapping Docker (restart requis) ou proxy TCP Nginx dynamique (§6.2). |
-| `public_port` | `integer` | oui | — | CHECK `1..65535` ; `is_public` ⇒ non NULL | non | Port public, modifiable sans redémarrage en mode `tcp_proxy` (§6.2). |
-| `tcp_proxy_timeout_seconds` | `integer` | non | `3600` | CHECK `> 0` | non | Timeout du proxy TCP (§6.2). |
-| `ssl_enabled` | `boolean` | non | `false` | — | non | « Enable SSL » (§6.3) ; non supporté ClickHouse (validation applicative). |
-| `ssl_mode` | `text` | oui | — | CHECK `IN ('allow','prefer','require','verify-ca','verify-full','on','off')` | non | Modes par moteur (§6.3) ; validation croisée moteur ↔ mode en applicatif. |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | — | PK, FK `resources(id)` ON DELETE CASCADE | no | Class-table inheritance. |
+| `engine` | `db_engine` | no | — | — | no | PostgreSQL, MySQL, MariaDB, MongoDB, Redis, KeyDB, Dragonfly, ClickHouse (§6.1). |
+| `image` | `text` | yes | — | — | no | Free image/tag (§6.2); NULL = default image of the engine. |
+| `image_tag` | `text` | yes | — | — | no | — |
+| `custom_config` | `text` | yes | — | — | no | `postgres_conf` / `mysql_conf` / `redis_conf`…; refused for Dragonfly/ClickHouse (§6.2). |
+| `initdb_args` | `text` | yes | — | — | no | PostgreSQL: `initdb` arguments (§6.2); init scripts via file mounts (§8). |
+| `server_id` | `bigint` | no | — | FK `servers(id)` ON DELETE RESTRICT ; partial UNIQUE `(server_id, public_port) WHERE is_public` | no | Denormalized from `resources.destination_id` (trigger). |
+| `is_public` | `boolean` | no | `false` | — | no | Public access enabled (§6.2). |
+| `public_access_mode` | `public_access_mode` | yes | — | CHECK: `is_public` ⇒ not NULL | no | Docker port mapping (restart required) or dynamic Nginx TCP proxy (§6.2). |
+| `public_port` | `integer` | yes | — | CHECK `1..65535` ; `is_public` ⇒ not NULL | no | Public port, changeable without restart in `tcp_proxy` mode (§6.2). |
+| `tcp_proxy_timeout_seconds` | `integer` | no | `3600` | CHECK `> 0` | no | TCP proxy timeout (§6.2). |
+| `ssl_enabled` | `boolean` | no | `false` | — | no | "Enable SSL" (§6.3); not supported for ClickHouse (application-level validation). |
+| `ssl_mode` | `text` | yes | — | CHECK `IN ('allow','prefer','require','verify-ca','verify-full','on','off')` | no | Per-engine modes (§6.3); cross engine ↔ mode validation at the application level. |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 9.4 `database_credentials`
 
-Credentials générés (mots de passe 64 caractères) ou fournis, par base (§6.2) ; champs adaptés par moteur (utilisateur applicatif, superutilisateur…). Suppression : **CASCADE** avec la base.
+Generated credentials (64-character passwords) or user-provided, per database (§6.2); fields adapted per engine (application user, superuser…). Deletion: **CASCADE** with the database.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `database_id` | `bigint` | non | — | FK `databases(id)` ON DELETE CASCADE ; UNIQUE `(database_id, username)` | non | — |
-| `username` | `text` | non | — | (cf. ci-dessus) | non | Vide autorisé pour Redis (`default`). |
-| `password_enc` | `bytea` | non | — | — | **oui** | Mot de passe, chiffré enveloppe ; entre dans les URLs interne/externe reconstruites à la volée (§6.2), jamais stockées assemblées. |
-| `database_name` | `text` | oui | — | — | non | Base initiale (moteurs SQL/Mongo). |
-| `is_admin` | `boolean` | non | `false` | — | non | Compte superutilisateur (ex. `root` MySQL) vs compte applicatif. |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `database_id` | `bigint` | no | — | FK `databases(id)` ON DELETE CASCADE ; UNIQUE `(database_id, username)` | no | — |
+| `username` | `text` | no | — | (see above) | no | Empty allowed for Redis (`default`). |
+| `password_enc` | `bytea` | no | — | — | **yes** | Password, envelope-encrypted; goes into the internal/external URLs rebuilt on the fly (§6.2), never stored assembled. |
+| `database_name` | `text` | yes | — | — | no | Initial database (SQL/Mongo engines). |
+| `is_admin` | `boolean` | no | `false` | — | no | Superuser account (e.g. MySQL `root`) vs application account. |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 9.5 `database_backup_plans`
 
-Plan de backup planifié (§7.1–7.2) : cible une base managée, une base interne de service (détectée par image) ou la base de l'instance elle-même. Suppression : soft delete (`deleted_at`) ; l'historique d'exécutions suit sa propre rétention — le dernier backup valide n'est jamais supprimé par la rétention (§20.5).
+Scheduled backup plan (§7.1–7.2): targets a managed database, an internal service database (detected by image) or the instance's own database. Deletion: soft delete (`deleted_at`); the execution history follows its own retention — the last valid backup is never deleted by retention (§20.5).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `database_id` | `bigint` | oui | — | FK `databases(id)` ON DELETE CASCADE ; CHECK exactement une cible : `database_id` ⊕ `service_component_id` ⊕ `is_instance_backup` | non | Base managée. |
-| `service_component_id` | `bigint` | oui | — | FK `service_components(id)` ON DELETE CASCADE | non | Base interne d'un stack compose (§7.1, compose-spec §10) — PostgreSQL seul en v1, refusé en `422` sinon. |
-| `is_instance_backup` | `boolean` | non | `false` | — | non | Backup de la base PostgreSQL de AkerDock lui-même (§7.1, §7.5). |
-| `enabled` | `boolean` | non | `true` | — | non | — |
-| `cron_expression` | `text` | non | — | CHECK validation cron (§23.3) | non | Expression cron ou alias `daily`/`hourly`/… (§7.1). |
-| `timezone` | `text` | non | `'UTC'` | — | non | Cron interprété dans un fuseau explicite (§24.3). |
-| `dump_all` | `boolean` | non | `false` | — | non | « Dump all databases » (§7.1). |
-| `included_databases` | `text[]` | oui | — | — | non | Sélection de bases (§7.1). |
-| `excluded_collections` | `text[]` | oui | — | — | non | MongoDB : collections exclues (§7.1). |
-| `timeout_seconds` | `integer` | non | `3600` | CHECK `> 0` | non | §7.1. |
-| `s3_storage_id` | `bigint` | oui | — | FK `s3_storages(id)` ON DELETE RESTRICT | non | Destination S3 (même team, INV-002) ; NULL = local uniquement. |
-| `s3_only` | `boolean` | non | `false` | — | non | Suppression du fichier local après upload (§7.2). |
-| `retention_local_max_count` | `integer` | non | `0` | CHECK `>= 0` | non | 0 = illimité (§7.2). |
-| `retention_local_max_days` | `integer` | non | `0` | CHECK `>= 0` | non | — |
-| `retention_local_max_size_gb` | `numeric(10,2)` | non | `0` | CHECK `>= 0` | non | — |
-| `retention_s3_max_count` | `integer` | non | `0` | CHECK `>= 0` | non | Rétention S3 séparée (§7.2). |
-| `retention_s3_max_days` | `integer` | non | `0` | CHECK `>= 0` | non | — |
-| `retention_s3_max_size_gb` | `numeric(10,2)` | non | `0` | CHECK `>= 0` | non | — |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `deleted_at` | `timestamptz` | oui | — | — | non | Soft delete. |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `database_id` | `bigint` | yes | — | FK `databases(id)` ON DELETE CASCADE ; CHECK exactly one target: `database_id` ⊕ `service_component_id` ⊕ `is_instance_backup` | no | Managed database. |
+| `service_component_id` | `bigint` | yes | — | FK `service_components(id)` ON DELETE CASCADE | no | Internal database of a compose stack (§7.1, compose-spec §10) — PostgreSQL only in v1, refused with `422` otherwise. |
+| `is_instance_backup` | `boolean` | no | `false` | — | no | Backup of AkerDock's own PostgreSQL database (§7.1, §7.5). |
+| `enabled` | `boolean` | no | `true` | — | no | — |
+| `cron_expression` | `text` | no | — | CHECK cron validation (§23.3) | no | Cron expression or alias `daily`/`hourly`/… (§7.1). |
+| `timezone` | `text` | no | `'UTC'` | — | no | Cron interpreted in an explicit timezone (§24.3). |
+| `dump_all` | `boolean` | no | `false` | — | no | "Dump all databases" (§7.1). |
+| `included_databases` | `text[]` | yes | — | — | no | Database selection (§7.1). |
+| `excluded_collections` | `text[]` | yes | — | — | no | MongoDB: excluded collections (§7.1). |
+| `timeout_seconds` | `integer` | no | `3600` | CHECK `> 0` | no | §7.1. |
+| `s3_storage_id` | `bigint` | yes | — | FK `s3_storages(id)` ON DELETE RESTRICT | no | S3 destination (same team, INV-002); NULL = local only. |
+| `s3_only` | `boolean` | no | `false` | — | no | Local file deleted after upload (§7.2). |
+| `retention_local_max_count` | `integer` | no | `0` | CHECK `>= 0` | no | 0 = unlimited (§7.2). |
+| `retention_local_max_days` | `integer` | no | `0` | CHECK `>= 0` | no | — |
+| `retention_local_max_size_gb` | `numeric(10,2)` | no | `0` | CHECK `>= 0` | no | — |
+| `retention_s3_max_count` | `integer` | no | `0` | CHECK `>= 0` | no | Separate S3 retention (§7.2). |
+| `retention_s3_max_days` | `integer` | no | `0` | CHECK `>= 0` | no | — |
+| `retention_s3_max_size_gb` | `numeric(10,2)` | no | `0` | CHECK `>= 0` | no | — |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `deleted_at` | `timestamptz` | yes | — | — | no | Soft delete. |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock. |
 
-> Les backups de **volumes applicatifs** (décision §27.14) réutiliseront ce plan via une table d'extension dédiée (cible = ressource + liste de volumes, outil restic) ; hors périmètre du présent dictionnaire car absents du §19.1.
+> Backups of **application volumes** (decision §27.14) will reuse this plan through a dedicated extension table (target = resource + volume list, restic tool); outside the scope of this dictionary as they are absent from §19.1.
 
 ### 9.6 `backup_executions`
 
-Trace de chaque exécution de backup (§7.3, §20.5) : statut, fichier, taille, checksum, upload S3. `partial` = succès local mais échec S3 (statut explicite, §20.5). Suppression : **purge** par la rétention du plan, sans jamais supprimer le dernier backup valide.
+Trace of each backup execution (§7.3, §20.5): status, file, size, checksum, S3 upload. `partial` = local success but S3 failure (explicit status, §20.5). Deletion: **purge** by the plan's retention, without ever deleting the last valid backup.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `backup_plan_id` | `bigint` | non | — | FK `database_backup_plans(id)` ON DELETE CASCADE, index `(backup_plan_id, created_at DESC)` | non | — |
-| `job_id` | `bigint` | oui | — | FK `jobs(id)` ON DELETE SET NULL | non | Job d'exécution (lease/heartbeat, §21.3). |
-| `status` | `backup_execution_status` | non | `'running'` | — | non | `running` / `succeeded` / `partial` / `failed`. |
-| `filename` | `text` | oui | — | — | non | Chemin local `/var/lib/akerdock/backups/...` (§7.2). |
-| `size_bytes` | `bigint` | oui | — | — | non | — |
-| `checksum_sha256` | `text` | oui | — | — | non | Intégrité, vérifiée au restore et lors des drills (§20.5). |
-| `engine_version` | `text` | oui | — | — | non | Version du moteur au moment du dump (§20.5). |
-| `uploaded_to_s3` | `boolean` | non | `false` | — | non | Objet distant vérifié après upload (§20.5). |
-| `s3_upload_error` | `text` | oui | — | — | non | Détail d'un statut `partial`. |
-| `local_deleted_at` | `timestamptz` | oui | — | — | non | Fichier local supprimé (rétention ou `s3_only`). |
-| `error_message` | `text` | oui | — | — | non | Erreur générique (jamais de secret, INV-003). |
-| `started_at` | `timestamptz` | oui | — | — | non | — |
-| `finished_at` | `timestamptz` | oui | — | — | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `backup_plan_id` | `bigint` | no | — | FK `database_backup_plans(id)` ON DELETE CASCADE, index `(backup_plan_id, created_at DESC)` | no | — |
+| `job_id` | `bigint` | yes | — | FK `jobs(id)` ON DELETE SET NULL | no | Execution job (lease/heartbeat, §21.3). |
+| `status` | `backup_execution_status` | no | `'running'` | — | no | `running` / `succeeded` / `partial` / `failed`. |
+| `filename` | `text` | yes | — | — | no | Local path `/var/lib/akerdock/backups/...` (§7.2). |
+| `size_bytes` | `bigint` | yes | — | — | no | — |
+| `checksum_sha256` | `text` | yes | — | — | no | Integrity, verified at restore time and during drills (§20.5). |
+| `engine_version` | `text` | yes | — | — | no | Engine version at dump time (§20.5). |
+| `uploaded_to_s3` | `boolean` | no | `false` | — | no | Remote object verified after upload (§20.5). |
+| `s3_upload_error` | `text` | yes | — | — | no | Detail of a `partial` status. |
+| `local_deleted_at` | `timestamptz` | yes | — | — | no | Local file deleted (retention or `s3_only`). |
+| `error_message` | `text` | yes | — | — | no | Generic error (never a secret, INV-003). |
+| `started_at` | `timestamptz` | yes | — | — | no | — |
+| `finished_at` | `timestamptz` | yes | — | — | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ---
 
-## 10. Agrégat Exécution
+## 10. Execution aggregate
 
 ### 10.1 `deployments`
 
-Exécution du pipeline de déploiement d'une ressource — machine à états §21.1. Chaque déploiement conserve SHA immuable, digest OCI et snapshot de configuration (§18.3, INV-014). Suppression : **purge** par rétention (100 000 en historique, §22.2) ; **CASCADE** technique si le tombstone de la ressource est purgé.
+Execution of a resource's deployment pipeline — state machine §21.1. Every deployment keeps an immutable SHA, OCI digest and configuration snapshot (§18.3, INV-014). Deletion: **purge** per retention (100,000 in history, §22.2); technical **CASCADE** if the resource's tombstone is purged.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | `job_uuid` renvoyé par les actions `202` (§24.1). |
-| `resource_id` | `bigint` | non | — | FK `resources(id)` ON DELETE CASCADE, index `(resource_id, id DESC)` | non | Application ou service déployé. |
-| `preview_id` | `bigint` | oui | — | FK `previews(id)` ON DELETE SET NULL | non | Déploiement de preview (§20.4). |
-| `status` | `deployment_status` | non | `'queued'` | index partiel `(server_id, created_at) WHERE status NOT IN ('succeeded','failed','cancelled')` | non | Machine à états §21.1 ; `switching` sous verrou exclusif application/destination. |
-| `attempt` | `integer` | non | `1` | — | non | Incrément explicite au retry, historique préservé (§21.1). |
-| `retry_of_id` | `bigint` | oui | — | FK `deployments(id)` ON DELETE SET NULL | non | Tentative liée (§21.1). |
-| `superseded_by_id` | `bigint` | oui | — | FK `deployments(id)` ON DELETE SET NULL | non | Déploiement plus récent ayant remplacé celui-ci en file (coalescing §20.3.5) ; renseigné quand `status = 'superseded'`. |
-| `is_rollback` | `boolean` | non | `false` | — | non | Rollback : redéploiement d'un artifact vérifié sans rebuild (§27.6). |
-| `trigger` | `deployment_trigger` | non | — | — | non | manual / webhook / api / preview / schedule / config_apply / cli_local. |
-| `triggered_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | Acteur humain. |
-| `api_token_id` | `bigint` | oui | — | FK `api_tokens(id)` ON DELETE SET NULL | non | Déclenchement par token (`deploy`, §10.3). |
-| `webhook_delivery_id` | `bigint` | oui | — | FK `webhook_deliveries(id)` ON DELETE SET NULL | non | Référence à la livraison d'origine (§20.3.6). |
-| `git_branch` | `text` | oui | — | — | non | Branche résolue. |
-| `commit_sha` | `text` | oui | — | — | non | SHA immuable résolu avant build (§18.3, §20.2) ; NULL si source locale ou image. |
-| `is_local_source` | `boolean` | non | `false` | — | non | `akerdock up` : source poussée depuis le poste (§27.18) ; n'active jamais l'auto-deploy. |
-| `context_digest` | `text` | oui | — | — | non | Digest du contexte local à la place du SHA (§27.18). |
-| `force_rebuild` | `boolean` | non | `false` | — | non | Build sans cache (§5.5). |
-| `image_name` | `text` | oui | — | — | non | Image produite/déployée. |
-| `image_tag` | `text` | oui | — | — | non | — |
-| `image_digest` | `text` | oui | — | — | non | Digest OCI résolu avant bascule (§18.3, §27.6). |
-| `config_snapshot` | `jsonb` | oui | — | — | non | Snapshot versionné de la configuration, secrets **référencés** (nom + version), jamais en clair (INV-003, INV-014). |
-| `config_diff` | `jsonb` | oui | — | — | non | Diff de configuration présenté avec le redéploiement (§5.5), redacted. |
-| `error_message` | `text` | oui | — | — | non | Résumé d'échec exposé par le schéma OpenAPI `Deployment` — sans secret ni commande sensible (§24.1). |
-| `server_id` | `bigint` | non | — | FK `servers(id)` ON DELETE RESTRICT | non | Serveur cible (dénormalisé pour la file par serveur, §5.5). |
-| `build_server_id` | `bigint` | oui | — | FK `servers(id)` ON DELETE SET NULL | non | Build server utilisé (sélection aléatoire, §3.4). |
-| `queued_at` | `timestamptz` | non | `now()` | — | non | — |
-| `started_at` | `timestamptz` | oui | — | — | non | — |
-| `finished_at` | `timestamptz` | oui | — | — | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | `job_uuid` returned by `202` actions (§24.1). |
+| `resource_id` | `bigint` | no | — | FK `resources(id)` ON DELETE CASCADE, index `(resource_id, id DESC)` | no | Deployed application or service. |
+| `preview_id` | `bigint` | yes | — | FK `previews(id)` ON DELETE SET NULL | no | Preview deployment (§20.4). |
+| `status` | `deployment_status` | no | `'queued'` | partial index `(server_id, created_at) WHERE status NOT IN ('succeeded','failed','cancelled')` | no | State machine §21.1; `switching` under an exclusive application/destination lock. |
+| `attempt` | `integer` | no | `1` | — | no | Explicit increment on retry, history preserved (§21.1). |
+| `retry_of_id` | `bigint` | yes | — | FK `deployments(id)` ON DELETE SET NULL | no | Linked attempt (§21.1). |
+| `superseded_by_id` | `bigint` | yes | — | FK `deployments(id)` ON DELETE SET NULL | no | More recent deployment that replaced this one in the queue (coalescing §20.3.5); set when `status = 'superseded'`. |
+| `is_rollback` | `boolean` | no | `false` | — | no | Rollback: redeployment of a verified artifact without rebuild (§27.6). |
+| `trigger` | `deployment_trigger` | no | — | — | no | manual / webhook / api / preview / schedule / config_apply / cli_local. |
+| `triggered_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | Human actor. |
+| `api_token_id` | `bigint` | yes | — | FK `api_tokens(id)` ON DELETE SET NULL | no | Triggered by token (`deploy`, §10.3). |
+| `webhook_delivery_id` | `bigint` | yes | — | FK `webhook_deliveries(id)` ON DELETE SET NULL | no | Reference to the originating delivery (§20.3.6). |
+| `git_branch` | `text` | yes | — | — | no | Resolved branch. |
+| `commit_sha` | `text` | yes | — | — | no | Immutable SHA resolved before build (§18.3, §20.2); NULL if local source or image. |
+| `is_local_source` | `boolean` | no | `false` | — | no | `akerdock up`: source pushed from the workstation (§27.18); never enables auto-deploy. |
+| `context_digest` | `text` | yes | — | — | no | Digest of the local context in place of the SHA (§27.18). |
+| `force_rebuild` | `boolean` | no | `false` | — | no | Build without cache (§5.5). |
+| `image_name` | `text` | yes | — | — | no | Image produced/deployed. |
+| `image_tag` | `text` | yes | — | — | no | — |
+| `image_digest` | `text` | yes | — | — | no | OCI digest resolved before switchover (§18.3, §27.6). |
+| `config_snapshot` | `jsonb` | yes | — | — | no | Versioned snapshot of the configuration, secrets **referenced** (name + version), never in plaintext (INV-003, INV-014). |
+| `config_diff` | `jsonb` | yes | — | — | no | Configuration diff shown with the redeployment (§5.5), redacted. |
+| `error_message` | `text` | yes | — | — | no | Failure summary exposed by the `Deployment` OpenAPI schema — without secrets or sensitive commands (§24.1). |
+| `server_id` | `bigint` | no | — | FK `servers(id)` ON DELETE RESTRICT | no | Target server (denormalized for the per-server queue, §5.5). |
+| `build_server_id` | `bigint` | yes | — | FK `servers(id)` ON DELETE SET NULL | no | Build server used (random selection, §3.4). |
+| `queued_at` | `timestamptz` | no | `now()` | — | no | — |
+| `started_at` | `timestamptz` | yes | — | — | no | — |
+| `finished_at` | `timestamptz` | yes | — | — | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 10.2 `deployment_steps`
 
-Étape du pipeline (§20.2) : timeline UI, logs de build structurés, exit codes. Suppression : **CASCADE** avec le déploiement.
+Pipeline step (§20.2): UI timeline, structured build logs, exit codes. Deletion: **CASCADE** with the deployment.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `deployment_id` | `bigint` | non | — | FK `deployments(id)` ON DELETE CASCADE ; UNIQUE `(deployment_id, seq)` | non | — |
-| `seq` | `integer` | non | — | (cf. ci-dessus) | non | Ordre d'exécution. |
-| `name` | `text` | non | — | — | non | Ex. `clone`, `build`, `push`, `healthcheck`, `switch`. |
-| `status` | `deployment_step_status` | non | `'pending'` | — | non | — |
-| `exit_code` | `integer` | oui | — | — | non | Code de sortie de la commande distante. |
-| `log` | `text` | oui | — | — | non | Logs de l'étape, ANSI/HTML neutralisés (§23.3), secrets redacted (INV-003), tronqués/compressés au-delà d'un seuil ; le streaming realtime passe par SSE, pas par cette colonne (§24.4). |
-| `started_at` | `timestamptz` | oui | — | — | non | — |
-| `finished_at` | `timestamptz` | oui | — | — | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `deployment_id` | `bigint` | no | — | FK `deployments(id)` ON DELETE CASCADE ; UNIQUE `(deployment_id, seq)` | no | — |
+| `seq` | `integer` | no | — | (see above) | no | Execution order. |
+| `name` | `text` | no | — | — | no | E.g. `clone`, `build`, `push`, `healthcheck`, `switch`. |
+| `status` | `deployment_step_status` | no | `'pending'` | — | no | — |
+| `exit_code` | `integer` | yes | — | — | no | Exit code of the remote command. |
+| `log` | `text` | yes | — | — | no | Step logs, ANSI/HTML neutralized (§23.3), secrets redacted (INV-003), truncated/compressed beyond a threshold; realtime streaming goes through SSE, not this column (§24.4). |
+| `started_at` | `timestamptz` | yes | — | — | no | — |
+| `finished_at` | `timestamptz` | yes | — | — | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 10.3 `deployment_artifacts`
 
-Artifact produit par un déploiement : image locale ou poussée en registry, candidate au rollback (§5.5, §27.6). Protégée du cleanup automatique (INV-015). Suppression : **CASCADE** avec le déploiement ; le nettoyage des images distantes est un job explicite.
+Artifact produced by a deployment: local image or pushed to a registry, rollback candidate (§5.5, §27.6). Protected from automated cleanup (INV-015). Deletion: **CASCADE** with the deployment; cleaning up remote images is an explicit job.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `deployment_id` | `bigint` | non | — | FK `deployments(id)` ON DELETE CASCADE, index | non | — |
-| `kind` | `artifact_kind` | non | — | — | non | `local_image` (rétention des N dernières) ou `registry_image` (digest immuable, §27.6). |
-| `image_name` | `text` | non | — | — | non | — |
-| `image_tag` | `text` | oui | — | — | non | — |
-| `image_digest` | `text` | oui | — | — | non | Digest OCI ; requis pour `registry_image` (rollback reproductible). |
-| `server_id` | `bigint` | oui | — | FK `servers(id)` ON DELETE CASCADE | non | Serveur où réside l'image locale. |
-| `registry_credential_id` | `bigint` | oui | — | FK `registry_credentials(id)` ON DELETE SET NULL | non | Registry de conservation. |
-| `protected_from_cleanup` | `boolean` | non | `true` | — | non | Jamais purgée par l'Automated Cleanup (INV-015, §27.6). |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `deployment_id` | `bigint` | no | — | FK `deployments(id)` ON DELETE CASCADE, index | no | — |
+| `kind` | `artifact_kind` | no | — | — | no | `local_image` (retention of the last N) or `registry_image` (immutable digest, §27.6). |
+| `image_name` | `text` | no | — | — | no | — |
+| `image_tag` | `text` | yes | — | — | no | — |
+| `image_digest` | `text` | yes | — | — | no | OCI digest; required for `registry_image` (reproducible rollback). |
+| `server_id` | `bigint` | yes | — | FK `servers(id)` ON DELETE CASCADE | no | Server where the local image resides. |
+| `registry_credential_id` | `bigint` | yes | — | FK `registry_credentials(id)` ON DELETE SET NULL | no | Retention registry. |
+| `protected_from_cleanup` | `boolean` | no | `true` | — | no | Never purged by Automated Cleanup (INV-015, §27.6). |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 10.4 `scheduled_tasks`
 
-Cron par application/service (§5.7) : commande exécutée par `docker exec` dans le container cible. Suppression : **CASCADE** avec la ressource (historique purgé par rétention).
+Cron per application/service (§5.7): command executed via `docker exec` in the target container. Deletion: **CASCADE** with the resource (history purged per retention).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `resource_id` | `bigint` | non | — | FK `resources(id)` ON DELETE CASCADE ; UNIQUE `(resource_id, name)` | non | — |
-| `name` | `text` | non | — | (cf. ci-dessus) | non | — |
-| `command` | `text` | non | — | — | non | Commande passée en arguments typés/échappés (INV-012). |
-| `cron_expression` | `text` | non | — | CHECK validation cron | non | Expression ou alias `daily`/`hourly`/… (§5.7). |
-| `timezone` | `text` | non | `'UTC'` | — | non | Fuseau explicite, prochaine exécution prévisualisée (§24.3). |
-| `container_name` | `text` | oui | — | — | non | Container cible dans un stack (§5.7). |
-| `enabled` | `boolean` | non | `true` | — | non | — |
-| `overlap_policy` | `overlap_policy` | non | `'forbid'` | — | non | §24.3. |
-| `missed_run_policy` | `missed_run_policy` | non | `'skip'` | — | non | Jamais de rafale illimitée (§24.3). |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `resource_id` | `bigint` | no | — | FK `resources(id)` ON DELETE CASCADE ; UNIQUE `(resource_id, name)` | no | — |
+| `name` | `text` | no | — | (see above) | no | — |
+| `command` | `text` | no | — | — | no | Command passed as typed/escaped arguments (INV-012). |
+| `cron_expression` | `text` | no | — | CHECK cron validation | no | Expression or alias `daily`/`hourly`/… (§5.7). |
+| `timezone` | `text` | no | `'UTC'` | — | no | Explicit timezone, next run previewed (§24.3). |
+| `container_name` | `text` | yes | — | — | no | Target container within a stack (§5.7). |
+| `enabled` | `boolean` | no | `true` | — | no | — |
+| `overlap_policy` | `overlap_policy` | no | `'forbid'` | — | no | §24.3. |
+| `missed_run_policy` | `missed_run_policy` | no | `'skip'` | — | no | Never an unbounded burst (§24.3). |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock. |
 
 ### 10.5 `task_executions`
 
-Historique des exécutions de tâches planifiées (§5.7), avec notifications succès/échec (§11). Suppression : **purge** par rétention.
+History of scheduled task executions (§5.7), with success/failure notifications (§11). Deletion: **purge** per retention.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `scheduled_task_id` | `bigint` | non | — | FK `scheduled_tasks(id)` ON DELETE CASCADE, index `(scheduled_task_id, created_at DESC)` | non | — |
-| `job_id` | `bigint` | oui | — | FK `jobs(id)` ON DELETE SET NULL | non | — |
-| `status` | `task_execution_status` | non | `'running'` | — | non | `skipped` = politique de chevauchement/missed run (§24.3). |
-| `exit_code` | `integer` | oui | — | — | non | — |
-| `output` | `text` | oui | — | — | non | Sortie tronquée, neutralisée (§23.3). |
-| `started_at` | `timestamptz` | oui | — | — | non | — |
-| `finished_at` | `timestamptz` | oui | — | — | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `scheduled_task_id` | `bigint` | no | — | FK `scheduled_tasks(id)` ON DELETE CASCADE, index `(scheduled_task_id, created_at DESC)` | no | — |
+| `job_id` | `bigint` | yes | — | FK `jobs(id)` ON DELETE SET NULL | no | — |
+| `status` | `task_execution_status` | no | `'running'` | — | no | `skipped` = overlap/missed run policy (§24.3). |
+| `exit_code` | `integer` | yes | — | — | no | — |
+| `output` | `text` | yes | — | — | no | Output truncated, neutralized (§23.3). |
+| `started_at` | `timestamptz` | yes | — | — | no | — |
+| `finished_at` | `timestamptz` | yes | — | — | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 10.6 `terminal_sessions`
 
-Session terminal web (xterm.js → WebSocket → SSH/PTY, §5.7, §24.4). Ouverture et fermeture auditées ; les frappes ne sont **pas** enregistrées par défaut (§24.4). L'attache WebSocket se fait par un **token court à usage unique** (§24.4) dont seul le hash est stocké (§23.2) — la ligne est créée à l'émission du token, la session démarre à la consommation. Suppression : **purge** par rétention ; les cibles supprimées passent en `SET NULL`, le libellé est conservé en snapshot.
+Web terminal session (xterm.js → WebSocket → SSH/PTY, §5.7, §24.4). Opening and closing are audited; keystrokes are **not** recorded by default (§24.4). WebSocket attachment uses a **short-lived single-use token** (§24.4) of which only the hash is stored (§23.2) — the row is created when the token is issued, the session starts at consumption. Deletion: **purge** per retention; deleted targets go to `SET NULL`, the label is kept as a snapshot.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE CASCADE, index | non | Session bornée à la team active (§10.4). |
-| `user_id` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `target_kind` | `terminal_target` | non | — | — | non | Serveur ou container (§5.7). |
-| `server_id` | `bigint` | oui | — | FK `servers(id)` ON DELETE SET NULL | non | — |
-| `resource_id` | `bigint` | oui | — | FK `resources(id)` ON DELETE SET NULL | non | Ressource du container ciblé. |
-| `target_name` | `text` | non | — | — | non | Snapshot du nom de la cible (survit aux suppressions). |
-| `client_ip` | `inet` | oui | — | — | non | — |
-| `token_hash` | `text` | non | — | UNIQUE | non (hash SHA-256) | Hash du token d'attache WebSocket ; le token clair n'est jamais stocké (§23.2). |
-| `token_expires_at` | `timestamptz` | non | — | — | non | Expiration du token d'attache (courte, §24.4). |
-| `claimed_at` | `timestamptz` | oui | — | — | non | Consommation du token par l'upgrade WebSocket — usage unique (§24.4). |
-| `started_at` | `timestamptz` | non | `now()` | — | non | — |
-| `ended_at` | `timestamptz` | oui | — | — | non | Kill garanti à la déconnexion/expiration (§24.4). |
-| `end_reason` | `terminal_end_reason` | oui | — | — | non | user_close / idle_timeout / max_duration / disconnect / revoked. |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE CASCADE, index | no | Session bounded to the active team (§10.4). |
+| `user_id` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `target_kind` | `terminal_target` | no | — | — | no | Server or container (§5.7). |
+| `server_id` | `bigint` | yes | — | FK `servers(id)` ON DELETE SET NULL | no | — |
+| `resource_id` | `bigint` | yes | — | FK `resources(id)` ON DELETE SET NULL | no | Resource of the targeted container. |
+| `target_name` | `text` | no | — | — | no | Snapshot of the target's name (survives deletions). |
+| `client_ip` | `inet` | yes | — | — | no | — |
+| `token_hash` | `text` | no | — | UNIQUE | no (SHA-256 hash) | Hash of the WebSocket attach token; the plaintext token is never stored (§23.2). |
+| `token_expires_at` | `timestamptz` | no | — | — | no | Expiration of the attach token (short, §24.4). |
+| `claimed_at` | `timestamptz` | yes | — | — | no | Token consumption by the WebSocket upgrade — single use (§24.4). |
+| `started_at` | `timestamptz` | no | `now()` | — | no | — |
+| `ended_at` | `timestamptz` | yes | — | — | no | Kill guaranteed on disconnect/expiration (§24.4). |
+| `end_reason` | `terminal_end_reason` | yes | — | — | no | user_close / idle_timeout / max_duration / disconnect / revoked. |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ---
 
 ### 10.7 `port_forward_sessions`
 
-Session de tunnel TCP du CLI (ADR-032) : WebSocket multiplexée → canal SSH `direct-tcpip`
-vers un container. Même contrat que `terminal_sessions` — token d'attache à usage unique
-hashé (§23.2), ouverture/fermeture auditées, purge par rétention, cibles en `SET NULL` avec
-libellé snapshot. La cible (container, port) est **figée à la création**.
+TCP tunnel session of the CLI (ADR-032): multiplexed WebSocket → SSH `direct-tcpip` channel
+to a container. Same contract as `terminal_sessions` — single-use attach token
+hashed (§23.2), opening/closing audited, purge per retention, targets set to `SET NULL` with
+a snapshot label. The target (container, port) is **frozen at creation**.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE CASCADE, index | non | Bornée à la team active. |
-| `user_id` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `server_id` | `bigint` | oui | — | FK `servers(id)` ON DELETE SET NULL | non | Serveur atteint par SSH. |
-| `resource_id` | `bigint` | oui | — | FK `resources(id)` ON DELETE SET NULL | non | Ressource ciblée. |
-| `target_name` | `text` | non | — | — | non | Snapshot `<container>:<port>` (survit aux suppressions). |
-| `target_port` | `integer` | non | — | CHECK 1–65535 | non | Port interne figé à la création. |
-| `client_ip` | `inet` | oui | — | — | non | — |
-| `token_hash` | `text` | non | — | UNIQUE | non (hash SHA-256) | Hash du token d'attache ; le token clair n'est jamais stocké (§23.2). |
-| `token_expires_at` | `timestamptz` | non | — | — | non | Expiration du token d'attache (courte). |
-| `claimed_at` | `timestamptz` | oui | — | — | non | Consommation par l'upgrade WebSocket — usage unique. |
-| `started_at` | `timestamptz` | non | `now()` | — | non | — |
-| `ended_at` | `timestamptz` | oui | — | — | non | Teardown garanti à la déconnexion/expiration. |
-| `end_reason` | `terminal_end_reason` | oui | — | — | non | Réutilise l'enum : user_close / idle_timeout / max_duration / disconnect / revoked. |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE CASCADE, index | no | Bounded to the active team. |
+| `user_id` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `server_id` | `bigint` | yes | — | FK `servers(id)` ON DELETE SET NULL | no | Server reached over SSH. |
+| `resource_id` | `bigint` | yes | — | FK `resources(id)` ON DELETE SET NULL | no | Targeted resource. |
+| `target_name` | `text` | no | — | — | no | Snapshot `<container>:<port>` (survives deletions). |
+| `target_port` | `integer` | no | — | CHECK 1–65535 | no | Internal port frozen at creation. |
+| `client_ip` | `inet` | yes | — | — | no | — |
+| `token_hash` | `text` | no | — | UNIQUE | no (SHA-256 hash) | Hash of the attach token; the plaintext token is never stored (§23.2). |
+| `token_expires_at` | `timestamptz` | no | — | — | no | Expiration of the attach token (short). |
+| `claimed_at` | `timestamptz` | yes | — | — | no | Consumption by the WebSocket upgrade — single use. |
+| `started_at` | `timestamptz` | no | `now()` | — | no | — |
+| `ended_at` | `timestamptz` | yes | — | — | no | Teardown guaranteed on disconnect/expiration. |
+| `end_reason` | `terminal_end_reason` | yes | — | — | no | Reuses the enum: user_close / idle_timeout / max_duration / disconnect / revoked. |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ---
 
 ### 10.8 `cli_authorization_codes`
 
-Demandes d'authentification du CLI en cours (ADR-031, flux poll+code+PKCE). Éphémères
-(TTL 10 min), purgées après consommation ou expiration. Seuls des **hash** sont stockés ;
-ni le `verifier`, ni le token frappé n'y figurent.
+Pending CLI authentication requests (ADR-031, poll+code+PKCE flow). Ephemeral
+(10-minute TTL), purged after consumption or expiration. Only **hashes** are stored;
+neither the `verifier` nor the minted token appears here.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `request_id_hash` | `text` | non | — | UNIQUE | non (hash SHA-256) | Hash de l'identifiant de demande porté par la CLI. |
-| `challenge` | `text` | non | — | — | non | `base64url(SHA-256(verifier))` (PKCE) — public par conception. |
-| `user_code` | `text` | non | — | — | non | Code court confronté par l'utilisateur (anti-phishing). |
-| `status` | `text` | non | `'pending'` | — | non | pending / approved / consumed. |
-| `user_id` | `bigint` | oui | — | FK `users(id)` ON DELETE CASCADE | non | Rempli à l'approbation. |
-| `team_id` | `bigint` | oui | — | FK `teams(id)` ON DELETE CASCADE | non | Team choisie à l'approbation. |
-| `permissions` | `text[]` | oui | — | — | non | Permissions approuvées (⊆ session). |
-| `client_name` | `text` | oui | — | — | non | `<user>@<host>` fourni par la CLI (rendu inerte à l'affichage). |
-| `client_ip` | `inet` | oui | — | — | non | — |
-| `expires_at` | `timestamptz` | non | — | — | non | TTL court (défaut 10 min). |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `request_id_hash` | `text` | no | — | UNIQUE | no (SHA-256 hash) | Hash of the request identifier carried by the CLI. |
+| `challenge` | `text` | no | — | — | no | `base64url(SHA-256(verifier))` (PKCE) — public by design. |
+| `user_code` | `text` | no | — | — | no | Short code cross-checked by the user (anti-phishing). |
+| `status` | `text` | no | `'pending'` | — | no | pending / approved / consumed. |
+| `user_id` | `bigint` | yes | — | FK `users(id)` ON DELETE CASCADE | no | Filled at approval. |
+| `team_id` | `bigint` | yes | — | FK `teams(id)` ON DELETE CASCADE | no | Team chosen at approval. |
+| `permissions` | `text[]` | yes | — | — | no | Approved permissions (⊆ session). |
+| `client_name` | `text` | yes | — | — | no | `<user>@<host>` provided by the CLI (rendered inert on display). |
+| `client_ip` | `inet` | yes | — | — | no | — |
+| `expires_at` | `timestamptz` | no | — | — | no | Short TTL (default 10 min). |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ---
 
-## 11. Agrégat Plateforme et tables techniques
+## 11. Platform aggregate and technical tables
 
 ### 11.1 `proxy_config_revisions`
 
-Révision de configuration proxy générée pour un serveur : génération déterministe, validation, application atomique, rollback (§18.1) ; réconciliation par checksum (§18.3). Suppression : **purge** en conservant les N dernières révisions par serveur.
+Proxy configuration revision generated for a server: deterministic generation, validation, atomic application, rollback (§18.1); reconciliation by checksum (§18.3). Deletion: **purge** keeping the last N revisions per server.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `server_id` | `bigint` | non | — | FK `servers(id)` ON DELETE CASCADE ; UNIQUE `(server_id, revision)` | non | — |
-| `revision` | `integer` | non | — | (cf. ci-dessus) | non | Numéro croissant par serveur. |
-| `proxy_type` | `proxy_type` | non | — | — | non | Représentation générée pour Traefik ou Caddy depuis l'IR commune (§27.9). |
-| `checksum_sha256` | `text` | non | — | — | non | Comparé au fichier distant pour détecter la dérive (§18.3). |
-| `content` | `text` | non | — | — | non | Configuration générée (labels + dynamic config) ; ne contient aucun secret — clés privées TLS uniquement sur le serveur (§4.3). |
-| `status` | `proxy_revision_status` | non | `'generated'` | — | non | generated → applied / failed / rolled_back. |
-| `error` | `text` | oui | — | — | non | Cause d'échec d'application. |
-| `applied_at` | `timestamptz` | oui | — | — | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `server_id` | `bigint` | no | — | FK `servers(id)` ON DELETE CASCADE ; UNIQUE `(server_id, revision)` | no | — |
+| `revision` | `integer` | no | — | (see above) | no | Increasing number per server. |
+| `proxy_type` | `proxy_type` | no | — | — | no | Representation generated for Traefik or Caddy from the common IR (§27.9). |
+| `checksum_sha256` | `text` | no | — | — | no | Compared with the remote file to detect drift (§18.3). |
+| `content` | `text` | no | — | — | no | Generated configuration (labels + dynamic config); contains no secret — TLS private keys only on the server (§4.3). |
+| `status` | `proxy_revision_status` | no | `'generated'` | — | no | generated → applied / failed / rolled_back. |
+| `error` | `text` | yes | — | — | no | Cause of an application failure. |
+| `applied_at` | `timestamptz` | yes | — | — | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 11.2 `notification_channels`
 
-Canal de notification d'une team (§11). La configuration (URLs de webhook, tokens de bot, mot de passe SMTP…) est chiffrée en bloc. Suppression : **CASCADE** avec la team ; libre sinon (les règles suivent).
+Notification channel of a team (§11). The configuration (webhook URLs, bot tokens, SMTP password…) is encrypted as a block. Deletion: **CASCADE** with the team; unrestricted otherwise (the rules follow).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `team_id` | `bigint` | non | — | FK `teams(id)` ON DELETE CASCADE, index | non | — |
-| `kind` | `notification_channel_kind` | non | — | — | non | smtp / resend / discord / telegram / slack (Mattermost compatible) / pushover / webhook (§11). |
-| `name` | `text` | non | — | UNIQUE `(team_id, name)` | non | — |
-| `config_enc` | `bytea` | non | — | — | **oui** | Configuration JSON sérialisée puis chiffrée enveloppe (tokens, URLs, credentials SMTP). |
-| `use_instance_email` | `boolean` | non | `false` | — | non | Réutilise l'email transactionnel de l'instance (§14.2). |
-| `enabled` | `boolean` | non | `true` | — | non | — |
-| `created_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `team_id` | `bigint` | no | — | FK `teams(id)` ON DELETE CASCADE, index | no | — |
+| `kind` | `notification_channel_kind` | no | — | — | no | smtp / resend / discord / telegram / slack (Mattermost compatible) / pushover / webhook (§11). |
+| `name` | `text` | no | — | UNIQUE `(team_id, name)` | no | — |
+| `config_enc` | `bytea` | no | — | — | **yes** | JSON configuration serialized then envelope-encrypted (tokens, URLs, SMTP credentials). |
+| `use_instance_email` | `boolean` | no | `false` | — | no | Reuses the instance's transactional email (§14.2). |
+| `enabled` | `boolean` | no | `true` | — | no | — |
+| `created_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock. |
 
 ### 11.3 `notification_rules`
 
-Événement activé par canal (§11), enrichi du routage/agrégation de la décision §27.19 (scoping projet/environnement, sévérité, débounce, heures calmes, résumé différé). Suppression : **CASCADE** avec le canal.
+Event enabled per channel (§11), enriched with the routing/aggregation of decision §27.19 (project/environment scoping, severity, debounce, quiet hours, deferred digest). Deletion: **CASCADE** with the channel.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | — |
-| `channel_id` | `bigint` | non | — | FK `notification_channels(id)` ON DELETE CASCADE ; UNIQUE NULLS NOT DISTINCT `(channel_id, event_type, project_id, environment_id)` | non | — |
-| `event_type` | `text` | non | — | (cf. ci-dessus) | non | Nomenclature des événements (§11, §24.2) : `deployment.failed`, `server.unreachable`, `backup.failed`… |
-| `enabled` | `boolean` | non | `true` | — | non | Activable individuellement par canal (§11). |
-| `project_id` | `bigint` | oui | — | FK `projects(id)` ON DELETE CASCADE | non | Routage par projet (§27.19) ; NULL = toute la team. |
-| `environment_id` | `bigint` | oui | — | FK `environments(id)` ON DELETE CASCADE | non | Routage par environnement. |
-| `min_severity` | `notification_severity` | non | `'info'` | — | non | Seuil de sévérité (§27.19). |
-| `debounce_seconds` | `integer` | non | `0` | CHECK `>= 0` | non | Agrégation anti-flapping (§27.19). |
-| `quiet_hours_start` | `time` | oui | — | — | non | Heures calmes (§27.19). |
-| `quiet_hours_end` | `time` | oui | — | — | non | — |
-| `digest_enabled` | `boolean` | non | `false` | — | non | Résumé différé des événements non critiques (§27.19). |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
+| `channel_id` | `bigint` | no | — | FK `notification_channels(id)` ON DELETE CASCADE ; UNIQUE NULLS NOT DISTINCT `(channel_id, event_type, project_id, environment_id)` | no | — |
+| `event_type` | `text` | no | — | (see above) | no | Event nomenclature (§11, §24.2): `deployment.failed`, `server.unreachable`, `backup.failed`… |
+| `enabled` | `boolean` | no | `true` | — | no | Can be enabled individually per channel (§11). |
+| `project_id` | `bigint` | yes | — | FK `projects(id)` ON DELETE CASCADE | no | Routing by project (§27.19); NULL = whole team. |
+| `environment_id` | `bigint` | yes | — | FK `environments(id)` ON DELETE CASCADE | no | Routing by environment. |
+| `min_severity` | `notification_severity` | no | `'info'` | — | no | Severity threshold (§27.19). |
+| `debounce_seconds` | `integer` | no | `0` | CHECK `>= 0` | no | Anti-flapping aggregation (§27.19). |
+| `quiet_hours_start` | `time` | yes | — | — | no | Quiet hours (§27.19). |
+| `quiet_hours_end` | `time` | yes | — | — | no | — |
+| `digest_enabled` | `boolean` | no | `false` | — | no | Deferred digest of non-critical events (§27.19). |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 11.4 `audit_events`
 
-Journal d'audit **append-only** (§23.4) : aucune mise à jour ni suppression unitaire ; pagination, filtrage, export ; purge par rétention (partitionnement mensuel recommandé). Volontairement **sans FK** vers `users`/`teams`/`api_tokens` : l'événement snapshot l'acteur et survit à toute suppression (§19.2 « aucune cascade accidentelle »).
+**Append-only** audit log (§23.4): no update or unit deletion; pagination, filtering, export; purge per retention (monthly partitioning recommended). Deliberately **without FKs** to `users`/`teams`/`api_tokens`: the event snapshots the actor and survives any deletion (§19.2 "no accidental cascade").
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | `event_id` (§23.4). |
-| `occurred_at` | `timestamptz` | non | `now()` | index BRIN ; index `(team_id, occurred_at DESC)` | non | Date UTC. |
-| `team_id` | `bigint` | oui | — | (sans FK) | non | Team concernée ; NULL pour les événements instance (login, settings). |
-| `actor_kind` | `actor_kind` | non | — | — | non | user / token / system (§24.2). |
-| `actor_uuid` | `uuid` | oui | — | — | non | UUID de l'utilisateur ou du token (snapshot). |
-| `actor_display` | `text` | oui | — | — | non | Nom/préfixe de token au moment de l'action. |
-| `action` | `text` | non | — | index | non | Ex. `secret.reveal`, `terminal.open`, `deployment.rollback`, `server.delete` (liste §23.4). |
-| `target_kind` | `text` | oui | — | — | non | Type de la cible (ex. `application`). |
-| `target_uuid` | `uuid` | oui | — | index | non | UUID de la cible. |
-| `result` | `audit_result` | non | — | — | non | success / failure / denied. |
-| `ip` | `inet` | oui | — | — | non | — |
-| `user_agent` | `text` | oui | — | — | non | — |
-| `request_id` | `uuid` | oui | — | — | non | Corrélation avec les logs API (§13, §23.4). |
-| `correlation_id` | `uuid` | oui | — | — | non | Chaîne d'événements (§24.2). |
-| `diff_redacted` | `jsonb` | oui | — | — | non | Diff avant/après, secrets systématiquement redacted (INV-003). |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | `event_id` (§23.4). |
+| `occurred_at` | `timestamptz` | no | `now()` | BRIN index ; index `(team_id, occurred_at DESC)` | no | UTC date. |
+| `team_id` | `bigint` | yes | — | (no FK) | no | Team concerned; NULL for instance events (login, settings). |
+| `actor_kind` | `actor_kind` | no | — | — | no | user / token / system (§24.2). |
+| `actor_uuid` | `uuid` | yes | — | — | no | UUID of the user or token (snapshot). |
+| `actor_display` | `text` | yes | — | — | no | Name/token prefix at the time of the action. |
+| `action` | `text` | no | — | index | no | E.g. `secret.reveal`, `terminal.open`, `deployment.rollback`, `server.delete` (list §23.4). |
+| `target_kind` | `text` | yes | — | — | no | Type of the target (e.g. `application`). |
+| `target_uuid` | `uuid` | yes | — | index | no | UUID of the target. |
+| `result` | `audit_result` | no | — | — | no | success / failure / denied. |
+| `ip` | `inet` | yes | — | — | no | — |
+| `user_agent` | `text` | yes | — | — | no | — |
+| `request_id` | `uuid` | yes | — | — | no | Correlation with the API logs (§13, §23.4). |
+| `correlation_id` | `uuid` | yes | — | — | no | Event chain (§24.2). |
+| `diff_redacted` | `jsonb` | yes | — | — | no | Before/after diff, secrets systematically redacted (INV-003). |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 11.5 `outbox_events`
 
-Transactional outbox (§18.2) : l'événement est écrit dans la même transaction que la mutation, publié après commit (§24.2). Le `bigint` séquentiel donne l'ordre de publication. Suppression : **purge** des événements publiés après une rétention courte.
+Transactional outbox (§18.2): the event is written in the same transaction as the mutation, published after commit (§24.2). The sequential `bigint` provides the publication order. Deletion: **purge** of published events after a short retention.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | Ordre de commit/publication. |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | `id` de l'envelope (§24.2) ; clé de déduplication des consommateurs (inbox). |
-| `event_type` | `text` | non | — | — | non | Versionné dans le type : `deployment.succeeded.v1` (§24.2). |
-| `occurred_at` | `timestamptz` | non | `now()` | — | non | RFC3339Nano dans l'envelope. |
-| `team_uuid` | `uuid` | oui | — | — | non | Référence par UUID public (pas de FK : l'événement est un fait immuable). |
-| `resource_uuid` | `uuid` | oui | — | — | non | — |
-| `actor` | `jsonb` | oui | — | — | non | `{type, uuid}` (§24.2). |
-| `correlation_id` | `uuid` | oui | — | — | non | — |
-| `aggregate_key` | `text` | oui | — | index | non | Ordre garanti par clé d'agrégat si nécessaire (§24.2). |
-| `payload` | `jsonb` | non | `'{}'` | — | non | Références et métadonnées redacted, **jamais** de valeur de secret (§24.2, INV-003). |
-| `published_at` | `timestamptz` | oui | — | index partiel `(id) WHERE published_at IS NULL` | non | NULL = à publier. |
-| `publish_attempts` | `integer` | non | `0` | — | non | Retry borné avec jitter (§22.1). |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | Commit/publication order. |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | Envelope `id` (§24.2); consumers' deduplication key (inbox). |
+| `event_type` | `text` | no | — | — | no | Versioned within the type: `deployment.succeeded.v1` (§24.2). |
+| `occurred_at` | `timestamptz` | no | `now()` | — | no | RFC3339Nano in the envelope. |
+| `team_uuid` | `uuid` | yes | — | — | no | Reference by public UUID (no FK: the event is an immutable fact). |
+| `resource_uuid` | `uuid` | yes | — | — | no | — |
+| `actor` | `jsonb` | yes | — | — | no | `{type, uuid}` (§24.2). |
+| `correlation_id` | `uuid` | yes | — | — | no | — |
+| `aggregate_key` | `text` | yes | — | index | no | Ordering guaranteed per aggregate key if needed (§24.2). |
+| `payload` | `jsonb` | no | `'{}'` | — | no | Redacted references and metadata, **never** a secret value (§24.2, INV-003). |
+| `published_at` | `timestamptz` | yes | — | partial index `(id) WHERE published_at IS NULL` | no | NULL = to publish. |
+| `publish_attempts` | `integer` | no | `0` | — | no | Bounded retry with jitter (§22.1). |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 11.6 `feature_flags`
 
-Activation de capacités expérimentales/dépréciées (ex. Swarm P3 derrière flag, §26.1) au niveau instance (`team_id` NULL) ou par team. Suppression : libre.
+Activation of experimental/deprecated capabilities (e.g. Swarm P3 behind a flag, §26.1) at the instance level (`team_id` NULL) or per team. Deletion: unrestricted.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `key` | `text` | non | — | UNIQUE NULLS NOT DISTINCT `(key, team_id)` | non | Ex. `swarm`, `caddy_proxy`, `mcp_server`. |
-| `team_id` | `bigint` | oui | — | FK `teams(id)` ON DELETE CASCADE | non | NULL = valeur d'instance ; ligne team = override. |
-| `enabled` | `boolean` | non | `false` | — | non | — |
-| `description` | `text` | oui | — | — | non | — |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `key` | `text` | no | — | UNIQUE NULLS NOT DISTINCT `(key, team_id)` | no | E.g. `swarm`, `caddy_proxy`, `mcp_server`. |
+| `team_id` | `bigint` | yes | — | FK `teams(id)` ON DELETE CASCADE | no | NULL = instance value; team row = override. |
+| `enabled` | `boolean` | no | `false` | — | no | — |
+| `description` | `text` | yes | — | — | no | — |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ### 11.7 `instance_settings`
 
-Réglages d'instance (§14.2) — **ajout au §19.1**, impliqué par les features FQDN d'instance, email transactionnel, DNS de validation, auto-update et onboarding. Table **singleton** (une seule ligne, `CHECK (id = 1)`). Suppression : interdite.
+Instance settings (§14.2) — **addition to §19.1**, implied by the instance FQDN, transactional email, validation DNS, auto-update and onboarding features. **Singleton** table (a single row, `CHECK (id = 1)`). Deletion: forbidden.
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `smallint` | non | `1` | PK, CHECK `(id = 1)` | non | Singleton. |
-| `fqdn` | `text` | oui | — | — | non | FQDN du dashboard derrière le proxy (§14.2, port unique §27.1). |
-| `timezone` | `text` | non | `'UTC'` | — | non | Affichage et crons de maintenance (§14.2). |
-| `registration_enabled` | `boolean` | non | `false` | — | non | Inscription publique on/off (§10.2, §14.2) — fermée par défaut. |
-| `api_enabled` | `boolean` | non | `false` | — | non | API désactivée par défaut (§10.3). |
-| `dns_validation_server` | `text` | non | `'1.1.1.1'` | — | non | DNS de validation custom (§4.2, §14.2). |
-| `transactional_email_config_enc` | `bytea` | oui | — | — | **oui** | SMTP/Resend de l'instance (invitations, reset — §14.2), chiffré enveloppe. |
-| `otlp_config_enc` | `bytea` | oui | — | — | **oui** | Export OTLP distant (endpoint, protocole, en-têtes d'auth, signaux — §14.2, ADR-008), chiffré enveloppe ; lu au boot, appliqué au prochain redémarrage. |
-| `auto_update_enabled` | `boolean` | non | `true` | — | non | Vérification périodique, désactivable (§14.3). |
-| `auto_update_cron` | `text` | oui | — | CHECK validation cron | non | Cron d'auto-update configurable (§14.3). |
-| `onboarding_completed_at` | `timestamptz` | oui | — | — | non | Assistant premier démarrage (§14.2, §25.1). |
-| `image_retention_count` | `integer` | non | `5` | CHECK `(>= 1)` | non | Images de rollback conservées par app/preview sans registry (ADR-006, §29.4) ; le minimum protège l'image en service. |
-| `updated_by` | `bigint` | oui | — | FK `users(id)` ON DELETE SET NULL | non | Réservé au root (§10.1). |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
-| `version` | `integer` | non | `1` | — | non | Verrou optimiste. |
+| `id` | `smallint` | no | `1` | PK, CHECK `(id = 1)` | no | Singleton. |
+| `fqdn` | `text` | yes | — | — | no | FQDN of the dashboard behind the proxy (§14.2, single port §27.1). |
+| `timezone` | `text` | no | `'UTC'` | — | no | Display and maintenance crons (§14.2). |
+| `registration_enabled` | `boolean` | no | `false` | — | no | Public registration on/off (§10.2, §14.2) — closed by default. |
+| `api_enabled` | `boolean` | no | `false` | — | no | API disabled by default (§10.3). |
+| `dns_validation_server` | `text` | no | `'1.1.1.1'` | — | no | Custom validation DNS (§4.2, §14.2). |
+| `transactional_email_config_enc` | `bytea` | yes | — | — | **yes** | Instance SMTP/Resend (invitations, reset — §14.2), envelope-encrypted. |
+| `otlp_config_enc` | `bytea` | yes | — | — | **yes** | Remote OTLP export (endpoint, protocol, auth headers, signals — §14.2, ADR-008), envelope-encrypted; read at boot, applied at the next restart. |
+| `auto_update_enabled` | `boolean` | no | `true` | — | no | Periodic check, can be disabled (§14.3). |
+| `auto_update_cron` | `text` | yes | — | CHECK cron validation | no | Configurable auto-update cron (§14.3). |
+| `onboarding_completed_at` | `timestamptz` | yes | — | — | no | First-startup wizard (§14.2, §25.1). |
+| `image_retention_count` | `integer` | no | `5` | CHECK `(>= 1)` | no | Rollback images kept per app/preview without a registry (ADR-006, §29.4); the minimum protects the in-service image. |
+| `updated_by` | `bigint` | yes | — | FK `users(id)` ON DELETE SET NULL | no | Reserved to root (§10.1). |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
+| `version` | `integer` | no | `1` | — | no | Optimistic lock. |
 
 ### 11.8 `jobs`
 
-Queue durable PostgreSQL (décision §27.2), machine à états §21.3 : lease avec expiration, heartbeat, retry borné, dead-letter (INV-013). Consommation par `SELECT … FOR UPDATE SKIP LOCKED`. Files/priorités séparées par `queue` (backups, cleanup, tâches utilisateur — §24.3). Suppression : **purge** des jobs terminés par rétention ; les `dead_letter` sont conservés jusqu'à intervention (retry/forget).
+Durable PostgreSQL queue (decision §27.2), state machine §21.3: lease with expiration, heartbeat, bounded retry, dead-letter (INV-013). Consumption via `SELECT … FOR UPDATE SKIP LOCKED`. Separate queues/priorities per `queue` (backups, cleanup, user tasks — §24.3). Deletion: **purge** of finished jobs per retention; `dead_letter` jobs are kept until intervention (retry/forget).
 
-| Colonne | Type PostgreSQL | Null | Défaut | Contraintes | Sensible | Description |
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
-| `id` | `bigint` | non | identity | PK | non | — |
-| `uuid` | `uuid` | non | `gen_random_uuid()` | UNIQUE | non | Suivi API (`202` + URL de suivi, §24.1). |
-| `queue` | `text` | non | `'default'` | index composite (voir ci-dessous) | non | File logique : `deploy`, `backup`, `cleanup`, `notify`, `maintenance`… |
-| `job_type` | `text` | non | — | — | non | Ex. `deployment.run`, `server.validate`, `backup.execute`, `resource.delete`. |
-| `payload` | `jsonb` | non | `'{}'` | — | non | Références (UUIDs) et paramètres ; **jamais** de secret en clair (INV-003). |
-| `status` | `job_status` | non | `'queued'` | index partiel `(queue, priority DESC, run_at, id) WHERE status = 'queued'` | non | Machine à états §21.3 (`scheduled` = déclenchement différé). |
-| `priority` | `integer` | non | `0` | — | non | Priorité intra-file (§24.3). |
-| `run_at` | `timestamptz` | non | `now()` | — | non | Ne pas exécuter avant (retry backoff avec jitter, §22.1). |
-| `attempt` | `integer` | non | `0` | — | non | Tentatives effectuées. |
-| `max_attempts` | `integer` | non | `5` | CHECK `> 0` | non | Au-delà → `dead_letter` (§21.3). |
-| `idempotency_key` | `text` | oui | — | UNIQUE | non | Clé d'idempotence des opérations distantes (INV-004, `Idempotency-Key` §24.1). |
-| `lock_key` | `text` | oui | — | UNIQUE partiel `WHERE status IN ('leased','running')` | non | Verrou d'exclusivité par ressource/serveur (ex. `switch:app:<uuid>`, §21.1, §18.2). |
-| `leased_by` | `text` | oui | — | — | non | Identifiant du worker détenteur. |
-| `lease_expires_at` | `timestamptz` | oui | — | index partiel `WHERE status IN ('leased','running')` | non | Reprise par un autre worker **après expiration uniquement**, avec inspection préalable de l'effet produit (§21.3, §22.1). |
-| `heartbeat_at` | `timestamptz` | oui | — | — | non | Prolonge le lease (INV-013). |
-| `cancel_requested_at` | `timestamptz` | oui | — | — | non | Annulation coopérative : le worker vérifie ce champ à chaque checkpoint entre deux étapes (spec deployment-engine §2.6). |
-| `last_error` | `text` | oui | — | — | non | Classification d'erreur (§22.1), redacted. |
-| `steps` | `jsonb` | non | `'[]'` | — | non | Étapes visibles du job (schéma OpenAPI `JobStep` : name, status, message, started_at, finished_at — §20.1). |
-| `result` | `jsonb` | oui | — | — | non | Résultat structuré en cas de succès (schéma OpenAPI `Job.result`) ; jamais de secret (INV-003). |
-| `retry_of_id` | `bigint` | oui | — | FK `jobs(id)` ON DELETE SET NULL | non | Job d'origine si nouvelle tentative liée créée par un retry dead-letter (deployment-engine §2.4). |
-| `team_id` | `bigint` | oui | — | FK `teams(id)` ON DELETE SET NULL | non | Limites de concurrence par team (§22.2). |
-| `resource_id` | `bigint` | oui | — | FK `resources(id)` ON DELETE SET NULL | non | Cible principale, pour l'UI « jobs de la ressource ». |
-| `correlation_id` | `uuid` | oui | — | — | non | Traçabilité bout en bout (§13, §24.2). |
-| `dead_lettered_at` | `timestamptz` | oui | — | — | non | — |
-| `finished_at` | `timestamptz` | oui | — | — | non | — |
-| `created_at` | `timestamptz` | non | `now()` | — | non | — |
-| `updated_at` | `timestamptz` | non | `now()` | — | non | — |
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | API tracking (`202` + tracking URL, §24.1). |
+| `queue` | `text` | no | `'default'` | composite index (see below) | no | Logical queue: `deploy`, `backup`, `cleanup`, `notify`, `maintenance`… |
+| `job_type` | `text` | no | — | — | no | E.g. `deployment.run`, `server.validate`, `backup.execute`, `resource.delete`. |
+| `payload` | `jsonb` | no | `'{}'` | — | no | References (UUIDs) and parameters; **never** a plaintext secret (INV-003). |
+| `status` | `job_status` | no | `'queued'` | partial index `(queue, priority DESC, run_at, id) WHERE status = 'queued'` | no | State machine §21.3 (`scheduled` = deferred triggering). |
+| `priority` | `integer` | no | `0` | — | no | Intra-queue priority (§24.3). |
+| `run_at` | `timestamptz` | no | `now()` | — | no | Do not run before (retry backoff with jitter, §22.1). |
+| `attempt` | `integer` | no | `0` | — | no | Attempts made. |
+| `max_attempts` | `integer` | no | `5` | CHECK `> 0` | no | Beyond → `dead_letter` (§21.3). |
+| `idempotency_key` | `text` | yes | — | UNIQUE | no | Idempotency key for remote operations (INV-004, `Idempotency-Key` §24.1). |
+| `lock_key` | `text` | yes | — | partial UNIQUE `WHERE status IN ('leased','running')` | no | Exclusivity lock per resource/server (e.g. `switch:app:<uuid>`, §21.1, §18.2). |
+| `leased_by` | `text` | yes | — | — | no | Identifier of the holding worker. |
+| `lease_expires_at` | `timestamptz` | yes | — | partial index `WHERE status IN ('leased','running')` | no | Takeover by another worker **only after expiration**, with prior inspection of the produced effect (§21.3, §22.1). |
+| `heartbeat_at` | `timestamptz` | yes | — | — | no | Extends the lease (INV-013). |
+| `cancel_requested_at` | `timestamptz` | yes | — | — | no | Cooperative cancellation: the worker checks this field at every checkpoint between two steps (deployment-engine spec §2.6). |
+| `last_error` | `text` | yes | — | — | no | Error classification (§22.1), redacted. |
+| `steps` | `jsonb` | no | `'[]'` | — | no | Visible steps of the job (`JobStep` OpenAPI schema: name, status, message, started_at, finished_at — §20.1). |
+| `result` | `jsonb` | yes | — | — | no | Structured result on success (`Job.result` OpenAPI schema); never a secret (INV-003). |
+| `retry_of_id` | `bigint` | yes | — | FK `jobs(id)` ON DELETE SET NULL | no | Original job if a linked new attempt was created by a dead-letter retry (deployment-engine §2.4). |
+| `team_id` | `bigint` | yes | — | FK `teams(id)` ON DELETE SET NULL | no | Per-team concurrency limits (§22.2). |
+| `resource_id` | `bigint` | yes | — | FK `resources(id)` ON DELETE SET NULL | no | Main target, for the "resource jobs" UI. |
+| `correlation_id` | `uuid` | yes | — | — | no | End-to-end traceability (§13, §24.2). |
+| `dead_lettered_at` | `timestamptz` | yes | — | — | no | — |
+| `finished_at` | `timestamptz` | yes | — | — | no | — |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
 ---
 
-## 12. Récapitulatif des données sensibles (chiffrement enveloppe §23.2, §27.3)
+## 12. Summary of sensitive data (envelope encryption §23.2, §27.3)
 
-| Table.colonne | Contenu |
+| Table.column | Contents |
 |---|---|
-| `private_keys.private_key_enc` | Clés SSH privées |
-| `mfa_factors.secret_enc` | Secrets TOTP |
-| `cloud_credentials.token_enc` | Tokens fournisseur cloud |
-| `registry_credentials.password_enc` | Credentials registry |
-| `s3_storages.access_key_enc`, `s3_storages.secret_key_enc` | Credentials S3 |
-| `github_apps.client_secret_enc`, `webhook_secret_enc`, `app_private_key_enc` | Secrets GitHub App |
-| `webhook_endpoints.secret_enc` | Secrets HMAC des webhooks entrants |
-| `environment_variables.value_enc`, `shared_variables.value_enc` | Valeurs de variables (secrètes ou non) |
-| `database_credentials.password_enc` | Mots de passe des bases managées |
-| `servers.ca_key_enc` | Clé privée de la CA SSL bases |
-| `servers.log_drain_config_enc` | Tokens des log drains |
-| `notification_channels.config_enc` | Tokens/credentials des canaux |
-| `instance_settings.transactional_email_config_enc` | SMTP/Resend de l'instance |
-| `instance_settings.otlp_config_enc` | Endpoint + en-têtes d'auth de l'export OTLP |
+| `private_keys.private_key_enc` | Private SSH keys |
+| `mfa_factors.secret_enc` | TOTP secrets |
+| `cloud_credentials.token_enc` | Cloud provider tokens |
+| `registry_credentials.password_enc` | Registry credentials |
+| `s3_storages.access_key_enc`, `s3_storages.secret_key_enc` | S3 credentials |
+| `github_apps.client_secret_enc`, `webhook_secret_enc`, `app_private_key_enc` | GitHub App secrets |
+| `webhook_endpoints.secret_enc` | HMAC secrets of inbound webhooks |
+| `environment_variables.value_enc`, `shared_variables.value_enc` | Variable values (secret or not) |
+| `database_credentials.password_enc` | Passwords of managed databases |
+| `servers.ca_key_enc` | Private key of the database SSL CA |
+| `servers.log_drain_config_enc` | Log drain tokens |
+| `notification_channels.config_enc` | Channel tokens/credentials |
+| `instance_settings.transactional_email_config_enc` | Instance SMTP/Resend |
+| `instance_settings.otlp_config_enc` | Endpoint + auth headers of the OTLP export |
 
-Hashés (irréversibles, jamais chiffrés car jamais restitués) : `users.password_hash` (Argon2id), `api_tokens.token_hash`, `sessions.token_hash`, `invitations.token_hash`, `servers.sentinel_token_hash`, `mfa_factors.recovery_code_hashes` (SHA-256, avec préfixe d'identification pour les tokens API — §23.2).
+Hashed (irreversible, never encrypted because never returned): `users.password_hash` (Argon2id), `api_tokens.token_hash`, `sessions.token_hash`, `invitations.token_hash`, `servers.sentinel_token_hash`, `mfa_factors.recovery_code_hashes` (SHA-256, with an identification prefix for API tokens — §23.2).
 
-**Total : 54 tables** (8 Identité, 5 Organisation, 7 Infrastructure, 5 Source, 9 Application, 6 Service/DB, 6 Exécution, 7 Plateforme dont `instance_settings` ajoutée, 1 queue technique). Toutes les entités du §19.1 sont couvertes ; les ajouts au-delà de la liste (§19.1) sont : `resource_tags` (matérialisation du N—N `Tag`), `shared_variables` (§5.4), `previews` (§5.6/§20.4), `instance_settings` (§14.2), `certificates` (reflet observé du sous-système certificats, §4.3/§6.3, proxy-contract §7) — chacun impliqué par une feature explicite du PRD.
+**Total: 54 tables** (8 Identity, 5 Organization, 7 Infrastructure, 5 Source, 9 Application, 6 Service/DB, 6 Execution, 7 Platform including the added `instance_settings`, 1 technical queue). All entities of §19.1 are covered; the additions beyond the list (§19.1) are: `resource_tags` (materialization of the `Tag` N—N), `shared_variables` (§5.4), `previews` (§5.6/§20.4), `instance_settings` (§14.2), `certificates` (observed reflection of the certificate subsystem, §4.3/§6.3, proxy-contract §7) — each implied by an explicit PRD feature.

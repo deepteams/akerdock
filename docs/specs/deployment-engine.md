@@ -1,86 +1,86 @@
-# Spécification — Moteur de déploiement
+# Specification — Deployment engine
 
-> Artefact §29.4 du PRD (`docs/PRD.md`). Le PRD est la source de vérité ; cette spécification le précise au niveau commande, répertoire, timeout, verrou et compensation. Lorsque le PRD est muet, la valeur retenue est marquée **(défaut proposé)**. Aucune décision d'implémentation Go n'est prise ici ; les contrats (queue, transport SSH, adaptateur runtime, proxy provider) sont ceux du §18.1.
+> PRD §29.4 artifact (`docs/PRD.md`). The PRD is the source of truth; this specification refines it down to the level of commands, directories, timeouts, locks and compensation. Where the PRD is silent, the chosen value is marked **(proposed default)**. No Go implementation decision is made here; the contracts (queue, SSH transport, runtime adapter, proxy provider) are those of §18.1.
 >
-> Périmètre : applications (build packs docker image, dockerfile en P0 ; nixpacks, railpack, static en P1). Le build pack **Docker Compose** est traité dans la spécification dédiée (§29.5, `docs/specs/compose-spec.md`) ; seuls ses points de contact avec le moteur (queue, verrous, états) sont mentionnés ici.
+> Scope: applications (docker image and dockerfile build packs in P0; nixpacks, railpack, static in P1). The **Docker Compose** build pack is covered in the dedicated specification (§29.5, `docs/specs/compose-spec.md`); only its contact points with the engine (queue, locks, states) are mentioned here.
 
 ---
 
-## 1. Vue d'ensemble
+## 1. Overview
 
-### 1.1 Du trigger au container en production
+### 1.1 From trigger to container in production
 
 ```text
 Trigger (UI / API / webhook / CLI / schedule)
-        │  validation, autorisation, snapshot de config, résolution du SHA
+        │  validation, authorization, config snapshot, SHA resolution
         ▼
-API : INSERT Deployment (queued) + INSERT job + INSERT outbox  ── même transaction PostgreSQL
+API : INSERT Deployment (queued) + INSERT job + INSERT outbox  ── same PostgreSQL transaction
         │
         ▼
-Queue PostgreSQL (FOR UPDATE SKIP LOCKED, lease + heartbeat)
+PostgreSQL queue (FOR UPDATE SKIP LOCKED, lease + heartbeat)
         │
         ▼
-Worker : machine à états (§4) — chaque étape = commandes SSH sur le serveur cible
+Worker : state machine (§4) — each step = SSH commands on the target server
         │
         ▼
-Serveur cible : Docker Engine/BuildKit + proxy (Traefik) + arborescence /var/lib/akerdock/
+Target server : Docker Engine/BuildKit + proxy (Traefik) + /var/lib/akerdock/ tree
 ```
 
-### 1.2 Acteurs
+### 1.2 Actors
 
-| Acteur | Responsabilité | Ce qu'il ne fait jamais |
+| Actor | Responsibility | What it never does |
 |---|---|---|
-| **API (control plane)** | Auth/policy, validation, snapshot versionné de la configuration (INV-014), résolution branche → SHA immuable, création transactionnelle `Deployment` + job + événement outbox, réponse `202` avec `deployment_uuid` | Exécuter une commande distante ; attendre la fin du déploiement |
-| **Queue (PostgreSQL)** | Durabilité des jobs (INV-013), ordre par priorité/date, leases, retries, dead-letter | Logique métier |
-| **Worker** | Acquisition des jobs, verrous et slots, exécution de la machine à états, streaming des logs, compensation, libération garantie des ressources | Servir du trafic HTTP utilisateur ; être source de vérité d'un état |
-| **Serveur cible (via SSH)** | Exécution de git/docker/buildkit, hébergement des containers, du proxy et des fichiers sous `/var/lib/akerdock/` | Contacter le control plane (architecture push, §18.1) |
-| **Proxy (Traefik, P0)** | Routage du trafic, application de la représentation intermédiaire (§27.9) | Décider de la bascule (le worker pilote) |
+| **API (control plane)** | Auth/policy, validation, versioned configuration snapshot (INV-014), branch → immutable SHA resolution, transactional creation of `Deployment` + job + outbox event, `202` response with `deployment_uuid` | Executing a remote command; waiting for the deployment to finish |
+| **Queue (PostgreSQL)** | Job durability (INV-013), ordering by priority/date, leases, retries, dead-letter | Business logic |
+| **Worker** | Job acquisition, locks and slots, state machine execution, log streaming, compensation, guaranteed resource release | Serving user HTTP traffic; being the source of truth for any state |
+| **Target server (via SSH)** | Running git/docker/buildkit, hosting the containers, the proxy and the files under `/var/lib/akerdock/` | Contacting the control plane (push architecture, §18.1) |
+| **Proxy (Traefik, P0)** | Routing traffic, applying the intermediate representation (§27.9) | Deciding the switchover (the worker drives it) |
 
-### 1.3 Sources de vérité mobilisées (§18.3)
+### 1.3 Sources of truth involved (§18.3)
 
-- Configuration désirée : snapshot PostgreSQL figé à l'enqueue — un déploiement rejoué utilise **son** snapshot, jamais la config courante.
-- Code source : SHA résolu à l'enqueue, immuable (un push ultérieur = nouveau déploiement, éventuellement coalescé §3.4).
-- Image : **digest OCI** résolu avant bascule ; le tag n'est jamais suffisant pour un rollback.
-- État distant : Docker du serveur cible, interrogé par inspection — jamais supposé depuis la base (INV-004, §22.1).
-- Routage : fichier de configuration dynamique du proxy sur le serveur, généré de façon déterministe depuis la représentation intermédiaire, validé et checksumé.
+- Desired configuration: PostgreSQL snapshot frozen at enqueue time — a replayed deployment uses **its** snapshot, never the current config.
+- Source code: SHA resolved at enqueue time, immutable (a later push = a new deployment, possibly coalesced §3.4).
+- Image: **OCI digest** resolved before switchover; a tag is never sufficient for a rollback.
+- Remote state: the target server's Docker, queried by inspection — never assumed from the database (INV-004, §22.1).
+- Routing: the proxy's dynamic configuration file on the server, generated deterministically from the intermediate representation, validated and checksummed.
 
 ---
 
-## 2. Queue et jobs
+## 2. Queue and jobs
 
-### 2.1 Schéma sémantique
+### 2.1 Semantic schema
 
-Deux tables (noms indicatifs, le contrat sémantique est normatif) :
+Two tables (names are indicative, the semantic contract is normative):
 
-**`jobs`** — file durable générique (§21.3), requêtes critiques en SQL explicite (décision §27.25).
+**`jobs`** — generic durable queue (§21.3), critical queries in explicit SQL (decision §27.25).
 
-| Colonne | Type | Sémantique |
+| Column | Type | Semantics |
 |---|---|---|
-| `id` | uuid | Identifiant du job |
-| `queue` | text | File logique : `deployments`, `server_ops`, `backups`, `maintenance`… (priorités séparées, §24.3) |
+| `id` | uuid | Job identifier |
+| `queue` | text | Logical queue: `deployments`, `server_ops`, `backups`, `maintenance`… (separate priorities, §24.3) |
 | `type` | text | `deployment.run`, `deployment.cancel_cleanup`… |
-| `payload` | jsonb | Références uniquement : `deployment_uuid`, `application_uuid`, `server_uuid` — **jamais de secret** (INV-003) |
+| `payload` | jsonb | References only: `deployment_uuid`, `application_uuid`, `server_uuid` — **never a secret** (INV-003) |
 | `status` | enum | `scheduled → queued → leased → running → succeeded \| retry_wait \| cancelled \| dead_letter` (§21.3) |
-| `priority` | int | Plus petit = plus prioritaire ; défaut `100` **(défaut proposé)** |
-| `run_at` | timestamptz | Date d'éligibilité (backoff des retries) |
-| `attempt` / `max_attempts` | int | Tentative courante / plafond (§2.4) |
-| `leased_by` | text | Identité du worker (`hostname:pid:uuid`) |
-| `lease_expires_at` | timestamptz | Expiration du lease |
-| `heartbeat_at` | timestamptz | Dernier battement |
-| `idempotency_key` | text unique | Déduplication d'enqueue (INV-004, §24.1) |
-| `cancel_requested_at` | timestamptz | Annulation coopérative (§2.6) |
-| `last_error` | jsonb | Classification de la dernière erreur (code, étape, redacted) |
-| `created_at`, `started_at`, `finished_at` | timestamptz | Horodatage UTC (§22.3) |
+| `priority` | int | Lower = higher priority; default `100` **(proposed default)** |
+| `run_at` | timestamptz | Eligibility date (retry backoff) |
+| `attempt` / `max_attempts` | int | Current attempt / ceiling (§2.4) |
+| `leased_by` | text | Worker identity (`hostname:pid:uuid`) |
+| `lease_expires_at` | timestamptz | Lease expiration |
+| `heartbeat_at` | timestamptz | Last heartbeat |
+| `idempotency_key` | text unique | Enqueue deduplication (INV-004, §24.1) |
+| `cancel_requested_at` | timestamptz | Cooperative cancellation (§2.6) |
+| `last_error` | jsonb | Classification of the last error (code, step, redacted) |
+| `created_at`, `started_at`, `finished_at` | timestamptz | UTC timestamps (§22.3) |
 
-**`deployments`** — historique métier (§19.1) : `uuid`, `application_uuid`, `server_uuid`, `destination_uuid`, `state` (machine §4), `commit_sha`, `config_snapshot_id`, `image_ref`, `image_digest`, `trigger` (`manual|api|webhook|preview|schedule|config_apply|cli_local` — vocabulaire canonique du data dictionary, le rollback étant porté par `is_rollback`), `webhook_delivery_id`, `forced` (build sans cache), `superseded_by` (coalescing §3.4), `attempt`, timestamps par étape, `finished_at`.
+**`deployments`** — business history (§19.1): `uuid`, `application_uuid`, `server_uuid`, `destination_uuid`, `state` (state machine §4), `commit_sha`, `config_snapshot_id`, `image_ref`, `image_digest`, `trigger` (`manual|api|webhook|preview|schedule|config_apply|cli_local` — canonical vocabulary of the data dictionary, rollback being carried by `is_rollback`), `webhook_delivery_id`, `forced` (build without cache), `superseded_by` (coalescing §3.4), `attempt`, per-step timestamps, `finished_at`.
 
-### 2.2 Enqueue transactionnel
+### 2.2 Transactional enqueue
 
-Une seule transaction PostgreSQL contient : création du `Deployment` (état `queued`), snapshot de configuration, `INSERT jobs`, `INSERT outbox` (`deployment.queued.v1`), et la vérification du plafond de file (§3.2). Commit = le job existe et survivra à tout crash (INV-013). Après commit : `NOTIFY akerdock_jobs` pour réveiller les workers **(défaut proposé)**.
+A single PostgreSQL transaction contains: creation of the `Deployment` (state `queued`), configuration snapshot, `INSERT jobs`, `INSERT outbox` (`deployment.queued.v1`), and the queue-cap check (§3.2). Commit = the job exists and will survive any crash (INV-013). After commit: `NOTIFY akerdock_jobs` to wake up the workers **(proposed default)**.
 
 ### 2.3 Acquisition, lease, heartbeat
 
-Acquisition par un worker (sémantique exacte) :
+Acquisition by a worker (exact semantics):
 
 ```sql
 SELECT id FROM jobs
@@ -88,92 +88,92 @@ WHERE queue = $1 AND status = 'queued' AND run_at <= now()
 ORDER BY priority, run_at
 FOR UPDATE SKIP LOCKED
 LIMIT 1;
--- puis, même transaction :
+-- then, same transaction:
 UPDATE jobs SET status = 'leased', leased_by = $worker,
   lease_expires_at = now() + interval '90 seconds',
   heartbeat_at = now()
 WHERE id = $id;
 ```
 
-Les contraintes de slots et de verrous (§3) sont vérifiées **dans la même transaction** que l'acquisition ; si un slot manque, le job est laissé en `queued` (avec `run_at = now() + 5 s` pour éviter le busy-loop) et le worker passe au suivant.
+Slot and lock constraints (§3) are checked **within the same transaction** as the acquisition; if a slot is missing, the job is left in `queued` (with `run_at = now() + 5 s` to avoid a busy-loop) and the worker moves on to the next one.
 
-| Paramètre | Valeur | Note |
+| Parameter | Value | Note |
 |---|---|---|
-| Durée du lease | **90 s** | Renouvelé par heartbeat **(défaut proposé)** |
-| Intervalle de heartbeat | **20 s** | `UPDATE jobs SET heartbeat_at = now(), lease_expires_at = now() + 90 s WHERE id = $1 AND leased_by = $worker` ; un échec de heartbeat (lease perdu) impose au worker d'**abandonner immédiatement** le job sans nouvelle mutation distante **(défaut proposé)** |
-| Réveil | `LISTEN akerdock_jobs` + polling de secours toutes les **5 s** **(défaut proposé)** |
-| Scan des leases expirés | Toutes les **30 s** : `status IN ('leased','running') AND lease_expires_at < now()` → remise en `queued` avec `attempt` inchangé et marqueur `recovered = true` **(défaut proposé)** |
+| Lease duration | **90 s** | Renewed by heartbeat **(proposed default)** |
+| Heartbeat interval | **20 s** | `UPDATE jobs SET heartbeat_at = now(), lease_expires_at = now() + 90 s WHERE id = $1 AND leased_by = $worker`; a heartbeat failure (lost lease) requires the worker to **abandon the job immediately** without any further remote mutation **(proposed default)** |
+| Wake-up | `LISTEN akerdock_jobs` + fallback polling every **5 s** **(proposed default)** |
+| Expired-lease scan | Every **30 s**: `status IN ('leased','running') AND lease_expires_at < now()` → put back to `queued` with `attempt` unchanged and marker `recovered = true` **(proposed default)** |
 
 ### 2.4 Retry, backoff, dead-letter
 
-Classification obligatoire de chaque échec (§22.1) :
+Mandatory classification of every failure (§22.1):
 
-- **Erreur transitoire d'infrastructure** (SSH injoignable, timeout réseau, registry 5xx, disque distant momentanément saturé) → retry automatique.
-- **Erreur déterministe** (échec de build, healthcheck jamais sain, commande pre/post en échec, config invalide, `${VAR:?}` vide) → **aucun retry automatique** ; le déploiement passe en `failed`, retry manuel possible (§21.1 : `failed → retrying → preparing`, nouvelle tentative explicitement liée).
+- **Transient infrastructure error** (SSH unreachable, network timeout, registry 5xx, remote disk momentarily full) → automatic retry.
+- **Deterministic error** (build failure, healthcheck never healthy, failing pre/post command, invalid config, empty `${VAR:?}`) → **no automatic retry**; the deployment goes to `failed`, manual retry possible (§21.1: `failed → retrying → preparing`, new attempt explicitly linked).
 
-| Paramètre | Valeur |
+| Parameter | Value |
 |---|---|
-| `max_attempts` (jobs `deployment.run`) | **3** (1 exécution + 2 retries automatiques d'infra) **(défaut proposé)** |
-| Backoff | `delay = min(30 s × 2^(attempt−1), 15 min)` **(défaut proposé)** |
-| Jitter | Full jitter : `run_at = now() + random(0, delay)` (bornes : 0 s – 15 min) **(défaut proposé)** |
-| Dead-letter | `attempt ≥ max_attempts` → `status = 'dead_letter'`, `Deployment.state = failed`, événement `deployment.failed.v1`, notification, entrée dashboard « actions prioritaires ». Rejeu depuis la dead-letter = action manuelle auditée qui crée une **nouvelle tentative liée** |
+| `max_attempts` (`deployment.run` jobs) | **3** (1 execution + 2 automatic infra retries) **(proposed default)** |
+| Backoff | `delay = min(30 s × 2^(attempt−1), 15 min)` **(proposed default)** |
+| Jitter | Full jitter: `run_at = now() + random(0, delay)` (bounds: 0 s – 15 min) **(proposed default)** |
+| Dead-letter | `attempt ≥ max_attempts` → `status = 'dead_letter'`, `Deployment.state = failed`, `deployment.failed.v1` event, notification, dashboard entry under "priority actions". Replay from the dead-letter = an audited manual action that creates a **new linked attempt** |
 
-### 2.5 Reprise après crash (INV-004, INV-013, §22.1)
+### 2.5 Crash recovery (INV-004, INV-013, §22.1)
 
-Un job récupéré après expiration de lease n'est **jamais rejoué à l'aveugle**. Le worker repreneur exécute d'abord une **inspection distante** puis décide reprendre / compenser / terminer :
+A job recovered after lease expiration is **never replayed blindly**. The recovering worker first performs a **remote inspection** and then decides to resume / compensate / finish:
 
-1. Lire `Deployment.state` et les métadonnées d'étape en base (dernier checkpoint committé).
-2. Inspecter le serveur : `docker image inspect` de l'image attendue (label `akerdock.deployment_uuid`), `docker container inspect <uuid>-next` et `<uuid>`, checksum du fichier proxy, présence du répertoire de clone.
-3. Appliquer la règle de reprise de l'état concerné (colonne « crash pendant l'état » du tableau §4).
+1. Read `Deployment.state` and the step metadata in the database (last committed checkpoint).
+2. Inspect the server: `docker image inspect` of the expected image (`akerdock.deployment_uuid` label), `docker container inspect <uuid>-next` and `<uuid>`, checksum of the proxy file, presence of the clone directory.
+3. Apply the recovery rule of the state concerned ("crash during this state" column of the table in §4).
 
-Règle générale : tout effet distant est **idempotent ou détectable** — les objets créés portent le label `akerdock.deployment_uuid=<uuid>` qui permet de savoir si l'étape a déjà produit son effet avant de la rejouer.
+General rule: every remote effect is **idempotent or detectable** — the objects created carry the label `akerdock.deployment_uuid=<uuid>`, which makes it possible to know whether the step has already produced its effect before replaying it.
 
-### 2.6 Annulation coopérative
+### 2.6 Cooperative cancellation
 
-- L'annulation (UI/API, §5.5) écrit `cancel_requested_at` et publie `NOTIFY`.
-- Le worker vérifie le drapeau à **chaque checkpoint** (= chaque transition d'état de la machine §4) et **avant toute commande distante longue** (clone, build, pull, push).
-- Pour interrompre une commande en cours : fermeture du canal SSH avec envoi de signal, les commandes longues étant lancées via `timeout -k 10 <secs> <cmd>` côté distant pour garantir la terminaison **(défaut proposé)**.
-- **Barrière d'annulation** : à partir de l'entrée en `switching`, l'annulation est refusée (la bascule est atomique : elle se termine ou est compensée, jamais interrompue).
-- Après annulation : compensation identique à un échec au même point (§9), état terminal `cancelled`, libération des verrous/slots, nettoyage du candidat.
+- Cancellation (UI/API, §5.5) writes `cancel_requested_at` and publishes `NOTIFY`.
+- The worker checks the flag at **every checkpoint** (= every state transition of the machine §4) and **before every long remote command** (clone, build, pull, push).
+- To interrupt an in-flight command: the SSH channel is closed with a signal sent, long commands being launched via `timeout -k 10 <secs> <cmd>` on the remote side to guarantee termination **(proposed default)**.
+- **Cancellation barrier**: from the moment `switching` is entered, cancellation is refused (the switchover is atomic: it either completes or is compensated, never interrupted).
+- After cancellation: compensation identical to a failure at the same point (§9), terminal state `cancelled`, release of locks/slots, cleanup of the candidate.
 
 ---
 
-## 3. Verrous et contrôle de concurrence
+## 3. Locks and concurrency control
 
-Tous les verrous sont matérialisés en PostgreSQL (verrous multi-instance, §18.2). Libération **garantie** : chaque acquisition est enregistrée avec le `job_id` détenteur ; la fin du job (succès, échec, panique, annulation) passe par un point de sortie unique qui libère verrous et slots (sémantique defer/finally) ; de plus, le scan des leases expirés (§2.3) libère les verrous des jobs morts.
+All locks are materialized in PostgreSQL (multi-instance locks, §18.2). **Guaranteed** release: every acquisition is recorded with the holding `job_id`; the end of the job (success, failure, panic, cancellation) goes through a single exit point that releases locks and slots (defer/finally semantics); in addition, the expired-lease scan (§2.3) releases the locks of dead jobs.
 
-### 3.1 Verrou exclusif par (application, destination)
+### 3.1 Exclusive lock per (application, destination)
 
-- **Un seul déploiement actif** (états `preparing` → `finishing`) par couple `(application_uuid, destination_uuid)` : les autres attendent en `queued`. Les previews de PR ont leur propre identité (§20.4) donc leur propre verrou.
-- L'état `switching` est en outre protégé par ce même verrou de façon **stricte** (§21.1) : aucune reprise après crash ne peut re-basculer tant que l'inspection n'a pas déterminé l'issue de la bascule précédente (pas de double bascule, §16.4).
-- Implémentation sémantique : ligne `resource_locks(application_uuid, destination_uuid, holder_job_id, acquired_at)` avec contrainte d'unicité, prise dans la transaction d'acquisition du job.
+- **A single active deployment** (states `preparing` → `finishing`) per `(application_uuid, destination_uuid)` pair: the others wait in `queued`. PR previews have their own identity (§20.4) and therefore their own lock.
+- The `switching` state is furthermore protected by this same lock in a **strict** manner (§21.1): no crash recovery may re-switch until the inspection has determined the outcome of the previous switchover (no double switchover, §16.4).
+- Semantic implementation: a `resource_locks(application_uuid, destination_uuid, holder_job_id, acquired_at)` row with a uniqueness constraint, taken within the job acquisition transaction.
 
-### 3.2 Slots et plafonds par serveur (§5.5)
+### 3.2 Slots and per-server caps (§5.5)
 
-| Paramètre | Défaut | Sémantique |
+| Parameter | Default | Semantics |
 |---|---|---|
-| `concurrent_builds` | **2** | Nombre max de jobs de déploiement en exécution simultanée par serveur (compte de `jobs` en `leased/running` ciblant le serveur, vérifié à l'acquisition). Un déploiement sans build (docker image, rollback) consomme aussi un slot : il exécute pull/start/bascule sur le même Docker **(défaut proposé : slot unique, pas de file séparée)** |
-| `deployment_queue_limit` | **25** | Nombre max de déploiements `queued` par serveur ; au-delà, l'enqueue est **refusé** à l'API avec `429` et code d'erreur stable (`deployment_queue_full`) **(défaut proposé : refus plutôt que blocage)** |
+| `concurrent_builds` | **2** | Max number of deployment jobs running simultaneously per server (count of `jobs` in `leased/running` targeting the server, checked at acquisition). A deployment without a build (docker image, rollback) also consumes a slot: it runs pull/start/switchover on the same Docker **(proposed default: a single slot type, no separate queue)** |
+| `deployment_queue_limit` | **25** | Max number of `queued` deployments per server; beyond that, the enqueue is **refused** at the API with `429` and a stable error code (`deployment_queue_full`) **(proposed default: refusal rather than blocking)** |
 
-Les deux valeurs sont configurables par serveur ; la limite par team (§22.2) s'applique en plus, avec la même règle.
+Both values are configurable per server; the per-team limit (§22.2) applies on top, with the same rule.
 
-### 3.3 Ordre dans la file
+### 3.3 Queue ordering
 
-FIFO par `(priority, run_at)` au sein d'un serveur. Un redéploiement manuel « urgent » PEUT recevoir `priority = 50` **(défaut proposé)**. La vue « déploiements en cours/en attente » (§5.5) lit directement `deployments` + `jobs`.
+FIFO by `(priority, run_at)` within a server. An "urgent" manual redeploy MAY receive `priority = 50` **(proposed default)**. The "running/pending deployments" view (§5.5) reads directly from `deployments` + `jobs`.
 
-### 3.4 Coalescing des pushes (§20.3.5)
+### 3.4 Push coalescing (§20.3.5)
 
-À l'enqueue d'un déploiement déclenché par webhook pour `(application, branche)` :
+When enqueuing a webhook-triggered deployment for `(application, branch)`:
 
-1. Chercher un déploiement existant `queued` (job non encore `leased`) pour la même application et la même branche, issu d'un webhook.
-2. S'il existe avec un SHA plus ancien : le marquer `superseded` (état terminal assimilé à `cancelled`, `superseded_by = <nouveau uuid>`), annuler son job, créer le nouveau déploiement au SHA récent. La livraison webhook d'origine reste tracée et pointe vers le déploiement qui l'a remplacée.
-3. Un déploiement déjà `leased`/en cours n'est **jamais** coalescé : il se termine, le nouveau attend le verrou §3.1.
+1. Look for an existing `queued` deployment (job not yet `leased`) for the same application and the same branch, originating from a webhook.
+2. If one exists with an older SHA: mark it `superseded` (terminal state assimilated to `cancelled`, `superseded_by = <new uuid>`), cancel its job, create the new deployment at the recent SHA. The original webhook delivery remains traced and points to the deployment that superseded it.
+3. A deployment already `leased`/in progress is **never** coalesced: it runs to completion, the new one waits for the §3.1 lock.
 
-Fenêtre de coalescing = tant que le job est en `queued` ; aucune temporisation artificielle **(défaut proposé)**.
+Coalescing window = as long as the job is in `queued`; no artificial delay **(proposed default)**.
 
 ---
 
-## 4. Machine à états du déploiement (§21.1)
+## 4. Deployment state machine (§21.1)
 
 ```text
 queued → preparing → cloning → building → pushing? → starting
@@ -183,105 +183,105 @@ starting → healthchecking → switching → finishing → succeeded
 failed → retrying → preparing
 ```
 
-Chaque transition est committée en base **avant** l'action distante de l'état suivant (write-ahead : l'état en base dit « ce qui a pu commencer », l'inspection distante dit « ce qui a réellement eu lieu »). Chaque transition publie un événement outbox (§12). `cancelled`, `failed`, `succeeded` sont terminaux pour une tentative.
+Every transition is committed to the database **before** the remote action of the next state (write-ahead: the state in the database says "what may have started", the remote inspection says "what actually happened"). Every transition publishes an outbox event (§12). `cancelled`, `failed`, `succeeded` are terminal for an attempt.
 
-Les build packs sans étape de build (docker image, rollback) traversent `cloning`/`building`/`pushing` en no-op (transition immédiate, tracée). Détail des actions par build pack au §5.
+Build packs without a build step (docker image, rollback) pass through `cloning`/`building`/`pushing` as no-ops (immediate, traced transition). Per-build-pack action details in §5.
 
-| État | Préconditions | Actions exactes | Effets de bord distants | Timeout | Crash pendant l'état (règle de reprise) | Transition d'échec |
+| State | Preconditions | Exact actions | Remote side effects | Timeout | Crash during this state (recovery rule) | Failure transition |
 |---|---|---|---|---|---|---|
-| **queued** | Deployment + job committés ; plafond §3.2 respecté | Attente d'acquisition ; cible du coalescing §3.4 | Aucun | Aucun (borné par `deployment_queue_limit`) | Rien à reprendre (aucun effet) | Annulation → `cancelled` |
-| **preparing** | Verrou §3.1 acquis, slot §3.2 acquis, serveur `ready` | Charger le snapshot de config ; connexion SSH (test `docker info`) ; vérifier espace disque (`df -P /var/lib/akerdock`, seuil min **2 GiB libres (défaut proposé)**) ; créer l'arborescence (§5.1) ; générer et téléverser `build.env`, `runtime.env`, `secrets/` (§5.7) ; exécuter la **pre-deployment command** (§10) ; vérifier le réseau de destination (`docker network inspect`, créer si absent) | Répertoires + fichiers env (0600) ; réseau destination | SSH connect : **10 s** (configurable par serveur, §3.1 PRD) ; état complet : **120 s (défaut proposé)** | Idempotent : tout rejouer (mkdir -p, ré-upload des fichiers, re-exécution de la pre-command — elle DOIT être idempotente, documenté §10) | `failed` ; compensation C1 (§9) |
-| **cloning** | Source Git ; credentials valides | Commandes §5.3.1 : clone shallow au SHA exact, submodules/LFS si activés | Répertoire `source/<deployment_uuid>/` | **600 s (défaut proposé)**, configurable par application | Répertoire potentiellement partiel → `rm -rf` du répertoire de ce deployment puis re-clone (idempotent par destruction) | `failed` ; C1 |
-| **building** | Source présente ; plan de build généré | Commandes §5.3.2/§5.4/§5.5/§5.6 selon build pack ; logs streamés (§12.2) ; `--no-cache` si `forced` | Image locale `akerdock/<app_uuid>:<sha12>` avec labels §6 | **3600 s (défaut proposé)**, configurable par application | `docker image inspect akerdock/<app_uuid>:<sha12>` + label `akerdock.deployment_uuid` : si présente et complète → passer à l'état suivant ; sinon relancer le build (le cache BuildKit rend le rejeu peu coûteux) | `failed` (déterministe : pas de retry auto) ; C1 |
-| **pushing** *(optionnel)* | Registry configuré (décision §27.6) ou exigé (build server, multi-serveurs) | `docker tag` + `docker push` (§5.3.3) ; **résolution du digest OCI** et enregistrement dans `DeploymentArtifact` | Image dans le registry | **900 s (défaut proposé)** | Push idempotent (layers dédupliqués) → rejouer ; re-résoudre le digest | `failed` si registry obligatoire ; **sinon** dégradation en mode rétention locale + avertissement **(défaut proposé)** ; C1 |
-| **starting** | Image présente (locale ou pullée) ; digest résolu | Créer volumes manquants (§6.3) ; `docker create` du candidat `<uuid>-next` + `docker start` (§5.3.4) ; en mode non-rolling (§7.4) : arrêt de l'ancien d'abord | Container candidat ; volumes | Création + démarrage : **60 s (défaut proposé)** | `docker container inspect <uuid>-next` : absent → recréer ; présent `created` → start ; présent `running` → continuer ; présent `exited` → supprimer et recréer | `failed` ; C2 (§9) |
-| **healthchecking** | Candidat `running` | Polling `docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' <uuid>-next` toutes les **2 s (défaut proposé)** jusqu'à `healthy` ; sans healthcheck défini : app **inéligible au rolling** (§7.3), en mode non-rolling attendre `running` stable **10 s (défaut proposé)** ; puis **post-deployment command** dans le candidat (§10) | Aucun (lecture + exec) | `start_period + (interval + timeout) × retries + 30 s` de marge (défauts §11 → ~135 s) | Relire l'état de santé : `healthy` → continuer ; `unhealthy`/disparu → `failed` + C2 ; en cours → reprendre le polling | `failed` (déterministe) ; C2 ; les logs du candidat (`docker logs --tail 200 <uuid>-next`) sont capturés dans le log de build avant suppression **(défaut proposé)** |
-| **switching** | Candidat `healthy` + post-command OK ; verrou §3.1 strict ; **barrière d'annulation active** | Algorithme §7.2 : génération de la représentation intermédiaire → fichier dynamique Traefik → application atomique → vérification ; puis arrêt gracieux de l'ancien, `docker rename` du candidat | Fichier proxy modifié ; ancien container arrêté/supprimé ; candidat renommé `<uuid>` | **120 s (défaut proposé)** hors stop grace ; + `stop_grace_period` | **Cas critique.** Inspection : (a) fichier proxy pointe encore l'ancien → candidat toujours sain ? oui : rejouer la bascule ; non : `failed` + C2 ; (b) fichier pointe le candidat, ancien encore présent → reprendre à l'arrêt de l'ancien ; (c) ancien absent, rename non fait → reprendre au rename ; jamais de seconde bascule sans cette inspection (INV-004/005) | Avant application proxy : `failed` + C2. Après application vérifiée : la bascule a eu lieu → poursuivre vers `finishing` si possible, sinon `failed` + C3 (§9) |
-| **finishing** | Trafic basculé, container final nommé `<uuid>` | Mettre à jour la config proxy vers la forme stable (§7.2 étape 7) ; enregistrer `DeploymentArtifact` (digest, tags conservés) ; récupérer best-effort les images hors rétention (§8.2, `image_retention_count`) et planifier le nettoyage asynchrone des sources anciennes ; mettre à jour l'état observé de la ressource | Fichier proxy stabilisé ; métadonnées | **60 s (défaut proposé)** | Toutes les actions sont idempotentes → rejouer intégralement | Échec ici = déploiement **réussi avec avertissement** (`succeeded` + événement `deployment.finishing_degraded.v1`) : le trafic est déjà sur la nouvelle version, ne jamais la casser pour un nettoyage **(défaut proposé)** |
-| **succeeded** | — | Événement + notification ; libération verrou/slot | — | — | — | — |
-| **failed** | — | Compensation exécutée (§9) ; événement + notification ; libération verrou/slot ; classification de l'erreur (§2.4) | — | — | Compensation elle-même idempotente et rejouable | — |
-| **cancelled** | Annulation avant la barrière | Compensation au point courant (§9) ; libération verrou/slot | — | — | Idem `failed` | — |
-| **retrying** | Action manuelle sur `failed`, ou retry auto d'infra | Nouvelle tentative liée (`attempt + 1`, historique conservé §21.1) → `preparing` avec le **même snapshot et le même SHA** | — | — | — | — |
+| **queued** | Deployment + job committed; §3.2 cap respected | Waiting for acquisition; target of coalescing §3.4 | None | None (bounded by `deployment_queue_limit`) | Nothing to recover (no effect) | Cancellation → `cancelled` |
+| **preparing** | §3.1 lock acquired, §3.2 slot acquired, server `ready` | Load the config snapshot; SSH connection (`docker info` test); check disk space (`df -P /var/lib/akerdock`, min threshold **2 GiB free (proposed default)**); create the directory tree (§5.1); generate and upload `build.env`, `runtime.env`, `secrets/` (§5.7); run the **pre-deployment command** (§10); check the destination network (`docker network inspect`, create if absent) | Directories + env files (0600); destination network | SSH connect: **10 s** (configurable per server, PRD §3.1); full state: **120 s (proposed default)** | Idempotent: replay everything (mkdir -p, re-upload files, re-run the pre-command — it MUST be idempotent, documented §10) | `failed`; compensation C1 (§9) |
+| **cloning** | Git source; valid credentials | Commands §5.3.1: shallow clone at the exact SHA, submodules/LFS if enabled | `source/<deployment_uuid>/` directory | **600 s (proposed default)**, configurable per application | Potentially partial directory → `rm -rf` of this deployment's directory then re-clone (idempotent by destruction) | `failed`; C1 |
+| **building** | Source present; build plan generated | Commands §5.3.2/§5.4/§5.5/§5.6 depending on build pack; logs streamed (§12.2); `--no-cache` if `forced` | Local image `akerdock/<app_uuid>:<sha12>` with §6 labels | **3600 s (proposed default)**, configurable per application | `docker image inspect akerdock/<app_uuid>:<sha12>` + `akerdock.deployment_uuid` label: if present and complete → move to the next state; otherwise rerun the build (the BuildKit cache makes the replay cheap) | `failed` (deterministic: no auto retry); C1 |
+| **pushing** *(optional)* | Registry configured (decision §27.6) or required (build server, multi-server) | `docker tag` + `docker push` (§5.3.3); **OCI digest resolution** and recording in `DeploymentArtifact` | Image in the registry | **900 s (proposed default)** | Idempotent push (deduplicated layers) → replay; re-resolve the digest | `failed` if registry mandatory; **otherwise** degradation to local-retention mode + warning **(proposed default)**; C1 |
+| **starting** | Image present (local or pulled); digest resolved | Create missing volumes (§6.3); `docker create` of the candidate `<uuid>-next` + `docker start` (§5.3.4); in non-rolling mode (§7.4): stop the old one first | Candidate container; volumes | Creation + start: **60 s (proposed default)** | `docker container inspect <uuid>-next`: absent → recreate; present `created` → start; present `running` → continue; present `exited` → remove and recreate | `failed`; C2 (§9) |
+| **healthchecking** | Candidate `running` | Polling `docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' <uuid>-next` every **2 s (proposed default)** until `healthy`; without a defined healthcheck: app **ineligible for rolling** (§7.3), in non-rolling mode wait for `running` stable for **10 s (proposed default)**; then **post-deployment command** in the candidate (§10) | None (read + exec) | `start_period + (interval + timeout) × retries + 30 s` of margin (defaults §11 → ~135 s) | Re-read the health state: `healthy` → continue; `unhealthy`/gone → `failed` + C2; in progress → resume polling | `failed` (deterministic); C2; the candidate's logs (`docker logs --tail 200 <uuid>-next`) are captured into the build log before removal **(proposed default)** |
+| **switching** | Candidate `healthy` + post-command OK; strict §3.1 lock; **cancellation barrier active** | Algorithm §7.2: generation of the intermediate representation → Traefik dynamic file → atomic application → verification; then graceful stop of the old one, `docker rename` of the candidate | Proxy file modified; old container stopped/removed; candidate renamed `<uuid>` | **120 s (proposed default)** excluding stop grace; + `stop_grace_period` | **Critical case.** Inspection: (a) proxy file still points to the old one → candidate still healthy? yes: replay the switchover; no: `failed` + C2; (b) file points to the candidate, old one still present → resume at stopping the old one; (c) old one absent, rename not done → resume at the rename; never a second switchover without this inspection (INV-004/005) | Before proxy application: `failed` + C2. After verified application: the switchover has happened → continue toward `finishing` if possible, otherwise `failed` + C3 (§9) |
+| **finishing** | Traffic switched, final container named `<uuid>` | Update the proxy config to the stable form (§7.2 step 7); record `DeploymentArtifact` (digest, retained tags); reclaim best-effort the images outside the retention window (§8.2, `image_retention_count`) and schedule the asynchronous cleanup of old sources; update the resource's observed state | Proxy file stabilized; metadata | **60 s (proposed default)** | All actions are idempotent → replay in full | A failure here = deployment **succeeded with a warning** (`succeeded` + `deployment.finishing_degraded.v1` event): traffic is already on the new version, never break it for a cleanup **(proposed default)** |
+| **succeeded** | — | Event + notification; lock/slot release | — | — | — | — |
+| **failed** | — | Compensation executed (§9); event + notification; lock/slot release; error classification (§2.4) | — | — | Compensation itself is idempotent and replayable | — |
+| **cancelled** | Cancellation before the barrier | Compensation at the current point (§9); lock/slot release | — | — | Same as `failed` | — |
+| **retrying** | Manual action on `failed`, or automatic infra retry | New linked attempt (`attempt + 1`, history preserved §21.1) → `preparing` with the **same snapshot and the same SHA** | — | — | — | — |
 
 ---
 
-## 5. Plan d'exécution par build pack
+## 5. Execution plan per build pack
 
-### 5.1 Arborescence distante (normative)
+### 5.1 Remote directory tree (normative)
 
-> **Amendement (19 juillet 2026)** : la racine passe de `/data/akerdock` à
-> **`/var/lib/akerdock`** (conformité FHS — l'état persistant d'un service vit
-> sous `/var/lib`). Migration : au premier bootstrap du proxy sur un serveur
-> portant l'ancien layout, l'engine **déplace** `/data/akerdock` vers
-> `/var/lib/akerdock` (le storage ACME — compte Let's Encrypt et certificats —
-> suit, rien n'est ré-émis) après avoir retiré le container proxy, recréé
-> aussitôt sur le nouveau chemin. Les containers applicatifs déjà lancés
-> conservent leurs bind mounts d'origine jusqu'à leur prochain déploiement.
+> **Amendment (July 19, 2026)**: the root moves from `/data/akerdock` to
+> **`/var/lib/akerdock`** (FHS compliance — a service's persistent state lives
+> under `/var/lib`). Migration: on the first proxy bootstrap on a server
+> carrying the old layout, the engine **moves** `/data/akerdock` to
+> `/var/lib/akerdock` (the ACME storage — Let's Encrypt account and certificates —
+> moves along, nothing is re-issued) after removing the proxy container,
+> recreated immediately on the new path. Application containers already running
+> keep their original bind mounts until their next deployment.
 
 ```text
-/var/lib/akerdock/                              # racine, 0750, propriétaire = user SSH AkerDock
+/var/lib/akerdock/                              # root, 0750, owner = AkerDock SSH user
 ├── applications/<app_uuid>/
-│   ├── source/<deployment_uuid>/             # clone jetable par déploiement, purgé en finishing (rétention : dernier + courant)
+│   ├── source/<deployment_uuid>/             # throwaway clone per deployment, purged in finishing (retention: previous + current)
 │   ├── env/
-│   │   ├── build.env                         # variables build-time non secrètes (0600)
-│   │   ├── runtime.env                       # variables runtime, --env-file du container (0600)
-│   │   └── secrets/<VAR_NAME>                # un fichier par build secret BuildKit (0600)
-│   └── keys/deploy_key                       # clé de déploiement Git éphémère si nécessaire (0600, supprimée après clone)
+│   │   ├── build.env                         # non-secret build-time variables (0600)
+│   │   ├── runtime.env                       # runtime variables, container --env-file (0600)
+│   │   └── secrets/<VAR_NAME>                # one file per BuildKit build secret (0600)
+│   └── keys/deploy_key                       # ephemeral Git deploy key if needed (0600, deleted after clone)
 ├── proxy/
-│   ├── dynamic/<app_uuid>.yaml               # config dynamique Traefik par application (§7)
-│   └── certs/                                # certificats custom (§4.3 PRD)
-├── backups/                                  # hors périmètre de cette spec (§20.5)
-└── tmp/                                      # espace temporaire, purgé par le cleanup
+│   ├── dynamic/<app_uuid>.yaml               # Traefik dynamic config per application (§7)
+│   └── certs/                                # custom certificates (PRD §4.3)
+├── backups/                                  # out of scope for this spec (§20.5)
+└── tmp/                                      # temporary space, purged by the cleanup
 ```
 
-**(défaut proposé)** pour l'ensemble de l'arborescence : tout l'état d'un serveur cible vit sous `/var/lib/akerdock`, ce qui rend l'inventaire, le backup et le nettoyage évidents (§14.1 PRD). Tous les fichiers contenant des valeurs de variables sont en mode `0600`, répertoires `0700`.
+**(proposed default)** for the whole tree: all of a target server's state lives under `/var/lib/akerdock`, which makes inventory, backup and cleanup obvious (PRD §14.1). All files containing variable values are mode `0600`, directories `0700`.
 
-### 5.2 Variables : build-time vs runtime (§5.4 PRD, INV-003, INV-012)
+### 5.2 Variables: build-time vs runtime (PRD §5.4, INV-003, INV-012)
 
-| Catégorie | Matérialisation | Consommation |
+| Category | Materialization | Consumption |
 |---|---|---|
-| Runtime | `env/runtime.env` (`KEY=value`, multiline via quoting) | `docker create --env-file …` — jamais de `-e KEY=value` sur la ligne de commande |
-| Build-time non secrète | `env/build.env` | `--build-arg KEY` **sans valeur dans argv** : la valeur est lue depuis l'environnement du processus `docker`, exporté depuis `build.env` (via `set -a; . build.env; set +a` dans la session distante) — rien de sensible dans `ps` (INV-012) |
-| Build secret (opt-in BuildKit) | Un fichier par secret : `env/secrets/<NAME>` | `--secret id=<NAME>,src=…/env/secrets/<NAME>` ; consommé dans le Dockerfile par `RUN --mount=type=secret,id=<NAME>` ; absent des layers et de l'historique d'image |
-| Prédéfinies (décision §27.22) | Injectées dans `runtime.env` : `AKERDOCK_FQDN`, `AKERDOCK_URL`, `AKERDOCK_BRANCH`, `AKERDOCK_RESOURCE_UUID`, `AKERDOCK_CONTAINER_NAME`, `PORT`, `HOST`, `AKERDOCK_PR_ID` (previews) ; `SOURCE_COMMIT` en build arg **opt-in** (§5.2 PRD) | Comme les catégories ci-dessus |
+| Runtime | `env/runtime.env` (`KEY=value`, multiline via quoting) | `docker create --env-file …` — never `-e KEY=value` on the command line |
+| Non-secret build-time | `env/build.env` | `--build-arg KEY` **without the value in argv**: the value is read from the environment of the `docker` process, exported from `build.env` (via `set -a; . build.env; set +a` in the remote session) — nothing sensitive in `ps` (INV-012) |
+| Build secret (BuildKit opt-in) | One file per secret: `env/secrets/<NAME>` | `--secret id=<NAME>,src=…/env/secrets/<NAME>`; consumed in the Dockerfile via `RUN --mount=type=secret,id=<NAME>`; absent from image layers and history |
+| Predefined (decision §27.22) | Injected into `runtime.env`: `AKERDOCK_FQDN`, `AKERDOCK_URL`, `AKERDOCK_BRANCH`, `AKERDOCK_RESOURCE_UUID`, `AKERDOCK_CONTAINER_NAME`, `PORT`, `HOST`, `AKERDOCK_PR_ID` (previews); `SOURCE_COMMIT` as an **opt-in** build arg (PRD §5.2) | Like the categories above |
 
-Règles :
-- Interpolation des shared variables (`{{team.VAR}}`…) et du pseudo-scope `deployment` (`{{deployment.fqdn}}`, `{{deployment.url}}`, `{{deployment.pr_id}}` — l'identité propre du déploiement, résolue au domaine primaire en production et au FQDN de preview qui change par PR ; clés insensibles à la casse) et vérification des variables requises `${VAR:?}` **côté control plane, avant enqueue** — un manquement bloque le déploiement en validation, pas à mi-build.
-- Transfert des fichiers par **SFTP** (contenu jamais dans argv ni dans un heredoc de commande loggée), mode `0600` posé à l'upload.
-- Les fichiers `env/` sont réécrits à chaque déploiement depuis le snapshot ; un déploiement rejoué reproduit exactement les mêmes fichiers (INV-014).
+Rules:
+- Interpolation of shared variables (`{{team.VAR}}`…) and of the `deployment` pseudo-scope (`{{deployment.fqdn}}`, `{{deployment.url}}`, `{{deployment.pr_id}}` — the deployment's own identity, resolved to the primary domain in production and to the preview FQDN which changes per PR; case-insensitive keys) and verification of required variables `${VAR:?}` **on the control plane, before enqueue** — a missing value blocks the deployment at validation, not mid-build.
+- File transfer via **SFTP** (content never in argv nor in a logged command heredoc), mode `0600` set at upload.
+- The `env/` files are rewritten at every deployment from the snapshot; a replayed deployment reproduces exactly the same files (INV-014).
 
-### 5.3 Build pack `dockerfile` (P0)
+### 5.3 `dockerfile` build pack (P0)
 
-#### 5.3.1 Clone (état `cloning`)
+#### 5.3.1 Clone (`cloning` state)
 
-Clone shallow **au SHA exact** (un `git clone --depth 1 -b <branche>` suivrait la tête mouvante — interdit) :
+Shallow clone **at the exact SHA** (a `git clone --depth 1 -b <branch>` would follow the moving head — forbidden):
 
 ```sh
 mkdir -p /var/lib/akerdock/applications/<app_uuid>/source/<deployment_uuid>
 cd /var/lib/akerdock/applications/<app_uuid>/source/<deployment_uuid>
 git init -q
-git remote add origin <repo_url_sans_credentials>
+git remote add origin <repo_url_without_credentials>
 git fetch -q --depth 1 origin <commit_sha>
 git checkout -q --detach FETCH_HEAD
-# si submodules activés :
+# if submodules enabled:
 git submodule update --init --recursive --depth 1
-# si LFS activé :
+# if LFS enabled:
 git lfs install --local && git lfs pull
 ```
 
-Authentification (INV-003, INV-012) — jamais de credential dans l'URL ni dans argv :
-- **Deploy key SSH** : clé téléversée en `keys/deploy_key` (0600), `GIT_SSH_COMMAND="ssh -i /var/lib/akerdock/applications/<app_uuid>/keys/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"` posé dans l'environnement de la session ; fichier supprimé en fin d'état.
-- **Token HTTPS (GitHub App / PAT)** : `git config credential.helper 'store --file=/var/lib/akerdock/applications/<app_uuid>/keys/git_credentials'` avec fichier téléversé par SFTP (0600), supprimé en fin d'état **(défaut proposé)**.
+Authentication (INV-003, INV-012) — never a credential in the URL or in argv:
+- **SSH deploy key**: key uploaded to `keys/deploy_key` (0600), `GIT_SSH_COMMAND="ssh -i /var/lib/akerdock/applications/<app_uuid>/keys/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"` set in the session environment; file deleted at the end of the state.
+- **HTTPS token (GitHub App / PAT)**: `git config credential.helper 'store --file=/var/lib/akerdock/applications/<app_uuid>/keys/git_credentials'` with the file uploaded via SFTP (0600), deleted at the end of the state **(proposed default)**.
 
-Le **base directory** (monorepo) ne change pas le clone ; il change le contexte de build (`<clone>/<base_directory>`).
+The **base directory** (monorepo) does not change the clone; it changes the build context (`<clone>/<base_directory>`).
 
-#### 5.3.2 Build (état `building`)
+#### 5.3.2 Build (`building` state)
 
 ```sh
 cd /var/lib/akerdock/applications/<app_uuid>/source/<deployment_uuid>/<base_directory>
 set -a; . /var/lib/akerdock/applications/<app_uuid>/env/build.env; set +a
 DOCKER_BUILDKIT=1 docker build \
-  --file <dockerfile_location>            # défaut : ./Dockerfile
+  --file <dockerfile_location>            # default: ./Dockerfile
   --progress plain \
   --tag akerdock/<app_uuid>:<sha12> \
   --label akerdock.managed=true \
@@ -289,33 +289,33 @@ DOCKER_BUILDKIT=1 docker build \
   --label akerdock.team_uuid=<team_uuid> \
   --label akerdock.deployment_uuid=<deployment_uuid> \
   --label akerdock.commit_sha=<commit_sha> \
-  --build-arg AKERDOCK_FQDN --build-arg AKERDOCK_BRANCH … \   # build args auto-injectés, désactivables (§5.2 PRD) ; valeurs via env, pas argv
+  --build-arg AKERDOCK_FQDN --build-arg AKERDOCK_BRANCH … \   # auto-injected build args, can be disabled (PRD §5.2); values via env, not argv
   [--build-arg SOURCE_COMMIT]             # opt-in
   [--secret id=<NAME>,src=/var/lib/akerdock/applications/<app_uuid>/env/secrets/<NAME>]…
-  [--no-cache]                            # si forced (deploy webhook force=true, §5.5 PRD)
+  [--no-cache]                            # if forced (deploy webhook force=true, PRD §5.5)
   .
 ```
 
-`<sha12>` = 12 premiers caractères hexadécimaux du commit SHA **(défaut proposé)**. Builds exécutés via le BuildKit du Docker du serveur en P0/P1 (décision §27.5) ; le contrat d'adaptateur build est défini dès P0 pour la bascule ultérieure vers des builders rootless — cette spec n'utilise que des opérations exprimables dans les deux modes.
+`<sha12>` = first 12 hexadecimal characters of the commit SHA **(proposed default)**. Builds run via the server Docker's BuildKit in P0/P1 (decision §27.5); the build adapter contract is defined from P0 for the later move to rootless builders — this spec only uses operations expressible in both modes.
 
-#### 5.3.3 Push (état `pushing`, si registry configuré — décision §27.6)
+#### 5.3.3 Push (`pushing` state, if a registry is configured — decision §27.6)
 
 ```sh
-# login : mot de passe via stdin, jamais argv
+# login: password via stdin, never argv
 printf '%s' "$REGISTRY_PASSWORD" | docker login <registry_host> --username <user> --password-stdin
 docker tag akerdock/<app_uuid>:<sha12> <registry>/<image>:<sha12>
-[docker tag akerdock/<app_uuid>:<sha12> <registry>/<image>:<tag_custom>]   # §5.2 PRD
+[docker tag akerdock/<app_uuid>:<sha12> <registry>/<image>:<tag_custom>]   # PRD §5.2
 docker push <registry>/<image>:<sha12>
-# résolution du digest OCI (source de vérité de l'artifact, §18.3) :
+# OCI digest resolution (source of truth of the artifact, §18.3):
 docker image inspect --format '{{index .RepoDigests 0}}' <registry>/<image>:<sha12>
 ```
 
-Le digest (`<registry>/<image>@sha256:…`) est enregistré dans `DeploymentArtifact` avant toute bascule.
+The digest (`<registry>/<image>@sha256:…`) is recorded in `DeploymentArtifact` before any switchover.
 
-#### 5.3.4 Création et démarrage du candidat (état `starting`)
+#### 5.3.4 Candidate creation and start (`starting` state)
 
 ```sh
-# volumes déclarés (§6.3) — création idempotente :
+# declared volumes (§6.3) — idempotent creation:
 docker volume create --label akerdock.managed=true --label akerdock.resource_uuid=<app_uuid> \
   --label akerdock.team_uuid=<team_uuid> <app_uuid>_<volume_name>
 
@@ -330,41 +330,41 @@ docker create \
   --label akerdock.type=application \
   --label akerdock.team_uuid=<team_uuid> \
   --label akerdock.deployment_uuid=<deployment_uuid> \
-  [--health-cmd '<cmd>' --health-interval <i>s --health-timeout <t>s --health-retries <r> --health-start-period <s>s] \  # seulement si pas de HEALTHCHECK Dockerfile (prioritaire, §5.3 PRD)
+  [--health-cmd '<cmd>' --health-interval <i>s --health-timeout <t>s --health-retries <r> --health-start-period <s>s] \  # only if no Dockerfile HEALTHCHECK (takes precedence, PRD §5.3)
   [-v <app_uuid>_<volume_name>:<mount_path>]… [-v <host_path>:<mount_path>]… \
   [--memory … --memory-reservation … --memory-swap … --cpus … --cpuset-cpus … --cpu-shares …] \
-  [-p <ip:host:container[/proto]>]…       # Ports Mappings — rend l'app inéligible au rolling (§7.3)
-  [<custom_docker_options>]               # validées/échappées centralement (INV-012, §23.3)
-  <image_ref>                             # digest si registry (<registry>/<image>@sha256:…), tag local sinon
+  [-p <ip:host:container[/proto]>]…       # Ports Mappings — makes the app ineligible for rolling (§7.3)
+  [<custom_docker_options>]               # validated/escaped centrally (INV-012, §23.3)
+  <image_ref>                             # digest if registry (<registry>/<image>@sha256:…), local tag otherwise
 docker start <app_uuid>-next
 ```
 
-Healthcheck HTTP généré quand path/port sont configurés sans `HEALTHCHECK` Dockerfile :
-`--health-cmd 'curl -fsS -X <method> http://127.0.0.1:<port><path> || wget -q -O /dev/null http://127.0.0.1:<port><path>'` (requiert curl ou wget dans l'image, §5.3 PRD ; l'absence des deux = état `unhealthy` documenté avec remédiation).
+HTTP healthcheck generated when path/port are configured without a Dockerfile `HEALTHCHECK`:
+`--health-cmd 'curl -fsS -X <method> http://127.0.0.1:<port><path> || wget -q -O /dev/null http://127.0.0.1:<port><path>'` (requires curl or wget in the image, PRD §5.3; the absence of both = documented `unhealthy` state with remediation).
 
-En mode **non-rolling** (§7.4), l'ancien container est arrêté et supprimé avant `docker create`, et le container est créé directement sous le nom `<app_uuid>`.
+In **non-rolling** mode (§7.4), the old container is stopped and removed before `docker create`, and the container is created directly under the name `<app_uuid>`.
 
-### 5.4 Build pack `docker image` (P0)
+### 5.4 `docker image` build pack (P0)
 
-Pas de source Git : `cloning`/`building` sont des no-ops.
+No Git source: `cloning`/`building` are no-ops.
 
 ```sh
 [printf '%s' "$REGISTRY_PASSWORD" | docker login <registry_host> --username <user> --password-stdin]
 docker pull <image>:<tag>
-docker image inspect --format '{{index .RepoDigests 0}}' <image>:<tag>   # digest OCI figé pour ce déploiement
+docker image inspect --format '{{index .RepoDigests 0}}' <image>:<tag>   # OCI digest frozen for this deployment
 ```
 
-Timeout du pull : **900 s (défaut proposé)**. La suite (starting → finishing) est identique à §5.3.4, avec `<image>@sha256:…` comme référence. Le pattern « CI externe → deploy webhook » (§5.1 PRD) aboutit ici : pull + redeploy sans rebuild.
+Pull timeout: **900 s (proposed default)**. The rest (starting → finishing) is identical to §5.3.4, with `<image>@sha256:…` as the reference. The "external CI → deploy webhook" pattern (PRD §5.1) lands here: pull + redeploy without rebuild.
 
-### 5.5 Build packs `nixpacks` et `railpack` (P1)
+### 5.5 `nixpacks` and `railpack` build packs (P1)
 
-Les deux produisent un Dockerfile/plan, puis rejoignent **exactement** le flux `dockerfile` (§5.3.2 → §5.3.4). Le binaire de build pack est provisionné sur le serveur lors de l'onboarding (§20.1) à une version épinglée par release AkerDock **(défaut proposé)**.
+Both produce a Dockerfile/plan, then join **exactly** the `dockerfile` flow (§5.3.2 → §5.3.4). The build pack binary is provisioned on the server during onboarding (§20.1) at a version pinned per AkerDock release **(proposed default)**.
 
-**Nixpacks** — génération du plan puis du contexte, dans l'état `building` :
+**Nixpacks** — plan generation then context, within the `building` state:
 
 ```sh
 cd <clone>/<base_directory>
-nixpacks plan . --format json > /var/lib/akerdock/applications/<app_uuid>/source/<deployment_uuid>/.nixpacks-plan.json   # tracé dans les logs de build
+nixpacks plan . --format json > /var/lib/akerdock/applications/<app_uuid>/source/<deployment_uuid>/.nixpacks-plan.json   # traced in the build logs
 nixpacks build . --name akerdock/<app_uuid>:<sha12> \
   --label akerdock.managed=true --label akerdock.resource_uuid=<app_uuid> \
   --label akerdock.deployment_uuid=<deployment_uuid> --label akerdock.commit_sha=<commit_sha> \
@@ -373,21 +373,21 @@ nixpacks build . --name akerdock/<app_uuid>:<sha12> \
   [--no-cache]
 ```
 
-Les variables build-time sont fournies via l'environnement du processus (`set -a; . build.env; set +a`), Nixpacks propageant l'environnement au build ; pas de valeur en argv. Mode static Nixpacks (publish directory + Nginx) : traité comme §5.6 avec le répertoire produit par le build.
+Build-time variables are provided via the process environment (`set -a; . build.env; set +a`), Nixpacks propagating the environment to the build; no value in argv. Nixpacks static mode (publish directory + Nginx): handled as §5.6 with the directory produced by the build.
 
-**Railpack (bêta)** — même contrat :
+**Railpack (beta)** — same contract:
 
 ```sh
 cd <clone>/<base_directory>
 railpack build . --name akerdock/<app_uuid>:<sha12> [--env-file …/build.env] [--no-cache]
 ```
 
-Les flags exacts de Railpack sont à figer lors de l'implémentation P1 contre la version épinglée ; l'exigence normative est : image taggée `akerdock/<app_uuid>:<sha12>`, labels §6, secrets jamais dans argv ni dans l'image.
+Railpack's exact flags are to be frozen during the P1 implementation against the pinned version; the normative requirement is: image tagged `akerdock/<app_uuid>:<sha12>`, §6 labels, secrets never in argv nor in the image.
 
-### 5.6 Build pack `static` (P1)
+### 5.6 `static` build pack (P1)
 
 1. Clone (§5.3.1).
-2. Génération sur le serveur de deux fichiers dans `source/<deployment_uuid>/.akerdock/` : `nginx.conf` (éditable par l'utilisateur dans l'UI, avec option SPA `try_files $uri $uri/ /index.html`) et un Dockerfile minimal :
+2. Generation on the server of two files in `source/<deployment_uuid>/.akerdock/`: `nginx.conf` (editable by the user in the UI, with SPA option `try_files $uri $uri/ /index.html`) and a minimal Dockerfile:
 
 ```dockerfile
 FROM nginx:alpine
@@ -395,228 +395,228 @@ COPY .akerdock/nginx.conf /etc/nginx/conf.d/default.conf
 COPY <publish_directory>/ /usr/share/nginx/html/
 ```
 
-3. `docker build` identique à §5.3.2 (tag, labels), port interne `80`, puis flux standard.
+3. `docker build` identical to §5.3.2 (tag, labels), internal port `80`, then the standard flow.
 
-### 5.7 Build pack `docker compose`
+### 5.7 `docker compose` build pack
 
-Hors périmètre : voir la spécification Compose (§29.5, à venir). Contrats partagés avec le moteur : mêmes queue/verrous/slots (§2–3), même machine à états (les états `starting/healthchecking/switching` opèrent par service), zero-downtime par service derrière le proxy exigé par la décision §27.15, réseau isolé nommé par UUID, extensions `is_directory`/`content`/`exclude_from_hc`.
+Out of scope: see the Compose specification (§29.5, forthcoming). Contracts shared with the engine: same queue/locks/slots (§2–3), same state machine (the `starting/healthchecking/switching` states operate per service), zero-downtime per service behind the proxy required by decision §27.15, isolated network named by UUID, `is_directory`/`content`/`exclude_from_hc` extensions.
 
 ---
 
-## 6. Nommage et labels (INV-011, §8, décision §27.22)
+## 6. Naming and labels (INV-011, §8, decision §27.22)
 
-### 6.1 Noms
+### 6.1 Names
 
-| Objet | Nom | Note |
+| Object | Name | Note |
 |---|---|---|
-| Container applicatif | `<app_uuid>` | Le nom est aussi le hostname DNS interne (§2 PRD) |
-| Container candidat (rolling) | `<app_uuid>-next` | Existe uniquement entre `starting` et la fin de `switching` ; renommé `<app_uuid>` après bascule |
-| Container de preview | `<app_uuid>-pr-<pr_id>` | Identité `(application_uuid, provider, pr_id)` (§20.4) **(défaut proposé)** |
-| Image locale | `akerdock/<app_uuid>:<sha12>` | + tags registry §5.3.3 |
-| Volume | `<app_uuid>_<volume_name>` | Préfixe UUID anti-collision (§8 PRD) |
-| Réseau de destination | nom de la `Destination` (UUID pour les réseaux créés par AkerDock) | Stacks compose : réseau propre nommé par UUID (§9 PRD) |
-| Fichier proxy | `/var/lib/akerdock/proxy/dynamic/<app_uuid>.yaml` | Un fichier par application → application/suppression atomique par ressource |
+| Application container | `<app_uuid>` | The name is also the internal DNS hostname (PRD §2) |
+| Candidate container (rolling) | `<app_uuid>-next` | Exists only between `starting` and the end of `switching`; renamed `<app_uuid>` after the switchover |
+| Preview container | `<app_uuid>-pr-<pr_id>` | Identity `(application_uuid, provider, pr_id)` (§20.4) **(proposed default)** |
+| Local image | `akerdock/<app_uuid>:<sha12>` | + registry tags §5.3.3 |
+| Volume | `<app_uuid>_<volume_name>` | UUID prefix as anti-collision (PRD §8) |
+| Destination network | name of the `Destination` (UUID for networks created by AkerDock) | Compose stacks: dedicated network named by UUID (PRD §9) |
+| Proxy file | `/var/lib/akerdock/proxy/dynamic/<app_uuid>.yaml` | One file per application → atomic application/removal per resource |
 
-Tous les noms sont déterministes, dérivés d'UUID stables, sans entrée utilisateur libre (INV-011). Les custom container names restent possibles (§5.3 PRD) mais rendent l'application inéligible au rolling (§7.3).
+All names are deterministic, derived from stable UUIDs, with no free-form user input (INV-011). Custom container names remain possible (PRD §5.3) but make the application ineligible for rolling (§7.3).
 
-### 6.2 Labels système
+### 6.2 System labels
 
-Posés sur **containers, images, volumes et réseaux** gérés :
+Set on managed **containers, images, volumes and networks**:
 
-| Label | Valeur | Rôle |
+| Label | Value | Role |
 |---|---|---|
-| `akerdock.managed` | `true` | Frontière géré / non géré (INV-015) : le cleanup et l'adoption s'appuient dessus |
-| `akerdock.resource_uuid` | UUID de la ressource | Rattachement au modèle |
-| `akerdock.type` | `application` \| `database` \| `service` \| `proxy` \| `helper` | Typage |
-| `akerdock.team_uuid` | UUID de la team | Isolation, audit |
-| `akerdock.deployment_uuid` | UUID du déploiement | Idempotence des reprises (§2.5) — containers et images |
-| `akerdock.commit_sha` | SHA complet | Traçabilité — images |
-| `akerdock.retain` | `true` | Protection explicite du cleanup pour les images de rollback (§8.2) **(défaut proposé)** |
+| `akerdock.managed` | `true` | Managed / unmanaged boundary (INV-015): cleanup and adoption rely on it |
+| `akerdock.resource_uuid` | Resource UUID | Attachment to the model |
+| `akerdock.type` | `application` \| `database` \| `service` \| `proxy` \| `helper` | Typing |
+| `akerdock.team_uuid` | Team UUID | Isolation, audit |
+| `akerdock.deployment_uuid` | Deployment UUID | Idempotence of recoveries (§2.5) — containers and images |
+| `akerdock.commit_sha` | Full SHA | Traceability — images |
+| `akerdock.retain` | `true` | Explicit cleanup protection for rollback images (§8.2) **(proposed default)** |
 
-Les custom labels utilisateur (§5.3 PRD) sont ajoutés après les labels système et ne peuvent pas les écraser (préfixe `akerdock.` réservé, rejeté en validation).
+User custom labels (PRD §5.3) are added after the system labels and cannot overwrite them (`akerdock.` prefix reserved, rejected at validation).
 
 ---
 
 ## 7. Zero-downtime (rolling update)
 
-### 7.1 Représentation du routage
+### 7.1 Routing representation
 
-Le routage est généré depuis la **représentation intermédiaire** commune (décision §27.9) et matérialisé en **fichier de configuration dynamique Traefik** par application (`/var/lib/akerdock/proxy/dynamic/<app_uuid>.yaml`), monté dans le container Traefik (provider `file` avec `watch: true`). Les labels de routage restent posés sur les containers pour la parité et le diagnostic, mais **le fichier fait foi** — c'est lui qui permet une bascule atomique et vérifiable (checksum, §18.3) **(défaut proposé, conforme à « fichier/labels proxy » §18.3)**.
+Routing is generated from the common **intermediate representation** (decision §27.9) and materialized as a **Traefik dynamic configuration file** per application (`/var/lib/akerdock/proxy/dynamic/<app_uuid>.yaml`), mounted in the Traefik container (`file` provider with `watch: true`). Routing labels are still set on the containers for parity and diagnostics, but **the file is authoritative** — it is what enables an atomic, verifiable switchover (checksum, §18.3) **(proposed default, consistent with "proxy file/labels" §18.3)**.
 
-### 7.2 Algorithme de bascule (états `switching` puis `finishing`)
+### 7.2 Switchover algorithm (`switching` then `finishing` states)
 
-Précondition : candidat `<uuid>-next` `healthy`, post-command OK, verrou strict §3.1, barrière d'annulation.
+Precondition: candidate `<uuid>-next` `healthy`, post-command OK, strict §3.1 lock, cancellation barrier.
 
-1. **Résoudre l'endpoint du candidat** : `docker inspect --format '{{(index .NetworkSettings.Networks "<destination_network>").IPAddress}}' <uuid>-next`. L'IP est stable pour la durée de vie du container : elle sert de cible **transitoire** (le nom `<uuid>-next` disparaîtra au rename, l'IP non).
-2. **Générer** la config dynamique depuis la représentation intermédiaire : routers (domaines, path-based avec priorité au path le plus spécifique, redirection www, middlewares), service → `url: http://<ip_next>:<ports_exposes>`.
-3. **Appliquer atomiquement** : upload SFTP vers `/var/lib/akerdock/proxy/dynamic/.<app_uuid>.yaml.tmp` puis `mv -f` (rename atomique sur le même système de fichiers) ; enregistrer le checksum SHA-256 en base.
-4. **Vérifier** : polling (toutes les 1 s, max **30 s (défaut proposé)**) de l'API locale Traefik (`wget -qO- http://127.0.0.1:8080/api/http/services` exécuté dans le container proxy) jusqu'à voir le nouvel endpoint ; puis requête de fumée à travers le proxy : `curl -fsS -o /dev/null --max-time 5 --resolve <fqdn>:<proxy_port>:127.0.0.1 http://<fqdn><health_path>` **(défaut proposé)**. Échec de vérification → re-pointer le fichier sur l'ancien container (compensation C2) → `failed`. L'ancien container n'a jamais cessé de tourner (INV-005).
-5. **Arrêt gracieux de l'ancien** : `docker stop -t <stop_grace_period> <uuid>` (SIGTERM, puis SIGKILL après le délai) puis `docker rm <uuid>`. L'image de l'ancien n'est **pas** supprimée (rollback §8, INV-006).
-6. **Renommer** : `docker rename <uuid>-next <uuid>`. Le trafic continue de passer par l'IP (étape 2) : aucune fenêtre d'indisponibilité pendant le rename.
-7. **Stabiliser** (état `finishing`) : régénérer le fichier avec `url: http://<uuid>:<ports_exposes>` (résolution DNS Docker par nom, robuste aux redémarrages du container qui changeraient l'IP), appliquer (étapes 3–4). Poser les labels de routage de parité sur le container final.
+1. **Resolve the candidate's endpoint**: `docker inspect --format '{{(index .NetworkSettings.Networks "<destination_network>").IPAddress}}' <uuid>-next`. The IP is stable for the lifetime of the container: it serves as the **transitional** target (the name `<uuid>-next` will disappear at the rename, the IP will not).
+2. **Generate** the dynamic config from the intermediate representation: routers (domains, path-based with priority to the most specific path, www redirect, middlewares), service → `url: http://<ip_next>:<exposed_ports>`.
+3. **Apply atomically**: SFTP upload to `/var/lib/akerdock/proxy/dynamic/.<app_uuid>.yaml.tmp` then `mv -f` (atomic rename on the same filesystem); record the SHA-256 checksum in the database.
+4. **Verify**: polling (every 1 s, max **30 s (proposed default)**) of the local Traefik API (`wget -qO- http://127.0.0.1:8080/api/http/services` executed inside the proxy container) until the new endpoint is seen; then a smoke request through the proxy: `curl -fsS -o /dev/null --max-time 5 --resolve <fqdn>:<proxy_port>:127.0.0.1 http://<fqdn><health_path>` **(proposed default)**. Verification failure → re-point the file to the old container (compensation C2) → `failed`. The old container never stopped running (INV-005).
+5. **Graceful stop of the old one**: `docker stop -t <stop_grace_period> <uuid>` (SIGTERM, then SIGKILL after the delay) then `docker rm <uuid>`. The old one's image is **not** deleted (rollback §8, INV-006).
+6. **Rename**: `docker rename <uuid>-next <uuid>`. Traffic keeps flowing through the IP (step 2): no window of unavailability during the rename.
+7. **Stabilize** (`finishing` state): regenerate the file with `url: http://<uuid>:<exposed_ports>` (Docker DNS resolution by name, robust to container restarts that would change the IP), apply (steps 3–4). Set the parity routing labels on the final container.
 
-Chaque étape est individuellement idempotente ou détectable, ce qui fonde les règles de reprise du §4 (`switching`).
+Each step is individually idempotent or detectable, which grounds the recovery rules of §4 (`switching`).
 
-### 7.3 Conditions d'éligibilité (§5.5, §15 PRD)
+### 7.3 Eligibility conditions (§5.5, PRD §15)
 
-Rolling update **uniquement si** : health check configuré et fonctionnel, nom de container par défaut (pas de custom name), pas de Docker Compose (P0/P1 — levé par §27.15 dans la spec Compose), **pas de port mapping hôte** (« Ports Mappings » : deux containers ne peuvent pas binder le même port hôte).
+Rolling update **only if**: health check configured and functional, default container name (no custom name), no Docker Compose (P0/P1 — lifted by §27.15 in the Compose spec), **no host port mapping** ("Ports Mappings": two containers cannot bind the same host port).
 
-### 7.4 Fallback stop-then-start
+### 7.4 Stop-then-start fallback
 
-Pour les applications inéligibles : à l'entrée de `starting`, exécuter `docker stop -t <stop_grace_period> <uuid> && docker rm <uuid>`, créer le nouveau container directement nommé `<uuid>`, démarrer, attendre `running` (+ santé si un healthcheck existe), appliquer la config proxy (mêmes étapes 2–4 et 7, sans transition d'IP). Interruption de service assumée = durée stop + start ; l'UI l'affiche comme telle. En cas d'échec du nouveau container, l'ancien a déjà été supprimé : la compensation propose le **redéploiement du dernier artifact vérifié** (§8) — c'est précisément pour cela que ses images sont protégées (INV-006 : l'échec ne supprime jamais le dernier artifact sain).
-
----
-
-## 8. Rollback (décision §27.6)
-
-### 8.1 Principe
-
-Un rollback est un **redéploiement d'un artifact vérifié, sans rebuild** : nouvelle entrée `Deployment` (trigger `rollback`, lien vers le déploiement d'origine et son snapshot de config — INV-014), machine à états avec `cloning/building` en no-op, entrée en `starting` seulement après vérification de l'artifact.
-
-### 8.2 Résolution de l'artifact
-
-| Contexte | Vérification | Source |
-|---|---|---|
-| Registry configuré | `docker pull <registry>/<image>@sha256:<digest>` (le digest garantit l'immutabilité, indépendamment des tags déplacés) | `DeploymentArtifact.image_digest` |
-| Sans registry (fallback local) | `docker image inspect akerdock/<app_uuid>:<sha12>` — présence + correspondance du label `akerdock.deployment_uuid` | Rétention locale |
-
-Rétention locale : les images des **N derniers déploiements réussis** sont conservées et enregistrées comme protégées ; le cleanup automatique (§3.7 PRD) les exclut de toute façon (il ne touche jamais une image taguée, INV-015). **N est le réglage d'instance `image_retention_count`** (global setting, **défaut 5, minimum 1** — le minimum garantit que l'image en service, toujours la plus récente, reste protégée). En `finishing`, juste après avoir enregistré le nouvel artifact, le moteur récupère (`docker rmi`) les images sortant de la fenêtre et supprime leurs pointeurs `DeploymentArtifact` (elles ne sont plus des cibles de rollback valides) ; opération **best-effort et jamais bloquante** (un rebuild reproduit n'importe quelle image, on ne casse jamais un déploiement réussi pour un nettoyage). Un rollback ne récupère rien : il redéploie un artifact existant.
-
-Previews : la même rétention N s'applique **par preview** (ses images vivent sous le namespace `akerdock/<preview_uuid>`, distinct de la production). À la fermeture/merge de la PR, la destruction de la preview supprime **toutes** ses images sans exception — la fenêtre de rétention ne survit pas à la PR.
-
-Si l'artifact demandé est introuvable/invérifiable, le rollback est **refusé à la validation** avec la liste des artifacts effectivement disponibles — jamais d'échec à mi-parcours pour cette cause.
-
-### 8.3 Rollback automatique (opt-in, §20.8)
-
-Politique par application, désactivée par défaut. Après `succeeded` : fenêtre d'observation (**bake time, défaut 300 s (défaut proposé)**) sur le health check du container promu. Dégradation (`unhealthy` ou sortie du container) pendant la fenêtre → déclenchement automatique d'un rollback vers l'artifact précédent vérifié, notifié et audité. Le rollback automatique ne s'applique qu'une fois par déploiement (pas de boucle ping-pong) **(défaut proposé)**.
+For ineligible applications: on entering `starting`, run `docker stop -t <stop_grace_period> <uuid> && docker rm <uuid>`, create the new container directly named `<uuid>`, start it, wait for `running` (+ health if a healthcheck exists), apply the proxy config (same steps 2–4 and 7, without the IP transition). Assumed service interruption = stop + start duration; the UI displays it as such. If the new container fails, the old one has already been removed: the compensation offers a **redeployment of the last verified artifact** (§8) — this is precisely why its images are protected (INV-006: a failure never deletes the last healthy artifact).
 
 ---
 
-## 9. Compensation et échecs
+## 8. Rollback (decision §27.6)
 
-### 9.1 Politiques de compensation
+### 8.1 Principle
 
-| ID | Nom | Actions |
+A rollback is a **redeployment of a verified artifact, without rebuild**: new `Deployment` entry (`rollback` trigger, link to the original deployment and its config snapshot — INV-014), state machine with `cloning/building` as no-ops, entering `starting` only after artifact verification.
+
+### 8.2 Artifact resolution
+
+| Context | Verification | Source |
 |---|---|---|
-| **C1** | Avant tout container candidat | Supprimer le clone du déploiement (`rm -rf source/<deployment_uuid>`) ; conserver l'image buildée (utile au diagnostic et au retry, purgée par le cleanup si non promue **(défaut proposé)**) ; l'ancien container et son routage sont intacts (INV-005/006) |
-| **C2** | Candidat créé, bascule non effective | Capturer `docker logs --tail 200 <uuid>-next` dans le log de build ; `docker stop -t 10 <uuid>-next && docker rm <uuid>-next` ; si le fichier proxy a été modifié sans vérification concluante : le régénérer vers l'ancien container et vérifier (étapes 3–4 du §7.2) ; **ne jamais toucher** à l'ancien container, à ses volumes, ni aux images protégées (INV-006) |
-| **C3** | Après bascule vérifiée | Aucune dé-bascule implicite : le nouveau container reste en production ; si la politique de rollback automatique (§8.3) est active et l'artifact précédent vérifié → rollback auto ; sinon `failed` avec remédiation manuelle proposée (bouton rollback) — §20.2 |
+| Registry configured | `docker pull <registry>/<image>@sha256:<digest>` (the digest guarantees immutability, regardless of moved tags) | `DeploymentArtifact.image_digest` |
+| Without registry (local fallback) | `docker image inspect akerdock/<app_uuid>:<sha12>` — presence + `akerdock.deployment_uuid` label match | Local retention |
 
-### 9.2 Tableau étape × échec → action
+Local retention: the images of the **last N successful deployments** are kept and recorded as protected; the automatic cleanup (PRD §3.7) excludes them anyway (it never touches a tagged image, INV-015). **N is the instance setting `image_retention_count`** (global setting, **default 5, minimum 1** — the minimum guarantees that the image in service, always the most recent, remains protected). In `finishing`, right after recording the new artifact, the engine reclaims (`docker rmi`) the images leaving the window and deletes their `DeploymentArtifact` pointers (they are no longer valid rollback targets); a **best-effort and never blocking** operation (a rebuild reproduces any image, we never break a successful deployment for a cleanup). A rollback reclaims nothing: it redeploys an existing artifact.
 
-| État au moment de l'échec | Exemples d'échec | Compensation | Retry auto ? |
+Previews: the same N retention applies **per preview** (its images live under the `akerdock/<preview_uuid>` namespace, distinct from production). On PR close/merge, the preview's destruction deletes **all** of its images without exception — the retention window does not survive the PR.
+
+If the requested artifact is missing/unverifiable, the rollback is **refused at validation** with the list of artifacts actually available — never a mid-flight failure for this cause.
+
+### 8.3 Automatic rollback (opt-in, §20.8)
+
+Per-application policy, disabled by default. After `succeeded`: an observation window (**bake time, default 300 s (proposed default)**) on the promoted container's health check. Degradation (`unhealthy` or container exit) during the window → automatic triggering of a rollback to the previous verified artifact, notified and audited. The automatic rollback applies only once per deployment (no ping-pong loop) **(proposed default)**.
+
+---
+
+## 9. Compensation and failures
+
+### 9.1 Compensation policies
+
+| ID | Name | Actions |
+|---|---|---|
+| **C1** | Before any candidate container | Delete the deployment's clone (`rm -rf source/<deployment_uuid>`); keep the built image (useful for diagnostics and retry, purged by the cleanup if not promoted **(proposed default)**); the old container and its routing are intact (INV-005/006) |
+| **C2** | Candidate created, switchover not effective | Capture `docker logs --tail 200 <uuid>-next` into the build log; `docker stop -t 10 <uuid>-next && docker rm <uuid>-next`; if the proxy file was modified without conclusive verification: regenerate it toward the old container and verify (steps 3–4 of §7.2); **never touch** the old container, its volumes, or the protected images (INV-006) |
+| **C3** | After verified switchover | No implicit un-switch: the new container stays in production; if the automatic rollback policy (§8.3) is active and the previous artifact verified → auto rollback; otherwise `failed` with a proposed manual remediation (rollback button) — §20.2 |
+
+### 9.2 Step × failure → action table
+
+| State at failure time | Failure examples | Compensation | Auto retry? |
 |---|---|---|---|
-| `preparing` | SSH KO, disque plein, pre-command en échec | C1 (rien à nettoyer sauf fichiers env, laissés en place — réécrits au prochain run) | SSH/réseau : oui ; pre-command/disque : non |
-| `cloning` | Auth Git, SHA introuvable, timeout | C1 | Timeout/réseau : oui ; auth/SHA : non |
-| `building` | Erreur de compilation, `${VAR:?}` (défense en profondeur), OOM du build | C1 | Non (déterministe) |
-| `pushing` | Registry injoignable, 401 | C1 ; si registry optionnel : dégradation en rétention locale + avertissement | 5xx/réseau : oui ; 401 : non |
-| `starting` | Image corrompue, port hôte occupé, options Docker invalides | C2 | Non |
-| `healthchecking` | Jamais `healthy`, container exited, post-command en échec | C2 | Non |
-| `switching` avant application proxy vérifiée | Génération IR invalide, upload KO, vérification Traefik KO | C2 | Erreur d'application/vérif : une re-tentative locale immédiate puis C2 **(défaut proposé)** |
-| `switching` après application vérifiée | `docker stop`/`rm`/`rename` KO | Poursuivre : re-tenter, sinon `failed` + C3 (le trafic est déjà correct ; l'ancien container arrêté-non-supprimé est signalé pour nettoyage réconciliable, §20.6) | Oui (idempotent) |
-| `finishing` | Nettoyage/labels/protection KO | Aucune : `succeeded` dégradé + tâche de réconciliation asynchrone | Oui (job séparé) |
-| N'importe quel état, annulation | `cancel_requested_at` | Compensation de l'état courant (C1 ou C2) ; refusée après la barrière (§2.6) | — |
+| `preparing` | SSH down, disk full, failing pre-command | C1 (nothing to clean except env files, left in place — rewritten on the next run) | SSH/network: yes; pre-command/disk: no |
+| `cloning` | Git auth, SHA not found, timeout | C1 | Timeout/network: yes; auth/SHA: no |
+| `building` | Compilation error, `${VAR:?}` (defense in depth), build OOM | C1 | No (deterministic) |
+| `pushing` | Registry unreachable, 401 | C1; if registry optional: degradation to local retention + warning | 5xx/network: yes; 401: no |
+| `starting` | Corrupted image, host port taken, invalid Docker options | C2 | No |
+| `healthchecking` | Never `healthy`, container exited, failing post-command | C2 | No |
+| `switching` before verified proxy application | Invalid IR generation, upload failure, Traefik verification failure | C2 | Application/verification error: one immediate local re-attempt then C2 **(proposed default)** |
+| `switching` after verified application | `docker stop`/`rm`/`rename` failure | Continue: re-attempt, otherwise `failed` + C3 (traffic is already correct; the stopped-but-not-removed old container is flagged for reconcilable cleanup, §20.6) | Yes (idempotent) |
+| `finishing` | Cleanup/labels/protection failure | None: degraded `succeeded` + asynchronous reconciliation task | Yes (separate job) |
+| Any state, cancellation | `cancel_requested_at` | Compensation of the current state (C1 or C2); refused after the barrier (§2.6) | — |
 
-### 9.3 Libération garantie
+### 9.3 Guaranteed release
 
-Verrou (§3.1) et slot (§3.2) sont libérés dans **tous** les chemins de sortie (succès, échec, annulation, dead-letter) par le point de sortie unique du job ; en cas de mort du worker, la libération est effectuée par le scan des leases expirés (§2.3) après inspection de reprise. La compensation elle-même est un ensemble d'opérations idempotentes : un crash pendant la compensation aboutit à sa reprise, pas à son abandon.
+The lock (§3.1) and slot (§3.2) are released on **all** exit paths (success, failure, cancellation, dead-letter) by the job's single exit point; if the worker dies, the release is performed by the expired-lease scan (§2.3) after the recovery inspection. The compensation itself is a set of idempotent operations: a crash during compensation leads to its resumption, not its abandonment.
 
 ---
 
-## 10. Pre/post-deployment commands (§5.3 PRD)
+## 10. Pre/post-deployment commands (PRD §5.3)
 
 | | Pre-deployment | Post-deployment |
 |---|---|---|
-| **Où** | `docker exec <uuid> sh -c '<commande>'` dans le **container existant** (l'ancien) | `docker exec <uuid>-next sh -c '<commande>'` dans le **nouveau container** (candidat) |
-| **Quand** | Fin de l'état `preparing`, avant tout clone/build | Fin de l'état `healthchecking`, après `healthy`, **avant** `switching` |
-| **Si aucun container existant** (premier déploiement, ou app arrêtée) | Étape sautée, tracée dans le log (`skipped: no running container`) **(défaut proposé)** | N/A (le candidat existe toujours à ce stade) |
-| **Timeout** | **600 s (défaut proposé, configurable par application)** | **600 s (défaut proposé, configurable par application)** |
-| **Effet d'un échec** (exit code ≠ 0 ou timeout) | Déploiement `failed` avant toute mutation de build — l'existant n'est pas touché | Déploiement `failed`, compensation C2 (candidat supprimé), **pas de bascule, pas de rollback automatique** (§5.3 PRD : « échec post = déploiement échoué, sans rollback auto ») — l'ancien container reste routé (INV-005) |
-| **Logs** | stdout/stderr intégrés au log de build, secrets non interpolés dans la ligne de commande loggée | idem |
+| **Where** | `docker exec <uuid> sh -c '<command>'` in the **existing container** (the old one) | `docker exec <uuid>-next sh -c '<command>'` in the **new container** (the candidate) |
+| **When** | End of the `preparing` state, before any clone/build | End of the `healthchecking` state, after `healthy`, **before** `switching` |
+| **If no existing container** (first deployment, or stopped app) | Step skipped, traced in the log (`skipped: no running container`) **(proposed default)** | N/A (the candidate always exists at this point) |
+| **Timeout** | **600 s (proposed default, configurable per application)** | **600 s (proposed default, configurable per application)** |
+| **Effect of a failure** (exit code ≠ 0 or timeout) | Deployment `failed` before any build mutation — the existing one is untouched | Deployment `failed`, compensation C2 (candidate removed), **no switchover, no automatic rollback** (PRD §5.3: "post failure = failed deployment, without auto rollback") — the old container remains routed (INV-005) |
+| **Logs** | stdout/stderr integrated into the build log, secrets not interpolated in the logged command line | same |
 
-Les commandes sont fournies par l'utilisateur : documentées comme devant être **idempotentes** (elles peuvent être rejouées lors d'une reprise après crash, §4). Elles s'exécutent avec l'environnement du container (les variables runtime y sont déjà) ; aucune variable n'est ajoutée en argv.
+The commands are user-supplied: documented as required to be **idempotent** (they may be replayed during a crash recovery, §4). They run with the container's environment (the runtime variables are already there); no variable is added in argv.
 
 ---
 
-## 11. Timeouts, intervalles et retries — récapitulatif
+## 11. Timeouts, intervals and retries — recap
 
-Sauf mention contraire, chaque valeur est **(défaut proposé)** ; « Configurable » indique le niveau de surcharge prévu. Toutes les opérations distantes ont timeout + cancellation + classification + retry borné avec jitter (§22.1).
+Unless stated otherwise, every value is a **(proposed default)**; "Configurable" indicates the intended override level. All remote operations have timeout + cancellation + classification + bounded retry with jitter (§22.1).
 
-| Paramètre | Défaut | Configurable | Référence |
+| Parameter | Default | Configurable | Reference |
 |---|---|---|---|
-| SSH connect timeout | 10 s | Par serveur (PRD §3.1) | §4 `preparing` |
-| SSH keepalive (ServerAlive) | 15 s, 3 échecs max | Instance | — |
-| Inactivité d'une commande SSH (sans sortie) | 300 s | Instance | Détection de commande gelée |
-| Espace disque minimal avant build | 2 GiB | Par serveur | §4 `preparing` |
-| État `preparing` (total) | 120 s | Non | §4 |
-| Git clone (+ submodules/LFS) | 600 s | Par application | §4 `cloning` |
-| Build | 3600 s | Par application | §4 `building` |
-| Pull d'image | 900 s | Par application | §5.4 |
-| Push registry | 900 s | Par application | §4 `pushing` |
-| Création + démarrage du container | 60 s | Non | §4 `starting` |
-| Health check — interval / timeout / retries / start period | 5 s / 5 s / 10 / 5 s | Par application (PRD §5.3) | §4 `healthchecking` |
-| Polling de l'état de santé | 2 s | Non | §4 |
-| Budget total healthchecking | start_period + (interval+timeout)×retries + 30 s | Dérivé | §4 |
-| Stabilité `running` sans healthcheck (mode non-rolling) | 10 s | Non | §4 |
-| Pre/post-deployment command | 600 s | Par application | §10 |
-| Vérification proxy après application | 30 s (polling 1 s) | Non | §7.2 |
-| État `switching` (hors stop grace) | 120 s | Non | §4 |
-| Stop grace period | 30 s | Par application (PRD §5.3) | §7.2 |
-| État `finishing` | 60 s | Non | §4 |
-| Lease de job | 90 s | Instance | §2.3 |
+| SSH connect timeout | 10 s | Per server (PRD §3.1) | §4 `preparing` |
+| SSH keepalive (ServerAlive) | 15 s, 3 failures max | Instance | — |
+| SSH command inactivity (no output) | 300 s | Instance | Frozen-command detection |
+| Minimal disk space before build | 2 GiB | Per server | §4 `preparing` |
+| `preparing` state (total) | 120 s | No | §4 |
+| Git clone (+ submodules/LFS) | 600 s | Per application | §4 `cloning` |
+| Build | 3600 s | Per application | §4 `building` |
+| Image pull | 900 s | Per application | §5.4 |
+| Registry push | 900 s | Per application | §4 `pushing` |
+| Container creation + start | 60 s | No | §4 `starting` |
+| Health check — interval / timeout / retries / start period | 5 s / 5 s / 10 / 5 s | Per application (PRD §5.3) | §4 `healthchecking` |
+| Health state polling | 2 s | No | §4 |
+| Total healthchecking budget | start_period + (interval+timeout)×retries + 30 s | Derived | §4 |
+| `running` stability without healthcheck (non-rolling mode) | 10 s | No | §4 |
+| Pre/post-deployment command | 600 s | Per application | §10 |
+| Proxy verification after application | 30 s (1 s polling) | No | §7.2 |
+| `switching` state (excluding stop grace) | 120 s | No | §4 |
+| Stop grace period | 30 s | Per application (PRD §5.3) | §7.2 |
+| `finishing` state | 60 s | No | §4 |
+| Job lease | 90 s | Instance | §2.3 |
 | Heartbeat | 20 s | Instance | §2.3 |
-| Scan des leases expirés | 30 s | Instance | §2.3 |
-| Polling de secours de la queue | 5 s | Instance | §2.3 |
-| Backoff retry (base / facteur / max / jitter) | 30 s / ×2 / 15 min / full | Instance | §2.4 |
+| Expired-lease scan | 30 s | Instance | §2.3 |
+| Queue fallback polling | 5 s | Instance | §2.3 |
+| Retry backoff (base / factor / max / jitter) | 30 s / ×2 / 15 min / full | Instance | §2.4 |
 | `max_attempts` (deployment.run) | 3 | Instance | §2.4 |
-| `concurrent_builds` | 2 (PRD §5.5) | Par serveur | §3.2 |
-| `deployment_queue_limit` | 25 (PRD §5.5) | Par serveur | §3.2 |
-| Rétention d'images de rollback (`image_retention_count`) | 5 images (min 1) | Instance ; idem par preview | §8.2 |
-| Bake time (rollback auto opt-in) | 300 s | Par application | §8.3 |
-| Rétention des clones sources | courant + précédent | Instance | §5.1 |
+| `concurrent_builds` | 2 (PRD §5.5) | Per server | §3.2 |
+| `deployment_queue_limit` | 25 (PRD §5.5) | Per server | §3.2 |
+| Rollback image retention (`image_retention_count`) | 5 images (min 1) | Instance; same per preview | §8.2 |
+| Bake time (opt-in auto rollback) | 300 s | Per application | §8.3 |
+| Source clone retention | current + previous | Instance | §5.1 |
 
 ---
 
-## 12. Observabilité
+## 12. Observability
 
-### 12.1 Événements (outbox transactionnelle, §18.2, §24.2)
+### 12.1 Events (transactional outbox, §18.2, §24.2)
 
-Chaque transition d'état publie un événement dans la même transaction que la transition (envelope §24.2, versionnée, sans secret) :
+Every state transition publishes an event in the same transaction as the transition (envelope §24.2, versioned, without secrets):
 
-| Événement | Émis à |
+| Event | Emitted at |
 |---|---|
 | `deployment.queued.v1` | Enqueue (§2.2) |
 | `deployment.started.v1` | `queued → preparing` |
-| `deployment.step_changed.v1` | Chaque transition intermédiaire (`payload.from`, `payload.to`, `payload.attempt`) |
+| `deployment.step_changed.v1` | Every intermediate transition (`payload.from`, `payload.to`, `payload.attempt`) |
 | `deployment.superseded.v1` | Coalescing (§3.4) |
-| `deployment.cancel_requested.v1` / `deployment.cancelled.v1` | Annulation (§2.6) |
-| `deployment.succeeded.v1` | Terminal (payload : `commit_sha`, `image_digest`, durée par étape) |
-| `deployment.failed.v1` | Terminal (payload : étape d'échec, classification, `attempt`, dead-letter éventuel) |
-| `deployment.finishing_degraded.v1` | Succès avec nettoyage dégradé (§4) |
-| `deployment.rollback_triggered.v1` | Rollback manuel ou automatique (§8) |
+| `deployment.cancel_requested.v1` / `deployment.cancelled.v1` | Cancellation (§2.6) |
+| `deployment.succeeded.v1` | Terminal (payload: `commit_sha`, `image_digest`, per-step duration) |
+| `deployment.failed.v1` | Terminal (payload: failing step, classification, `attempt`, dead-letter if any) |
+| `deployment.finishing_degraded.v1` | Success with degraded cleanup (§4) |
+| `deployment.rollback_triggered.v1` | Manual or automatic rollback (§8) |
 
-Consommateurs : realtime hub (progression UI), notifications (§11 PRD — routage/agrégation §27.19), audit, webhooks sortants futurs. Consommateurs idempotents, déduplication par `id`.
+Consumers: realtime hub (UI progress), notifications (PRD §11 — routing/aggregation §27.19), audit, future outgoing webhooks. Idempotent consumers, deduplication by `id`.
 
-### 12.2 Logs de build (streaming)
+### 12.2 Build logs (streaming)
 
-- Le worker capture stdout/stderr de chaque commande distante en flux, ligne par ligne : horodatage UTC, état de la machine, numéro de séquence monotone.
-- Persistance en base (table `deployment_logs`, append-only, curseur = numéro de séquence) et diffusion **SSE** avec reprise par `Last-Event-ID` (décision §27.24).
-- Backpressure : buffer borné, reprise par curseur, signal explicite `lines_dropped` si des lignes ont été abandonnées (§22.2).
-- Redaction avant persistance : les valeurs de secrets connues du snapshot sont masquées (`***`) dans chaque ligne ; séquences ANSI/HTML neutralisées à l'affichage (§23.3) ; INV-003.
-- Rétention des logs alignée sur la rétention de l'historique de déploiement (§19.2).
+- The worker captures stdout/stderr of every remote command as a stream, line by line: UTC timestamp, machine state, monotonic sequence number.
+- Persistence in the database (`deployment_logs` table, append-only, cursor = sequence number) and **SSE** broadcast with `Last-Event-ID` resumption (decision §27.24).
+- Backpressure: bounded buffer, cursor-based resumption, explicit `lines_dropped` signal if lines were dropped (§22.2).
+- Redaction before persistence: secret values known from the snapshot are masked (`***`) in every line; ANSI/HTML sequences neutralized at display time (§23.3); INV-003.
+- Log retention aligned with the deployment history retention (§19.2).
 
-### 12.3 Audit et corrélation
+### 12.3 Audit and correlation
 
-- Entrées d'audit (§23.4) pour : déclenchement (acteur/token, trigger, `Idempotency-Key`), annulation, retry manuel, rollback (manuel et automatique), rejeu depuis la dead-letter.
-- `correlation_id` unique propagé : requête API → job → événements → logs → notifications ; le `webhook_delivery_id` relie un auto-deploy à sa livraison d'origine (§20.3).
-- Métriques (OTLP, décision §27.8) : durée par état, taille de file par serveur, taux de succès (§16.4 : ≥ 99 % hors erreur applicative), leases expirés, retries, coalescings, dead-letters, durée de bascule proxy.
-- Le diff de configuration inclus dans un redéploiement (§5.5 PRD) est attaché au `Deployment` (snapshot versionné, INV-014).
+- Audit entries (§23.4) for: triggering (actor/token, trigger, `Idempotency-Key`), cancellation, manual retry, rollback (manual and automatic), replay from the dead-letter.
+- Unique `correlation_id` propagated: API request → job → events → logs → notifications; the `webhook_delivery_id` links an auto-deploy to its original delivery (§20.3).
+- Metrics (OTLP, decision §27.8): duration per state, queue size per server, success rate (§16.4: ≥ 99 % excluding application errors), expired leases, retries, coalescings, dead-letters, proxy switchover duration.
+- The configuration diff included in a redeploy (PRD §5.5) is attached to the `Deployment` (versioned snapshot, INV-014).
 
 ---
 
-## 13. Traçabilité PRD
+## 13. PRD traceability
 
-| Section de cette spec | Sections PRD |
+| Section of this spec | PRD sections |
 |---|---|
 | 1 | §5.5, §18.1–18.3, §20.2 |
 | 2 | §17 (INV-004/013), §21.3, §22.1, §27.2, §27.25 |

@@ -1,596 +1,596 @@
 # PRD — AkerDock
 
-> Spécification produit d'AkerDock, PaaS self-hosted en Go. Ce document définit le produit, ses garanties et ses critères d'acceptation.
+> Product specification for AkerDock, a self-hosted PaaS in Go. This document defines the product, its guarantees and its acceptance criteria.
 
-### Statut et convention de lecture
+### Status and reading convention
 
-- **Deux natures de sections** : les sections 1 à 14 décrivent le **périmètre fonctionnel** du produit (ce qu'il fait) ; les sections 16 et suivantes en tirent des **exigences vérifiables** (comment on prouve qu'il le fait).
-- **Mots normatifs** : **DOIT**, **NE DOIT PAS**, **DEVRAIT** et **PEUT** ont leur sens habituel de niveaux d'exigence.
-- **Objectif** : des comportements, des garanties et des critères d'acceptation. Les choix d'implémentation restent substituables tant qu'ils sont respectés.
-- **Traçabilité** : toute décision structurante est consignée dans un ADR (`docs/adr/`), et son état de livraison dans la matrice §26.
-
----
-
-## 1. Vision produit
-
-**AkerDock** est un PaaS self-hosted open source (licence Apache 2.0) : une alternative auto-hébergée à Heroku / Netlify / Vercel. L'utilisateur connecte ses propres serveurs (VPS, bare metal, Raspberry Pi…) via SSH et déploie applications, bases de données et services en containers Docker, avec reverse proxy, SSL automatique, backups et monitoring — sans vendor lock-in.
-
-**Proposition de valeur :**
-- Déployer n'importe quelle app (Git ou image Docker) sur n'importe quel serveur Linux en quelques clics.
-- Aucune fonctionnalité paywallée : tout ce que fait le produit est dans le binaire que l'on héberge.
-- Tout est du Docker standard : pas de format propriétaire, réversible à tout moment — les ressources restent exploitables sans AkerDock.
-
-**Stack technique :** binaire Go unique (control plane, API, UI, workers), PostgreSQL comme seule dépendance externe (état **et** queue — ADR-002), UI Angular servie sur le port unique du control plane, pilotage des serveurs cibles via SSH, distribution en deux services compose (ADR-021).
+- **Two kinds of sections**: sections 1 through 14 describe the product's **functional scope** (what it does); sections 16 and onward derive **verifiable requirements** from it (how we prove that it does it).
+- **Normative words**: **MUST**, **MUST NOT**, **SHOULD** and **MAY** have their usual meaning as requirement levels.
+- **Goal**: behaviors, guarantees and acceptance criteria. Implementation choices remain substitutable as long as these are respected.
+- **Traceability**: every structuring decision is recorded in an ADR (`docs/adr/`), and its delivery status in the §26 matrix.
 
 ---
 
-## 2. Concepts et modèle de données
+## 1. Product vision
 
-Hiérarchie organisationnelle :
+**AkerDock** is an open source self-hosted PaaS (Apache 2.0 license): a self-hosted alternative to Heroku / Netlify / Vercel. The user connects their own servers (VPS, bare metal, Raspberry Pi…) via SSH and deploys applications, databases and services in Docker containers, with reverse proxy, automatic SSL, backups and monitoring — without vendor lock-in.
+
+**Value proposition:**
+- Deploy any app (Git or Docker image) on any Linux server in a few clicks.
+- No paywalled feature: everything the product does is in the binary you host.
+- Everything is standard Docker: no proprietary format, reversible at any time — resources remain usable without AkerDock.
+
+**Technical stack:** single Go binary (control plane, API, UI, workers), PostgreSQL as the only external dependency (state **and** queue — ADR-002), Angular UI served on the control plane's single port, target servers driven via SSH, distribution as two compose services (ADR-021).
+
+---
+
+## 2. Concepts and data model
+
+Organizational hierarchy:
 
 ```
 Team → Project → Environment (production, staging…) → Resource
 Resource = Application | Database | Service (one-click)
-Resource ⟶ déployée sur → Server + Destination (réseau Docker cible)
+Resource ⟶ deployed on → Server + Destination (target Docker network)
 ```
 
-- **Team** : périmètre d'isolation (serveurs, ressources, tokens API, notifications sont scopés par team). Multi-teams supporté.
-- **Project** : regroupement logique ; contient des environments (défaut : `production`).
-- **Environment** : jeu de ressources + variables partagées.
-- **Server** : machine Linux accessible en SSH, avec son propre proxy.
-- **Destination** : réseau Docker sur un serveur.
-- Chaque ressource a un **UUID** utilisé comme nom de container/réseau/hostname interne.
+- **Team**: isolation boundary (servers, resources, API tokens, notifications are scoped per team). Multi-team supported.
+- **Project**: logical grouping; contains environments (default: `production`).
+- **Environment**: a set of resources + shared variables.
+- **Server**: Linux machine reachable over SSH, with its own proxy.
+- **Destination**: Docker network on a server.
+- Each resource has a **UUID** used as the container/network/internal hostname name.
 
 ---
 
-## 3. Gestion des serveurs
+## 3. Server management
 
-### 3.1 Connexion et validation
-- Tout serveur Linux joignable en SSH peut être ajouté (VPS, EC2, Raspberry Pi, machine locale). Architectures **AMD64 et ARM64**.
-- Authentification **exclusivement par clé SSH** (sans passphrase, sans 2FA) ; les clés privées sont stockées chiffrées dans l'instance (« Private Keys »).
-- Utilisateur root par défaut ; **utilisateur non-root expérimental** (exige `sudo NOPASSWD: ALL`).
-- **Docker Engine ≥ 24** requis (snap non supporté).
-- Bouton « Validate Server & Install Docker Engine » : vérifie la connectivité SSH, installe les dépendances (curl, wget, git, jq), installe/configure Docker, exécute des health checks (3 retries par étape).
-- Timeout de connexion SSH configurable par serveur ; nom d'utilisateur SSH acceptant notamment les points.
-- Serveur **localhost** pré-enregistré (la machine hébergeant l'instance), utilisable mais déconseillé pour la production.
-- Variables d'environnement **partagées au niveau serveur**, héritables par les ressources qui y sont déployées.
+### 3.1 Connection and validation
+- Any Linux server reachable over SSH can be added (VPS, EC2, Raspberry Pi, local machine). **AMD64 and ARM64** architectures.
+- Authentication **exclusively by SSH key** (no passphrase, no 2FA); private keys are stored encrypted in the instance ("Private Keys").
+- Root user by default; **experimental non-root user** (requires `sudo NOPASSWD: ALL`).
+- **Docker Engine ≥ 24** required (snap not supported).
+- "Validate Server & Install Docker Engine" button: checks SSH connectivity, installs dependencies (curl, wget, git, jq), installs/configures Docker, runs health checks (3 retries per step).
+- SSH connection timeout configurable per server; SSH username notably accepting dots.
+- Pre-registered **localhost** server (the machine hosting the instance), usable but discouraged for production.
+- Environment variables **shared at server level**, inheritable by the resources deployed on it.
 
-### 3.2 Maintenance système et provisioning cloud (retiré — ADR-027)
+### 3.2 System maintenance and cloud provisioning (removed — ADR-027)
 
-Le server patching (APT/DNF/Zypper depuis le dashboard), les cloud provider tokens et le provisioning Hetzner sont **retirés du périmètre produit** (ADR-027, réévaluable sur demande avérée). La numérotation de section est conservée pour la stabilité des renvois. Sans rapport et toujours au périmètre : Hetzner/Cloudflare comme providers **DNS-01** (§4.3) et Hetzner comme provider **S3** (§7.2).
+Server patching (APT/DNF/Zypper from the dashboard), cloud provider tokens and Hetzner provisioning are **removed from the product scope** (ADR-027, re-assessable upon proven demand). Section numbering is kept for cross-reference stability. Unrelated and still in scope: Hetzner/Cloudflare as **DNS-01** providers (§4.3) and Hetzner as an **S3** provider (§7.2).
 
-### 3.3 Multi-serveurs
-- Chaque serveur est indépendant avec son propre proxy ; le trafic applicatif va directement au serveur cible (jamais via l'instance de contrôle). L'instance ne fait que UI + déploiements SSH + health monitoring.
-- **Déploiement multi-serveurs d'une même app** (HA, expérimental) : même architecture requise + registry Docker externe (build → push → pull) ; load balancer externe à la charge de l'utilisateur.
+### 3.3 Multi-server
+- Each server is independent with its own proxy; application traffic goes directly to the target server (never through the control instance). The instance only does UI + SSH deployments + health monitoring.
+- **Multi-server deployment of the same app** (HA, experimental): same architecture required + external Docker registry (build → push → pull); external load balancer is the user's responsibility.
 
 ### 3.4 Build servers
-- Serveur dédié à la compilation (flag « Build Server ») pour décharger les serveurs de production.
-- Prérequis : Docker Engine, accès au code source, **push obligatoire vers un container registry**, architecture identique aux serveurs de déploiement.
-- Activation par application (« Use a Build Server? »). Sélection aléatoire si plusieurs build servers. Un build server ne peut pas héberger d'applications.
+- Server dedicated to compilation ("Build Server" flag) to offload production servers.
+- Prerequisites: Docker Engine, access to source code, **mandatory push to a container registry**, same architecture as the deployment servers.
+- Enabled per application ("Use a Build Server?"). Random selection if several build servers. A build server cannot host applications.
 
-### 3.5 Docker Swarm (expérimental, déprécié)
-- Swarm Manager (obligatoire) + workers ; registry externe obligatoire ; minimum recommandé 3 nœuds ; stockage persistant multi-nœuds non résolu. Non production-ready et annoncé comme déprécié pour la génération suivante.
+### 3.5 Docker Swarm (experimental, deprecated)
+- Swarm Manager (mandatory) + workers; external registry mandatory; recommended minimum 3 nodes; multi-node persistent storage unresolved. Not production-ready and announced as deprecated for the next generation.
 
-### 3.6 Cloudflare Tunnels (retiré — ADR-027)
-Retiré du périmètre produit (ADR-027, réévaluable sur demande avérée). La numérotation de section est conservée pour la stabilité des renvois. Cloudflare comme provider **DNS-01** (§4.3) n'est pas concerné.
+### 3.6 Cloudflare Tunnels (removed — ADR-027)
+Removed from the product scope (ADR-027, re-assessable upon proven demand). Section numbering is kept for cross-reference stability. Cloudflare as a **DNS-01** provider (§4.3) is not affected.
 
-### 3.7 Nettoyage disque automatisé
-- « Automated Docker Cleanup » par serveur : déclenchement par **seuil d'usage disque** (%) et/ou **cron planifié** ; options opt-in pour purger volumes et réseaux inutilisés.
-- Ne cible que les ressources gérées (containers stoppés, images inutilisées, build cache, anciennes helper images) ; jamais pendant un déploiement en cours.
+### 3.7 Automated disk cleanup
+- "Automated Docker Cleanup" per server: triggered by **disk usage threshold** (%) and/or **scheduled cron**; opt-in options to purge unused volumes and networks.
+- Only targets managed resources (stopped containers, unused images, build cache, old helper images); never during an in-progress deployment.
 
-### 3.8 Monitoring serveur — agent Sentinel (expérimental)
-- Agent léger en Go déployé en container : CPU/RAM serveur et par container (~10 s), disque (~60 s) ; architecture **push** vers l'instance (endpoint + token) ; rétention et fréquence configurables ; API REST locale (`localhost:8888`).
-- Graphiques historiques dans l'UI (serveur et par ressource). Limitation : pas de métriques pour les stacks Docker Compose / services one-click.
+### 3.8 Server monitoring — Sentinel agent (experimental)
+- Lightweight Go agent deployed as a container: server and per-container CPU/RAM (~10 s), disk (~60 s); **push** architecture toward the instance (endpoint + token); configurable retention and frequency; local REST API (`localhost:8888`).
+- Historical graphs in the UI (server and per resource). Limitation: no metrics for Docker Compose stacks / one-click services.
 
 ---
 
-## 4. Proxy, domaines et SSL
+## 4. Proxy, domains and SSL
 
 ### 4.1 Reverse proxy
-- **Traefik** (défaut) et **Caddy** (expérimental) ; switch possible par serveur à tout moment (régénération des labels).
-- Configuration **automatique** : la plateforme génère le routage des containers — plusieurs apps par serveur sans gestion manuelle des ports.
-- Config proxy éditable par serveur dans l'UI + fichiers de dynamic config Traefik (`/var/lib/akerdock/proxy/dynamic`).
-- **Cycle de vie du proxy** : start / stop / restart du proxy par serveur depuis l'UI, statut visible, logs du proxy consultables ; l'arrêt du proxy coupe tout le trafic entrant du serveur (avertissement explicite) ; notification si l'image du proxy est obsolète (cf. §11).
-- Capacités via labels/middlewares : Basic Auth, rate limiting, IP whitelisting, custom headers, load balancing, dashboard Traefik.
+- **Traefik** (default) and **Caddy** (experimental); switch possible per server at any time (label regeneration).
+- **Automatic** configuration: the platform generates container routing — several apps per server without manual port management.
+- Proxy config editable per server in the UI + Traefik dynamic config files (`/var/lib/akerdock/proxy/dynamic`).
+- **Proxy lifecycle**: start / stop / restart of the proxy per server from the UI, visible status, proxy logs viewable; stopping the proxy cuts all inbound traffic of the server (explicit warning); notification if the proxy image is outdated (see §11).
+- Capabilities via labels/middlewares: Basic Auth, rate limiting, IP whitelisting, custom headers, load balancing, Traefik dashboard.
 
-### 4.2 Domaines
-- Formats supportés par application : FQDN simple, **multi-domaines** (virgules), **domaine:port** (routage vers un port interne précis), **path-based routing** (priorité au path le plus spécifique).
-- **Wildcard domain par serveur** : les nouvelles apps reçoivent `<uuid>.example.com` automatiquement (fallback : domaines **sslip.io**).
-- Redirection **www/non-www** native (« Direction » : both / to-www / to-non-www).
-- Validation DNS via 1.1.1.1 (DNS de validation customisable).
+### 4.2 Domains
+- Formats supported per application: simple FQDN, **multi-domain** (commas), **domain:port** (routing to a specific internal port), **path-based routing** (most specific path takes priority).
+- **Wildcard domain per server**: new apps automatically receive `<uuid>.example.com` (fallback: **sslip.io** domains).
+- Native **www/non-www** redirect ("Direction": both / to-www / to-non-www).
+- DNS validation via 1.1.1.1 (customizable validation DNS).
 
 ### 4.3 SSL/TLS
-- Certificats **Let's Encrypt automatiques** (émission + renouvellement, HTTP-01 par défaut) ; fallback certificat self-signed si l'émission échoue.
-- **Certificats wildcard** via DNS-01 challenge (providers DNS supportés par Lego : Cloudflare, Route 53, OVH, Hetzner…).
-- **Certificats custom** : dépôt dans `/var/lib/akerdock/proxy/certs` + dynamic config.
-- Option **Force HTTPS** par application.
+- **Automatic Let's Encrypt** certificates (issuance + renewal, HTTP-01 by default); fallback to self-signed certificate if issuance fails.
+- **Wildcard certificates** via DNS-01 challenge (DNS providers supported by Lego: Cloudflare, Route 53, OVH, Hetzner…).
+- **Custom certificates**: dropped into `/var/lib/akerdock/proxy/certs` + dynamic config.
+- **Force HTTPS** option per application.
 
 ---
 
 ## 5. Applications
 
-### 5.1 Sources de déploiement
+### 5.1 Deployment sources
 | Source | Description |
 |---|---|
-| Public Git Repository | URL HTTPS d'un repo public (GitHub, GitLab, Bitbucket, Gitea, autres) |
-| Private Repo — GitHub App | Intégration officielle : discovery des repos, auto-deploy on push, preview deployments, commentaires de statut sur PR ; GitHub Enterprise supporté |
-| Private Repo — Deploy Key | Clé SSH (générée ou importée) déposée comme deploy key ; GitHub/GitLab/Bitbucket/Gitea ; auto-deploy via webhooks manuels |
-| Dockerfile | Dockerfile inline ou du repo |
-| Docker Compose | Fichier compose du repo comme définition multi-services |
-| Docker Image | Image pré-construite depuis un registry (Docker Hub, GHCR, GitLab Registry, custom) ; registries privés via `docker login` sur le serveur |
+| Public Git Repository | HTTPS URL of a public repo (GitHub, GitLab, Bitbucket, Gitea, others) |
+| Private Repo — GitHub App | Official integration: repo discovery, auto-deploy on push, preview deployments, status comments on PRs; GitHub Enterprise supported |
+| Private Repo — Deploy Key | SSH key (generated or imported) added as a deploy key; GitHub/GitLab/Bitbucket/Gitea; auto-deploy via manual webhooks |
+| Dockerfile | Inline Dockerfile or from the repo |
+| Docker Compose | Compose file from the repo as a multi-service definition |
+| Docker Image | Pre-built image from a registry (Docker Hub, GHCR, GitLab Registry, custom); private registries via `docker login` on the server |
 
-- Fonctions Git annexes : sélection de branche, **base directory** (monorepos), git **submodules**, git **LFS**, shallow clone.
-- Pattern CI externe : build en GitHub Actions → push registry → appel du deploy webhook AkerDock (pull + redeploy sans rebuild).
+- Ancillary Git features: branch selection, **base directory** (monorepos), git **submodules**, git **LFS**, shallow clone.
+- External CI pattern: build in GitHub Actions → push to registry → call the AkerDock deploy webhook (pull + redeploy without rebuild).
 
 ### 5.2 Build packs
-| Build pack | Rôle |
+| Build pack | Role |
 |---|---|
-| **Nixpacks** (défaut) | Auto-détection langage/framework, génération du Dockerfile ; override install/build/start ; `nixpacks.toml` ; mode static (Nginx, publish directory) |
-| **Railpack** (bêta) | Successeur de Nixpacks : images plus petites, meilleur caching BuildKit ; supporte déploiements réguliers, preview et static |
-| **Static** | Fichiers pré-buildés servis par **Nginx** (config nginx éditable) ; option SPA |
-| **Dockerfile** | Contrôle total ; build args auto-injectés (désactivable) ; `SOURCE_COMMIT` opt-in |
-| **Docker Compose** | Le fichier compose est la source de vérité (env, storage, network) ; domaine par service ; réseau bridge isolé par UUID ; extensions `x-akerdock` (`is_directory`, `content`, `exclude_from_hc`) ; mode « raw compose » avancé |
+| **Nixpacks** (default) | Language/framework auto-detection, Dockerfile generation; install/build/start override; `nixpacks.toml`; static mode (Nginx, publish directory) |
+| **Railpack** (beta) | Successor to Nixpacks: smaller images, better BuildKit caching; supports regular, preview and static deployments |
+| **Static** | Pre-built files served by **Nginx** (editable nginx config); SPA option |
+| **Dockerfile** | Full control; auto-injected build args (can be disabled); opt-in `SOURCE_COMMIT` |
+| **Docker Compose** | The compose file is the source of truth (env, storage, network); domain per service; isolated bridge network per UUID; `x-akerdock` extensions (`is_directory`, `content`, `exclude_from_hc`); advanced "raw compose" mode |
 
-- **Push post-build vers registry** (champs image + tag) : requis pour Swarm et build servers ; tag custom + tag SHA du commit.
+- **Post-build push to registry** (image + tag fields): required for Swarm and build servers; custom tag + commit SHA tag.
 
-### 5.3 Configuration d'une application
-- **Ports** : « Ports Exposes » (port interne utilisé par le proxy, optionnel pour une application sans trafic entrant) et « Ports Mappings » (mapping hôte optionnel, hors proxy, protocoles TCP/UDP/SCTP et binding IP supportés).
-- **Health checks** : path, port, méthode, interval/timeout/retries/start period (requiert curl/wget dans le container) ; `HEALTHCHECK` Dockerfile prioritaire ; conditionne le routage Traefik et les rolling updates.
-- **Resource limits** : memory limit/reservation/swap/swappiness, CPU limit/sets/shares.
-- **Custom Docker options** : options `docker run` arbitraires (`--cap-add`, `--gpus`, `--ulimit`…).
-- **Custom labels** : labels containers éditables (labels proxy régénérables) ; labels système injectés (`akerdock.managed=true`, `akerdock.resource_uuid`, `akerdock.type`).
-- **Commandes pre/post-deployment** : pre = dans le container existant avant déploiement ; post = dans le nouveau container après (échec post = déploiement échoué, sans rollback auto).
-- **Arrêt et redémarrage** : délai de grâce d'arrêt (`stop grace period`) et plafond de boucles de redémarrage configurables.
-- **Stockage persistant** : cf. §8.
+### 5.3 Application configuration
+- **Ports**: "Ports Exposes" (internal port used by the proxy, optional for an application without inbound traffic) and "Ports Mappings" (optional host mapping, outside the proxy, TCP/UDP/SCTP protocols and IP binding supported).
+- **Health checks**: path, port, method, interval/timeout/retries/start period (requires curl/wget in the container); Dockerfile `HEALTHCHECK` takes precedence; conditions Traefik routing and rolling updates.
+- **Resource limits**: memory limit/reservation/swap/swappiness, CPU limit/sets/shares.
+- **Custom Docker options**: arbitrary `docker run` options (`--cap-add`, `--gpus`, `--ulimit`…).
+- **Custom labels**: editable container labels (proxy labels regenerable); injected system labels (`akerdock.managed=true`, `akerdock.resource_uuid`, `akerdock.type`).
+- **Pre/post-deployment commands**: pre = in the existing container before deployment; post = in the new container after (post failure = failed deployment, without auto rollback).
+- **Stop and restart**: configurable stop grace period and restart-loop cap.
+- **Persistent storage**: see §8.
 
-### 5.4 Variables d'environnement
-- Flags **build-time** (`ARG` / `--env-file`, stockées hors image) et **runtime** (`.env` + `env_file`) par variable.
-- **Docker Build Secrets** (BuildKit `--secret`) en option pour ne pas fuiter les secrets dans les metadata d'image.
-- Types spéciaux : **multiline** (clés, certificats), **literal** (pas d'interpolation), **locked** (masquée, non rééditable).
-- Deux vues : Normal (cartes) et **Developer** (éditeur `.env` bulk).
-- **Shared variables** hiérarchiques : `{{team.VAR}}`, `{{project.VAR}}`, `{{environment.VAR}}`, complétées par les variables partagées du serveur cible.
-- **Pseudo-scope `deployment`** (identité propre du déploiement) : `{{deployment.fqdn}}`, `{{deployment.url}}`, `{{deployment.pr_id}}`, interpolables dans une valeur (build et runtime) — résolus au domaine primaire de l'app en production et au FQDN généré en preview (qui change par PR), utile pour composer une origine CORS ou une URL de callback. Exposés aussi comme prédéfinies `AKERDOCK_FQDN`/`AKERDOCK_URL`/`AKERDOCK_PR_ID`.
-- Variables prédéfinies : `AKERDOCK_FQDN`, `AKERDOCK_URL`, `AKERDOCK_BRANCH`, `AKERDOCK_RESOURCE_UUID`, `AKERDOCK_CONTAINER_NAME`, `SOURCE_COMMIT`, `PORT`, `HOST`, `AKERDOCK_PR_ID` (ADR-022).
-- **Magic variables** (compose/services) : `SERVICE_<TYPE>_<ID>` — `URL`, `FQDN`, `USER`, `PASSWORD(_64)`, `PASSWORDWITHSYMBOLS(_64)`, `BASE64_32/64/128`, `REALBASE64_*`, `HEX_*`. Générées par la plateforme, persistantes entre redéploiements, partagées entre services du stack, éditables en UI.
-- Variables requises : syntaxe `${VAR:?}` (bloque le déploiement si vide).
+### 5.4 Environment variables
+- **Build-time** flags (`ARG` / `--env-file`, stored outside the image) and **runtime** flags (`.env` + `env_file`) per variable.
+- Optional **Docker Build Secrets** (BuildKit `--secret`) to avoid leaking secrets into image metadata.
+- Special types: **multiline** (keys, certificates), **literal** (no interpolation), **locked** (masked, not re-editable).
+- Two views: Normal (cards) and **Developer** (bulk `.env` editor).
+- Hierarchical **shared variables**: `{{team.VAR}}`, `{{project.VAR}}`, `{{environment.VAR}}`, complemented by the target server's shared variables.
+- **`deployment` pseudo-scope** (the deployment's own identity): `{{deployment.fqdn}}`, `{{deployment.url}}`, `{{deployment.pr_id}}`, interpolable inside a value (build and runtime) — resolved to the app's primary domain in production and to the generated FQDN in preview (which changes per PR), useful to compose a CORS origin or a callback URL. Also exposed as the predefined `AKERDOCK_FQDN`/`AKERDOCK_URL`/`AKERDOCK_PR_ID`.
+- Predefined variables: `AKERDOCK_FQDN`, `AKERDOCK_URL`, `AKERDOCK_BRANCH`, `AKERDOCK_RESOURCE_UUID`, `AKERDOCK_CONTAINER_NAME`, `SOURCE_COMMIT`, `PORT`, `HOST`, `AKERDOCK_PR_ID` (ADR-022).
+- **Magic variables** (compose/services): `SERVICE_<TYPE>_<ID>` — `URL`, `FQDN`, `USER`, `PASSWORD(_64)`, `PASSWORDWITHSYMBOLS(_64)`, `BASE64_32/64/128`, `REALBASE64_*`, `HEX_*`. Generated by the platform, persistent across redeployments, shared between services of the stack, editable in the UI.
+- Required variables: `${VAR:?}` syntax (blocks the deployment if empty).
 
-### 5.5 Cycle de déploiement
-- **Auto-deploy on push** : GitHub App ou webhooks manuels (GitHub/GitLab/Bitbucket/Gitea, avec secret et validation de signature).
-- Les commits contenant les marqueurs `[skip ci]` ou `[skip cd]` ne déclenchent pas d'auto-déploiement.
-- **Watch paths** : patterns de chemins par application limitant l'auto-deploy aux pushes modifiant certains fichiers (essentiel en monorepo) ; limitation connue : non appliqués aux preview deployments (toute PR ouverte/mise à jour déploie).
-- Toggle **« Auto Deploy »** désactivable par application : les événements webhook sont alors ignorés pour cette ressource (le deploy webhook manuel/API reste utilisable).
-- **Deploy webhook / API** : `GET|POST /api/v1/deploy?uuid=…&force=…` (multi-uuid, deploy par tag, force = build sans cache), auth Bearer.
-- **File de déploiement par serveur** : `concurrent_builds` (défaut 2) + `deployment_queue_limit` (défaut 25) ; vue des déploiements en cours/en attente ; annulation.
-- **Zero-downtime / rolling update** : nouveau container démarré à côté de l'ancien → health check OK → bascule du trafic → arrêt de l'ancien. Conditions : health check passant, noms de containers par défaut, pas de Docker Compose, pas de port mapping hôte.
-- **Rollback** : vers une image locale précédente encore présente sur le serveur.
-- **Historique** : liste des déploiements (queued / in progress / finished / failed), build logs en temps réel, annulation.
-- **Diff de configuration** : mémorisation et présentation des changements de configuration applicative inclus dans un redéploiement, en plus du SHA Git.
+### 5.5 Deployment cycle
+- **Auto-deploy on push**: GitHub App or manual webhooks (GitHub/GitLab/Bitbucket/Gitea, with secret and signature validation).
+- Commits containing the `[skip ci]` or `[skip cd]` markers do not trigger an auto-deployment.
+- **Watch paths**: per-application path patterns restricting auto-deploy to pushes modifying certain files (essential in a monorepo); known limitation: not applied to preview deployments (any opened/updated PR deploys).
+- **"Auto Deploy" toggle** can be disabled per application: webhook events are then ignored for this resource (the manual/API deploy webhook remains usable).
+- **Deploy webhook / API**: `GET|POST /api/v1/deploy?uuid=…&force=…` (multi-uuid, deploy by tag, force = build without cache), Bearer auth.
+- **Per-server deployment queue**: `concurrent_builds` (default 2) + `deployment_queue_limit` (default 25); view of in-progress/pending deployments; cancellation.
+- **Zero-downtime / rolling update**: new container started next to the old one → health check OK → traffic switch → old one stopped. Conditions: passing health check, default container names, no Docker Compose, no host port mapping.
+- **Rollback**: to a previous local image still present on the server.
+- **History**: list of deployments (queued / in progress / finished / failed), real-time build logs, cancellation.
+- **Configuration diff**: recording and presentation of the application configuration changes included in a redeployment, in addition to the Git SHA.
 
-### 5.6 Preview deployments (déploiements de PR / MR)
+### 5.6 Preview deployments (PR / MR deployments)
 
-Environnement éphémère déployé automatiquement **pour chaque pull request** (GitHub) ou merge request (GitLab).
+Ephemeral environment deployed automatically **for each pull request** (GitHub) or merge request (GitLab).
 
-- **Prérequis** : intégration **GitHub App** (recommandée) ou webhooks manuels ; **wildcard DNS** (`A` record `*.domaine` vers l'IP du serveur).
-- **Déclenchement** : ouverture d'une PR → build + déploiement d'une instance séparée ; **redeploy automatique à chaque nouveau commit** de la PR. Côté GitLab : event « Merge request » du webhook manuel. Les PR déjà ouvertes avant l'activation de la feature nécessitent un déploiement manuel depuis le dashboard.
-- **URL par PR** : template configurable, ex. `{{pr_id}}.{{domain}}` ; placeholder `{{random}}` pour un sous-domaine aléatoire à chaque déploiement.
-- **Variables d'environnement séparées** : jeu de variables dédié aux previews — les secrets de production ne fuient jamais vers les PR (y compris celles de contributeurs externes). Variables prédéfinies injectées : `AKERDOCK_PR_ID` (numéro de la PR), `AKERDOCK_URL` / `SERVICE_URL_<ID>` (URL de la preview, y compris pour les stacks compose).
-- **Feedback sur la PR** (GitHub App) : commentaires de statut automatiques avec le lien de la preview à chaque déploiement.
-- **Scoped deployments** : par défaut, seules les PR des members/collaborators/contributors du repo déclenchent une preview ; toggle opt-in pour autoriser les PR publiques (projets open source).
-- Les pull requests provenant d'un fork sont ignorées par défaut afin de ne pas exposer les secrets et capacités du runner à du code non fiable.
-- **Cleanup automatique** : l'environnement de preview est détruit à la fermeture ou au merge de la PR.
-- Suppression manuelle possible, y compris via API par identifiant de PR.
-- **Limitations** : pas de plafond natif sur le nombre de previews simultanées ; supporte les build packs réguliers, Railpack et static.
+- **Prerequisites**: **GitHub App** integration (recommended) or manual webhooks; **wildcard DNS** (`A` record `*.domain` to the server IP).
+- **Trigger**: PR opened → build + deployment of a separate instance; **automatic redeploy on each new commit** of the PR. On the GitLab side: "Merge request" event of the manual webhook. PRs already open before the feature is enabled require a manual deployment from the dashboard.
+- **URL per PR**: configurable template, e.g. `{{pr_id}}.{{domain}}`; `{{random}}` placeholder for a random subdomain on each deployment.
+- **Separate environment variables**: a dedicated set of variables for previews — production secrets never leak to PRs (including those of external contributors). Injected predefined variables: `AKERDOCK_PR_ID` (PR number), `AKERDOCK_URL` / `SERVICE_URL_<ID>` (preview URL, including for compose stacks).
+- **Feedback on the PR** (GitHub App): automatic status comments with the preview link on each deployment.
+- **Scoped deployments**: by default, only PRs from repo members/collaborators/contributors trigger a preview; opt-in toggle to allow public PRs (open source projects).
+- Pull requests coming from a fork are ignored by default so as not to expose the runner's secrets and capabilities to untrusted code.
+- **Automatic cleanup**: the preview environment is destroyed when the PR is closed or merged.
+- Manual deletion possible, including via API by PR identifier.
+- **Limitations**: no native cap on the number of simultaneous previews; supports regular, Railpack and static build packs.
 
-### 5.7 Exploitation
-- **Lifecycle** : Deploy / Redeploy, Start, Stop, Restart, force rebuild sans cache — en UI et API.
-- **Logs runtime** : streaming des logs containers par ressource (et par service d'un stack), nombre de lignes configurable.
-- Recherche, sections repliables et téléchargement des logs ; timestamps alignés sur le fuseau du serveur cible ; rendu HTML neutralisé.
-- **Terminal web** (xterm.js) : shell dans tout container ou serveur géré, via WebSocket → SSH ; reconnexion, scrollback.
-- **Scheduled tasks** : crons par application/service (nom, commande, expression cron ou alias `daily`/`hourly`/…, container cible dans un stack) ; exécution par `docker exec` ; historique des exécutions + notifications.
-- **Statut** : état des containers (running/exited, healthy/unhealthy) au niveau app et par service.
-- **Clonage de ressource** : duplication d'une ressource vers un autre projet, environnement ou serveur/destination — copie de la configuration (source, variables, storage déclaré), **pas des données de volumes** ; déplacement possible entre environnements ; pas de transfert inter-team (frontière de sécurité, demande communautaire récurrente).
+### 5.7 Operations
+- **Lifecycle**: Deploy / Redeploy, Start, Stop, Restart, force rebuild without cache — in UI and API.
+- **Runtime logs**: streaming of container logs per resource (and per service of a stack), configurable number of lines.
+- Search, collapsible sections and log download; timestamps aligned to the target server's timezone; HTML rendering neutralized.
+- **Web terminal** (xterm.js): shell into any managed container or server, via WebSocket → SSH; reconnection, scrollback.
+- **Scheduled tasks**: crons per application/service (name, command, cron expression or `daily`/`hourly`/… aliases, target container in a stack); executed via `docker exec`; execution history + notifications.
+- **Status**: container state (running/exited, healthy/unhealthy) at app level and per service.
+- **Resource cloning**: duplication of a resource to another project, environment or server/destination — copies the configuration (source, variables, declared storage), **not the volume data**; move between environments possible; no cross-team transfer (security boundary, recurring community request).
 
 ---
 
-## 6. Bases de données managées
+## 6. Managed databases
 
-### 6.1 Moteurs one-click
-**PostgreSQL, MySQL, MariaDB, MongoDB, Redis, KeyDB, Dragonfly, ClickHouse.** (Tout autre moteur reste déployable en image/compose, sans les fonctions managées.)
+### 6.1 One-click engines
+**PostgreSQL, MySQL, MariaDB, MongoDB, Redis, KeyDB, Dragonfly, ClickHouse.** (Any other engine remains deployable as image/compose, without the managed features.)
 
-### 6.2 Fonctions communes
-- **Credentials auto-générés** (mots de passe 64 caractères) ; champs adaptés par moteur.
-- **Internal URL** (hostname = UUID de la ressource sur le réseau Docker) et **External URL** (si accès public activé).
-- **Accès public** : ports mapping Docker (permanent, restart requis) ou **proxy TCP Nginx dynamique** (« Accessible over the internet », port public modifiable sans redémarrer la base, timeout configurable, défaut 3600 s).
-- **Configs custom** par moteur : `postgres_conf` + `initdb args` + init scripts (`/docker-entrypoint-initdb.d/`), `mysql_conf`, `mariadb_conf`, `mongo_conf`, `redis_conf`, `keydb_conf` (pas de config custom pour Dragonfly/ClickHouse).
-- **Image/tag libre**, custom docker run options, resource limits, health checks configurables, log drain, volumes et file mounts.
-- **Lifecycle** : start/stop/restart + statut, compteurs de restart, `last_online_at`.
+### 6.2 Common features
+- **Auto-generated credentials** (64-character passwords); fields adapted per engine.
+- **Internal URL** (hostname = resource UUID on the Docker network) and **External URL** (if public access enabled).
+- **Public access**: Docker port mapping (permanent, restart required) or **dynamic Nginx TCP proxy** ("Accessible over the internet", public port changeable without restarting the database, configurable timeout, default 3600 s).
+- **Custom configs** per engine: `postgres_conf` + `initdb args` + init scripts (`/docker-entrypoint-initdb.d/`), `mysql_conf`, `mariadb_conf`, `mongo_conf`, `redis_conf`, `keydb_conf` (no custom config for Dragonfly/ClickHouse).
+- **Free image/tag**, custom docker run options, resource limits, configurable health checks, log drain, volumes and file mounts.
+- **Lifecycle**: start/stop/restart + status, restart counters, `last_online_at`.
 
-### 6.3 SSL bases de données
-- « Enable SSL » + mode par moteur (PostgreSQL : allow/prefer/require/verify-ca/verify-full ; MySQL/MongoDB : prefer→verify-full ; MariaDB/Redis/KeyDB/Dragonfly : on/off ; ClickHouse : non supporté).
-- **CA gérée par la plateforme** (visualisation/régénération dans l'UI), montable dans les containers clients ; CA custom possible.
+### 6.3 Database SSL
+- "Enable SSL" + per-engine mode (PostgreSQL: allow/prefer/require/verify-ca/verify-full; MySQL/MongoDB: prefer→verify-full; MariaDB/Redis/KeyDB/Dragonfly: on/off; ClickHouse: not supported).
+- **Platform-managed CA** (viewing/regeneration in the UI), mountable into client containers; custom CA possible.
 
 ---
 
 ## 7. Backups
 
-### 7.1 Backups de bases planifiés
-- Moteurs supportés : **PostgreSQL (`pg_dump`/`pg_dumpall`), MySQL (`mysqldump`), MariaDB (`mariadb-dump`), MongoDB (`mongodump --gzip`)** ; option « dump all databases » ; sélection de bases (liste), exclusion de collections (MongoDB).
-- **Les bases internes des services one-click sont aussi backupables** (détection par image : postgres/mysql/mariadb/mongo).
-- **L'instance elle-même** backupe sa propre base PostgreSQL par le même mécanisme.
-- **Planification** : expressions cron + alias (`every_minute`, `hourly`, `daily`, `weekly`, `monthly`, `yearly`) ; timeout configurable (défaut 3600 s) ; bouton « Backup Now ».
+### 7.1 Scheduled database backups
+- Supported engines: **PostgreSQL (`pg_dump`/`pg_dumpall`), MySQL (`mysqldump`), MariaDB (`mariadb-dump`), MongoDB (`mongodump --gzip`)**; "dump all databases" option; database selection (list), collection exclusion (MongoDB).
+- **The internal databases of one-click services are also backupable** (detection by image: postgres/mysql/mariadb/mongo).
+- **The instance itself** backs up its own PostgreSQL database through the same mechanism.
+- **Scheduling**: cron expressions + aliases (`every_minute`, `hourly`, `daily`, `weekly`, `monthly`, `yearly`); configurable timeout (default 3600 s); "Backup Now" button.
 
-### 7.2 Destinations et rétention
-- **Local** (`/var/lib/akerdock/backups/...`) et/ou **S3** (upload via client MinIO `mc`) ; option « S3 only » (suppression du fichier local après upload).
-- **Rétention séparée local / S3**, trois règles cumulatives : nombre max de backups, ancienneté max (jours), taille totale max (GB) ; 0 = illimité.
-- Notifications succès/échec (y compris « succès local mais échec S3 »).
+### 7.2 Destinations and retention
+- **Local** (`/var/lib/akerdock/backups/...`) and/or **S3** (upload via MinIO `mc` client); "S3 only" option (local file deleted after upload).
+- **Separate local / S3 retention**, three cumulative rules: max number of backups, max age (days), max total size (GB); 0 = unlimited.
+- Success/failure notifications (including "local success but S3 failure").
 
 ### 7.3 Restore
-- **Import Backups** par instance de base : upload direct (drag & drop), fichier déjà sur le serveur, ou depuis un S3 configuré ; commandes de restore par défaut personnalisables (`pg_restore`, `mysql`, `mariadb`, `mongorestore`).
-- Chaque exécution de backup est tracée (statut, fichier, taille, upload S3) ; download / delete depuis l'UI.
+- **Import Backups** per database instance: direct upload (drag & drop), file already on the server, or from a configured S3; customizable default restore commands (`pg_restore`, `mysql`, `mariadb`, `mongorestore`).
+- Each backup execution is tracked (status, file, size, S3 upload); download / delete from the UI.
 
-### 7.4 S3 Storages (ressource de configuration)
-- Endpoint, bucket, région, access key / secret (chiffrés en base), path-style ; **vérification obligatoire** (`ListObjectsV2`) avant usage ; flag d'utilisabilité + alerte si le storage devient inutilisable.
-- Providers testés : AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO, Backblaze B2, Scaleway, Hetzner, Wasabi, Supabase Storage…
+### 7.4 S3 Storages (configuration resource)
+- Endpoint, bucket, region, access key / secret (encrypted in the database), path-style; **mandatory verification** (`ListObjectsV2`) before use; usability flag + alert if the storage becomes unusable.
+- Tested providers: AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO, Backblaze B2, Scaleway, Hetzner, Wasabi, Supabase Storage…
 
-### 7.5 Backup/restore de l'instance
-- Tout l'état = `/var/lib/akerdock` (config, clés SSH, proxy) + base PostgreSQL interne ; backup planifié de la base avec upload S3 ; procédure de restore documentée (clé maître, clés SSH, `pg_restore`).
-
----
-
-## 8. Stockage persistant
-
-- **Volume Docker nommé** : nom + mount path ; le nom est préfixé par l'UUID de la ressource (anti-collision).
-- **Bind mount** (répertoire hôte → container).
-- **File mount** : fichier individuel dont le **contenu est éditable dans l'UI** (chown/chmod, conversion fichier↔répertoire, rechargement du contenu depuis le serveur).
-- Extensions compose : `is_directory: true` (création du répertoire hôte), `content: |` (création du fichier avec interpolation des variables d'env) ; `configs` top-level supporté.
-- Avertissement produit : partage d'un volume entre containers déconseillé (locking).
+### 7.5 Instance backup/restore
+- All state = `/var/lib/akerdock` (config, SSH keys, proxy) + internal PostgreSQL database; scheduled database backup with S3 upload; documented restore procedure (master key, SSH keys, `pg_restore`).
 
 ---
 
-## 9. Services one-click
+## 8. Persistent storage
 
-- **Catalogue de 280+ services one-click** docker-compose (la documentation d'introduction conserve parfois la mention plus prudente « 200+ ») : WordPress, Ghost, Directus, Strapi (CMS) ; Plausible, PostHog, Umami, Metabase (analytics) ; **Supabase, Appwrite**, PocketBase, GitLab, Gitea (dev) ; **n8n**, ActivePieces (automation) ; **MinIO**, Nextcloud (storage) ; Ollama, Open WebUI, Langfuse, Qdrant, Weaviate (IA) ; Authentik, Keycloak, Vaultwarden (sécurité) ; Grafana, Uptime Kuma (monitoring) ; Elasticsearch, Meilisearch, Typesense (search) ; Immich, Jellyfin, Cal.com, Odoo, Home Assistant…
-- **Anatomie d'un template** : fichier compose standard + métadonnées en commentaires (`documentation`, `slogan`, `category`, `tags`, `logo`, `port`) ; compilés en un JSON de catalogue livré avec les releases (rafraîchissable depuis GitHub). Critère d'admission : repo ≥ 1000 stars.
-- **Magic variables** (`SERVICE_FQDN_*`, `SERVICE_PASSWORD_*`, etc.) pour l'auto-configuration : URLs, credentials générés et partagés entre les services du stack.
-- **Gestion d'un service déployé** : Deploy / Stop / Restart / « Pull latest images & restart » ; restart **par sous-container** ; éditeur du compose dans l'UI ; domaine par sous-service ; env vars ; storage/file storage ; scheduled tasks ; **backups des bases internes** ; logs par container ; `exclude_from_hc` pour les jobs one-shot.
-- **Réseau** : stack isolé dans un réseau nommé par UUID ; « Connect to Predefined Network » pour la communication inter-stacks ; services sans domaine/port = privés (DNS interne).
+- **Named Docker volume**: name + mount path; the name is prefixed with the resource UUID (anti-collision).
+- **Bind mount** (host directory → container).
+- **File mount**: individual file whose **content is editable in the UI** (chown/chmod, file↔directory conversion, content reload from the server).
+- Compose extensions: `is_directory: true` (host directory creation), `content: |` (file creation with env variable interpolation); top-level `configs` supported.
+- Product warning: sharing a volume between containers is discouraged (locking).
 
 ---
 
-## 10. Organisation, auth et sécurité
+## 9. One-click services
 
-### 10.1 Équipes et rôles
-- Multi-teams ; membres invités par email ou créés par un admin.
-- Rôles : **root/owner d'instance** (premier utilisateur : accès global, updates, settings), puis **admin** et **member** par team. Granularité limitée (pas de RBAC par projet/ressource — demande communautaire récurrente).
-- **Suppression d'utilisateur** : procédure documentée (self-service ou par le root) ; les teams dont il est seul membre et leurs ressources doivent être traitées explicitement avant suppression — jamais de cascade silencieuse.
+- **Catalog of 280+ one-click** docker-compose services (the introductory documentation sometimes keeps the more cautious mention "200+"): WordPress, Ghost, Directus, Strapi (CMS); Plausible, PostHog, Umami, Metabase (analytics); **Supabase, Appwrite**, PocketBase, GitLab, Gitea (dev); **n8n**, ActivePieces (automation); **MinIO**, Nextcloud (storage); Ollama, Open WebUI, Langfuse, Qdrant, Weaviate (AI); Authentik, Keycloak, Vaultwarden (security); Grafana, Uptime Kuma (monitoring); Elasticsearch, Meilisearch, Typesense (search); Immich, Jellyfin, Cal.com, Odoo, Home Assistant…
+- **Anatomy of a template**: standard compose file + metadata in comments (`documentation`, `slogan`, `category`, `tags`, `logo`, `port`); compiled into a catalog JSON shipped with releases (refreshable from GitHub). Admission criterion: repo ≥ 1000 stars.
+- **Magic variables** (`SERVICE_FQDN_*`, `SERVICE_PASSWORD_*`, etc.) for auto-configuration: URLs, credentials generated and shared between the services of the stack.
+- **Managing a deployed service**: Deploy / Stop / Restart / "Pull latest images & restart"; **per-sub-container** restart; compose editor in the UI; domain per sub-service; env vars; storage/file storage; scheduled tasks; **backups of internal databases**; per-container logs; `exclude_from_hc` for one-shot jobs.
+- **Network**: stack isolated in a network named by UUID; "Connect to Predefined Network" for inter-stack communication; services without domain/port = private (internal DNS).
 
-### 10.2 Authentification
-- Email/mot de passe, inscription publique désactivable, **2FA TOTP**.
-- **Réinitialisation de mot de passe** par email (« forgot password ») : requiert l'email transactionnel de l'instance configuré (cf. §14.2) ; sinon reset manuel par le root.
-- **OAuth dashboard** : Azure, Bitbucket, GitHub, GitLab et Google.
-- **SSO OpenID Connect** : configuration d'un IdP OIDC générique (Okta documenté ; IdP compatibles possibles selon leur conformité). SAML natif non documenté.
-- Bootstrap non interactif du premier root user par variables d'environnement, avec validation stricte de l'email, du nom et du mot de passe.
+---
+
+## 10. Organization, auth and security
+
+### 10.1 Teams and roles
+- Multi-team; members invited by email or created by an admin.
+- Roles: **instance root/owner** (first user: global access, updates, settings), then **admin** and **member** per team. Limited granularity (no RBAC per project/resource — recurring community request).
+- **User deletion**: documented procedure (self-service or by the root); teams where they are the sole member and their resources must be handled explicitly before deletion — never a silent cascade.
+
+### 10.2 Authentication
+- Email/password, public registration can be disabled, **TOTP 2FA**.
+- **Password reset** by email ("forgot password"): requires the instance's transactional email to be configured (see §14.2); otherwise manual reset by the root.
+- **Dashboard OAuth**: Azure, Bitbucket, GitHub, GitLab and Google.
+- **OpenID Connect SSO**: configuration of a generic OIDC IdP (Okta documented; compatible IdPs possible depending on their conformance). Native SAML not documented.
+- Non-interactive bootstrap of the first root user via environment variables, with strict validation of the email, name and password.
 
 ### 10.3 API tokens
-- API désactivée par défaut (activation dans les settings) ; tokens à **permissions granulaires** : `read`, `read:sensitive`, `write`, `deploy`, `root` ; hashés SHA-256, affichés une seule fois, expiration, **IP allowlist (CIDR)**, scopés par team ; rate limit 200 req/min.
+- API disabled by default (enabled in the settings); tokens with **granular permissions**: `read`, `read:sensitive`, `write`, `deploy`, `root`; SHA-256 hashed, shown only once, expiration, **IP allowlist (CIDR)**, scoped per team; rate limit 200 req/min.
 
-### 10.4 Surface réseau
-- Ports plateforme : 8000 (dashboard), 6001 (WebSocket), 6002 (terminal), 22 (SSH), 80/443 (proxy). 8000/6001/6002 fermables derrière un domaine proxifié.
-- Avertissement produit : Docker bypasse UFW (préférer le firewall du cloud provider) ; le hardening OS reste à la charge de l'utilisateur.
-- Accès terminal aux serveurs et containers contrôlable au niveau instance/team et réservé aux rôles autorisés ; toute session doit être authentifiée, auditée et bornée à la team active.
+### 10.4 Network surface
+- Platform ports: 8000 (dashboard), 6001 (WebSocket), 6002 (terminal), 22 (SSH), 80/443 (proxy). 8000/6001/6002 can be closed behind a proxied domain.
+- Product warning: Docker bypasses UFW (prefer the cloud provider's firewall); OS hardening remains the user's responsibility.
+- Terminal access to servers and containers controllable at instance/team level and reserved for authorized roles; every session must be authenticated, audited and bounded to the active team.
 
 ---
 
 ## 11. Notifications
 
-- **Canaux** : Email (SMTP ou Resend), Discord, Telegram, Slack (compatible Mattermost), Pushover, webhooks custom.
-- **Événements** (activables individuellement **par canal**) : déploiement réussi/échoué, changement de statut de container (app arrêtée/unhealthy), **preview créée / mise à jour / bientôt expirée / détruite** (`application.preview.created|updated|expiring|deleted.v1`), backup réussi/échoué, scheduled task réussie/échouée, statut du Docker cleanup, seuil d'usage disque, **serveur injoignable / de nouveau joignable**, mises à jour disponibles, proxy obsolète.
+- **Channels**: Email (SMTP or Resend), Discord, Telegram, Slack (Mattermost-compatible), Pushover, custom webhooks.
+- **Events** (individually toggleable **per channel**): deployment succeeded/failed, container status change (app stopped/unhealthy), **preview created / updated / expiring soon / destroyed** (`application.preview.created|updated|expiring|deleted.v1`), backup succeeded/failed, scheduled task succeeded/failed, Docker cleanup status, disk usage threshold, **server unreachable / reachable again**, updates available, outdated proxy.
 
 ---
 
-## 12. API, CLI et automatisation
+## 12. API, CLI and automation
 
-- **REST API** `/api/v1` (OpenAPI 3.1, Bearer) : CRUD applications, databases (+ backups), services, servers (+ validation, domaines et ressources), projects/environments, teams, GitHub Apps, private keys, variables d'env (dont bulk), deployments (trigger/liste/logs/cancel), deploy par UUID/tag ; liste transverse des ressources ; endpoints système (healthcheck non authentifié, version, enable/disable de l'API).
-- **Webhooks entrants** : endpoints dédiés GitHub/GitLab/Bitbucket/Gitea (signature vérifiée, auto-deploy, previews) + deploy webhook générique par ressource pour CI custom.
-- **CLI officielle** (Go, binaire unique, Cobra — ADR-033) : multi-instances (contextes), gestion servers/projects/resources/deployments (streaming des logs), domaines, clés, databases et backups. **v1 « debug »** (spec `docs/specs/cli.md`, ADR-031/032) : `login` par navigateur sans ouvrir de port (poll+code+PKCE, SSO compris), listing, logs (snapshot et `-f`), shell dans un container, **port-forward TCP** vers une ressource sans l'exposer, console typée ; le client ne parle qu'au manager sur 80/443 et traverse proxy/LB. Le déploiement depuis le poste (`akerdock up`, §27.18, ADR-018) relève de v2.
-- **Serveur MCP intégré** : activation au niveau instance, transport Streamable HTTP sur `/mcp`, authentification par token API, scoping par team et 10 outils read-only (`overview`, list/get servers, projects, applications, databases et services), pagination 50 par défaut/100 maximum. Les opérations d'écriture ne font pas partie de v4.1.2.
-- **Terraform** : providers communautaires uniquement (pas d'officiel).
-
----
-
-## 13. Observabilité
-
-- Build logs temps réel ; logs applicatifs par container ; terminal web.
-- **Log drains** par serveur puis par ressource : Axiom, New Relic, config **Fluent Bit custom**.
-- Métriques CPU/RAM serveur + containers (Sentinel) avec historique.
-- Canal d'**audit structuré** pour les requêtes API et événements webhook ; corrélation avec acteur/token, team, cible, résultat et identifiant de requête, sans journaliser les secrets. Ce goulot d'audit est aussi le point d'instrumentation OTLP : chaque action émet un compteur `akerdock.actions.total{action, actor, result}` et un span-event sur la trace active — traces, métriques et logs étant activables/désactivables signal par signal dans la config d'instance (§14.2, ADR-008). Les jobs (déploiements, backups, cleanup, sync Git, notifications…) portent chacun leur span + métrique de durée/issue, et chaque requête API sa propre span serveur.
-- Health checks applicatifs ; surveillance de joignabilité des serveurs avec notifications ; alertes disque.
-- Pas d'APM. L'**uptime monitoring intégré** est décidé par ADR-017 : checks HTTP/TCP simples exécutés hors du workload, historique et alerting via les canaux existants — le périmètre s'arrête au up/down et à la latence (Uptime Kuma & co restent disponibles en one-click pour les besoins avancés).
+- **REST API** `/api/v1` (OpenAPI 3.1, Bearer): CRUD for applications, databases (+ backups), services, servers (+ validation, domains and resources), projects/environments, teams, GitHub Apps, private keys, env variables (including bulk), deployments (trigger/list/logs/cancel), deploy by UUID/tag; cross-cutting resource list; system endpoints (unauthenticated healthcheck, version, API enable/disable).
+- **Inbound webhooks**: dedicated GitHub/GitLab/Bitbucket/Gitea endpoints (signature verified, auto-deploy, previews) + generic per-resource deploy webhook for custom CI.
+- **Official CLI** (Go, single binary, Cobra — ADR-033): multi-instance (contexts), management of servers/projects/resources/deployments (log streaming), domains, keys, databases and backups. **v1 "debug"** (spec `docs/specs/cli.md`, ADR-031/032): browser-based `login` without opening a port (poll+code+PKCE, SSO included), listing, logs (snapshot and `-f`), shell into a container, **TCP port-forward** to a resource without exposing it, typed console; the client talks only to the manager on 80/443 and traverses proxies/LBs. Deploying from the workstation (`akerdock up`, §27.18, ADR-018) belongs to v2.
+- **Built-in MCP server**: enabled at instance level, Streamable HTTP transport on `/mcp`, API token authentication, per-team scoping and 10 read-only tools (`overview`, list/get servers, projects, applications, databases and services), pagination 50 by default/100 maximum. Write operations are not part of v4.1.2.
+- **Terraform**: community providers only (no official one).
 
 ---
 
-## 14. La plateforme elle-même
+## 13. Observability
+
+- Real-time build logs; application logs per container; web terminal.
+- **Log drains** per server then per resource: Axiom, New Relic, **custom Fluent Bit** config.
+- Server + container CPU/RAM metrics (Sentinel) with history.
+- **Structured audit** channel for API requests and webhook events; correlation with actor/token, team, target, result and request identifier, without logging secrets. This audit choke point is also the OTLP instrumentation point: each action emits an `akerdock.actions.total{action, actor, result}` counter and a span-event on the active trace — traces, metrics and logs being enable/disable-able signal by signal in the instance config (§14.2, ADR-008). Jobs (deployments, backups, cleanup, Git sync, notifications…) each carry their span + duration/outcome metric, and each API request its own server span.
+- Application health checks; server reachability monitoring with notifications; disk alerts.
+- No APM. **Built-in uptime monitoring** is decided by ADR-017: simple HTTP/TCP checks executed outside the workload, history and alerting via the existing channels — the scope stops at up/down and latency (Uptime Kuma & co remain available as one-click for advanced needs).
+
+---
+
+## 14. The platform itself
 
 ### 14.1 Installation
-- Script d'installation (`install.sh`) : vérifie les prérequis (Docker ≥ 24, Compose v2), génère la clé maître et le `.env`, construit l'image et démarre la stack via Docker Compose. Dashboard et API sur le **port unique** du control plane (ADR-021).
-- OS : Debian/Ubuntu (LTS pour le script), RHEL-like, SLES, Arch, Alpine, Raspberry Pi OS 64-bit. **Minimum : 2 vCPU, 2 GB RAM, 30 GB disque.**
-- Paramètres avancés : plage CIDR Docker custom, registry d'installation custom, `docker-compose.custom.yml` persistant à travers les upgrades.
+- Installation script (`install.sh`): checks prerequisites (Docker ≥ 24, Compose v2), generates the master key and the `.env`, builds the image and starts the stack via Docker Compose. Dashboard and API on the control plane's **single port** (ADR-021).
+- OS: Debian/Ubuntu (LTS for the script), RHEL-like, SLES, Arch, Alpine, Raspberry Pi OS 64-bit. **Minimum: 2 vCPU, 2 GB RAM, 30 GB disk.**
+- Advanced parameters: custom Docker CIDR range, custom installation registry, `docker-compose.custom.yml` persistent across upgrades.
 
-### 14.2 Paramètres d'instance
-- **FQDN de l'instance** : dashboard servi derrière le proxy avec certificat automatique, permettant de fermer les ports directs 8000/6001/6002.
-- **Timezone de l'instance** configurable (affichage et crons de maintenance de la plateforme).
-- Inscription publique on/off, API on/off (cf. §10), serveur DNS de validation custom (cf. §4.2).
-- **Email transactionnel de l'instance** (SMTP ou Resend) : invitations, réinitialisation de mot de passe, email de test ; les teams peuvent réutiliser cette configuration système pour leurs notifications au lieu d'un SMTP propre.
-- **Export OTLP distant** (ADR-008/§27.8) : endpoint, protocole (HTTP/gRPC), en-têtes d'auth (chiffrés au repos) et choix des signaux (traces, métriques, logs) vers un collector OpenTelemetry ; configuré ici, chiffré, appliqué au prochain redémarrage du binaire. À défaut, repli sur les variables `OTEL_*`.
-- **Onboarding guidé** au premier démarrage : création du root user, première team, premier serveur (localhost ou distant) et première ressource.
+### 14.2 Instance settings
+- **Instance FQDN**: dashboard served behind the proxy with automatic certificate, allowing the direct ports 8000/6001/6002 to be closed.
+- **Instance timezone** configurable (display and platform maintenance crons).
+- Public registration on/off, API on/off (see §10), custom validation DNS server (see §4.2).
+- **Instance transactional email** (SMTP or Resend): invitations, password reset, test email; teams can reuse this system configuration for their notifications instead of their own SMTP.
+- **Remote OTLP export** (ADR-008/§27.8): endpoint, protocol (HTTP/gRPC), auth headers (encrypted at rest) and choice of signals (traces, metrics, logs) toward an OpenTelemetry collector; configured here, encrypted, applied at the binary's next restart. Failing that, fallback to the `OTEL_*` variables.
+- **Guided onboarding** at first startup: creation of the root user, first team, first server (localhost or remote) and first resource.
 
-### 14.3 Mises à jour
-- **Auto-update** (vérification périodique du CDN, désactivable), update semi-automatique (bouton, réservé au root user), ou manuelle (script).
-- Cron d'auto-update configurable ; upgrade/downgrade vers une version explicite ; procédure séparée d'upgrade/rollback du PostgreSQL interne.
-- Désinstallation documentée et destructive uniquement après confirmation ; les migrations de ressources/volumes entre serveurs sont des opérations explicites, distinctes du backup du control plane.
+### 14.3 Updates
+- **Auto-update** (periodic CDN check, can be disabled), semi-automatic update (button, reserved for the root user), or manual (script).
+- Configurable auto-update cron; upgrade/downgrade to an explicit version; separate upgrade/rollback procedure for the internal PostgreSQL.
+- Uninstall documented and destructive only after confirmation; resource/volume migrations between servers are explicit operations, distinct from the control plane backup.
 
-### 14.4 Modèle économique
-- **Self-hosted : gratuit et complet.** Aucune feature paywallée, aucune édition « entreprise » : ce que fait le produit est dans le binaire que l'on héberge (licence Apache 2.0, ADR-020).
-- Un éventuel control plane managé resterait un **service d'hébergement** du même binaire, sans capacité réservée — c'est un non-objectif du périmètre courant (§16.2).
-
----
-
-## 15. Pièges structurels traités par conception
-
-Les limitations qui font échouer un PaaS de containers en production sont connues. Elles sont traitées **par conception** dans AkerDock, et chacune est prouvée par un test :
-
-- **Zero-downtime des stacks compose** : bascule par service derrière le proxy (ADR-015) — pas seulement pour les applications à container unique.
-- **Resource limits réellement appliquées** aux ressources compose (cgroups vérifiés en E2E), jamais déclaratives sans effet.
-- **Rollback par artifact vérifié** (digest OCI, ADR-006) — jamais « l'image encore présente localement, si elle y est ».
-- **Plafond et TTL des previews** (§20.4.3) : une PR ouverte ne peut pas consommer un serveur sans borne.
-- **Watch paths appliqués aux previews** aussi (§20.4.5) : en monorepo, seule l'application affectée redéploie.
-- **RBAC fin** par projet et environnement (ADR-007), pas un simple couple admin/member.
-- **Restore drills** (ADR-014) : un backup qui n'a jamais été restauré n'est pas un backup.
-- **Notifications routées et agrégées** (ADR-019) : un serveur qui flappe ne produit pas des dizaines d'alertes.
+### 14.4 Business model
+- **Self-hosted: free and complete.** No paywalled feature, no "enterprise" edition: what the product does is in the binary you host (Apache 2.0 license, ADR-020).
+- A possible managed control plane would remain a **hosting service** for the same binary, without reserved capability — it is a non-goal of the current scope (§16.2).
 
 ---
 
-## 16. Objectifs produit de AkerDock
+## 15. Structural pitfalls addressed by design
 
-> Les sections 16 à 28 transforment le périmètre fonctionnel (§1–14) en **exigences vérifiables** : chacune doit pouvoir être prouvée par un test, une fixture ou un runbook.
+The limitations that make a container PaaS fail in production are known. They are addressed **by design** in AkerDock, and each is proven by a test:
 
-### 16.1 Objectifs
+- **Zero-downtime for compose stacks**: per-service switchover behind the proxy (ADR-015) — not only for single-container applications.
+- **Resource limits actually enforced** on compose resources (cgroups verified in E2E), never declarative without effect.
+- **Rollback by verified artifact** (OCI digest, ADR-006) — never "the image still present locally, if it is there".
+- **Preview cap and TTL** (§20.4.3): an open PR cannot consume a server without bound.
+- **Watch paths applied to previews** too (§20.4.5): in a monorepo, only the affected application redeploys.
+- **Fine-grained RBAC** per project and environment (ADR-007), not a simple admin/member pair.
+- **Restore drills** (ADR-014): a backup that has never been restored is not a backup.
+- **Routed and aggregated notifications** (ADR-019): a flapping server does not produce dozens of alerts.
 
-1. Permettre à une équipe de déployer et exploiter une application containerisée sur un serveur vierge en moins de 15 minutes, sans écrire de pipeline CI/CD.
-2. Offrir un control plane self-hosted qui ne se trouve jamais dans le chemin des requêtes applicatives.
-3. Garantir que toutes les ressources restent des objets Docker, Compose, réseau, volume et fichiers standards, administrables hors de AkerDock.
-4. Livrer un cœur fonctionnel complet et prouvé (§26) avant d'ajouter de la surface : une capacité n'est « livrée » qu'avec sa documentation, ses migrations, son audit et son test.
-5. Concevoir les modules comme des capacités remplaçables : moteur de build, scheduler, proxy, secret store, transport distant, métriques et catalogue de services.
-6. Rester léger et simple à opérer : un binaire Go unique + PostgreSQL (pas de Redis ni de runtime applicatif), un seul port exposé pour le control plane, et un dashboard qui reste réactif sur un VPS modeste (2 vCPU / 2 GB). Cette empreinte est un engagement produit, mesuré en CI, pas un effet de bord.
+---
 
-### 16.2 Non-objectifs initiaux
+## 16. AkerDock product objectives
 
-- Devenir un orchestrateur généraliste équivalent à Kubernetes.
-- Fournir du stockage distribué ou un load balancer global propriétaire.
-- Offrir du billing, du support commercial ou l'exploitation d'un service managé.
-- Réimplémenter Nixpacks, Railpack, Docker, BuildKit, Traefik ou Caddy ; AkerDock les orchestre.
-- Importer le schéma interne d'une autre plateforme. Le chemin d'entrée est l'**adoption de ressources Docker existantes** (§20.7, ADR-013) : ce qui tourne déjà est repris tel quel, sans dépendre du format de qui l'a créé.
+> Sections 16 to 28 turn the functional scope (§1–14) into **verifiable requirements**: each must be provable by a test, a fixture or a runbook.
 
-### 16.3 Acteurs
+### 16.1 Objectives
 
-| Acteur | Besoin principal | Droits attendus |
+1. Allow a team to deploy and operate a containerized application on a fresh server in under 15 minutes, without writing a CI/CD pipeline.
+2. Provide a self-hosted control plane that is never in the path of application requests.
+3. Guarantee that all resources remain standard Docker, Compose, network, volume and file objects, administrable outside of AkerDock.
+4. Ship a complete and proven functional core (§26) before adding surface: a capability is only "shipped" with its documentation, migrations, audit and test.
+5. Design modules as replaceable capabilities: build engine, scheduler, proxy, secret store, remote transport, metrics and service catalog.
+6. Stay lightweight and simple to operate: a single Go binary + PostgreSQL (no Redis nor application runtime), a single exposed port for the control plane, and a dashboard that stays responsive on a modest VPS (2 vCPU / 2 GB). This footprint is a product commitment, measured in CI, not a side effect.
+
+### 16.2 Initial non-goals
+
+- Becoming a general-purpose orchestrator equivalent to Kubernetes.
+- Providing distributed storage or a proprietary global load balancer.
+- Offering billing, commercial support or the operation of a managed service.
+- Reimplementing Nixpacks, Railpack, Docker, BuildKit, Traefik or Caddy; AkerDock orchestrates them.
+- Importing the internal schema of another platform. The entry path is the **adoption of existing Docker resources** (§20.7, ADR-013): what is already running is taken over as-is, without depending on the format of whoever created it.
+
+### 16.3 Actors
+
+| Actor | Main need | Expected rights |
 |---|---|---|
-| Root de l'instance | Installer, mettre à jour, sécuriser et diagnostiquer le control plane | Toutes teams et réglages instance |
-| Owner/Admin de team | Administrer membres, serveurs, sources, secrets et ressources de sa team | Lecture/écriture/deploy dans sa team |
-| Member/Développeur | Configurer et déployer les ressources autorisées | Selon politique de team, jamais inter-team |
-| Opérateur/SRE | Observer, redémarrer, rollback, backup/restore, terminal | Accès opérationnel explicite et audité |
-| Pipeline CI | Déclencher un déploiement et en lire le résultat | Token `deploy` minimal |
-| Intégration read-only/MCP | Inventorier l'infrastructure | Token `read`, secrets masqués |
-| Serveur cible | Exécuter builds, workloads, proxy et agents | Confiance limitée à son périmètre serveur |
-| Fournisseur Git/Cloud/S3 | Émettre des événements ou exécuter une action demandée | Credentials minimaux, rotation possible |
+| Instance root | Install, update, secure and diagnose the control plane | All teams and instance settings |
+| Team owner/admin | Administer members, servers, sources, secrets and resources of their team | Read/write/deploy within their team |
+| Member/Developer | Configure and deploy authorized resources | Per team policy, never cross-team |
+| Operator/SRE | Observe, restart, rollback, backup/restore, terminal | Explicit and audited operational access |
+| CI pipeline | Trigger a deployment and read its result | Minimal `deploy` token |
+| Read-only/MCP integration | Inventory the infrastructure | `read` token, secrets masked |
+| Target server | Run builds, workloads, proxy and agents | Trust limited to its server scope |
+| Git/Cloud/S3 provider | Emit events or execute a requested action | Minimal credentials, rotation possible |
 
-### 16.4 Indicateurs de succès proposés
+### 16.4 Proposed success indicators
 
-- Taux de déploiements réussis hors erreur applicative ≥ 99 %.
-- Aucun chevauchement inter-team dans les tests d'autorisation et d'isolation.
-- Reprise d'un worker après crash sans double bascule de trafic ni perte d'un job accepté.
-- 95e percentile de réponse API de lecture < 300 ms hors SSH/fournisseurs externes, à 50 utilisateurs concurrents.
-- Événement webhook accepté en < 500 ms puis traité asynchronement.
-- RPO du control plane ≤ 24 h avec backup quotidien ; RTO documenté ≤ 2 h sur une installation standard.
-- Toutes les opérations destructives, d'accès secret et de terminal produisent un audit exploitable.
+- Successful deployment rate excluding application errors ≥ 99%.
+- No cross-team overlap in authorization and isolation tests.
+- Worker recovery after crash without double traffic switch or loss of an accepted job.
+- 95th percentile of read API response < 300 ms excluding SSH/external providers, at 50 concurrent users.
+- Webhook event accepted in < 500 ms then processed asynchronously.
+- Control plane RPO ≤ 24 h with daily backup; documented RTO ≤ 2 h on a standard installation.
+- All destructive, secret-access and terminal operations produce a usable audit trail.
 
-## 17. Invariants fonctionnels obligatoires
+## 17. Mandatory functional invariants
 
-Chaque invariant doit posséder au moins un test automatisé de niveau API ou intégration.
+Each invariant must have at least one automated test at API or integration level.
 
-| ID | Exigence |
+| ID | Requirement |
 |---|---|
-| INV-001 | Toute ressource appartient à exactement une team, directement ou par sa chaîne Project → Environment. |
-| INV-002 | Une requête ne peut référencer une clé, source, destination, storage, serveur ou ressource d'une autre team, même avec un UUID valide. |
-| INV-003 | Un secret n'est jamais renvoyé sans permission `read:sensitive`, ni écrit dans les logs, événements ou messages d'erreur. |
-| INV-004 | Une opération distante est idempotente ou porte une clé d'idempotence et un mécanisme de détection/réconciliation. |
-| INV-005 | Une application saine existante reste routée tant que sa remplaçante n'a pas satisfait les conditions de bascule. |
-| INV-006 | L'échec d'un déploiement ne supprime ni volume persistant ni dernier container sain. |
-| INV-007 | Le control plane ne proxyfie pas le trafic applicatif ; sa panne n'arrête pas les workloads déjà actifs. |
-| INV-008 | La suppression d'un objet logique exige la vérification de ses dépendances et sépare clairement « retirer de AkerDock » de « supprimer les données ». |
-| INV-009 | Un webhook est authentifié, associé exactement au bon dépôt et dédupliqué avant de déclencher un déploiement. |
-| INV-010 | Une PR non fiable ou issue d'un fork n'obtient aucun secret de production et ne déclenche rien sans politique explicite. |
-| INV-011 | Les noms Docker générés sont déterministes, non conflictuels et rattachables à un UUID interne stable. |
-| INV-012 | Toute commande shell construite depuis une entrée utilisateur est passée comme arguments typés ou échappée avec une bibliothèque centralisée et testée. |
-| INV-013 | Un job accepté survit au redémarrage du processus et ne reste pas indéfiniment `in_progress` sans heartbeat/lease. |
-| INV-014 | Les changements de configuration sont versionnés suffisamment pour expliquer et reproduire chaque déploiement. |
-| INV-015 | Les ressources découvertes sur un serveur sont distinguées des ressources gérées ; le cleanup ne détruit jamais un objet non géré ou persistant. |
+| INV-001 | Every resource belongs to exactly one team, directly or through its Project → Environment chain. |
+| INV-002 | A request cannot reference a key, source, destination, storage, server or resource of another team, even with a valid UUID. |
+| INV-003 | A secret is never returned without the `read:sensitive` permission, nor written to logs, events or error messages. |
+| INV-004 | A remote operation is idempotent or carries an idempotency key and a detection/reconciliation mechanism. |
+| INV-005 | An existing healthy application remains routed as long as its replacement has not satisfied the switchover conditions. |
+| INV-006 | A deployment failure deletes neither a persistent volume nor the last healthy container. |
+| INV-007 | The control plane does not proxy application traffic; its outage does not stop already-active workloads. |
+| INV-008 | Deleting a logical object requires checking its dependencies and clearly separates "remove from AkerDock" from "delete the data". |
+| INV-009 | A webhook is authenticated, associated with exactly the right repository and deduplicated before triggering a deployment. |
+| INV-010 | An untrusted PR or one coming from a fork obtains no production secret and triggers nothing without an explicit policy. |
+| INV-011 | Generated Docker names are deterministic, non-conflicting and attachable to a stable internal UUID. |
+| INV-012 | Any shell command built from user input is passed as typed arguments or escaped with a centralized and tested library. |
+| INV-013 | An accepted job survives a process restart and does not remain indefinitely `in_progress` without heartbeat/lease. |
+| INV-014 | Configuration changes are versioned sufficiently to explain and reproduce each deployment. |
+| INV-015 | Resources discovered on a server are distinguished from managed resources; cleanup never destroys an unmanaged or persistent object. |
 
-## 18. Frontières du système et architecture cible en Go
+## 18. System boundaries and target architecture in Go
 
-### 18.1 Composants logiques
+### 18.1 Logical components
 
 ```text
-Navigateur / CLI / API / MCP / Webhooks
+Browser / CLI / API / MCP / Webhooks
                   │
           API + Auth + Policy
                   │
-        Services métier / Postgres
+        Business services / Postgres
           │          │          │
       Job queue   Event bus   Realtime hub
           │                     │
-       Workers ───────────── logs/états
+       Workers ───────────── logs/states
           │
-  SSH/agent ou provider API
+  SSH/agent or provider API
           │
-Serveurs cibles : Docker/BuildKit + Proxy + Sentinel
+Target servers: Docker/BuildKit + Proxy + Sentinel
 ```
 
-- **API/control plane** : HTTP, UI, auth, validation, politiques, persistance, OpenAPI et MCP.
-- **Workers** : déploiements, validation serveur, backups, tâches planifiées, cleanup, notifications, synchronisation Git et maintenance.
-- **Realtime hub** : progression des jobs, logs de build/runtime et terminal. Il ne constitue pas la source de vérité.
-- **PostgreSQL** : configuration, états désirés/observés, historique, audits, leases et outbox.
-- **Queue** : queue durable en PostgreSQL (décision §27.2). L'interface reste abstraite dans le code, mais aucun bus externe n'est planifié.
-- **Transport distant** : interface abstraite avec implémentation SSH initiale. Un agent sortant optionnel pourra être ajouté sans modifier les services métier.
-- **Runtime cible** : Docker Engine/Compose/BuildKit (décision §27.4 : Docker standalone confirmé, Kubernetes écarté). Tous les appels passent par un adaptateur runtime unique, instrumenté et sécurisé — c'est ce contrat qui permettrait d'évaluer un autre orchestrateur plus tard sans toucher aux services métier.
-- **Proxy provider** : contrat commun Traefik/Caddy ; génération de configuration, validation, application atomique et rollback.
+- **API/control plane**: HTTP, UI, auth, validation, policies, persistence, OpenAPI and MCP.
+- **Workers**: deployments, server validation, backups, scheduled tasks, cleanup, notifications, Git synchronization and maintenance.
+- **Realtime hub**: job progress, build/runtime logs and terminal. It is not the source of truth.
+- **PostgreSQL**: configuration, desired/observed states, history, audits, leases and outbox.
+- **Queue**: durable queue in PostgreSQL (decision §27.2). The interface remains abstract in the code, but no external bus is planned.
+- **Remote transport**: abstract interface with an initial SSH implementation. An optional outbound agent may be added without modifying the business services.
+- **Target runtime**: Docker Engine/Compose/BuildKit (decision §27.4: standalone Docker confirmed, Kubernetes ruled out). All calls go through a single runtime adapter, instrumented and secured — it is this contract that would allow evaluating another orchestrator later without touching the business services.
+- **Proxy provider**: common Traefik/Caddy contract; configuration generation, validation, atomic application and rollback.
 
-### 18.2 Recommandation de packaging
+### 18.2 Packaging recommendation
 
-- Démarrer en **monolithe modulaire Go** avec binaires ou modes `api`, `worker`, `scheduler` et `all-in-one` issus du même dépôt.
-- Interdire les dépendances circulaires entre domaines ; exposer des interfaces pour Git, SSH, Docker, proxy, registry, secret store, object storage et notification.
-- Utiliser PostgreSQL comme source de vérité et le pattern **transactional outbox** pour publier les événements après commit.
-- Prévoir le multi-instance dès le schéma : jobs avec lease, verrous distribués par ressource/serveur, migrations compatibles rolling upgrade.
-- Garder l'UI découplée de l'orchestration : toute action produit importante doit avoir un contrat API stable.
+- Start as a **modular Go monolith** with `api`, `worker`, `scheduler` and `all-in-one` binaries or modes from the same repository.
+- Forbid circular dependencies between domains; expose interfaces for Git, SSH, Docker, proxy, registry, secret store, object storage and notification.
+- Use PostgreSQL as the source of truth and the **transactional outbox** pattern to publish events after commit.
+- Plan for multi-instance from the schema onward: jobs with lease, distributed locks per resource/server, migrations compatible with rolling upgrade.
+- Keep the UI decoupled from orchestration: every important product action must have a stable API contract.
 
-### 18.3 Sources de vérité
+### 18.3 Sources of truth
 
-| Donnée | Source autoritative | Réconciliation |
+| Data | Authoritative source | Reconciliation |
 |---|---|---|
-| Configuration désirée | PostgreSQL | Version + diff par mutation |
-| État container/réseau/volume | Docker du serveur cible | Polling + événement/agent |
-| Code source | Fournisseur Git au SHA résolu | SHA immuable conservé avec le déploiement |
-| Image déployée | Digest OCI, pas seulement le tag | Résolution du digest avant bascule |
-| Secrets | Secret store chiffré | Référence/version, jamais valeur dans événements |
-| Routage | Fichier/labels proxy sur le serveur | Génération déterministe + validation + checksum |
-| Job | Queue durable + historique PostgreSQL | Lease, heartbeat, retry et dead-letter |
+| Desired configuration | PostgreSQL | Version + diff per mutation |
+| Container/network/volume state | Docker on the target server | Polling + event/agent |
+| Source code | Git provider at the resolved SHA | Immutable SHA kept with the deployment |
+| Deployed image | OCI digest, not only the tag | Digest resolution before switchover |
+| Secrets | Encrypted secret store | Reference/version, never a value in events |
+| Routing | Proxy file/labels on the server | Deterministic generation + validation + checksum |
+| Job | Durable queue + PostgreSQL history | Lease, heartbeat, retry and dead-letter |
 
-## 19. Modèle de données logique
+## 19. Logical data model
 
-### 19.1 Entités principales
+### 19.1 Main entities
 
-| Agrégat | Entités et relations clés |
+| Aggregate | Key entities and relations |
 |---|---|
-| Identité | `User`, `Identity`, `MFAFactor`, `Session`, `Team`, `TeamMembership`, `Invitation`, `APIToken` |
-| Organisation | `Project` 1—N `Environment`; `Environment` 1—N `Resource`; `Tag` N—N ressources |
+| Identity | `User`, `Identity`, `MFAFactor`, `Session`, `Team`, `TeamMembership`, `Invitation`, `APIToken` |
+| Organization | `Project` 1—N `Environment`; `Environment` 1—N `Resource`; `Tag` N—N resources |
 | Infrastructure | `Server`, `Destination`, `PrivateKey`, `CloudCredential`, `RegistryCredential`, `S3Storage` |
 | Source | `GitSource`, `GitHubApp`, `Repository`, `WebhookEndpoint`, `WebhookDelivery` |
 | Application | `Application`, `BuildConfig`, `RuntimeConfig`, `Domain`, `EnvironmentVariable`, `PersistentStorage`, `HealthCheck` |
 | Service/DB | `Service`, `ServiceComponent`, `Database`, `DatabaseCredential`, `DatabaseBackupPlan`, `BackupExecution` |
-| Exécution | `Deployment`, `DeploymentStep`, `DeploymentArtifact`, `ScheduledTask`, `TaskExecution`, `TerminalSession` |
-| Plateforme | `ProxyConfigRevision`, `NotificationChannel`, `NotificationRule`, `AuditEvent`, `OutboxEvent`, `FeatureFlag` |
+| Execution | `Deployment`, `DeploymentStep`, `DeploymentArtifact`, `ScheduledTask`, `TaskExecution`, `TerminalSession` |
+| Platform | `ProxyConfigRevision`, `NotificationChannel`, `NotificationRule`, `AuditEvent`, `OutboxEvent`, `FeatureFlag` |
 
-`Resource` est une union logique (`Application | Database | Service`) avec les champs communs : UUID, team, environnement, destination, nom, description, statut désiré/observé, timestamps et politique de suppression.
+`Resource` is a logical union (`Application | Database | Service`) with the common fields: UUID, team, environment, destination, name, description, desired/observed status, timestamps and deletion policy.
 
-### 19.2 Contraintes et cycle de vie
+### 19.2 Constraints and lifecycle
 
-- UUID publics aléatoires, non séquentiels ; identifiants internes séparés si nécessaire.
-- Unicité des slugs Project/Environment dans leur parent et des noms Docker dans leur destination.
-- Suppression Project/Environment interdite tant qu'elle contient des ressources, sauf opération cascade explicitement prévisualisée et confirmée.
-- Suppression d'une clé, source, destination ou storage interdite tant qu'elle est référencée.
-- Secrets chiffrés par enveloppe avec version de clé ; rotation sans réécriture bloquante de toute la base.
-- `created_at`, `updated_at`, `deleted_at`, `created_by`, `updated_by` et numéro de version optimiste sur les agrégats mutables.
-- Historique de déploiement, audit et exécutions de backup soumis à une rétention configurable ; aucune cascade accidentelle depuis un utilisateur supprimé.
-- Les statuts observés ont un `observed_at` : au-delà d'un seuil, l'UI indique « inconnu/stale », jamais un faux `running`.
+- Random, non-sequential public UUIDs; separate internal identifiers if necessary.
+- Uniqueness of Project/Environment slugs within their parent and of Docker names within their destination.
+- Project/Environment deletion forbidden while it contains resources, except for an explicitly previewed and confirmed cascade operation.
+- Deletion of a key, source, destination or storage forbidden while it is referenced.
+- Envelope-encrypted secrets with key version; rotation without a blocking rewrite of the whole database.
+- `created_at`, `updated_at`, `deleted_at`, `created_by`, `updated_by` and optimistic version number on mutable aggregates.
+- Deployment history, audit and backup executions subject to configurable retention; no accidental cascade from a deleted user.
+- Observed statuses have an `observed_at`: beyond a threshold, the UI shows "unknown/stale", never a false `running`.
 
-## 20. Workflows critiques et critères d'acceptation
+## 20. Critical workflows and acceptance criteria
 
-### 20.1 Onboarding d'un serveur
+### 20.1 Server onboarding
 
-1. L'admin choisit une team, une clé et saisit host, port, user et timeout.
-2. L'API valide syntaxe, unicité et appartenance des références, puis crée le serveur en `pending`.
-3. Un worker teste host key/politique SSH, connexion, sudo, OS/architecture, espace disque, Docker/Compose et ports.
-4. Si autorisé, le worker installe ou met à niveau les prérequis et crée le réseau/dossiers/helper containers.
-5. Il déploie et vérifie proxy et Sentinel selon les options, puis passe le serveur à `ready`. Le proxy n'est concerné que si son intention est `running` : un serveur est créé avec l'intention `stopped`, et le **premier démarrage du proxy est un acte explicite de l'opérateur** (revue des réglages — ports, wildcard, email ACME — puis Start), jamais un effet de bord de la validation.
-6. Chaque étape est rejouable, loguée, annulable entre deux mutations et assortie d'une instruction de remédiation.
+1. The admin picks a team, a key and enters host, port, user and timeout.
+2. The API validates syntax, uniqueness and ownership of the references, then creates the server as `pending`.
+3. A worker tests host key/SSH policy, connection, sudo, OS/architecture, disk space, Docker/Compose and ports.
+4. If authorized, the worker installs or upgrades the prerequisites and creates the network/directories/helper containers.
+5. It deploys and verifies the proxy and Sentinel according to the options, then moves the server to `ready`. The proxy is only involved if its intent is `running`: a server is created with the `stopped` intent, and the **first proxy start is an explicit operator act** (review of the settings — ports, wildcard, ACME email — then Start), never a side effect of validation.
+6. Each step is replayable, logged, cancellable between two mutations and accompanied by a remediation instruction.
 
-**Acceptation** : mauvais host key, clé d'une autre team, Docker Snap, architecture inconnue, sudo interactif, disque insuffisant et timeout produisent chacun une erreur distincte sans serveur faussement `ready`.
+**Acceptance**: bad host key, key from another team, Docker Snap, unknown architecture, interactive sudo, insufficient disk and timeout each produce a distinct error without a falsely `ready` server.
 
-### 20.2 Création et déploiement d'une application Git
+### 20.2 Creation and deployment of a Git application
 
-1. Sélection Project/Environment/Destination, source, dépôt, branche et build pack.
-2. Validation de l'accès Git et résolution de la branche en SHA immuable.
-3. Snapshot versionné de la configuration et création du `Deployment` en `queued`.
-4. Acquisition d'un verrou applicatif et d'un slot de build serveur.
-5. Clone isolé, submodules/LFS, génération du plan de build, injection contrôlée des variables et secrets BuildKit.
-6. Build avec logs structurés ; production d'une image identifiée par digest ; push registry si requis.
-7. Préparation du container candidat, volumes, réseau, labels et configuration proxy non active.
-8. Démarrage, health checks et post-command ; bascule atomique du trafic ; arrêt gracieux de l'ancien container.
-9. Publication des statuts, notification, conservation de l'artifact de rollback et nettoyage asynchrone.
+1. Selection of Project/Environment/Destination, source, repository, branch and build pack.
+2. Validation of Git access and resolution of the branch into an immutable SHA.
+3. Versioned snapshot of the configuration and creation of the `Deployment` as `queued`.
+4. Acquisition of an application lock and a server build slot.
+5. Isolated clone, submodules/LFS, build plan generation, controlled injection of variables and BuildKit secrets.
+6. Build with structured logs; production of an image identified by digest; registry push if required.
+7. Preparation of the candidate container, volumes, network, labels and inactive proxy configuration.
+8. Startup, health checks and post-command; atomic traffic switch; graceful stop of the old container.
+9. Status publication, notification, retention of the rollback artifact and asynchronous cleanup.
 
-**Échec/compensation** : avant bascule, supprimer uniquement le candidat et conserver l'ancien ; après bascule, tenter un rollback automatique seulement si la politique l'autorise et si l'ancien artifact est vérifié. Toujours libérer lease et slot.
+**Failure/compensation**: before switchover, delete only the candidate and keep the old one; after switchover, attempt an automatic rollback only if the policy allows it and if the old artifact is verified. Always release lease and slot.
 
-### 20.3 Auto-déploiement par webhook
+### 20.3 Auto-deployment via webhook
 
-1. Vérifier limite de taille, IP si configurée, signature HMAC et horodatage.
-2. Persister la livraison et répondre rapidement `2xx` ; dédupliquer par provider + delivery ID.
-3. Associer exactement provider/installation/repository/branch ou PR à une ressource de la même team.
-4. Appliquer politique de contributeur/fork, marqueurs skip et filtres de chemins.
-5. Coalescer les pushes rapides : un SHA obsolète en file PEUT être remplacé par le plus récent avant le début du build.
-6. Déclencher le workflow de déploiement avec référence à la livraison d'origine.
+1. Verify size limit, IP if configured, HMAC signature and timestamp.
+2. Persist the delivery and respond quickly with `2xx`; deduplicate by provider + delivery ID.
+3. Associate exactly provider/installation/repository/branch or PR with a resource of the same team.
+4. Apply contributor/fork policy, skip markers and path filters.
+5. Coalesce rapid pushes: a stale SHA in the queue MAY be replaced by the most recent one before the build starts.
+6. Trigger the deployment workflow with a reference to the original delivery.
 
-### 20.4 Preview de pull request
+### 20.4 Pull request preview
 
-Socle (parité) :
+Baseline (parity):
 
-- Créer une identité de preview déterministe `(application_uuid, provider, pr_id)` et une URL sans collision.
-- Utiliser un jeu de variables dédié ; aucune copie implicite des secrets de production.
-- Redéployer au nouveau SHA, conserver seulement la rétention définie et détruire containers/routage à fermeture/merge.
-- Si le cleanup échoue, marquer `cleanup_failed`, notifier et réessayer ; ne jamais recycler l'identité d'une PR pour une autre application.
+- Create a deterministic preview identity `(application_uuid, provider, pr_id)` and a collision-free URL.
+- Use a dedicated set of variables; no implicit copy of production secrets.
+- Redeploy at the new SHA, keep only the defined retention and destroy containers/routing on close/merge.
+- If cleanup fails, mark `cleanup_failed`, notify and retry; never recycle a PR's identity for another application.
 
-Les exigences suivantes font partie du **périmètre prioritaire** de la feature (décision §27.11, suivi §26) — elles sont livrées avec elle, pas en extension ultérieure :
+The following requirements are part of the feature's **priority scope** (decision §27.11, tracking §26) — they are shipped with it, not as a later extension:
 
-1. **Docker Compose en preview** : le build pack compose DOIT être supporté — stack éphémère complet par PR (réseau isolé, volumes propres, magic variables résolues par instance de preview), détruit intégralement au cleanup.
-2. **Données éphémères** : une preview PEUT provisionner ses bases éphémères, initialisées par script de seed ou par clone d'un snapshot de référence ; NE DOIT JAMAIS partager implicitement une base avec la production ou une autre preview.
-3. **Cycle de vie et coûts** : plafond de previews simultanées par application et par serveur (file d'attente au-delà), **TTL d'inactivité** avec destruction automatique, resource limits distincts pour les previews, pool de serveurs de preview dédié optionnel ; le proxy DEVRAIT supporter le **scale-to-zero** (arrêt du container idle, réveil à la première requête).
-4. **Protection d'accès par défaut** : toute URL de preview est protégée (basic auth ou lien signé) et sert `X-Robots-Tag: noindex` ; l'exposition publique est un choix explicite par application.
-5. **Monorepo** : les watch paths s'appliquent aussi aux previews — seule une application affectée par les fichiers modifiés de la PR est (re)déployée.
-6. **Intégration Git riche** : commit statuses/checks (pending/success/failure) utilisables comme condition de merge, API Deployments GitHub (« View deployment »), **commentaire unique mis à jour en place** (pas un commentaire par déploiement), et parité de feedback pour GitLab/Gitea, pas seulement GitHub App.
-7. **Contrôles de déclenchement — options activables par application** (désactivées par défaut, le comportement de parité restant le défaut) : opt-in par label de PR, commandes en commentaire (`/deploy`, `/destroy`), exclusion des draft PRs, annulation automatique du build de preview rendu obsolète par un nouveau commit. Chaque contrôle est activable individuellement.
-8. **Forks sur approbation** : une PR de fork PEUT obtenir une preview après approbation manuelle d'un mainteneur — builder isolé, aucun secret injecté ; sans approbation, elle reste ignorée (INV-010).
+1. **Docker Compose in preview**: the compose build pack MUST be supported — a complete ephemeral stack per PR (isolated network, own volumes, magic variables resolved per preview instance), destroyed entirely on cleanup.
+2. **Ephemeral data**: a preview MAY provision its ephemeral databases, initialized by a seed script or by cloning a reference snapshot; it MUST NEVER implicitly share a database with production or another preview.
+3. **Lifecycle and costs**: cap on simultaneous previews per application and per server (queue beyond it), **inactivity TTL** with automatic destruction, distinct resource limits for previews, optional dedicated preview server pool; the proxy SHOULD support **scale-to-zero** (idle container stopped, woken on the first request).
+4. **Access protection by default**: every preview URL is protected (basic auth or signed link) and serves `X-Robots-Tag: noindex`; public exposure is an explicit per-application choice.
+5. **Monorepo**: watch paths also apply to previews — only an application affected by the PR's modified files is (re)deployed.
+6. **Rich Git integration**: commit statuses/checks (pending/success/failure) usable as a merge condition, GitHub Deployments API ("View deployment"), **single comment updated in place** (not one comment per deployment), and feedback parity for GitLab/Gitea, not only GitHub App.
+7. **Trigger controls — options enableable per application** (disabled by default, the parity behavior remaining the default): opt-in via PR label, comment commands (`/deploy`, `/destroy`), draft PR exclusion, automatic cancellation of a preview build made stale by a new commit. Each control is individually enableable.
+8. **Forks on approval**: a fork PR MAY obtain a preview after manual approval by a maintainer — isolated builder, no secret injected; without approval, it remains ignored (INV-010).
 
-### 20.5 Backup et restore d'une base
+### 20.5 Database backup and restore
 
-- Verrouiller une exécution par plan, vérifier l'espace temporaire et la destination S3 avant lancement.
-- Exécuter l'outil adapté dans un environnement contrôlé, capturer exit code, taille, checksum et version moteur.
-- Uploader par flux, vérifier l'objet distant, puis appliquer rétention locale/S3 sans supprimer le dernier backup valide.
-- Le restore est une opération séparée, confirmée, avec test préalable du format et journal complet. Un restore vers une base non vide exige une confirmation renforcée.
-- **Acceptation** : un succès local + échec S3 est un statut partiel explicite, pas un succès global.
+- Lock one execution per plan, verify temporary space and the S3 destination before launch.
+- Run the appropriate tool in a controlled environment, capture exit code, size, checksum and engine version.
+- Upload by stream, verify the remote object, then apply local/S3 retention without deleting the last valid backup.
+- Restore is a separate, confirmed operation, with a prior format test and a complete log. A restore into a non-empty database requires reinforced confirmation.
+- **Acceptance**: a local success + S3 failure is an explicit partial status, not an overall success.
 
-Exigences complémentaires (décision §27.14) :
+Complementary requirements (decision §27.14):
 
-- **Backup des volumes applicatifs** : plans de backup sur les volumes et bind mounts des applications et services — pas seulement les bases — chiffrés et dédupliqués (outil type restic), avec option de quiesce/stop par ressource pour la cohérence, et la même planification, rétention locale/S3 et notifications que les backups de bases.
-- **Moteurs additionnels** : Redis (snapshot RDB) et ClickHouse couverts nativement, levant la limitation de parité (§15).
-- **Restore drills** : test de restauration automatique périodique dans un environnement jetable — restauration réelle + vérification d'intégrité (checksum, comptage) — avec alerte si un plan de backup s'avère non restaurable. Un backup jamais restauré n'est pas considéré comme fiable.
+- **Application volume backup**: backup plans on the volumes and bind mounts of applications and services — not only databases — encrypted and deduplicated (restic-like tool), with a per-resource quiesce/stop option for consistency, and the same scheduling, local/S3 retention and notifications as database backups.
+- **Additional engines**: Redis (RDB snapshot) and ClickHouse covered natively, lifting the parity limitation (§15).
+- **Restore drills**: periodic automatic restore test in a throwaway environment — real restore + integrity verification (checksum, counting) — with an alert if a backup plan proves non-restorable. A backup never restored is not considered reliable.
 
-### 20.6 Suppression d'une ressource
+### 20.6 Resource deletion
 
-1. Afficher une prévisualisation : containers, réseaux, domaines, tâches, backups et volumes affectés.
-2. Demander distinctement si les volumes/données persistantes doivent être conservés.
-3. Créer un job de suppression idempotent ; retirer d'abord le routage, puis workloads, objets éphémères et enfin l'objet logique.
-4. En cas d'échec partiel, conserver un tombstone réconciliable et proposer retry/forget ; ne pas perdre la liste des restes distants.
+1. Display a preview: affected containers, networks, domains, tasks, backups and volumes.
+2. Ask distinctly whether the volumes/persistent data should be kept.
+3. Create an idempotent deletion job; remove routing first, then workloads, ephemeral objects and finally the logical object.
+4. On partial failure, keep a reconcilable tombstone and offer retry/forget; do not lose the list of remote leftovers.
 
-### 20.7 Adoption d'une ressource existante (décision §27.13)
+### 20.7 Adoption of an existing resource (decision §27.13)
 
-1. Scanner un serveur : inventaire des containers et stacks compose **non gérés** (s'appuie sur INV-015).
-2. Proposer un mapping vers le modèle AkerDock : application ou service, réseaux, volumes, variables, ports et domaines détectés par inspection et labels.
-3. Prévisualiser : ce qui sera géré, ce qui sera modifié (labels/metadata ajoutés), ce qui n'est pas adoptable et pourquoi.
-4. Adopter **sans redéploiement** : AkerDock prend le contrôle sans redémarrer le workload lorsque c'est possible ; le premier redéploiement normalise complètement la ressource.
-5. Opération réversible : « désadopter » rend la ressource à son état non géré sans la détruire.
+1. Scan a server: inventory of **unmanaged** containers and compose stacks (relies on INV-015).
+2. Propose a mapping to the AkerDock model: application or service, networks, volumes, variables, ports and domains detected via inspection and labels.
+3. Preview: what will be managed, what will be modified (labels/metadata added), what is not adoptable and why.
+4. Adopt **without redeployment**: AkerDock takes control without restarting the workload when possible; the first redeployment fully normalizes the resource.
+5. Reversible operation: "un-adopting" returns the resource to its unmanaged state without destroying it.
 
-**Acceptation** : adopter un stack compose multi-services avec volumes puis le redéployer sans perte de données ; une ressource non représentable dans le modèle est signalée avec le motif, jamais adoptée partiellement en silence.
+**Acceptance**: adopt a multi-service compose stack with volumes then redeploy it without data loss; a resource not representable in the model is flagged with the reason, never silently partially adopted.
 
-### 20.8 Déploiement coordonné d'un environnement (décision §27.16)
+### 20.8 Coordinated deployment of an environment (decision §27.16)
 
-- Un environnement peut être déployé **comme une unité** : graphe de dépendances explicite entre ressources, ordre topologique, parallélisme au sein d'un même niveau.
-- **Hooks de migration** : job one-shot exécuté après build et avant bascule (ex. migration de schéma) ; l'échec du hook empêche toute bascule dans l'environnement.
-- Mode atomique par niveau (optionnel) : la bascule de trafic attend que toutes les ressources du niveau soient saines.
-- **Rollback automatique sur santé dégradée** (politique opt-in par application) : après bascule, fenêtre d'observation (bake time) sur les health checks ; en cas de dégradation, rollback vers l'artifact précédent vérifié, notifié et audité.
-- Échec partiel : état de l'environnement explicite (ressources déployées / non déployées / en échec), reprise possible au point d'échec — jamais de demi-bascule silencieuse.
+- An environment can be deployed **as a unit**: explicit dependency graph between resources, topological order, parallelism within the same level.
+- **Migration hooks**: one-shot job executed after build and before switchover (e.g. schema migration); hook failure prevents any switchover in the environment.
+- Per-level atomic mode (optional): the traffic switch waits until all resources of the level are healthy.
+- **Automatic rollback on degraded health** (opt-in policy per application): after switchover, observation window (bake time) on the health checks; on degradation, rollback to the previous verified artifact, notified and audited.
+- Partial failure: explicit environment state (resources deployed / not deployed / failed), resumption possible at the point of failure — never a silent half-switchover.
 
-## 21. Machines à états
+## 21. State machines
 
-### 21.1 Déploiement
+### 21.1 Deployment
 
 ```text
 queued → preparing → cloning → building → pushing? → starting
@@ -600,22 +600,22 @@ starting → healthchecking → switching → finishing → succeeded
 failed → retrying → preparing
 ```
 
-- `cancelled`, `failed` et `succeeded` sont terminaux pour une tentative.
-- `queued → superseded` : un déploiement encore en file peut être remplacé par un plus récent de la même application (coalescing §20.3.5) ; `superseded` est terminal, assimilé à `cancelled`, avec lien vers le déploiement remplaçant.
-- Un retry crée une tentative liée ou incrémente explicitement `attempt`; il ne réécrit pas silencieusement l'historique.
-- `switching` est protégé par un verrou exclusif par application/destination.
+- `cancelled`, `failed` and `succeeded` are terminal for an attempt.
+- `queued → superseded`: a deployment still in the queue can be replaced by a more recent one of the same application (coalescing §20.3.5); `superseded` is terminal, treated like `cancelled`, with a link to the superseding deployment.
+- A retry creates a linked attempt or explicitly increments `attempt`; it does not silently rewrite history.
+- `switching` is protected by an exclusive lock per application/destination.
 
-### 21.2 Ressource et serveur
+### 21.2 Resource and server
 
 ```text
-Ressource désirée : stopped ↔ running → deleting → deleted
-Ressource observée : unknown | starting | healthy | unhealthy | exited | missing
-Serveur : pending → validating → ready ↔ unreachable → maintenance → deleting
+Desired resource: stopped ↔ running → deleting → deleted
+Observed resource: unknown | starting | healthy | unhealthy | exited | missing
+Server: pending → validating → ready ↔ unreachable → maintenance → deleting
 ```
 
-État désiré et état observé sont stockés séparément. La réconciliation converge vers l'état désiré mais suspend les actions destructives lorsque l'observation est trop ancienne.
+Desired state and observed state are stored separately. Reconciliation converges toward the desired state but suspends destructive actions when the observation is too old.
 
-### 21.3 Job générique
+### 21.3 Generic job
 
 ```text
 scheduled → queued → leased → running → succeeded
@@ -624,114 +624,114 @@ scheduled → queued → leased → running → succeeded
                        └───────────└→ dead_letter
 ```
 
-Chaque lease a une expiration et un heartbeat. Après crash, un autre worker reprend uniquement après expiration et vérifie l'effet déjà produit avant de rejouer.
+Each lease has an expiration and a heartbeat. After a crash, another worker takes over only after expiration and verifies the effect already produced before replaying.
 
-## 22. Exigences non fonctionnelles proposées
+## 22. Proposed non-functional requirements
 
-### 22.1 Disponibilité et résilience
+### 22.1 Availability and resilience
 
-- Les workloads et proxies continuent de fonctionner sans control plane.
-- L'API et les workers supportent au minimum deux instances derrière un load balancer, sans session locale obligatoire.
-- Tous les appels SSH, Git, registry, S3 et provider ont timeout, cancellation, classification d'erreur et retry borné avec jitter.
-- Un circuit breaker empêche une panne fournisseur de saturer les workers.
-- Les jobs de déploiement et restore ne sont jamais rejoués à l'aveugle ; leur reprise commence par une inspection distante.
-- Une procédure documentée restaure PostgreSQL, clés de chiffrement, clés SSH, configurations proxy et fichiers nécessaires.
+- Workloads and proxies keep working without the control plane.
+- The API and workers support at least two instances behind a load balancer, without mandatory local session.
+- All SSH, Git, registry, S3 and provider calls have timeout, cancellation, error classification and bounded retry with jitter.
+- A circuit breaker prevents a provider outage from saturating the workers.
+- Deployment and restore jobs are never blindly replayed; their resumption starts with a remote inspection.
+- A documented procedure restores PostgreSQL, encryption keys, SSH keys, proxy configurations and required files.
 
-### 22.2 Performance et capacité de référence
+### 22.2 Reference performance and capacity
 
-Pour la première version stable, sur 4 vCPU/8 Go et PostgreSQL correctement dimensionné :
+For the first stable version, on 4 vCPU/8 GB and a properly sized PostgreSQL:
 
-- 100 serveurs, 2 000 ressources et 100 000 déploiements historiques par instance.
-- 50 builds simultanés distribués ; limite configurable par serveur et par team.
-- 1 000 livraisons webhook/minute en burst, avec mise en file sans perte.
-- 500 flux realtime concurrents et 50 sessions terminal simultanées.
-- Pagination obligatoire pour toute collection ; aucun endpoint liste ne charge une relation non bornée.
-- Backpressure sur logs : buffer borné, reprise par curseur, signal explicite si des lignes ont été abandonnées.
+- 100 servers, 2,000 resources and 100,000 historical deployments per instance.
+- 50 simultaneous distributed builds; configurable limit per server and per team.
+- 1,000 webhook deliveries/minute in burst, queued without loss.
+- 500 concurrent realtime streams and 50 simultaneous terminal sessions.
+- Mandatory pagination for every collection; no list endpoint loads an unbounded relation.
+- Backpressure on logs: bounded buffer, cursor-based resumption, explicit signal if lines were dropped.
 
-Ces nombres sont des objectifs de test, pas des limites de licence. Ils doivent être révisés après benchmarks.
+These numbers are test targets, not license limits. They must be revised after benchmarks.
 
-### 22.3 Durabilité et cohérence
+### 22.3 Durability and consistency
 
-- Transactions ACID pour mutations métier et outbox ; migrations versionnées et restaurables.
-- Sauvegarde du control plane chiffrable, checksumée et testée périodiquement par restore automatisé.
-- Cohérence éventuelle admise pour statuts et métriques ; forte cohérence exigée pour autorisation, réservation de nom/port, secret et bascule de trafic.
-- Verrou optimiste sur éditions UI/API afin d'éviter l'écrasement silencieux d'une configuration concurrente.
-- Tous les timestamps internes sont UTC ; affichage dans le fuseau utilisateur/serveur avec indication explicite.
+- ACID transactions for business mutations and outbox; versioned and restorable migrations.
+- Control plane backup encryptable, checksummed and periodically tested via automated restore.
+- Eventual consistency accepted for statuses and metrics; strong consistency required for authorization, name/port reservation, secrets and traffic switchover.
+- Optimistic locking on UI/API edits to avoid silently overwriting a concurrent configuration.
+- All internal timestamps are UTC; display in the user/server timezone with explicit indication.
 
-### 22.4 Compatibilité
+### 22.4 Compatibility
 
-- Serveurs Linux AMD64/ARM64 avec Docker Engine ≥ 24 et Compose v2.
-- PostgreSQL interne sur une plage de versions explicitement testée ; upgrade majeur guidé.
-- Navigateurs evergreen ; UI responsive jusque mobile pour consultation, actions d'urgence et terminal.
-- API versionnée ; compatibilité descendante sur une version mineure, dépréciation annoncée avant suppression.
-- Export JSON/YAML des configurations non secrètes et export chiffré optionnel des secrets pour éviter le lock-in ; l'export fait partie du contrat de configuration déclarative (§24.5).
+- AMD64/ARM64 Linux servers with Docker Engine ≥ 24 and Compose v2.
+- Internal PostgreSQL on an explicitly tested version range; guided major upgrade.
+- Evergreen browsers; UI responsive down to mobile for viewing, emergency actions and terminal.
+- Versioned API; backward compatibility across a minor version, deprecation announced before removal.
+- JSON/YAML export of non-secret configurations and optional encrypted export of secrets to avoid lock-in; export is part of the declarative configuration contract (§24.5).
 
-### 22.5 Accessibilité et ergonomie
+### 22.5 Accessibility and ergonomics
 
-- Parcours clavier, focus visible, labels de formulaires, contraste WCAG 2.1 AA et annonces live pour progression/erreurs.
-- Toute action longue devient un job visible avec étapes, durée, logs, annulation possible et remédiation.
-- Confirmation renforcée pour suppression de données, restore, rotation de CA et terminal root.
-- Les valeurs générées (UUID, domaine, URLs, credentials affichables) ont une action de copie et un contexte clair.
+- Keyboard navigation, visible focus, form labels, WCAG 2.1 AA contrast and live announcements for progress/errors.
+- Every long action becomes a visible job with steps, duration, logs, possible cancellation and remediation.
+- Reinforced confirmation for data deletion, restore, CA rotation and root terminal.
+- Generated values (UUID, domain, URLs, displayable credentials) have a copy action and clear context.
 
-## 23. Sécurité et modèle de menace
+## 23. Security and threat model
 
-### 23.1 Confiance et isolation
+### 23.1 Trust and isolation
 
-- Le control plane, ses administrateurs root et toute personne ayant un terminal root sont hautement privilégiés.
-- Un serveur cible compromis ne doit pas donner accès aux autres serveurs : clés/credentials séparables et secrets distribués au strict besoin.
-- Une team est une frontière de sécurité. Tous les repositories/queries/services reçoivent le `team_id` depuis le contexte authentifié, jamais depuis un paramètre client non vérifié.
-- Les builders exécutent du code non fiable. Ils doivent être isolés des credentials du control plane, du socket Docker global lorsque possible et du réseau interne sensible.
-- Les previews publiques utilisent des builders dédiés ou une politique d'isolation renforcée ; aucun secret de production par défaut.
+- The control plane, its root administrators and anyone with a root terminal are highly privileged.
+- A compromised target server must not give access to the other servers: separable keys/credentials and secrets distributed on a strict need basis.
+- A team is a security boundary. All repositories/queries/services receive the `team_id` from the authenticated context, never from an unverified client parameter.
+- Builders execute untrusted code. They must be isolated from the control plane's credentials, from the global Docker socket when possible and from the sensitive internal network.
+- Public previews use dedicated builders or a reinforced isolation policy; no production secret by default.
 
-### 23.2 Secrets et cryptographie
+### 23.2 Secrets and cryptography
 
-- Chiffrement au repos authentifié (AEAD) avec clé maître externe ou fichier root-only ; versionnement et rotation.
-- Mots de passe hashés avec Argon2id ; tokens API stockés sous forme de hash irréversible avec préfixe d'identification.
-- Secrets masqués dans UI/API/logs/audit ; révélation explicite seulement si le produit l'autorise et si `read:sensitive` est présent.
-- Clés SSH sans passphrase acceptées pour compatibilité, mais fichiers `0600`, répertoire `0700`, sélection par team et rotation assistée.
-- Webhook secrets, OAuth client secrets, credentials DNS-01, registry/S3 credentials et CA privées suivent le même secret store.
+- Authenticated encryption at rest (AEAD) with an external master key or root-only file; versioning and rotation.
+- Passwords hashed with Argon2id; API tokens stored as an irreversible hash with an identification prefix.
+- Secrets masked in UI/API/logs/audit; explicit reveal only if the product allows it and if `read:sensitive` is present.
+- SSH keys without passphrase accepted for compatibility, but `0600` files, `0700` directory, per-team selection and assisted rotation.
+- Webhook secrets, OAuth client secrets, DNS-01 credentials, registry/S3 credentials and private CAs follow the same secret store.
 
-### 23.3 Contrôles applicatifs
+### 23.3 Application controls
 
-- CSRF pour sessions navigateur, cookies Secure/HttpOnly/SameSite, rotation de session après login/élévation, invalidation à logout/changement de rôle.
-- 2FA TOTP avec codes de récupération ; anti-bruteforce et délai progressif sur login.
-- OIDC : validation stricte issuer, audience, nonce, PKCE et email normalisé ; liaison de compte explicite contre la prise de contrôle par collision d'email.
-- SSRF : allow/deny policy sur URLs Git, registry, S3, webhook et proxy ; blocage metadata cloud/link-local par défaut.
-- Validation centralisée des images, branches, chemins, domaines, CIDR, ports, cron et options Docker.
-- Protection path traversal/symlink lors des file mounts, archives, clones et uploads de backup.
-- Limite taille/type sur uploads et affichage UI des file mounts (5 MiB maximum pour édition inline par parité v4.1.x).
-- Neutralisation ANSI/HTML dans logs et limitation des séquences terminal côté affichage.
+- CSRF for browser sessions, Secure/HttpOnly/SameSite cookies, session rotation after login/elevation, invalidation on logout/role change.
+- TOTP 2FA with recovery codes; anti-bruteforce and progressive delay on login.
+- OIDC: strict validation of issuer, audience, nonce, PKCE and normalized email; explicit account linking against takeover by email collision.
+- SSRF: allow/deny policy on Git, registry, S3, webhook and proxy URLs; cloud metadata/link-local blocked by default.
+- Centralized validation of images, branches, paths, domains, CIDRs, ports, cron and Docker options.
+- Path traversal/symlink protection during file mounts, archives, clones and backup uploads.
+- Size/type limit on uploads and UI display of file mounts (5 MiB maximum for inline editing per v4.1.x parity).
+- ANSI/HTML neutralization in logs and limitation of terminal sequences on the display side.
 
-### 23.4 Audit minimal
+### 23.4 Minimal audit
 
-Journaliser : login/logout/échecs, MFA, membres/rôles, création/révocation de tokens, accès sensible, mutation de secret, terminal, changements serveur/proxy, déploiement/rollback, backup/restore, suppression, settings instance et appels webhook/API mutateurs.
+Log: login/logout/failures, MFA, members/roles, token creation/revocation, sensitive access, secret mutation, terminal, server/proxy changes, deployment/rollback, backup/restore, deletion, instance settings and mutating webhook/API calls.
 
-Chaque événement contient `event_id`, date UTC, acteur/type/token, team, action, ressource/type/UUID, résultat, IP, user-agent, request/correlation ID et diff redacted. L'audit est append-only, paginé, filtrable, exportable et soumis à rétention.
+Each event contains `event_id`, UTC date, actor/type/token, team, action, resource/type/UUID, result, IP, user-agent, request/correlation ID and redacted diff. The audit is append-only, paginated, filterable, exportable and subject to retention.
 
-### 23.5 Tests de sécurité obligatoires
+### 23.5 Mandatory security tests
 
-- Matrice inter-team sur chaque endpoint et relation indirecte.
-- Fuzzing des parseurs Compose, env, cron, domaines, ports et custom Docker options.
-- Tests d'injection shell sur toute commande distante.
-- Scénarios webhook : replay, mauvaise signature, repo au nom préfixe, fork, payload volumineux et événements désordonnés.
-- Scénarios de concurrence : double deploy, delete pendant deploy, rotation de clé pendant job, double restore.
-- SAST, dependency/container scanning, SBOM et images signées pour les releases AkerDock.
+- Cross-team matrix on every endpoint and indirect relation.
+- Fuzzing of the Compose, env, cron, domain, port and custom Docker options parsers.
+- Shell injection tests on every remote command.
+- Webhook scenarios: replay, bad signature, prefix-named repo, fork, large payload and out-of-order events.
+- Concurrency scenarios: double deploy, delete during deploy, key rotation during a job, double restore.
+- SAST, dependency/container scanning, SBOM and signed images for AkerDock releases.
 
-## 24. Contrats API, événements et jobs
+## 24. API, event and job contracts
 
 ### 24.1 REST
 
-- OpenAPI est un artifact versionné et testé en CI ; l'API est sous `/api/v1`.
-- Erreurs au format stable : `code`, `message` générique, `details` validés, `request_id`; aucune stack ni commande sensible.
-- Pagination par curseur recommandée pour historiques/logs ; pagination page/per-page acceptée pour compatibilité MCP.
-- `Idempotency-Key` supporté sur créations, deploy, backup et restore.
-- ETag/version optimiste sur PATCH sensibles ; réponse `409` avec version courante en cas de conflit.
-- Les actions longues répondent `202` avec `job_uuid` et URL de suivi.
-- Les permissions sont évaluées à l'action, pas seulement au groupe de routes : `read`, `read:sensitive`, `write`, `deploy`, `root`.
+- OpenAPI is a versioned artifact tested in CI; the API is under `/api/v1`.
+- Errors in a stable format: `code`, generic `message`, validated `details`, `request_id`; no stack nor sensitive command.
+- Cursor pagination recommended for histories/logs; page/per-page pagination accepted for MCP compatibility.
+- `Idempotency-Key` supported on creations, deploy, backup and restore.
+- ETag/optimistic version on sensitive PATCHes; `409` response with the current version in case of conflict.
+- Long actions respond `202` with `job_uuid` and a tracking URL.
+- Permissions are evaluated at the action, not only at the route group: `read`, `read:sensitive`, `write`, `deploy`, `root`.
 
-### 24.2 Événements internes
+### 24.2 Internal events
 
-Envelope minimal :
+Minimal envelope:
 
 ```json
 {
@@ -746,204 +746,204 @@ Envelope minimal :
 }
 ```
 
-- Version dans le type ; consommateurs idempotents ; ordre garanti seulement par clé d'agrégat si nécessaire.
-- Outbox publiée après commit, inbox/déduplication chez les consommateurs à effets externes.
-- Les payloads contiennent des références et métadonnées redacted, jamais les valeurs de secrets.
+- Version in the type; idempotent consumers; ordering guaranteed only per aggregate key if necessary.
+- Outbox published after commit, inbox/deduplication at consumers with external effects.
+- Payloads contain references and redacted metadata, never secret values.
 
 ### 24.3 Scheduling
 
-- Cron interprété dans un timezone explicite, avec prochaine exécution prévisualisée.
-- Politique de chevauchement par tâche : `forbid` par défaut, `allow` ou `replace` optionnel.
-- Politique de missed run après indisponibilité : `skip` par défaut ou `catch_up_one`; jamais une rafale illimitée.
-- Backups, cleanup et tâches utilisateur utilisent le même scheduler mais des files/priorités séparées.
+- Cron interpreted in an explicit timezone, with the next execution previewed.
+- Overlap policy per task: `forbid` by default, optional `allow` or `replace`.
+- Missed-run policy after unavailability: `skip` by default or `catch_up_one`; never an unlimited burst.
+- Backups, cleanup and user tasks use the same scheduler but separate queues/priorities.
 
-### 24.4 Realtime et terminal
+### 24.4 Realtime and terminal
 
-- Transport : **SSE** avec reprise par `Last-Event-ID` pour logs, statuts et progression ; **WebSocket réservé au terminal** (décision §27.24).
-- Flux logs/statuts reprenables par curseur et protégés par la même policy que l'endpoint REST équivalent.
-- Token realtime court, mono-usage ou borné à la ressource ; révocation à la fermeture de session.
-- Terminal via PTY avec resize, heartbeat, idle timeout, durée maximum configurable et kill garanti à la déconnexion/expiration.
-- L'ouverture et la fermeture sont auditées ; les frappes ne sont pas enregistrées par défaut pour éviter de collecter des secrets, sauf mode réglementaire explicite.
+- Transport: **SSE** with `Last-Event-ID` resumption for logs, statuses and progress; **WebSocket reserved for the terminal** (decision §27.24).
+- Log/status streams resumable by cursor and protected by the same policy as the equivalent REST endpoint.
+- Short-lived realtime token, single-use or bounded to the resource; revocation on session close.
+- Terminal via PTY with resize, heartbeat, idle timeout, configurable maximum duration and guaranteed kill on disconnect/expiration.
+- Opening and closing are audited; keystrokes are not recorded by default to avoid collecting secrets, except in an explicit regulatory mode.
 
-### 24.5 Configuration déclarative — config as code (décision §27.12)
+### 24.5 Declarative configuration — config as code (decision §27.12)
 
-- Toute la configuration non secrète d'une team (projets, environnements, ressources, domaines, variables non secrètes, plans de backup, tâches planifiées) est **exportable en YAML** stable, versionnable en Git.
-- **Apply idempotent** : soumettre ce YAML fait converger l'état — création, mise à jour, suppression uniquement sur demande explicite ; un mode **dry-run** produit le diff complet avant application ; les conflits sont détectés par version optimiste (§24.1).
-- Les secrets sont **référencés** (nom + version), jamais inline dans l'export ; leurs valeurs passent exclusivement par les endpoints dédiés.
-- Le format est un contrat versionné (schéma publié), soumis à la même politique de compatibilité que l'API (§22.4).
-- Un **provider Terraform/OpenTofu officiel** est construit sur l'API et couvre au minimum le périmètre P0/P1.
-- Un apply est audité comme toute mutation et exécuté comme un job visible avec étapes et annulation (§22.5).
+- All of a team's non-secret configuration (projects, environments, resources, domains, non-secret variables, backup plans, scheduled tasks) is **exportable as stable YAML**, versionable in Git.
+- **Idempotent apply**: submitting this YAML converges the state — creation, update, deletion only on explicit request; a **dry-run** mode produces the complete diff before application; conflicts are detected by optimistic version (§24.1).
+- Secrets are **referenced** (name + version), never inline in the export; their values go exclusively through the dedicated endpoints.
+- The format is a versioned contract (published schema), subject to the same compatibility policy as the API (§22.4).
+- An **official Terraform/OpenTofu provider** is built on the API and covers at least the P0/P1 scope.
+- An apply is audited like any mutation and executed as a visible job with steps and cancellation (§22.5).
 
-## 25. Dashboard web et exigences UX
+## 25. Web dashboard and UX requirements
 
-### 25.1 Exigences par parcours
+### 25.1 Requirements per journey
 
-| Parcours | Exigences minimales |
+| Journey | Minimum requirements |
 |---|---|
-| Onboarding | Assistant premier démarrage : root user, première team, premier serveur (localhost ou distant) et première ressource, avec sortie possible à chaque étape |
-| Dashboard | État global, serveurs injoignables, déploiements actifs/échoués, alertes disque/backup/update et actions prioritaires |
-| Création ressource | Sélecteur Project/Environment/Destination, source/build pack, résumé avant création, validation inline et valeurs par défaut sûres |
-| Détail application | État désiré/observé, domaine, source/SHA, config, env, storage, health, déploiements, logs, terminal, tâches et actions lifecycle |
-| Déploiement | Timeline des étapes, log stream, config diff, auteur/déclencheur, SHA/digest, durée, cancel/retry/rollback selon état |
-| Serveur | Reachability, Docker/proxy/Sentinel, ressources, destinations, disque/CPU/RAM, cleanup, logs et terminal |
-| Base | URLs interne/externe, credentials masqués, SSL, config, volumes, health, backups/restores et avertissements de données |
-| Service Compose | Éditeur validé, diff, liste des composants, domaines/env/storage/health/logs par composant |
-| Sécurité | Membres/rôles, invitations, tokens, sessions, MFA/SSO, clés/credentials et audit |
+| Onboarding | First-startup wizard: root user, first team, first server (localhost or remote) and first resource, with a possible exit at each step |
+| Dashboard | Global state, unreachable servers, active/failed deployments, disk/backup/update alerts and priority actions |
+| Resource creation | Project/Environment/Destination selector, source/build pack, summary before creation, inline validation and safe defaults |
+| Application detail | Desired/observed state, domain, source/SHA, config, env, storage, health, deployments, logs, terminal, tasks and lifecycle actions |
+| Deployment | Step timeline, log stream, config diff, author/trigger, SHA/digest, duration, cancel/retry/rollback depending on state |
+| Server | Reachability, Docker/proxy/Sentinel, resources, destinations, disk/CPU/RAM, cleanup, logs and terminal |
+| Database | Internal/external URLs, masked credentials, SSL, config, volumes, health, backups/restores and data warnings |
+| Compose service | Validated editor, diff, component list, domains/env/storage/health/logs per component |
+| Security | Members/roles, invitations, tokens, sessions, MFA/SSO, keys/credentials and audit |
 
-Les formulaires distinguent systématiquement : valeur enregistrée, valeur héritée, valeur générée, secret verrouillé et changement non encore déployé.
+Forms systematically distinguish: saved value, inherited value, generated value, locked secret and not-yet-deployed change.
 
-### 25.2 Stack et architecture du dashboard
+### 25.2 Dashboard stack and architecture
 
-- Le dashboard est une **SPA Angular** (dernière version LTS), TypeScript en mode strict, composants **standalone** et signals ; pas de SSR requis (outil d'administration authentifié).
-- L'UI consomme **exclusivement l'API publique** (§24) et les flux realtime — aucune route privée non documentée ; toute capacité visible dans l'UI est donc scriptable via API/CLI (cohérent avec §18.2).
-- **Distribution** : assets statiques compilés, embarqués et servis par le binaire Go du control plane ; aucun runtime Node en production ; l'UI et l'API partagent le port unique du control plane (§27.1).
-- **Lazy loading par domaine fonctionnel** (serveurs, projets, ressources, sécurité, settings) ; budget de performance défini et suivi en CI (taille des bundles, temps de chargement initial).
-- Génération du client API et de ses types depuis l'artefact OpenAPI (§24.1) pour empêcher toute dérive UI/API.
-- **i18n dès le premier composant** : UI en anglais (langue par défaut), aucune chaîne en dur — clés de traduction partout ; le français arrive comme seconde locale sans refactoring.
+- The dashboard is an **Angular SPA** (latest LTS version), TypeScript in strict mode, **standalone** components and signals; no SSR required (authenticated administration tool).
+- The UI consumes **exclusively the public API** (§24) and the realtime streams — no undocumented private route; every capability visible in the UI is therefore scriptable via API/CLI (consistent with §18.2).
+- **Distribution**: compiled static assets, embedded and served by the control plane's Go binary; no Node runtime in production; the UI and the API share the control plane's single port (§27.1).
+- **Lazy loading per functional domain** (servers, projects, resources, security, settings); performance budget defined and tracked in CI (bundle sizes, initial load time).
+- Generation of the API client and its types from the OpenAPI artifact (§24.1) to prevent any UI/API drift.
+- **i18n from the first component onward**: UI in English (default language), no hardcoded string — translation keys everywhere; French arrives as a second locale without refactoring.
 
-### 25.3 Design system et composants
+### 25.3 Design system and components
 
-- **Bibliothèque de composants interne, minimaliste** : boutons, formulaires, tables, badges d'état, timeline de déploiement, log viewer, éditeurs (env, compose), modales de confirmation — **pas de kit UI tiers lourd** (Material & co) ; dépendances tierces limitées aux besoins spécialisés (xterm.js pour le terminal, éditeur de code, graphiques de métriques).
-- **Design system « clean » documenté et versionné** : design tokens (couleurs, typographie, espacements, rayons, élévations), thèmes **clair et sombre**, densité adaptée à un outil d'exploitation (tables et listes compactes, information dense sans surcharge décorative).
-- Thème par défaut : **suivi du système** (`prefers-color-scheme`) avec toggle manuel persisté par utilisateur ; couleur d'accent de marque : **teal/cyan**, choisie pour ne pas entrer en collision avec les couleurs sémantiques d'état (succès, alerte, danger).
-- **États visuels normalisés** dans tout le produit : mêmes couleurs/badges pour running, starting, healthy, unhealthy, exited, failed, queued, stale/inconnu — un état donné se lit de la même façon sur le dashboard, une ressource, un déploiement ou un job.
-- Iconographie et vocabulaire cohérents ; toute action destructive suit le même pattern de confirmation (§22.5).
-- Catalogue de composants consultable (type Storybook ou équivalent) servant de référence unique ; un composant ne rentre dans l'UI que s'il est dans le catalogue.
-- Le design system respecte les exigences d'accessibilité du §22.5 (clavier, focus, contraste WCAG 2.1 AA) dès la conception des composants, pas en retrofit.
+- **Internal, minimalist component library**: buttons, forms, tables, status badges, deployment timeline, log viewer, editors (env, compose), confirmation modals — **no heavy third-party UI kit** (Material & co); third-party dependencies limited to specialized needs (xterm.js for the terminal, code editor, metrics charts).
+- **Documented and versioned "clean" design system**: design tokens (colors, typography, spacing, radii, elevations), **light and dark** themes, density suited to an operations tool (compact tables and lists, dense information without decorative overload).
+- Default theme: **follows the system** (`prefers-color-scheme`) with a manual toggle persisted per user; brand accent color: **teal/cyan**, chosen so as not to collide with the semantic state colors (success, warning, danger).
+- **Normalized visual states** across the whole product: same colors/badges for running, starting, healthy, unhealthy, exited, failed, queued, stale/unknown — a given state reads the same way on the dashboard, a resource, a deployment or a job.
+- Consistent iconography and vocabulary; every destructive action follows the same confirmation pattern (§22.5).
+- Browsable component catalog (Storybook-like or equivalent) serving as the single reference; a component only enters the UI if it is in the catalog.
+- The design system meets the accessibility requirements of §22.5 (keyboard, focus, WCAG 2.1 AA contrast) from component design onward, not as a retrofit.
 
-## 26. Stratégie de livraison et grille de suivi
+## 26. Delivery strategy and tracking matrix
 
-### 26.1 Niveaux
+### 26.1 Levels
 
-- **P0 — Fondation** : auth/team, projets/environnements, serveurs SSH, Docker standalone, applications Dockerfile/image, variables, volumes, Traefik/HTTPS, queue, logs et lifecycle.
-- **P1 — PaaS utilisable** : GitHub/GitLab/webhooks, Nixpacks/Railpack, zero-downtime, rollback, databases, backups S3, notifications, scheduled tasks et API publique.
-- **P2 — Périmètre large** : Compose/services, catalogue one-click, previews, build servers, Caddy, Sentinel, log drains, terminal, OAuth/OIDC, shared vars et cleanup.
-- **P3 — Périphérie/expérimental** : multi-server d'une app, MCP, DNS-01 avancé et Swarm déprécié derrière feature flag. (Cloudflare tunnels, cloud provisioning et patching : retirés — ADR-027.)
+- **P0 — Foundation**: auth/team, projects/environments, SSH servers, standalone Docker, Dockerfile/image applications, variables, volumes, Traefik/HTTPS, queue, logs and lifecycle.
+- **P1 — Usable PaaS**: GitHub/GitLab/webhooks, Nixpacks/Railpack, zero-downtime, rollback, databases, S3 backups, notifications, scheduled tasks and public API.
+- **P2 — Broad scope**: Compose/services, one-click catalog, previews, build servers, Caddy, Sentinel, log drains, terminal, OAuth/OIDC, shared vars and cleanup.
+- **P3 — Periphery/experimental**: multi-server for one app, MCP, advanced DNS-01 and deprecated Swarm behind a feature flag. (Cloudflare tunnels, cloud provisioning and patching: removed — ADR-027.)
 
-Chaque phase est utilisable seule. Une feature ne passe pas à « complète » sans documentation, migrations, métriques, audit, tests d'autorisation et scénario de reprise.
+Each phase is usable on its own. A feature does not move to "complete" without documentation, migrations, metrics, audit, authorization tests and a recovery scenario.
 
-### 26.2 Grille de suivi
+### 26.2 Tracking matrix
 
-La colonne « Sections » renvoie aux exigences de ce document qui définissent la capacité.
+The "Sections" column refers to the requirements of this document that define the capability.
 
-| Capacité | Sections | Priorité | Statut | Preuve attendue |
+| Capability | Sections | Priority | Status | Expected proof |
 |---|---|---:|---|---|
-| Team isolation/auth/tokens | §10, §23 | P0 | À faire | Tests inter-team + API |
-| Server onboarding/SSH | §3, §20.1 | P0 | À faire | Tests module du validateur + parcours E2E unique ; VM/ARM64 manuels (§27.26) |
-| Deploy image/Dockerfile | §5, §20.2 | P0 | À faire | Tests unitaires du moteur/reprise + parcours E2E unique |
-| Proxy/domaines/ACME | §4 | P0 | À faire | Fixtures de conformité + routage réel dans le parcours E2E unique |
-| Git/build packs/webhooks | §5.1–5.6 | P1 | À faire | Tests de protocole/module par provider et build pack |
-| Databases/backups/restore | §6–7 | P1 | À faire | Tests module par moteur supporté |
-| Compose/services/templates | §5.2, §9 | P2 | À faire | Conformance fixtures Compose |
-| Previews PR enrichies (compose, données éphémères, seed par clone de volume — ADR-029, TTL/caps, protection, checks, forks approuvés) | §5.6, §20.4, §27.11 | P2 | Conforme | Tests protocole multi-providers + sécurité fork/accès + tests module du seed |
-| Scale-to-zero previews **et applications** (endort/réveille via un waker en coupure) | §20.4.3, proxy-contract §8 | P3 | En cours | Tests module waker (réveil, limites 503/504, single-flight, uptime non-activité) + génération du fichier dynamique + décision d'endormissement ; réveil de bout en bout au parcours E2E (ADR-036, ADR-037) |
-| Backups volumes + Redis/ClickHouse + restore drills | §20.5, §27.14 | P1 | À faire | Tests module backup/restore + drill automatisé |
-| Upgrade majeur PostgreSQL de l'instance (in-place opt-in, backup-first) | §14.3, §22.4 | P2 | Conforme | `scripts/pg-upgrade.sh` (détection de version, copie du volume, `pgautoupgrade` one-shot, vérif health) + garde-fou `install.sh` + runbook §C (ADR-039) |
-| Config as code + Terraform officiel | §24.5, §27.12 | P2 | À faire | Round-trip export→apply + tests provider |
-| Adoption de ressources existantes | §20.7, §27.13 | P2 | Conforme | Tests module scan/réconciliation sans perte |
-| Déploiement coordonné + auto-rollback | §20.8, §27.16 | P2 | À faire | Tests unitaires graphe, hooks et rollback |
-| Fiabilité compose (zero-downtime, limits) | §27.15 | P2 | À faire | Tests de commandes/états + fixtures cgroups ciblées |
-| Uptime monitoring intégré | §27.17 | P2 | Conforme | Tests module des checks, seuils et alerting |
-| CLI locale (debug : login navigateur, contextes, ls/logs/shell/port-forward) | §12, §5.7 | P2 | À faire | Tests module (login poll+PKCE, mux tunnel, REF/contextes) + validation manuelle shell/forward (ADR-031/032/033) |
-| CLI deploy local (`akerdock up`) | §12, §27.18 | P2 | À faire | Tests module du push local + validation manuelle ciblée |
-| Notifications : routage/agrégation | §11, §27.19 | P2 | À faire | Tests flapping/débounce + heures calmes |
-| Observabilité/terminal | §3.8, §5.7, §13 | P2 | À faire | Charge + auth + reconnect |
-| Multi-serveurs HA d'une même app | §3.3, §27.4 | P3 | À faire | Spike + validation manuelle (Swarm non réimplémenté, ADR-004) |
-| Tunnels Cloudflare / provisioning cloud / server patching | §3.2, §3.6 | — | Abandonné | ADR-027 (réévaluable sur demande avérée) |
+| Team isolation/auth/tokens | §10, §23 | P0 | To do | Cross-team + API tests |
+| Server onboarding/SSH | §3, §20.1 | P0 | To do | Validator module tests + single E2E journey; manual VM/ARM64 (§27.26) |
+| Deploy image/Dockerfile | §5, §20.2 | P0 | To do | Engine/resumption unit tests + single E2E journey |
+| Proxy/domains/ACME | §4 | P0 | To do | Conformance fixtures + real routing in the single E2E journey |
+| Git/build packs/webhooks | §5.1–5.6 | P1 | To do | Protocol/module tests per provider and build pack |
+| Databases/backups/restore | §6–7 | P1 | To do | Module tests per supported engine |
+| Compose/services/templates | §5.2, §9 | P2 | To do | Compose conformance fixtures |
+| Enriched PR previews (compose, ephemeral data, seed by volume clone — ADR-029, TTL/caps, protection, checks, approved forks) | §5.6, §20.4, §27.11 | P2 | Compliant | Multi-provider protocol tests + fork/access security + seed module tests |
+| Scale-to-zero for previews **and applications** (sleep/wake via an in-line waker) | §20.4.3, proxy-contract §8 | P3 | In progress | Waker module tests (wake, 503/504 limits, single-flight, non-activity uptime) + dynamic file generation + sleep decision; end-to-end wake in the E2E journey (ADR-036, ADR-037) |
+| Volume backups + Redis/ClickHouse + restore drills | §20.5, §27.14 | P1 | To do | Backup/restore module tests + automated drill |
+| Instance PostgreSQL major upgrade (opt-in in-place, backup-first) | §14.3, §22.4 | P2 | Compliant | `scripts/pg-upgrade.sh` (version detection, volume copy, one-shot `pgautoupgrade`, health check) + `install.sh` guardrail + runbook §C (ADR-039) |
+| Config as code + official Terraform | §24.5, §27.12 | P2 | To do | Round-trip export→apply + provider tests |
+| Adoption of existing resources | §20.7, §27.13 | P2 | Compliant | Scan/reconciliation module tests without loss |
+| Coordinated deployment + auto-rollback | §20.8, §27.16 | P2 | To do | Unit tests for graph, hooks and rollback |
+| Compose reliability (zero-downtime, limits) | §27.15 | P2 | To do | Command/state tests + targeted cgroups fixtures |
+| Built-in uptime monitoring | §27.17 | P2 | Compliant | Module tests for checks, thresholds and alerting |
+| Local CLI (debug: browser login, contexts, ls/logs/shell/port-forward) | §12, §5.7 | P2 | To do | Module tests (poll+PKCE login, tunnel mux, REF/contexts) + manual shell/forward validation (ADR-031/032/033) |
+| Local CLI deploy (`akerdock up`) | §12, §27.18 | P2 | To do | Local push module tests + targeted manual validation |
+| Notifications: routing/aggregation | §11, §27.19 | P2 | To do | Flapping/debounce tests + quiet hours |
+| Observability/terminal | §3.8, §5.7, §13 | P2 | To do | Load + auth + reconnect |
+| Multi-server HA for one app | §3.3, §27.4 | P3 | To do | Spike + manual validation (Swarm not reimplemented, ADR-004) |
+| Cloudflare tunnels / cloud provisioning / server patching | §3.2, §3.6 | — | Abandoned | ADR-027 (re-assessable upon proven demand) |
 
-Le statut autorisé est `À faire | En cours | Partiel | Conforme | Divergence documentée | Abandonné`. Une preuve renvoie vers tests, captures, benchmark ou ADR.
+The allowed status is `To do | In progress | Partial | Compliant | Documented divergence | Abandoned`. A proof points to tests, screenshots, benchmark or ADR.
 
-### 26.3 Definition of Done d'une capacité
+### 26.3 Definition of Done for a capability
 
-1. Comportements nominaux et erreurs documentés.
-2. API et modèle d'autorisation spécifiés.
-3. Tests unitaires et module au niveau propriétaire ; le produit conserve un
-   parcours E2E représentatif unique (ADR-028).
-4. Idempotence, retry, cancellation et reprise après crash testés si action longue.
-5. Logs, métriques, trace/correlation ID, audit et notifications pertinents présents.
-6. Migration up/down ou procédure de rollback de release.
-7. Documentation opérateur et utilisateur.
-8. Entrée de matrice de parité mise à jour avec preuve.
+1. Nominal behaviors and errors documented.
+2. API and authorization model specified.
+3. Unit and module tests at the owner level; the product keeps a
+   single representative E2E journey (ADR-028).
+4. Idempotence, retry, cancellation and crash recovery tested if long action.
+5. Relevant logs, metrics, trace/correlation ID, audit and notifications present.
+6. Up/down migration or release rollback procedure.
+7. Operator and user documentation.
+8. Parity matrix entry updated with proof.
 
-## 27. Points de divergence à décider par ADR
+## 27. Divergence points to be decided by ADR
 
-Ces sujets sont tracés ici avec leur statut. Les 26 points ci-dessous sont tous tranchés (orientations produit actées le 11 juillet 2026) et formalisés en ADR dans `docs/adr/` (§29.12) ; toute révision d'une décision passe par un nouvel ADR qui supersede l'ancien.
+These topics are tracked here with their status. The 26 points below are all settled (product orientations ratified on July 11, 2026) and formalized as ADRs in `docs/adr/` (§29.12); any revision of a decision goes through a new ADR that supersedes the old one.
 
-1. **SSH push vs agent pull** : SSH offre la parité initiale ; un agent sortant réduit les ports entrants et permet événements Docker, mais introduit versionnement, enrollment et upgrade d'agent.
-   **Décision** : SSH d'abord, agent sortant comme cible pour réduire la surface entrante. Exigences associées sur les ports : le proxy écoute sur **80/443 par défaut** mais ses ports d'écoute **DOIVENT être configurables par serveur** (ex. 8080/8443 lorsqu'un reverse proxy amont détient déjà 80/443) ; le control plane est exposé sur **un seul port**, derrière son propre domaine/DNS — un port, un certificat, une règle de firewall.
-2. **Queue PostgreSQL vs Redis/NATS** : PostgreSQL simplifie le self-hosting ; un bus séparé améliore le débit mais augmente l'exploitation.
-   **Décision** : queue durable **PostgreSQL** retenue. L'interface queue reste abstraite dans le code, mais aucun bus externe (Redis/NATS) n'est planifié.
-3. **Secrets en base vs Vault/SOPS/KMS** : commencer par chiffrement enveloppe, exposer ensuite une interface de secret store externe.
-   **Décision** : chiffrement enveloppe AEAD (AES-256-GCM) dans PostgreSQL, clé maître dans un fichier root-only ou une variable d'environnement, versionnement de clé et rotation (§23.2). Interface `SecretStore` interne dès le début, mais une seule implémentation livrée ; Vault/KMS uniquement sur demande validée.
-4. **Docker standalone vs orchestrateur** : stabiliser standalone ; traiter Swarm comme compatibilité dépréciée et évaluer Nomad/Kubernetes uniquement sur besoin validé.
-   **Décision** : **Docker standalone confirmé comme runtime** (Engine/Compose/BuildKit). Kubernetes — y compris sous forme « embarquée et transparente » — est écarté : il contredit la proposition de valeur (VPS modestes dès 2 GB, objets Docker standards réversibles §16.1(3), catalogue de templates compose) et l'abstraction fuirait au premier incident (pods, PVC, ingress) face à des utilisateurs qui ont précisément choisi la plateforme pour ne pas apprendre Kubernetes. Swarm n'est pas réimplémenté (compatibilité dépréciée au mieux, derrière feature flag P3). Un orchestrateur ne sera réévalué que sur besoin utilisateur validé, via le contrat d'adaptateur runtime (§18.1), et sans jamais être imposé aux installations existantes. L'ADR consignera ce rejet et ses motifs.
-5. **Build local vs builders isolés rootless** : la parité Docker socket est rapide ; la cible sécurité devrait isoler les builds non fiables (BuildKit rootless/VM/microVM).
-   **Décision** : builds via le BuildKit du Docker du serveur en P0/P1 (parité) ; builders **BuildKit rootless dédiés obligatoires pour le code non fiable** au plus tard avec les previews de forks approuvés (§20.4.8). Le contrat d'adaptateur build est écrit dès P0 pour que la bascule ne touche pas le moteur de déploiement.
-6. **Rollback local vs registry immuable** : préférer les digests OCI conservés en registry pour un rollback reproductible, avec fallback local.
-   **Décision** : si un registry est configuré, chaque déploiement est pushé et référencé par **digest OCI** (rollback reproductible vers toute version conservée) ; sans registry, rétention locale des N dernières images, explicitement protégées du cleanup automatique (INV-015).
-7. **RBAC** : un couple admin/member est trop grossier dès qu'une équipe partage un environnement de production ; AkerDock introduit des rôles et permissions par projet et environnement.
-   **Décision** : RBAC fin retenu, modèle **permissions à la carte** — chaque action produit est une permission granulaire ; un rôle est un ensemble nommé de permissions, attribuable au niveau team, projet ou environnement. **Rôles système prédéfinis** fournis : owner, admin, developer et **viewer (read-only)** ; rôles custom composables par les admins de team. À spécifier dans la matrice RBAC/permissions (§29.7).
-8. **Métriques push vs pull/OpenTelemetry** : conserver un agent léger mais standardiser OTLP/Prometheus pour éviter un protocole propriétaire.
-   **Décision** : **OTLP partout** — agent serveur, control plane et workers émettent métriques/traces/logs en OpenTelemetry, avec exposition Prometheus ; aucun protocole propriétaire.
-9. **Proxy labels vs configuration déclarative** : supporter les labels de parité, générer une représentation intermédiaire commune afin de tester Traefik et Caddy de façon identique.
-   **Décision** : validé — représentation intermédiaire commune, labels supportés pour la parité, fixtures de conformité partagées Traefik/Caddy (§29.6). Séquencement : **Traefik seul en P0** ; Caddy arrive en P2 via la représentation intermédiaire, dont les fixtures existent dès P0.
-10. **Catalogue one-click** : importer les templates compatibles sous respect des licences, mais versionner, valider et signer le catalogue indépendamment du binaire.
-    **Décision** : catalogue = **dépôt de templates dédié** maintenu par le projet (versionné, validé, signé, rafraîchissable indépendamment du binaire) **+ dépôts de templates utilisateur** — chaque team peut enregistrer un ou plusieurs repositories Git (publics ou privés, via les clés/credentials existants) contenant ses propres templates, avec validation à l'import et resynchronisation à la demande.
-11. **Previews riches** : un preview minimal (un container + une URL publique) est en dessous du standard du domaine — environnements compose complets, données éphémères, TTL, protection d'accès, checks Git.
-    **Décision** : la feature preview est livrée d'emblée enrichie, tout le périmètre du §20.4 étant prioritaire — compose éphémère, données éphémères, TTL/plafonds/scale-to-zero, protection d'accès par défaut, watch paths en preview, checks Git, forks sur approbation ; les contrôles de déclenchement (labels, commandes en commentaire, exclusion des drafts, annulation des builds obsolètes) sont des **options activables par application**, désactivées par défaut.
-12. **Configuration as code** : une plateforme pilotée uniquement par l'UI n'est pas reproductible ; le YAML exporté et un provider Terraform officiel le rendent possible.
-    **Décision** : export YAML complet + apply idempotent avec dry-run/diff, et provider Terraform/OpenTofu officiel construit sur l'API. Exigences au §24.5.
-13. **Adoption de ressources existantes** : aucune plateforme du segment ne sait prendre le contrôle d'un container ou d'un stack compose déjà déployé.
-    **Décision** : adoption sans redéploiement, prévisualisée et réversible — c'est aussi le chemin d'entrée depuis n'importe quelle plateforme, puisqu'elle ne suppose que du Docker standard. Workflow au §20.7.
-14. **Backups au-delà des bases** : sauvegarder quatre moteurs SQL et ignorer les volumes applicatifs laisse la moitié de l'état sur la table — et un restore jamais rejoué n'est pas un backup.
-    **Décision** : backup de volumes chiffré/dédupliqué, moteurs Redis et ClickHouse, et restore drills automatiques. Exigences au §20.5.
-15. **Fiabilité compose « by design »** : les pièges structurels du §15 (zero-downtime des stacks, resource limits sans effet) sont traités dès la conception.
-    **Décision** : AkerDock DOIT fournir le zero-downtime pour les services web des stacks compose (bascule par service derrière le proxy) et DOIT appliquer réellement les resource limits déclarées aux ressources compose.
-16. **Déploiement coordonné d'un environnement** : déployer ressource par ressource, sans ordre ni hooks, casse tout environnement où une migration doit précéder une application.
-    **Décision** : environnement déployable comme une unité — graphe de dépendances, hooks de migration avant bascule, mode atomique par niveau, rollback automatique opt-in sur santé dégradée. Workflow au §20.8.
-17. **Uptime monitoring intégré** : sans check externe, la plateforme ne sait pas si ce qu'elle déploie répond réellement depuis Internet.
-    **Décision** : checks HTTP/TCP simples intégrés — cible, intervalle, seuils d'échec, exécutés hors du workload surveillé — avec alerting via les canaux de notification existants (§11) et historique de disponibilité par ressource. Pas d'APM : le périmètre s'arrête au up/down et à la latence.
-18. **Déploiement depuis le poste (`akerdock up`)** : exiger un dépôt Git accessible ou une image publiée ferme la boucle de feedback la plus courte, celle du développeur.
-    **Décision** : la CLI PEUT pousser un contexte local — détection du build pack, création de l'application si besoin, build et déploiement — pour le prototypage avant branchement d'un provider Git. Un déploiement de source locale est marqué comme tel dans l'historique (pas de SHA Git, digest du contexte à la place) et n'active jamais d'auto-deploy.
-19. **Routage et agrégation des notifications** : un message par événement rend le canal inutilisable (un serveur qui flappe = des dizaines d'alertes, donc plus personne ne lit).
-    **Décision** : règles de routage par projet/environnement/sévérité vers les canaux, **agrégation/débounce** des événements répétitifs (flapping), heures calmes configurables et résumé différé des événements non critiques.
-20. **Licence du projet**.
-    **Décision** : **Apache 2.0** — même licence que la référence, adoption et contributions maximales, clause brevets incluse. Le fossé concurrentiel est le produit, pas la licence ; le risque « fork cloud par un tiers » est accepté.
-21. **Distribution de l'instance** (concrétise §16.1(6)).
-    **Décision** : **docker-compose minimal à 2 services** — l'image AkerDock (binaire Go statique dans une image distroless, modes `all-in-one`/`api`/`worker` §18.2) + PostgreSQL. Un seul `docker compose up`, upgrade par changement de tag, backups PostgreSQL standards, un seul port exposé (§27.1).
-22. **Nommage des variables prédéfinies**.
-    **Décision** : préfixe **`AKERDOCK_*` uniquement** (`AKERDOCK_FQDN`, `AKERDOCK_URL`, `AKERDOCK_BRANCH`, `AKERDOCK_PR_ID`…), **sans alias d'aucune autre plateforme** : identité propre, pas de dette de nommage, un seul nom par variable — deux noms pour une même valeur, c'est une divergence qui attend son heure. La syntaxe des magic variables `SERVICE_<TYPE>_<ID>` est conservée : elle est fonctionnelle, pas liée à une marque.
-23. **Migration depuis une autre plateforme**.
-    **Décision** : **aucun assistant d'import propriétaire** — l'adoption générique de ressources (§20.7) EST le chemin d'entrée : AkerDock reprend les containers, stacks, volumes et réseaux Docker standards déjà en place, sans rien connaître du schéma interne de l'outil qui les a créés. Un import lié à un format tiers deviendrait une dette à maintenir à chaque version de ce tiers.
-24. **Transport temps réel**.
-    **Décision** : **SSE** (Server-Sent Events) pour logs, statuts et progression de jobs — reconnexion native, reprise par curseur `Last-Event-ID`, compatible proxies d'entreprise ; **WebSocket réservé au terminal** (seul flux bidirectionnel). Tout passe par le port unique du control plane.
-25. **Socle technique Go/API**.
-    **Décision** : accès PostgreSQL via **pgx + sqlc** (SQL explicite, types vérifiés à la compilation — indispensable pour les requêtes critiques de queue/leases/outbox), migrations SQL versionnées ; API **spec-first** avec router **chi** + **oapi-codegen** : les handlers Go et le client TypeScript de l'UI (§25.2) sont générés depuis le même artefact OpenAPI (§24.1).
-26. **Stratégie de tests E2E**.
-    **Décision révisée par ADR-028** : exactement **un parcours E2E produit**, en **Docker-in-Docker uniquement**, après fusion sur `main`, à la demande et avant release ; aucun E2E sur les pull requests et aucun catalogue nightly. Les règles déterministes sont prouvées en tests unitaires/module. **Risque résiduel accepté et documenté** : systemd, reboots réels, firewalls, disques pleins et ARM64 ne sont pas couverts par l'automatisation — ces classes sont validées manuellement de façon ponctuelle.
+1. **SSH push vs agent pull**: SSH provides initial parity; an outbound agent reduces inbound ports and enables Docker events, but introduces agent versioning, enrollment and upgrade.
+   **Decision**: SSH first, outbound agent as a target to reduce the inbound surface. Associated port requirements: the proxy listens on **80/443 by default** but its listening ports **MUST be configurable per server** (e.g. 8080/8443 when an upstream reverse proxy already holds 80/443); the control plane is exposed on **a single port**, behind its own domain/DNS — one port, one certificate, one firewall rule.
+2. **PostgreSQL queue vs Redis/NATS**: PostgreSQL simplifies self-hosting; a separate bus improves throughput but increases operations.
+   **Decision**: durable **PostgreSQL** queue retained. The queue interface remains abstract in the code, but no external bus (Redis/NATS) is planned.
+3. **Secrets in database vs Vault/SOPS/KMS**: start with envelope encryption, then expose an external secret store interface.
+   **Decision**: AEAD envelope encryption (AES-256-GCM) in PostgreSQL, master key in a root-only file or an environment variable, key versioning and rotation (§23.2). Internal `SecretStore` interface from the start, but a single implementation shipped; Vault/KMS only upon validated demand.
+4. **Standalone Docker vs orchestrator**: stabilize standalone; treat Swarm as deprecated compatibility and evaluate Nomad/Kubernetes only upon validated need.
+   **Decision**: **standalone Docker confirmed as the runtime** (Engine/Compose/BuildKit). Kubernetes — including in an "embedded and transparent" form — is ruled out: it contradicts the value proposition (modest VPSes from 2 GB, reversible standard Docker objects §16.1(3), compose template catalog) and the abstraction would leak at the first incident (pods, PVC, ingress) in front of users who chose the platform precisely to not learn Kubernetes. Swarm is not reimplemented (deprecated compatibility at best, behind a P3 feature flag). An orchestrator will only be re-evaluated upon validated user need, via the runtime adapter contract (§18.1), and without ever being imposed on existing installations. The ADR will record this rejection and its reasons.
+5. **Local build vs isolated rootless builders**: Docker socket parity is fast; the security target should isolate untrusted builds (rootless BuildKit/VM/microVM).
+   **Decision**: builds via the server Docker's BuildKit in P0/P1 (parity); dedicated **rootless BuildKit builders mandatory for untrusted code** at the latest with approved-fork previews (§20.4.8). The build adapter contract is written from P0 so that the switch does not touch the deployment engine.
+6. **Local rollback vs immutable registry**: prefer OCI digests kept in a registry for a reproducible rollback, with local fallback.
+   **Decision**: if a registry is configured, each deployment is pushed and referenced by **OCI digest** (reproducible rollback to any retained version); without a registry, local retention of the last N images, explicitly protected from automatic cleanup (INV-015).
+7. **RBAC**: an admin/member pair is too coarse as soon as a team shares a production environment; AkerDock introduces roles and permissions per project and environment.
+   **Decision**: fine-grained RBAC retained, **à-la-carte permissions** model — each product action is a granular permission; a role is a named set of permissions, assignable at team, project or environment level. **Predefined system roles** provided: owner, admin, developer and **viewer (read-only)**; custom roles composable by team admins. To be specified in the RBAC/permissions matrix (§29.7).
+8. **Push metrics vs pull/OpenTelemetry**: keep a lightweight agent but standardize on OTLP/Prometheus to avoid a proprietary protocol.
+   **Decision**: **OTLP everywhere** — server agent, control plane and workers emit metrics/traces/logs in OpenTelemetry, with Prometheus exposure; no proprietary protocol.
+9. **Proxy labels vs declarative configuration**: support parity labels, generate a common intermediate representation in order to test Traefik and Caddy identically.
+   **Decision**: validated — common intermediate representation, labels supported for parity, shared Traefik/Caddy conformance fixtures (§29.6). Sequencing: **Traefik alone in P0**; Caddy arrives in P2 via the intermediate representation, whose fixtures exist from P0.
+10. **One-click catalog**: import compatible templates in compliance with licenses, but version, validate and sign the catalog independently of the binary.
+    **Decision**: catalog = **dedicated template repository** maintained by the project (versioned, validated, signed, refreshable independently of the binary) **+ user template repositories** — each team can register one or more Git repositories (public or private, via the existing keys/credentials) containing its own templates, with validation at import and on-demand resynchronization.
+11. **Rich previews**: a minimal preview (one container + one public URL) is below the domain standard — complete compose environments, ephemeral data, TTL, access protection, Git checks.
+    **Decision**: the preview feature is shipped enriched from the outset, the entire scope of §20.4 being priority — ephemeral compose, ephemeral data, TTL/caps/scale-to-zero, access protection by default, watch paths in preview, Git checks, forks on approval; the trigger controls (labels, comment commands, draft exclusion, cancellation of stale builds) are **options enableable per application**, disabled by default.
+12. **Configuration as code**: a platform driven only by the UI is not reproducible; the exported YAML and an official Terraform provider make it possible.
+    **Decision**: complete YAML export + idempotent apply with dry-run/diff, and official Terraform/OpenTofu provider built on the API. Requirements in §24.5.
+13. **Adoption of existing resources**: no platform in the segment knows how to take control of an already-deployed container or compose stack.
+    **Decision**: adoption without redeployment, previewed and reversible — it is also the entry path from any platform, since it only assumes standard Docker. Workflow in §20.7.
+14. **Backups beyond databases**: backing up four SQL engines and ignoring application volumes leaves half the state on the table — and a restore never replayed is not a backup.
+    **Decision**: encrypted/deduplicated volume backup, Redis and ClickHouse engines, and automatic restore drills. Requirements in §20.5.
+15. **Compose reliability "by design"**: the structural pitfalls of §15 (stack zero-downtime, resource limits without effect) are addressed from the design stage.
+    **Decision**: AkerDock MUST provide zero-downtime for the web services of compose stacks (per-service switchover behind the proxy) and MUST actually enforce the declared resource limits on compose resources.
+16. **Coordinated deployment of an environment**: deploying resource by resource, without order or hooks, breaks any environment where a migration must precede an application.
+    **Decision**: environment deployable as a unit — dependency graph, migration hooks before switchover, per-level atomic mode, opt-in automatic rollback on degraded health. Workflow in §20.8.
+17. **Built-in uptime monitoring**: without an external check, the platform does not know whether what it deploys actually responds from the Internet.
+    **Decision**: simple built-in HTTP/TCP checks — target, interval, failure thresholds, executed outside the monitored workload — with alerting via the existing notification channels (§11) and availability history per resource. No APM: the scope stops at up/down and latency.
+18. **Deploying from the workstation (`akerdock up`)**: requiring an accessible Git repository or a published image closes off the shortest feedback loop, the developer's.
+    **Decision**: the CLI MAY push a local context — build pack detection, application creation if needed, build and deployment — for prototyping before hooking up a Git provider. A local-source deployment is marked as such in the history (no Git SHA, context digest instead) and never activates auto-deploy.
+19. **Notification routing and aggregation**: one message per event makes the channel unusable (a flapping server = dozens of alerts, so nobody reads anymore).
+    **Decision**: routing rules per project/environment/severity toward the channels, **aggregation/debounce** of repetitive events (flapping), configurable quiet hours and deferred digest of non-critical events.
+20. **Project license**.
+    **Decision**: **Apache 2.0** — same license as the reference, maximum adoption and contributions, patent clause included. The competitive moat is the product, not the license; the "cloud fork by a third party" risk is accepted.
+21. **Instance distribution** (concretizes §16.1(6)).
+    **Decision**: **minimal 2-service docker-compose** — the AkerDock image (static Go binary in a distroless image, `all-in-one`/`api`/`worker` modes §18.2) + PostgreSQL. A single `docker compose up`, upgrade by tag change, standard PostgreSQL backups, a single exposed port (§27.1).
+22. **Naming of predefined variables**.
+    **Decision**: **`AKERDOCK_*` prefix only** (`AKERDOCK_FQDN`, `AKERDOCK_URL`, `AKERDOCK_BRANCH`, `AKERDOCK_PR_ID`…), **without an alias from any other platform**: own identity, no naming debt, a single name per variable — two names for the same value is a divergence waiting to happen. The `SERVICE_<TYPE>_<ID>` magic variable syntax is kept: it is functional, not tied to a brand.
+23. **Migration from another platform**.
+    **Decision**: **no proprietary import assistant** — generic resource adoption (§20.7) IS the entry path: AkerDock takes over the standard Docker containers, stacks, volumes and networks already in place, without knowing anything about the internal schema of the tool that created them. An import tied to a third-party format would become a debt to maintain with every version of that third party.
+24. **Realtime transport**.
+    **Decision**: **SSE** (Server-Sent Events) for logs, statuses and job progress — native reconnection, cursor resumption via `Last-Event-ID`, compatible with enterprise proxies; **WebSocket reserved for the terminal** (the only bidirectional stream). Everything goes through the control plane's single port.
+25. **Go/API technical foundation**.
+    **Decision**: PostgreSQL access via **pgx + sqlc** (explicit SQL, compile-time-checked types — essential for the critical queue/leases/outbox queries), versioned SQL migrations; **spec-first** API with the **chi** router + **oapi-codegen**: the Go handlers and the UI's TypeScript client (§25.2) are generated from the same OpenAPI artifact (§24.1).
+26. **E2E test strategy**.
+    **Decision revised by ADR-028**: exactly **one product E2E journey**, in **Docker-in-Docker only**, after merge to `main`, on demand and before release; no E2E on pull requests and no nightly catalog. Deterministic rules are proven in unit/module tests. **Residual risk accepted and documented**: systemd, real reboots, firewalls, full disks and ARM64 are not covered by automation — these classes are validated manually on an ad-hoc basis.
 
-## 28. Maintenance de ce document
+## 28. Maintenance of this document
 
-Ce PRD est la source de vérité produit : une exigence qui n'y figure pas n'est pas une exigence. Toute évolution du périmètre s'y écrit **avant** le code (workflow spec-first, CONTRIBUTING.md), et toute décision structurante donne lieu à un ADR (`docs/adr/`). La grille §26.2 porte l'état de livraison et la preuve attendue de chaque capacité.
+This PRD is the product source of truth: a requirement that is not in it is not a requirement. Any scope evolution is written here **before** the code (spec-first workflow, CONTRIBUTING.md), and any structuring decision gives rise to an ADR (`docs/adr/`). The §26.2 matrix carries the delivery status and expected proof of each capability.
 
 ---
 
-## 29. Artefacts requis avant une implémentation complète
+## 29. Artifacts required before a complete implementation
 
-Ce PRD définit le produit et ses garanties, mais ne remplace pas à lui seul les spécifications d'ingénierie. Pour pouvoir reconstruire la plateforme sans décisions implicites dispersées dans le code, les livrables suivants sont obligatoires :
+This PRD defines the product and its guarantees, but does not by itself replace the engineering specifications. In order to be able to rebuild the platform without implicit decisions scattered in the code, the following deliverables are mandatory:
 
-1. **Glossaire et data dictionary** : tous les champs, types, contraintes, valeurs par défaut, données sensibles et règles de suppression. — **Livré** : `docs/specs/data-dictionary.md`
-2. **ERD versionné** : cardinalités, ownership team, indexes, contraintes d'unicité et stratégie de migrations. — **Livré** : `docs/specs/erd.md`
-3. **OpenAPI v1** : schémas, erreurs, permissions, pagination, idempotence et exemples pour chaque endpoint. — **Livré** (périmètre P0 + cœur P1) : `docs/specs/openapi-v1.yaml`
-4. **Spécification du moteur de déploiement** : plan par build pack, commandes exactes, répertoires distants, labels, noms, timeouts, locks, retry et compensation. — **Livré** : `docs/specs/deployment-engine.md`
-5. **Spécification Compose** : sous-ensemble supporté, transformations, magic variables, réseaux, volumes, health checks et cas rejetés. — **Livré** : `docs/specs/compose-spec.md`
-6. **Contrat proxy** : représentation intermédiaire, génération Traefik/Caddy, priorités de routes, certificats, reload atomique et fixtures de conformité. — **Livré** : `docs/specs/proxy-contract.md`
-7. **Threat model STRIDE** et matrice RBAC/permissions par action et type de ressource. — **Livré** : `docs/specs/threat-model.md` + `docs/specs/rbac-matrix.md`
-8. **Protocoles Git/webhook** par fournisseur avec signatures, événements, permissions d'installation et scénarios de preview. — **Livré** : `docs/specs/git-webhook-protocols.md`
-9. **Plan de tests** : couverture prioritairement unitaire/module et un parcours produit E2E unique en Docker-in-Docker (décision §27.26, ADR-028) ; la matrice OS/architecture reste validée manuellement. — **Livré** : `docs/specs/e2e-test-plan.md`
-10. **Runbooks opérateur** : install/upgrade/downgrade, rotation de clés, panne PostgreSQL/queue, serveur compromis, restore, cleanup bloqué et récupération d'un déploiement orphelin. — **Livré** : `docs/runbooks/` (11 runbooks + index)
-11. **Inventaire licences/SBOM** : dépendances, images helper, templates one-click, logos et conditions de redistribution. — **Livré** : `docs/specs/licensing-sbom.md`
-12. **ADRs initiaux et révisions** : choix listés au §27, avec décision, alternatives et conséquences. — **Livré** : `docs/adr/` (ADR-001 à ADR-028 + index)
-13. **Design system et catalogue de composants** (§25.3) : tokens, thèmes clair/sombre, états visuels normalisés et composants documentés, versionnés avec l'UI Angular. — **Livré** : `docs/specs/design-system.md`
+1. **Glossary and data dictionary**: all fields, types, constraints, default values, sensitive data and deletion rules. — **Delivered**: `docs/specs/data-dictionary.md`
+2. **Versioned ERD**: cardinalities, team ownership, indexes, uniqueness constraints and migration strategy. — **Delivered**: `docs/specs/erd.md`
+3. **OpenAPI v1**: schemas, errors, permissions, pagination, idempotence and examples for each endpoint. — **Delivered** (P0 scope + P1 core): `docs/specs/openapi-v1.yaml`
+4. **Deployment engine specification**: plan per build pack, exact commands, remote directories, labels, names, timeouts, locks, retry and compensation. — **Delivered**: `docs/specs/deployment-engine.md`
+5. **Compose specification**: supported subset, transformations, magic variables, networks, volumes, health checks and rejected cases. — **Delivered**: `docs/specs/compose-spec.md`
+6. **Proxy contract**: intermediate representation, Traefik/Caddy generation, route priorities, certificates, atomic reload and conformance fixtures. — **Delivered**: `docs/specs/proxy-contract.md`
+7. **STRIDE threat model** and RBAC/permissions matrix per action and resource type. — **Delivered**: `docs/specs/threat-model.md` + `docs/specs/rbac-matrix.md`
+8. **Git/webhook protocols** per provider with signatures, events, installation permissions and preview scenarios. — **Delivered**: `docs/specs/git-webhook-protocols.md`
+9. **Test plan**: coverage primarily unit/module and a single product E2E journey in Docker-in-Docker (decision §27.26, ADR-028); the OS/architecture matrix remains manually validated. — **Delivered**: `docs/specs/e2e-test-plan.md`
+10. **Operator runbooks**: install/upgrade/downgrade, key rotation, PostgreSQL/queue outage, compromised server, restore, stuck cleanup and recovery of an orphaned deployment. — **Delivered**: `docs/runbooks/` (11 runbooks + index)
+11. **License inventory/SBOM**: dependencies, helper images, one-click templates, logos and redistribution conditions. — **Delivered**: `docs/specs/licensing-sbom.md`
+12. **Initial ADRs and revisions**: choices listed in §27, with decision, alternatives and consequences. — **Delivered**: `docs/adr/` (ADR-001 to ADR-028 + index)
+13. **Design system and component catalog** (§25.3): tokens, light/dark themes, normalized visual states and documented components, versioned with the Angular UI. — **Delivered**: `docs/specs/design-system.md`
 
-L'implémentation peut démarrer par un vertical slice P0 (auth team → ajout d'un serveur → déploiement d'une image → domaine HTTPS → logs → suppression sûre), pendant que ces artefacts sont détaillés itérativement. La parité complète ne doit toutefois pas être déclarée avant leur couverture.
+Implementation can start with a P0 vertical slice (team auth → adding a server → deploying an image → HTTPS domain → logs → safe deletion), while these artifacts are detailed iteratively. Full parity must not, however, be declared before they are covered.

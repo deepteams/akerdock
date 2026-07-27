@@ -9,8 +9,8 @@ the state and the job queue (no Redis, no external bus). The API is spec-first
 (OpenAPI), and the control plane never runs your workloads: it drives Docker on
 your servers over SSH.
 
-> Design docs (PRD, ADRs, specs) are written in French; code, the CLI and this
-> README are in English.
+> Design docs (PRD, ADRs, specs), code, the CLI and this README are all in
+> English.
 
 ## What it does
 

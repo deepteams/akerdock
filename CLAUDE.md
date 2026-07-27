@@ -1,24 +1,24 @@
-# AkerDock — conventions du projet
+# AkerDock — project conventions
 
-PaaS self-hosted en Go : déploiement d'applications, bases et stacks compose sur des serveurs SSH, avec proxy, HTTPS automatique, backups et previews de PR.
+Self-hosted PaaS in Go: deployment of applications, databases and compose stacks onto SSH servers, with proxy, automatic HTTPS, backups and PR previews.
 
-**Les conventions d'ingénierie sont dans [CONTRIBUTING.md](CONTRIBUTING.md)** (layout du dépôt, workflow spec-first, migrations, commits). Résumé des choix : code/commentaires/commits **en anglais** (Conventional Commits), doc de conception en français ; migrations **goose** ; monorepo (UI Angular dans `web/`) ; outils épinglés via la directive `tool` de `go.mod` (`go tool sqlc|oapi-codegen|goose`).
+**Engineering conventions live in [CONTRIBUTING.md](CONTRIBUTING.md)** (repository layout, spec-first workflow, migrations, commits). Summary of the choices: code/comments/commits **in English** (Conventional Commits); design docs in English; **goose** migrations; monorepo (Angular UI in `web/`); tools pinned via the `tool` directive of `go.mod` (`go tool sqlc|oapi-codegen|goose`).
 
-## Sources de vérité
+## Sources of truth
 
-- `docs/PRD.md` — spécification produit. Les sections 1–14 décrivent le périmètre fonctionnel ; les sections 16+ sont les exigences vérifiables (mots normatifs DOIT / NE DOIT PAS / DEVRAIT / PEUT).
-- `docs/adr/` — 27 ADRs acceptés. **Un ADR accepté est immuable** : toute révision de la DÉCISION passe par un nouvel ADR qui supersede l'ancien. (La formulation, elle, peut être corrigée en place — reformuler n'est pas décider.) Toute décision structurante exige un ADR + une entrée dans la grille de suivi (PRD §26).
-- `docs/specs/openapi-v1.yaml` — contrat d'API. **Spec-first** : handlers Go et client TypeScript sont générés depuis ce fichier (oapi-codegen), jamais écrits à la main puis documentés après coup. La spec reste en **OpenAPI 3.0.3** (oapi-codegen ne supporte pas 3.1). Après toute modification : `make generate` et commiter le code généré (la CI vérifie la synchronisation).
+- `docs/PRD.md` — product specification. Sections 1–14 describe the functional scope; sections 16+ are the verifiable requirements (normative keywords MUST / MUST NOT / SHOULD / MAY).
+- `docs/adr/` — 39 accepted ADRs. **An accepted ADR is immutable**: any revision of the DECISION goes through a new ADR that supersedes the old one. (The wording itself may be fixed in place — rephrasing is not deciding.) Any structural decision requires an ADR + an entry in the tracking grid (PRD §26).
+- `docs/specs/openapi-v1.yaml` — API contract. **Spec-first**: Go handlers and the TypeScript client are generated from this file (oapi-codegen), never written by hand and documented after the fact. The spec stays on **OpenAPI 3.0.3** (oapi-codegen does not support 3.1). After any change: `make generate` and commit the generated code (CI checks the synchronization).
 
-## Stack imposée (ADR-025, ADR-021)
+## Mandated stack (ADR-025, ADR-021)
 
-- PostgreSQL est la seule dépendance externe : état **et** queue de jobs (pas de Redis/NATS).
-- pgx + sqlc (SQL explicite typé à la compilation, migrations versionnées), chi + oapi-codegen.
-- Livrable : binaire Go statique, image distroless, modes all-in-one/api/worker.
+- PostgreSQL is the only external dependency: state **and** job queue (no Redis/NATS).
+- pgx + sqlc (explicit SQL typed at compile time, versioned migrations), chi + oapi-codegen.
+- Deliverable: static Go binary, distroless image, all-in-one/api/worker modes.
 
 ## Conventions
 
-- Documentation en **français** ; code, identifiants et messages de commit selon l'usage Go habituel.
-- Variables prédéfinies préfixées `AKERDOCK_*` — jamais d'alias sous une autre marque (ADR-022). L'ancien nom du projet était « dockerbox » : ne pas réintroduire ce nom.
-- Temps réel : SSE avec reprise `Last-Event-ID` ; WebSocket réservé au terminal (ADR-024).
-- Tests : la majorité de la couverture est **unitaire** (toute logique nouvelle DOIT être testée en unitaire) ; il existe exactement **un parcours E2E** Docker-in-Docker, exécuté après fusion et avant release, jamais de shard ni de catalogue nightly (ADR-026/028, plan de tests §2).
+- Documentation in **English**; code, identifiers and commit messages follow standard Go usage.
+- Predefined variables prefixed `AKERDOCK_*` — never an alias under another brand (ADR-022). The project's former name was "dockerbox": do not reintroduce that name.
+- Real time: SSE with `Last-Event-ID` resumption; WebSocket reserved for the terminal (ADR-024).
+- Tests: most of the coverage is **unit-level** (any new logic MUST be unit-tested); there is exactly **one E2E journey**, Docker-in-Docker, run post-merge and pre-release, never sharded and no nightly catalog (ADR-026/028, test plan §2).

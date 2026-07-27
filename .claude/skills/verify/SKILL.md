@@ -1,14 +1,14 @@
 ---
 name: verify
-description: Lancer AkerDock en local contre un Postgres jetable et piloter l'API /auth ou l'UI embarquée pour vérifier un changement en conditions réelles.
+description: Run AkerDock locally against a throwaway Postgres and drive the /auth API or the embedded UI to verify a change under real conditions.
 ---
 
-# Vérifier AkerDock en local
+# Verifying AkerDock locally
 
-## Lancer l'app (all-in-one)
+## Run the app (all-in-one)
 
 ```bash
-# Postgres jetable (l'image officielle contient citext)
+# Throwaway Postgres (the official image ships citext)
 docker run -d --rm --name akd-verify -e POSTGRES_USER=akerdock \
   -e POSTGRES_PASSWORD=verify -e POSTGRES_DB=akerdock -p 15477:5432 postgres:18-alpine
 
@@ -17,45 +17,45 @@ export AKERDOCK_MASTER_KEY="1:$(openssl rand -base64 32)"
 export AKERDOCK_ROOT_EMAIL=root@example.com AKERDOCK_ROOT_NAME=Root \
   AKERDOCK_ROOT_PASSWORD="a-very-long-verify-password"
 export AKERDOCK_PORT=18475
-export AKERDOCK_DATA_DIR=$(mktemp -d)   # sinon fatal: /var/lib/akerdock non créable
+export AKERDOCK_DATA_DIR=$(mktemp -d)   # otherwise fatal: /var/lib/akerdock not creatable
 
 go build -o /tmp/akerdock ./cmd/akerdock && /tmp/akerdock
 ```
 
-Les migrations goose s'appliquent au démarrage ; le bootstrap crée le root
-user depuis les variables `AKERDOCK_ROOT_*`. Le job `server.validate` du
-serveur localhost échoue en boucle (pas de SSH) — bruit attendu, pas une
-panne.
+Goose migrations apply at startup; the bootstrap creates the root user from
+the `AKERDOCK_ROOT_*` variables. The `server.validate` job for the localhost
+server fails in a loop (no SSH) — expected noise, not an outage.
 
-## Pièges
+## Pitfalls
 
-- **L'UI embarquée vient de `internal/web/dist`** (go:embed), PAS de
-  `web/dist`. Après un changement UI : `npm --prefix web run build` puis
-  `cp -r web/dist/akerdock-web/browser/. internal/web/dist/` (cible
-  `make web`), puis recompiler le binaire. Sans cela, on pilote l'ancienne UI.
-  `internal/web/dist` est suivi par git et se committe avec les changements UI.
-- **Rate limit `/auth`** : 30 req/min par IP — espacer les sondes ou dormir 30 s.
-- **Lockout** : 5 échecs (login ou code MFA) verrouillent le compte 15 min.
-  Déverrouiller : `docker exec akd-verify psql -U akerdock -d akerdock -c
+- **The embedded UI comes from `internal/web/dist`** (go:embed), NOT from
+  `web/dist`. After a UI change: `npm --prefix web run build` then
+  `cp -r web/dist/akerdock-web/browser/. internal/web/dist/` (the
+  `make web` target), then rebuild the binary. Without this you are driving
+  the old UI. `internal/web/dist` is tracked by git and gets committed along
+  with UI changes.
+- **`/auth` rate limit**: 30 req/min per IP — space out probes or sleep 30 s.
+- **Lockout**: 5 failures (login or MFA code) lock the account for 15 min.
+  To unlock: `docker exec akd-verify psql -U akerdock -d akerdock -c
   "UPDATE users SET failed_login_count=0, locked_until=NULL;"`.
 
-## Piloter
+## Drive it
 
-- **API** : `POST /auth/login` (JSON email/password) → cookies + `csrf_token` ;
-  mutations `/auth/*` exigent le header `X-CSRF-Token`. Le contrat v1 est sous
-  `/api/v1` (Bearer).
-- **UI** : Playwright avec le Chrome système, sans télécharger de navigateur :
-  `chromium.launch({ channel: 'chrome', headless: true })` (installer le paquet
-  `playwright` seul dans un dossier temporaire). Routes utiles : `/sign-in`,
+- **API**: `POST /auth/login` (JSON email/password) → cookies + `csrf_token`;
+  `/auth/*` mutations require the `X-CSRF-Token` header. The v1 contract lives
+  under `/api/v1` (Bearer).
+- **UI**: Playwright with the system Chrome, without downloading a browser:
+  `chromium.launch({ channel: 'chrome', headless: true })` (install the
+  `playwright` package alone in a temporary folder). Useful routes: `/sign-in`,
   `/security`, `/applications`.
-- **TOTP** : générer les codes avec une implémentation indépendante (python3 :
-  `hmac` + `base32decode`, SHA-1, 6 chiffres, pas de 30 s) — prouve
-  l'interopérabilité avec les vraies apps. L'anti-rejeu brûle le pas courant :
-  pour un second code immédiat, prendre le pas suivant (+1).
-- **OAuth/OIDC** : IdP factice en Go stdlib sur `http://localhost:9091`
-  (discovery + JWKS + authorize auto-approuvé + token signant un vrai JWT
-  RS256, PKCE **vérifié** côté IdP, `POST /control` pour changer sub/email
-  entre scénarios) — `ValidateIssuer` tolère http sur localhost uniquement.
-  Configurer via `PUT /api/v1/system/oauth-providers/oidc` (session root +
-  `X-CSRF-Token`). `registration_enabled` est `false` par défaut : l'activer
-  en SQL et attendre ~4 s (TTL du cache de settings).
+- **TOTP**: generate codes with an independent implementation (python3:
+  `hmac` + `base32decode`, SHA-1, 6 digits, 30 s step) — proves
+  interoperability with real apps. Anti-replay burns the current step:
+  for an immediate second code, take the next step (+1).
+- **OAuth/OIDC**: fake IdP in Go stdlib on `http://localhost:9091`
+  (discovery + JWKS + auto-approved authorize + token signing a real RS256
+  JWT, PKCE **verified** on the IdP side, `POST /control` to change sub/email
+  between scenarios) — `ValidateIssuer` tolerates http on localhost only.
+  Configure via `PUT /api/v1/system/oauth-providers/oidc` (root session +
+  `X-CSRF-Token`). `registration_enabled` is `false` by default: enable it
+  in SQL and wait ~4 s (settings cache TTL).

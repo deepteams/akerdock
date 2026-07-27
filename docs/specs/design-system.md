@@ -1,183 +1,183 @@
-# Design system AkerDock — `akd`
+# AkerDock design system — `akd`
 
-> Artefact §29.13 du PRD. Couvre : principes, design tokens, inventaire des composants, patterns d'interaction, architecture Angular et checklist d'ajout. Référence les exigences PRD §21 (machines à états), §22.5 (accessibilité), §25 (dashboard/UX), §5.7 et §13 (logs, terminal), §3.8 (métriques), §19.2 (statuts stale), §22.2 (backpressure logs), §23.3 (neutralisation ANSI).
+> PRD §29.13 artifact. Covers: principles, design tokens, component inventory, interaction patterns, Angular architecture and the addition checklist. References PRD requirements §21 (state machines), §22.5 (accessibility), §25 (dashboard/UX), §5.7 and §13 (logs, terminal), §3.8 (metrics), §19.2 (stale statuses), §22.2 (log backpressure), §23.3 (ANSI neutralization).
 >
-> Statut : révisé le 2026-07-18 — les tokens (§2) et le vocabulaire de classes (§3) reprennent le kit Claude Design validé par le product owner et remplacent les défauts proposés initiaux. Les valeurs chiffrées sont vérifiées au contraste WCAG 2.1 AA (ratios calculés selon la formule de luminance relative WCAG, affichés dans les tables). Toute révision passe par un commit sur ce document ; le catalogue Storybook fait foi pour l'implémentation.
+> Status: revised on 2026-07-18 — the tokens (§2) and the class vocabulary (§3) adopt the Claude Design kit validated by the product owner and replace the initially proposed defaults. The numeric values are verified for WCAG 2.1 AA contrast (ratios computed with the WCAG relative luminance formula, shown in the tables). Any revision goes through a commit on this document; the Storybook catalogue is authoritative for the implementation.
 
 ---
 
-## 1. Principes
+## 1. Principles
 
-1. **Minimalisme fonctionnel** (§25.3). Aucun kit UI tiers lourd. Chaque composant existe parce qu'un parcours du PRD l'exige, pas par complétude de bibliothèque. Dépendances tierces limitées aux besoins spécialisés : xterm.js (terminal), un éditeur de code embarquable, une lib de graphiques légère.
-2. **Densité d'outil d'exploitation**. Le dashboard est un outil d'ops, pas un site marketing : tables et listes compactes, information dense, chrome minimal. La densité par défaut vise un opérateur qui scanne 2 000 ressources et 100 serveurs (§22.2), pas un lecteur occasionnel.
-3. **Hiérarchie par la typographie et l'espacement, pas par la décoration**. Pas de dégradés, pas d'ombres portées lourdes, pas d'illustrations décoratives. La structure visuelle vient de : taille/graisse de texte, espacement vertical, bordures fines, et couleur réservée à la sémantique (états, actions, liens).
-4. **Un état = une représentation unique partout** (§25.3). Un état de la machine §21 (`running`, `failed`, `queued`…) se lit exactement de la même façon sur le dashboard, une carte ressource, une ligne de table, une timeline de déploiement ou un job : même couleur, même icône, même libellé, via le seul composant `akd-status-badge`. Interdiction de re-styler un état localement.
-5. **Jamais la couleur seule**. Chaque état combine couleur + icône + libellé texte (WCAG 1.4.1). Les états `unknown/stale` et `cancelled/superseded` ont en plus une forme distincte (pointillé, barré) lisible sans perception des couleurs.
-6. **Accessibilité dès la conception, pas en retrofit** (§25.3, §22.5) : parcours clavier complet, focus visible, labels de formulaire, contraste AA sur le thème sombre unique (§2.7), annonces live pour progression et erreurs.
-7. **Anglais, i18n-first** (§25.2). L'UI est en anglais par défaut ; aucune chaîne en dur — tous les libellés de ce document sont des valeurs par défaut de clés de traduction.
+1. **Functional minimalism** (§25.3). No heavy third-party UI kit. Each component exists because a PRD journey requires it, not for library completeness. Third-party dependencies are limited to specialized needs: xterm.js (terminal), an embeddable code editor, a lightweight charting lib.
+2. **Operations-tool density**. The dashboard is an ops tool, not a marketing site: compact tables and lists, dense information, minimal chrome. The default density targets an operator scanning 2,000 resources and 100 servers (§22.2), not a casual reader.
+3. **Hierarchy through typography and spacing, not decoration**. No gradients, no heavy drop shadows, no decorative illustrations. Visual structure comes from: text size/weight, vertical spacing, thin borders, and color reserved for semantics (states, actions, links).
+4. **One state = a single representation everywhere** (§25.3). A state from the §21 machine (`running`, `failed`, `queued`…) reads exactly the same way on the dashboard, a resource card, a table row, a deployment timeline or a job: same color, same icon, same label, through the single `akd-status-badge` component. Re-styling a state locally is forbidden.
+5. **Never color alone**. Each state combines color + icon + text label (WCAG 1.4.1). The `unknown/stale` and `cancelled/superseded` states additionally have a distinct shape (dashed, struck through) legible without color perception.
+6. **Accessibility by design, not as a retrofit** (§25.3, §22.5): full keyboard journeys, visible focus, form labels, AA contrast on the single dark theme (§2.7), live announcements for progress and errors.
+7. **English, i18n-first** (§25.2). The UI is in English by default; no hard-coded string — every label in this document is the default value of a translation key.
 
 ---
 
 ## 2. Design tokens
 
-> **Note de révision (2026-07-18).** Cette section remplace l'ancienne palette gray/teal light-first (échelles zinc/teal hex, deux thèmes commutables) par les tokens du kit Claude Design « Plateforme SPA Angular pour serveurs » validé par le product owner : thème sombre unique, couleurs en `oklch`, accent teal « dock light », trois familles typographiques embarquées. Les valeurs ci-dessous sont normatives ; `web/src/styles/tokens.css` en est la copie verbatim (jamais l'inverse).
+> **Revision note (2026-07-18).** This section replaces the former light-first gray/teal palette (zinc/teal hex scales, two switchable themes) with the tokens of the Claude Design kit "Angular SPA platform for servers" validated by the product owner: single dark theme, colors in `oklch`, "dock light" teal accent, three bundled type families. The values below are normative; `web/src/styles/tokens.css` is their verbatim copy (never the other way around).
 
-Les tokens sont la seule source de style : **aucune couleur, taille ou durée en dur dans un composant**. Trois couches :
+The tokens are the sole source of style: **no hard-coded color, size or duration in a component**. Three layers:
 
-- **Tokens canoniques** (`--bg-0…3`, `--border-1/2`, `--text-1/2/3`, `--accent*`, familles d'état `--ok/--warn/--danger/--info/--neutral` avec variantes `-dim`/`-border`, typo/espace/forme/mouvement) : la surface consommée par le nouveau code.
-- **Alias sémantiques** (`--surface-page`, `--surface-card`, `--surface-terminal`, `--text-body`, `--text-muted`, `--link`…) : noms d'usage résolvant vers les canoniques.
-- **Couche de compatibilité `--akd-*`** : alias **transitoires** pour les pages antérieures au redesign ; chaque `--akd-*` résout vers un token canonique. Le nouveau code ne l'utilise pas ; la couche rétrécit avec la migration et sera supprimée avec son dernier consommateur.
+- **Canonical tokens** (`--bg-0…3`, `--border-1/2`, `--text-1/2/3`, `--accent*`, state families `--ok/--warn/--danger/--info/--neutral` with `-dim`/`-border` variants, type/space/shape/motion): the surface consumed by new code.
+- **Semantic aliases** (`--surface-page`, `--surface-card`, `--surface-terminal`, `--text-body`, `--text-muted`, `--link`…): usage names resolving to the canonical ones.
+- **`--akd-*` compatibility layer**: **transitional** aliases for pages predating the redesign; each `--akd-*` resolves to a canonical token. New code does not use it; the layer shrinks with the migration and will be removed with its last consumer.
 
-### 2.1 Couleurs — surfaces, bordures et texte
+### 2.1 Colors — surfaces, borders and text
 
-Rampe bleu-noir froide (`oklch`, teinte ~252), thème sombre unique :
+Cool blue-black ramp (`oklch`, hue ~252), single dark theme:
 
-| Token | Valeur | Usage (alias) |
+| Token | Value | Usage (alias) |
 |---|---|---|
-| `--bg-0` | `oklch(14.5% 0.014 252)` | fond page (`--surface-page`) |
-| `--bg-1` | `oklch(17.5% 0.015 252)` | cartes (`--surface-card`) |
-| `--bg-2` | `oklch(20.5% 0.016 252)` | surfaces relevées, hover de ligne/bouton (`--surface-raised`) |
+| `--bg-0` | `oklch(14.5% 0.014 252)` | page background (`--surface-page`) |
+| `--bg-1` | `oklch(17.5% 0.015 252)` | cards (`--surface-card`) |
+| `--bg-2` | `oklch(20.5% 0.016 252)` | raised surfaces, row/button hover (`--surface-raised`) |
 | `--bg-3` | `oklch(24% 0.017 252)` | overlays, toasts (`--surface-overlay`) |
-| `--bg-inset` | `oklch(12% 0.013 252)` | logs, terminal, fonds d'inputs (`--surface-terminal`) |
-| `--border-1` | `oklch(28% 0.018 252)` | bordures décoratives, séparateurs |
-| `--border-2` | `oklch(36% 0.02 252)` | bordures renforcées (hover d'input, overlays) |
-| `--text-1` | `oklch(94% 0.006 250)` | texte principal (`--text-body`) |
-| `--text-2` | `oklch(74% 0.012 250)` | texte secondaire (`--text-muted`) |
-| `--text-3` | `oklch(56% 0.014 250)` | micro-labels, méta (`--text-faint`) |
-| `--text-disabled` | `oklch(44% 0.012 250)` | texte désactivé |
+| `--bg-inset` | `oklch(12% 0.013 252)` | logs, terminal, input backgrounds (`--surface-terminal`) |
+| `--border-1` | `oklch(28% 0.018 252)` | decorative borders, separators |
+| `--border-2` | `oklch(36% 0.02 252)` | reinforced borders (input hover, overlays) |
+| `--text-1` | `oklch(94% 0.006 250)` | primary text (`--text-body`) |
+| `--text-2` | `oklch(74% 0.012 250)` | secondary text (`--text-muted`) |
+| `--text-3` | `oklch(56% 0.014 250)` | micro-labels, meta (`--text-faint`) |
+| `--text-disabled` | `oklch(44% 0.012 250)` | disabled text |
 
-Contrastes vérifiés (calcul WCAG) :
+Verified contrasts (WCAG computation):
 
-| Paire | Ratio | Exigence | Verdict |
+| Pair | Ratio | Requirement | Verdict |
 |---|---:|---|---|
-| texte principal `--text-1` / fond `--bg-0` | **16.60:1** | 4.5:1 | ✅ |
-| texte principal `--text-1` / carte `--bg-1` | **15.91:1** | 4.5:1 | ✅ |
-| texte secondaire `--text-2` / fond `--bg-0` | **8.59:1** | 4.5:1 | ✅ |
-| texte secondaire `--text-2` / carte `--bg-1` | **8.23:1** | 4.5:1 | ✅ |
-| méta `--text-3` / fond `--bg-0` | **4.26:1** | — | ⚠️ voir règle |
-| texte logs `--text-2` / `--bg-inset` | **8.81:1** | 4.5:1 | ✅ |
+| primary text `--text-1` / background `--bg-0` | **16.60:1** | 4.5:1 | ✅ |
+| primary text `--text-1` / card `--bg-1` | **15.91:1** | 4.5:1 | ✅ |
+| secondary text `--text-2` / background `--bg-0` | **8.59:1** | 4.5:1 | ✅ |
+| secondary text `--text-2` / card `--bg-1` | **8.23:1** | 4.5:1 | ✅ |
+| meta `--text-3` / background `--bg-0` | **4.26:1** | — | ⚠️ see rule |
+| log text `--text-2` / `--bg-inset` | **8.81:1** | 4.5:1 | ✅ |
 
-Règles :
+Rules:
 
-- `--text-3` est sous le seuil AA texte (4.26:1) : réservé aux méta **non essentielles ou redondantes** (micro-labels en capitales accompagnant une valeur en `--text-1/2`, timestamps de logs retrouvables dans le fichier téléchargé, séparateurs de breadcrumb). Il n'est **jamais** le seul porteur d'une information.
-- Les bordures `--border-1/2` sont **décoratives** (< 3:1, exemption 1.4.11 assumée) : l'identification des champs repose sur le contraste de fond `--bg-inset` / surface, et l'état focus sur `--accent` (10.40:1 ≥ 3:1).
+- `--text-3` is below the AA text threshold (4.26:1): reserved for **non-essential or redundant** meta (uppercase micro-labels accompanying a value in `--text-1/2`, log timestamps retrievable in the downloaded file, breadcrumb separators). It is **never** the sole carrier of a piece of information.
+- The `--border-1/2` borders are **decorative** (< 3:1, 1.4.11 exemption assumed): field identification relies on the `--bg-inset` / surface background contrast, and the focus state on `--accent` (10.40:1 ≥ 3:1).
 
-### 2.2 Couleurs — accent teal
+### 2.2 Colors — teal accent
 
-Accent teal « dock light » (teinte oklch 195), réservé aux actions, liens, sélection, focus et indicateurs actifs :
+"Dock light" teal accent (oklch hue 195), reserved for actions, links, selection, focus and active indicators:
 
-| Token | Valeur | Usage |
+| Token | Value | Usage |
 |---|---|---|
-| `--accent` | `oklch(78% 0.125 195)` | liens (`--link`), focus, texte/indicateur accent |
-| `--accent-strong` | `oklch(68% 0.13 195)` | fond du bouton primaire, coche/piste cochée |
-| `--accent-on` | `oklch(16% 0.03 195)` | texte/glyphe sur fond accent |
-| `--accent-dim` | `oklch(78% 0.125 195 / 0.12)` | fonds subtils (nav active, sélection, `::selection`) |
-| `--accent-border` | `oklch(78% 0.125 195 / 0.35)` | bordures teintées accent |
-| `--link-hover` | `oklch(86% 0.11 195)` | liens au survol |
+| `--accent` | `oklch(78% 0.125 195)` | links (`--link`), focus, accent text/indicator |
+| `--accent-strong` | `oklch(68% 0.13 195)` | primary button background, checked check/track |
+| `--accent-on` | `oklch(16% 0.03 195)` | text/glyph on accent background |
+| `--accent-dim` | `oklch(78% 0.125 195 / 0.12)` | subtle backgrounds (active nav, selection, `::selection`) |
+| `--accent-border` | `oklch(78% 0.125 195 / 0.35)` | accent-tinted borders |
+| `--link-hover` | `oklch(86% 0.11 195)` | links on hover |
 
-Contrastes vérifiés :
+Verified contrasts:
 
-| Paire | Ratio | Exigence | Verdict |
+| Pair | Ratio | Requirement | Verdict |
 |---|---:|---|---|
-| lien/accent texte `--accent` / `--bg-0` | **10.40:1** | 4.5:1 | ✅ |
-| bouton primaire : `--accent-on` sur `--accent-strong` | **7.22:1** | 4.5:1 | ✅ |
+| link/accent text `--accent` / `--bg-0` | **10.40:1** | 4.5:1 | ✅ |
+| primary button: `--accent-on` on `--accent-strong` | **7.22:1** | 4.5:1 | ✅ |
 | focus ring `--accent` / `--bg-0` | **10.40:1** | 3:1 (UI) | ✅ |
 
-Le bouton primaire est **fond teal + texte sombre** (pattern « inversé » du thème sombre : `--accent-strong` / `--accent-on`), jamais blanc sur teal. Le focus des contrôles du kit utilise le double anneau `--ring-focus` (`--bg-0` puis `--accent`, §2.5), lisible sur toute surface.
+The primary button is **teal background + dark text** (the dark theme's "inverted" pattern: `--accent-strong` / `--accent-on`), never white on teal. Focus for the kit's controls uses the `--ring-focus` double ring (`--bg-0` then `--accent`, §2.5), legible on any surface.
 
-### 2.3 Couleurs sémantiques d'état — mapping sur les machines à états §21
+### 2.3 Semantic state colors — mapping onto the §21 state machines
 
-Cinq familles sémantiques + deux modificateurs de forme. **Chaque état des machines §21 est mappé sur exactement une famille** ; ce mapping est la table de vérité du composant `akd-status-badge` (§3.10) et il est exhaustif :
+Five semantic families + two shape modifiers. **Each state of the §21 machines is mapped onto exactly one family**; this mapping is the truth table of the `akd-status-badge` component (§3.10) and it is exhaustive:
 
-| Famille | Sens | États §21.1 (déploiement) | États §21.2 (ressource/serveur) | États §21.3 (job) |
+| Family | Meaning | §21.1 states (deployment) | §21.2 states (resource/server) | §21.3 states (job) |
 |---|---|---|---|---|
-| **success** (vert) | nominal, terminal heureux | `succeeded` | `running` (désiré atteint), `healthy`, `ready` | `succeeded` |
-| **progress** (bleu, animé) | transitoire, en cours | `queued`, `preparing`, `cloning`, `building`, `pushing`, `starting`, `healthchecking`, `switching`, `finishing`, `retrying` | `starting`, `pending`, `validating`, `deleting` | `scheduled`, `queued`, `leased`, `running`, `retry_wait` |
-| **warning** (ambre) | dégradé, attention requise | — | `unhealthy`, `maintenance`, écart désiré/observé (drift) | — |
-| **danger** (rouge) | échec, terminal malheureux | `failed` | `unreachable`, `missing` | `dead_letter` |
-| **neutral** (gris) | inactif volontaire | — | `stopped`, `exited`, `deleted` | — |
-| **neutral + bordure pointillée** | information périmée (§19.2 : `observed_at` trop ancien → « jamais un faux running ») | — | `unknown` / stale | — |
-| **neutral + libellé barré** | remplacé/abandonné, terminal | `cancelled`, `superseded` | — | `cancelled` |
+| **success** (green) | nominal, happy terminal | `succeeded` | `running` (desired reached), `healthy`, `ready` | `succeeded` |
+| **progress** (blue, animated) | transient, in progress | `queued`, `preparing`, `cloning`, `building`, `pushing`, `starting`, `healthchecking`, `switching`, `finishing`, `retrying` | `starting`, `pending`, `validating`, `deleting` | `scheduled`, `queued`, `leased`, `running`, `retry_wait` |
+| **warning** (amber) | degraded, attention required | — | `unhealthy`, `maintenance`, desired/observed gap (drift) | — |
+| **danger** (red) | failure, unhappy terminal | `failed` | `unreachable`, `missing` | `dead_letter` |
+| **neutral** (gray) | intentionally inactive | — | `stopped`, `exited`, `deleted` | — |
+| **neutral + dashed border** | outdated information (§19.2: `observed_at` too old → "never a false running") | — | `unknown` / stale | — |
+| **neutral + struck-through label** | replaced/abandoned, terminal | `cancelled`, `superseded` | — | `cancelled` |
 
-Chaque famille est portée par un triplet de tokens — couleur pleine (texte, pastille), fond translucide `-dim` (alpha 0.12), bordure translucide `-border` (alpha 0.35). Même clarté/chroma oklch pour toutes les familles (78 % / 0.125, sauf danger relevé en chroma), seule la teinte varie :
+Each family is carried by a triplet of tokens — solid color (text, dot), translucent `-dim` background (alpha 0.12), translucent `-border` border (alpha 0.35). Same oklch lightness/chroma for all families (78% / 0.125, except danger raised in chroma), only the hue varies:
 
-| Famille | fg (couleur pleine) | bg badge | bordure badge |
+| Family | fg (solid color) | badge bg | badge border |
 |---|---|---|---|
 | success | `--ok` = `oklch(78% 0.125 155)` | `--ok-dim` | `--ok-border` |
-| progress | `--accent` (teinte 195) | `--info-dim` = `oklch(78% 0.125 195 / 0.12)` | `--accent-border` |
+| progress | `--accent` (hue 195) | `--info-dim` = `oklch(78% 0.125 195 / 0.12)` | `--accent-border` |
 | warning | `--warn` = `oklch(78% 0.125 85)` | `--warn-dim` | `--warn-border` |
 | danger | `--danger` = `oklch(72% 0.155 25)` | `--danger-dim` | `--danger-border` |
 | neutral | `--neutral` = `oklch(70% 0.02 252)` | `--neutral-dim` | `--neutral-border` |
 
-Contrastes vérifiés (texte d'état sur fond page, et texte de badge sur son fond `-dim` composité sur `--bg-0`) :
+Verified contrasts (state text on page background, and badge text on its `-dim` background composited on `--bg-0`):
 
-| Paire | Ratio | Exigence | Verdict |
+| Pair | Ratio | Requirement | Verdict |
 |---|---:|---|---|
-| success texte `--ok` / `--bg-0` | **10.40:1** | 4.5:1 | ✅ |
+| success text `--ok` / `--bg-0` | **10.40:1** | 4.5:1 | ✅ |
 | success badge `--ok` / `--ok-dim` | **8.63:1** | 4.5:1 | ✅ |
 | progress badge `--accent` / `--info-dim` | **8.66:1** | 4.5:1 | ✅ |
-| warning texte `--warn` / `--bg-0` | **9.82:1** | 4.5:1 | ✅ |
+| warning text `--warn` / `--bg-0` | **9.82:1** | 4.5:1 | ✅ |
 | warning badge `--warn` / `--warn-dim` | **8.24:1** | 4.5:1 | ✅ |
-| danger texte `--danger` / `--bg-0` | **7.46:1** | 4.5:1 | ✅ |
+| danger text `--danger` / `--bg-0` | **7.46:1** | 4.5:1 | ✅ |
 | danger badge `--danger` / `--danger-dim` | **6.50:1** | 4.5:1 | ✅ |
-| bouton danger : `--danger` sur `--danger-dim` | **6.50:1** | 4.5:1 | ✅ |
+| danger button: `--danger` on `--danger-dim` | **6.50:1** | 4.5:1 | ✅ |
 | neutral badge `--neutral` / `--neutral-dim` | **6.40:1** | 4.5:1 | ✅ |
-| pastilles d'état (couleur pleine / `--bg-0`, indicateur non textuel) | **≥ 6.40:1** | 3:1 (UI) | ✅ |
+| status dots (solid color / `--bg-0`, non-text indicator) | **≥ 6.40:1** | 3:1 (UI) | ✅ |
 
-Note : la famille **progress partage la teinte de l'accent** (195) — choix assumé du kit : « en cours » se lit comme de l'activité. La distinction statut/interactif ne repose donc **jamais sur la couleur** : un statut est toujours une pill `akd-status` avec pastille de forme propre à sa famille + libellé (§3.6, principe 5) ; un élément interactif n'a jamais cette forme. Les autres familles restent sans collision avec l'accent (§25.3).
+Note: the **progress family shares the accent hue** (195) — a deliberate choice of the kit: "in progress" reads as activity. The status/interactive distinction therefore **never rests on color**: a status is always an `akd-status` pill with a family-specific dot shape + label (§3.6, principle 5); an interactive element never has this shape. The other families remain collision-free with the accent (§25.3).
 
-### 2.4 Typographie
+### 2.4 Typography
 
-Trois familles, **embarquées via `@fontsource`** depuis `node_modules` (bundlées par Angular au build — la CSP n'autorise aucune origine externe et reste **inchangée**, jamais de CDN ; une instance air-gapped n'en a de toute façon aucune) :
+Three families, **bundled via `@fontsource`** from `node_modules` (bundled by Angular at build time — the CSP allows no external origin and remains **unchanged**, never a CDN; an air-gapped instance has none anyway):
 
-- **`--font-display` : Space Grotesk** (graisses 500/600/700) — titres de pages, de cartes et de modales, valeurs de stat.
-- **`--font-body` : IBM Plex Sans** (400/500/600) — corps, formulaires, tables, navigation.
-- **`--font-mono` : JetBrains Mono** (400/500/700) — logs, terminal, UUID, digests, SHA, URLs, valeurs d'env, cron.
+- **`--font-display`: Space Grotesk** (weights 500/600/700) — page, card and modal titles, stat values.
+- **`--font-body`: IBM Plex Sans** (400/500/600) — body, forms, tables, navigation.
+- **`--font-mono`: JetBrains Mono** (400/500/700) — logs, terminal, UUIDs, digests, SHAs, URLs, env values, cron.
 
-Chaque famille garde un repli système (`system-ui` / `ui-monospace`).
+Each family keeps a system fallback (`system-ui` / `ui-monospace`).
 
-Échelle de tailles, 8 crans (corps par défaut 14px, jamais en dessous de 10px) :
+Size scale, 8 steps (default body 14px, never below 10px):
 
-| Token | Taille | Usage |
+| Token | Size | Usage |
 |---|---|---|
-| `--text-2xs` | 10px | compteurs d'onglets, sections de nav, méta ultra-dense |
-| `--text-xs` | 11px | micro-labels en capitales (labels de champ, en-têtes de table), badges |
-| `--text-sm` | 12.5px | méta, hints, logs, valeurs mono, breadcrumb |
-| `--text-md` | 14px | **corps par défaut** : tables, formulaires, nav, boutons |
-| `--text-lg` | 16px | titres de cartes/sections (display) |
-| `--text-xl` | 20px | titres de modales |
-| `--text-2xl` | 26px | titres de pages, valeurs de stat |
-| `--text-3xl` | 34px | chiffres héro du dashboard |
+| `--text-2xs` | 10px | tab counters, nav sections, ultra-dense meta |
+| `--text-xs` | 11px | uppercase micro-labels (field labels, table headers), badges |
+| `--text-sm` | 12.5px | meta, hints, logs, mono values, breadcrumb |
+| `--text-md` | 14px | **default body**: tables, forms, nav, buttons |
+| `--text-lg` | 16px | card/section titles (display) |
+| `--text-xl` | 20px | modal titles |
+| `--text-2xl` | 26px | page titles, stat values |
+| `--text-3xl` | 34px | dashboard hero figures |
 
-Interlignes par tokens : `--leading-tight: 1.2` (titres, valeurs), `--leading-normal: 1.5` (corps). Graisses : `--weight-regular: 400` (corps), `--weight-medium: 500` (labels, nav active, tabs, statuts), `--weight-semibold: 600` (titres de cartes, boutons, labels de champ), `--weight-bold: 700` (**réservé au display** : h1 de page, valeurs de stat — le corps ne dépasse pas 600, principe 3). Les micro-labels sont en capitales avec `--tracking-wide: 0.06em`. Chiffres tabulaires (`font-variant-numeric: tabular-nums`) obligatoires dans les tables, durées, métriques.
+Line heights via tokens: `--leading-tight: 1.2` (titles, values), `--leading-normal: 1.5` (body). Weights: `--weight-regular: 400` (body), `--weight-medium: 500` (labels, active nav, tabs, statuses), `--weight-semibold: 600` (card titles, buttons, field labels), `--weight-bold: 700` (**reserved for display**: page h1, stat values — body never exceeds 600, principle 3). Micro-labels are uppercase with `--tracking-wide: 0.06em`. Tabular figures (`font-variant-numeric: tabular-nums`) are mandatory in tables, durations, metrics.
 
-### 2.5 Espacement, rayons, élévations, animation
+### 2.5 Spacing, radii, elevations, motion
 
-**Espacement** — échelle à 9 crans : `--space-1: 4px` ; `-2: 8px` ; `-3: 12px` ; `-4: 16px` ; `-5: 20px` ; `-6: 24px` ; `-7: 32px` ; `-8: 40px` ; `-9: 56px`.
+**Spacing** — 9-step scale: `--space-1: 4px`; `-2: 8px`; `-3: 12px`; `-4: 16px`; `-5: 20px`; `-6: 24px`; `-7: 32px`; `-8: 40px`; `-9: 56px`.
 
-**Rayons** : `--radius-1: 4px` (badges, checkbox) ; `--radius-2: 6px` (inputs, boutons, logs) ; `--radius-3: 10px` (cartes, modales, toasts) ; `--radius-full: 999px` (pills de statut, switch).
+**Radii**: `--radius-1: 4px` (badges, checkbox); `--radius-2: 6px` (inputs, buttons, logs); `--radius-3: 10px` (cards, modals, toasts); `--radius-full: 999px` (status pills, switch).
 
-**Élévations** — la hiérarchie vient d'abord de la couleur de surface (`--bg-0…3`) ; les ombres renforcent les couches flottantes :
+**Elevations** — hierarchy comes first from the surface color (`--bg-0…3`); shadows reinforce the floating layers:
 
 ```
 --shadow-1: 0 1px 2px oklch(0% 0 0 / 0.4);
 --shadow-2: 0 4px 16px oklch(0% 0 0 / 0.45);   /* toasts, popovers, dropdowns */
---shadow-3: 0 16px 48px oklch(0% 0 0 / 0.55);  /* modales */
---ring-focus: 0 0 0 2px var(--bg-0), 0 0 0 4px var(--accent);  /* double anneau focus */
+--shadow-3: 0 16px 48px oklch(0% 0 0 / 0.55);  /* modals */
+--ring-focus: 0 0 0 2px var(--bg-0), 0 0 0 4px var(--accent);  /* double focus ring */
 ```
 
-**Animation** — rapide, jamais bloquante :
+**Motion** — fast, never blocking:
 
 ```
---dur-1: 120ms;  /* hover, focus, transitions de boutons */
+--dur-1: 120ms;  /* hover, focus, button transitions */
 --dur-2: 200ms;  /* toasts, switch, dropdowns, tooltips */
---dur-3: 350ms;  /* modales, panneaux latéraux */
+--dur-3: 350ms;  /* modals, side panels */
 --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 ```
 
-Sous `prefers-reduced-motion: reduce` : toutes les durées passent à `1ms`, les animations d'état « progress » (pulsation de badge, spinner de timeline, shimmer de skeleton) sont remplacées par des représentations statiques équivalentes (icône fixe, texte « In progress »). Aucune information n'est portée uniquement par le mouvement.
+Under `prefers-reduced-motion: reduce`: all durations drop to `1ms`, the "progress" state animations (badge pulse, timeline spinner, skeleton shimmer) are replaced by equivalent static representations (fixed icon, "In progress" text). No information is carried by motion alone.
 
-### 2.6 Bloc CSS de référence (copié tel quel par `web/src/styles/tokens.css`)
+### 2.6 Reference CSS block (copied as-is by `web/src/styles/tokens.css`)
 
 ```css
 /* Design tokens — copied verbatim from docs/specs/design-system.md §2, which
@@ -324,345 +324,345 @@ Sous `prefers-reduced-motion: reduce` : toutes les durées passent à `1ms`, les
 }
 ```
 
-> Note d'implémentation : le second bloc `:root` est la **couche de compatibilité transitoire `--akd-*`** (§2, troisième couche). Elle permet aux pages antérieures au redesign de rendre dans le nouveau langage sans modification ; elle n'introduit aucune valeur nouvelle (tout alias résout vers un token canonique) et sera supprimée avec son dernier consommateur.
+> Implementation note: the second `:root` block is the **transitional `--akd-*` compatibility layer** (§2, third layer). It lets pages predating the redesign render in the new language without modification; it introduces no new value (every alias resolves to a canonical token) and will be removed with its last consumer.
 
-### 2.7 Gestion du thème
+### 2.7 Theme handling
 
-- **Thème sombre unique** (décision actée avec le kit validé : le kit de design a été validé dark-only par le product owner et un outil d'exploitation se consulte majoritairement dans des contextes sombres — salle machine, on-call de nuit, terminaux). Il n'y a **plus de toggle light/dark ni de `prefers-color-scheme`** : le thème n'est plus une préférence utilisateur (ni localStorage, ni préférence de compte, ni `data-theme`).
-- `color-scheme: dark` est posé sur `:root` pour que scrollbars, contrôles natifs et `<select>` suivent.
-- `prefers-reduced-motion` reste honoré (§2.5) : la suppression du thème clair ne retire aucune adaptation d'accessibilité.
-- Le contraste est testé en CI sur ce seul thème (voir §6).
+- **Single dark theme** (decision recorded with the validated kit: the design kit was validated dark-only by the product owner, and an operations tool is mostly consulted in dark contexts — server room, night on-call, terminals). There is **no more light/dark toggle nor `prefers-color-scheme`**: the theme is no longer a user preference (no localStorage, no account preference, no `data-theme`).
+- `color-scheme: dark` is set on `:root` so that scrollbars, native controls and `<select>` follow.
+- `prefers-reduced-motion` remains honored (§2.5): removing the light theme takes away no accessibility adaptation.
+- Contrast is tested in CI on this single theme (see §6).
 
 ---
 
-## 3. Inventaire des composants
+## 3. Component inventory
 
-Tous les composants sont des composants Angular **standalone** préfixés `akd-` (§5). Conventions transverses, applicables à tout l'inventaire :
+All components are **standalone** Angular components prefixed `akd-` (§5). Cross-cutting conventions, applicable to the whole inventory:
 
-- **Focus visible** : règle globale `outline: 2px solid var(--accent); outline-offset: 2px;` ; les contrôles du kit (boutons, inputs, tabs, switch…) utilisent le double anneau `box-shadow: var(--ring-focus)` (§2.5), lisible sur toute surface. Jamais supprimé, jamais remplacé par un simple changement de couleur. Ratio ring/fond 10.40:1 ≥ 3:1 (§2.2).
-- **Cible tactile/clic** : hauteur interactive ≥ 32px en densité par défaut (outil desktop, dérogation motivée à 44px mobile pour les actions d'urgence §22.4).
-- **Désactivé** : `--akd-text-disabled` + `cursor: not-allowed` + `aria-disabled` (les boutons désactivés restent focusables pour rester découvrables au lecteur d'écran, avec tooltip expliquant pourquoi).
-- **i18n** : toute chaîne rendue est une clé de traduction, y compris les `aria-label`.
+- **Visible focus**: global rule `outline: 2px solid var(--accent); outline-offset: 2px;`; the kit's controls (buttons, inputs, tabs, switch…) use the double ring `box-shadow: var(--ring-focus)` (§2.5), legible on any surface. Never removed, never replaced by a mere color change. Ring/background ratio 10.40:1 ≥ 3:1 (§2.2).
+- **Touch/click target**: interactive height ≥ 32px at default density (desktop tool, justified derogation to 44px mobile for the §22.4 emergency actions).
+- **Disabled**: `--akd-text-disabled` + `cursor: not-allowed` + `aria-disabled` (disabled buttons remain focusable to stay discoverable by screen readers, with a tooltip explaining why).
+- **i18n**: every rendered string is a translation key, including `aria-label`s.
 
-Le vocabulaire visuel de l'inventaire est implémenté par des **classes CSS globales `.akd-*`** (convention BEM, `web/src/styles.css`, reprises du kit — tokens uniquement), que les composants Angular composent :
+The inventory's visual vocabulary is implemented by **global `.akd-*` CSS classes** (BEM convention, `web/src/styles.css`, taken from the kit — tokens only), which the Angular components compose:
 
-| Composant | Classes du kit |
+| Component | Kit classes |
 |---|---|
-| Boutons (§3.1) | `.akd-btn` + modificateurs `--primary` / `--secondary` / `--ghost` / `--danger`, taille `--sm` ; bouton icône `.akd-iconbtn` (+ `--bordered`) |
-| Champs (§3.2) | `.akd-field` (`__label`, `__hint`, `__hint--error`), `.akd-input` (+ `--mono`, `--error`), wrapper `.akd-select` autour d'un `<select>` natif |
-| Cases / toggle (§3.3) | `.akd-check`, `.akd-switch` |
-| Statuts (§3.6) | pill `.akd-status` + `--ok` / `--progress` / `--warn` / `--danger` / `--neutral`, pastille `.akd-status__dot` (forme par famille) ; badges informatifs `.akd-badge` (+ `--mono`, `--accent`, `--ok`, `--warn`, `--danger`) |
-| Tables (§3.5) | `.akd-table` (+ `--clickable`), valeurs mono `.akd-mono` |
-| Cartes (§3.7) | `.akd-card` (`__header`, `__title`, `__body`) |
-| Tabs (§3.8) | `.akd-tabs`, `.akd-tab` (+ `--active`), compteur `.akd-tab__count` |
-| Modales (§3.9–3.10) | `.akd-modal-backdrop`, `.akd-modal` (+ `--danger`), `__header` / `__body` / `__footer` |
+| Buttons (§3.1) | `.akd-btn` + modifiers `--primary` / `--secondary` / `--ghost` / `--danger`, size `--sm`; icon button `.akd-iconbtn` (+ `--bordered`) |
+| Fields (§3.2) | `.akd-field` (`__label`, `__hint`, `__hint--error`), `.akd-input` (+ `--mono`, `--error`), `.akd-select` wrapper around a native `<select>` |
+| Checkboxes / toggle (§3.3) | `.akd-check`, `.akd-switch` |
+| Statuses (§3.6) | `.akd-status` pill + `--ok` / `--progress` / `--warn` / `--danger` / `--neutral`, `.akd-status__dot` dot (shape per family); informative badges `.akd-badge` (+ `--mono`, `--accent`, `--ok`, `--warn`, `--danger`) |
+| Tables (§3.5) | `.akd-table` (+ `--clickable`), mono values `.akd-mono` |
+| Cards (§3.7) | `.akd-card` (`__header`, `__title`, `__body`) |
+| Tabs (§3.8) | `.akd-tabs`, `.akd-tab` (+ `--active`), counter `.akd-tab__count` |
+| Modals (§3.9–3.10) | `.akd-modal-backdrop`, `.akd-modal` (+ `--danger`), `__header` / `__body` / `__footer` |
 | Toasts (§3.11) | `.akd-toast` (+ `--ok`, `--warn`, `--danger`), `__icon`, `__title`, `__msg` |
 | Timeline (§3.12) | `.akd-timeline`, `.akd-tstep` (+ `--done`, `--active`, `--failed`, `--pending`), `__rail` / `__node` / `__line` / `__title` / `__dur` / `__detail` |
 | Log viewer (§3.13) | `.akd-log`, `.akd-log__line` (+ `--info`, `--ok`, `--warn`, `--error`, `--cmd`), `__ts`, `__msg` |
-| Stats / métriques (§3.16) | `.akd-stat` (`__label`, `__value`, `__unit`, `__delta`) |
-| État vide (§3.18) | `.akd-empty` (`__icon`, `__title`, `__msg`) |
+| Stats / metrics (§3.16) | `.akd-stat` (`__label`, `__value`, `__unit`, `__delta`) |
+| Empty state (§3.18) | `.akd-empty` (`__icon`, `__title`, `__msg`) |
 | Navigation (§3.20) | `.akd-breadcrumb` (`__sep`, `__current`), `.akd-sidenav` (`__section`, `__item`, `__item--active`) |
-| Gabarit de page | `.akd-page`, `.akd-bar` (h1/h2 en `--font-display`), `.akd-error`, `.akd-secret`, `.akd-dl`, `.akd-muted`, `.sr-only` |
+| Page template | `.akd-page`, `.akd-bar` (h1/h2 in `--font-display`), `.akd-error`, `.akd-secret`, `.akd-dl`, `.akd-muted`, `.sr-only` |
 
-Une **couche de compatibilité** en fin de `styles.css` rend l'ancien dialecte de classes (`.akd-btn` nu = primaire, `.akd-btn-ghost` / `.akd-btn-danger` autonomes, `select.akd-select`, tabs marquées par `aria-selected`, cartes auto-paddées) dans le nouveau langage ; comme la couche `--akd-*` (§2.6), elle disparaît avec la migration des dernières pages.
+A **compatibility layer** at the end of `styles.css` renders the old class dialect (bare `.akd-btn` = primary, standalone `.akd-btn-ghost` / `.akd-btn-danger`, `select.akd-select`, tabs marked by `aria-selected`, auto-padded cards) in the new language; like the `--akd-*` layer (§2.6), it disappears as the last pages migrate.
 
 ### 3.1 `akd-button`
 
-- **Anatomie** : conteneur, libellé, icône optionnelle (gauche ou seule), spinner intégré en état loading.
-- **Variantes** (modificateurs `.akd-btn--*`) : `primary` (fond `--accent-strong`, texte `--accent-on`, 7.22:1) ; `secondary` (fond `--bg-2`, bordure `--border-1`, texte `--text-1`) ; `danger` (teinté : fond `--danger-dim`, bordure `--danger-border`, texte `--danger`, 6.50:1) — réservé aux actions destructives ; `ghost` (fond transparent, texte `--text-2`, hover `--bg-2`) pour les actions tertiaires en table. Tailles : défaut 36px, `sm` (28px, tables et toolbars) ; bouton icône `.akd-iconbtn` 32px avec `aria-label` obligatoire.
-- **États** : default, hover, active, focus-visible, disabled, **loading** (spinner + libellé conservé + `aria-busy="true"`, clics ignorés sans disparition du bouton).
-- **A11y** : `<button>` natif (jamais de `div`), `type` explicite ; icône seule ⇒ `aria-label` obligatoire (contrôlé par lint) ; Enter/Space natifs.
+- **Anatomy**: container, label, optional icon (left or alone), built-in spinner in the loading state.
+- **Variants** (`.akd-btn--*` modifiers): `primary` (background `--accent-strong`, text `--accent-on`, 7.22:1); `secondary` (background `--bg-2`, border `--border-1`, text `--text-1`); `danger` (tinted: background `--danger-dim`, border `--danger-border`, text `--danger`, 6.50:1) — reserved for destructive actions; `ghost` (transparent background, text `--text-2`, hover `--bg-2`) for tertiary actions in tables. Sizes: default 36px, `sm` (28px, tables and toolbars); icon button `.akd-iconbtn` 32px with mandatory `aria-label`.
+- **States**: default, hover, active, focus-visible, disabled, **loading** (spinner + label kept + `aria-busy="true"`, clicks ignored without the button disappearing).
+- **A11y**: native `<button>` (never a `div`), explicit `type`; icon alone ⇒ mandatory `aria-label` (enforced by lint); native Enter/Space.
 
-### 3.2 `akd-input`, `akd-select`, `akd-textarea` + validation inline
+### 3.2 `akd-input`, `akd-select`, `akd-textarea` + inline validation
 
-- **Anatomie** (via le wrapper `akd-field`) : label **toujours visible** (jamais placeholder-comme-label, §22.5), contrôle, texte d'aide, message d'erreur sous le champ, préfixe/suffixe optionnels (unité, icône, bouton reveal).
-- **Variantes** : tailles `sm`/`md` ; `akd-input` supporte `type` texte/nombre/mot de passe/URL ; variante `mono` (UUID, digests, domaines — `--akd-font-mono`) ; `akd-select` = `<select>` natif stylé (pas de listbox custom en P0 : le natif est accessible gratuitement) ; `akd-textarea` redimensionnable verticalement avec compteur optionnel.
-- **États** : default, hover, focus (ring), disabled, readonly, **invalid** (bordure + texte d'erreur `--akd-status-danger-fg`, icône d'erreur — jamais la bordure rouge seule) ; validation inline au `blur` puis à la frappe une fois le champ en erreur (§25.1 « validation inline »).
-- **A11y** : `<label for>` explicite ; erreur liée par `aria-describedby` + `aria-invalid="true"` ; l'aide et l'erreur sont dans le même `aria-describedby` ; annonce de l'erreur par live region du formulaire (§4.1).
+- **Anatomy** (via the `akd-field` wrapper): **always visible** label (never placeholder-as-label, §22.5), control, help text, error message below the field, optional prefix/suffix (unit, icon, reveal button).
+- **Variants**: sizes `sm`/`md`; `akd-input` supports `type` text/number/password/URL; `mono` variant (UUIDs, digests, domains — `--akd-font-mono`); `akd-select` = styled native `<select>` (no custom listbox in P0: the native one is accessible for free); `akd-textarea` vertically resizable with optional counter.
+- **States**: default, hover, focus (ring), disabled, readonly, **invalid** (border + error text `--akd-status-danger-fg`, error icon — never the red border alone); inline validation on `blur` then on keystroke once the field is in error (§25.1 "inline validation").
+- **A11y**: explicit `<label for>`; error linked via `aria-describedby` + `aria-invalid="true"`; help and error are in the same `aria-describedby`; error announced through the form's live region (§4.1).
 
 ### 3.3 `akd-checkbox`, `akd-radio`, `akd-toggle`
 
-- **Anatomie** : contrôle natif (`input type=checkbox/radio`) visuellement remplacé, label cliquable à droite, description optionnelle.
-- **Variantes** : checkbox tri-état (`indeterminate`, pour la sélection de table §3.9) ; radio uniquement en `akd-radio-group` (fieldset+legend) ; toggle = checkbox stylée en interrupteur, réservée aux réglages **à effet immédiat** — dans un formulaire soumis, utiliser une checkbox (convention produit).
-- **États** : unchecked/checked/indeterminate, hover, focus-visible (ring sur le contrôle), disabled. Coche/piste cochée en `--akd-accent` avec glyphe `--akd-on-accent`.
-- **A11y** : contrôles natifs ⇒ rôles et clavier gratuits (Space ; flèches dans un radio group) ; le toggle porte `role="switch"` + `aria-checked` ; l'état n'est jamais indiqué que par la couleur (position du curseur + libellé On/Off).
+- **Anatomy**: native control (`input type=checkbox/radio`) visually replaced, clickable label on the right, optional description.
+- **Variants**: tri-state checkbox (`indeterminate`, for table selection §3.9); radio only within an `akd-radio-group` (fieldset+legend); toggle = checkbox styled as a switch, reserved for **immediate-effect** settings — in a submitted form, use a checkbox (product convention).
+- **States**: unchecked/checked/indeterminate, hover, focus-visible (ring on the control), disabled. Checked check/track in `--akd-accent` with `--akd-on-accent` glyph.
+- **A11y**: native controls ⇒ roles and keyboard for free (Space; arrows within a radio group); the toggle carries `role="switch"` + `aria-checked`; the state is never indicated by color alone (thumb position + On/Off label).
 
-### 3.4 Variantes de champ du PRD §25.1 — `akd-field` states (exigence PRD)
+### 3.4 PRD §25.1 field variants — `akd-field` states (PRD requirement)
 
-Le PRD impose de distinguer systématiquement : **valeur enregistrée, valeur héritée, valeur générée, secret verrouillé, changement non déployé**. Représentations normalisées, cumulables (ex. héritée + non déployée), portées par le wrapper `akd-field` :
+The PRD requires systematically distinguishing: **saved value, inherited value, generated value, locked secret, undeployed change**. Normalized representations, combinable (e.g. inherited + undeployed), carried by the `akd-field` wrapper:
 
-| Variante | Représentation visuelle | Comportement |
+| Variant | Visual representation | Behavior |
 |---|---|---|
-| **Saved** (enregistrée) | apparence par défaut, aucune décoration | — |
-| **Inherited** (héritée, ex. variable serveur §3.1 PRD ou shared var) | chip `Inherited` gris à droite du label + valeur affichée en `--akd-text-secondary` italique + tooltip/ligne de provenance (« From server: staging-1 ») | bouton `Override` transforme le champ en valeur propre ; `Reset to inherited` pour revenir |
-| **Generated** (générée : UUID, domaine wildcard, credential affichable) | chip `Generated` + valeur en `--akd-font-mono` + action de copie intégrée (`akd-copy-field`, §3.19) | régénération possible via action explicite confirmée |
-| **Locked secret** (secret verrouillé §23.2) | icône cadenas dans le champ, valeur masquée `••••••••` (longueur fixe, ne révèle pas la taille réelle), chip `Secret` | write-only par défaut : on peut remplacer, jamais relire ; bouton `Reveal` visible uniquement si le produit l'autorise et `read:sensitive` présent ; reveal audité |
-| **Undeployed change** (non encore déployé) | point ambre `●` accolé au label + chip `Not deployed` (`--akd-status-warning-*`) sur le champ modifié | agrégé dans la barre de dirty state du formulaire (§4.1) : « 3 changes not deployed — Deploy / Discard » |
+| **Saved** | default appearance, no decoration | — |
+| **Inherited** (e.g. server variable PRD §3.1 or shared var) | gray `Inherited` chip to the right of the label + value displayed in `--akd-text-secondary` italic + provenance tooltip/line ("From server: staging-1") | `Override` button turns the field into its own value; `Reset to inherited` to go back |
+| **Generated** (UUID, wildcard domain, displayable credential) | `Generated` chip + value in `--akd-font-mono` + built-in copy action (`akd-copy-field`, §3.19) | regeneration possible via an explicit confirmed action |
+| **Locked secret** (locked secret §23.2) | padlock icon in the field, value masked `••••••••` (fixed length, does not reveal the real size), `Secret` chip | write-only by default: can be replaced, never read back; `Reveal` button visible only if the product allows it and `read:sensitive` is present; reveal is audited |
+| **Undeployed change** (not yet deployed) | amber dot `●` next to the label + `Not deployed` chip (`--akd-status-warning-*`) on the modified field | aggregated in the form's dirty state bar (§4.1): "3 changes not deployed — Deploy / Discard" |
 
-- **A11y** : chaque chip a un texte (jamais icône seule) ; l'état est répété dans l'`aria-describedby` du champ (« Inherited from server staging-1 », « Changed, not deployed ») pour être annoncé au lecteur d'écran ; les couleurs de chips passent AA badge (§2.3).
+- **A11y**: each chip has text (never icon alone); the state is repeated in the field's `aria-describedby` ("Inherited from server staging-1", "Changed, not deployed") so it is announced to screen readers; chip colors pass AA badge (§2.3).
 
-### 3.5 `akd-table` (table dense)
+### 3.5 `akd-table` (dense table)
 
-- **Anatomie** : `<table>` sémantique — caption (visuellement masquée si redondante), thead collant, lignes, cellule de sélection, pied avec pagination.
-- **Variantes** : densité `compact` (32px/ligne, défaut listes d'ops) / `comfortable` (40px) ; colonnes alignables ; cellules spécialisées : `akd-status-badge`, valeurs mono tronquées avec copie, cellule d'actions (boutons ghost `sm` + menu overflow).
-- **Tri** : en-têtes triables = `<button>` dans `<th aria-sort="ascending|descending|none">` ; flèche visible ; tri serveur.
-- **Pagination par curseur** (§22.2 : pagination obligatoire, pas d'offset) : boutons Prev/Next + taille de page ; pas de numéro de page ; le total est optionnel/approximatif.
-- **Sélection** : checkbox par ligne + checkbox d'en-tête tri-état ; barre d'actions groupées apparaissant au-dessus de la table (annoncée par live region : « 4 rows selected »).
-- **États** : ligne hover, sélectionnée (`--akd-accent-subtle` + bordure gauche accent, jamais fond seul), loading (skeleton rows §3.21), vide (EmptyState §3.20), erreur de chargement (Alert + retry).
-- **A11y** : navigation clavier ligne à ligne facultative mais tous les contrôles internes tabulables dans l'ordre visuel ; l'en-tête collant ne masque jamais l'élément focalisé (scroll-margin).
+- **Anatomy**: semantic `<table>` — caption (visually hidden if redundant), sticky thead, rows, selection cell, footer with pagination.
+- **Variants**: density `compact` (32px/row, default for ops lists) / `comfortable` (40px); alignable columns; specialized cells: `akd-status-badge`, truncated mono values with copy, actions cell (ghost `sm` buttons + overflow menu).
+- **Sorting**: sortable headers = `<button>` inside `<th aria-sort="ascending|descending|none">`; visible arrow; server-side sorting.
+- **Cursor pagination** (§22.2: pagination mandatory, no offset): Prev/Next buttons + page size; no page number; the total is optional/approximate.
+- **Selection**: checkbox per row + tri-state header checkbox; bulk action bar appearing above the table (announced by a live region: "4 rows selected").
+- **States**: row hover, selected (`--akd-accent-subtle` + accent left border, never background alone), loading (skeleton rows §3.21), empty (EmptyState §3.20), load error (Alert + retry).
+- **A11y**: row-by-row keyboard navigation optional but all internal controls tabbable in visual order; the sticky header never hides the focused element (scroll-margin).
 
-### 3.6 `akd-status-badge` — la pièce centrale
+### 3.6 `akd-status-badge` — the centerpiece
 
-Composant unique de rendu d'état (§25.3 : « états visuels normalisés » ; principe 4). Consomme exclusivement la table de mapping §2.3, générée depuis les enums d'états de l'OpenAPI (§24.1) — l'exhaustivité du mapping est vérifiée par un test : **tout état §21 sans entrée de mapping fait échouer la CI**.
+Single state-rendering component (§25.3: "normalized visual states"; principle 4). Consumes exclusively the §2.3 mapping table, generated from the OpenAPI state enums (§24.1) — the mapping's exhaustiveness is verified by a test: **any §21 state without a mapping entry fails CI**.
 
-- **Anatomie** : pill arrondie (`--radius-full`, classe `.akd-status`), **pastille + libellé texte — jamais la couleur seule**, fond translucide `-dim`, bordure `-border`, texte en couleur pleine de la famille (§2.3).
-- **Formes de pastille par famille** (`.akd-status__dot` — la forme distingue les familles sans perception des couleurs) : success **rond plein**, progress **losange** (carré pivoté) en pulsation (statique sous reduced-motion), warning **triangle**, danger **carré**, neutral **anneau creux** ; unknown/stale : neutral + **bordure pointillée** (`border: 1px dashed`), cancelled/superseded : `⊘` + **libellé barré** (`text-decoration: line-through`).
-- **Variantes** : `badge` (défaut) ; `dot` (pastille + texte sans fond, pour les tables ultra-denses — la pastille respecte 3:1 UI, §2.3) ; `dot-only` **interdit** hors cas où le libellé est adjacent dans la même cellule.
-- **Comportements spécifiques** :
-  - **stale** (§19.2) : dès que `observed_at` dépasse le seuil, le badge bascule sur `Unknown` avec tooltip « Last observed 12 min ago » — jamais un faux `Running`.
-  - **superseded** (§21.1) : le tooltip/lien pointe vers le déploiement remplaçant.
-  - divergence désiré/observé (§21.2) : le badge affiche l'**observé** ; l'écart avec le désiré est rendu par un second badge warning `Drift` à côté, pas par un mélange de couleurs.
-- **A11y** : `role="status"` **non** utilisé (pas d'annonce spontanée en table) ; texte du libellé lisible tel quel ; l'animation progress est purement décorative (l'info est dans le texte).
+- **Anatomy**: rounded pill (`--radius-full`, class `.akd-status`), **dot + text label — never color alone**, translucent `-dim` background, `-border` border, text in the family's solid color (§2.3).
+- **Dot shapes per family** (`.akd-status__dot` — the shape distinguishes families without color perception): success **solid circle**, progress **diamond** (rotated square) pulsing (static under reduced-motion), warning **triangle**, danger **square**, neutral **hollow ring**; unknown/stale: neutral + **dashed border** (`border: 1px dashed`), cancelled/superseded: `⊘` + **struck-through label** (`text-decoration: line-through`).
+- **Variants**: `badge` (default); `dot` (dot + text without background, for ultra-dense tables — the dot meets 3:1 UI, §2.3); `dot-only` **forbidden** except where the label is adjacent within the same cell.
+- **Specific behaviors**:
+  - **stale** (§19.2): as soon as `observed_at` exceeds the threshold, the badge switches to `Unknown` with the tooltip "Last observed 12 min ago" — never a false `Running`.
+  - **superseded** (§21.1): the tooltip/link points to the superseding deployment.
+  - desired/observed divergence (§21.2): the badge shows the **observed** state; the gap with the desired state is rendered by a second warning `Drift` badge next to it, not by mixing colors.
+- **A11y**: `role="status"` is **not** used (no spontaneous announcement in tables); the label text is readable as-is; the progress animation is purely decorative (the information is in the text).
 
 ### 3.7 `akd-card` / `akd-panel`
 
-- **Anatomie** : surface `--surface-card`, bordure `--border-1`, rayon `--radius-3` ; zones header (`.akd-card__header` : titre `.akd-card__title` en `--text-lg` `--font-display` + actions) / body (`.akd-card__body`) / footer.
-- **Variantes** : `card` (bloc de contenu) ; `panel` (section de page, sans ombre) ; `card` cliquable (toute la carte = un seul lien, les actions secondaires restent des contrôles distincts) ; carte de ressource du dashboard (titre, `akd-status-badge`, méta, sparkline).
-- **États** : default, hover (cartes cliquables), focus-within visible.
-- **A11y** : le titre de carte est un heading de niveau correct dans l'outline de page ; carte cliquable = `<a>` étendu par pseudo-élément, pas de `div onclick`.
+- **Anatomy**: `--surface-card` surface, `--border-1` border, `--radius-3` radius; header zone (`.akd-card__header`: title `.akd-card__title` in `--text-lg` `--font-display` + actions) / body (`.akd-card__body`) / footer.
+- **Variants**: `card` (content block); `panel` (page section, no shadow); clickable `card` (the whole card = a single link, secondary actions remain distinct controls); dashboard resource card (title, `akd-status-badge`, meta, sparkline).
+- **States**: default, hover (clickable cards), visible focus-within.
+- **A11y**: the card title is a heading of the correct level in the page outline; clickable card = `<a>` extended by a pseudo-element, no `div onclick`.
 
 ### 3.8 `akd-tabs`
 
-- **Anatomie** : barre d'onglets soulignés (pas de fond — principe 3), indicateur actif `--akd-accent` 2px, panneaux.
-- **Variantes** : navigation de détail de ressource (Configuration / Environment / Storage / Health / Deployments / Logs / Terminal — §25.1) — dans ce cas les onglets sont des **liens routés** (`role` de navigation, URL profonde par onglet) ; tabs locales (ARIA tabs) pour les sous-sections non routées.
-- **États** : active (accent + `--akd-weight-medium`), hover, focus-visible, badge de compteur optionnel (ex. « Deployments 3 »).
-- **A11y** : variante locale : `role="tablist/tab/tabpanel"`, `aria-selected`, flèches gauche/droite + Home/End, activation au focus ; variante routée : `<nav>` + `aria-current="page"`, pas de rôle tab.
+- **Anatomy**: bar of underlined tabs (no background — principle 3), active indicator `--akd-accent` 2px, panels.
+- **Variants**: resource detail navigation (Configuration / Environment / Storage / Health / Deployments / Logs / Terminal — §25.1) — in this case the tabs are **routed links** (navigation `role`, deep URL per tab); local tabs (ARIA tabs) for non-routed subsections.
+- **States**: active (accent + `--akd-weight-medium`), hover, focus-visible, optional counter badge (e.g. "Deployments 3").
+- **A11y**: local variant: `role="tablist/tab/tabpanel"`, `aria-selected`, left/right arrows + Home/End, activation on focus; routed variant: `<nav>` + `aria-current="page"`, no tab role.
 
 ### 3.9 `akd-modal`
 
-- **Anatomie** : `<dialog>` natif (ou équivalent avec focus trap), overlay, header (titre + bouton fermer), body scrollable, footer d'actions (action principale à droite).
-- **Variantes** : `sm` 400px (confirmations), `md` 560px (formulaires courts), `lg` 800px (diff de config, preview de cascade §19.2). Les formulaires longs restent des pages, pas des modales.
-- **États** : ouverture/fermeture animées (`--akd-duration-slow`, fondu simple sous reduced-motion).
-- **A11y** : `aria-modal="true"`, `aria-labelledby` = titre ; focus trap ; à l'ouverture le focus va au premier élément pertinent (jamais l'action destructive) ; Esc ferme (sauf job en cours, alors Esc demande confirmation) ; à la fermeture le focus revient à l'élément déclencheur.
+- **Anatomy**: native `<dialog>` (or equivalent with focus trap), overlay, header (title + close button), scrollable body, actions footer (primary action on the right).
+- **Variants**: `sm` 400px (confirmations), `md` 560px (short forms), `lg` 800px (config diff, cascade preview §19.2). Long forms remain pages, not modals.
+- **States**: animated open/close (`--akd-duration-slow`, simple fade under reduced-motion).
+- **A11y**: `aria-modal="true"`, `aria-labelledby` = title; focus trap; on open, focus goes to the first relevant element (never the destructive action); Esc closes (except with a job in progress, in which case Esc asks for confirmation); on close, focus returns to the triggering element.
 
-### 3.10 `akd-confirm-modal` — confirmation renforcée (§22.5)
+### 3.10 `akd-confirm-modal` — reinforced confirmation (§22.5)
 
-Pattern unique pour **toute** action destructive (§25.3 : « toute action destructive suit le même pattern ») : suppression de données, restore, rotation de CA, terminal root, opérations cloud destructives, arrêt du proxy (coupe le trafic entrant, §4.1 PRD), suppression cascade prévisualisée (§19.2).
+Single pattern for **every** destructive action (§25.3: "every destructive action follows the same pattern"): data deletion, restore, CA rotation, root terminal, destructive cloud operations, stopping the proxy (cuts incoming traffic, PRD §4.1), previewed cascade deletion (§19.2).
 
-- **Anatomie** : titre explicite (« Delete application "api-prod" »), **liste des conséquences concrètes** (« 3 volumes and their data will be permanently deleted », « The Hetzner VPS will NOT be deleted » §3.2 PRD), zone d'avertissement `--akd-status-danger-bg`, **champ de saisie du nom exact de la ressource**, bouton `danger` désactivé tant que la saisie ne correspond pas (comparaison exacte, sensible à la casse, sans trim silencieux), bouton Cancel focalisé par défaut.
-- **Variantes** : `type-to-confirm` (défaut destructif) ; `checklist` (restore : cocher « I understand current data will be overwritten ») ; les deux cumulables.
-- **États** : saisie non concordante (bouton désactivé + aide « Type the resource name to confirm »), concordante (bouton actif), soumission (loading, champ verrouillé, annulation impossible une fois le job lancé — le suivi passe au job §4.2).
-- **A11y** : le champ de confirmation a un label explicite ; l'activation du bouton est annoncée (`aria-live="polite"` sur l'aide) ; pas de collage bloqué (le collage est autorisé : la friction voulue est la lecture, pas la dactylographie) — décision explicite, cohérente avec WCAG.
+- **Anatomy**: explicit title ("Delete application 'api-prod'"), **list of concrete consequences** ("3 volumes and their data will be permanently deleted", "The Hetzner VPS will NOT be deleted" PRD §3.2), warning zone `--akd-status-danger-bg`, **input field for the exact resource name**, `danger` button disabled until the input matches (exact comparison, case-sensitive, no silent trim), Cancel button focused by default.
+- **Variants**: `type-to-confirm` (destructive default); `checklist` (restore: check "I understand current data will be overwritten"); both combinable.
+- **States**: non-matching input (disabled button + help "Type the resource name to confirm"), matching (active button), submission (loading, field locked, cancellation impossible once the job is launched — tracking moves to the job §4.2).
+- **A11y**: the confirmation field has an explicit label; the button's activation is announced (`aria-live="polite"` on the help text); pasting is not blocked (pasting is allowed: the intended friction is reading, not typing) — an explicit decision, consistent with WCAG.
 
 ### 3.11 `akd-toast` / `akd-alert`
 
-- **`akd-toast`** (transitoire, coin bas-droit, pile max 3) : anatomie icône famille sémantique + message + action optionnelle (« View job ») + fermer. Auto-dismiss 6s **sauf** erreurs (persistantes jusqu'à fermeture). Conteneur `aria-live="polite"` (`assertive` pour les erreurs) ; jamais le seul canal d'une erreur bloquante (l'état reste visible dans la page).
-- **`akd-alert`** (persistant, dans le flux) : variantes `info/success/warning/danger` sur les 5 familles §2.3 ; anatomie icône + titre + corps + actions ; utilisée pour : serveur unreachable en tête de page serveur, avertissement disque, « update available », avertissements de données (§25.1 « Base »). Fermable seulement si l'information est retrouvable ailleurs.
-- **A11y** : `role="alert"` uniquement pour les alertes danger insérées dynamiquement ; contraste AA vérifié sur fonds tintés (§2.3).
+- **`akd-toast`** (transient, bottom-right corner, stack of max 3): anatomy semantic-family icon + message + optional action ("View job") + close. Auto-dismiss 6s **except** errors (persistent until closed). Container `aria-live="polite"` (`assertive` for errors); never the sole channel for a blocking error (the state remains visible in the page).
+- **`akd-alert`** (persistent, in the flow): variants `info/success/warning/danger` over the 5 families §2.3; anatomy icon + title + body + actions; used for: unreachable server at the top of a server page, disk warning, "update available", data warnings (§25.1 "Database"). Dismissible only if the information can be found elsewhere.
+- **A11y**: `role="alert"` only for dynamically inserted danger alerts; AA contrast verified on tinted backgrounds (§2.3).
 
 ### 3.12 `akd-deployment-timeline` (§21.1)
 
-Rendu de la machine à états de déploiement, étape par étape.
+Rendering of the deployment state machine, step by step.
 
-- **Anatomie** : liste verticale ordonnée d'étapes — `queued → preparing → cloning → building → pushing (si registry) → starting → healthchecking → switching → finishing` — chacune avec : icône d'état (mêmes familles que `akd-status-badge`), nom, **durée** (`tabular-nums` ; tick en direct pour l'étape en cours), horodatage au survol, lien vers la section de log correspondante (§3.13). Connecteur vertical coloré jusqu'à l'étape courante.
-- **Variantes** : pleine (page déploiement, avec durées et liens logs) ; compacte (liste de déploiements : étapes en points condensés) ; terminale : `succeeded` (toutes vertes), `failed` (étape fautive en rouge, suivantes grisées `Skipped`), `cancelled`/`superseded` (étape courante barrée, lien vers le remplaçant pour superseded), `retrying` (nouvelle tentative liée, jamais réécriture de l'historique — attempt N affiché, §21.1).
-- **États** : étape done (success), active (progress animé), pending (neutre), failed (danger), skipped (neutre atténué).
-- **A11y** : `<ol>` sémantique ; l'étape courante porte `aria-current="step"` ; la progression est annoncée par la live region de la page job (§4.2), pas par la timeline elle-même ; durées annoncées en unités lisibles.
+- **Anatomy**: ordered vertical list of steps — `queued → preparing → cloning → building → pushing (if registry) → starting → healthchecking → switching → finishing` — each with: state icon (same families as `akd-status-badge`), name, **duration** (`tabular-nums`; live tick for the current step), timestamp on hover, link to the corresponding log section (§3.13). Colored vertical connector up to the current step.
+- **Variants**: full (deployment page, with durations and log links); compact (deployment list: steps as condensed dots); terminal: `succeeded` (all green), `failed` (faulty step in red, subsequent ones grayed `Skipped`), `cancelled`/`superseded` (current step struck through, link to the replacement for superseded), `retrying` (new attempt linked, never rewriting history — attempt N displayed, §21.1).
+- **States**: step done (success), active (animated progress), pending (neutral), failed (danger), skipped (dimmed neutral).
+- **A11y**: semantic `<ol>`; the current step carries `aria-current="step"`; progress is announced by the job page's live region (§4.2), not by the timeline itself; durations announced in readable units.
 
 ### 3.13 `akd-log-viewer` (§5.7, §22.2, §23.3)
 
-- **Anatomie** : toolbar (recherche, filtres de niveau si structuré, follow/pause, wrap, timestamps on/off, téléchargement, plein écran) ; zone de log **virtualisée** (rendu fenêtré, obligatoire — cible : dizaines de milliers de lignes sans dégradation) ; fond `--surface-terminal` (`--bg-inset`), texte `--akd-log-fg` (`--text-2`, 8.81:1), timestamps `--akd-log-meta` (`--text-3`, 4.37:1 — méta redondante, le fichier téléchargé fait foi) en `--font-mono`.
-- **Fonctions requises par le PRD** :
-  - **Recherche** dans le buffer chargé, surlignage AA des occurrences, navigation n/N.
-  - **Sections repliables** : les logs de build sont groupés par étape de la timeline (§3.12) ; chevron par section, état plié persistant ; erreur ⇒ section dépliée automatiquement.
-  - **Timestamps** alignés sur le **fuseau du serveur cible** (§5.7) avec indication explicite du fuseau (§22.3 : « affichage dans le fuseau utilisateur/serveur avec indication explicite ») ; toggle UTC/serveur.
-  - **Téléchargement** du log complet (fichier brut).
-  - **ANSI neutralisé** (§23.3) : séquences d'échappement retirées ou mappées vers un jeu restreint de couleurs **retraduites en tokens AA** ; tout HTML échappé ; jamais d'injection de balisage depuis le contenu.
-  - **Backpressure** (§22.2) : buffer borné, reprise par curseur ; si des lignes sont abandonnées, insertion d'un **marqueur inline non supprimable** « ⚠ N lines dropped (buffer overflow) — Download full log » stylé warning. Le silence est interdit.
-  - **Follow mode** : collé en bas ; tout scroll manuel met en pause avec bouton flottant « Resume following (+128 new lines) ».
-- **États** : streaming (indicateur live), en pause, déconnecté (bandeau warning + reconnexion auto), terminé, vide.
-- **A11y** : zone de log `role="log"` (`aria-live="off"` par défaut — le flux serait inexploitable vocalement ; le résumé passe par la live region du job) ; toolbar entièrement clavier ; PageUp/PageDown/Home/End dans la zone ; le focus n'est jamais volé par l'auto-scroll.
+- **Anatomy**: toolbar (search, level filters if structured, follow/pause, wrap, timestamps on/off, download, full screen); **virtualized** log area (windowed rendering, mandatory — target: tens of thousands of lines without degradation); background `--surface-terminal` (`--bg-inset`), text `--akd-log-fg` (`--text-2`, 8.81:1), timestamps `--akd-log-meta` (`--text-3`, 4.37:1 — redundant meta, the downloaded file is authoritative) in `--font-mono`.
+- **Functions required by the PRD**:
+  - **Search** within the loaded buffer, AA highlighting of matches, n/N navigation.
+  - **Collapsible sections**: build logs are grouped by timeline step (§3.12); chevron per section, collapsed state persisted; error ⇒ section automatically expanded.
+  - **Timestamps** aligned on the **target server's timezone** (§5.7) with explicit timezone indication (§22.3: "display in the user/server timezone with explicit indication"); UTC/server toggle.
+  - **Download** of the complete log (raw file).
+  - **ANSI neutralized** (§23.3): escape sequences stripped or mapped onto a restricted color set **retranslated into AA tokens**; all HTML escaped; never any markup injection from the content.
+  - **Backpressure** (§22.2): bounded buffer, cursor-based resumption; if lines are dropped, insertion of a **non-removable inline marker** "⚠ N lines dropped (buffer overflow) — Download full log" styled as warning. Silence is forbidden.
+  - **Follow mode**: pinned to the bottom; any manual scroll pauses it with a floating button "Resume following (+128 new lines)".
+- **States**: streaming (live indicator), paused, disconnected (warning banner + auto reconnect), finished, empty.
+- **A11y**: log area `role="log"` (`aria-live="off"` by default — the stream would be unusable aurally; the summary goes through the job's live region); fully keyboard-operable toolbar; PageUp/PageDown/Home/End within the area; focus is never stolen by auto-scroll.
 
 ### 3.14 `akd-code-editor`
 
-Wrapper d'un éditeur embarquable existant (défaut proposé : **CodeMirror 6** — modulaire, léger, accessibilité clavier correcte, pas de dépendance lourde type Monaco) pour : fichiers env, compose (§25.1 « Éditeur validé »), config proxy, Fluent Bit custom (§13).
+Wrapper around an existing embeddable editor (proposed default: **CodeMirror 6** — modular, lightweight, decent keyboard accessibility, no heavy Monaco-style dependency) for: env files, compose (§25.1 "Validated editor"), proxy config, custom Fluent Bit (§13).
 
-- **Anatomie** : toolbar (langage, validation, diff avant/après §25.1), gouttière de numéros de ligne, zone d'édition, pied (position curseur, erreurs de validation).
-- **Variantes** : `env` (coloration clé=valeur, masquage optionnel des valeurs secrètes), `yaml/compose` (validation schéma inline, erreurs soulignées + listées sous l'éditeur), `diff` (lecture seule, deux volets ou inline, pour le config diff d'un déploiement §25.1) ; limite d'édition inline 5 MiB (§23.3) — au-delà, lecture seule + téléchargement.
-- **États** : éditable, lecture seule, invalide (liste d'erreurs cliquables), dirty (branché sur le dirty state du formulaire §4.1).
-- **A11y** : mode « Escape sort de l'éditeur » documenté et annoncé (piège à tabulation contrôlé, WCAG 2.1.2) ; thème de coloration syntaxique dérivé des tokens, vérifié AA ; toutes les erreurs disponibles en liste texte hors de l'éditeur.
+- **Anatomy**: toolbar (language, validation, before/after diff §25.1), line-number gutter, editing area, footer (cursor position, validation errors).
+- **Variants**: `env` (key=value highlighting, optional masking of secret values), `yaml/compose` (inline schema validation, errors underlined + listed below the editor), `diff` (read-only, two panes or inline, for a deployment's config diff §25.1); inline editing limit 5 MiB (§23.3) — beyond that, read-only + download.
+- **States**: editable, read-only, invalid (clickable error list), dirty (wired to the form's dirty state §4.1).
+- **A11y**: "Escape leaves the editor" mode documented and announced (controlled tab trap, WCAG 2.1.2); syntax highlighting theme derived from the tokens, verified AA; all errors available as a text list outside the editor.
 
 ### 3.15 `akd-terminal` (§5.7, §13)
 
-Conteneur **xterm.js** (dépendance spécialisée assumée, §25.3) : shell dans tout container ou serveur géré via WebSocket → SSH.
+**xterm.js** container (assumed specialized dependency, §25.3): shell into any container or managed server via WebSocket → SSH.
 
-- **Anatomie** : barre de session (cible : serveur/container + badge de contexte, indicateur de connexion, bouton reconnect, kill), zone xterm (fond `--akd-log-bg`), scrollback.
-- **Variantes** : container, serveur, **root** (accès précédé de `akd-confirm-modal` §3.10, session auditée §23.4 — bandeau persistant « Root session — audited »).
-- **États** : connecting, connected, reconnecting (reconnexion §5.7 : bandeau + tentatives), disconnected (overlay avec cause + bouton), terminated.
-- **A11y** : `screenReaderMode` d'xterm.js activable dans la barre de session ; limitation des séquences terminal côté affichage (§23.3) ; focus : clic/Enter entre dans le terminal, **Ctrl+Shift+Escape en sort** (raccourci documenté dans la barre — Escape seul appartient au shell) ; tailles de police réglables.
+- **Anatomy**: session bar (target: server/container + context badge, connection indicator, reconnect button, kill), xterm area (background `--akd-log-bg`), scrollback.
+- **Variants**: container, server, **root** (access preceded by `akd-confirm-modal` §3.10, audited session §23.4 — persistent banner "Root session — audited").
+- **States**: connecting, connected, reconnecting (reconnection §5.7: banner + attempts), disconnected (overlay with cause + button), terminated.
+- **A11y**: xterm.js `screenReaderMode` toggleable in the session bar; terminal sequences limited on the display side (§23.3); focus: click/Enter enters the terminal, **Ctrl+Shift+Escape leaves it** (shortcut documented in the bar — Escape alone belongs to the shell); adjustable font sizes.
 
 ### 3.16 `akd-metric-chart` (§3.8, §13)
 
-Graphiques CPU/RAM/disque serveur et par container (données Sentinel, push ~10 s, disque ~60 s).
+Server and per-container CPU/RAM/disk charts (Sentinel data, push ~10 s, disk ~60 s).
 
-- **Anatomie** : titre + valeur courante (grande, `tabular-nums`) + graphique (aire ou ligne) + axes discrets + tooltip au survol/focus + sélecteur de fenêtre (1h/6h/24h/7j selon rétention configurée).
-- **Variantes** : `sparkline` (mini-courbe sans axes dans cartes et lignes de table — toujours accompagnée de la valeur numérique courante) ; `full` (page serveur/ressource) ; seuils d'alerte disque rendus en ligne pointillée warning.
-- **Couleurs** : séries en accent teal et gris — les couleurs sémantiques d'état restent réservées aux dépassements de seuil ; hors seuil, un graphique n'est jamais rouge/vert.
-- **États** : loading (skeleton), données absentes (« No metrics — Sentinel not enabled on this server » + lien d'activation, et mention explicite de la limitation compose §3.8), **stale** (dernier point trop ancien : zone hachurée + badge Unknown, cohérent §19.2), erreur.
-- **A11y** : chaque graphique a un résumé texte (`aria-label` : « CPU usage, current 42%, average 38% over last hour ») ; les points sont explorables au clavier (flèches) avec tooltip ; jamais d'information portée par la seule couleur des séries (légende + formes de points si multi-séries).
+- **Anatomy**: title + current value (large, `tabular-nums`) + chart (area or line) + discreet axes + tooltip on hover/focus + window selector (1h/6h/24h/7d depending on configured retention).
+- **Variants**: `sparkline` (mini curve without axes in cards and table rows — always accompanied by the current numeric value); `full` (server/resource page); disk alert thresholds rendered as a dashed warning line.
+- **Colors**: series in teal accent and gray — the semantic state colors remain reserved for threshold breaches; below threshold, a chart is never red/green.
+- **States**: loading (skeleton), missing data ("No metrics — Sentinel not enabled on this server" + activation link, and explicit mention of the compose limitation §3.8), **stale** (last point too old: hatched zone + Unknown badge, consistent §19.2), error.
+- **A11y**: each chart has a text summary (`aria-label`: "CPU usage, current 42%, average 38% over last hour"); data points are keyboard-explorable (arrows) with a tooltip; information is never carried by series color alone (legend + point shapes if multi-series).
 
 ### 3.17 `akd-copy-field` (§22.5)
 
-Pour toute valeur générée : UUID, domaine, URLs interne/externe, credentials affichables (§25.1 « Base »).
+For any generated value: UUIDs, domain, internal/external URLs, displayable credentials (§25.1 "Database").
 
-- **Anatomie** : valeur en `--akd-font-mono` (tronquée au milieu pour les longues valeurs, title complet), **contexte clair** (label : « Internal URL », « Webhook secret ») exigé par §22.5, bouton copier.
-- **Variantes** : inline (dans une phrase/cellule) ; bloc (avec label) ; `secret` (masqué par défaut, reveal soumis aux mêmes règles que §3.4 ; la **copie fonctionne sans reveal** ; copie/reveal de secret auditées §23.4).
-- **États** : default, copié (icône check + « Copied » 2 s, annoncé en live region polite), reveal on/off.
-- **A11y** : bouton avec `aria-label` contextualisé (« Copy internal URL ») ; la confirmation de copie est annoncée, pas seulement visuelle ; la valeur est sélectionnable au clavier.
+- **Anatomy**: value in `--akd-font-mono` (middle-truncated for long values, full title), **clear context** (label: "Internal URL", "Webhook secret") required by §22.5, copy button.
+- **Variants**: inline (within a sentence/cell); block (with label); `secret` (masked by default, reveal subject to the same rules as §3.4; **copy works without reveal**; secret copy/reveal audited §23.4).
+- **States**: default, copied (check icon + "Copied" for 2 s, announced in a polite live region), reveal on/off.
+- **A11y**: button with contextualized `aria-label` ("Copy internal URL"); the copy confirmation is announced, not merely visual; the value is keyboard-selectable.
 
 ### 3.18 `akd-empty-state`
 
-- **Anatomie** : icône discrète (pas d'illustration décorative — principe 3), titre court, une phrase d'explication, action principale et lien doc optionnels.
-- **Variantes** : première utilisation (« No servers yet — Add your first server », relie l'onboarding §25.1) ; résultat de filtre vide (« No deployments match your filters » + Clear filters) ; état d'erreur de chargement (famille danger + Retry) ; capacité non activée (ex. métriques sans Sentinel §3.16).
-- **A11y** : titre = heading ; l'action principale est un vrai bouton/lien focusable ; pas de `role="alert"` (état stable, pas événement).
+- **Anatomy**: discreet icon (no decorative illustration — principle 3), short title, one explanatory sentence, optional primary action and doc link.
+- **Variants**: first use ("No servers yet — Add your first server", links to onboarding §25.1); empty filter result ("No deployments match your filters" + Clear filters); load-error state (danger family + Retry); capability not enabled (e.g. metrics without Sentinel §3.16).
+- **A11y**: title = heading; the primary action is a real focusable button/link; no `role="alert"` (stable state, not an event).
 
 ### 3.19 `akd-skeleton`
 
-- **Anatomie** : blocs `--akd-surface-hover` aux dimensions du contenu attendu (lignes de table, carte, graphique), shimmer subtil (`--akd-duration-slow`) ; **statique** sous reduced-motion.
-- **Variantes** : `text`, `row` (table), `card`, `chart`.
-- **Règles** : uniquement pour le chargement initial (< quelques secondes attendues) ; les actions longues utilisent le pattern job (§4.2), pas un skeleton ; jamais de skeleton sur du contenu déjà affiché (pas de flash lors des refetch — l'ancien contenu reste avec indicateur discret).
-- **A11y** : conteneur `aria-busy="true"` sur la région en chargement ; les skeletons eux-mêmes sont `aria-hidden="true"`.
+- **Anatomy**: `--akd-surface-hover` blocks sized to the expected content (table rows, card, chart), subtle shimmer (`--akd-duration-slow`); **static** under reduced-motion.
+- **Variants**: `text`, `row` (table), `card`, `chart`.
+- **Rules**: only for initial loading (< a few expected seconds); long actions use the job pattern (§4.2), not a skeleton; never a skeleton over already displayed content (no flash on refetch — the old content stays with a discreet indicator).
+- **A11y**: `aria-busy="true"` container on the loading region; the skeletons themselves are `aria-hidden="true"`.
 
-### 3.20 `akd-breadcrumb` + `akd-side-nav` (hiérarchie Team → Project → Environment → Resource)
+### 3.20 `akd-breadcrumb` + `akd-side-nav` (Team → Project → Environment → Resource hierarchy)
 
-- **`akd-breadcrumb`** : anatomie `<nav aria-label="Breadcrumb">` + `<ol>` — Team / Project / Environment / Resource, chaque segment cliquable, dernier segment `aria-current="page"` non cliquable ; segments intermédiaires = **switchers** (dropdown au clic pour changer de project/environment sans remonter) ; troncature au milieu sur écrans étroits (premier + dernier toujours visibles).
-- **`akd-side-nav`** : navigation latérale par domaine fonctionnel (Dashboard, Servers, Projects, Security, Settings — alignée sur le lazy loading §25.2) ; anatomie : sélecteur de team en tête (frontière de sécurité §23.1 — le changement de team est global et explicite), items avec icône + libellé, compteurs d'alerte (serveurs unreachable, déploiements failed — dashboard §25.1) via badge, section pliable, footer (user).
-- **États** : item actif (`--akd-accent-subtle` + barre gauche accent + `--akd-weight-medium` — jamais la couleur seule), hover, focus-visible ; nav repliable en icônes (état persisté) avec tooltips.
-- **A11y** : `<nav>` labellisée ; `aria-current="page"` ; skip-link « Skip to content » en premier élément focusable de l'app ; ordre de tabulation = ordre visuel ; en mode replié, les tooltips sont accessibles au focus clavier.
+- **`akd-breadcrumb`**: anatomy `<nav aria-label="Breadcrumb">` + `<ol>` — Team / Project / Environment / Resource, each segment clickable, last segment `aria-current="page"` non-clickable; intermediate segments = **switchers** (dropdown on click to change project/environment without going back up); middle truncation on narrow screens (first + last always visible).
+- **`akd-side-nav`**: side navigation by functional domain (Dashboard, Servers, Projects, Security, Settings — aligned with lazy loading §25.2); anatomy: team selector at the top (security boundary §23.1 — switching teams is global and explicit), items with icon + label, alert counters (unreachable servers, failed deployments — dashboard §25.1) via badge, collapsible section, footer (user).
+- **States**: active item (`--akd-accent-subtle` + accent left bar + `--akd-weight-medium` — never color alone), hover, focus-visible; nav collapsible to icons (state persisted) with tooltips.
+- **A11y**: labelled `<nav>`; `aria-current="page"`; "Skip to content" skip-link as the app's first focusable element; tab order = visual order; in collapsed mode, tooltips are accessible on keyboard focus.
 
 ---
 
 ## 4. Patterns
 
-### 4.1 Formulaires
+### 4.1 Forms
 
-- **Labels toujours visibles** au-dessus du champ ; placeholders réservés aux exemples de format (« e.g. app.example.com »), jamais porteurs d'information unique.
-- **Erreurs** : sous le champ concerné (§3.2) **et** résumé en tête de formulaire à la soumission — liste de liens focalisant chaque champ en erreur ; le résumé reçoit le focus et est annoncé (`role="alert"`). Validation inline au blur ; les erreurs serveur (verrou optimiste §22.3 : « cette configuration a été modifiée par quelqu'un d'autre ») s'affichent dans le même résumé avec action de rechargement/diff.
-- **Dirty state « non déployé »** (§25.1) : distinction stricte entre **enregistré** et **déployé**. Modifs non enregistrées ⇒ garde de navigation (confirmation). Modifs enregistrées mais non déployées ⇒ marquage par champ (§3.4) + **barre persistante** en bas de la page ressource : « 3 changes not deployed — Deploy now / View diff / Discard » (le diff réutilise `akd-code-editor` en mode diff). Cette barre est le seul endroit qui déclenche le redeploy depuis un formulaire.
-- **Valeurs par défaut sûres** (§25.1) et résumé avant création pour les parcours de création de ressource.
+- **Labels always visible** above the field; placeholders reserved for format examples ("e.g. app.example.com"), never sole carriers of information.
+- **Errors**: below the affected field (§3.2) **and** summarized at the top of the form on submission — a list of links focusing each field in error; the summary receives focus and is announced (`role="alert"`). Inline validation on blur; server errors (optimistic lock §22.3: "this configuration was modified by someone else") appear in the same summary with a reload/diff action.
+- **"Not deployed" dirty state** (§25.1): strict distinction between **saved** and **deployed**. Unsaved changes ⇒ navigation guard (confirmation). Saved but undeployed changes ⇒ per-field marking (§3.4) + **persistent bar** at the bottom of the resource page: "3 changes not deployed — Deploy now / View diff / Discard" (the diff reuses `akd-code-editor` in diff mode). This bar is the only place that triggers a redeploy from a form.
+- **Safe defaults** (§25.1) and a pre-creation summary for the resource creation journeys.
 
-### 4.2 Actions longues = job visible (§22.5)
+### 4.2 Long actions = visible job (§22.5)
 
-Toute action > ~2 s (deploy, backup, restore, validation serveur, cleanup) devient un **job** :
+Any action > ~2 s (deploy, backup, restore, server validation, cleanup) becomes a **job**:
 
-- Le déclencheur passe en loading (§3.1) puis l'UI bascule vers la représentation du job : toast « Deployment queued » avec lien, ou navigation directe vers la page du job.
-- La page/panneau de job affiche : `akd-status-badge` (états §21.3), **étapes** (`akd-deployment-timeline` ou liste d'étapes équivalente), durée écoulée, logs (`akd-log-viewer`), **bouton Cancel** (si l'état le permet — désactivé avec explication sinon), retry/rollback selon l'état, et remédiation en cas d'échec (message d'erreur classifié + action suggérée).
-- Un indicateur global de jobs actifs (header) permet de retrouver tout job en cours ; la fermeture de la page ne cancel jamais un job (§18 : le control plane exécute, l'UI observe).
-- **Live region** dédiée (voir 4.4) : transitions d'étapes et état terminal annoncés.
+- The trigger goes into loading (§3.1) then the UI switches to the job representation: a "Deployment queued" toast with a link, or direct navigation to the job page.
+- The job page/panel shows: `akd-status-badge` (§21.3 states), **steps** (`akd-deployment-timeline` or an equivalent step list), elapsed duration, logs (`akd-log-viewer`), **Cancel button** (if the state allows it — disabled with an explanation otherwise), retry/rollback depending on the state, and remediation on failure (classified error message + suggested action).
+- A global active-jobs indicator (header) lets any running job be found again; closing the page never cancels a job (§18: the control plane executes, the UI observes).
+- Dedicated **live region** (see 4.4): step transitions and terminal state announced.
 
-### 4.3 Navigation clavier globale et palette de commandes
+### 4.3 Global keyboard navigation and command palette
 
-- **Tout** est opérable au clavier : ordre de tabulation logique, skip-link, focus visible partout, aucune interaction hover-only (les actions révélées au survol des lignes de table sont aussi révélées au focus-within).
-- Raccourcis globaux (défaut proposé, désactivables, jamais des lettres seules dans les champs) : `Cmd/Ctrl+K` palette de commandes, `g d` dashboard, `g s` serveurs, `g p` projets, `?` aide raccourcis. Les raccourcis ne capturent rien quand le focus est dans un input/éditeur/terminal.
-- **Palette de commandes** (`akd-command-palette`, **P2**, défaut proposé) : recherche fuzzy sur ressources (par nom/uuid), navigation, et actions contextuelles non destructives ; les actions destructives y sont listées mais renvoient toujours vers `akd-confirm-modal`. ARIA combobox + listbox, résultats groupés par type.
+- **Everything** is keyboard-operable: logical tab order, skip-link, visible focus everywhere, no hover-only interaction (actions revealed on table-row hover are also revealed on focus-within).
+- Global shortcuts (proposed default, disableable, never bare letters inside fields): `Cmd/Ctrl+K` command palette, `g d` dashboard, `g s` servers, `g p` projects, `?` shortcut help. Shortcuts capture nothing when focus is in an input/editor/terminal.
+- **Command palette** (`akd-command-palette`, **P2**, proposed default): fuzzy search over resources (by name/uuid), navigation, and non-destructive contextual actions; destructive actions are listed there but always route to `akd-confirm-modal`. ARIA combobox + listbox, results grouped by type.
 
-### 4.4 Live regions (§22.5 : annonces live pour progression/erreurs)
+### 4.4 Live regions (§22.5: live announcements for progress/errors)
 
-Deux régions globales uniques, montées à la racine de l'app (jamais de live regions ad hoc par composant, pour éviter la cacophonie) :
+Two unique global regions, mounted at the app root (never ad hoc live regions per component, to avoid cacophony):
 
-- `polite` : progression de jobs (transitions d'étapes, throttlées à une annonce/étape), confirmations (copie, sauvegarde), compteurs de sélection.
-- `assertive` : erreurs bloquantes, échec de job, perte de connexion realtime.
+- `polite`: job progress (step transitions, throttled to one announcement/step), confirmations (copy, save), selection counters.
+- `assertive`: blocking errors, job failure, realtime connection loss.
 
-Un service Angular (`DbxAnnouncer`) est l'unique API d'écriture ; les composants n'insèrent jamais leur propre `aria-live` (exceptions listées : résumé d'erreurs de formulaire `role="alert"`, alertes danger dynamiques §3.11).
+An Angular service (`DbxAnnouncer`) is the single write API; components never insert their own `aria-live` (listed exceptions: form error summary `role="alert"`, dynamic danger alerts §3.11).
 
-### 4.5 Densités
+### 4.5 Densities
 
-Deux densités globales, persistées (localStorage + préférence de compte) : **comfortable** (défaut) et **compact** (tables 32px→28px, espacements -1 cran, `--akd-text-sm` partout). Implémentées par un jeu de tokens `--akd-density-*` re-mappés via `data-density` sur `<html>` — les composants ne connaissent pas la densité, seulement leurs tokens. Les cibles interactives ne descendent jamais sous 24×24px (WCAG 2.5.8).
+Two global densities, persisted (localStorage + account preference): **comfortable** (default) and **compact** (tables 32px→28px, spacing -1 step, `--akd-text-sm` everywhere). Implemented by a set of `--akd-density-*` tokens remapped via `data-density` on `<html>` — components do not know about density, only their tokens. Interactive targets never go below 24×24px (WCAG 2.5.8).
 
-### 4.6 Temps et fuseaux (§22.3)
+### 4.6 Time and timezones (§22.3)
 
-Timestamps internes UTC ; affichage dans le fuseau de l'utilisateur avec indication explicite au survol (ISO 8601 UTC complet) ; les logs suivent le fuseau du serveur cible (§3.13). Durées relatives (« 3 min ago ») uniquement si le timestamp absolu est disponible au survol/focus. Un composant `akd-timestamp` unique implémente cette règle.
+Internal timestamps in UTC; display in the user's timezone with explicit indication on hover (full ISO 8601 UTC); logs follow the target server's timezone (§3.13). Relative durations ("3 min ago") only if the absolute timestamp is available on hover/focus. A single `akd-timestamp` component implements this rule.
 
 ---
 
-## 5. Architecture Angular
+## 5. Angular architecture
 
-### 5.1 Organisation
+### 5.1 Organization
 
 ```
 web/
   projects/
-    akd-ui/                     # bibliothèque de composants (standalone)
+    akd-ui/                     # component library (standalone)
       src/lib/
         button/
           button.component.ts   # standalone, ChangeDetectionStrategy.OnPush, signals
           button.component.html
-          button.component.css  # tokens uniquement
-          button.stories.ts     # catalogue — obligatoire
+          button.component.css  # tokens only
+          button.stories.ts     # catalogue — mandatory
           button.component.spec.ts
-        status-badge/ …         # un dossier par composant, même structure
-      src/styles/               # package styles partagé
-        tokens.css              # §2.6 — copie verbatim de la spec (thème sombre unique)
+        status-badge/ …         # one folder per component, same structure
+      src/styles/               # shared styles package
+        tokens.css              # §2.6 — verbatim copy of the spec (single dark theme)
         reset.css
-    dashboard/                  # l'application (lazy loading par domaine §25.2)
+    dashboard/                  # the application (lazy loading by domain §25.2)
 ```
 
-- **Composants standalone**, préfixe de sélecteur **`akd-`** (réservé à la lib — lint : l'app ne déclare pas de `akd-*`), TypeScript strict, signals pour l'état local, `OnPush` partout, zoneless si la LTS le permet.
-- La lib `akd-ui` **ne dépend pas** du client API généré : elle est purement présentationnelle (inputs/outputs/signals). Les composants connectés (ex. la page qui alimente `akd-log-viewer` depuis le flux realtime) vivent dans l'app.
-- Les **tokens** vivent dans le package styles partagé, importés une fois globalement ; les styles de composants ne référencent que des variables de tokens du §2.6 (canoniques ; alias `--akd-*` tolérés pendant la migration) — lint stylelint : couleur/dimension littérale interdite, voir §6.
-- Les enums d'états consommés par `akd-status-badge` sont **générés depuis l'OpenAPI** (§24.1, §25.2) — le mapping état→famille vit dans la lib et sa complétude est testée contre l'enum généré.
+- **Standalone components**, selector prefix **`akd-`** (reserved for the lib — lint: the app declares no `akd-*`), strict TypeScript, signals for local state, `OnPush` everywhere, zoneless if the LTS allows it.
+- The `akd-ui` lib **does not depend** on the generated API client: it is purely presentational (inputs/outputs/signals). Connected components (e.g. the page feeding `akd-log-viewer` from the realtime stream) live in the app.
+- The **tokens** live in the shared styles package, imported once globally; component styles reference only token variables from §2.6 (canonical; `--akd-*` aliases tolerated during the migration) — stylelint lint: literal color/dimension forbidden, see §6.
+- The state enums consumed by `akd-status-badge` are **generated from the OpenAPI** (§24.1, §25.2) — the state→family mapping lives in the lib and its completeness is tested against the generated enum.
 
-### 5.2 Catalogue (§25.3 — exigence bloquante)
+### 5.2 Catalogue (§25.3 — blocking requirement)
 
-- **Storybook** (builder Angular officiel ; alternative acceptée : Analog/Sandbox équivalent, mais Storybook est le défaut proposé pour ses addons a11y/interactions).
-- Règle PRD : **« un composant n'entre dans l'UI que s'il est au catalogue »** — appliquée mécaniquement : la CI échoue si un composant exporté de `akd-ui` n'a pas de `.stories.ts`, et l'app ne peut importer que ce que la lib exporte.
-- Chaque composant expose une story par variante × état (incluant états d'erreur, vide, loading, stale, reduced-motion), rendue sur le thème sombre unique et les deux densités.
-- Addons requis : `@storybook/addon-a11y` (axe-core, échec CI sur violation), interactions (tests de clavier scriptés), viewport (responsive §22.4).
-- Le catalogue buildé est publié en interne à chaque merge : c'est la **référence unique** designers/développeurs.
+- **Storybook** (official Angular builder; accepted alternative: an equivalent Analog/Sandbox, but Storybook is the proposed default for its a11y/interactions addons).
+- PRD rule: **"a component enters the UI only if it is in the catalogue"** — mechanically enforced: CI fails if an exported `akd-ui` component has no `.stories.ts`, and the app can only import what the lib exports.
+- Each component exposes one story per variant × state (including error, empty, loading, stale, reduced-motion states), rendered on the single dark theme and both densities.
+- Required addons: `@storybook/addon-a11y` (axe-core, CI failure on violation), interactions (scripted keyboard tests), viewport (responsive §22.4).
+- The built catalogue is published internally on every merge: it is the **single reference** for designers/developers.
 
 ### 5.3 i18n
 
-- **Aucune chaîne en dur** — toutes les chaînes de la lib passent par des inputs ou des clés de traduction ; l'app utilise un runtime i18n à clés (défaut proposé : Transloco, pour le chargement de locale à chaud sans rebuild par locale — divergence assumée avec `@angular/localize`, voir choix discutables) ; anglais = locale par défaut et unique locale livrée initialement (§25.2), le français arrive comme fichier de clés sans refactoring.
-- Convention de clés : `domaine.composant.usage` (ex. `deployments.timeline.step.building`, `common.actions.cancel`). Les libellés d'états §21 sont des clés générées en face de l'enum OpenAPI.
-- Lint CI : littéral de chaîne affichable dans un template ⇒ erreur (règle eslint-plugin dédiée) ; les `aria-label` passent par les mêmes clés.
-- Dates/nombres via `Intl` avec la locale active ; jamais de concaténation de fragments traduits (paramètres ICU).
+- **No hard-coded string** — all lib strings go through inputs or translation keys; the app uses a key-based i18n runtime (proposed default: Transloco, for hot locale loading without a rebuild per locale — assumed divergence from `@angular/localize`, see debatable choices); English = default locale and the only locale shipped initially (§25.2), French arrives as a key file without refactoring.
+- Key convention: `domain.component.usage` (e.g. `deployments.timeline.step.building`, `common.actions.cancel`). The §21 state labels are keys generated alongside the OpenAPI enum.
+- CI lint: a displayable string literal in a template ⇒ error (dedicated eslint-plugin rule); `aria-label`s go through the same keys.
+- Dates/numbers via `Intl` with the active locale; never concatenation of translated fragments (ICU parameters).
 
 ---
 
-## 6. Checklist d'ajout d'un composant
+## 6. Component addition checklist
 
-Un composant est mergé dans `akd-ui` seulement si **tout** est vrai :
+A component is merged into `akd-ui` only if **everything** is true:
 
-1. **Tokens only** : aucun hex/oklch/px/ms littéral dans son CSS — uniquement des variables de tokens du §2.6 (canoniques ; alias `--akd-*` tolérés pendant la migration) (stylelint bloquant en CI).
-2. **AA** : contrastes texte ≥ 4.5:1 et UI ≥ 3:1 vérifiés sur le thème sombre unique — automatiquement (axe sur les stories) et, pour toute nouvelle paire de couleurs, ratio calculé et consigné dans §2 de ce document.
-3. **Clavier complet** : tous les usages opérables sans souris ; focus visible sur chaque élément interactif ; ordre de tabulation logique ; raccourcis documentés dans la story ; test d'interaction Storybook couvrant le parcours clavier nominal.
-4. **États normalisés** : si le composant affiche un état métier, il compose `akd-status-badge` (jamais de couleurs d'état locales) ; états loading/empty/error/disabled définis, plus stale si le composant affiche des données observées (§19.2).
-5. **Stories exhaustives** : une story par variante × état, deux densités, reduced-motion ; addon a11y sans violation ; le composant n'est importable par l'app qu'une fois ses stories présentes (§5.2).
-6. **Spec de test** : `.spec.ts` couvrant le contrat (inputs/outputs, états, rendu ARIA — rôles et attributs asserted) ; pour les composants à interaction riche (modal, table, log viewer), tests d'interaction (harness Angular CDK ou testing-library).
-7. **i18n** : aucune chaîne en dur ; toutes les clés créées avec leur valeur anglaise ; `aria-label` paramétrables.
-8. **Documentation** : description d'usage dans la story (quand l'utiliser / quand ne pas l'utiliser), et mise à jour de l'inventaire §3 si le composant est nouveau.
+1. **Tokens only**: no literal hex/oklch/px/ms in its CSS — only token variables from §2.6 (canonical; `--akd-*` aliases tolerated during the migration) (blocking stylelint in CI).
+2. **AA**: text contrasts ≥ 4.5:1 and UI ≥ 3:1 verified on the single dark theme — automatically (axe on the stories) and, for any new color pair, ratio computed and recorded in §2 of this document.
+3. **Full keyboard**: all usages operable without a mouse; visible focus on every interactive element; logical tab order; shortcuts documented in the story; Storybook interaction test covering the nominal keyboard journey.
+4. **Normalized states**: if the component displays a business state, it composes `akd-status-badge` (never local state colors); loading/empty/error/disabled states defined, plus stale if the component displays observed data (§19.2).
+5. **Exhaustive stories**: one story per variant × state, both densities, reduced-motion; a11y addon with no violation; the component is importable by the app only once its stories exist (§5.2).
+6. **Test spec**: `.spec.ts` covering the contract (inputs/outputs, states, ARIA rendering — roles and attributes asserted); for richly interactive components (modal, table, log viewer), interaction tests (Angular CDK harness or testing-library).
+7. **i18n**: no hard-coded string; all keys created with their English value; parameterizable `aria-label`s.
+8. **Documentation**: usage description in the story (when to use it / when not to use it), and update of the §3 inventory if the component is new.
 
 ---
 
-## Annexe A — Récapitulatif des ratios de contraste vérifiés
+## Appendix A — Summary of verified contrast ratios
 
-Méthode : conversion oklch → sRGB puis luminance relative WCAG 2.1, ratio = (L1+0.05)/(L2+0.05) ; les fonds translucides `-dim` (alpha 0.12) sont composités sur `--bg-0`. Script de vérification à intégrer en CI (les mêmes paires, en snapshot test sur `tokens.css`).
+Method: oklch → sRGB conversion then WCAG 2.1 relative luminance, ratio = (L1+0.05)/(L2+0.05); the translucent `-dim` backgrounds (alpha 0.12) are composited on `--bg-0`. Verification script to be integrated in CI (the same pairs, as a snapshot test on `tokens.css`).
 
-Paires critiques (texte : exigence 4.5:1 ; UI : 3:1) — thème sombre unique :
+Critical pairs (text: requirement 4.5:1; UI: 3:1) — single dark theme:
 
-| # | Paire | Ratio |
+| # | Pair | Ratio |
 |---|---|---:|
-| 1 | Texte principal `--text-1` / fond page `--bg-0` | 16.60 ✅ |
-| 2 | Texte principal `--text-1` / carte `--bg-1` | 15.91 ✅ |
-| 3 | Texte secondaire `--text-2` / fond page | 8.59 ✅ |
-| 4 | Lien/accent `--accent` / fond page | 10.40 ✅ |
-| 5 | Bouton primaire `--accent-on` / `--accent-strong` | 7.22 ✅ |
-| 6 | Bouton/texte danger `--danger` / `--danger-dim` | 6.50 ✅ |
-| 7 | Texte warning `--warn` / fond page | 9.82 ✅ |
-| 8 | Focus ring `--accent` / fond page (UI 3:1) | 10.40 ✅ |
-| 9 | Badge success `--ok` / `--ok-dim` | 8.63 ✅ |
-| 10 | Badge progress `--accent` / `--info-dim` | 8.66 ✅ |
-| 11 | Badge neutral `--neutral` / `--neutral-dim` | 6.40 ✅ |
+| 1 | Primary text `--text-1` / page background `--bg-0` | 16.60 ✅ |
+| 2 | Primary text `--text-1` / card `--bg-1` | 15.91 ✅ |
+| 3 | Secondary text `--text-2` / page background | 8.59 ✅ |
+| 4 | Link/accent `--accent` / page background | 10.40 ✅ |
+| 5 | Primary button `--accent-on` / `--accent-strong` | 7.22 ✅ |
+| 6 | Danger button/text `--danger` / `--danger-dim` | 6.50 ✅ |
+| 7 | Warning text `--warn` / page background | 9.82 ✅ |
+| 8 | Focus ring `--accent` / page background (UI 3:1) | 10.40 ✅ |
+| 9 | Success badge `--ok` / `--ok-dim` | 8.63 ✅ |
+| 10 | Progress badge `--accent` / `--info-dim` | 8.66 ✅ |
+| 11 | Neutral badge `--neutral` / `--neutral-dim` | 6.40 ✅ |
 | 12 | Log viewer `--text-2` / `--bg-inset` | 8.81 ✅ |
 
-Garde-fous documentés : `--text-3` sur `--bg-0` = 4.26:1 → réservé aux méta **non essentielles ou redondantes**, jamais un corps de texte ni le seul porteur d'une information (§2.1) ; `--text-disabled` = décoratif uniquement ; bordures `--border-1/2` **décoratives** (< 3:1, exemption 1.4.11) — l'identification des contrôles passe par le contraste de fond `--bg-inset` et le focus accent ; pastilles d'état non textuelles ≥ 6.40:1 ≥ 3:1 (§2.3).
+Documented guardrails: `--text-3` on `--bg-0` = 4.26:1 → reserved for **non-essential or redundant** meta, never body text nor the sole carrier of a piece of information (§2.1); `--text-disabled` = decorative only; `--border-1/2` borders **decorative** (< 3:1, 1.4.11 exemption) — control identification goes through the `--bg-inset` background contrast and the accent focus; non-text status dots ≥ 6.40:1 ≥ 3:1 (§2.3).

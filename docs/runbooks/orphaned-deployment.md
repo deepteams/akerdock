@@ -1,26 +1,26 @@
-# Runbook — Récupération d'un déploiement orphelin
+# Runbook — Recovering an orphaned deployment
 
-> Références : spec deployment-engine §2.3 (leases), §2.5 (reprise par inspection), §4 (machine à états, colonne « crash pendant l'état »), §7.2 (bascule), §9 (compensations C1/C2/C3) ; PRD §21.1, INV-004/005/006/013 ; data dictionary §10.1–10.2 (`deployments`, `deployment_steps`), §11.8 (`jobs`).
+> References: deployment-engine spec §2.3 (leases), §2.5 (resume by inspection), §4 (state machine, "crash during state" column), §7.2 (switchover), §9 (compensations C1/C2/C3); PRD §21.1, INV-004/005/006/013; data dictionary §10.1–10.2 (`deployments`, `deployment_steps`), §11.8 (`jobs`).
 
-## Symptômes
+## Symptoms
 
-- Un déploiement reste dans un état non terminal (`preparing` … `finishing`) sans progression ; la timeline UI est figée.
-- Un container `<app_uuid>-next` traîne sur le serveur alors qu'aucun déploiement n'est actif.
-- Les déploiements suivants de l'application restent en `queued` (verrou §3.1 non libéré).
-- Worker mort/redémarré : `leased_by` pointe un worker qui n'existe plus, `lease_expires_at` dépassé.
+- A deployment stays in a non-terminal state (`preparing` … `finishing`) without progress; the UI timeline is frozen.
+- A `<app_uuid>-next` container lingers on the server while no deployment is active.
+- Subsequent deployments of the application stay in `queued` (§3.1 lock not released).
+- Dead/restarted worker: `leased_by` points to a worker that no longer exists, `lease_expires_at` in the past.
 
 ## Impact
 
-- **L'application en production n'est pas censée être affectée** : l'ancien container reste routé tant que la bascule n'a pas eu lieu (INV-005), et l'échec ne supprime jamais le dernier container sain ni les volumes (INV-006).
-- Les nouveaux déploiements de la même application/destination sont bloqués derrière le verrou.
-- Cas sensible : orphelin en état `switching` — la bascule a pu avoir lieu, partiellement ou pas du tout.
+- **The application in production is not supposed to be affected**: the old container stays routed until the switchover has happened (INV-005), and a failure never deletes the last healthy container nor the volumes (INV-006).
+- New deployments of the same application/destination are blocked behind the lock.
+- Sensitive case: orphan in `switching` state — the switchover may have happened, partially or not at all.
 
-## Diagnostic
+## Diagnosis
 
-### 1. Lire l'état write-ahead (la base dit « ce qui a pu commencer », spec §4)
+### 1. Read the write-ahead state (the database says "what may have started", spec §4)
 
 ```sql
--- Déploiements non terminaux et leur job :
+-- Non-terminal deployments and their job:
 SELECT d.uuid, d.status, d.attempt, d.updated_at, d.commit_sha, d.image_digest,
        j.uuid AS job_uuid, j.status AS job_status, j.leased_by, j.heartbeat_at, j.lease_expires_at
 FROM deployments d
@@ -28,104 +28,104 @@ LEFT JOIN jobs j ON j.payload->>'deployment_uuid' = d.uuid::text
 WHERE d.status NOT IN ('succeeded','failed','cancelled','superseded')
 ORDER BY d.updated_at;
 
--- Dernier checkpoint committé (étapes) :
+-- Last committed checkpoint (steps):
 SELECT seq, name, status, exit_code, started_at, finished_at
 FROM deployment_steps WHERE deployment_id = (SELECT id FROM deployments WHERE uuid = '<uuid>')
 ORDER BY seq;
 ```
 
-**Cas normal** : `lease_expires_at < now()` → le scan des leases (toutes les 30 s) remet le job en `queued` avec `recovered = true`, et le worker repreneur applique lui-même l'inspection + les règles de reprise (spec §2.5, §4). **Laisser faire.** N'intervenir manuellement que si : le job est en `dead_letter`, la flotte de workers est down, ou la reprise automatique boucle.
+**Normal case**: `lease_expires_at < now()` → the lease scan (every 30 s) puts the job back to `queued` with `recovered = true`, and the worker that takes it over applies the inspection + resume rules itself (spec §2.5, §4). **Let it run.** Only intervene manually if: the job is in `dead_letter`, the worker fleet is down, or automatic recovery is looping.
 
-### 2. Inspection distante (jamais de décision sans elle — INV-004, §22.1)
+### 2. Remote inspection (never decide without it — INV-004, §22.1)
 
-Sur le serveur cible (`<app>` = UUID de l'application, `<sha12>` = 12 premiers caractères du SHA) :
+On the target server (`<app>` = application UUID, `<sha12>` = first 12 characters of the SHA):
 
 ```sh
-# L'image du déploiement a-t-elle été produite ?
+# Was the deployment's image produced?
 docker image inspect AkerDock/<app>:<sha12> \
   --format '{{index .Config.Labels "akerdock.deployment_uuid"}}' 2>/dev/null
 
-# Candidat et container courant :
+# Candidate and current container:
 docker container inspect <app>-next --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} {{index .Config.Labels "akerdock.deployment_uuid"}}' 2>/dev/null
 docker container inspect <app>      --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}} {{index .Config.Labels "akerdock.deployment_uuid"}}' 2>/dev/null
 
-# Vers qui pointe le proxy ? (fichier = source de vérité du routage, spec §7.1)
+# Who does the proxy point to? (file = source of truth for routing, spec §7.1)
 grep -A2 'url:' /var/lib/akerdock/proxy/dynamic/<app>.yaml
-sha256sum /var/lib/akerdock/proxy/dynamic/<app>.yaml     # à comparer au checksum enregistré en base
+sha256sum /var/lib/akerdock/proxy/dynamic/<app>.yaml     # compare against the checksum recorded in the database
 
-# Reste de clone ?
+# Leftover clone?
 ls -d /var/lib/akerdock/applications/<app>/source/<deployment_uuid> 2>/dev/null
 ```
 
-## Résolution pas à pas
+## Step-by-step resolution
 
-Appliquer la règle de reprise de l'état où le déploiement s'est figé (tableau spec §4). Résumé opérateur :
+Apply the resume rule for the state in which the deployment froze (spec §4 table). Operator summary:
 
-| État figé | Décision |
+| Frozen state | Decision |
 |---|---|
-| `preparing`, `cloning` | Reprendre (idempotent) ou compenser **C1** : `rm -rf source/<deployment_uuid>` ; rien d'autre n'a été touché |
-| `building` | Image présente **avec** le bon label `akerdock.deployment_uuid` → l'étape avait fini, reprendre ; absente/partielle → rebuild ou C1 |
-| `pushing` | Rejouable (push idempotent) ; re-résoudre le digest |
-| `starting`, `healthchecking` | Candidat `unhealthy`/`exited`/absent → compensation **C2** ; candidat `healthy` et frais → reprise possible |
-| `switching` | **Cas critique**, voir ci-dessous |
-| `finishing` | Tout est idempotent → rejouer ; au pire `succeeded` dégradé |
+| `preparing`, `cloning` | Resume (idempotent) or compensate **C1**: `rm -rf source/<deployment_uuid>`; nothing else was touched |
+| `building` | Image present **with** the right `akerdock.deployment_uuid` label → the step had finished, resume; absent/partial → rebuild or C1 |
+| `pushing` | Replayable (idempotent push); re-resolve the digest |
+| `starting`, `healthchecking` | Candidate `unhealthy`/`exited`/absent → compensation **C2**; candidate `healthy` and fresh → resume possible |
+| `switching` | **Critical case**, see below |
+| `finishing` | Everything is idempotent → replay; at worst degraded `succeeded` |
 
-### Cas `switching` (spec §4, règle a/b/c — jamais de seconde bascule sans inspection, INV-005)
+### `switching` case (spec §4, rule a/b/c — never a second switchover without inspection, INV-005)
 
-- **(a)** Le fichier proxy pointe encore l'**ancien** container : la bascule n'a pas eu lieu. Candidat encore `healthy` → laisser la reprise automatique rejouer la bascule ; candidat mort → compensation **C2** (ci-dessous), déploiement `failed`.
-- **(b)** Le fichier pointe le **candidat** (par IP), l'ancien container existe encore : la bascule a eu lieu → terminer la séquence : `docker stop -t <grace> <app> && docker rm <app>`, puis `docker rename <app>-next <app>`, puis stabilisation (fichier régénéré vers `url: http://<app>:<port>` — reprise en `finishing`).
-- **(c)** L'ancien est absent, le rename non fait : reprendre au rename (`docker rename <app>-next <app>`) puis `finishing`.
+- **(a)** The proxy file still points to the **old** container: the switchover did not happen. Candidate still `healthy` → let automatic recovery replay the switchover; candidate dead → compensation **C2** (below), deployment `failed`.
+- **(b)** The file points to the **candidate** (by IP), the old container still exists: the switchover happened → finish the sequence: `docker stop -t <grace> <app> && docker rm <app>`, then `docker rename <app>-next <app>`, then stabilization (file regenerated to `url: http://<app>:<port>` — resume in `finishing`).
+- **(c)** The old one is absent, the rename not done: resume at the rename (`docker rename <app>-next <app>`) then `finishing`.
 
-⚠️ **Point de non-retour** : dès que le fichier proxy vérifié pointe le candidat (cas b/c), **ne jamais « dé-basculer » implicitement** (compensation C3 : le nouveau reste en production ; un retour arrière est un rollback explicite).
+⚠️ **Point of no return**: as soon as the verified proxy file points to the candidate (cases b/c), **never implicitly "un-switch"** (compensation C3: the new one stays in production; going back is an explicit rollback).
 
-### Nettoyage du candidat sans toucher l'ancien (compensation C2, INV-005/006)
+### Cleaning up the candidate without touching the old one (compensation C2, INV-005/006)
 
-Uniquement si la décision est « compenser » (cas a avec candidat mort, ou candidat `-next` abandonné d'un déploiement déjà `failed`) :
+Only if the decision is "compensate" (case a with a dead candidate, or an abandoned `-next` candidate of a deployment already `failed`):
 
 ```sh
-# 1. Capturer les logs du candidat AVANT suppression (diagnostic) :
+# 1. Capture the candidate's logs BEFORE deletion (diagnostics):
 docker logs --tail 200 <app>-next > /tmp/<deployment_uuid>-next.log 2>&1
-# 2. Si le fichier proxy a été modifié sans vérification concluante : le re-pointer sur l'ancien
-#    (contenu de la dernière révision 'applied' — voir proxy-outage.md — écrit en .tmp puis mv -f)
-# 3. Supprimer le candidat SEULEMENT :
+# 2. If the proxy file was modified without a conclusive check: re-point it to the old one
+#    (content of the last 'applied' revision — see proxy-outage.md — written to .tmp then mv -f)
+# 3. Delete the candidate ONLY:
 docker stop -t 10 <app>-next && docker rm <app>-next
-# 4. Purger le clone du déploiement :
+# 4. Purge the deployment's clone:
 rm -rf /var/lib/akerdock/applications/<app>/source/<deployment_uuid>
 ```
 
-⚠️ Interdits absolus pendant la compensation : toucher au container `<app>` (l'ancien), à ses **volumes**, ou aux **images** portant `akerdock.retain=true` (INV-006, spec §9.1).
+⚠️ Absolute prohibitions during compensation: touching the `<app>` container (the old one), its **volumes**, or the **images** carrying `akerdock.retain=true` (INV-006, spec §9.1).
 
-### Clôture en base (dernier recours, si la reprise automatique est impossible)
+### Closing out in the database (last resort, if automatic recovery is impossible)
 
-**(candidat CLI futur — `AkerDock deployment resolve <uuid> --failed`)**. Contourne l'audit : consigner manuellement.
+**(future CLI candidate — `AkerDock deployment resolve <uuid> --failed`)**. Bypasses the audit trail: record manually.
 
 ```sql
 BEGIN;
 UPDATE deployments SET status = 'failed', finished_at = now(), updated_at = now()
 WHERE uuid = '<deployment_uuid>'
   AND status NOT IN ('succeeded','failed','cancelled','superseded');
--- Terminer le job associé s'il n'est pas déjà terminal :
+-- Terminate the associated job if it is not already terminal:
 UPDATE jobs SET status = 'cancelled', finished_at = now(), updated_at = now()
 WHERE payload->>'deployment_uuid' = '<deployment_uuid>'
   AND status IN ('queued','leased','running','retry_wait');
--- Libérer le verrou applicatif (table sémantique resource_locks, spec §3.1) :
+-- Release the application lock (semantic table resource_locks, spec §3.1):
 DELETE FROM resource_locks
 WHERE application_uuid = '<app_uuid>' AND destination_uuid = '<destination_uuid>';
 COMMIT;
 ```
 
-Ne clôturer en `failed` qu'**après** la compensation distante (sinon un `-next` fantôme reste sur le serveur). Pour relancer proprement : retry manuel depuis l'UI (`failed → retrying → preparing`, même snapshot et même SHA, spec §4) ou nouveau `POST /applications/{uuid}/deploy`.
+Only close out as `failed` **after** the remote compensation (otherwise a ghost `-next` remains on the server). To relaunch cleanly: manual retry from the UI (`failed → retrying → preparing`, same snapshot and same SHA, spec §4) or a new `POST /applications/{uuid}/deploy`.
 
-## Vérification
+## Verification
 
-- L'ancienne version sert toujours : `curl -fsS https://<fqdn>/<health_path>` à travers le proxy.
-- Plus de container `<app>-next` sur le serveur ; plus de clone `source/<deployment_uuid>`.
-- Le checksum du fichier proxy correspond à la dernière révision `applied` en base.
-- Verrou libéré : un nouveau déploiement de l'application sort de `queued` et se déroule normalement.
-- Les images de rollback attendues sont intactes (`docker image ls --filter label=akerdock.retain=true`).
+- The old version is still serving: `curl -fsS https://<fqdn>/<health_path>` through the proxy.
+- No more `<app>-next` container on the server; no more `source/<deployment_uuid>` clone.
+- The proxy file's checksum matches the last `applied` revision in the database.
+- Lock released: a new deployment of the application leaves `queued` and proceeds normally.
+- The expected rollback images are intact (`docker image ls --filter label=akerdock.retain=true`).
 
-## Prévention
+## Prevention
 
-- La récupération est **conçue pour être automatique** (leases 90 s, heartbeat 20 s, scan 30 s, reprise par inspection) : la plupart des « orphelins » se résolvent seuls en < 2 min. Instrumenter les métriques `leases expirés` et `retries` (spec §12.3) et alerter sur leur croissance plutôt que d'intervenir au cas par cas.
-- En multi-instance, dimensionner les workers pour éviter qu'un seul worker porte tous les jobs longs.
-- Ne jamais tuer un worker pendant `switching` si évitable (arrêt gracieux des instances lors des upgrades — [upgrade-downgrade.md](upgrade-downgrade.md)).
+- Recovery is **designed to be automatic** (90 s leases, 20 s heartbeat, 30 s scan, resume by inspection): most "orphans" resolve themselves in < 2 min. Instrument the `expired leases` and `retries` metrics (spec §12.3) and alert on their growth rather than intervening case by case.
+- In multi-instance, size the workers so that a single worker does not carry all the long jobs.
+- Never kill a worker during `switching` if avoidable (graceful shutdown of instances during upgrades — [upgrade-downgrade.md](upgrade-downgrade.md)).

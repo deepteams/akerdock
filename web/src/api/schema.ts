@@ -12,8 +12,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Vérification de vivacité
-         * @description Healthcheck non authentifié du control plane. Reste disponible même lorsque l'API est désactivée.
+         * Liveness check
+         * @description Unauthenticated healthcheck of the control plane. Remains available even when the API is disabled.
          */
         get: operations["getHealth"];
         put?: never;
@@ -31,7 +31,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Version de l'instance */
+        /** Instance version */
         get: operations["getVersion"];
         put?: never;
         post?: never;
@@ -49,8 +49,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Catalogue des permissions granulaires
-         * @description Le catalogue des permissions granulaires (ADR-038) avec leurs prérequis : de quoi construire le composeur de rôles custom côté UI. Statique — ne dépend pas de la team.
+         * Catalog of granular permissions
+         * @description The catalog of granular permissions (ADR-038) with their prerequisites: everything needed to build the custom role composer on the UI side. Static — does not depend on the team.
          */
         get: operations["listPermissions"];
         put?: never;
@@ -69,17 +69,17 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Flux SSE des événements de la team (statuts, jobs, déploiements)
-         * @description Flux temps réel des événements de domaine de la team (ADR-024,
-         *     §24.2) — statuts de ressources, progression des jobs et transitions
-         *     de déploiement. Alimenté par l'outbox transactionnelle : un
-         *     événement n'est publié que si la mutation a été committée.
+         * SSE stream of team events (statuses, jobs, deployments)
+         * @description Real-time stream of the team's domain events (ADR-024,
+         *     §24.2) — resource statuses, job progress and deployment
+         *     transitions. Fed by the transactional outbox: an event
+         *     is only published if the mutation has been committed.
          *
-         *     Chaque événement SSE porte `event: <event_type>` (versionné, ex.
-         *     `deployment.succeeded.v1`), `id: <sequence>` et `data: <Event JSON>`.
-         *     Reprise native par `Last-Event-ID` — les événements manqués sont
-         *     rejoués depuis la séquence indiquée. Un commentaire `: keepalive`
-         *     est émis périodiquement pour tenir la connexion ouverte.
+         *     Each SSE event carries `event: <event_type>` (versioned, e.g.
+         *     `deployment.succeeded.v1`), `id: <sequence>` and `data: <Event JSON>`.
+         *     Native resume via `Last-Event-ID` — missed events are
+         *     replayed from the given sequence. A `: keepalive` comment
+         *     is emitted periodically to keep the connection open.
          */
         get: operations["streamEvents"];
         put?: never;
@@ -100,8 +100,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Activer l'API
-         * @description Active l'API publique de l'instance. Réservé aux tokens `root` (§10.3 — l'API est désactivée par défaut).
+         * Enable the API
+         * @description Enables the instance's public API. Restricted to `root` tokens (§10.3 — the API is disabled by default).
          */
         post: operations["enableApi"];
         delete?: never;
@@ -120,8 +120,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Désactiver l'API
-         * @description Désactive l'API publique. Après cet appel, seuls `GET /health` et la réactivation via l'UI restent disponibles.
+         * Disable the API
+         * @description Disables the public API. After this call, only `GET /health` and re-enablement via the UI remain available.
          */
         post: operations["disableApi"];
         delete?: never;
@@ -138,13 +138,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Réglages d'identité de l'instance
-         * @description FQDN et email ACME (§14.2). Les variables d'environnement ne font qu'amorcer ces valeurs au premier démarrage (§6.2) — ensuite c'est ici qu'elles se lisent et se modifient.
+         * Instance identity settings
+         * @description FQDN and ACME email (§14.2). Environment variables only seed these values at first startup (§6.2) — afterwards this is where they are read and modified.
          */
         get: operations["getInstanceSettings"];
         /**
-         * Modifier le FQDN et l'email ACME de l'instance
-         * @description Un FQDN non vide implique une instance servie en HTTPS : les cookies de session deviennent `Secure` (au prochain redémarrage du binaire) et les URLs publiques (invitations, callbacks OAuth, previews) se construisent en `https://`. Le vider autorise le HTTP simple — réseaux de confiance uniquement.
+         * Update the instance FQDN and ACME email
+         * @description A non-empty FQDN implies an instance served over HTTPS: session cookies become `Secure` (at the next restart of the binary) and public URLs (invitations, OAuth callbacks, previews) are built with `https://`. Clearing it allows plain HTTP — trusted networks only.
          */
         put: operations["setInstanceSettings"];
         post?: never;
@@ -162,13 +162,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Configuration de l'email transactionnel de l'instance
-         * @description Email transactionnel (§14.2, amendement n°20) : celui qui porte les invitations. Les credentials ne sont **jamais** renvoyés — seulement le fait qu'ils existent.
+         * Instance transactional email configuration
+         * @description Transactional email (§14.2, amendment #20): the one that carries invitations. Credentials are **never** returned — only the fact that they exist.
          */
         get: operations["getTransactionalEmail"];
         /**
-         * Configurer l'email transactionnel de l'instance
-         * @description La configuration est **vérifiée avant d'être acceptée** : un relais injoignable est refusé ici, pas découvert à la première invitation.
+         * Configure the instance transactional email
+         * @description The configuration is **verified before being accepted**: an unreachable relay is rejected here, not discovered at the first invitation.
          */
         put: operations["setTransactionalEmail"];
         post?: never;
@@ -186,13 +186,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Configuration de l'export OTLP distant
-         * @description Export OpenTelemetry (§14.2, ADR-008/§27.8) : où partent traces, métriques et logs. Les en-têtes d'auth ne sont **jamais** renvoyés — seulement le fait qu'ils existent.
+         * Remote OTLP export configuration
+         * @description OpenTelemetry export (§14.2, ADR-008/§27.8): where traces, metrics and logs go. Auth headers are **never** returned — only the fact that they exist.
          */
         get: operations["getTelemetry"];
         /**
-         * Configurer l'export OTLP distant
-         * @description Enregistre où exporter traces/métriques/logs. **Prend effet au prochain redémarrage** du binaire (la télémétrie s'initialise une fois au boot). Un `endpoint` vide désactive l'export.
+         * Configure the remote OTLP export
+         * @description Records where to export traces/metrics/logs. **Takes effect at the next restart** of the binary (telemetry initializes once at boot). An empty `endpoint` disables the export.
          */
         put: operations["setTelemetry"];
         post?: never;
@@ -210,8 +210,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Journal d'audit de toute l'instance
-         * @description Le journal d'audit append-only (§23.4) sur TOUTE l'instance — toutes les teams ET les actions système/instance sans team (rotation de clé, réglages d'instance…), qu'aucune vue par team ne montre. Réservé à l'administrateur d'instance. Paginé, filtrable.
+         * Instance-wide audit log
+         * @description The append-only audit log (§23.4) across the WHOLE instance — all teams AND team-less system/instance actions (key rotation, instance settings…), which no per-team view shows. Restricted to the instance administrator. Paginated, filterable.
          */
         get: operations["listInstanceAudit"];
         put?: never;
@@ -230,8 +230,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * État du chiffrement au repos et de la rotation de clé maître
-         * @description Retourne l'état du chiffrement enveloppe (ADR-003, §23.2) : version de clé active, versions de clé encore référencées en base et compteurs de lignes par colonne chiffrée et par version. Sert à constater la convergence d'une rotation de clé maître — une ancienne version ne peut être retirée du fichier de clés que lorsqu'elle n'est plus référencée par aucune ligne. Ne contient jamais de matériel de clé. Réservé aux tokens `root`.
+         * State of encryption at rest and master key rotation
+         * @description Returns the state of envelope encryption (ADR-003, §23.2): active key version, key versions still referenced in the database and row counts per encrypted column and per version. Used to confirm the convergence of a master key rotation — an old version can only be removed from the key file once it is no longer referenced by any row. Never contains key material. Restricted to `root` tokens.
          */
         get: operations["getEncryptionStatus"];
         put?: never;
@@ -252,8 +252,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Forcer le re-chiffrement vers la version de clé active
-         * @description Déclenche le re-chiffrement actif de toutes les lignes portant une version de clé antérieure vers la version active (ADR-003) — nécessaire quand la réécriture paresseuse ne suffit pas (fuite suspectée, retrait planifié d'une ancienne version). Réécriture par lots, sans blocage global (§19.2). Opération longue — répond `202` avec un job de suivi ; `409` (`operation_in_progress`) si un re-chiffrement est déjà en cours. Action auditée (§23.4). Réservé aux tokens `root`.
+         * Force re-encryption to the active key version
+         * @description Triggers active re-encryption of all rows carrying a key version older than the active one (ADR-003) — needed when lazy rewriting is not enough (suspected leak, planned removal of an old version). Rewrites in batches, without a global lock (§19.2). Long-running operation — responds `202` with a tracking job; `409` (`operation_in_progress`) if a re-encryption is already in progress. Audited action (§23.4). Restricted to `root` tokens.
          */
         post: operations["rotateEncryption"];
         delete?: never;
@@ -270,8 +270,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Fournisseurs OAuth/OIDC configurés pour le login du dashboard
-         * @description Fournisseurs d'identité du login dashboard (§10.2, amendement n°30) : OAuth Azure/Bitbucket/GitHub/GitLab/Google et SSO OIDC générique. Le client secret n'est **jamais** renvoyé (INV-003) — seulement le fait qu'un fournisseur est configuré et activé. Le flux de login lui-même vit hors de ce contrat (`/auth/oauth/*`, UI uniquement — §10.2).
+         * OAuth/OIDC providers configured for dashboard login
+         * @description Identity providers for dashboard login (§10.2, amendment #30): Azure/Bitbucket/GitHub/GitLab/Google OAuth and generic OIDC SSO. The client secret is **never** returned (INV-003) — only the fact that a provider is configured and enabled. The login flow itself lives outside this contract (`/auth/oauth/*`, UI only — §10.2).
          */
         get: operations["listOauthProviders"];
         put?: never;
@@ -291,14 +291,14 @@ export interface paths {
         };
         get?: never;
         /**
-         * Configurer un fournisseur OAuth/OIDC
-         * @description Remplace la configuration du fournisseur (upsert idempotent). Le client secret suit le secret store (chiffré enveloppe, §23.2) et n'est jamais restitué. `issuer_url` est obligatoire pour `oidc` et `azure` (découverte OpenID Connect) et refusé pour les fournisseurs à endpoints fixes. Validation stricte du flux côté login : issuer, audience, nonce et PKCE (§23.3). Action auditée (§23.4).
+         * Configure an OAuth/OIDC provider
+         * @description Replaces the provider configuration (idempotent upsert). The client secret follows the secret store (envelope-encrypted, §23.2) and is never returned. `issuer_url` is required for `oidc` and `azure` (OpenID Connect discovery) and rejected for providers with fixed endpoints. Strict validation of the login-side flow: issuer, audience, nonce and PKCE (§23.3). Audited action (§23.4).
          */
         put: operations["setOauthProvider"];
         post?: never;
         /**
-         * Retirer un fournisseur OAuth/OIDC
-         * @description Retire la configuration : le bouton disparaît de la page de login. Les identités déjà liées sont conservées — elles redeviennent utilisables si le fournisseur est reconfiguré ; les comptes concernés gardent leurs autres credentials (mot de passe, passkey). Audité.
+         * Remove an OAuth/OIDC provider
+         * @description Removes the configuration: the button disappears from the login page. Already-linked identities are kept — they become usable again if the provider is reconfigured; the affected accounts keep their other credentials (password, passkey). Audited.
          */
         delete: operations["deleteOauthProvider"];
         options?: never;
@@ -314,8 +314,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Lister les teams accessibles
-         * @description Liste les teams accessibles au token. Un token étant scopé par team, la liste contient en général une seule entrée (plusieurs pour un token `root` d'instance).
+         * List accessible teams
+         * @description Lists the teams accessible to the token. Since a token is scoped per team, the list generally contains a single entry (several for an instance `root` token).
          */
         get: operations["listTeams"];
         put?: never;
@@ -331,12 +331,12 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
         };
-        /** Détail d'une team */
+        /** Team details */
         get: operations["getTeam"];
         put?: never;
         post?: never;
@@ -344,8 +344,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Modifier une team
-         * @description Met à jour le nom et la description de la team (mise à jour partielle).
+         * Update a team
+         * @description Updates the team's name and description (partial update).
          */
         patch: operations["updateTeam"];
         trace?: never;
@@ -355,12 +355,12 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
         };
-        /** Lister les membres d'une team */
+        /** List team members */
         get: operations["listTeamMembers"];
         put?: never;
         post?: never;
@@ -375,9 +375,9 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID public d'un utilisateur (membre d'une team). */
+                /** @description Public UUID of a user (member of a team). */
                 user_uuid: components["parameters"]["UserUuid"];
             };
             cookie?: never;
@@ -389,8 +389,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Changer le rôle d'un membre
-         * @description Assigne un rôle système ou un rôle custom à un membre existant (ADR-038). Le dernier admin d'une team ne peut pas être rétrogradé (protection contre le verrouillage).
+         * Change a member's role
+         * @description Assigns a system role or a custom role to an existing member (ADR-038). The last admin of a team cannot be demoted (protection against lockout).
          */
         patch: operations["updateTeamMember"];
         trace?: never;
@@ -400,15 +400,15 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
         };
-        /** Lister les rôles custom d'une team */
+        /** List a team's custom roles */
         get: operations["listTeamRoles"];
         put?: never;
-        /** Créer un rôle custom */
+        /** Create a custom role */
         post: operations["createTeamRole"];
         delete?: never;
         options?: never;
@@ -421,25 +421,25 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID d'un rôle custom. */
+                /** @description UUID of a custom role. */
                 role_uuid: components["parameters"]["RoleUuid"];
             };
             cookie?: never;
         };
-        /** Détail d'un rôle custom */
+        /** Custom role details */
         get: operations["getTeamRole"];
         put?: never;
         post?: never;
         /**
-         * Supprimer un rôle custom
-         * @description Supprime le rôle. Les membres qui le portaient retombent sur leur rôle système de repli.
+         * Delete a custom role
+         * @description Deletes the role. Members who carried it fall back to their fallback system role.
          */
         delete: operations["deleteTeamRole"];
         options?: never;
         head?: never;
-        /** Modifier un rôle custom */
+        /** Update a custom role */
         patch: operations["updateTeamRole"];
         trace?: never;
     };
@@ -448,14 +448,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
         };
         /**
-         * Journal d'audit d'une team
-         * @description Le journal d'audit append-only (§23.4) : actions authentifiées, accès aux secrets, changements RBAC, authentification (login/logout/échecs/MFA). Paginé (curseur), filtrable et scriptable (`-o json`).
+         * Team audit log
+         * @description The append-only audit log (§23.4): authenticated actions, secret access, RBAC changes, authentication (login/logout/failures/MFA). Paginated (cursor), filterable and scriptable (`-o json`).
          */
         get: operations["listTeamAudit"];
         put?: never;
@@ -471,20 +471,20 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
         };
         /**
-         * Lister les tokens SCIM d'une team
-         * @description Les tokens SCIM (ADR-038 bis) authentifient le provisioning/déprovisioning depuis l'IdP, scopés à cette team. La valeur du token n'est jamais renvoyée après la création.
+         * List a team's SCIM tokens
+         * @description SCIM tokens (ADR-038 bis) authenticate provisioning/deprovisioning from the IdP, scoped to this team. The token value is never returned after creation.
          */
         get: operations["listScimTokens"];
         put?: never;
         /**
-         * Créer un token SCIM
-         * @description La valeur claire n'est renvoyée qu'ici, une seule fois (§23.2).
+         * Create a SCIM token
+         * @description The clear value is only returned here, once (§23.2).
          */
         post: operations["createScimToken"];
         delete?: never;
@@ -498,9 +498,9 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID du token SCIM (jamais sa valeur). */
+                /** @description UUID of the SCIM token (never its value). */
                 scim_token_uuid: string;
             };
             cookie?: never;
@@ -508,7 +508,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Révoquer un token SCIM */
+        /** Revoke a SCIM token */
         delete: operations["revokeScimToken"];
         options?: never;
         head?: never;
@@ -520,17 +520,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
         };
-        /** Lister les invitations */
+        /** List invitations */
         get: operations["listTeamInvitations"];
         put?: never;
         /**
-         * Inviter un membre
-         * @description Crée une invitation par email. L'envoi effectif requiert l'email transactionnel de l'instance (§14.2) ; à défaut, le lien d'invitation est retourné dans la ressource pour transmission manuelle.
+         * Invite a member
+         * @description Creates an invitation by email. Actually sending it requires the instance's transactional email (§14.2); otherwise, the invitation link is returned in the resource for manual delivery.
          */
         post: operations["createTeamInvitation"];
         delete?: never;
@@ -544,9 +544,9 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID de l'invitation. */
+                /** @description UUID of the invitation. */
                 invitation_uuid: components["parameters"]["InvitationUuid"];
             };
             cookie?: never;
@@ -555,8 +555,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Révoquer une invitation
-         * @description Révoque une invitation en attente. Le lien devient immédiatement invalide.
+         * Revoke an invitation
+         * @description Revokes a pending invitation. The link becomes immediately invalid.
          */
         delete: operations["revokeTeamInvitation"];
         options?: never;
@@ -569,9 +569,9 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID de l'invitation. */
+                /** @description UUID of the invitation. */
                 invitation_uuid: components["parameters"]["InvitationUuid"];
             };
             cookie?: never;
@@ -579,8 +579,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Régénérer le lien d'une invitation
-         * @description Régénère le lien d'une invitation en attente : le jeton précédent est invalidé (rotation), l'expiration est repoussée, et l'email est renvoyé si l'email transactionnel de l'instance est configuré. Le nouveau lien est renvoyé dans la réponse (une seule fois — seul son hash est stocké).
+         * Regenerate an invitation link
+         * @description Regenerates the link of a pending invitation: the previous token is invalidated (rotation), the expiration is pushed back, and the email is re-sent if the instance's transactional email is configured. The new link is returned in the response (once only — only its hash is stored).
          */
         post: operations["resendTeamInvitation"];
         delete?: never;
@@ -594,20 +594,20 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
         };
         /**
-         * Lister les tokens API
-         * @description Liste les métadonnées des tokens API de la team. La valeur du token n'est JAMAIS renvoyée (seul le préfixe d'identification l'est) — elle n'est visible qu'une seule fois, à la création (§10.3).
+         * List API tokens
+         * @description Lists the metadata of the team's API tokens. The token value is NEVER returned (only the identification prefix is) — it is visible only once, at creation (§10.3).
          */
         get: operations["listApiTokens"];
         put?: never;
         /**
-         * Créer un token API
-         * @description Crée un token API scopé à la team. La valeur en clair n'est présente que dans cette réponse (champ `token`) puis n'est plus jamais récupérable. Anti-élévation de privilèges : un token ne peut pas créer un token portant des permissions qu'il ne possède pas lui-même (sinon `403`).
+         * Create an API token
+         * @description Creates an API token scoped to the team. The clear value is present only in this response (`token` field) and is never retrievable again. Privilege-escalation guard: a token cannot create a token carrying permissions it does not hold itself (otherwise `403`).
          */
         post: operations["createApiToken"];
         delete?: never;
@@ -621,9 +621,9 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID du token API (jamais sa valeur). */
+                /** @description UUID of the API token (never its value). */
                 token_uuid: components["parameters"]["TokenUuid"];
             };
             cookie?: never;
@@ -632,8 +632,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Révoquer un token API
-         * @description Révocation immédiate et définitive. Un token peut se révoquer lui-même. L'opération est auditée (§23.4).
+         * Revoke an API token
+         * @description Immediate and definitive revocation. A token can revoke itself. The operation is audited (§23.4).
          */
         delete: operations["revokeApiToken"];
         options?: never;
@@ -648,12 +648,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Lister les projets */
+        /** List projects */
         get: operations["listProjects"];
         put?: never;
         /**
-         * Créer un projet
-         * @description Crée un projet dans la team courante. Un environnement `production` est créé par défaut (§2). Le slug doit être unique dans la team (§19.2).
+         * Create a project
+         * @description Creates a project in the current team. A `production` environment is created by default (§2). The slug must be unique within the team (§19.2).
          */
         post: operations["createProject"];
         delete?: never;
@@ -667,23 +667,23 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du projet. */
+                /** @description UUID of the project. */
                 project_uuid: components["parameters"]["ProjectUuid"];
             };
             cookie?: never;
         };
-        /** Détail d'un projet */
+        /** Project details */
         get: operations["getProject"];
         put?: never;
         post?: never;
         /**
-         * Supprimer un projet
-         * @description Supprime un projet vide. Refusé avec `409` (`dependency_exists`) tant qu'un environnement du projet contient des ressources (§19.2) — aucune cascade silencieuse.
+         * Delete a project
+         * @description Deletes an empty project. Refused with `409` (`dependency_exists`) as long as an environment of the project contains resources (§19.2) — no silent cascade.
          */
         delete: operations["deleteProject"];
         options?: never;
         head?: never;
-        /** Modifier un projet */
+        /** Update a project */
         patch: operations["updateProject"];
         trace?: never;
     };
@@ -692,17 +692,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du projet. */
+                /** @description UUID of the project. */
                 project_uuid: components["parameters"]["ProjectUuid"];
             };
             cookie?: never;
         };
-        /** Lister les environnements d'un projet */
+        /** List a project's environments */
         get: operations["listEnvironments"];
         put?: never;
         /**
-         * Créer un environnement
-         * @description Le slug doit être unique dans le projet (§19.2).
+         * Create an environment
+         * @description The slug must be unique within the project (§19.2).
          */
         post: operations["createEnvironment"];
         delete?: never;
@@ -716,25 +716,25 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du projet. */
+                /** @description UUID of the project. */
                 project_uuid: components["parameters"]["ProjectUuid"];
-                /** @description UUID de l'environnement. */
+                /** @description UUID of the environment. */
                 environment_uuid: components["parameters"]["EnvironmentUuid"];
             };
             cookie?: never;
         };
-        /** Détail d'un environnement */
+        /** Environment details */
         get: operations["getEnvironment"];
         put?: never;
         post?: never;
         /**
-         * Supprimer un environnement
-         * @description Supprime un environnement vide. Refusé avec `409` (`dependency_exists`) tant qu'il contient des ressources (§19.2).
+         * Delete an environment
+         * @description Deletes an empty environment. Refused with `409` (`dependency_exists`) as long as it contains resources (§19.2).
          */
         delete: operations["deleteEnvironment"];
         options?: never;
         head?: never;
-        /** Modifier un environnement */
+        /** Update an environment */
         patch: operations["updateEnvironment"];
         trace?: never;
     };
@@ -746,14 +746,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Lister les clés privées
-         * @description Liste les métadonnées des clés (nom, fingerprint, clé publique). Le champ `private_key` est toujours `null` dans les listes, quelle que soit la permission.
+         * List private keys
+         * @description Lists key metadata (name, fingerprint, public key). The `private_key` field is always `null` in lists, whatever the permission.
          */
         get: operations["listPrivateKeys"];
         put?: never;
         /**
-         * Enregistrer une clé privée
-         * @description Enregistre une clé SSH privée (stockée chiffrée, §23.2). La réponse ne contient jamais le matériel privé, même avec `read:sensitive` immédiatement après création.
+         * Register a private key
+         * @description Registers a private SSH key (stored encrypted, §23.2). The response never contains the private material, even with `read:sensitive` immediately after creation.
          */
         post: operations["createPrivateKey"];
         delete?: never;
@@ -767,28 +767,28 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la clé privée. */
+                /** @description UUID of the private key. */
                 private_key_uuid: components["parameters"]["PrivateKeyUuid"];
             };
             cookie?: never;
         };
         /**
-         * Détail d'une clé privée
-         * @description Renvoie les métadonnées de la clé. Le champ `private_key` n'est renseigné que si le token possède `read:sensitive` ET que le paramètre `reveal=true` est passé explicitement ; sinon il vaut `null` et `is_redacted` vaut `true`. Chaque révélation est auditée (§23.4).
+         * Private key details
+         * @description Returns the key's metadata. The `private_key` field is only populated if the token holds `read:sensitive` AND the `reveal=true` parameter is passed explicitly; otherwise it is `null` and `is_redacted` is `true`. Each reveal is audited (§23.4).
          */
         get: operations["getPrivateKey"];
         put?: never;
         post?: never;
         /**
-         * Supprimer une clé privée
-         * @description Refusé avec `409` (`dependency_exists`) tant que la clé est référencée par un serveur ou une application (§19.2).
+         * Delete a private key
+         * @description Refused with `409` (`dependency_exists`) as long as the key is referenced by a server or an application (§19.2).
          */
         delete: operations["deletePrivateKey"];
         options?: never;
         head?: never;
         /**
-         * Modifier une clé privée
-         * @description Met à jour le nom, la description ou remplace le matériel de clé (rotation). PATCH sensible — `If-Match` obligatoire (§24.1).
+         * Update a private key
+         * @description Updates the name, the description or replaces the key material (rotation). Sensitive PATCH — `If-Match` required (§24.1).
          */
         patch: operations["updatePrivateKey"];
         trace?: never;
@@ -798,7 +798,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -806,11 +806,11 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Créer l'endpoint de webhook Git de l'application
-         * @description Génère l'URL de réception et le secret HMAC à coller dans l'interface du fournisseur (§5.1). Le secret est renvoyé **une seule fois** : il est chiffré au repos et jamais relu (§23.2). Un push sur la branche déployée déclenche alors un déploiement, sous réserve des politiques (`auto_deploy`, `[skip ci]`, `watch_paths`).
+         * Create the application's Git webhook endpoint
+         * @description Generates the receiving URL and the HMAC secret to paste into the provider's interface (§5.1). The secret is returned **once only**: it is encrypted at rest and never read back (§23.2). A push on the deployed branch then triggers a deployment, subject to the policies (`auto_deploy`, `[skip ci]`, `watch_paths`).
          */
         post: operations["createWebhookEndpoint"];
-        /** Supprimer l'endpoint de webhook Git */
+        /** Delete the Git webhook endpoint */
         delete: operations["deleteWebhookEndpoint"];
         options?: never;
         head?: never;
@@ -825,14 +825,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Lister les canaux de notification
-         * @description Liste les canaux de la team. La configuration (URL de webhook, token de bot) n'est jamais renvoyée (INV-003).
+         * List notification channels
+         * @description Lists the team's channels. The configuration (webhook URL, bot token) is never returned (INV-003).
          */
         get: operations["listNotificationChannels"];
         put?: never;
         /**
-         * Créer un canal de notification
-         * @description Enregistre un canal (configuration chiffrée au repos, §23.2). Les types `smtp`, `resend`, `telegram` et `pushover` sont déclarés par le modèle mais refusés en `422` tant qu'ils ne sont pas implémentés — jamais acceptés puis ignorés silencieusement.
+         * Create a notification channel
+         * @description Registers a channel (configuration encrypted at rest, §23.2). The `smtp`, `resend`, `telegram` and `pushover` types are declared by the model but rejected with `422` until they are implemented — never accepted then silently ignored.
          */
         post: operations["createNotificationChannel"];
         delete?: never;
@@ -846,25 +846,25 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du canal de notification. */
+                /** @description UUID of the notification channel. */
                 channel_uuid: components["parameters"]["ChannelUuid"];
             };
             cookie?: never;
         };
-        /** Détail d'un canal */
+        /** Channel details */
         get: operations["getNotificationChannel"];
         put?: never;
         post?: never;
         /**
-         * Supprimer un canal
-         * @description Les règles du canal sont supprimées avec lui (CASCADE).
+         * Delete a channel
+         * @description The channel's rules are deleted with it (CASCADE).
          */
         delete: operations["deleteNotificationChannel"];
         options?: never;
         head?: never;
         /**
-         * Modifier un canal
-         * @description PATCH sensible — `If-Match` obligatoire (§24.1).
+         * Update a channel
+         * @description Sensitive PATCH — `If-Match` required (§24.1).
          */
         patch: operations["updateNotificationChannel"];
         trace?: never;
@@ -874,7 +874,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du canal de notification. */
+                /** @description UUID of the notification channel. */
                 channel_uuid: components["parameters"]["ChannelUuid"];
             };
             cookie?: never;
@@ -882,8 +882,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Envoyer un message de test
-         * @description Envoie immédiatement un événement de test sur le canal et renvoie le résultat de l'envoi — une configuration invalide se voit ici, pas à la première panne.
+         * Send a test message
+         * @description Immediately sends a test event on the channel and returns the delivery result — an invalid configuration shows up here, not at the first outage.
          */
         post: operations["testNotificationChannel"];
         delete?: never;
@@ -897,17 +897,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du canal de notification. */
+                /** @description UUID of the notification channel. */
                 channel_uuid: components["parameters"]["ChannelUuid"];
             };
             cookie?: never;
         };
-        /** Lister les règles de routage d'un canal */
+        /** List a channel's routing rules */
         get: operations["listNotificationRules"];
         put?: never;
         /**
-         * Ajouter une règle de routage
-         * @description Route un type d'événement vers ce canal (ADR-019) : portée projet/environnement, seuil de sévérité, débounce anti-flapping et heures calmes. Un événement `critical` traverse toujours le débounce et les heures calmes.
+         * Add a routing rule
+         * @description Routes an event type to this channel (ADR-019): project/environment scope, severity threshold, anti-flapping debounce and quiet hours. A `critical` event always goes through the debounce and quiet hours.
          */
         post: operations["createNotificationRule"];
         delete?: never;
@@ -921,9 +921,9 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du canal de notification. */
+                /** @description UUID of the notification channel. */
                 channel_uuid: components["parameters"]["ChannelUuid"];
-                /** @description UUID de la règle. */
+                /** @description UUID of the rule. */
                 rule_uuid: string;
             };
             cookie?: never;
@@ -931,7 +931,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Supprimer une règle de routage */
+        /** Delete a routing rule */
         delete: operations["deleteNotificationRule"];
         options?: never;
         head?: never;
@@ -946,14 +946,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Lister les stockages S3
-         * @description Liste les destinations de backup de la team. Les credentials ne sont jamais renvoyés (INV-003) ; seul `is_usable` indique si un aller-retour écriture/lecture/suppression a réussi (§20.5).
+         * List S3 storages
+         * @description Lists the team's backup destinations. Credentials are never returned (INV-003); only `is_usable` indicates whether a write/read/delete round-trip succeeded (§20.5).
          */
         get: operations["listS3Storages"];
         put?: never;
         /**
-         * Enregistrer un stockage S3
-         * @description Enregistre une destination S3 (credentials chiffrés au repos, §23.2). La connectivité est vérifiée immédiatement par un aller-retour écriture/lecture/suppression : un stockage qui échoue est créé avec `is_usable: false` et `last_check_error` renseigné — il ne peut pas être référencé par un plan de backup tant qu'il n'est pas utilisable.
+         * Register an S3 storage
+         * @description Registers an S3 destination (credentials encrypted at rest, §23.2). Connectivity is verified immediately with a write/read/delete round-trip: a storage that fails is created with `is_usable: false` and `last_check_error` populated — it cannot be referenced by a backup plan until it is usable.
          */
         post: operations["createS3Storage"];
         delete?: never;
@@ -967,25 +967,25 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stockage S3. */
+                /** @description UUID of the S3 storage. */
                 s3_storage_uuid: components["parameters"]["S3StorageUuid"];
             };
             cookie?: never;
         };
-        /** Détail d'un stockage S3 */
+        /** S3 storage details */
         get: operations["getS3Storage"];
         put?: never;
         post?: never;
         /**
-         * Supprimer un stockage S3
-         * @description Refusé avec `409` (`dependency_exists`) tant qu'un plan de backup le référence (§19.2). Les objets déjà déposés dans le bucket ne sont jamais supprimés (INV-008).
+         * Delete an S3 storage
+         * @description Refused with `409` (`dependency_exists`) as long as a backup plan references it (§19.2). Objects already stored in the bucket are never deleted (INV-008).
          */
         delete: operations["deleteS3Storage"];
         options?: never;
         head?: never;
         /**
-         * Modifier un stockage S3
-         * @description Met à jour la configuration ou remplace les credentials. PATCH sensible — `If-Match` obligatoire (§24.1). La connectivité est revérifiée après modification.
+         * Update an S3 storage
+         * @description Updates the configuration or replaces the credentials. Sensitive PATCH — `If-Match` required (§24.1). Connectivity is re-verified after the update.
          */
         patch: operations["updateS3Storage"];
         trace?: never;
@@ -995,7 +995,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stockage S3. */
+                /** @description UUID of the S3 storage. */
                 s3_storage_uuid: components["parameters"]["S3StorageUuid"];
             };
             cookie?: never;
@@ -1003,8 +1003,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Vérifier la connectivité d'un stockage S3
-         * @description Rejoue l'aller-retour écriture/lecture/suppression et met à jour `is_usable` et `last_check_error` (§20.5).
+         * Check an S3 storage's connectivity
+         * @description Replays the write/read/delete round-trip and updates `is_usable` and `last_check_error` (§20.5).
          */
         post: operations["validateS3Storage"];
         delete?: never;
@@ -1020,12 +1020,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Lister les serveurs */
+        /** List servers */
         get: operations["listServers"];
         put?: never;
         /**
-         * Enregistrer un serveur
-         * @description Enregistre un serveur SSH en statut `pending` (§20.1). La clé référencée doit appartenir à la même team (INV-002). La validation effective (connectivité, Docker, prérequis) se déclenche via `POST /servers/{uuid}/validate`.
+         * Register a server
+         * @description Registers an SSH server with `pending` status (§20.1). The referenced key must belong to the same team (INV-002). The actual validation (connectivity, Docker, prerequisites) is triggered via `POST /servers/{uuid}/validate`.
          */
         post: operations["createServer"];
         delete?: never;
@@ -1039,25 +1039,25 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
-        /** Détail d'un serveur */
+        /** Server details */
         get: operations["getServer"];
         put?: never;
         post?: never;
         /**
-         * Retirer un serveur
-         * @description Retire le serveur de AkerDock (INV-008 — ne détruit jamais la machine). Refusé avec `409` (`dependency_exists`) tant que des ressources y sont déployées.
+         * Remove a server
+         * @description Removes the server from AkerDock (INV-008 — never destroys the machine). Refused with `409` (`dependency_exists`) as long as resources are deployed on it.
          */
         delete: operations["deleteServer"];
         options?: never;
         head?: never;
         /**
-         * Modifier un serveur
-         * @description PATCH sensible — `If-Match` obligatoire. Changer l'adresse, le port, l'utilisateur ou la clé repasse le serveur en `pending` et requiert une nouvelle validation.
+         * Update a server
+         * @description Sensitive PATCH — `If-Match` required. Changing the address, port, user or key moves the server back to `pending` and requires a new validation.
          */
         patch: operations["updateServer"];
         trace?: never;
@@ -1067,14 +1067,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         /**
-         * Certificat de la CA du serveur (SSL des bases)
-         * @description CA gérée par la plateforme (§6.3, amendement n°23), qui signe les certificats des bases de ce serveur. **Publique par nature** : c'est ce qu'un client doit connaître pour vérifier la base à laquelle il se connecte. La clé privée, elle, ne quitte jamais l'instance (chiffrée au repos) et n'est jamais renvoyée.
+         * Server CA certificate (database SSL)
+         * @description Platform-managed CA (§6.3, amendment #23), which signs the certificates of this server's databases. **Public by nature**: it is what a client must know to verify the database it connects to. The private key, however, never leaves the instance (encrypted at rest) and is never returned.
          */
         get: operations["getServerCA"];
         put?: never;
@@ -1090,7 +1090,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
@@ -1098,8 +1098,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Valider un serveur et installer les prérequis
-         * @description Lance le workflow d'onboarding (§20.1) — connectivité SSH, host key, sudo, OS/architecture, disque, installation Docker et helpers, proxy. Opération longue — répond `202` avec un job de suivi. Chaque étape du job est visible et rejouable ; chaque échec produit une erreur distincte avec remédiation.
+         * Validate a server and install prerequisites
+         * @description Starts the onboarding workflow (§20.1) — SSH connectivity, host key, sudo, OS/architecture, disk, Docker and helpers installation, proxy. Long-running operation — responds `202` with a tracking job. Each step of the job is visible and replayable; each failure produces a distinct error with remediation.
          */
         post: operations["validateServer"];
         delete?: never;
@@ -1113,14 +1113,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         /**
-         * Lister les ressources d'un serveur
-         * @description Inventaire des ressources gérées déployées sur ce serveur (applications et bases). Les ressources non gérées découvertes sur le serveur ne figurent pas ici (INV-015).
+         * List a server's resources
+         * @description Inventory of managed resources deployed on this server (applications and databases). Unmanaged resources discovered on the server do not appear here (INV-015).
          */
         get: operations["listServerResources"];
         put?: never;
@@ -1136,9 +1136,9 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
-                /** @description Cycle de vie du proxy géré du serveur (§3). **`stop` coupe TOUT le trafic entrant du serveur** — chaque domaine routé par ce proxy cesse de répondre jusqu'au redémarrage. */
+                /** @description Lifecycle of the server's managed proxy (§3). **`stop` cuts ALL the server's inbound traffic** — every domain routed by this proxy stops responding until it is restarted. */
                 action: "start" | "stop" | "restart";
             };
             cookie?: never;
@@ -1146,8 +1146,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Démarrer, arrêter ou redémarrer le proxy d'un serveur
-         * @description Action longue → `202` + job (§4.2). L'état désiré du proxy est persisté : un `stop` explicite n'est pas « réparé » par la réconciliation. `409` si le serveur n'a pas de proxy géré (`proxy_type: none`).
+         * Start, stop or restart a server's proxy
+         * @description Long-running action → `202` + job (§4.2). The proxy's desired state is persisted: an explicit `stop` is not "repaired" by reconciliation. `409` if the server has no managed proxy (`proxy_type: none`).
          */
         post: operations["proxyLifecycle"];
         delete?: never;
@@ -1161,14 +1161,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         /**
-         * Logs du proxy d'un serveur
-         * @description Les dernières lignes du container de proxy (§3) — lecture directe sur le serveur, jamais stockées. `409` si le serveur n'a pas de proxy géré.
+         * Logs of a server's proxy
+         * @description The last lines of the proxy container (§3) — read directly on the server, never stored. `409` if the server has no managed proxy.
          */
         get: operations["getProxyLogs"];
         put?: never;
@@ -1184,7 +1184,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
@@ -1192,8 +1192,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ouvrir une session terminal shell sur le serveur
-         * @description Crée une session terminal (§5.7, §24.4) ouvrant un shell SSH sur le serveur avec l'utilisateur configuré (`ssh_user`) — de fait un **terminal root** au sens de la matrice RBAC (§10.4), soumis au double contrôle : une session navigateur doit avoir été ré-authentifiée par **passkey** récemment (step-up — sinon `403` avec le code `stepup_required`), et un token API doit porter la permission `root`. Renvoie un **token court à usage unique** à présenter sur le WebSocket `websocket_path` (hors OpenAPI, §27.24). Session bornée à la team, auditée à l'ouverture et à la fermeture, idle timeout, durée maximum, kill garanti (§24.4). `409` si la team a atteint son plafond de sessions simultanées (`terminal_session_limit`).
+         * Open a shell terminal session on the server
+         * @description Creates a terminal session (§5.7, §24.4) opening an SSH shell on the server with the configured user (`ssh_user`) — effectively a **root terminal** in the sense of the RBAC matrix (§10.4), subject to the double check: a browser session must have been re-authenticated by **passkey** recently (step-up — otherwise `403` with the code `stepup_required`), and an API token must carry the `root` permission. Returns a **short-lived single-use token** to present on the WebSocket `websocket_path` (outside OpenAPI, §27.24). Session scoped to the team, audited on open and close, idle timeout, maximum duration, guaranteed kill (§24.4). `409` if the team has reached its cap of concurrent sessions (`terminal_session_limit`).
          */
         post: operations["createServerTerminalSession"];
         delete?: never;
@@ -1207,7 +1207,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
@@ -1215,8 +1215,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Lancer un nettoyage disque immédiat
-         * @description Déclenche le nettoyage Docker du serveur (§3.7), hors planification. Le job ne cible que des objets gérés et sûrs — cache de build, images dangling, candidats de déploiement morts, `/var/lib/akerdock/tmp`, plus les purges opt-in du serveur (volumes anonymes, réseaux gérés) — et **jamais** un objet non géré ou persistant (INV-015), ni les images de rollback (ADR-006). Il est reporté si un déploiement est en cours sur le serveur. `409` (`operation_in_progress`) si un nettoyage tourne déjà.
+         * Run an immediate disk cleanup
+         * @description Triggers the server's Docker cleanup (§3.7), outside the schedule. The job only targets managed and safe objects — build cache, dangling images, dead deployment candidates, `/var/lib/akerdock/tmp`, plus the server's opt-in purges (anonymous volumes, managed networks) — and **never** an unmanaged or persistent object (INV-015), nor rollback images (ADR-006). It is postponed if a deployment is in progress on the server. `409` (`operation_in_progress`) if a cleanup is already running.
          */
         post: operations["runServerCleanup"];
         delete?: never;
@@ -1230,20 +1230,20 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         /**
-         * Lister les scans d'adoption d'un serveur
-         * @description Historique des scans d'adoption du serveur (§20.7), du plus récent au plus ancien.
+         * List a server's adoption scans
+         * @description History of the server's adoption scans (§20.7), from newest to oldest.
          */
         get: operations["listAdoptionScans"];
         put?: never;
         /**
-         * Scanner les ressources Docker non gérées d'un serveur
-         * @description Inventorie les containers et stacks compose du serveur qui ne sont PAS gérés par AkerDock (aucun label `akerdock.*` — INV-015) et propose un mapping vers le modèle AkerDock (§20.7, ADR-013) : application ou service, volumes, variables (noms seulement — INV-003), ports, réseaux et domaines détectés par inspection et labels. C'est le chemin de migration entrant depuis n'importe quelle plateforme (ADR-023). Opération longue — répond `202` avec un job de suivi et l'UUID du scan à interroger. `409` (`operation_in_progress`) si un scan de ce serveur est déjà en cours.
+         * Scan a server's unmanaged Docker resources
+         * @description Inventories the server's containers and compose stacks that are NOT managed by AkerDock (no `akerdock.*` label — INV-015) and proposes a mapping to the AkerDock model (§20.7, ADR-013): application or service, volumes, variables (names only — INV-003), ports, networks and domains detected through inspection and labels. This is the inbound migration path from any platform (ADR-023). Long-running operation — responds `202` with a tracking job and the UUID of the scan to query. `409` (`operation_in_progress`) if a scan of this server is already in progress.
          */
         post: operations["createAdoptionScan"];
         delete?: never;
@@ -1257,14 +1257,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du scan d'adoption (§20.7). */
+                /** @description UUID of the adoption scan (§20.7). */
                 adoption_scan_uuid: components["parameters"]["AdoptionScanUuid"];
             };
             cookie?: never;
         };
         /**
-         * Lire un scan d'adoption et ses candidats
-         * @description Le résultat du scan (§20.7) : candidats adoptables avec leur mapping proposé et ce qui sera modifié, candidats non adoptables avec le motif — jamais d'adoption partielle silencieuse. Les valeurs des variables d'environnement ne figurent JAMAIS dans le scan (INV-003) : seuls les noms sont listés ; les valeurs sont capturées et chiffrées au moment de l'adoption.
+         * Read an adoption scan and its candidates
+         * @description The scan result (§20.7): adoptable candidates with their proposed mapping and what will be modified, non-adoptable candidates with the reason — never a silent partial adoption. The values of environment variables NEVER appear in the scan (INV-003): only the names are listed; the values are captured and encrypted at adoption time.
          */
         get: operations["getAdoptionScan"];
         put?: never;
@@ -1280,7 +1280,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du scan d'adoption (§20.7). */
+                /** @description UUID of the adoption scan (§20.7). */
                 adoption_scan_uuid: components["parameters"]["AdoptionScanUuid"];
             };
             cookie?: never;
@@ -1288,8 +1288,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Adopter des candidats d'un scan, sans redéploiement
-         * @description Prend le contrôle des candidats sélectionnés SANS redémarrer les workloads (§20.7, ADR-013) : les objets AkerDock (application ou service, variables chiffrées, volumes, domaines) sont créés en pointant sur les containers existants. Le premier redéploiement normalise complètement la ressource (labels, noms, réseau) en conservant les données (volumes repris sous leur nom d'origine). Opération longue — répond `202` avec un job ; le résultat du job liste les ressources créées. `409` (`invalid_state`) si le scan n'est pas terminé ; `422` si un candidat est inconnu ou non adoptable.
+         * Adopt candidates from a scan, without redeployment
+         * @description Takes control of the selected candidates WITHOUT restarting the workloads (§20.7, ADR-013): the AkerDock objects (application or service, encrypted variables, volumes, domains) are created pointing at the existing containers. The first redeployment fully normalizes the resource (labels, names, network) while preserving the data (volumes taken over under their original name). Long-running operation — responds `202` with a job; the job result lists the created resources. `409` (`invalid_state`) if the scan is not finished; `422` if a candidate is unknown or not adoptable.
          */
         post: operations["adoptResources"];
         delete?: never;
@@ -1303,14 +1303,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         /**
-         * Lister les domaines servis par un serveur
-         * @description Domaines routés par le proxy du serveur, groupés par ressource.
+         * List the domains served by a server
+         * @description Domains routed by the server's proxy, grouped by resource.
          */
         get: operations["listServerDomains"];
         put?: never;
@@ -1326,14 +1326,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         /**
-         * Lister les certificats d'un serveur
-         * @description Inventaire des certificats TLS servis par le proxy du serveur (ACME HTTP-01/DNS-01, custom, fallback self-signed). Cette collection est un **reflet observé** (table `certificates`) : l'état réel vit dans `acme.json` et les fichiers du serveur, synchronisés après chaque application de configuration proxy et par réconciliation périodique (§18.3) — voir `observed_at`. Le matériel de clé privée ne quitte jamais le serveur et n'apparaît jamais dans l'API.
+         * List a server's certificates
+         * @description Inventory of the TLS certificates served by the server's proxy (ACME HTTP-01/DNS-01, custom, self-signed fallback). This collection is an **observed reflection** (`certificates` table): the actual state lives in `acme.json` and the server's files, synchronized after each proxy configuration application and by periodic reconciliation (§18.3) — see `observed_at`. Private key material never leaves the server and never appears in the API.
          */
         get: operations["listServerCertificates"];
         put?: never;
@@ -1349,14 +1349,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du certificat (reflet observé). */
+                /** @description UUID of the certificate (observed reflection). */
                 certificate_uuid: components["parameters"]["CertificateUuid"];
             };
             cookie?: never;
         };
         /**
-         * Détail d'un certificat
-         * @description Détail du reflet observé d'un certificat : domaines couverts (wildcards inclus), émetteur, fenêtre de validité (`not_before`/`not_after`), statut et dernière erreur d'émission. `observed_at` indique la fraîcheur de l'observation.
+         * Certificate details
+         * @description Details of a certificate's observed reflection: covered domains (wildcards included), issuer, validity window (`not_before`/`not_after`), status and last issuance error. `observed_at` indicates the freshness of the observation.
          */
         get: operations["getCertificate"];
         put?: never;
@@ -1372,7 +1372,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du certificat (reflet observé). */
+                /** @description UUID of the certificate (observed reflection). */
                 certificate_uuid: components["parameters"]["CertificateUuid"];
             };
             cookie?: never;
@@ -1380,8 +1380,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Forcer le renouvellement d'un certificat
-         * @description Force une nouvelle tentative d'émission/renouvellement ACME : sauvegarde puis retrait ciblé de l'entrée du storage ACME (`/var/lib/akerdock/proxy/acme.json`), redémarrage du proxy qui retente l'émission, puis resynchronisation du reflet (statut `renewing` pendant l'opération). Opération longue — répond `202` avec un job de suivi. `409` (`operation_in_progress`) si un renouvellement est déjà en cours pour ce certificat ; `422` (`validation_failed`) pour un certificat non renouvelable par la plateforme (`custom`, `self_signed`). Attention aux rate limits Let's Encrypt : chaque échec de validation consomme du quota — corriger la cause (DNS, port 80, credentials DNS-01) avant de rejouer. Action auditée (§23.4).
+         * Force a certificate's renewal
+         * @description Forces a new ACME issuance/renewal attempt: backup then targeted removal of the entry from the ACME storage (`/var/lib/akerdock/proxy/acme.json`), restart of the proxy which retries the issuance, then resynchronization of the reflection (`renewing` status during the operation). Long-running operation — responds `202` with a tracking job. `409` (`operation_in_progress`) if a renewal is already in progress for this certificate; `422` (`validation_failed`) for a certificate not renewable by the platform (`custom`, `self_signed`). Beware of Let's Encrypt rate limits: each validation failure consumes quota — fix the cause (DNS, port 80, DNS-01 credentials) before retrying. Audited action (§23.4).
          */
         post: operations["renewCertificate"];
         delete?: never;
@@ -1397,12 +1397,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Lister les applications */
+        /** List applications */
         get: operations["listApplications"];
         put?: never;
         /**
-         * Créer une application
-         * @description Crée une application dans un environnement. Le type de source est déterminé par le discriminant `source_type` — `docker_image` et `dockerfile` (P0), `git` public ou privé via `private_key_uuid` (P1). La création n'implique pas de déploiement, sauf `instant_deploy=true` (le `deployment_uuid` figure alors dans la réponse).
+         * Create an application
+         * @description Creates an application in an environment. The source type is determined by the `source_type` discriminator — `docker_image` and `dockerfile` (P0), public git or private via `private_key_uuid` (P1). Creation does not imply a deployment, unless `instant_deploy=true` (the `deployment_uuid` then appears in the response).
          */
         post: operations["createApplication"];
         delete?: never;
@@ -1416,28 +1416,28 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         /**
-         * Détail et configuration d'une application
-         * @description Renvoie l'application complète — configuration désirée (source, build, domaines, ports, health check, limites) et statut observé (§21.2). L'en-tête `ETag` porte la version optimiste à réutiliser dans `If-Match` pour `PATCH`.
+         * Application details and configuration
+         * @description Returns the full application — desired configuration (source, build, domains, ports, health check, limits) and observed status (§21.2). The `ETag` header carries the optimistic version to reuse in `If-Match` for `PATCH`.
          */
         get: operations["getApplication"];
         put?: never;
         post?: never;
         /**
-         * Supprimer une application
-         * @description Suppression asynchrone (§20.6) — retire d'abord le routage, puis les workloads, puis l'objet logique. Par défaut les volumes persistants sont CONSERVÉS ; passer `delete_volumes=true` pour les détruire (INV-008).
+         * Delete an application
+         * @description Asynchronous deletion (§20.6) — first removes routing, then the workloads, then the logical object. By default persistent volumes are KEPT; pass `delete_volumes=true` to destroy them (INV-008).
          */
         delete: operations["deleteApplication"];
         options?: never;
         head?: never;
         /**
-         * Modifier la configuration d'une application
-         * @description Mise à jour partielle de la configuration. PATCH sensible — `If-Match` obligatoire ; conflit de version → `409` avec la version courante dans `details` (§24.1). Les changements sont versionnés (INV-014) et ne prennent effet qu'au prochain déploiement, sauf champs à effet immédiat documentés dans le schéma.
+         * Update an application's configuration
+         * @description Partial update of the configuration. Sensitive PATCH — `If-Match` required; version conflict → `409` with the current version in `details` (§24.1). Changes are versioned (INV-014) and only take effect at the next deployment, except immediate-effect fields documented in the schema.
          */
         patch: operations["updateApplication"];
         trace?: never;
@@ -1447,20 +1447,20 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         /**
-         * Lister les stockages persistants
-         * @description Volumes nommés et bind mounts de l'application (§8). Le nom d'un volume est préfixé par l'UUID de la ressource (anti-collision, INV-011).
+         * List persistent storages
+         * @description Named volumes and bind mounts of the application (§8). A volume's name is prefixed with the resource's UUID (collision protection, INV-011).
          */
         get: operations["listApplicationStorages"];
         put?: never;
         /**
-         * Déclarer un stockage persistant
-         * @description Déclare un volume nommé ou un bind mount (§8). Le volume distant est créé au prochain déploiement, de façon idempotente ; les données survivent aux redéploiements et à la suppression de l'application, sauf `delete_volumes=true` explicite (INV-008).
+         * Declare a persistent storage
+         * @description Declares a named volume or a bind mount (§8). The remote volume is created at the next deployment, idempotently; the data survives redeployments and application deletion, unless `delete_volumes=true` is explicit (INV-008).
          */
         post: operations["createApplicationStorage"];
         delete?: never;
@@ -1474,9 +1474,9 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
-                /** @description UUID du stockage persistant. */
+                /** @description UUID of the persistent storage. */
                 storage_uuid: components["parameters"]["StorageUuid"];
             };
             cookie?: never;
@@ -1485,8 +1485,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Retirer un stockage persistant
-         * @description Retire la déclaration du stockage. Les **données distantes ne sont jamais détruites** par cette opération (INV-008) : le volume orphelin reste sur le serveur et est signalé par le cleanup. Prend effet au prochain déploiement.
+         * Remove a persistent storage
+         * @description Removes the storage declaration. The **remote data is never destroyed** by this operation (INV-008): the orphan volume stays on the server and is flagged by the cleanup. Takes effect at the next deployment.
          */
         delete: operations["deleteApplicationStorage"];
         options?: never;
@@ -1499,24 +1499,24 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         /**
-         * Lister les variables d'environnement
-         * @description Le jeu de PRODUCTION par défaut ; `preview=true` renvoie le jeu dédié aux previews (§5.6, INV-010) — dont les variables générées par la plateforme, comme `AKERDOCK_PREVIEW_BASIC_AUTH` (credential d'accès des URLs de preview, §20.4.4). Sans `read:sensitive`, le champ `value` de chaque variable est `null` et `is_redacted` vaut `true` (INV-003). Les variables `is_locked` ne révèlent jamais leur valeur, quelle que soit la permission.
+         * List environment variables
+         * @description The PRODUCTION set by default; `preview=true` returns the set dedicated to previews (§5.6, INV-010) — including platform-generated variables, such as `AKERDOCK_PREVIEW_BASIC_AUTH` (access credential of preview URLs, §20.4.4). Without `read:sensitive`, the `value` field of each variable is `null` and `is_redacted` is `true` (INV-003). `is_locked` variables never reveal their value, whatever the permission.
          */
         get: operations["listApplicationEnvs"];
         /**
-         * Remplacer en bloc les variables d'environnement
-         * @description Remplacement complet du jeu de variables (sémantique PUT) — les variables absentes du corps sont SUPPRIMÉES, les présentes sont créées ou mises à jour par `key`. Exception : les variables `is_locked` existantes absentes du corps sont conservées (elles ne peuvent être supprimées qu'unitairement). Équivalent de la vue Developer / éditeur bulk (§5.4).
+         * Replace environment variables in bulk
+         * @description Full replacement of the variable set (PUT semantics) — variables absent from the body are DELETED, present ones are created or updated by `key`. Exception: existing `is_locked` variables absent from the body are kept (they can only be deleted individually). Equivalent of the Developer view / bulk editor (§5.4).
          */
         put: operations["replaceApplicationEnvs"];
         /**
-         * Créer une variable d'environnement
-         * @description Dans le jeu de PRODUCTION par défaut ; `preview=true` crée la variable dans le jeu dédié des previews (INV-010) — c'est ainsi qu'on fournit aux instances de PR leurs clés (versions de test), sans jamais copier les secrets de production.
+         * Create an environment variable
+         * @description In the PRODUCTION set by default; `preview=true` creates the variable in the dedicated preview set (INV-010) — this is how PR instances are given their keys (test versions), without ever copying production secrets.
          */
         post: operations["createApplicationEnv"];
         delete?: never;
@@ -1530,9 +1530,9 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
-                /** @description UUID de la variable d'environnement. */
+                /** @description UUID of the environment variable. */
                 env_uuid: components["parameters"]["EnvUuid"];
             };
             cookie?: never;
@@ -1540,13 +1540,13 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Supprimer une variable d'environnement */
+        /** Delete an environment variable */
         delete: operations["deleteApplicationEnv"];
         options?: never;
         head?: never;
         /**
-         * Modifier une variable d'environnement
-         * @description Une variable `is_locked` ne peut pas être rééditée (valeur en écriture seule définitive) — seule sa suppression puis recréation est possible (§5.4).
+         * Update an environment variable
+         * @description An `is_locked` variable cannot be re-edited (definitively write-only value) — only deleting then recreating it is possible (§5.4).
          */
         patch: operations["updateApplicationEnv"];
         trace?: never;
@@ -1556,7 +1556,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -1564,8 +1564,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Démarrer une application
-         * @description Passe l'état désiré à `running` et démarre les containers existants (sans rebuild). Opération distante longue — `202` + job.
+         * Start an application
+         * @description Sets the desired state to `running` and starts the existing containers (without rebuild). Long-running remote operation — `202` + job.
          */
         post: operations["startApplication"];
         delete?: never;
@@ -1579,7 +1579,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -1587,8 +1587,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Arrêter une application
-         * @description Passe l'état désiré à `stopped` et arrête les containers (délai de grâce configuré sur l'application). `202` + job.
+         * Stop an application
+         * @description Sets the desired state to `stopped` and stops the containers (grace period configured on the application). `202` + job.
          */
         post: operations["stopApplication"];
         delete?: never;
@@ -1602,7 +1602,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -1610,8 +1610,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Redémarrer une application
-         * @description Redémarre les containers sans rebuild. `202` + job.
+         * Restart an application
+         * @description Restarts the containers without rebuild. `202` + job.
          */
         post: operations["restartApplication"];
         delete?: never;
@@ -1625,7 +1625,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -1633,8 +1633,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Désadopter une application — rendue non gérée, jamais détruite
-         * @description Inverse de l'adoption (§20.7, ADR-013) : AkerDock retire son routage éventuel puis oublie la ressource — les containers, volumes et fichiers distants restent EXACTEMENT en l'état. Fonctionne sur toute application, adoptée ou non : c'est le chemin de sortie sans destruction. Opération longue — répond `202` avec un job.
+         * Unadopt an application — made unmanaged, never destroyed
+         * @description Inverse of adoption (§20.7, ADR-013): AkerDock removes its routing, if any, then forgets the resource — the containers, volumes and remote files remain EXACTLY as they are. Works on any application, adopted or not: it is the destruction-free exit path. Long-running operation — responds `202` with a job.
          */
         post: operations["disownApplication"];
         delete?: never;
@@ -1648,7 +1648,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -1656,8 +1656,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ouvrir une session terminal dans le container de l'application
-         * @description Crée une session terminal (§5.7, §24.4) vers le container courant de l'application et renvoie un **token court à usage unique** à présenter sur le WebSocket `websocket_path` (hors OpenAPI, §27.24). Le token n'est renvoyé qu'une seule fois et expire en quelques dizaines de secondes ; la session est bornée à la team, auditée à l'ouverture et à la fermeture, soumise à un idle timeout et à une durée maximum, avec kill garanti à la déconnexion (§24.4). Les frappes ne sont pas enregistrées. `409` si la team a atteint son plafond de sessions simultanées (`terminal_session_limit`).
+         * Open a terminal session in the application's container
+         * @description Creates a terminal session (§5.7, §24.4) to the application's current container and returns a **short-lived single-use token** to present on the WebSocket `websocket_path` (outside OpenAPI, §27.24). The token is returned only once and expires within a few tens of seconds; the session is scoped to the team, audited on open and close, subject to an idle timeout and a maximum duration, with a guaranteed kill on disconnect (§24.4). Keystrokes are not recorded. `409` if the team has reached its cap of concurrent sessions (`terminal_session_limit`).
          */
         post: operations["createApplicationTerminalSession"];
         delete?: never;
@@ -1671,7 +1671,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -1679,8 +1679,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ouvrir un tunnel TCP vers un container de l'application
-         * @description Crée une session de tunnel TCP (ADR-032) vers `port` du container courant et renvoie un **token à usage unique** à présenter sur `/tunnel/ws` (hors OpenAPI). Bornée à la team, auditée, idle/max/ heartbeat/teardown comme le terminal (§24.4). `409` si la team atteint `port_forward_limit`.
+         * Open a TCP tunnel to a container of the application
+         * @description Creates a TCP tunnel session (ADR-032) to `port` of the current container and returns a **single-use token** to present on `/tunnel/ws` (outside OpenAPI). Scoped to the team, audited, idle/max/ heartbeat/teardown like the terminal (§24.4). `409` if the team reaches `port_forward_limit`.
          */
         post: operations["createApplicationPortForward"];
         delete?: never;
@@ -1694,7 +1694,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
@@ -1702,8 +1702,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ouvrir un tunnel TCP vers une base de données
-         * @description Crée une session de tunnel TCP (ADR-032) vers `port` du container de la base et renvoie un **token à usage unique** à présenter sur `/tunnel/ws` (hors OpenAPI). Mêmes garanties que le terminal (§24.4). `409` si la team atteint `port_forward_limit`.
+         * Open a TCP tunnel to a database
+         * @description Creates a TCP tunnel session (ADR-032) to `port` of the database's container and returns a **single-use token** to present on `/tunnel/ws` (outside OpenAPI). Same guarantees as the terminal (§24.4). `409` if the team reaches `port_forward_limit`.
          */
         post: operations["createDatabasePortForward"];
         delete?: never;
@@ -1717,14 +1717,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         /**
-         * Logs du container de l'application
-         * @description Les dernières lignes du container courant de l'application (§5.7) — lecture directe sur le serveur (`docker logs`), jamais stockées. Pour une stack compose, `component` désigne le service dont on veut les logs (obligatoire dès que la stack a des composants — le stack n'a pas de container propre). `409` si le container n'existe pas (application jamais déployée ou supprimée) ou si le serveur est injoignable en SSH ; `404` si le composant est inconnu.
+         * Logs of the application's container
+         * @description The last lines of the application's current container (§5.7) — read directly on the server (`docker logs`), never stored. For a compose stack, `component` designates the service whose logs are wanted (required as soon as the stack has components — the stack has no container of its own). `409` if the container does not exist (application never deployed, or deleted) or if the server is unreachable over SSH; `404` if the component is unknown.
          */
         get: operations["getApplicationLogs"];
         put?: never;
@@ -1740,14 +1740,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         /**
-         * Flux SSE des logs runtime du container
-         * @description Streaming des logs runtime en **Server-Sent Events** (ADR-024, `text/event-stream`), reprise par `Last-Event-ID` (§27.24). Alimente `akerdock logs -f`. Mêmes règles de cible que le snapshot (`component` obligatoire dès que la stack a des composants). `409` si le container n'existe pas ou le serveur est injoignable ; `404` si le composant est inconnu. Le corps ci-dessous décrit l'événement `log` ; le framing SSE lui-même n'est pas exprimable en OpenAPI.
+         * SSE stream of the container's runtime logs
+         * @description Streaming of runtime logs as **Server-Sent Events** (ADR-024, `text/event-stream`), resume via `Last-Event-ID` (§27.24). Powers `akerdock logs -f`. Same targeting rules as the snapshot (`component` required as soon as the stack has components). `409` if the container does not exist or the server is unreachable; `404` if the component is unknown. The body below describes the `log` event; the SSE framing itself cannot be expressed in OpenAPI.
          */
         get: operations["streamApplicationLogs"];
         put?: never;
@@ -1763,7 +1763,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -1771,8 +1771,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Déclencher un déploiement
-         * @description Met en file un déploiement complet (§20.2, §21.1) — clone/pull selon la source, build, health checks puis bascule. Répond `202` avec le `deployment_uuid` à suivre sur `GET /deployments/{uuid}`. Soumis à la file par serveur (`concurrent_builds`, `deployment_queue_limit`, §5.5) ; file pleine → `429`.
+         * Trigger a deployment
+         * @description Queues a full deployment (§20.2, §21.1) — clone/pull depending on the source, build, health checks then switchover. Responds `202` with the `deployment_uuid` to track on `GET /deployments/{uuid}`. Subject to the per-server queue (`concurrent_builds`, `deployment_queue_limit`, §5.5); full queue → `429`.
          */
         post: operations["deployApplication"];
         delete?: never;
@@ -1786,7 +1786,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -1794,8 +1794,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Rollback vers une image précédente
-         * @description Redéploie une image antérieure vérifiée — par `deployment_uuid` ou `image_digest` explicite, sinon la dernière image précédente encore disponible (registry par digest OCI si configuré, sinon rétention locale, §27.6). L'artifact demandé doit encore exister → sinon `409`.
+         * Rollback to a previous image
+         * @description Redeploys a verified earlier image — by `deployment_uuid` or explicit `image_digest`, otherwise the latest previous image still available (registry by OCI digest if configured, otherwise local retention, §27.6). The requested artifact must still exist → otherwise `409`.
          */
         post: operations["rollbackApplication"];
         delete?: never;
@@ -1809,14 +1809,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         /**
-         * Historique des déploiements d'une application
-         * @description Pagination par curseur, du plus récent au plus ancien.
+         * An application's deployment history
+         * @description Cursor pagination, from newest to oldest.
          */
         get: operations["listApplicationDeployments"];
         put?: never;
@@ -1832,12 +1832,12 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du déploiement. */
+                /** @description UUID of the deployment. */
                 deployment_uuid: components["parameters"]["DeploymentUuid"];
             };
             cookie?: never;
         };
-        /** Détail d'un déploiement */
+        /** Deployment details */
         get: operations["getDeployment"];
         put?: never;
         post?: never;
@@ -1852,26 +1852,26 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du déploiement. */
+                /** @description UUID of the deployment. */
                 deployment_uuid: components["parameters"]["DeploymentUuid"];
             };
             cookie?: never;
         };
         /**
-         * Logs de build d'un déploiement (JSON ou SSE)
-         * @description Deux représentations, négociées par l'en-tête `Accept` (§27.24) :
+         * Build logs of a deployment (JSON or SSE)
+         * @description Two representations, negotiated via the `Accept` header (§27.24):
          *
-         *     - `application/json` (défaut) — page de lignes de log, reprise par
-         *       `?cursor=` (curseur = `sequence` de la dernière ligne reçue).
-         *     - `text/event-stream` — flux SSE temps réel. Chaque événement a
-         *       `event: log`, `id: <sequence>` et `data: <LogLine en JSON>`.
-         *       Un événement final `event: end` est émis quand le déploiement
-         *       atteint un statut terminal. Reprise native par l'en-tête
-         *       `Last-Event-ID`. En cas de backpressure, un événement
-         *       `event: gap` signale explicitement les lignes abandonnées (§22.2).
+         *     - `application/json` (default) — page of log lines, resumed via
+         *       `?cursor=` (cursor = `sequence` of the last line received).
+         *     - `text/event-stream` — real-time SSE stream. Each event has
+         *       `event: log`, `id: <sequence>` and `data: <LogLine as JSON>`.
+         *       A final `event: end` event is emitted when the deployment
+         *       reaches a terminal status. Native resume via the
+         *       `Last-Event-ID` header. Under backpressure, an
+         *       `event: gap` event explicitly signals the dropped lines (§22.2).
          *
-         *     Les lignes sont neutralisées (ANSI/HTML, §23.3) et ne contiennent
-         *     jamais de valeurs de secrets (INV-003).
+         *     Lines are sanitized (ANSI/HTML, §23.3) and never contain
+         *     secret values (INV-003).
          */
         get: operations["getDeploymentLogs"];
         put?: never;
@@ -1887,7 +1887,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du déploiement. */
+                /** @description UUID of the deployment. */
                 deployment_uuid: components["parameters"]["DeploymentUuid"];
             };
             cookie?: never;
@@ -1895,8 +1895,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Annuler un déploiement
-         * @description Annule un déploiement `queued` ou en cours avant la bascule de trafic (§21.1). Un déploiement déjà terminal ou en cours de bascule (`switching`) → `409`. L'annulation ne supprime que le candidat, jamais le container sain existant (INV-006).
+         * Cancel a deployment
+         * @description Cancels a `queued` or in-progress deployment before the traffic switchover (§21.1). A deployment already terminal or switching (`switching`) → `409`. Cancellation only removes the candidate, never the existing healthy container (INV-006).
          */
         post: operations["cancelDeployment"];
         delete?: never;
@@ -1913,14 +1913,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Déclencher des déploiements par UUID ou tag (webhook CI)
-         * @description Deploy webhook générique pour CI externes (§5.5) — authentifié par token Bearer `deploy`. Cible une ou plusieurs ressources par `uuid` (liste séparée par virgules) et/ou toutes les ressources portant un `tag`. Au moins un des deux paramètres est requis. Accepté en GET pour compatibilité avec les systèmes ne sachant émettre que des GET ; POST est la forme recommandée.
+         * Trigger deployments by UUID or tag (CI webhook)
+         * @description Generic deploy webhook for external CIs (§5.5) — authenticated with a `deploy` Bearer token. Targets one or more resources by `uuid` (comma-separated list) and/or all resources carrying a `tag`. At least one of the two parameters is required. Accepted as GET for compatibility with systems that can only emit GETs; POST is the recommended form.
          */
         get: operations["webhookDeploy"];
         put?: never;
         /**
-         * Déclencher des déploiements par UUID ou tag (webhook CI, POST)
-         * @description Identique à la variante GET — mêmes paramètres de requête, corps ignoré. Supporte `Idempotency-Key` pour dédupliquer les retries CI.
+         * Trigger deployments by UUID or tag (CI webhook, POST)
+         * @description Identical to the GET variant — same query parameters, body ignored. Supports `Idempotency-Key` to deduplicate CI retries.
          */
         post: operations["webhookDeployPost"];
         delete?: never;
@@ -1936,12 +1936,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Lister les credentials DNS-01 */
+        /** List DNS-01 credentials */
         get: operations["listDnsCredentials"];
         put?: never;
         /**
-         * Enregistrer un credential DNS-01
-         * @description `config` porte les variables d'environnement attendues par Lego (`CF_DNS_API_TOKEN`, `AWS_ACCESS_KEY_ID`…). Chiffrées au repos, matérialisées sur le serveur en `/var/lib/akerdock/proxy/acme.env` (0600) et injectées au proxy par `--env-file` — jamais dans un fichier de configuration généré, jamais dans `argv` (INV-003).
+         * Register a DNS-01 credential
+         * @description `config` carries the environment variables expected by Lego (`CF_DNS_API_TOKEN`, `AWS_ACCESS_KEY_ID`…). Encrypted at rest, materialized on the server as `/var/lib/akerdock/proxy/acme.env` (0600) and injected into the proxy via `--env-file` — never in a generated configuration file, never in `argv` (INV-003).
          */
         post: operations["createDnsCredential"];
         delete?: never;
@@ -1959,13 +1959,13 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Détail d'un credential DNS-01 */
+        /** DNS-01 credential details */
         get: operations["getDnsCredential"];
         put?: never;
         post?: never;
         /**
-         * Supprimer un credential DNS-01
-         * @description Refusé en `409` tant qu'un serveur s'en sert pour ses wildcards.
+         * Delete a DNS-01 credential
+         * @description Refused with `409` as long as a server uses it for its wildcards.
          */
         delete: operations["deleteDnsCredential"];
         options?: never;
@@ -1980,10 +1980,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Lister les credentials de registry */
+        /** List registry credentials */
         get: operations["listRegistryCredentials"];
         put?: never;
-        /** Enregistrer un credential de registry */
+        /** Register a registry credential */
         post: operations["createRegistryCredential"];
         delete?: never;
         options?: never;
@@ -1996,25 +1996,25 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du credential de registry. */
+                /** @description UUID of the registry credential. */
                 registry_credential_uuid: components["parameters"]["RegistryCredentialUuid"];
             };
             cookie?: never;
         };
-        /** Détail d'un credential de registry */
+        /** Registry credential details */
         get: operations["getRegistryCredential"];
         put?: never;
         post?: never;
         /**
-         * Supprimer un credential de registry
-         * @description Refusé en `409` tant qu'une application ou un artifact de rollback en dépend : le déploiement concerné ne pourrait plus tirer son image (§19.2).
+         * Delete a registry credential
+         * @description Refused with `409` as long as an application or a rollback artifact depends on it: the affected deployment could no longer pull its image (§19.2).
          */
         delete: operations["deleteRegistryCredential"];
         options?: never;
         head?: never;
         /**
-         * Modifier un credential de registry
-         * @description PATCH sensible — `If-Match` obligatoire (§24.1).
+         * Update a registry credential
+         * @description Sensitive PATCH — `If-Match` required (§24.1).
          */
         patch: operations["updateRegistryCredential"];
         trace?: never;
@@ -2026,12 +2026,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Lister les GitHub Apps de la team */
+        /** List the team's GitHub Apps */
         get: operations["listGithubApps"];
         put?: never;
         /**
-         * Initier la création d'une GitHub App (manifest flow)
-         * @description Crée l'enregistrement en brouillon et renvoie le manifest à soumettre à GitHub (git-webhook-protocols §2.1) : le dashboard poste le champ `manifest` vers `target_url` ; GitHub redirige ensuite vers le callback de l'instance avec un code à usage unique, échangé contre les credentials (chiffrés au repos, jamais journalisés — INV-003). Le `state` anti-CSRF expire après 10 minutes.
+         * Initiate the creation of a GitHub App (manifest flow)
+         * @description Creates the draft record and returns the manifest to submit to GitHub (git-webhook-protocols §2.1): the dashboard posts the `manifest` field to `target_url`; GitHub then redirects to the instance's callback with a single-use code, exchanged for the credentials (encrypted at rest, never logged — INV-003). The anti-CSRF `state` expires after 10 minutes.
          */
         post: operations["createGithubApp"];
         delete?: never;
@@ -2045,18 +2045,18 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la GitHub App. */
+                /** @description UUID of the GitHub App. */
                 github_app_uuid: components["parameters"]["GithubAppUuid"];
             };
             cookie?: never;
         };
-        /** Détail d'une GitHub App */
+        /** GitHub App details */
         get: operations["getGithubApp"];
         put?: never;
         post?: never;
         /**
-         * Supprimer une GitHub App
-         * @description Refusée en `409` tant qu'une git source l'utilise (RESTRICT) — l'app chez GitHub n'est pas supprimée, seulement l'enregistrement.
+         * Delete a GitHub App
+         * @description Refused with `409` as long as a git source uses it (RESTRICT) — the app on GitHub is not deleted, only the record.
          */
         delete: operations["deleteGithubApp"];
         options?: never;
@@ -2069,14 +2069,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la GitHub App. */
+                /** @description UUID of the GitHub App. */
                 github_app_uuid: components["parameters"]["GithubAppUuid"];
             };
             cookie?: never;
         };
         /**
-         * Dépôts accessibles à l'installation
-         * @description Le cache de discovery (data dictionary §7.3), resynchronisé depuis GitHub quand `refresh=true` ou quand il est vide. `409` si l'app n'est pas encore installée.
+         * Repositories accessible to the installation
+         * @description The discovery cache (data dictionary §7.3), resynchronized from GitHub when `refresh=true` or when it is empty. `409` if the app is not yet installed.
          */
         get: operations["listGithubAppRepositories"];
         put?: never;
@@ -2094,12 +2094,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Lister les stacks compose */
+        /** List compose stacks */
         get: operations["listServices"];
         put?: never;
         /**
-         * Créer un stack compose inline
-         * @description Crée un stack dont le fichier compose est la source de vérité (compose-spec.md), sans dépôt Git. Le fichier est validé à la sauvegarde : toute erreur du sous-ensemble (§11) répond `422` avec les findings à codes stables dans `details[]`. `build:` est refusé pour un stack inline — sans source à cloner, il n'y a rien à construire ; les services déploient des images. La création ne déploie pas, sauf `instant_deploy=true`.
+         * Create an inline compose stack
+         * @description Creates a stack whose compose file is the source of truth (compose-spec.md), without a Git repository. The file is validated on save: any error against the subset (§11) responds `422` with stable-coded findings in `details[]`. `build:` is rejected for an inline stack — with no source to clone, there is nothing to build; services deploy images. Creation does not deploy, unless `instant_deploy=true`.
          */
         post: operations["createService"];
         delete?: never;
@@ -2113,25 +2113,25 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
         };
-        /** Détail d'un stack compose */
+        /** Compose stack details */
         get: operations["getService"];
         put?: never;
         post?: never;
         /**
-         * Supprimer un stack compose
-         * @description Suppression asynchrone (§20.6) — routage, containers du stack, puis l'objet logique. Les volumes persistants sont CONSERVÉS par défaut (INV-008).
+         * Delete a compose stack
+         * @description Asynchronous deletion (§20.6) — routing, the stack's containers, then the logical object. Persistent volumes are KEPT by default (INV-008).
          */
         delete: operations["deleteService"];
         options?: never;
         head?: never;
         /**
-         * Modifier un stack compose
-         * @description PATCH sensible — `If-Match` obligatoire (§24.1). Un nouveau `compose_content` est validé comme à la création (422 + findings) ; il prend effet au prochain déploiement.
+         * Update a compose stack
+         * @description Sensitive PATCH — `If-Match` required (§24.1). A new `compose_content` is validated as at creation (422 + findings); it takes effect at the next deployment.
          */
         patch: operations["updateService"];
         trace?: never;
@@ -2141,7 +2141,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
@@ -2149,8 +2149,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Désadopter un stack — rendu non géré, jamais détruit
-         * @description Inverse de l'adoption (§20.7, ADR-013) : AkerDock retire son routage éventuel puis oublie le stack — containers, réseaux, volumes et fichiers distants restent EXACTEMENT en l'état. Opération longue — répond `202` avec un job.
+         * Unadopt a stack — made unmanaged, never destroyed
+         * @description Inverse of adoption (§20.7, ADR-013): AkerDock removes its routing, if any, then forgets the stack — containers, networks, volumes and remote files remain EXACTLY as they are. Long-running operation — responds `202` with a job.
          */
         post: operations["disownService"];
         delete?: never;
@@ -2164,12 +2164,12 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
         };
-        /** Composants d'un stack */
+        /** Components of a stack */
         get: operations["listServiceComponents"];
         put?: never;
         post?: never;
@@ -2184,7 +2184,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
@@ -2192,8 +2192,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Déployer un stack
-         * @description Même moteur que le build pack compose des applications (compose-spec §8.2) : validation, magic variables, remplacement par service avec zero-downtime pour les services web éligibles.
+         * Deploy a stack
+         * @description Same engine as the applications' compose build pack (compose-spec §8.2): validation, magic variables, per-service replacement with zero-downtime for eligible web services.
          */
         post: operations["deployService"];
         delete?: never;
@@ -2207,7 +2207,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
@@ -2215,8 +2215,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Démarrer les containers d'un stack
-         * @description Démarre chaque composant, jobs one-shot exclus (§7.3).
+         * Start a stack's containers
+         * @description Starts each component, one-shot jobs excluded (§7.3).
          */
         post: operations["startService"];
         delete?: never;
@@ -2230,14 +2230,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Arrêter les containers d'un stack */
+        /** Stop a stack's containers */
         post: operations["stopService"];
         delete?: never;
         options?: never;
@@ -2250,7 +2250,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
@@ -2258,8 +2258,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Redémarrer les containers d'un stack
-         * @description Redémarre chaque composant, jobs one-shot exclus.
+         * Restart a stack's containers
+         * @description Restarts each component, one-shot jobs excluded.
          */
         post: operations["restartService"];
         delete?: never;
@@ -2273,18 +2273,18 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
         };
         /**
-         * Variables d'environnement d'un stack
-         * @description Le jeu de variables du stack (compose-spec §3.2) — magic variables générées incluses (`is_generated`).
+         * A stack's environment variables
+         * @description The stack's variable set (compose-spec §3.2) — generated magic variables included (`is_generated`).
          */
         get: operations["listServiceEnvs"];
         put?: never;
-        /** Ajouter une variable au stack */
+        /** Add a variable to the stack */
         post: operations["createServiceEnv"];
         delete?: never;
         options?: never;
@@ -2297,7 +2297,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
                 env_uuid: string;
             };
@@ -2306,11 +2306,11 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Supprimer une variable du stack */
+        /** Delete a stack variable */
         delete: operations["deleteServiceEnv"];
         options?: never;
         head?: never;
-        /** Modifier une variable du stack */
+        /** Update a stack variable */
         patch: operations["updateServiceEnv"];
         trace?: never;
     };
@@ -2319,12 +2319,12 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
         };
-        /** Déploiements d'un stack */
+        /** A stack's deployments */
         get: operations["listServiceDeployments"];
         put?: never;
         post?: never;
@@ -2339,14 +2339,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         /**
-         * Métriques live par composant
-         * @description Instantané CPU/RAM par service du stack, lu à la demande via `docker stats` sur la connexion runtime (ADR-034) — jamais stocké. Le client rafraîchit périodiquement pour tracer une tendance côté navigateur. Vide pour les build packs non-compose.
+         * Live metrics per component
+         * @description CPU/RAM snapshot per service of the stack, read on demand via `docker stats` on the runtime connection (ADR-034) — never stored. The client refreshes periodically to draw a trend on the browser side. Empty for non-compose build packs.
          */
         get: operations["getApplicationMetrics"];
         put?: never;
@@ -2362,14 +2362,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         /**
-         * Composants d'une application en build pack compose
-         * @description Les sous-containers du stack (un par service du fichier compose, compose-spec.md, data dictionary §9.2), avec leur statut observé individuel. Synchronisés à chaque déploiement. Vide pour les autres build packs.
+         * Components of an application using the compose build pack
+         * @description The stack's sub-containers (one per service of the compose file, compose-spec.md, data dictionary §9.2), with their individual observed status. Synchronized at each deployment. Empty for other build packs.
          */
         get: operations["listApplicationComponents"];
         put?: never;
@@ -2385,14 +2385,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         /**
-         * Pull requests ouvertes du dépôt de l'application
-         * @description Lues en direct chez le provider via la GitHub App de la source (§2.2) — jamais stockées. Sert au déclenchement d'une preview depuis la plateforme (§20.4). `409` si la source n'est pas une GitHub App installée.
+         * Open pull requests of the application's repository
+         * @description Read live from the provider via the source's GitHub App (§2.2) — never stored. Used to trigger a preview from the platform (§20.4). `409` if the source is not an installed GitHub App.
          */
         get: operations["listApplicationPullRequests"];
         put?: never;
@@ -2408,17 +2408,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
-        /** Previews de PR d'une application */
+        /** PR previews of an application */
         get: operations["listApplicationPreviews"];
         put?: never;
         /**
-         * Déployer la preview d'une PR depuis la plateforme
-         * @description L'équivalent du commentaire `/deploy` (§20.4.7), sans passer par le provider : la PR est relue chez lui (branche, SHA de tête, fork), la preview créée ou relancée, et promue sous les mêmes règles — une PR de fork reste en attente d'approbation (INV-010). `409` si les previews sont désactivées, si la source n'est pas une GitHub App installée, ou si la PR n'est pas ouverte.
+         * Deploy a PR's preview from the platform
+         * @description The equivalent of the `/deploy` comment (§20.4.7), without going through the provider: the PR is re-read from it (branch, head SHA, fork), the preview created or restarted, and promoted under the same rules — a fork PR stays pending approval (INV-010). `409` if previews are disabled, if the source is not an installed GitHub App, or if the PR is not open.
          */
         post: operations["deployPreviewForPr"];
         delete?: never;
@@ -2432,7 +2432,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
@@ -2442,8 +2442,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Détruire la preview d'une PR
-         * @description Détruit l'instance (§20.4.6) : conteneurs, volumes, réseaux et routage de la preview — la production n'est jamais touchée (INV-011). La PR reste ouverte : un `/deploy` ou un push recrée une instance neuve. `409` si la preview est déjà détruite ou en cours de destruction.
+         * Destroy a PR's preview
+         * @description Destroys the instance (§20.4.6): the preview's containers, volumes, networks and routing — production is never touched (INV-011). The PR stays open: a `/deploy` or a push recreates a fresh instance. `409` if the preview is already destroyed or being destroyed.
          */
         delete: operations["destroyPreview"];
         options?: never;
@@ -2456,15 +2456,15 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
             cookie?: never;
         };
         /**
-         * Logs des containers d'une preview
-         * @description Les dernières lignes d'un container de l'instance de preview — lecture directe sur le serveur (`docker logs`), jamais stockées. Pour une stack compose, `component` désigne le service (obligatoire dès que la stack a des composants). `409` si le container n'existe pas (preview détruite ou jamais démarrée) ; `404` si le composant est inconnu.
+         * Logs of a preview's containers
+         * @description The last lines of a container of the preview instance — read directly on the server (`docker logs`), never stored. For a compose stack, `component` designates the service (required as soon as the stack has components). `409` if the container does not exist (preview destroyed or never started); `404` if the component is unknown.
          */
         get: operations["getPreviewLogs"];
         put?: never;
@@ -2480,21 +2480,21 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
             cookie?: never;
         };
         /**
-         * Variables effectives d'une preview
-         * @description Le jeu partagé des previews (INV-010) fusionné avec les surcharges dédiées à CETTE PR — par clé, la surcharge gagne. Chaque ligne dit d'où elle vient (`is_preview_override`).
+         * Effective variables of a preview
+         * @description The shared preview set (INV-010) merged with the overrides dedicated to THIS PR — per key, the override wins. Each line says where it comes from (`is_preview_override`).
          */
         get: operations["listPreviewEnvs"];
         put?: never;
         /**
-         * Créer une variable dédiée à cette preview
-         * @description Une surcharge locale à la PR : même clé que le jeu partagé → cette valeur gagne pour cette preview seulement ; clé nouvelle → variable supplémentaire de cette preview. Appliquée au prochain déploiement de la preview.
+         * Create a variable dedicated to this preview
+         * @description An override local to the PR: same key as the shared set → this value wins for this preview only; new key → additional variable of this preview. Applied at the preview's next deployment.
          */
         post: operations["createPreviewEnv"];
         delete?: never;
@@ -2508,7 +2508,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
@@ -2517,8 +2517,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ouvrir une session terminal dans un container de la preview
-         * @description Même contrat que le terminal d'application (§5.7, §24.4) — token court à usage unique, session auditée et bornée — mais la cible est un container de l'INSTANCE de preview (INV-011). `component` désigne le service pour une stack compose ; `404` si le composant est inconnu ; `409` si la preview est détruite.
+         * Open a terminal session in a container of the preview
+         * @description Same contract as the application terminal (§5.7, §24.4) — short-lived single-use token, audited and bounded session — but the target is a container of the preview INSTANCE (INV-011). `component` designates the service for a compose stack; `404` if the component is unknown; `409` if the preview is destroyed.
          */
         post: operations["createPreviewTerminalSession"];
         delete?: never;
@@ -2532,15 +2532,15 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
             cookie?: never;
         };
         /**
-         * Métriques live par composant d'une preview
-         * @description Comme `getApplicationMetrics` mais pour les containers de l'INSTANCE de preview (INV-011), lus à la demande via `docker stats` (ADR-034). `409` si la preview est détruite.
+         * Live metrics per component of a preview
+         * @description Like `getApplicationMetrics` but for the containers of the preview INSTANCE (INV-011), read on demand via `docker stats` (ADR-034). `409` if the preview is destroyed.
          */
         get: operations["getPreviewMetrics"];
         put?: never;
@@ -2556,7 +2556,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
@@ -2565,8 +2565,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ouvrir un tunnel TCP vers un container de la preview
-         * @description Même contrat que le port-forward d'application (ADR-032), mais la cible est un container de l'INSTANCE de preview (INV-011). `409` si la preview est détruite ; `404` si le composant est inconnu.
+         * Open a TCP tunnel to a container of the preview
+         * @description Same contract as the application port-forward (ADR-032), but the target is a container of the preview INSTANCE (INV-011). `409` if the preview is destroyed; `404` if the component is unknown.
          */
         post: operations["createPreviewPortForward"];
         delete?: never;
@@ -2580,7 +2580,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
@@ -2589,8 +2589,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Réarmer le TTL d'une preview
-         * @description Remet à zéro l'horloge d'inactivité (§20.4.3) et efface l'avertissement d'expiration — équivalent UI de la commande `/keep`. La preview reste vivante jusqu'au prochain TTL. `409` si elle est déjà détruite.
+         * Re-arm a preview's TTL
+         * @description Resets the inactivity clock (§20.4.3) and clears the expiration warning — UI equivalent of the `/keep` command. The preview stays alive until the next TTL. `409` if it is already destroyed.
          */
         post: operations["keepPreview"];
         delete?: never;
@@ -2604,7 +2604,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
@@ -2613,8 +2613,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Approuver la preview d'une PR de fork
-         * @description Approbation explicite d'un mainteneur (§20.4.8, INV-010) : la preview du fork est alors promue si la capacité le permet. Sans objet (409) pour une PR interne ou déjà approuvée.
+         * Approve the preview of a fork PR
+         * @description Explicit approval by a maintainer (§20.4.8, INV-010): the fork's preview is then promoted if capacity allows. Not applicable (409) for an internal or already approved PR.
          */
         post: operations["approvePreviewFork"];
         delete?: never;
@@ -2628,17 +2628,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
-        /** Lister les tâches planifiées d'une application */
+        /** List an application's scheduled tasks */
         get: operations["listScheduledTasks"];
         put?: never;
         /**
-         * Créer une tâche planifiée
-         * @description La commande est exécutée dans le container de la ressource (`docker exec`). L'expression cron accepte les mêmes alias que les plans de backup (`@daily`, `@hourly`, …) et est validée ici : une expression invalide est refusée en `422`, jamais acceptée puis silencieusement jamais déclenchée.
+         * Create a scheduled task
+         * @description The command is executed inside the resource's container (`docker exec`). The cron expression accepts the same aliases as the backup plans (`@daily`, `@hourly`, …) and is validated here: an invalid expression is refused with `422`, never accepted then silently never triggered.
          */
         post: operations["createScheduledTask"];
         delete?: never;
@@ -2652,25 +2652,25 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la tâche planifiée. */
+                /** @description UUID of the scheduled task. */
                 task_uuid: components["parameters"]["TaskUuid"];
             };
             cookie?: never;
         };
-        /** Détail d'une tâche planifiée */
+        /** Scheduled task details */
         get: operations["getScheduledTask"];
         put?: never;
         post?: never;
         /**
-         * Supprimer une tâche planifiée
-         * @description L'historique d'exécution est supprimé avec elle (CASCADE).
+         * Delete a scheduled task
+         * @description The execution history is deleted with it (CASCADE).
          */
         delete: operations["deleteScheduledTask"];
         options?: never;
         head?: never;
         /**
-         * Modifier une tâche planifiée
-         * @description PATCH sensible — `If-Match` obligatoire (§24.1). Modifier le cron replanifie la prochaine occurrence ; l'historique n'est jamais réécrit.
+         * Update a scheduled task
+         * @description Sensitive PATCH — `If-Match` required (§24.1). Changing the cron reschedules the next occurrence; the history is never rewritten.
          */
         patch: operations["updateScheduledTask"];
         trace?: never;
@@ -2680,7 +2680,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la tâche planifiée. */
+                /** @description UUID of the scheduled task. */
                 task_uuid: components["parameters"]["TaskUuid"];
             };
             cookie?: never;
@@ -2688,8 +2688,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Déclencher une tâche planifiée immédiatement
-         * @description Déclenchement manuel — même chemin d'exécution que le déclenchement cron, y compris la politique de chevauchement (`overlap_policy`).
+         * Trigger a scheduled task immediately
+         * @description Manual trigger — same execution path as the cron trigger, including the overlap policy (`overlap_policy`).
          */
         post: operations["runScheduledTask"];
         delete?: never;
@@ -2703,14 +2703,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la tâche planifiée. */
+                /** @description UUID of the scheduled task. */
                 task_uuid: components["parameters"]["TaskUuid"];
             };
             cookie?: never;
         };
         /**
-         * Historique d'exécution d'une tâche
-         * @description Du plus récent au plus ancien. Une occurrence **non exécutée** (run précédent encore en cours, ou instance arrêtée au moment de l'occurrence) apparaît avec le statut `skipped` et sa raison : un historique vide voudrait dire « rien n'a jamais été planifié ».
+         * A task's execution history
+         * @description From newest to oldest. A **non-executed** occurrence (previous run still in progress, or instance stopped at the time of the occurrence) appears with the `skipped` status and its reason: an empty history would mean "nothing was ever scheduled".
          */
         get: operations["listTaskExecutions"];
         put?: never;
@@ -2729,8 +2729,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Lister les bases de données
-         * @description Les champs sensibles (mot de passe, URLs de connexion) sont `null` sans `read:sensitive`.
+         * List databases
+         * @description Sensitive fields (password, connection URLs) are `null` without `read:sensitive`.
          */
         get: operations["listDatabases"];
         put?: never;
@@ -2751,8 +2751,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Créer une base PostgreSQL
-         * @description Crée une base PostgreSQL managée (§6). Les credentials omis sont auto-générés (mot de passe 64 caractères). La création n'effectue aucun démarrage, sauf `instant_start=true`.
+         * Create a PostgreSQL database
+         * @description Creates a managed PostgreSQL database (§6). Omitted credentials are auto-generated (64-character password). Creation performs no start, unless `instant_start=true`.
          */
         post: operations["createPostgresqlDatabase"];
         delete?: never;
@@ -2766,28 +2766,28 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
         };
         /**
-         * Détail d'une base
-         * @description `postgres_password`, `internal_url` et `external_url` requièrent `read:sensitive` (sinon `null`, `is_redacted=true`).
+         * Database details
+         * @description `postgres_password`, `internal_url` and `external_url` require `read:sensitive` (otherwise `null`, `is_redacted=true`).
          */
         get: operations["getDatabase"];
         put?: never;
         post?: never;
         /**
-         * Supprimer une base
-         * @description Suppression asynchrone (§20.6). Par défaut les volumes de données sont CONSERVÉS ; `delete_volumes=true` pour les détruire (INV-008). Refusé avec `409` si des plans de backup actifs référencent la base (les supprimer d'abord).
+         * Delete a database
+         * @description Asynchronous deletion (§20.6). By default the data volumes are KEPT; `delete_volumes=true` to destroy them (INV-008). Refused with `409` if active backup plans reference the database (delete them first).
          */
         delete: operations["deleteDatabase"];
         options?: never;
         head?: never;
         /**
-         * Modifier une base
-         * @description PATCH sensible — `If-Match` obligatoire. Certains changements (image, configuration, credentials) nécessitent un redémarrage pour prendre effet — le champ `restart_required` de la réponse l'indique.
+         * Update a database
+         * @description Sensitive PATCH — `If-Match` required. Some changes (image, configuration, credentials) require a restart to take effect — the `restart_required` field of the response indicates it.
          */
         patch: operations["updateDatabase"];
         trace?: never;
@@ -2797,14 +2797,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Démarrer une base */
+        /** Start a database */
         post: operations["startDatabase"];
         delete?: never;
         options?: never;
@@ -2817,14 +2817,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Arrêter une base */
+        /** Stop a database */
         post: operations["stopDatabase"];
         delete?: never;
         options?: never;
@@ -2837,14 +2837,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Redémarrer une base */
+        /** Restart a database */
         post: operations["restartDatabase"];
         delete?: never;
         options?: never;
@@ -2857,7 +2857,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
@@ -2865,8 +2865,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ouvrir une session terminal dans le container de la base
-         * @description Crée une session terminal (§5.7, §24.4) vers le container de la base managée (shell du container — `psql` y est disponible) et renvoie un **token court à usage unique** à présenter sur le WebSocket `websocket_path` (hors OpenAPI, §27.24). Mêmes garanties que le terminal d'application : token une seule fois, session bornée à la team, auditée, idle timeout, durée maximum, kill garanti (§24.4). `409` si la team a atteint son plafond de sessions simultanées (`terminal_session_limit`).
+         * Open a terminal session in the database's container
+         * @description Creates a terminal session (§5.7, §24.4) to the managed database's container (container shell — `psql` is available there) and returns a **short-lived single-use token** to present on the WebSocket `websocket_path` (outside OpenAPI, §27.24). Same guarantees as the application terminal: token shown once, session scoped to the team, audited, idle timeout, maximum duration, guaranteed kill (§24.4). `409` if the team has reached its cap of concurrent sessions (`terminal_session_limit`).
          */
         post: operations["createDatabaseTerminalSession"];
         delete?: never;
@@ -2880,17 +2880,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
         };
-        /** Lister les plans de backup d'une base */
+        /** List a database's backup plans */
         get: operations["listBackupPlans"];
         put?: never;
         /**
-         * Créer un plan de backup
-         * @description Plan de backup planifié (§7.1) — cron ou alias (`daily`, `hourly`…), destination locale et/ou S3, règles de rétention séparées (§7.2).
+         * Create a backup plan
+         * @description Scheduled backup plan (§7.1) — cron or alias (`daily`, `hourly`…), local and/or S3 destination, separate retention rules (§7.2).
          */
         post: operations["createBackupPlan"];
         delete?: never;
@@ -2904,27 +2904,27 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
-        /** Détail d'un plan de backup */
+        /** Backup plan details */
         get: operations["getBackupPlan"];
         put?: never;
         post?: never;
         /**
-         * Supprimer un plan de backup
-         * @description Supprime le plan et sa planification. Les exécutions passées et leurs fichiers de backup sont conservés selon la rétention — jamais supprimés implicitement (INV-008).
+         * Delete a backup plan
+         * @description Deletes the plan and its schedule. Past executions and their backup files are kept according to the retention — never deleted implicitly (INV-008).
          */
         delete: operations["deleteBackupPlan"];
         options?: never;
         head?: never;
         /**
-         * Modifier un plan de backup
-         * @description PATCH sensible — `If-Match` obligatoire.
+         * Update a backup plan
+         * @description Sensitive PATCH — `If-Match` required.
          */
         patch: operations["updateBackupPlan"];
         trace?: never;
@@ -2934,9 +2934,9 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
@@ -2944,8 +2944,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Lancer un backup immédiat (Backup Now)
-         * @description Exécute le plan immédiatement, hors planification (§7.1). Une seule exécution simultanée par plan (verrou §20.5) → `409` si une exécution est déjà en cours.
+         * Run an immediate backup (Backup Now)
+         * @description Runs the plan immediately, outside the schedule (§7.1). A single concurrent execution per plan (lock §20.5) → `409` if an execution is already in progress.
          */
         post: operations["executeBackupPlan"];
         delete?: never;
@@ -2959,9 +2959,9 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
@@ -2969,8 +2969,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Lancer immédiatement un restore drill
-         * @description Restaure le dernier backup réussi dans une base **jetable** sur le même serveur, recompte ce qui est revenu, puis détruit la base. Même chemin que le drill périodique. `409` si le plan n'a aucun backup réussi à restaurer — il n'y a alors rien à prouver.
+         * Run a restore drill immediately
+         * @description Restores the latest successful backup into a **throwaway** database on the same server, recounts what came back, then destroys the database. Same path as the periodic drill. `409` if the plan has no successful backup to restore — there is then nothing to prove.
          */
         post: operations["runRestoreDrill"];
         delete?: never;
@@ -2984,14 +2984,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
-        /** Historique des restore drills d'un plan */
+        /** History of a plan's restore drills */
         get: operations["listRestoreDrills"];
         put?: never;
         post?: never;
@@ -3006,16 +3006,16 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
         /**
-         * Lister les exécutions d'un plan de backup
-         * @description Historique des exécutions (statut, fichier, taille, upload S3, §7.3), du plus récent au plus ancien. Un succès local avec échec S3 apparaît en statut `partial`, jamais en succès global (§20.5).
+         * List a backup plan's executions
+         * @description Execution history (status, file, size, S3 upload, §7.3), from newest to oldest. A local success with S3 failure appears with the `partial` status, never as a global success (§20.5).
          */
         get: operations["listBackupExecutions"];
         put?: never;
@@ -3031,11 +3031,11 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
-                /** @description UUID de l'exécution de backup. */
+                /** @description UUID of the backup execution. */
                 execution_uuid: components["parameters"]["ExecutionUuid"];
             };
             cookie?: never;
@@ -3043,8 +3043,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Restaurer une base depuis une exécution de backup
-         * @description Opération destructive et confirmée (§20.5) — le corps DOIT porter `confirm=true`, sinon `422`. Le format du backup est testé avant exécution ; un restore vers une base non vide exige en plus `allow_non_empty=true`. Journal complet dans le job. `409` si un restore ou un backup est déjà en cours sur la base.
+         * Restore a database from a backup execution
+         * @description Destructive and confirmed operation (§20.5) — the body MUST carry `confirm=true`, otherwise `422`. The backup format is tested before execution; a restore into a non-empty database additionally requires `allow_non_empty=true`. Full log in the job. `409` if a restore or a backup is already in progress on the database.
          */
         post: operations["restoreBackupExecution"];
         delete?: never;
@@ -3058,17 +3058,17 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
             };
             cookie?: never;
         };
-        /** Lister les plans de backup d'un composant de stack */
+        /** List a stack component's backup plans */
         get: operations["listComponentBackupPlans"];
         put?: never;
         /**
-         * Créer un plan de backup sur une base interne d'un stack
-         * @description Le composant doit être classé base de données par la détection d'image (compose-spec §10) et son moteur supporté (PostgreSQL en v1) — sinon `422`. Le dump s'exécute dans le container du composant, credentials lus dans son environnement, jamais journalisés (INV-003). Mêmes destinations, rétention et drills que les bases managées.
+         * Create a backup plan on a stack's internal database
+         * @description The component must be classified as a database by the image detection (compose-spec §10) and its engine supported (PostgreSQL in v1) — otherwise `422`. The dump runs inside the component's container, credentials read from its environment, never logged (INV-003). Same destinations, retention and drills as managed databases.
          */
         post: operations["createComponentBackupPlan"];
         delete?: never;
@@ -3082,27 +3082,27 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
-        /** Détail d'un plan de backup de composant */
+        /** Component backup plan details */
         get: operations["getComponentBackupPlan"];
         put?: never;
         post?: never;
         /**
-         * Supprimer un plan de backup de composant
-         * @description Supprime le plan et sa planification. Les exécutions passées et leurs fichiers de backup sont conservés selon la rétention — jamais supprimés implicitement (INV-008).
+         * Delete a component backup plan
+         * @description Deletes the plan and its schedule. Past executions and their backup files are kept according to the retention — never deleted implicitly (INV-008).
          */
         delete: operations["deleteComponentBackupPlan"];
         options?: never;
         head?: never;
         /**
-         * Modifier un plan de backup de composant
-         * @description PATCH sensible — `If-Match` obligatoire.
+         * Update a component backup plan
+         * @description Sensitive PATCH — `If-Match` required.
          */
         patch: operations["updateComponentBackupPlan"];
         trace?: never;
@@ -3112,9 +3112,9 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
@@ -3122,8 +3122,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Lancer un backup immédiat d'une base interne
-         * @description Exécute le plan immédiatement, hors planification (§7.1). Une seule exécution simultanée par plan (verrou §20.5) → `409` si une exécution est déjà en cours.
+         * Run an immediate backup of an internal database
+         * @description Runs the plan immediately, outside the schedule (§7.1). A single concurrent execution per plan (lock §20.5) → `409` if an execution is already in progress.
          */
         post: operations["executeComponentBackupPlan"];
         delete?: never;
@@ -3137,9 +3137,9 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
@@ -3147,8 +3147,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Lancer immédiatement un restore drill sur une base interne
-         * @description Restaure le dernier backup réussi dans une base **jetable** sur le même serveur, recompte ce qui est revenu, puis détruit la base. Même chemin que le drill périodique. `409` si le plan n'a aucun backup réussi à restaurer.
+         * Run a restore drill immediately on an internal database
+         * @description Restores the latest successful backup into a **throwaway** database on the same server, recounts what came back, then destroys the database. Same path as the periodic drill. `409` if the plan has no successful backup to restore.
          */
         post: operations["runComponentRestoreDrill"];
         delete?: never;
@@ -3162,14 +3162,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
-        /** Historique des restore drills d'un plan de composant */
+        /** History of a component plan's restore drills */
         get: operations["listComponentRestoreDrills"];
         put?: never;
         post?: never;
@@ -3184,16 +3184,16 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
         /**
-         * Lister les exécutions d'un plan de backup de composant
-         * @description Historique des exécutions (statut, fichier, taille, upload S3, §7.3), du plus récent au plus ancien. Un succès local avec échec S3 apparaît en statut `partial`, jamais en succès global (§20.5).
+         * List a component backup plan's executions
+         * @description Execution history (status, file, size, S3 upload, §7.3), from newest to oldest. A local success with S3 failure appears with the `partial` status, never as a global success (§20.5).
          */
         get: operations["listComponentBackupExecutions"];
         put?: never;
@@ -3209,11 +3209,11 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
-                /** @description UUID de l'exécution de backup. */
+                /** @description UUID of the backup execution. */
                 execution_uuid: components["parameters"]["ExecutionUuid"];
             };
             cookie?: never;
@@ -3221,8 +3221,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Restaurer une base interne depuis une exécution de backup
-         * @description Opération destructive et confirmée (§20.5) — le corps DOIT porter `confirm=true`, sinon `422`. Le format du backup est testé avant exécution ; un restore vers une base non vide exige en plus `allow_non_empty=true`. Journal complet dans le job. `409` si un restore ou un backup est déjà en cours sur le composant.
+         * Restore an internal database from a backup execution
+         * @description Destructive and confirmed operation (§20.5) — the body MUST carry `confirm=true`, otherwise `422`. The backup format is tested before execution; a restore into a non-empty database additionally requires `allow_non_empty=true`. Full log in the job. `409` if a restore or a backup is already in progress on the component.
          */
         post: operations["restoreComponentBackupExecution"];
         delete?: never;
@@ -3238,12 +3238,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Lister les checks d'uptime de la team */
+        /** List the team's uptime checks */
         get: operations["listUptimeChecks"];
         put?: never;
         /**
-         * Créer un check d'uptime
-         * @description Check HTTP (URL, up = réponse < 400) ou TCP (host:port, up = connexion). Sondé depuis le control plane toutes les `interval_seconds` ; le verdict ne bascule qu'après `failure_threshold` échecs consécutifs (et remonte après `success_threshold` succès) — l'anti-flapping est dans les seuils, pas dans le notifier. La granularité effective est bornée par le tick du scheduler.
+         * Create an uptime check
+         * @description HTTP check (URL, up = response < 400) or TCP check (host:port, up = connection). Probed from the control plane every `interval_seconds`; the verdict only flips after `failure_threshold` consecutive failures (and recovers after `success_threshold` successes) — anti-flapping lives in the thresholds, not in the notifier. The effective granularity is bounded by the scheduler tick.
          */
         post: operations["createUptimeCheck"];
         delete?: never;
@@ -3257,25 +3257,25 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'un check d'uptime (ADR-017). */
+                /** @description UUID of an uptime check (ADR-017). */
                 uptime_check_uuid: components["parameters"]["UptimeCheckUuid"];
             };
             cookie?: never;
         };
-        /** Détail d'un check d'uptime */
+        /** Uptime check details */
         get: operations["getUptimeCheck"];
         put?: never;
         post?: never;
         /**
-         * Supprimer un check d'uptime
-         * @description L'historique est purgé avec le check.
+         * Delete an uptime check
+         * @description The history is purged with the check.
          */
         delete: operations["deleteUptimeCheck"];
         options?: never;
         head?: never;
         /**
-         * Modifier un check d'uptime
-         * @description PATCH sensible — `If-Match` obligatoire.
+         * Update an uptime check
+         * @description Sensitive PATCH — `If-Match` required.
          */
         patch: operations["updateUptimeCheck"];
         trace?: never;
@@ -3285,14 +3285,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'un check d'uptime (ADR-017). */
+                /** @description UUID of an uptime check (ADR-017). */
                 uptime_check_uuid: components["parameters"]["UptimeCheckUuid"];
             };
             cookie?: never;
         };
         /**
-         * Historique des sondes d'un check
-         * @description Les résultats bruts (ok, latence, code, erreur), du plus récent au plus ancien — rétention bornée (30 jours) ; le verdict courant vit sur le check lui-même.
+         * A check's probe history
+         * @description The raw results (ok, latency, code, error), from newest to oldest — bounded retention (30 days); the current verdict lives on the check itself.
          */
         get: operations["listUptimeResults"];
         put?: never;
@@ -3310,12 +3310,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Lister les variables partagées de la team */
+        /** List the team's shared variables */
         get: operations["listSharedVariables"];
         put?: never;
         /**
-         * Créer une variable partagée
-         * @description Le scope nomme le niveau d'héritage : `team` (aucun parent), `project`/`environment`/`server` (parent obligatoire). Une clé est unique par parent. La valeur est chiffrée au repos et prend effet au prochain déploiement des ressources concernées.
+         * Create a shared variable
+         * @description The scope names the inheritance level: `team` (no parent), `project`/`environment`/`server` (parent required). A key is unique per parent. The value is encrypted at rest and takes effect at the next deployment of the affected resources.
          */
         post: operations["createSharedVariable"];
         delete?: never;
@@ -3329,7 +3329,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'une variable partagée (§5.4). */
+                /** @description UUID of a shared variable (§5.4). */
                 shared_variable_uuid: components["parameters"]["SharedVariableUuid"];
             };
             cookie?: never;
@@ -3338,15 +3338,15 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Supprimer une variable partagée
-         * @description Les valeurs déjà interpolées dans des containers en cours d'exécution ne changent qu'au prochain déploiement.
+         * Delete a shared variable
+         * @description Values already interpolated into running containers only change at the next deployment.
          */
         delete: operations["deleteSharedVariable"];
         options?: never;
         head?: never;
         /**
-         * Modifier une variable partagée (valeur, masquage)
-         * @description La clé et le scope sont immuables — recréer pour changer d'identité.
+         * Update a shared variable (value, masking)
+         * @description The key and scope are immutable — recreate to change identity.
          */
         patch: operations["updateSharedVariable"];
         trace?: never;
@@ -3359,8 +3359,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Lister les jobs
-         * @description Liste paginée des jobs de la team (INV-002), du plus récent au plus ancien. Usage principal : inventaire de la **dead-letter** (`?status=dead_letter`) — les jobs en dead-letter ne sont jamais rejoués automatiquement et sont conservés jusqu'à intervention (retry/forget, §21.3).
+         * List jobs
+         * @description Paginated list of the team's jobs (INV-002), from newest to oldest. Main use: inventory of the **dead-letter** (`?status=dead_letter`) — dead-letter jobs are never replayed automatically and are kept until intervention (retry/forget, §21.3).
          */
         get: operations["listJobs"];
         put?: never;
@@ -3376,14 +3376,14 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du job. */
+                /** @description UUID of the job. */
                 job_uuid: components["parameters"]["JobUuid"];
             };
             cookie?: never;
         };
         /**
-         * Suivi d'une opération asynchrone
-         * @description Retourne l'état d'un job créé par une réponse `202` (machine à états §21.3), avec ses étapes, sa progression et son résultat ou son erreur. Les jobs sont scopés par team comme toute ressource (INV-002).
+         * Track an asynchronous operation
+         * @description Returns the state of a job created by a `202` response (state machine §21.3), with its steps, its progress and its result or its error. Jobs are scoped per team like any resource (INV-002).
          */
         get: operations["getJob"];
         put?: never;
@@ -3399,7 +3399,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du job. */
+                /** @description UUID of the job. */
                 job_uuid: components["parameters"]["JobUuid"];
             };
             cookie?: never;
@@ -3407,8 +3407,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Rejouer un job en dead-letter
-         * @description Rejeu depuis la dead-letter (spec deployment-engine §2.4) : action manuelle **auditée** (§23.4) qui crée une **nouvelle tentative liée** — un nouveau job est mis en file avec `retry_of_uuid` pointant vers le job d'origine ; le job d'origine n'est jamais remis en file (l'historique des tentatives est préservé). Corriger la cause racine avant de rejouer, sinon la nouvelle tentative échouera à l'identique. `409` (`invalid_state`) si le job n'est pas en `dead_letter`.
+         * Retry a dead-letter job
+         * @description Replay from the dead-letter (deployment-engine spec §2.4): a manual **audited** action (§23.4) that creates a **linked new attempt** — a new job is queued with `retry_of_uuid` pointing to the original job; the original job is never re-queued (the attempt history is preserved). Fix the root cause before retrying, otherwise the new attempt will fail identically. `409` (`invalid_state`) if the job is not in `dead_letter`.
          */
         post: operations["retryJob"];
         delete?: never;
@@ -3422,7 +3422,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du job. */
+                /** @description UUID of the job. */
                 job_uuid: components["parameters"]["JobUuid"];
             };
             cookie?: never;
@@ -3430,8 +3430,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Abandonner un job en dead-letter
-         * @description Clôture définitive **auditée** (§23.4) d'un job en dead-letter dont l'opération n'a plus de sens (le job passe en `cancelled`). Si le job laisse des **restes distants** (ex. `resource.delete` avec `remnants`, §20.6.4), le corps DOIT porter `acknowledge_remnants=true`, sinon `409` (`remnants_present`) avec la liste des restes dans `details` — le forget n'effectue aucun nettoyage distant, les objets orphelins restent à traiter manuellement. `409` (`invalid_state`) si le job n'est pas en `dead_letter`.
+         * Forget a dead-letter job
+         * @description Definitive **audited** closure (§23.4) of a dead-letter job whose operation no longer makes sense (the job moves to `cancelled`). If the job leaves **remote remnants** (e.g. `resource.delete` with `remnants`, §20.6.4), the body MUST carry `acknowledge_remnants=true`, otherwise `409` (`remnants_present`) with the list of remnants in `details` — forget performs no remote cleanup, the orphaned objects remain to be handled manually. `409` (`invalid_state`) if the job is not in `dead_letter`.
          */
         post: operations["forgetJob"];
         delete?: never;
@@ -3444,134 +3444,134 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description Schéma d'erreur unique de l'API (§24.1). Ne contient jamais de secret ni de stack trace. */
+        /** @description Single error schema of the API (§24.1). Never contains a secret or a stack trace. */
         Error: {
             /**
-             * @description Code d'erreur stable lisible machine. Valeurs notables — bad_request, unauthorized, forbidden, not_found, already_exists, dependency_exists, operation_in_progress, invalid_state, version_conflict, idempotency_conflict, validation_failed, rate_limited, internal.
+             * @description Stable machine-readable error code. Notable values — bad_request, unauthorized, forbidden, not_found, already_exists, dependency_exists, operation_in_progress, invalid_state, version_conflict, idempotency_conflict, validation_failed, rate_limited, internal.
              * @example validation_failed
              */
             code: string;
-            /** @description Message générique lisible humain (sans donnée sensible). */
+            /** @description Generic human-readable message (without sensitive data). */
             message: string;
             /**
-             * @description Détails structurés et validés (erreurs de champ, contexte).
+             * @description Structured and validated details (field errors, context).
              * @default []
              */
             details: components["schemas"]["ErrorDetail"][];
-            /** @description Identifiant de corrélation de la requête (repris dans les logs et l'audit, §23.4). */
+            /** @description Correlation identifier of the request (repeated in logs and audit, §23.4). */
             request_id: string;
         };
-        /** @description Détail d'erreur — cible optionnelle et code spécifique. */
+        /** @description Error detail — optional target and specific code. */
         ErrorDetail: {
-            /** @description Champ ou paramètre concerné (notation pointée), si applicable. */
+            /** @description Affected field or parameter (dotted notation), if applicable. */
             field?: string | null;
-            /** @description Code du détail (ex. required, invalid_url, out_of_range, current_version). */
+            /** @description Detail code (e.g. required, invalid_url, out_of_range, current_version). */
             code?: string | null;
-            /** @description Explication lisible humain. */
+            /** @description Human-readable explanation. */
             message: string;
         };
-        /** @description Curseur opaque de la page suivante — `null` sur la dernière page. */
+        /** @description Opaque cursor of the next page — `null` on the last page. */
         NextCursor: string | null;
-        /** @description Réponse standard des mutations longues (§24.1) — `202` avec job de suivi. */
+        /** @description Standard response of long-running mutations (§24.1) — `202` with a tracking job. */
         JobAccepted: {
-            /** @description UUID du job créé. */
+            /** @description UUID of the created job. */
             job_uuid: string;
             /**
-             * @description URL de suivi du job (relative à /api/v1).
+             * @description Tracking URL of the job (relative to /api/v1).
              * @example /jobs/jb9x2mc
              */
             status_url: string;
         };
-        /** @description Réponse d'un déclenchement de déploiement — le déploiement est l'objet de suivi principal. */
+        /** @description Response of a deployment trigger — the deployment is the main tracking object. */
         DeploymentAccepted: {
-            /** @description UUID du déploiement mis en file. */
+            /** @description UUID of the queued deployment. */
             deployment_uuid: string;
             /**
-             * @description URL de suivi du déploiement (relative à /api/v1).
+             * @description Tracking URL of the deployment (relative to /api/v1).
              * @example /deployments/dp4k1zq
              */
             status_url: string;
-            /** @description Job interne associé, si exposé. */
+            /** @description Associated internal job, if exposed. */
             job_uuid?: string | null;
         };
-        /** @description Réponse d'un Backup Now — job de suivi + exécution créée. */
+        /** @description Response of a Backup Now — tracking job + created execution. */
         BackupExecutionAccepted: components["schemas"]["JobAccepted"] & {
-            /** @description UUID de l'exécution de backup créée (traçée dans l'historique du plan). */
+            /** @description UUID of the created backup execution (traced in the plan's history). */
             execution_uuid: string;
         };
-        /** @description Résultat du deploy webhook — un déploiement par ressource ciblée. */
+        /** @description Result of the deploy webhook — one deployment per targeted resource. */
         WebhookDeployAccepted: {
             deployments: components["schemas"]["WebhookDeployResult"][];
         };
         WebhookDeployResult: {
-            /** @description UUID de la ressource ciblée. */
+            /** @description UUID of the targeted resource. */
             resource_uuid: string;
-            /** @description UUID du déploiement mis en file pour cette ressource. */
+            /** @description UUID of the deployment queued for this resource. */
             deployment_uuid: string;
-            /** @description Précision éventuelle (ex. déploiement coalescé avec un déploiement en attente). */
+            /** @description Optional clarification (e.g. deployment coalesced with a pending deployment). */
             message?: string | null;
         };
-        /** @description Événement de domaine publié par l'outbox transactionnelle (§24.2) — référence les objets par UUID public, ne contient jamais de valeur de secret (INV-003). */
+        /** @description Domain event published by the transactional outbox (§24.2) — references objects by public UUID, never contains a secret value (INV-003). */
         Event: {
-            /** @description Séquence monotone — sert de `Last-Event-ID` pour la reprise. */
+            /** @description Monotonic sequence — serves as `Last-Event-ID` for resume. */
             sequence: number;
-            /** @description Type versionné de l'événement (ex. deployment.succeeded.v1). */
+            /** @description Versioned type of the event (e.g. deployment.succeeded.v1). */
             event_type: string;
             /** Format: date-time */
             occurred_at: string;
             resource_uuid?: string | null;
-            /** @description Métadonnées de l'événement (UUIDs, statuts) — jamais de secret. */
+            /** @description Event metadata (UUIDs, statuses) — never a secret. */
             payload?: {
                 [key: string]: unknown;
             };
         };
         HealthStatus: {
             /**
-             * @description Toujours `ok` si le control plane répond.
+             * @description Always `ok` if the control plane responds.
              * @enum {string}
              */
             status: "ok";
         };
         VersionInfo: {
             /**
-             * @description Version sémantique de l'instance AkerDock.
+             * @description Semantic version of the AkerDock instance.
              * @example 1.0.0
              */
             version: string;
-            /** @description SHA du commit de build. */
+            /** @description SHA of the build commit. */
             commit?: string | null;
             /**
              * Format: date-time
-             * @description Date de build (UTC).
+             * @description Build date (UTC).
              */
             built_at?: string | null;
         };
         ApiState: {
-            /** @description État d'activation de l'API publique. */
+            /** @description Enablement state of the public API. */
             api_enabled: boolean;
         };
-        /** @description État du chiffrement enveloppe au repos (ADR-003, §23.2) : version de clé active et répartition des lignes chiffrées par version de clé et par colonne. Ne contient jamais de matériel de clé. */
+        /** @description State of envelope encryption at rest (ADR-003, §23.2): active key version and distribution of encrypted rows per key version and per column. Never contains key material. */
         EncryptionStatus: {
             /**
-             * @description Version de clé utilisée pour tout nouveau chiffrement.
+             * @description Key version used for any new encryption.
              * @example 2
              */
             active_key_version: number;
-            /** @description Une entrée par version de clé encore référencée en base. Une rotation est convergée quand seule la version active reste référencée. */
+            /** @description One entry per key version still referenced in the database. A rotation has converged when only the active version remains referenced. */
             readonly key_versions: components["schemas"]["EncryptionKeyVersion"][];
-            /** @description UUID du job de re-chiffrement en cours, le cas échéant (`null` sinon). */
+            /** @description UUID of the re-encryption job in progress, if any (`null` otherwise). */
             readonly rotation_job_uuid?: string | null;
         };
-        /** @description Usage d'une version de clé maître dans les colonnes chiffrées. */
+        /** @description Usage of a master key version in the encrypted columns. */
         EncryptionKeyVersion: {
-            /** @description Version de clé (préfixe 4 octets des colonnes `*_enc`). */
+            /** @description Key version (4-byte prefix of the `*_enc` columns). */
             key_version: number;
-            /** @description Nombre total de lignes chiffrées avec cette version, toutes colonnes confondues. */
+            /** @description Total number of rows encrypted with this version, all columns combined. */
             total_rows: number;
-            /** @description Détail par colonne chiffrée (inventaire §12 du data dictionary). */
+            /** @description Breakdown per encrypted column (inventory §12 of the data dictionary). */
             readonly columns?: components["schemas"]["EncryptionColumnCount"][];
         };
-        /** @description Compteur de lignes d'une colonne chiffrée pour une version de clé. */
+        /** @description Row count of an encrypted column for a key version. */
         EncryptionColumnCount: {
             /** @example private_keys */
             table: string;
@@ -3579,13 +3579,13 @@ export interface components {
             column: string;
             rows: number;
         };
-        /** @description Team — périmètre d'isolation des serveurs, ressources, clés et tokens (§2, §23.1). */
+        /** @description Team — isolation boundary of servers, resources, keys and tokens (§2, §23.1). */
         Team: {
             readonly uuid: string;
             name: string;
             description?: string | null;
             /**
-             * @description Team personnelle créée automatiquement avec l'utilisateur.
+             * @description Personal team created automatically with the user.
              * @default false
              */
             personal: boolean;
@@ -3594,25 +3594,25 @@ export interface components {
             /** Format: date-time */
             readonly updated_at?: string | null;
         };
-        /** @description Mise à jour partielle d'une team. */
+        /** @description Partial update of a team. */
         TeamUpdate: {
             name?: string;
             description?: string | null;
         };
-        /** @description Appartenance d'un utilisateur à une team. */
+        /** @description A user's membership in a team. */
         TeamMember: {
             user_uuid: string;
             /** Format: email */
             email: string;
             name?: string | null;
             /**
-             * @description Rôle dans la team (ADR-038, §10.1) : `admin` (contrôle complet de la team, ex-`owner` fusionné), `member` (gère les ressources), `reviewer` (voit uniquement les PR previews), ou `custom` (rôle composé, voir `custom_role_uuid`).
+             * @description Role in the team (ADR-038, §10.1): `admin` (full control of the team, ex-`owner` merged), `member` (manages resources), `reviewer` (only sees PR previews), or `custom` (composed role, see `custom_role_uuid`).
              * @enum {string}
              */
             role: "admin" | "member" | "reviewer" | "custom";
-            /** @description UUID du rôle custom quand `role` vaut `custom`, sinon absent. */
+            /** @description UUID of the custom role when `role` is `custom`, otherwise absent. */
             custom_role_uuid?: string | null;
-            /** @description Nom du rôle custom quand `role` vaut `custom`, sinon absent. */
+            /** @description Name of the custom role when `role` is `custom`, otherwise absent. */
             custom_role_name?: string | null;
             /** Format: date-time */
             joined_at: string;
@@ -3620,39 +3620,39 @@ export interface components {
         InvitationCreate: {
             /**
              * Format: email
-             * @description Email de la personne invitée.
+             * @description Email of the invited person.
              */
             email: string;
             /**
-             * @description Rôle attribué à l'acceptation (ADR-038). `custom` exige `custom_role_uuid`.
+             * @description Role granted at acceptance (ADR-038). `custom` requires `custom_role_uuid`.
              * @default member
              * @enum {string}
              */
             role: "admin" | "member" | "reviewer" | "custom";
-            /** @description UUID d'un rôle custom de la team, requis quand `role` vaut `custom`. */
+            /** @description UUID of one of the team's custom roles, required when `role` is `custom`. */
             custom_role_uuid?: string | null;
             /**
-             * @description Durée de validité de l'invitation en heures (défaut 7 jours).
+             * @description Validity duration of the invitation in hours (default 7 days).
              * @default 168
              */
             expires_in_hours: number;
         };
-        /** @description Invitation d'un membre dans une team. */
+        /** @description Invitation of a member into a team. */
         Invitation: {
             readonly uuid: string;
             /** Format: email */
             email: string;
             /** @enum {string} */
             role: "admin" | "member" | "reviewer" | "custom";
-            /** @description UUID du rôle custom quand `role` vaut `custom`. */
+            /** @description UUID of the custom role when `role` is `custom`. */
             readonly custom_role_uuid?: string | null;
-            /** @description Nom du rôle custom quand `role` vaut `custom`. */
+            /** @description Name of the custom role when `role` is `custom`. */
             readonly custom_role_name?: string | null;
             /** @enum {string} */
             readonly status: "pending" | "accepted" | "revoked" | "expired";
-            /** @description Lien d'acceptation — renvoyé uniquement à la création et uniquement si l'email transactionnel de l'instance n'est pas configuré (transmission manuelle). */
+            /** @description Acceptance link — returned only at creation and only if the instance's transactional email is not configured (manual delivery). */
             readonly invite_url?: string | null;
-            /** @description UUID de l'utilisateur ou du token à l'origine de l'invitation. */
+            /** @description UUID of the user or token that originated the invitation. */
             readonly invited_by?: string | null;
             /** Format: date-time */
             expires_at: string;
@@ -3668,31 +3668,31 @@ export interface components {
             last_used_at?: string | null;
         };
         ScimTokenCreate: {
-            /** @description Nom lisible du token (ex. okta-prod). */
+            /** @description Readable name of the token (e.g. okta-prod). */
             name: string;
         };
         ScimTokenCreated: {
             uuid: string;
             name: string;
-            /** @description Valeur claire — affichée une seule fois (§23.2). */
+            /** @description Clear value — shown only once (§23.2). */
             token: string;
-            /** @description URL de base SCIM à configurer dans l'IdP (…/scim/v2). */
+            /** @description SCIM base URL to configure in the IdP (…/scim/v2). */
             scim_base_url: string;
             /** Format: date-time */
             created_at: string;
         };
-        /** @description Une entrée du journal d'audit append-only (§23.4). Les valeurs sensibles ne sont jamais présentes : un champ modifié apparaît dans `diff` comme `{changed:true, redacted:true}` (INV-003). */
+        /** @description An entry of the append-only audit log (§23.4). Sensitive values are never present: a modified field appears in `diff` as `{changed:true, redacted:true}` (INV-003). */
         AuditEvent: {
             uuid: string;
             /** Format: date-time */
             occurred_at: string;
             /** @enum {string} */
             actor_kind?: "user" | "token" | "system";
-            /** @description UUID de l'utilisateur ou du token acteur (absent pour une action système ou un login échoué). */
+            /** @description UUID of the acting user or token (absent for a system action or a failed login). */
             actor_uuid?: string | null;
-            /** @description Identifiant lisible de l'acteur (ex. l'email tenté à un login échoué). */
+            /** @description Readable identifier of the actor (e.g. the email attempted at a failed login). */
             actor_display?: string | null;
-            /** @description Verbe d'action (ex. `auth.login`, `secret.reveal`, `role.update`). */
+            /** @description Action verb (e.g. `auth.login`, `secret.reveal`, `role.update`). */
             action: string;
             target_kind?: string | null;
             target_uuid?: string | null;
@@ -3700,19 +3700,19 @@ export interface components {
             result: "success" | "failure" | "denied";
             ip?: string | null;
             user_agent?: string | null;
-            /** @description Ce qui a changé, déjà redacté pour les champs sensibles. */
+            /** @description What changed, already redacted for sensitive fields. */
             diff?: {
                 [key: string]: unknown;
             } | null;
         };
-        /** @description Rôle custom d'une team (ADR-038) : un ensemble nommé de permissions granulaires, composé dans l'UI. Ne peut jamais contenir de permission d'instance (`instance:*`). */
+        /** @description A team's custom role (ADR-038): a named set of granular permissions, composed in the UI. Can never contain an instance permission (`instance:*`). */
         CustomRole: {
             readonly uuid: string;
             name: string;
             description?: string | null;
-            /** @description Permissions granulaires `domaine:action`, fermées sous leurs prérequis (les dépendances manquantes sont ajoutées automatiquement). */
+            /** @description Granular `domain:action` permissions, closed under their prerequisites (missing dependencies are added automatically). */
             permissions: string[];
-            /** @description Nombre de membres portant ce rôle. */
+            /** @description Number of members carrying this role. */
             readonly member_count?: number;
             /** Format: date-time */
             readonly created_at: string;
@@ -3720,66 +3720,66 @@ export interface components {
             readonly updated_at: string;
         };
         CustomRoleCreate: {
-            /** @description Nom du rôle (unique dans la team). */
+            /** @description Name of the role (unique within the team). */
             name: string;
             description?: string | null;
-            /** @description Permissions granulaires accordées. Refusées si inconnues, si d'instance (`instance:*`), ou hors des permissions du composeur (anti-élévation). Les prérequis manquants sont ajoutés. */
+            /** @description Granular permissions granted. Rejected if unknown, if instance-level (`instance:*`), or outside the composer's permissions (anti-escalation). Missing prerequisites are added. */
             permissions: string[];
         };
-        /** @description Mise à jour partielle d'un rôle custom. */
+        /** @description Partial update of a custom role. */
         CustomRoleUpdate: {
             name?: string;
             description?: string | null;
             permissions?: string[];
         };
-        /** @description Change le rôle d'un membre (ADR-038). Soit un rôle système (`role`), soit un rôle custom (`role: custom` + `custom_role_uuid`). */
+        /** @description Changes a member's role (ADR-038). Either a system role (`role`), or a custom role (`role: custom` + `custom_role_uuid`). */
         MemberRoleUpdate: {
             /** @enum {string} */
             role: "admin" | "member" | "reviewer" | "custom";
-            /** @description Requis (et seulement lu) quand `role` vaut `custom`. */
+            /** @description Required (and only read) when `role` is `custom`. */
             custom_role_uuid?: string | null;
         };
-        /** @description Une permission granulaire du catalogue (ADR-038), avec ses prérequis — de quoi construire le composeur de rôles custom côté UI. */
+        /** @description A granular permission from the catalog (ADR-038), with its prerequisites — everything needed to build the custom role composer on the UI side. */
         PermissionCatalogEntry: {
-            /** @description Identifiant `domaine:action`. */
+            /** @description `domain:action` identifier. */
             permission: string;
             /**
-             * @description Socle coarse (§10.3).
+             * @description Coarse base permission (§10.3).
              * @enum {string}
              */
             socle: "read" | "read:sensitive" | "write" | "deploy" | "root";
-            /** @description Vrai si la permission est réservée à l'instance (jamais assignable à un rôle custom). */
+            /** @description True if the permission is instance-only (never assignable to a custom role). */
             instance_scoped?: boolean;
-            /** @description Permissions impliquées automatiquement (fermeture des dépendances). */
+            /** @description Permissions implied automatically (dependency closure). */
             prerequisites: string[];
         };
         /**
-         * @description Permission granulaire d'un token API (§10.3).
+         * @description Granular permission of an API token (§10.3).
          * @enum {string}
          */
         ApiTokenPermission: "read" | "read:sensitive" | "write" | "deploy" | "root";
         ApiTokenCreate: {
-            /** @description Nom lisible du token (ex. ci-github-actions). */
+            /** @description Readable name of the token (e.g. ci-github-actions). */
             name: string;
-            /** @description Permissions accordées. Un token ne peut pas accorder une permission qu'il ne possède pas lui-même. */
+            /** @description Permissions granted. A token cannot grant a permission it does not hold itself. */
             permissions: components["schemas"]["ApiTokenPermission"][];
             /**
              * Format: date-time
-             * @description Expiration optionnelle (UTC). `null` = sans expiration.
+             * @description Optional expiration (UTC). `null` = no expiration.
              */
             expires_at?: string | null;
             /**
-             * @description Liste de CIDR autorisés (ex. 203.0.113.0/24). Vide = toutes IP.
+             * @description List of allowed CIDRs (e.g. 203.0.113.0/24). Empty = all IPs.
              * @default []
              */
             ip_allowlist: string[];
         };
-        /** @description Métadonnées d'un token API. La valeur du token est hashée (SHA-256) côté serveur et n'apparaît jamais ici — seul `token_prefix` permet l'identification. */
+        /** @description Metadata of an API token. The token value is hashed (SHA-256) server-side and never appears here — only `token_prefix` allows identification. */
         ApiToken: {
             readonly uuid: string;
             name: string;
             permissions: components["schemas"]["ApiTokenPermission"][];
-            /** @description Préfixe d'identification du token (premiers caractères). */
+            /** @description Identification prefix of the token (first characters). */
             readonly token_prefix: string;
             /** @default [] */
             ip_allowlist: string[];
@@ -3790,29 +3790,29 @@ export interface components {
             /** Format: date-time */
             readonly created_at: string;
         };
-        /** @description Token API à la création — inclut la valeur en clair, une seule fois. */
+        /** @description API token at creation — includes the clear value, once only. */
         ApiTokenCreated: components["schemas"]["ApiToken"] & {
-            /** @description Valeur du token en clair — présente UNIQUEMENT dans cette réponse de création, jamais récupérable ensuite (§10.3). */
+            /** @description Clear token value — present ONLY in this creation response, never retrievable afterwards (§10.3). */
             token: string;
         };
         ProjectCreate: {
             name: string;
             description?: string | null;
         };
-        /** @description Mise à jour partielle — seuls les champs fournis sont modifiés. */
+        /** @description Partial update — only the provided fields are modified. */
         ProjectUpdate: {
             name?: string;
             description?: string | null;
         };
-        /** @description Projet — regroupement logique d'environnements (§2). */
+        /** @description Project — logical grouping of environments (§2). */
         Project: {
             readonly uuid: string;
             name: string;
             description?: string | null;
             readonly team_uuid: string;
-            /** @description Environnements du projet (résumé, non paginé — borné en pratique). */
+            /** @description The project's environments (summary, not paginated — bounded in practice). */
             readonly environments?: components["schemas"]["Environment"][];
-            /** @description Version optimiste (reflétée dans l'ETag). */
+            /** @description Optimistic version (reflected in the ETag). */
             readonly version: number;
             /** Format: date-time */
             readonly created_at: string;
@@ -3820,22 +3820,22 @@ export interface components {
             readonly updated_at?: string | null;
         };
         EnvironmentCreate: {
-            /** @description Nom unique dans le projet (ex. production, staging). */
+            /** @description Unique name within the project (e.g. production, staging). */
             name: string;
             description?: string | null;
         };
-        /** @description Mise à jour partielle. */
+        /** @description Partial update. */
         EnvironmentUpdate: {
             name?: string;
             description?: string | null;
         };
-        /** @description Environnement d'un projet — contient les ressources (§2). */
+        /** @description A project's environment — contains the resources (§2). */
         Environment: {
             readonly uuid: string;
             name: string;
             description?: string | null;
             readonly project_uuid: string;
-            /** @description Nombre de ressources contenues (0 requis pour la suppression). */
+            /** @description Number of contained resources (0 required for deletion). */
             readonly resource_count?: number;
             readonly version: number;
             /** Format: date-time */
@@ -3847,9 +3847,9 @@ export interface components {
             uuid: string;
             /** @enum {string} */
             provider: "github" | "gitlab" | "gitea";
-            /** @description URL de réception à déclarer chez le fournisseur. */
+            /** @description Receiving URL to declare at the provider. */
             url: string;
-            /** @description Secret HMAC — renvoyé **uniquement** à la création, jamais relu ensuite (INV-003). */
+            /** @description HMAC secret — returned **only** at creation, never read back afterwards (INV-003). */
             secret?: string | null;
             enabled: boolean;
         };
@@ -3860,102 +3860,102 @@ export interface components {
         TerminalSession: {
             uuid: string;
             /**
-             * @description Serveur (shell SSH) ou container (`docker exec`) — §5.7.
+             * @description Server (SSH shell) or container (`docker exec`) — §5.7.
              * @enum {string}
              */
             target_kind: "server" | "container";
-            /** @description Libellé de la cible, snapshot au moment de l'ouverture (survit à la suppression de la cible). */
+            /** @description Label of the target, snapshotted at open time (survives deletion of the target). */
             target_name: string;
-            /** @description Chemin du WebSocket à ouvrir sur la **même origine** que l'API (`ws://` ou `wss://` selon le schéma de la page), avec le token en query string (`?token=…`). Le protocole du flux est hors OpenAPI (§27.24). */
+            /** @description Path of the WebSocket to open on the **same origin** as the API (`ws://` or `wss://` depending on the page's scheme), with the token in the query string (`?token=…`). The stream protocol is outside OpenAPI (§27.24). */
             websocket_path: string;
-            /** @description Token d'attache **à usage unique**, renvoyé uniquement à la création, jamais relu (§23.2, §24.4) — seul son hash est stocké. */
+            /** @description **Single-use** attach token, returned only at creation, never read back (§23.2, §24.4) — only its hash is stored. */
             token: string;
             /**
              * Format: date-time
-             * @description Expiration du token d'attache (courte) — pas de la session : une fois le WebSocket ouvert, ce sont l'idle timeout et la durée maximum qui bornent la session.
+             * @description Expiration of the (short-lived) attach token — not of the session: once the WebSocket is open, the idle timeout and the maximum duration bound the session.
              */
             token_expires_at: string;
-            /** @description Inactivité (aucune frappe) au-delà de laquelle la session est fermée. */
+            /** @description Inactivity (no keystrokes) beyond which the session is closed. */
             idle_timeout_seconds: number;
-            /** @description Durée maximum d'une session, quelle que soit l'activité. */
+            /** @description Maximum duration of a session, regardless of activity. */
             max_duration_seconds: number;
         };
-        /** @description Demande d'ouverture d'un tunnel TCP vers un container de la ressource (ADR-032). La cible (container, port) est **figée et autorisée à la création** ; le tunnel lui-même passe par le WebSocket `websocket_path` (hors OpenAPI). `component` désigne le service pour une stack compose. */
+        /** @description Request to open a TCP tunnel to a container of the resource (ADR-032). The target (container, port) is **frozen and authorized at creation**; the tunnel itself goes through the WebSocket `websocket_path` (outside OpenAPI). `component` designates the service for a compose stack. */
         PortForwardCreate: {
-            /** @description Port interne du container cible. */
+            /** @description Internal port of the target container. */
             port: number;
         };
-        /** @description Session de tunnel TCP (ADR-032). Même contrat de token que le terminal (§24.4) : token d'attache **à usage unique**, renvoyé une seule fois, seul son hash est stocké (§23.2). Bornée à la team, auditée à l'ouverture et à la fermeture, idle timeout / durée maximum / heartbeat / teardown garanti. `409` si la team atteint son plafond (`port_forward_limit`). */
+        /** @description TCP tunnel session (ADR-032). Same token contract as the terminal (§24.4): **single-use** attach token, returned once, only its hash is stored (§23.2). Scoped to the team, audited on open and close, idle timeout / maximum duration / heartbeat / guaranteed teardown. `409` if the team reaches its cap (`port_forward_limit`). */
         PortForwardSession: {
             uuid: string;
-            /** @description Port interne du container cible, figé à la création. */
+            /** @description Internal port of the target container, frozen at creation. */
             port: number;
-            /** @description Chemin du WebSocket à ouvrir sur la **même origine** que l'API, token en query string (`?token=…`). Sous-protocole `akerdock-tunnel-v1`, hors OpenAPI (§27.24, ADR-032). */
+            /** @description Path of the WebSocket to open on the **same origin** as the API, token in the query string (`?token=…`). Subprotocol `akerdock-tunnel-v1`, outside OpenAPI (§27.24, ADR-032). */
             websocket_path: string;
-            /** @description Token d'attache à usage unique, renvoyé uniquement ici, jamais relu — seul son hash est stocké (§23.2, §24.4). */
+            /** @description Single-use attach token, returned only here, never read back — only its hash is stored (§23.2, §24.4). */
             token: string;
             /**
              * Format: date-time
-             * @description Expiration (courte) du token d'attache, pas de la session.
+             * @description (Short-lived) expiration of the attach token, not of the session.
              */
             token_expires_at: string;
         };
-        /** @description Réponse d'un scan d'adoption — job de suivi + scan créé. */
+        /** @description Response of an adoption scan — tracking job + created scan. */
         AdoptionScanAccepted: components["schemas"]["JobAccepted"] & {
-            /** @description UUID du scan créé, à lire une fois le job terminé. */
+            /** @description UUID of the created scan, to read once the job is finished. */
             adoption_scan_uuid: string;
         };
-        /** @description Un scan d'adoption (§20.7, ADR-013) : inventaire des ressources Docker non gérées d'un serveur et mapping proposé vers le modèle AkerDock. */
+        /** @description An adoption scan (§20.7, ADR-013): inventory of a server's unmanaged Docker resources and proposed mapping to the AkerDock model. */
         AdoptionScan: {
             uuid: string;
             server_uuid: string;
             /** @enum {string} */
             status: "pending" | "running" | "completed" | "failed";
-            /** @description Cause de l'échec quand `status = failed`. */
+            /** @description Cause of the failure when `status = failed`. */
             error?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
             completed_at?: string | null;
-            /** @description Présent quand `status = completed`. Contient TOUS les candidats, adoptables ou non — un candidat non adoptable porte ses motifs (`reasons`), jamais d'omission silencieuse. */
+            /** @description Present when `status = completed`. Contains ALL candidates, adoptable or not — a non-adoptable candidate carries its reasons (`reasons`), never a silent omission. */
             candidates?: components["schemas"]["AdoptionCandidate"][];
         };
-        /** @description Un container isolé ou un stack compose non géré, avec le mapping proposé (§20.7). `modifications` liste ce que l'adoption puis la première normalisation changeront — l'adoption elle-même ne redémarre jamais le workload. */
+        /** @description A standalone container or an unmanaged compose stack, with the proposed mapping (§20.7). `modifications` lists what adoption and then the first normalization will change — adoption itself never restarts the workload. */
         AdoptionCandidate: {
-            /** @description Identifiant stable du candidat dans ce scan : ID court du container, ou `compose:<projet>` pour un stack. */
+            /** @description Stable identifier of the candidate within this scan: short ID of the container, or `compose:<project>` for a stack. */
             id: string;
             /** @enum {string} */
             kind: "container" | "compose_stack";
-            /** @description Nom de ressource proposé (modifiable à l'adoption). */
+            /** @description Proposed resource name (editable at adoption). */
             proposed_name: string;
             /**
-             * @description application (container isolé) ou service (stack compose).
+             * @description application (standalone container) or service (compose stack).
              * @enum {string|null}
              */
             proposed_resource_type?: "application" | "service" | null;
-            /** @description Nom du projet compose (`com.docker.compose.project`). */
+            /** @description Name of the compose project (`com.docker.compose.project`). */
             compose_project?: string | null;
             adoptable: boolean;
-            /** @description Motifs de non-adoptabilité quand `adoptable = false`. */
+            /** @description Reasons for non-adoptability when `adoptable = false`. */
             reasons?: string[];
-            /** @description Ce qui sera modifié — à l'adoption (rien sur le workload) et à la première normalisation (labels, nom, réseau). */
+            /** @description What will be modified — at adoption (nothing on the workload) and at the first normalization (labels, name, network). */
             modifications?: string[];
             containers: components["schemas"]["AdoptionCandidateContainer"][];
         };
         AdoptionCandidateContainer: {
-            /** @description ID court du container. */
+            /** @description Short ID of the container. */
             container_id: string;
             container_name: string;
             image: string;
-            /** @description État Docker observé (`running`, `exited`, …). */
+            /** @description Observed Docker state (`running`, `exited`, …). */
             state: string;
-            /** @description Nom du service compose, pour un membre de stack. */
+            /** @description Name of the compose service, for a stack member. */
             compose_service?: string | null;
-            /** @description Labels Docker du container (hors namespace `akerdock.*`) — c'est ce qui permet à un outil de migration de reconnaître les workloads d'une plateforme donnée (ex. `coolify.*`) sans rien connaître de son schéma interne (ADR-023). */
+            /** @description Docker labels of the container (outside the `akerdock.*` namespace) — this is what allows a migration tool to recognize the workloads of a given platform (e.g. `coolify.*`) without knowing anything about its internal schema (ADR-023). */
             labels?: {
                 [key: string]: string;
             };
-            /** @description NOMS des variables d'environnement — jamais les valeurs (INV-003) ; elles sont capturées et chiffrées à l'adoption. */
+            /** @description NAMES of the environment variables — never the values (INV-003); they are captured and encrypted at adoption. */
             env_keys?: string[];
             ports?: {
                 container_port: number;
@@ -3963,23 +3963,23 @@ export interface components {
                 protocol: string;
             }[];
             mounts?: {
-                /** @description `volume` ou `bind`. */
+                /** @description `volume` or `bind`. */
                 kind: string;
-                /** @description Nom du volume ou chemin hôte. */
+                /** @description Volume name or host path. */
                 source: string;
                 destination: string;
             }[];
             networks?: string[];
-            /** @description FQDN détectés dans les labels de reverse proxy (Traefik). */
+            /** @description FQDNs detected in the reverse proxy labels (Traefik). */
             domains?: string[];
         };
-        /** @description Variable partagée hiérarchique (§5.4, §3.1). La valeur n'est rendue qu'avec `read:sensitive` (INV-003). */
+        /** @description Hierarchical shared variable (§5.4, §3.1). The value is only rendered with `read:sensitive` (INV-003). */
         SharedVariable: {
             readonly uuid: string;
             /** @enum {string} */
             scope: "team" | "project" | "environment" | "server";
             key: string;
-            /** @description NULL sans `read:sensitive` (`is_redacted` vaut alors true). */
+            /** @description NULL without `read:sensitive` (`is_redacted` is then true). */
             value?: string | null;
             is_redacted?: boolean;
             is_secret: boolean;
@@ -3994,31 +3994,31 @@ export interface components {
         SharedVariableCreate: {
             /** @enum {string} */
             scope: "team" | "project" | "environment" | "server";
-            /** @description Grammaire `[A-Za-z_][A-Za-z0-9_]*` (INV-012). */
+            /** @description Grammar `[A-Za-z_][A-Za-z0-9_]*` (INV-012). */
             key: string;
             value: string;
             /** @default false */
             is_secret: boolean;
-            /** @description Requis pour le scope `project`. */
+            /** @description Required for the `project` scope. */
             project_uuid?: string;
-            /** @description Requis pour le scope `environment`. */
+            /** @description Required for the `environment` scope. */
             environment_uuid?: string;
-            /** @description Requis pour le scope `server`. */
+            /** @description Required for the `server` scope. */
             server_uuid?: string;
         };
         SharedVariableUpdate: {
             value?: string;
             is_secret?: boolean;
         };
-        /** @description Un check d'uptime (ADR-017) : sonde HTTP/TCP exécutée depuis le control plane, verdict à seuils (anti-flapping structurel). */
+        /** @description An uptime check (ADR-017): HTTP/TCP probe executed from the control plane, threshold-based verdict (structural anti-flapping). */
         UptimeCheck: {
             readonly uuid: string;
-            /** @description Ressource liée (historique « par ressource », ADR-017). */
+            /** @description Linked resource ("per resource" history, ADR-017). */
             resource_uuid?: string | null;
             name: string;
             /** @enum {string} */
             kind: "http" | "tcp";
-            /** @description URL (http) ou `host:port` (tcp). */
+            /** @description URL (http) or `host:port` (tcp). */
             target: string;
             interval_seconds: number;
             timeout_seconds: number;
@@ -4041,7 +4041,7 @@ export interface components {
             name: string;
             /** @enum {string} */
             kind: "http" | "tcp";
-            /** @description URL http(s) ou `host:port`. */
+            /** @description http(s) URL or `host:port`. */
             target: string;
             resource_uuid?: string | null;
             /** @default 60 */
@@ -4055,7 +4055,7 @@ export interface components {
             /** @default true */
             enabled: boolean;
         };
-        /** @description Mise à jour partielle — le verdict courant n'est jamais éditable. */
+        /** @description Partial update — the current verdict is never editable. */
         UptimeCheckUpdate: {
             name?: string;
             target?: string;
@@ -4065,7 +4065,7 @@ export interface components {
             success_threshold?: number;
             enabled?: boolean;
         };
-        /** @description Un résultat de sonde brut (rétention bornée). */
+        /** @description A raw probe result (bounded retention). */
         UptimeResult: {
             ok: boolean;
             /** Format: date-time */
@@ -4074,14 +4074,14 @@ export interface components {
             status_code?: number | null;
             error?: string | null;
         };
-        /** @description Sélection de candidats d'un scan à adopter (§20.7). */
+        /** @description Selection of a scan's candidates to adopt (§20.7). */
         AdoptRequest: {
-            /** @description Environnement cible des ressources créées. */
+            /** @description Target environment of the created resources. */
             environment_uuid: string;
             items: {
-                /** @description `id` du candidat dans le scan. */
+                /** @description `id` of the candidate in the scan. */
                 candidate_id: string;
-                /** @description Nom de ressource, à défaut `proposed_name`. */
+                /** @description Resource name, defaulting to `proposed_name`. */
                 name?: string;
             }[];
         };
@@ -4097,58 +4097,58 @@ export interface components {
             updated_at?: string;
             version: number;
         };
-        /** @description Fournisseur OAuth/OIDC du login dashboard (§10.2, amendement n°30). Le client secret n'apparaît jamais ici (INV-003). */
+        /** @description OAuth/OIDC provider for dashboard login (§10.2, amendment #30). The client secret never appears here (INV-003). */
         OauthProviderConfig: {
             /** @enum {string} */
             provider: "github" | "gitlab" | "google" | "azure" | "bitbucket" | "oidc";
             enabled: boolean;
-            /** @description Libellé du bouton de login (utile surtout pour `oidc`, ex. « Okta »). */
+            /** @description Label of the login button (mostly useful for `oidc`, e.g. "Okta"). */
             display_name?: string | null;
             client_id: string;
-            /** @description Base de découverte OpenID Connect (`oidc` et `azure` uniquement). */
+            /** @description OpenID Connect discovery base (`oidc` and `azure` only). */
             issuer_url?: string | null;
             /** Format: date-time */
             readonly updated_at?: string;
         };
-        /** @description Remplacement complet de la configuration du fournisseur. Le secret est requis à chaque écriture : il est chiffré au repos et jamais relu par l'API, il n'y a donc rien à « conserver » silencieusement. */
+        /** @description Full replacement of the provider configuration. The secret is required at every write: it is encrypted at rest and never read back by the API, so there is nothing to silently "keep". */
         OauthProviderSet: {
             /** @default true */
             enabled: boolean;
             display_name?: string;
             client_id: string;
             client_secret: string;
-            /** @description Obligatoire pour `oidc` et `azure` (ex. `https://login.microsoftonline.com/{tenant}/v2.0`), refusé pour les fournisseurs à endpoints fixes. */
+            /** @description Required for `oidc` and `azure` (e.g. `https://login.microsoftonline.com/{tenant}/v2.0`), rejected for providers with fixed endpoints. */
             issuer_url?: string;
         };
         InstanceIdentity: {
-            /** @description Nom d'hôte nu, sans schéma ni chemin (ex. `deploy.example.com`). `null` : instance sans FQDN, cookies non-`Secure`, HTTP simple toléré. */
+            /** @description Bare hostname, without scheme or path (e.g. `deploy.example.com`). `null`: instance without FQDN, non-`Secure` cookies, plain HTTP tolerated. */
             fqdn?: string | null;
-            /** @description Contact Let's Encrypt (§4.3). Sans lui, aucun certificat n'est émis. */
+            /** @description Let's Encrypt contact (§4.3). Without it, no certificate is issued. */
             acme_email?: string | null;
             readonly timezone: string;
-            /** @description État du verrou de l'API publique (§10.3). Les sessions du dashboard sont exemptées ; basculer via POST /system/api/enable|disable. */
+            /** @description Lock state of the public API (§10.3). Dashboard sessions are exempt; toggle via POST /system/api/enable|disable. */
             readonly api_enabled?: boolean;
-            /** @description Inscription en libre-service (§10.2). Fermée par défaut : personne ne crée de compte seul. Une invitation en attente autorise malgré tout la création de compte au premier login SSO, indépendamment de ce drapeau. */
+            /** @description Self-service signup (§10.2). Closed by default: nobody creates an account on their own. A pending invitation nevertheless allows account creation at the first SSO login, regardless of this flag. */
             readonly registration_enabled?: boolean;
-            /** @description Quand vrai, la double authentification est obligatoire : un utilisateur sans facteur MFA est forcé d'en enrôler un avant de pouvoir utiliser l'instance (§10.2). Un facteur MFA est un TOTP confirmé OU une passkey (vérification utilisateur requise, donc multi-facteur à elle seule). Les connexions déléguées (OIDC/SSO) n'y sont pas soumises : le fournisseur d'identité porte le second facteur. */
+            /** @description When true, two-factor authentication is mandatory: a user without an MFA factor is forced to enroll one before being able to use the instance (§10.2). An MFA factor is a confirmed TOTP OR a passkey (user verification required, hence multi-factor on its own). Delegated logins (OIDC/SSO) are not subject to it: the identity provider carries the second factor. */
             readonly mfa_required?: boolean;
-            /** @description SSO obligatoire (§10.2) : quand vrai, le login par mot de passe est refusé (sauf l'administrateur d'instance) — seuls les providers OIDC authentifient. */
+            /** @description Mandatory SSO (§10.2): when true, password login is refused (except for the instance administrator) — only OIDC providers authenticate. */
             readonly password_login_disabled?: boolean;
-            /** @description Nombre d'images de déploiement conservées localement par application (et par preview) pour le rollback (ADR-006, §29.4). Au-delà, les plus anciennes sont récupérées après un déploiement réussi ; l'image en service est toujours protégée. Défaut 5. */
+            /** @description Number of deployment images kept locally per application (and per preview) for rollback (ADR-006, §29.4). Beyond that, the oldest ones are reclaimed after a successful deployment; the image in service is always protected. Default 5. */
             readonly image_retention_count?: number;
         };
         InstanceIdentityUpdate: {
-            /** @description Nom d'hôte nu (`[a-z0-9.-]`, au moins un point). Chaîne vide ou `null` : efface le FQDN. */
+            /** @description Bare hostname (`[a-z0-9.-]`, at least one dot). Empty string or `null`: clears the FQDN. */
             fqdn?: string | null;
-            /** @description Chaîne vide ou `null` — efface le contact. */
+            /** @description Empty string or `null` — clears the contact. */
             acme_email?: string | null;
-            /** @description Ouvre/ferme l'inscription en libre-service (§10.2). Absent = inchangé. */
+            /** @description Opens/closes self-service signup (§10.2). Absent = unchanged. */
             registration_enabled?: boolean | null;
-            /** @description Active/désactive l'obligation de double authentification (§10.2). Absent = inchangé. */
+            /** @description Enables/disables mandatory two-factor authentication (§10.2). Absent = unchanged. */
             mfa_required?: boolean | null;
-            /** @description Active/désactive le mode SSO obligatoire (§10.2). Refusé si aucun provider OIDC n'est activé. Absent = inchangé. */
+            /** @description Enables/disables mandatory SSO mode (§10.2). Refused if no OIDC provider is enabled. Absent = unchanged. */
             password_login_disabled?: boolean | null;
-            /** @description Nombre d'images de déploiement conservées par application/preview pour le rollback (ADR-006). Minimum 1. Absent = inchangé. */
+            /** @description Number of deployment images kept per application/preview for rollback (ADR-006). Minimum 1. Absent = unchanged. */
             image_retention_count?: number | null;
         };
         TransactionalEmail: {
@@ -4163,29 +4163,29 @@ export interface components {
             smtp?: components["schemas"]["SmtpConfig"];
             resend?: components["schemas"]["ResendConfig"];
         };
-        /** @description État de l'export OTLP (§14.2, ADR-008). Les en-têtes ne sont jamais renvoyés. */
+        /** @description State of the OTLP export (§14.2, ADR-008). Headers are never returned. */
         TelemetryConfig: {
             readonly configured: boolean;
-            /** @description URL du collector OTLP (le schéma décide du TLS). */
+            /** @description URL of the OTLP collector (the scheme decides TLS). */
             readonly endpoint?: string | null;
             /** @enum {string|null} */
             readonly protocol?: "http" | "grpc" | null;
             readonly traces?: boolean;
             readonly metrics?: boolean;
             readonly logs?: boolean;
-            /** @description Vrai si des en-têtes d'auth sont enregistrés (jamais leur valeur). */
+            /** @description True if auth headers are recorded (never their value). */
             readonly headers_set?: boolean;
         };
-        /** @description Configuration de l'export OTLP. `endpoint` vide désactive l'export. Prend effet au prochain redémarrage. */
+        /** @description Configuration of the OTLP export. An empty `endpoint` disables the export. Takes effect at the next restart. */
         TelemetryConfigSet: {
-            /** @description URL du collector OTLP ; vide = export désactivé. */
+            /** @description URL of the OTLP collector; empty = export disabled. */
             endpoint: string;
             /**
              * @default http
              * @enum {string}
              */
             protocol: "http" | "grpc";
-            /** @description En-têtes d'auth envoyés à chaque export (write-only, chiffrés au repos, jamais renvoyés). Omis = conserver les en-têtes existants ; objet vide `{}` = les effacer. */
+            /** @description Auth headers sent with each export (write-only, encrypted at rest, never returned). Omitted = keep the existing headers; empty object `{}` = clear them. */
             headers?: {
                 [key: string]: string;
             };
@@ -4196,7 +4196,7 @@ export interface components {
             /** @default true */
             logs: boolean;
         };
-        /** @description Configuration SMTP (amendement n°18). Le mot de passe est chiffré au repos et jamais renvoyé (INV-003). */
+        /** @description SMTP configuration (amendment */
         SmtpConfig: {
             host: string;
             /** @default 587 */
@@ -4206,7 +4206,7 @@ export interface components {
             from: string;
             to: string[];
             /**
-             * @description `none` n'est acceptable que vers un relais local : le mot de passe et le contenu de l'alerte traversent alors le réseau en clair.
+             * @description `none` is only acceptable towards a local relay: the password and the alert content then cross the network in clear text.
              * @default starttls
              * @enum {string}
              */
@@ -4230,7 +4230,7 @@ export interface components {
             /** @enum {string} */
             kind: "smtp" | "resend" | "discord" | "telegram" | "slack" | "pushover" | "webhook";
             name: string;
-            /** @description URL du webhook (Slack, Discord, endpoint custom) — **requis** pour ces trois types. Sensible : chiffrée au repos, jamais renvoyée (INV-003). */
+            /** @description Webhook URL (Slack, Discord, custom endpoint) — **required** for these three types. Sensitive: encrypted at rest, never returned (INV-003). */
             url?: string;
             smtp?: components["schemas"]["SmtpConfig"];
             resend?: components["schemas"]["ResendConfig"];
@@ -4250,21 +4250,21 @@ export interface components {
         };
         NotificationRule: {
             uuid: string;
-            /** @description Type d'événement écouté (§24.2) : deployment.failed.v1, server.unreachable.v1… */
+            /** @description Event type listened to (§24.2): deployment.failed.v1, server.unreachable.v1… */
             event_type: string;
             enabled: boolean;
-            /** @description Portée projet — `null` = toute la team. */
+            /** @description Project scope — `null` = the whole team. */
             project_uuid?: string | null;
             environment_uuid?: string | null;
             /** @enum {string} */
             min_severity: "info" | "warning" | "critical";
-            /** @description Fenêtre d'agrégation anti-flapping. Un événement `critical` la traverse toujours. */
+            /** @description Anti-flapping aggregation window. A `critical` event always goes through it. */
             debounce_seconds?: number;
-            /** @description Début des heures calmes (HH:MM). La fenêtre peut passer minuit (22:00 → 07:00). */
+            /** @description Start of quiet hours (HH:MM). The window may cross midnight (22:00 → 07:00). */
             quiet_hours_start?: string | null;
             quiet_hours_end?: string | null;
             digest_enabled?: boolean;
-            /** @description Fenêtre du résumé différé (ADR-019 §4). Un événement `critical` n'attend jamais un résumé. */
+            /** @description Deferred digest window (ADR-019 §4). A `critical` event never waits for a digest. */
             digest_interval_minutes?: number;
             /** Format: date-time */
             created_at?: string;
@@ -4292,18 +4292,18 @@ export interface components {
         S3Storage: {
             uuid: string;
             name: string;
-            /** @description Endpoint S3 (https://s3.eu-west-3.amazonaws.com, MinIO self-hosted…). */
+            /** @description S3 endpoint (https://s3.eu-west-3.amazonaws.com, self-hosted MinIO…). */
             endpoint: string;
             region?: string | null;
             bucket: string;
-            /** @description Préfixe des objets déposés dans le bucket. */
+            /** @description Prefix of the objects stored in the bucket. */
             path_prefix?: string | null;
-            /** @description Un aller-retour écriture/lecture/suppression a réussi (§20.5). */
+            /** @description A write/read/delete round-trip succeeded (§20.5). */
             is_usable: boolean;
-            /** @description Raison du dernier échec de vérification — jamais un credential. */
+            /** @description Reason of the last check failure — never a credential. */
             last_check_error?: string | null;
             /**
-             * @description Chiffrement au repos demandé aux uploads (SSE-S3). `null` = aucun (le store peut tout de même appliquer un chiffrement par défaut).
+             * @description Encryption at rest requested for uploads (SSE-S3). `null` = none (the store may still apply a default encryption).
              * @enum {string|null}
              */
             server_side_encryption?: "AES256" | null;
@@ -4319,12 +4319,12 @@ export interface components {
             region?: string | null;
             bucket: string;
             path_prefix?: string | null;
-            /** @description Sensible — chiffré au repos, jamais renvoyé (INV-003). */
+            /** @description Sensitive — encrypted at rest, never returned (INV-003). */
             access_key: string;
-            /** @description Sensible — chiffré au repos, jamais renvoyé (INV-003). */
+            /** @description Sensitive — encrypted at rest, never returned (INV-003). */
             secret_key: string;
             /**
-             * @description Chiffrement au repos SSE-S3 des uploads (`null`/absent = aucun).
+             * @description SSE-S3 encryption at rest of uploads (`null`/absent = none).
              * @enum {string|null}
              */
             server_side_encryption?: "AES256" | null;
@@ -4338,7 +4338,7 @@ export interface components {
             access_key?: string;
             secret_key?: string;
             /**
-             * @description Chiffrement au repos SSE-S3 des uploads (`null`/absent = aucun).
+             * @description SSE-S3 encryption at rest of uploads (`null`/absent = none).
              * @enum {string|null}
              */
             server_side_encryption?: "AES256" | null;
@@ -4346,30 +4346,30 @@ export interface components {
         PrivateKeyCreate: {
             name: string;
             description?: string | null;
-            /** @description Matériel de clé privée SSH au format PEM/OpenSSH, sans passphrase (§3.1). Stocké chiffré (AEAD, §23.2) ; jamais renvoyé dans la réponse de création. */
+            /** @description Private SSH key material in PEM/OpenSSH format, without a passphrase (§3.1). Stored encrypted (AEAD, §23.2); never returned in the creation response. */
             private_key: string;
         };
-        /** @description Mise à jour partielle. Fournir `private_key` remplace le matériel (rotation). */
+        /** @description Partial update. Providing `private_key` replaces the material (rotation). */
         PrivateKeyUpdate: {
             name?: string;
             description?: string | null;
-            /** @description Nouveau matériel de clé (rotation). Les serveurs référencés repassent en `pending`. */
+            /** @description New key material (rotation). Referencing servers move back to `pending`. */
             private_key?: string;
         };
-        /** @description Clé SSH privée. Le champ `private_key` n'est renseigné que sur `GET` unitaire avec permission `read:sensitive` ET `reveal=true` (INV-003) ; sinon `null` et `is_redacted=true`. */
+        /** @description Private SSH key. The `private_key` field is only populated on a single-resource `GET` with the `read:sensitive` permission AND `reveal=true` (INV-003); otherwise `null` and `is_redacted=true`. */
         PrivateKey: {
             readonly uuid: string;
             name: string;
             description?: string | null;
-            /** @description Fingerprint SHA256 de la clé publique dérivée. */
+            /** @description SHA256 fingerprint of the derived public key. */
             readonly fingerprint: string;
-            /** @description Clé publique dérivée (utilisable comme deploy key). */
+            /** @description Derived public key (usable as a deploy key). */
             readonly public_key?: string;
-            /** @description Matériel privé — voir conditions de révélation dans la description du schéma. */
+            /** @description Private material — see reveal conditions in the schema description. */
             private_key?: string | null;
-            /** @description Vrai si `private_key` a été masqué faute de permission ou de `reveal=true`. */
+            /** @description True if `private_key` was masked for lack of permission or of `reveal=true`. */
             readonly is_redacted?: boolean;
-            /** @description Vrai si la clé est référencée par au moins un serveur ou une application. */
+            /** @description True if the key is referenced by at least one server or application. */
             readonly in_use?: boolean;
             readonly version: number;
             /** Format: date-time */
@@ -4380,46 +4380,46 @@ export interface components {
         ServerCreate: {
             name: string;
             description?: string | null;
-            /** @description Adresse IP ou FQDN joignable en SSH. */
+            /** @description IP address or FQDN reachable over SSH. */
             host: string;
             /** @default 22 */
             port: number;
             /**
-             * @description Utilisateur SSH (non-root expérimental, exige sudo NOPASSWD, §3.1).
+             * @description SSH user (experimental non-root, requires sudo NOPASSWD, §3.1).
              * @default root
              */
             user: string;
-            /** @description Clé privée SSH de la même team (INV-002). */
+            /** @description Private SSH key of the same team (INV-002). */
             private_key_uuid: string;
             /** @default 30 */
             ssh_timeout_seconds: number;
-            /** @description Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). Optionnel même avec un `wildcard_domain` (amendement) : sans credential, le wildcard n'est qu'un gabarit de nommage et chaque hôte attribué reçoit son propre certificat individuel via HTTP-01 (proxy-contract §7.2) — hôtes joignables publiquement sur le port HTTP requis, limites d'émission de la CA par hôte. Avec credential, un unique certificat wildcard est émis en DNS-01. */
+            /** @description DNS-01 credential used for this server's wildcards (amendment #21). Optional even with a `wildcard_domain` (amendment): without a credential, the wildcard is only a naming template and each assigned host receives its own individual certificate via HTTP-01 (proxy-contract §7.2) — hosts publicly reachable on the required HTTP port, CA issuance limits per host. With a credential, a single wildcard certificate is issued via DNS-01. */
             dns_credential_uuid?: string | null;
             /**
-             * @description Serveur dédié au build (§3.4) — ne peut pas héberger d'applications.
+             * @description Server dedicated to builds (§3.4) — cannot host applications.
              * @default false
              */
             is_build_server: boolean;
-            /** @description Domaine wildcard du serveur (§4.2) — les nouvelles apps reçoivent uuid.domaine. */
+            /** @description Wildcard domain of the server (§4.2) — new apps receive uuid.domain. */
             wildcard_domain?: string | null;
             /**
-             * @description Proxy géré sur le serveur. Traefik seul en P0 (§27.9) ; `none` pour un serveur sans trafic entrant.
+             * @description Managed proxy on the server. Traefik only in P0 (§27.9); `none` for a server without inbound traffic.
              * @default traefik
              * @enum {string}
              */
             proxy_type: "traefik" | "none";
             /**
-             * @description Port d'écoute HTTP du proxy — configurable par serveur (§27.1).
+             * @description HTTP listen port of the proxy — configurable per server (§27.1).
              * @default 80
              */
             proxy_http_port: number;
             /**
-             * @description Port d'écoute HTTPS du proxy — configurable par serveur (§27.1).
+             * @description HTTPS listen port of the proxy — configurable per server (§27.1).
              * @default 443
              */
             proxy_https_port: number;
         };
-        /** @description Mise à jour partielle. Modifier `host`, `port`, `user` ou `private_key_uuid` repasse le serveur en `pending` (revalidation requise). */
+        /** @description Partial update. Changing `host`, `port`, `user` or `private_key_uuid` moves the server back to `pending` (revalidation required). */
         ServerUpdate: {
             name?: string;
             description?: string | null;
@@ -4428,7 +4428,7 @@ export interface components {
             user?: string;
             private_key_uuid?: string;
             ssh_timeout_seconds?: number;
-            /** @description Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). Optionnel même avec un `wildcard_domain` (amendement) : sans credential, le wildcard n'est qu'un gabarit de nommage et chaque hôte attribué reçoit son propre certificat individuel via HTTP-01 (proxy-contract §7.2) — hôtes joignables publiquement sur le port HTTP requis, limites d'émission de la CA par hôte. Avec credential, un unique certificat wildcard est émis en DNS-01. */
+            /** @description DNS-01 credential used for this server's wildcards (amendment #21). Optional even with a `wildcard_domain` (amendment): without a credential, the wildcard is only a naming template and each assigned host receives its own individual certificate via HTTP-01 (proxy-contract §7.2) — hosts publicly reachable on the required HTTP port, CA issuance limits per host. With a credential, a single wildcard certificate is issued via DNS-01. */
             dns_credential_uuid?: string | null;
             is_build_server?: boolean;
             wildcard_domain?: string | null;
@@ -4436,18 +4436,18 @@ export interface components {
             proxy_type?: "traefik" | "none";
             proxy_http_port?: number;
             proxy_https_port?: number;
-            /** @description Nettoyage disque automatisé (§3.7) — opt-in. Ne cible que les objets gérés et sûrs (cache de build, images dangling, candidats morts, `/var/lib/akerdock/tmp`) ; jamais un objet non géré ou persistant (INV-015), jamais pendant un déploiement. */
+            /** @description Automated disk cleanup (§3.7) — opt-in. Only targets managed and safe objects (build cache, dangling images, dead candidates, `/var/lib/akerdock/tmp`); never an unmanaged or persistent object (INV-015), never during a deployment. */
             cleanup_enabled?: boolean;
-            /** @description Planification cron du nettoyage (§3.7) ; NULL = pas de cron. */
+            /** @description Cron schedule of the cleanup (§3.7); NULL = no cron. */
             cleanup_cron?: string | null;
-            /** @description Seuil d'usage disque (%) qui déclenche un nettoyage entre deux crons (§3.7) ; NULL = pas de déclenchement par seuil. */
+            /** @description Disk usage threshold (%) that triggers a cleanup between two crons (§3.7); NULL = no threshold-based triggering. */
             cleanup_disk_threshold_pct?: number | null;
-            /** @description Opt-in destructeur — purge des volumes **anonymes** inutilisés uniquement : un volume nommé (données, volumes adoptés §20.7) n'est JAMAIS purgé (INV-015). */
+            /** @description Destructive opt-in — purge of unused **anonymous** volumes only: a named volume (data, adopted volumes §20.7) is NEVER purged (INV-015). */
             cleanup_prune_volumes?: boolean;
-            /** @description Opt-in — purge des réseaux **gérés** inutilisés (label `akerdock.managed`) ; jamais un réseau non géré (INV-015). */
+            /** @description Opt-in — purge of unused **managed** networks (label `akerdock.managed`); never an unmanaged network (INV-015). */
             cleanup_prune_networks?: boolean;
         };
-        /** @description Serveur cible SSH (§3) — états du cycle de vie §21.2. */
+        /** @description SSH target server (§3) — lifecycle states §21.2. */
         Server: {
             readonly uuid: string;
             name: string;
@@ -4457,10 +4457,10 @@ export interface components {
             user: string;
             private_key_uuid: string;
             ssh_timeout_seconds?: number;
-            /** @description Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). Optionnel même avec un `wildcard_domain` (amendement) : sans credential, le wildcard n'est qu'un gabarit de nommage et chaque hôte attribué reçoit son propre certificat individuel via HTTP-01 (proxy-contract §7.2) — hôtes joignables publiquement sur le port HTTP requis, limites d'émission de la CA par hôte. Avec credential, un unique certificat wildcard est émis en DNS-01. */
+            /** @description DNS-01 credential used for this server's wildcards (amendment #21). Optional even with a `wildcard_domain` (amendment): without a credential, the wildcard is only a naming template and each assigned host receives its own individual certificate via HTTP-01 (proxy-contract §7.2) — hosts publicly reachable on the required HTTP port, CA issuance limits per host. With a credential, a single wildcard certificate is issued via DNS-01. */
             dns_credential_uuid?: string | null;
             is_build_server?: boolean;
-            /** @description Vrai pour le serveur `localhost` pré-enregistré à l'amorçage (instance-config §6.2) — la machine hébergeant l'instance. Jamais positionnable par l'API. */
+            /** @description True for the `localhost` server pre-registered at bootstrap (instance-config §6.2) — the machine hosting the instance. Never settable through the API. */
             readonly is_localhost?: boolean;
             wildcard_domain?: string | null;
             /** @enum {string} */
@@ -4468,11 +4468,11 @@ export interface components {
             proxy_http_port?: number;
             proxy_https_port?: number;
             /**
-             * @description Intention de l'opérateur sur le proxy (§3). `stopped` à la création : la validation n'installe ni ne démarre le proxy tant que l'opérateur n'a pas revu ses réglages puis demandé le premier démarrage (POST /servers/{server_uuid}/proxy/start, §20.1 étape 5). Un `stopped` explicite n'est pas « réparé » par la réconciliation.
+             * @description Operator's intent for the proxy (§3). `stopped` at creation: validation neither installs nor starts the proxy until the operator has reviewed its settings and requested the first start (POST /servers/{server_uuid}/proxy/start, §20.1 step 5). An explicit `stopped` is not "repaired" by reconciliation.
              * @enum {string}
              */
             readonly proxy_desired_state?: "running" | "stopped";
-            /** @description Nettoyage disque automatisé (§3.7) — opt-in. */
+            /** @description Automated disk cleanup (§3.7) — opt-in. */
             cleanup_enabled?: boolean;
             cleanup_cron?: string | null;
             cleanup_disk_threshold_pct?: number | null;
@@ -4480,28 +4480,28 @@ export interface components {
             cleanup_prune_networks?: boolean;
             /**
              * Format: date-time
-             * @description Dernier nettoyage déclenché (cron, seuil ou manuel).
+             * @description Last cleanup triggered (cron, threshold or manual).
              */
             readonly cleanup_last_run_at?: string | null;
             proxy_observed_status?: components["schemas"]["ObservedStatus"];
             /**
-             * @description Cycle de vie du serveur (§21.2).
+             * @description Server lifecycle (§21.2).
              * @enum {string}
              */
             readonly status: "pending" | "validating" | "ready" | "unreachable" | "maintenance" | "deleting";
-            /** @description Dernière observation de joignabilité SSH. */
+            /** @description Last observation of SSH reachability. */
             readonly is_reachable?: boolean;
             /**
              * Format: date-time
-             * @description Horodatage de la dernière observation — au-delà d'un seuil, le statut doit être traité comme stale/inconnu (§19.2).
+             * @description Timestamp of the last observation — beyond a threshold, the status must be treated as stale/unknown (§19.2).
              */
             readonly observed_at?: string | null;
             /**
-             * @description Architecture détectée à la validation.
+             * @description Architecture detected at validation.
              * @enum {string|null}
              */
             readonly architecture?: "amd64" | "arm64" | null;
-            /** @description Version de Docker Engine détectée (≥ 24 requise, §3.1). */
+            /** @description Docker Engine version detected (≥ 24 required, §3.1). */
             readonly docker_version?: string | null;
             readonly version: number;
             /** Format: date-time */
@@ -4509,11 +4509,11 @@ export interface components {
             /** Format: date-time */
             readonly updated_at?: string | null;
         };
-        /** @description Ressource gérée déployée sur un serveur (union logique, §19.1). */
+        /** @description Managed resource deployed on a server (logical union, §19.1). */
         ServerResource: {
             uuid: string;
             /**
-             * @description Type de ressource (les services one-click arriveront en P2).
+             * @description Resource type (one-click services will arrive in P2).
              * @enum {string}
              */
             type: "application" | "database";
@@ -4522,91 +4522,91 @@ export interface components {
             environment_uuid?: string;
             status: components["schemas"]["ObservedStatus"];
         };
-        /** @description Domaines routés par le proxy du serveur pour une ressource. */
+        /** @description Domains routed by the server's proxy for a resource. */
         ServerDomain: {
             resource_uuid: string;
             /** @enum {string} */
             resource_type: "application" | "database";
-            /** @description FQDN (avec schéma éventuel https://, port ou path selon la configuration, §4.2). */
+            /** @description FQDN (with optional https:// scheme, port or path depending on configuration, §4.2). */
             domains: string[];
         };
         /**
-         * @description Mode d'obtention du certificat (§4.3) : émission ACME par challenge HTTP-01 (défaut) ou DNS-01 (obligatoire pour les wildcards), certificat custom déposé sur le serveur, ou certificat self-signed de fallback servi en attendant une émission valide.
+         * @description Certificate acquisition mode (§4.3): ACME issuance via HTTP-01 challenge (default) or DNS-01 (mandatory for wildcards), custom certificate deposited on the server, or fallback self-signed certificate served while awaiting a valid issuance.
          * @enum {string}
          */
         CertificateKind: "acme_http01" | "acme_dns01" | "custom" | "self_signed";
         /**
-         * @description Statut observé du certificat. `pending` = émission en cours (le fallback self-signed est servi entre-temps) ; `renewing` = renouvellement en cours ; `failed` = échec d'émission ou de renouvellement (voir `last_error`).
+         * @description Observed status of the certificate. `pending` = issuance in progress (the self-signed fallback is served in the meantime); `renewing` = renewal in progress; `failed` = issuance or renewal failure (see `last_error`).
          * @enum {string}
          */
         CertificateStatus: "pending" | "issued" | "renewing" | "failed" | "expired" | "revoked";
-        /** @description Certificat TLS servi par le proxy d'un serveur — **reflet observé** (table `certificates`) : l'état réel vit dans `acme.json` et les fichiers du serveur, synchronisés après chaque application de configuration proxy et par réconciliation périodique (§18.3). Le matériel de clé privée ne quitte jamais le serveur et n'apparaît jamais dans l'API. */
+        /** @description TLS certificate served by a server's proxy — **observed reflection** (`certificates` table): the actual state lives in `acme.json` and the server's files, synchronized after each proxy configuration application and by periodic reconciliation (§18.3). Private key material never leaves the server and never appears in the API. */
         Certificate: {
             readonly uuid: string;
-            /** @description Serveur dont le proxy sert ce certificat. */
+            /** @description Server whose proxy serves this certificate. */
             readonly server_uuid: string;
             kind: components["schemas"]["CertificateKind"];
             /**
-             * @description Domaine principal couvert (CN / premier SAN).
+             * @description Main covered domain (CN / first SAN).
              * @example app.example.com
              */
             main_domain: string;
             /**
-             * @description Domaines alternatifs couverts, wildcards inclus (ex. `*.preview.example.com`).
+             * @description Alternative covered domains, wildcards included (e.g. `*.preview.example.com`).
              * @default []
              */
             sans: string[];
-            /** @description Émetteur observé (ex. Let's Encrypt R11) — `null` tant que rien n'est émis. */
+            /** @description Observed issuer (e.g. Let's Encrypt R11) — `null` until something is issued. */
             readonly issuer?: string | null;
             /**
              * Format: date-time
-             * @description Début de validité observé.
+             * @description Observed validity start.
              */
             readonly not_before?: string | null;
             /**
              * Format: date-time
-             * @description Expiration observée — donnée clé du monitoring (alerte intégrée J-30/J-7, filtre `expiring_within_days`).
+             * @description Observed expiration — key monitoring datum (built-in D-30/D-7 alert, `expiring_within_days` filter).
              */
             readonly not_after?: string | null;
             status: components["schemas"]["CertificateStatus"];
-            /** @description Dernière erreur d'émission/renouvellement (challenge en échec, rate limit, CAA…) — jamais de secret. */
+            /** @description Last issuance/renewal error (failed challenge, rate limit, CAA…) — never a secret. */
             readonly last_error?: string | null;
-            /** @description Identifiant du provider DNS (Lego, ex. cloudflare) pour `acme_dns01`. */
+            /** @description DNS provider identifier (Lego, e.g. cloudflare) for `acme_dns01`. */
             dns_provider?: string | null;
-            /** @description UUID du credential DNS-01 référencé (`acme_dns01`). La valeur du secret n'est jamais exposée ici (INV-003). */
+            /** @description UUID of the referenced DNS-01 credential (`acme_dns01`). The secret value is never exposed here (INV-003). */
             dns_credential_uuid?: string | null;
-            /** @description Chemin distant du certificat sur le serveur (certificats `custom`) ; `null` pour ACME (matériel dans `acme.json`). */
+            /** @description Remote path of the certificate on the server (`custom` certificates); `null` for ACME (material in `acme.json`). */
             readonly cert_path?: string | null;
             /**
              * Format: date-time
-             * @description Fraîcheur du reflet — au-delà d'un seuil, l'état est à considérer comme « stale », jamais comme un `issued` garanti.
+             * @description Freshness of the reflection — beyond a threshold, the state must be considered "stale", never a guaranteed `issued`.
              */
             readonly observed_at?: string | null;
             /** Format: date-time */
             readonly created_at: string;
             /**
              * Format: date-time
-             * @description Dernière synchronisation du reflet.
+             * @description Last synchronization of the reflection.
              */
             readonly updated_at?: string | null;
         };
         /**
-         * @description État observé d'une ressource (§21.2) — `unknown` si l'observation est trop ancienne (stale).
+         * @description Observed state of a resource (§21.2) — `unknown` if the observation is too old (stale).
          * @enum {string}
          */
         ObservedStatus: "unknown" | "starting" | "healthy" | "unhealthy" | "exited" | "missing";
         /**
-         * @description État désiré d'une ressource (§21.2).
+         * @description Desired state of a resource (§21.2).
          * @enum {string}
          */
         DesiredStatus: "running" | "stopped";
-        /** @description Health check applicatif (§5.3) — conditionne le routage et le zero-downtime. */
+        /** @description Application health check (§5.3) — conditions routing and zero-downtime. */
         HealthCheckConfig: {
             /** @default false */
             enabled: boolean;
             /** @default / */
             path: string;
-            /** @description Port testé — défaut = premier port exposé. */
+            /** @description Tested port — default = first exposed port. */
             port?: number | null;
             /** @default GET */
             method: string;
@@ -4619,76 +4619,76 @@ export interface components {
             /** @default 10 */
             start_period_seconds: number;
         };
-        /** @description Limites de ressources du container (§5.3). */
+        /** @description Resource limits of the container (§5.3). */
         ResourceLimits: {
-            /** @description Limite mémoire (ex. 512m, 2g). `null` = illimité. */
+            /** @description Memory limit (e.g. 512m, 2g). `null` = unlimited. */
             memory_limit?: string | null;
             memory_reservation?: string | null;
             memory_swap?: string | null;
-            /** @description Limite CPU (ex. 0.5, 2). */
+            /** @description CPU limit (e.g. 0.5, 2). */
             cpu_limit?: string | null;
             cpu_shares?: number | null;
-            /** @description CPUs autorisés (ex. 0-2). */
+            /** @description Allowed CPUs (e.g. 0-2). */
             cpu_set?: string | null;
         };
-        /** @description Champs communs à toute création d'application. */
+        /** @description Fields common to every application creation. */
         ApplicationCreateBase: {
             name: string;
             description?: string | null;
             project_uuid: string;
             environment_uuid: string;
-            /** @description Serveur cible (doit être `ready` et ne pas être un build server). */
+            /** @description Target server (must be `ready` and not a build server). */
             server_uuid: string;
-            /** @description Réseau Docker cible — défaut = destination par défaut du serveur (gestion dédiée hors v1). */
+            /** @description Target Docker network — default = the server's default destination (dedicated management outside v1). */
             destination_uuid?: string | null;
             /**
-             * @description Discriminant du type de source (§5.1).
+             * @description Discriminator of the source type (§5.1).
              * @enum {string}
              */
             source_type: "docker_image" | "dockerfile" | "git";
             /**
-             * @description FQDN de l'application (§4.2) — formats supportés par élément : fqdn simple, fqdn:port (port interne ciblé), fqdn/path (path-based routing). Vide = domaine généré depuis le wildcard du serveur si configuré.
+             * @description FQDN of the application (§4.2) — supported formats per element: plain fqdn, fqdn:port (targeted internal port), fqdn/path (path-based routing). Empty = domain generated from the server's wildcard if configured.
              * @default []
              */
             domains: string[];
-            /** @description Port(s) interne(s) exposé(s) au proxy, séparés par des virgules (ex. "3000"). Optionnel pour une app sans trafic entrant. */
+            /** @description Internal port(s) exposed to the proxy, comma-separated (e.g. "3000"). Optional for an app without inbound traffic. */
             ports_exposes?: string | null;
             health_check?: components["schemas"]["HealthCheckConfig"];
             limits?: components["schemas"]["ResourceLimits"];
-            /** @description Commande exécutée dans le container **existant** avant tout clone/build (§10). Un échec fait échouer le déploiement **avant toute mutation** — l'existant n'est pas touché. Sautée s'il n'y a pas de container en cours d'exécution. DOIT être idempotente : elle peut être rejouée lors d'une reprise après crash. */
+            /** @description Command executed in the **existing** container before any clone/build (§10). A failure fails the deployment **before any mutation** — the existing container is untouched. Skipped if there is no running container. MUST be idempotent: it may be replayed during a crash recovery. */
             pre_deployment_command?: string | null;
-            /** @description Commande exécutée dans le **candidat** une fois sain, avant la bascule (§10). Un échec fait échouer le déploiement : le candidat est supprimé et l'ancien container **reste routé** (INV-005), sans rollback automatique. DOIT être idempotente. */
+            /** @description Command executed in the **candidate** once healthy, before the switchover (§10). A failure fails the deployment: the candidate is deleted and the old container **stays routed** (INV-005), with no automatic rollback. MUST be idempotent. */
             post_deployment_command?: string | null;
             /**
-             * @description Tags libres — utilisables par le deploy webhook (`?tag=`).
+             * @description Free-form tags — usable by the deploy webhook (`?tag=`).
              * @default []
              */
             tags: string[];
             /**
-             * @description Déclenche immédiatement un premier déploiement après création.
+             * @description Immediately triggers a first deployment after creation.
              * @default false
              */
             instant_deploy: boolean;
             /**
-             * @description Construire sur un **build server** dédié (§3.4) plutôt que sur le serveur de production. Exige `push_registry_credential_uuid` : sans registry, l'image reste sur la machine de build et le serveur de déploiement ne peut pas la tirer — la construire ailleurs n'aurait servi à rien (amendement n°19). Sans objet pour la source `docker_image`, qui ne construit rien.
+             * @description Build on a dedicated **build server** (§3.4) rather than on the production server. Requires `push_registry_credential_uuid`: without a registry, the image stays on the build machine and the deployment server cannot pull it — building it elsewhere would have been pointless (amendment #19). Not applicable for the `docker_image` source, which builds nothing.
              * @default false
              */
             use_build_server: boolean;
-            /** @description Registry où l'image construite est poussée, et d'où le serveur de déploiement la tire. */
+            /** @description Registry where the built image is pushed, and from which the deployment server pulls it. */
             push_registry_credential_uuid?: string | null;
         };
-        /** @description Création depuis une image Docker d'un registry (P0). Registries privés via docker login sur le serveur (§5.1). */
+        /** @description Creation from a Docker image of a registry (P0). Private registries via docker login on the server (§5.1). */
         ApplicationCreateDockerImage: components["schemas"]["ApplicationCreateBase"] & {
             /** @enum {unknown} */
             source_type?: "docker_image";
-            /** @description Image pré-construite, registry inclus si non Docker Hub (ex. ghcr.io/acme/app). */
+            /** @description Pre-built image, registry included if not Docker Hub (e.g. ghcr.io/acme/app). */
             docker_image: string;
             /**
-             * @description Tag de l'image. Le digest est résolu au déploiement (§18.3).
+             * @description Tag of the image. The digest is resolved at deployment (§18.3).
              * @default latest
              */
             docker_image_tag: string;
-            /** @description Credential d'un registry privé (amendement n°17). Le mot de passe n'atteint le serveur que par le **stdin** de `docker login --password-stdin` — jamais dans `argv`, où un `ps` le lirait (INV-003). */
+            /** @description Credential of a private registry (amendment #17). The password only reaches the server through the **stdin** of `docker login --password-stdin` — never in `argv`, where a `ps` would read it (INV-003). */
             registry_credential_uuid?: string | null;
         } & {
             /**
@@ -4697,11 +4697,11 @@ export interface components {
              */
             source_type: "docker_image";
         };
-        /** @description Création depuis un Dockerfile inline (P0). */
+        /** @description Creation from an inline Dockerfile (P0). */
         ApplicationCreateDockerfile: components["schemas"]["ApplicationCreateBase"] & {
             /** @enum {unknown} */
             source_type?: "dockerfile";
-            /** @description Contenu inline du Dockerfile (P0). */
+            /** @description Inline content of the Dockerfile (P0). */
             dockerfile: string;
         } & {
             /**
@@ -4710,49 +4710,49 @@ export interface components {
              */
             source_type: "dockerfile";
         };
-        /** @description Création depuis un dépôt Git public ou privé (P1). */
+        /** @description Creation from a public or private Git repository (P1). */
         ApplicationCreateGit: components["schemas"]["ApplicationCreateBase"] & {
             /** @enum {unknown} */
             source_type?: "git";
-            /** @description URL du dépôt — HTTPS pour un dépôt public, SSH (git@host:org/repo.git) pour un dépôt privé par deploy key. Ignorée quand `github_app_uuid` est fourni : l'URL de clone est dérivée du dépôt découvert. */
+            /** @description URL of the repository — HTTPS for a public repository, SSH (git@host:org/repo.git) for a private repository via deploy key. Ignored when `github_app_uuid` is provided: the clone URL is derived from the discovered repository. */
             git_repository: string;
-            /** @description Source GitHub App (git-webhook-protocols §2) — clone par token d'installation, auto-deploy par le webhook de l'app. Exige `repository_full_name`. */
+            /** @description GitHub App source (git-webhook-protocols §2) — clone via installation token, auto-deploy via the app's webhook. Requires `repository_full_name`. */
             github_app_uuid?: string | null;
-            /** @description (avec github_app_uuid) Dépôt cible, au format owner/name, parmi les dépôts découverts de l'installation. */
+            /** @description (with github_app_uuid) Target repository, in owner/name format, among the installation's discovered repositories. */
             repository_full_name?: string | null;
-            /** @description Branche à déployer (résolue en SHA immuable à chaque déploiement, §20.2). */
+            /** @description Branch to deploy (resolved to an immutable SHA at each deployment, §20.2). */
             git_branch: string;
-            /** @description Clé privée (deploy key) pour un dépôt privé — `null` pour un dépôt public (P1, §5.1). */
+            /** @description Private key (deploy key) for a private repository — `null` for a public repository (P1, §5.1). */
             private_key_uuid?: string | null;
             /**
-             * @description Build pack (§5.2). `compose` déploie le fichier compose du dépôt comme stack multi-services (compose-spec.md) — un composant par service, domaine par composant. Railpack arrivera dans une version ultérieure du contrat.
+             * @description Build pack (§5.2). `compose` deploys the repository's compose file as a multi-service stack (compose-spec.md) — one component per service, domain per component. Railpack will arrive in a later version of the contract.
              * @enum {string}
              */
             build_pack: "dockerfile" | "nixpacks" | "static" | "compose";
             /**
-             * @description Répertoire de base dans le dépôt (monorepos).
+             * @description Base directory in the repository (monorepos).
              * @default /
              */
             base_directory: string;
             /**
-             * @description Chemin du Dockerfile relatif à `base_directory` (build pack dockerfile).
+             * @description Path of the Dockerfile relative to `base_directory` (dockerfile build pack).
              * @default /Dockerfile
              */
             dockerfile_location: string;
             /**
-             * @description (build pack compose) Chemin du fichier compose relatif à `base_directory`.
+             * @description (compose build pack) Path of the compose file relative to `base_directory`.
              * @default /docker-compose.yml
              */
             compose_file_location: string;
             /**
-             * @description (build pack compose) Mode raw compose (compose-spec §9) — sémantique `docker compose up` au plus près, zero-downtime désactivé, frontières de sécurité conservées.
+             * @description (compose build pack) Raw compose mode (compose-spec §9) — `docker compose up` semantics as close as possible, zero-downtime disabled, security boundaries kept.
              * @default false
              */
             raw_compose: boolean;
-            /** @description Répertoire publié (build pack static). */
+            /** @description Published directory (static build pack). */
             publish_directory?: string | null;
             /**
-             * @description Patterns limitant l'auto-deploy aux fichiers modifiés correspondants (§5.5).
+             * @description Patterns restricting auto-deploy to matching modified files (§5.5).
              * @default []
              */
             watch_paths: string[];
@@ -4763,7 +4763,7 @@ export interface components {
              */
             source_type: "git";
         };
-        /** @description Environnement éphémère d'une PR (§20.4, data dictionary §8.9). */
+        /** @description Ephemeral environment of a PR (§20.4, data dictionary §8.9). */
         Preview: {
             readonly uuid: string;
             readonly pr_id: number;
@@ -4774,7 +4774,7 @@ export interface components {
             readonly fork_approved?: boolean;
             readonly fqdn?: string | null;
             /**
-             * @description État de la preview (§20.4). `sleeping`/`waking` = scale-to-zero (ADR-036) : endormie par inactivité (arrêt volontaire, pas un « down »), et réveillée à la volée par le waker sur la première requête.
+             * @description State of the preview (§20.4). `sleeping`/`waking` = scale-to-zero (ADR-036): put to sleep on inactivity (a voluntary stop, not a "down"), and woken on the fly by the waker on the first request.
              * @enum {string}
              */
             readonly status: "queued" | "deploying" | "active" | "failed" | "destroying" | "cleanup_failed" | "destroyed" | "sleeping" | "waking";
@@ -4783,16 +4783,16 @@ export interface components {
             /** Format: date-time */
             readonly created_at: string;
         };
-        /** @description GitHub App de la team (git-webhook-protocols §2) — créée par manifest flow, credentials chiffrés jamais exposés par l'API. */
+        /** @description The team's GitHub App (git-webhook-protocols §2) — created via manifest flow, encrypted credentials never exposed by the API. */
         GithubApp: {
             readonly uuid: string;
             name: string;
-            /** @description ID chez GitHub — null tant que le manifest flow n'est pas terminé (brouillon). */
+            /** @description ID at GitHub — null until the manifest flow is finished (draft). */
             readonly app_id?: number | null;
             readonly slug?: string | null;
-            /** @description Null tant que l'app n'est pas installée sur un compte/organisation. */
+            /** @description Null until the app is installed on an account/organization. */
             readonly installation_id?: number | null;
-            /** @description URL d'installation chez GitHub (une fois convertie). */
+            /** @description Installation URL at GitHub (once converted). */
             readonly install_url?: string | null;
             readonly api_url: string;
             readonly html_url: string;
@@ -4802,33 +4802,33 @@ export interface components {
             readonly version: number;
         };
         GithubAppCreateRequest: {
-            /** @description Nom souhaité de l'app (unicité globale chez GitHub, ≤ 34 caractères) — défaut généré depuis l'instance. */
+            /** @description Desired name of the app (globally unique at GitHub, ≤ 34 characters) — default generated from the instance. */
             name?: string;
-            /** @description Organisation GitHub cible ; null = compte personnel. */
+            /** @description Target GitHub organization; null = personal account. */
             organization?: string | null;
-            /** @description GitHub Enterprise Server — URL d'API (ex. https://ghe.example.com/api/v3). */
+            /** @description GitHub Enterprise Server — API URL (e.g. https://ghe.example.com/api/v3). */
             api_url?: string | null;
-            /** @description GitHub Enterprise Server — URL web. */
+            /** @description GitHub Enterprise Server — web URL. */
             html_url?: string | null;
         };
-        /** @description Le nécessaire pour soumettre le manifest à GitHub (§2.1 étape 2). */
+        /** @description What is needed to submit the manifest to GitHub (§2.1 step 2). */
         GithubAppManifest: {
             github_app: components["schemas"]["GithubApp"];
-            /** @description JSON du manifest, à poster dans le champ de formulaire `manifest`. */
+            /** @description JSON of the manifest, to post in the `manifest` form field. */
             manifest: Record<string, never>;
-            /** @description Jeton anti-CSRF à usage unique (10 minutes) — passé en query `state`. */
+            /** @description Single-use anti-CSRF token (10 minutes) — passed as the `state` query parameter. */
             state: string;
-            /** @description URL GitHub du formulaire de création (compte ou organisation). */
+            /** @description GitHub URL of the creation form (account or organization). */
             target_url: string;
         };
-        /** @description Dépôt découvert via l'installation (data dictionary §7.3). */
+        /** @description Repository discovered via the installation (data dictionary §7.3). */
         GitRepository: {
             readonly uuid: string;
             readonly full_name: string;
             readonly default_branch?: string | null;
             readonly html_url?: string | null;
         };
-        /** @description Stack Docker Compose inline (compose-spec.md, data dictionary §9.1) — le fichier est la source de vérité, éditable via PATCH. */
+        /** @description Inline Docker Compose stack (compose-spec.md, data dictionary §9.1) — the file is the source of truth, editable via PATCH. */
         Service: {
             readonly uuid: string;
             name: string;
@@ -4836,9 +4836,9 @@ export interface components {
             readonly project_uuid: string;
             readonly environment_uuid: string;
             readonly server_uuid: string;
-            /** @description Le fichier compose (sous-ensemble compose-spec §1). */
+            /** @description The compose file (compose-spec subset §1). */
             compose_content: string;
-            /** @description Attache chaque composant au réseau de la destination (§2.1). */
+            /** @description Attaches each component to the destination's network (§2.1). */
             connect_to_predefined_network?: boolean;
             desired_status: components["schemas"]["DesiredStatus"];
             observed_status: components["schemas"]["ObservedStatus"];
@@ -4859,7 +4859,7 @@ export interface components {
             project_uuid: string;
             environment_uuid: string;
             server_uuid: string;
-            /** @description Fichier compose inline, validé à la sauvegarde (422 + findings compose-spec §11 dans details[]). `build:` refusé — un stack inline n'a pas de source à construire. */
+            /** @description Inline compose file, validated on save (422 + compose-spec §11 findings in details[]). `build:` rejected — an inline stack has no source to build. */
             compose_content: string;
             /** @default false */
             connect_to_predefined_network: boolean;
@@ -4869,22 +4869,22 @@ export interface components {
         ServiceUpdate: {
             name?: string;
             description?: string | null;
-            /** @description Nouveau fichier — validé, appliqué au prochain déploiement. */
+            /** @description New file — validated, applied at the next deployment. */
             compose_content?: string;
             connect_to_predefined_network?: boolean;
         };
-        /** @description Sous-container d'un stack compose (data dictionary §9.2) — un par service du fichier, statut observé individuel (§5.7). */
+        /** @description Sub-container of a compose stack (data dictionary §9.2) — one per service of the file, individual observed status (§5.7). */
         ServiceComponent: {
             readonly uuid: string;
-            /** @description Nom du service dans le fichier compose. */
+            /** @description Name of the service in the compose file. */
             readonly name: string;
-            /** @description Image résolue (informatif). */
+            /** @description Resolved image (informative). */
             readonly image?: string | null;
-            /** @description Détection par image (compose-spec §10) — cible valide d'un plan de backup. */
+            /** @description Image-based detection (compose-spec §10) — valid target of a backup plan. */
             readonly is_database?: boolean;
             /** @enum {string|null} */
             readonly database_engine?: "postgresql" | "mysql" | "mariadb" | "mongodb" | "redis" | "keydb" | "dragonfly" | "clickhouse" | null;
-            /** @description Job one-shot exclu du statut agrégé (compose-spec §7.3). */
+            /** @description One-shot job excluded from the aggregated status (compose-spec §7.3). */
             readonly exclude_from_hc?: boolean;
             observed_status: components["schemas"]["ObservedStatus"];
             /** Format: date-time */
@@ -4892,47 +4892,47 @@ export interface components {
             /** Format: date-time */
             readonly created_at: string;
         };
-        /** @description Une route de preview (ADR-035). `host` accepte {{pr_id}}, {{service}}, {{domain}}, {{random}}. Un `host` avec {{service}} est appliqué à chaque service servi ; sans {{service}}, le service cible est résolu par `port`. */
+        /** @description A preview route (ADR-035). `host` accepts {{pr_id}}, {{service}}, {{domain}}, {{random}}. A `host` with {{service}} is applied to each served service; without {{service}}, the target service is resolved by `port`. */
         PreviewRouteTemplate: {
-            /** @description Motif d'hôte (sans schéma), ex. `varuna-pr{{pr_id}}.ad.kedric.fr`. */
+            /** @description Host pattern (without scheme), e.g. `varuna-pr{{pr_id}}.ad.kedric.fr`. */
             host: string;
-            /** @description Port interne cible ; null = port exposé par défaut / port du service. */
+            /** @description Target internal port; null = default exposed port / service port. */
             port?: number | null;
         };
-        /** @description Instantané de consommation d'un service du stack (ADR-034) — lu à la demande, jamais stocké. `null` sur un champ = la mesure n'a pas pu être lue (container arrêté ou sans limite). */
+        /** @description Consumption snapshot of a service of the stack (ADR-034) — read on demand, never stored. `null` on a field = the measurement could not be read (container stopped or without a limit). */
         ComponentMetric: {
-            /** @description Nom du service compose. */
+            /** @description Name of the compose service. */
             readonly component: string;
-            /** @description Faux si aucun container vivant pour ce service. */
+            /** @description False if no live container for this service. */
             readonly running?: boolean;
             /**
              * Format: double
-             * @description Pourcentage CPU instantané (peut dépasser 100 sur plusieurs cœurs).
+             * @description Instant CPU percentage (may exceed 100 on several cores).
              */
             readonly cpu_percent?: number | null;
             /**
              * Format: int64
-             * @description Mémoire utilisée en octets.
+             * @description Memory used in bytes.
              */
             readonly memory_bytes?: number | null;
             /**
              * Format: int64
-             * @description Limite mémoire en octets ; null si illimitée.
+             * @description Memory limit in bytes; null if unlimited.
              */
             readonly memory_limit_bytes?: number | null;
             /**
              * Format: double
-             * @description Mémoire utilisée en pourcentage de la limite.
+             * @description Memory used as a percentage of the limit.
              */
             readonly memory_percent?: number | null;
         };
-        /** @description Corps de création d'application — discriminé par `source_type`. */
+        /** @description Application creation body — discriminated by `source_type`. */
         ApplicationCreateRequest: components["schemas"]["ApplicationCreateDockerImage"] | components["schemas"]["ApplicationCreateDockerfile"] | components["schemas"]["ApplicationCreateGit"];
-        /** @description Mise à jour partielle de la configuration. Les changements sont versionnés (INV-014) et appliqués au prochain déploiement, sauf `domains` (routage régénéré immédiatement). `source_type` n'est pas modifiable — recréer l'application pour changer de type de source. */
+        /** @description Partial update of the configuration. Changes are versioned (INV-014) and applied at the next deployment, except `domains` (routing regenerated immediately). `source_type` is not modifiable — recreate the application to change the source type. */
         ApplicationUpdate: {
-            /** @description Commande exécutée dans le container **existant** avant tout clone/build (§10). Un échec fait échouer le déploiement **avant toute mutation** — l'existant n'est pas touché. Sautée s'il n'y a pas de container en cours d'exécution. DOIT être idempotente : elle peut être rejouée lors d'une reprise après crash. */
+            /** @description Command executed in the **existing** container before any clone/build (§10). A failure fails the deployment **before any mutation** — the existing container is untouched. Skipped if there is no running container. MUST be idempotent: it may be replayed during a crash recovery. */
             pre_deployment_command?: string | null;
-            /** @description Commande exécutée dans le **candidat** une fois sain, avant la bascule (§10). Un échec fait échouer le déploiement : le candidat est supprimé et l'ancien container **reste routé** (INV-005), sans rollback automatique. DOIT être idempotente. */
+            /** @description Command executed in the **candidate** once healthy, before the switchover (§10). A failure fails the deployment: the candidate is deleted and the old container **stays routed** (INV-005), with no automatic rollback. MUST be idempotent. */
             post_deployment_command?: string | null;
             name?: string;
             description?: string | null;
@@ -4941,82 +4941,82 @@ export interface components {
             health_check?: components["schemas"]["HealthCheckConfig"];
             limits?: components["schemas"]["ResourceLimits"];
             tags?: string[];
-            /** @description (source docker_image) Nouvelle image. */
+            /** @description (docker_image source) New image. */
             docker_image?: string;
-            /** @description (source docker_image) Nouveau tag. */
+            /** @description (docker_image source) New tag. */
             docker_image_tag?: string;
-            /** @description Credential du registry privé (null pour le retirer). */
+            /** @description Credential of the private registry (null to remove it). */
             registry_credential_uuid?: string | null;
             use_build_server?: boolean;
             push_registry_credential_uuid?: string | null;
-            /** @description (source dockerfile) Nouveau contenu du Dockerfile. */
+            /** @description (dockerfile source) New content of the Dockerfile. */
             dockerfile?: string;
-            /** @description (source git) URL du dépôt. */
+            /** @description (git source) URL of the repository. */
             git_repository?: string;
-            /** @description (source git) Branche. */
+            /** @description (git source) Branch. */
             git_branch?: string;
-            /** @description (source git) Deploy key. */
+            /** @description (git source) Deploy key. */
             private_key_uuid?: string | null;
             /**
-             * @description (source git) Build pack.
+             * @description (git source) Build pack.
              * @enum {string}
              */
             build_pack?: "dockerfile" | "nixpacks" | "static" | "compose";
-            /** @description (source git) Répertoire de base. */
+            /** @description (git source) Base directory. */
             base_directory?: string;
-            /** @description (source git) Chemin du Dockerfile. */
+            /** @description (git source) Path of the Dockerfile. */
             dockerfile_location?: string;
-            /** @description (build pack compose) Chemin du fichier compose relatif à `base_directory`. */
+            /** @description (compose build pack) Path of the compose file relative to `base_directory`. */
             compose_file_location?: string;
-            /** @description (build pack compose) Mode raw compose (compose-spec §9). */
+            /** @description (compose build pack) Raw compose mode (compose-spec §9). */
             raw_compose?: boolean;
-            /** @description (source git) Répertoire publié (static). */
+            /** @description (git source) Published directory (static). */
             publish_directory?: string | null;
-            /** @description (source git) Patterns d'auto-deploy. */
+            /** @description (git source) Auto-deploy patterns. */
             watch_paths?: string[];
-            /** @description (source git) Active/désactive l'auto-deploy sur push (§5.5). */
+            /** @description (git source) Enables/disables auto-deploy on push (§5.5). */
             auto_deploy?: boolean;
-            /** @description Previews par PR (§20.4) — déclenchées par le webhook de la GitHub App ou par un webhook manuel GitLab/Gitea/GitHub de l'application (protocols §1.2). */
+            /** @description Per-PR previews (§20.4) — triggered by the GitHub App's webhook or by a manual GitLab/Gitea/GitHub webhook of the application (protocols §1.2). */
             previews_enabled?: boolean;
-            /** @description Legacy — motif unique ; utilisez preview_url_templates (§5.6, ADR-035). */
+            /** @description Legacy — single pattern; use preview_url_templates (§5.6, ADR-035). */
             preview_url_template?: string;
-            /** @description Table de routes de preview (ADR-035) — remplace preview_url_template quand non vide. Vide/absent = comportement legacy. */
+            /** @description Preview route table (ADR-035) — replaces preview_url_template when non-empty. Empty/absent = legacy behavior. */
             preview_url_templates?: components["schemas"]["PreviewRouteTemplate"][] | null;
-            /** @description Plafond de previews simultanées ; null = illimité (§20.4.3). */
+            /** @description Cap on concurrent previews; null = unlimited (§20.4.3). */
             preview_max_concurrent?: number | null;
-            /** @description TTL d'inactivité en minutes ; null = pas de destruction automatique. */
+            /** @description Inactivity TTL in minutes; null = no automatic destruction. */
             preview_ttl_minutes?: number | null;
             /**
-             * @description Protection d'accès des URLs de preview (§20.4.4) — basic_auth par défaut.
+             * @description Access protection of preview URLs (§20.4.4) — basic_auth by default.
              * @enum {string}
              */
             preview_protection?: "none" | "basic_auth" | "sso";
-            /** @description Autorise les previews de forks après approbation d'un mainteneur (INV-010). */
+            /** @description Allows fork previews after a maintainer's approval (INV-010). */
             preview_fork_approval_enabled?: boolean;
-            /** @description Les draft PRs ne déclenchent pas de preview (opt-in, ADR-011). */
+            /** @description Draft PRs do not trigger a preview (opt-in, ADR-011). */
             preview_exclude_drafts?: boolean;
-            /** @description Auto-déploiement à l'ouverture d'une PR (§20.4.7, défaut true). Si false, l'ouverture réserve seulement la preview (URL, credential) : le PREMIER déploiement doit être déclenché manuellement (UI AkerDock ou commande `/deploy`). Une fois déployée, les push suivants la mettent à jour normalement. */
+            /** @description Auto-deployment at PR opening (§20.4.7, default true). If false, opening only reserves the preview (URL, credential): the FIRST deployment must be triggered manually (AkerDock UI or `/deploy` command). Once deployed, subsequent pushes update it normally. */
             preview_deploy_on_open?: boolean;
-            /** @description Opt-in par label (§20.4.7, ADR-011) : la PR doit porter ce label pour obtenir une preview ; null = désactivé (comportement de parité). */
+            /** @description Opt-in by label (§20.4.7, ADR-011): the PR must carry this label to get a preview; null = disabled (parity behavior). */
             preview_require_label?: string | null;
-            /** @description Commandes en commentaire de PR `/deploy` et `/destroy` (§20.4.7, opt-in). Les droits de l'auteur sont vérifiés côté serveur via l'API du provider — un token API est requis pour les webhooks manuels (protocols §2.7d, §3-§6). */
+            /** @description PR comment commands `/deploy` and `/destroy` (§20.4.7, opt-in). The author's rights are verified server-side via the provider's API — an API token is required for manual webhooks (protocols §2.7d, §3-§6). */
             preview_comment_commands_enabled?: boolean;
-            /** @description Annule le build de preview rendu obsolète par un nouveau commit de la même PR (§20.4.7, opt-in) — le déploiement en file est superseded, le build en cours annulé coopérativement. */
+            /** @description Cancels the preview build made obsolete by a new commit of the same PR (§20.4.7, opt-in) — the queued deployment is superseded, the running build cooperatively cancelled. */
             preview_cancel_obsolete_builds?: boolean;
-            /** @description Scale-to-zero des PREVIEWS (ADR-036, opt-in, défaut false) : une preview inactive est endormie (`docker stop`) et réveillée à la première requête par le conteneur waker. */
+            /** @description Scale-to-zero for PREVIEWS (ADR-036, opt-in, default false): an inactive preview is put to sleep (`docker stop`) and woken at the first request by the waker container. */
             preview_scale_to_zero?: boolean;
-            /** @description Fenêtre d'inactivité des previews en minutes avant endormissement (défaut 30). */
+            /** @description Preview inactivity window in minutes before going to sleep (default 30). */
             preview_scale_to_zero_after_minutes?: number;
-            /** @description Scale-to-zero de l'APPLICATION elle-même (ADR-037, opt-in explicite, défaut false) : l'app inactive est endormie et réveillée à la première requête. À réserver aux workloads pilotés par requête — un `docker stop` arrête aussi workers/crons, et le premier visiteur après inactivité paie le cold-start (jusqu'à 60 s). Séparé de `preview_scale_to_zero`. */
+            /** @description Scale-to-zero of the APPLICATION itself (ADR-037, explicit opt-in, default false): the inactive app is put to sleep and woken at the first request. Reserve it for request-driven workloads — a `docker stop` also stops workers/crons, and the first visitor after inactivity pays the cold start (up to 60 s). Separate from `preview_scale_to_zero`. */
             scale_to_zero?: boolean;
-            /** @description Fenêtre d'inactivité de l'application en minutes avant endormissement (défaut 30). */
+            /** @description Application inactivity window in minutes before going to sleep (default 30). */
             scale_to_zero_after_minutes?: number;
-            /** @description (source git) Token API du provider, stocké chiffré sur la git source de l'application (protocols §3-§6) : porte le feedback de preview (commit statuses, commentaire upserté) et la vérification des droits des commandes pour GitLab, Gitea et les webhooks GitHub manuels. Write-only — jamais relu par l'API (INV-003). Null pour le retirer. Inutile avec une GitHub App (elle a ses propres credentials). */
+            /** @description (git source) Provider API token, stored encrypted on the application's git source (protocols §3-§6): carries the preview feedback (commit statuses, upserted comment) and the rights verification of the commands for GitLab, Gitea and manual GitHub webhooks. Write-only — never read back by the API (INV-003). Null to remove it. Unnecessary with a GitHub App (it has its own credentials). */
             git_api_token?: string | null;
-            /** @description (source git) Endpoint API du provider sur la git source (self-hosted, protocols §4.1/§6.1) — par exemple https://gitlab.example.com/api/v4. Null pour revenir à la dérivation depuis l'hôte du dépôt. */
+            /** @description (git source) Provider API endpoint on the git source (self-hosted, protocols §4.1/§6.1) — for example https://gitlab.example.com/api/v4. Null to fall back to derivation from the repository host. */
             git_api_url?: string | null;
         };
-        /** @description Application déployable (§5). Regroupe l'identité, la configuration désirée (source, build, routage, santé, limites) et les statuts désiré/observé (§21.2). */
+        /** @description Deployable application (§5). Groups the identity, the desired configuration (source, build, routing, health, limits) and the desired/observed statuses (§21.2). */
         Application: {
             readonly uuid: string;
             name: string;
@@ -5027,18 +5027,18 @@ export interface components {
             readonly destination_uuid?: string | null;
             /** @enum {string} */
             readonly source_type: "docker_image" | "dockerfile" | "git";
-            /** @description (source docker_image) Image configurée. */
+            /** @description (docker_image source) Configured image. */
             docker_image?: string | null;
             docker_image_tag?: string | null;
-            /** @description Credential du registry privé utilisé pour le pull (amendement n°17). */
+            /** @description Credential of the private registry used for the pull (amendment */
             registry_credential_uuid?: string | null;
             use_build_server?: boolean;
             push_registry_credential_uuid?: string | null;
-            /** @description (source dockerfile) Contenu du Dockerfile. */
+            /** @description (dockerfile source) Content of the Dockerfile. */
             dockerfile?: string | null;
             git_repository?: string | null;
             git_branch?: string | null;
-            /** @description (source git) GitHub App qui fournit le dépôt et l'authentification de clone (§5.1) — nul pour une source git manuelle. Lecture seule : le lien est établi à la création. */
+            /** @description (git source) GitHub App that provides the repository and the clone authentication (§5.1) — null for a manual git source. Read-only: the link is established at creation. */
             readonly github_app_uuid?: string | null;
             pre_deployment_command?: string | null;
             post_deployment_command?: string | null;
@@ -5047,17 +5047,17 @@ export interface components {
             build_pack?: "dockerfile" | "nixpacks" | "static" | "compose" | null;
             base_directory?: string | null;
             dockerfile_location?: string | null;
-            /** @description (build pack compose) Chemin du fichier compose relatif à `base_directory`. */
+            /** @description (compose build pack) Path of the compose file relative to `base_directory`. */
             compose_file_location?: string | null;
-            /** @description (build pack compose) Mode raw compose (compose-spec §9). */
+            /** @description (compose build pack) Raw compose mode (compose-spec §9). */
             raw_compose?: boolean;
             publish_directory?: string | null;
             watch_paths?: string[];
-            /** @description (source git) Auto-deploy sur push activé. */
+            /** @description (git source) Auto-deploy on push enabled. */
             auto_deploy?: boolean;
             previews_enabled?: boolean;
             preview_url_template?: string;
-            /** @description Table de routes de preview (ADR-035). Absent = inchangé ; tableau vide = revient au template unique legacy. */
+            /** @description Preview route table (ADR-035). Absent = unchanged; empty array = falls back to the legacy single template. */
             preview_url_templates?: components["schemas"]["PreviewRouteTemplate"][] | null;
             preview_max_concurrent?: number | null;
             preview_ttl_minutes?: number | null;
@@ -5065,27 +5065,27 @@ export interface components {
             preview_protection?: "none" | "basic_auth" | "sso";
             preview_fork_approval_enabled?: boolean;
             preview_exclude_drafts?: boolean;
-            /** @description Auto-déploiement à l'ouverture d'une PR (défaut true) ; false = premier déploiement manuel (UI ou `/deploy`), §20.4.7. */
+            /** @description Auto-deployment at PR opening (default true); false = first deployment manual (UI or `/deploy`), §20.4.7. */
             preview_deploy_on_open?: boolean;
-            /** @description Opt-in par label de PR (§20.4.7) ; null = désactivé. */
+            /** @description Opt-in by PR label (§20.4.7); null = disabled. */
             preview_require_label?: string | null;
-            /** @description Commandes `/deploy` `/destroy` en commentaire (§20.4.7). */
+            /** @description `/deploy` `/destroy` comment commands (§20.4.7). */
             preview_comment_commands_enabled?: boolean;
-            /** @description Annulation du build de preview obsolète (§20.4.7). */
+            /** @description Cancellation of the obsolete preview build (§20.4.7). */
             preview_cancel_obsolete_builds?: boolean;
-            /** @description Scale-to-zero des previews (ADR-036, opt-in) — endort/réveille via le waker. */
+            /** @description Scale-to-zero for previews (ADR-036, opt-in) — sleeps/wakes via the waker. */
             preview_scale_to_zero?: boolean;
-            /** @description Fenêtre d'inactivité des previews avant endormissement, en minutes (défaut 30). */
+            /** @description Preview inactivity window before going to sleep, in minutes (default 30). */
             preview_scale_to_zero_after_minutes?: number;
-            /** @description Scale-to-zero de l'application elle-même (ADR-037, opt-in) — endort/réveille via le waker. */
+            /** @description Scale-to-zero of the application itself (ADR-037, opt-in) — sleeps/wakes via the waker. */
             scale_to_zero?: boolean;
-            /** @description Fenêtre d'inactivité de l'application avant endormissement, en minutes (défaut 30). */
+            /** @description Application inactivity window before going to sleep, in minutes (default 30). */
             scale_to_zero_after_minutes?: number;
-            /** @description L'application est actuellement en veille (scale-to-zero, ADR-037) — arrêtée volontairement, à ne pas confondre avec un état « down ». */
+            /** @description The application is currently asleep (scale-to-zero, ADR-037) — voluntarily stopped, not to be confused with a "down" state. */
             readonly scale_asleep?: boolean;
-            /** @description Un token API de provider est configuré sur la git source (jamais la valeur — INV-003). */
+            /** @description A provider API token is configured on the git source (never the value — INV-003). */
             readonly git_api_token_set?: boolean;
-            /** @description Endpoint API du provider sur la git source (self-hosted). */
+            /** @description Provider API endpoint on the git source (self-hosted). */
             git_api_url?: string | null;
             domains?: string[];
             ports_exposes?: string | null;
@@ -5096,14 +5096,14 @@ export interface components {
             observed_status: components["schemas"]["ObservedStatus"];
             /**
              * Format: date-time
-             * @description Horodatage de la dernière observation (au-delà d'un seuil, statut stale, §19.2).
+             * @description Timestamp of the last observation (beyond a threshold, stale status, §19.2).
              */
             readonly observed_at?: string | null;
-            /** @description Dernier déploiement (tous statuts confondus). */
+            /** @description Latest deployment (all statuses combined). */
             readonly last_deployment_uuid?: string | null;
             /** Format: date-time */
             readonly last_deployment_at?: string | null;
-            /** @description Version optimiste de la configuration (reflétée dans l'ETag). */
+            /** @description Optimistic version of the configuration (reflected in the ETag). */
             readonly version: number;
             /** Format: date-time */
             readonly created_at: string;
@@ -5112,85 +5112,85 @@ export interface components {
         };
         PersistentStorageCreate: {
             /**
-             * @description Volume Docker nommé (recommandé) ou bind mount d'un répertoire hôte (§8).
+             * @description Named Docker volume (recommended) or bind mount of a host directory (§8).
              * @enum {string}
              */
             kind: "volume" | "bind";
-            /** @description (kind volume) Nom logique du volume — le nom Docker réel est préfixé par l'UUID de la ressource (INV-011). Requis pour `volume`. */
+            /** @description (volume kind) Logical name of the volume — the actual Docker name is prefixed with the resource's UUID (INV-011). Required for `volume`. */
             name?: string;
-            /** @description (kind bind) Chemin absolu sur le serveur. Requis pour `bind`. */
+            /** @description (bind kind) Absolute path on the server. Required for `bind`. */
             host_path?: string;
-            /** @description Chemin de montage dans le container — unique par ressource. */
+            /** @description Mount path inside the container — unique per resource. */
             mount_path: string;
         };
-        /** @description Stockage persistant d'une application (§8) — les données survivent aux déploiements. */
+        /** @description Persistent storage of an application (§8) — the data survives deployments. */
         PersistentStorage: {
             readonly uuid: string;
             /** @enum {string} */
             kind: "volume" | "bind";
             name?: string | null;
-            /** @description Nom Docker réel du volume (`<resource_uuid>_<name>`), déterministe. */
+            /** @description Actual Docker name of the volume (`<resource_uuid>_<name>`), deterministic. */
             readonly docker_volume_name?: string | null;
             host_path?: string | null;
             mount_path: string;
-            /** @description Miroir d'un volume déclaré dans le fichier compose (§2.4) — réécrit à chaque déploiement, non éditable : le fichier fait foi. */
+            /** @description Mirror of a volume declared in the compose file (§2.4) — rewritten at each deployment, not editable: the file is authoritative. */
             readonly is_generated?: boolean;
             /** Format: date-time */
             readonly created_at: string;
         };
         EnvironmentVariableCreate: {
-            /** @description Nom de la variable — unique par application. */
+            /** @description Name of the variable — unique per application. */
             key: string;
-            /** @description Valeur — écrite mais restituée seulement avec `read:sensitive` (INV-003). */
+            /** @description Value — written but only returned with `read:sensitive` (INV-003). */
             value: string;
             /**
-             * @description Injectée au build (ARG ou secret BuildKit selon `is_secret`, §5.2).
+             * @description Injected at build (ARG or BuildKit secret depending on `is_secret`, §5.2).
              * @default false
              */
             is_build_time: boolean;
             /**
-             * @description Secret de build (§5.2). Une variable secrète n'est **jamais** un `--build-arg` : un ARG est inscrit dans les métadonnées de l'image et `docker history` l'expose à qui peut la puller. Elle est passée en **secret BuildKit** (`--secret`), monté sous `/run/secrets/<clé>` le temps d'un seul `RUN`, et absent de toutes les couches (INV-003).
+             * @description Build secret (§5.2). A secret variable is **never** a `--build-arg`: an ARG is written into the image metadata and `docker history` exposes it to anyone who can pull it. It is passed as a **BuildKit secret** (`--secret`), mounted under `/run/secrets/<key>` for the duration of a single `RUN`, and absent from all layers (INV-003).
              * @default false
              */
             is_secret: boolean;
             /**
-             * @description Valeur littérale, sans interpolation (§5.4).
+             * @description Literal value, without interpolation (§5.4).
              * @default false
              */
             is_literal: boolean;
             /**
-             * @description Valeur multi-lignes (clés, certificats).
+             * @description Multi-line value (keys, certificates).
              * @default false
              */
             is_multiline: boolean;
             /**
-             * @description Verrouillée — masquée pour tous (y compris read:sensitive) et non rééditable ; suppression puis recréation seulement (§5.4).
+             * @description Locked — masked for everyone (including read:sensitive) and not re-editable; deletion then recreation only (§5.4).
              * @default false
              */
             is_locked: boolean;
         };
-        /** @description Mise à jour partielle. `key` n'est pas modifiable. Refusé sur une variable `is_locked`. */
+        /** @description Partial update. `key` is not modifiable. Refused on an `is_locked` variable. */
         EnvironmentVariableUpdate: {
             value?: string;
             is_build_time?: boolean;
             is_secret?: boolean;
             is_literal?: boolean;
             is_multiline?: boolean;
-            /** @description Peut passer de faux à vrai (verrouillage), jamais l'inverse. */
+            /** @description Can go from false to true (locking), never the reverse. */
             is_locked?: boolean;
         };
-        /** @description Variable d'environnement d'une application (§5.4). `value` est `null` sans `read:sensitive` ou si `is_locked` (INV-003) — `is_redacted` l'indique. */
+        /** @description Environment variable of an application (§5.4). `value` is `null` without `read:sensitive` or if `is_locked` (INV-003) — `is_redacted` indicates it. */
         EnvironmentVariable: {
-            /** @description Surcharge dédiée à UNE preview (§20.4) — absente ou false pour les variables des jeux production et previews partagé. */
+            /** @description Override dedicated to ONE preview (§20.4) — absent or false for the variables of the production and shared preview sets. */
             readonly is_preview_override?: boolean;
             readonly uuid: string;
             key: string;
-            /** @description Valeur en clair — uniquement avec `read:sensitive` et si non verrouillée. */
+            /** @description Clear value — only with `read:sensitive` and if not locked. */
             value?: string | null;
-            /** @description Vrai si `value` a été masquée (permission insuffisante ou variable verrouillée). */
+            /** @description True if `value` was masked (insufficient permission or locked variable). */
             readonly is_redacted: boolean;
             is_build_time: boolean;
-            /** @description Secret de build : passé en secret BuildKit, jamais en `--build-arg` (INV-003, §5.2). */
+            /** @description Build secret: passed as a BuildKit secret, never as a `--build-arg` (INV-003, §5.2). */
             is_secret?: boolean;
             is_literal: boolean;
             is_multiline: boolean;
@@ -5201,28 +5201,28 @@ export interface components {
             readonly updated_at?: string | null;
         };
         /**
-         * @description Machine à états d'un déploiement (§21.1). `succeeded`, `failed`, `cancelled` et `superseded` sont terminaux ; `superseded` = remplacé en file par un déploiement plus récent (coalescing).
+         * @description State machine of a deployment (§21.1). `succeeded`, `failed`, `cancelled` and `superseded` are terminal; `superseded` = replaced in the queue by a more recent deployment (coalescing).
          * @enum {string}
          */
         DeploymentStatus: "queued" | "preparing" | "cloning" | "building" | "pushing" | "starting" | "healthchecking" | "switching" | "finishing" | "succeeded" | "failed" | "cancelled" | "retrying" | "superseded";
-        /** @description Déploiement d'une application — une tentative (§21.1). Un retry crée une tentative liée, l'historique n'est jamais réécrit. */
+        /** @description Deployment of an application — one attempt (§21.1). A retry creates a linked attempt, the history is never rewritten. */
         Deployment: {
             readonly uuid: string;
             readonly application_uuid: string;
             status: components["schemas"]["DeploymentStatus"];
             /**
-             * @description Origine du déclenchement (vocabulaire aligné sur l'enum `deployment_trigger` du data dictionary). Un rollback est signalé par `is_rollback`, pas par le trigger.
+             * @description Origin of the trigger (vocabulary aligned with the data dictionary's `deployment_trigger` enum). A rollback is signaled by `is_rollback`, not by the trigger.
              * @enum {string}
              */
             readonly trigger: "manual" | "api" | "webhook" | "preview" | "schedule" | "config_apply" | "cli_local";
-            /** @description Numéro de la PR/MR quand ce déploiement est celui d'une preview (`trigger = preview`) ; `null` sinon. Permet d'afficher « preview */
+            /** @description PR/MR number when this deployment is a preview's (`trigger = preview`); `null` otherwise. Allows displaying "preview */
             readonly pr_id?: number | null;
-            /** @description Branche git déployée (source git uniquement) ; `null` sinon. */
+            /** @description Deployed git branch (git source only); `null` otherwise. */
             readonly branch?: string | null;
-            /** @description URL navigable du dépôt (normalisée en https, sans `.git`) pour une source git ; `null` sinon. Combinée à `provider`, elle permet de construire les liens vers la branche, le commit et la PR. */
+            /** @description Browsable URL of the repository (normalized to https, without `.git`) for a git source; `null` otherwise. Combined with `provider`, it allows building the links to the branch, commit and PR. */
             readonly repository_url?: string | null;
             /**
-             * @description Forge git de la source, quand connue — détermine la forme des liens (branche/commit/PR).
+             * @description Git forge of the source, when known — determines the shape of the links (branch/commit/PR).
              * @enum {string|null}
              */
             readonly provider?: "github" | "gitlab" | "bitbucket" | "gitea" | "other" | null;
@@ -5230,23 +5230,23 @@ export interface components {
             readonly is_rollback: boolean;
             /** @default false */
             readonly force_rebuild: boolean;
-            /** @description SHA Git immuable résolu au déclenchement (source git uniquement, §18.3). */
+            /** @description Immutable Git SHA resolved at trigger time (git source only, §18.3). */
             readonly commit_sha?: string | null;
             readonly commit_message?: string | null;
-            /** @description Auteur du dernier commit déployé (source git), lu après checkout — permet de voir qui a poussé le déploiement. `null` hors source git. */
+            /** @description Author of the last deployed commit (git source), read after checkout — shows who pushed the deployment. `null` outside a git source. */
             readonly commit_author?: string | null;
-            /** @description Digest OCI de l'image produite/déployée (résolu avant bascule, §18.3). */
+            /** @description OCI digest of the produced/deployed image (resolved before switchover, §18.3). */
             readonly image_digest?: string | null;
-            /** @description Version de configuration applicative embarquée dans ce déploiement (INV-014). */
+            /** @description Application configuration version embedded in this deployment (INV-014). */
             readonly config_version?: number | null;
             /**
-             * @description Numéro de tentative (§21.1).
+             * @description Attempt number (§21.1).
              * @default 1
              */
             readonly attempt: number;
-            /** @description Résumé d'échec, sans secret ni commande sensible. */
+            /** @description Failure summary, without secrets or sensitive commands. */
             readonly error_message?: string | null;
-            /** @description URL des logs de build (relative à /api/v1). */
+            /** @description URL of the build logs (relative to /api/v1). */
             readonly logs_url?: string;
             /** Format: date-time */
             readonly queued_at?: string | null;
@@ -5257,41 +5257,41 @@ export interface components {
             /** Format: date-time */
             readonly created_at: string;
         };
-        /** @description Ligne de log de build — neutralisée (ANSI/HTML, §23.3), jamais de secret (INV-003). */
+        /** @description Build log line — sanitized (ANSI/HTML, §23.3), never a secret (INV-003). */
         LogLine: {
-            /** @description Numéro de séquence monotone — sert de curseur et de Last-Event-ID. */
+            /** @description Monotonic sequence number — serves as cursor and Last-Event-ID. */
             sequence: number;
             /** Format: date-time */
             timestamp: string;
             /**
-             * @description Origine de la ligne (`system` = étapes du moteur de déploiement).
+             * @description Origin of the line (`system` = deployment engine steps).
              * @enum {string}
              */
             channel: "stdout" | "stderr" | "system";
             message: string;
         };
         /**
-         * @description Que faire quand une occurrence tombe alors que l'exécution précédente tourne encore. `skip` (défaut) abandonne l'occurrence — un cron qui déclenche plus vite qu'il ne finit ne doit pas empiler les exécutions sur le serveur ; `queue` la met en file derrière la précédente.
+         * @description What to do when an occurrence fires while the previous execution is still running. `skip` (default) drops the occurrence — a cron that fires faster than it finishes must not pile up executions on the server; `queue` queues it behind the previous one.
          * @default skip
          * @enum {string}
          */
         TaskOverlapPolicy: "skip" | "queue";
         /**
-         * @description Que faire d'une occurrence que le scheduler n'a pas vue à temps (instance arrêtée). `run` (défaut) la déclenche une fois au redémarrage — un nettoyage nocturne raté reste utile ; `skip` l'abandonne — un « résumé de 9h » envoyé à 15h est du bruit. Dans les deux cas, l'occurrence manquée est **tracée** (`skipped` + raison), jamais oubliée en silence.
+         * @description What to do with an occurrence the scheduler did not see in time (instance stopped). `run` (default) triggers it once at restart — a missed nightly cleanup is still useful; `skip` drops it — a "9 a.m. digest" sent at 3 p.m. is noise. In both cases, the missed occurrence is **traced** (`skipped` + reason), never silently forgotten.
          * @default run
          * @enum {string}
          */
         TaskMissedRunPolicy: "run" | "skip";
         /** @enum {string} */
         TaskExecutionStatus: "running" | "succeeded" | "failed" | "skipped";
-        /** @description Cron exécutant une commande dans le container d'une ressource (§192). */
+        /** @description Cron running a command inside a resource's container (§192). */
         ScheduledTask: {
             readonly uuid: string;
             readonly application_uuid?: string;
             name: string;
-            /** @description Commande passée au shell du container — jamais assainie (c'est du shell voulu), toujours quotée (INV-012). */
+            /** @description Command passed to the container's shell — never sanitized (it is intended shell), always quoted (INV-012). */
             command: string;
-            /** @description Container cible dans un stack ; `null` = le container de la ressource. */
+            /** @description Target container within a stack; `null` = the resource's container. */
             container?: string | null;
             cron_expression: string;
             timezone?: string;
@@ -5334,16 +5334,16 @@ export interface components {
             missed_run_policy?: components["schemas"]["TaskMissedRunPolicy"];
             timeout_seconds?: number;
         };
-        /** @description Une exécution — ou une occurrence explicitement non exécutée. */
+        /** @description An execution — or an explicitly non-executed occurrence. */
         TaskExecution: {
             readonly uuid: string;
             status: components["schemas"]["TaskExecutionStatus"];
-            /** @description Renseigné si et seulement si le statut est `skipped`. */
+            /** @description Populated if and only if the status is `skipped`. */
             skip_reason?: string | null;
             exit_code?: number | null;
-            /** @description stdout et stderr combinés, **tronqués** (voir `output_truncated`). Jamais de valeur de secret (INV-003). */
+            /** @description Combined stdout and stderr, **truncated** (see `output_truncated`). Never a secret value (INV-003). */
             output?: string | null;
-            /** @description Vrai si la sortie a été coupée — ce qui est affiché n'est alors pas tout. */
+            /** @description True if the output was cut — what is displayed is then not everything. */
             output_truncated?: boolean;
             /** Format: date-time */
             started_at: string;
@@ -5351,11 +5351,11 @@ export interface components {
             finished_at?: string | null;
             duration_ms?: number | null;
         };
-        /** @description Credential DNS-01 (proxy-contract §7.2). Le contenu **n'est jamais renvoyé** : il n'existe que chiffré en base et dans un fichier 0600 sur le serveur. */
+        /** @description DNS-01 credential (proxy-contract §7.2). The content **is never returned**: it only exists encrypted in the database and in a 0600 file on the server. */
         DnsCredential: {
             readonly uuid: string;
             name: string;
-            /** @description Identifiant provider Lego (cloudflare, route53, ovh…). */
+            /** @description Lego provider identifier (cloudflare, route53, ovh…). */
             provider: string;
             readonly in_use?: boolean;
             /** Format: date-time */
@@ -5364,19 +5364,19 @@ export interface components {
         DnsCredentialCreate: {
             name: string;
             provider: string;
-            /** @description Variables d'environnement attendues par Lego pour ce provider. */
+            /** @description Environment variables expected by Lego for this provider. */
             config: {
                 [key: string]: string;
             };
         };
-        /** @description Credential d'un registry privé (§6.5). Le mot de passe **n'est jamais renvoyé**, quelle que soit la permission : il n'existe qu'au bout d'un `docker login --password-stdin` sur le serveur (INV-003). */
+        /** @description Credential of a private registry (§6.5). The password **is never returned**, whatever the permission: it only exists at the end of a `docker login --password-stdin` on the server (INV-003). */
         RegistryCredential: {
             readonly uuid: string;
             name: string;
-            /** @description Ex. ghcr.io, registry.gitlab.com — validé par la policy SSRF (§23.3). */
+            /** @description E.g. ghcr.io, registry.gitlab.com — validated by the SSRF policy (§23.3). */
             registry_url: string;
             username: string;
-            /** @description Vrai si une application ou un artifact de rollback en dépend — la suppression est alors refusée en 409 (§19.2). */
+            /** @description True if an application or a rollback artifact depends on it — deletion is then refused with 409 (§19.2). */
             readonly in_use?: boolean;
             readonly version?: number;
             /** Format: date-time */
@@ -5388,7 +5388,7 @@ export interface components {
             name: string;
             registry_url: string;
             username: string;
-            /** @description Mot de passe ou token. Chiffré au repos (ADR-003), jamais relu par l'API. */
+            /** @description Password or token. Encrypted at rest (ADR-003), never read back by the API. */
             password: string;
         };
         RegistryCredentialUpdate: {
@@ -5397,7 +5397,7 @@ export interface components {
             username?: string;
             password?: string;
         };
-        /** @description Création d'une base PostgreSQL managée (§6). Les credentials omis sont auto-générés. */
+        /** @description Creation of a managed PostgreSQL database (§6). Omitted credentials are auto-generated. */
         DatabaseCreatePostgresql: {
             name: string;
             description?: string | null;
@@ -5406,75 +5406,75 @@ export interface components {
             server_uuid: string;
             destination_uuid?: string | null;
             /**
-             * @description Image PostgreSQL (tag libre, §6.2).
+             * @description PostgreSQL image (free-form tag, §6.2).
              * @default postgres:16-alpine
              */
             image: string;
             /** @default postgres */
             postgres_user: string;
-            /** @description Omis = mot de passe auto-généré de 64 caractères (§6.2). */
+            /** @description Omitted = auto-generated 64-character password (§6.2). */
             postgres_password?: string;
-            /** @description Nom de la base initiale — défaut = valeur de `postgres_user`. */
+            /** @description Name of the initial database — default = value of `postgres_user`. */
             postgres_db?: string;
-            /** @description Configuration postgresql.conf custom (§6.2). */
+            /** @description Custom postgresql.conf configuration (§6.2). */
             postgres_conf?: string | null;
             postgres_initdb_args?: string | null;
             /**
-             * @description Exposition publique (§6.2).
+             * @description Public exposure (§6.2).
              * @default false
              */
             is_public: boolean;
             /**
-             * @description `port_mapping` publie le port sur le container de la base : le changer la **redémarre**. `tcp_proxy` la route par le proxy : le port public devient modifiable sans jamais toucher à la base (amendement n°22).
+             * @description `port_mapping` publishes the port on the database's container: changing it **restarts** it. `tcp_proxy` routes it through the proxy: the public port becomes modifiable without ever touching the database (amendment #22).
              * @default port_mapping
              * @enum {string}
              */
             public_access_mode: "port_mapping" | "tcp_proxy";
-            /** @description Port public si `is_public` — omis = attribué automatiquement. */
+            /** @description Public port if `is_public` — omitted = assigned automatically. */
             public_port?: number | null;
-            /** @description TLS côté base, avec un certificat signé par la **CA du serveur** (§6.3, amendement n°23). La CA est générée à la demande et exposée en lecture (`GET /servers/{uuid}/ca`) pour que les clients puissent *vérifier* — un TLS que le client ne vérifie pas ne protège de rien. */
+            /** @description Database-side TLS, with a certificate signed by the **server's CA** (§6.3, amendment #23). The CA is generated on demand and exposed for reading (`GET /servers/{uuid}/ca`) so that clients can *verify* — a TLS the client does not verify protects nothing. */
             ssl_enabled?: boolean;
             /**
-             * @description Mode SSL PostgreSQL (§6.3).
+             * @description PostgreSQL SSL mode (§6.3).
              * @default disable
              * @enum {string}
              */
             ssl_mode: "disable" | "allow" | "prefer" | "require" | "verify-ca" | "verify-full";
             limits?: components["schemas"]["ResourceLimits"];
             /**
-             * @description Démarre la base immédiatement après création.
+             * @description Starts the database immediately after creation.
              * @default false
              */
             instant_start: boolean;
         };
-        /** @description Mise à jour partielle. Les changements d'image, de configuration ou de credentials nécessitent un redémarrage (`restart_required=true` dans la réponse). */
+        /** @description Partial update. Changes to the image, configuration or credentials require a restart (`restart_required=true` in the response). */
         DatabaseUpdate: {
             name?: string;
             description?: string | null;
             image?: string;
-            /** @description Rotation du mot de passe. */
+            /** @description Password rotation. */
             postgres_password?: string;
             postgres_conf?: string | null;
             is_public?: boolean;
             /**
-             * @description Comment la base est exposée (§6.2, amendement n°22). `port_mapping` publie le port sur le container de la base : le changer la **redémarre**. `tcp_proxy` la route par le proxy : changer le port public recrée le **proxy** (quelques secondes, aucune donnée touchée) et la base ne bouge pas.
+             * @description How the database is exposed (§6.2, amendment #22). `port_mapping` publishes the port on the database's container: changing it **restarts** it. `tcp_proxy` routes it through the proxy: changing the public port recreates the **proxy** (a few seconds, no data touched) and the database does not move.
              * @enum {string}
              */
             public_access_mode?: "port_mapping" | "tcp_proxy";
             public_port?: number | null;
-            /** @description TLS côté base, avec un certificat signé par la **CA du serveur** (§6.3, amendement n°23). La CA est générée à la demande et exposée en lecture (`GET /servers/{uuid}/ca`) pour que les clients puissent *vérifier* — un TLS que le client ne vérifie pas ne protège de rien. */
+            /** @description Database-side TLS, with a certificate signed by the **server's CA** (§6.3, amendment #23). The CA is generated on demand and exposed for reading (`GET /servers/{uuid}/ca`) so that clients can *verify* — a TLS the client does not verify protects nothing. */
             ssl_enabled?: boolean;
             /** @enum {string} */
             ssl_mode?: "disable" | "allow" | "prefer" | "require" | "verify-ca" | "verify-full";
             limits?: components["schemas"]["ResourceLimits"];
         };
-        /** @description Base de données managée (§6, v1 — PostgreSQL). Les champs `postgres_password`, `internal_url` et `external_url` contiennent des credentials — `null` sans `read:sensitive` (INV-003), `is_redacted` l'indique. */
+        /** @description Managed database (§6, v1 — PostgreSQL). The fields `postgres_password`, `internal_url` and `external_url` contain credentials — `null` without `read:sensitive` (INV-003), `is_redacted` indicates it. */
         Database: {
             readonly uuid: string;
             name: string;
             description?: string | null;
             /**
-             * @description Moteur — v1 limitée à PostgreSQL ; enum étendue avec les moteurs P1 suivants.
+             * @description Engine — v1 limited to PostgreSQL; enum extended with the upcoming P1 engines.
              * @enum {string}
              */
             readonly engine: "postgresql";
@@ -5484,21 +5484,21 @@ export interface components {
             readonly destination_uuid?: string | null;
             image?: string;
             postgres_user?: string;
-            /** @description Mot de passe — uniquement avec `read:sensitive`. */
+            /** @description Password — only with `read:sensitive`. */
             postgres_password?: string | null;
             postgres_db?: string;
             postgres_conf?: string | null;
-            /** @description URL de connexion interne (hostname = UUID sur le réseau Docker, §6.2). Contient le mot de passe — uniquement avec `read:sensitive`. */
+            /** @description Internal connection URL (hostname = UUID on the Docker network, §6.2). Contains the password — only with `read:sensitive`. */
             internal_url?: string | null;
-            /** @description URL publique si `is_public` — uniquement avec `read:sensitive`. */
+            /** @description Public URL if `is_public` — only with `read:sensitive`. */
             external_url?: string | null;
-            /** @description Vrai si les champs sensibles ont été masqués faute de `read:sensitive`. */
+            /** @description True if the sensitive fields were masked for lack of `read:sensitive`. */
             readonly is_redacted: boolean;
             is_public?: boolean;
             /** @enum {string} */
             public_access_mode?: "port_mapping" | "tcp_proxy";
             public_port?: number | null;
-            /** @description TLS côté base, avec un certificat signé par la **CA du serveur** (§6.3, amendement n°23). La CA est générée à la demande et exposée en lecture (`GET /servers/{uuid}/ca`) pour que les clients puissent *vérifier* — un TLS que le client ne vérifie pas ne protège de rien. */
+            /** @description Database-side TLS, with a certificate signed by the **server's CA** (§6.3, amendment #23). The CA is generated on demand and exposed for reading (`GET /servers/{uuid}/ca`) so that clients can *verify* — a TLS the client does not verify protects nothing. */
             ssl_enabled?: boolean;
             /** @enum {string} */
             ssl_mode?: "disable" | "allow" | "prefer" | "require" | "verify-ca" | "verify-full";
@@ -5508,7 +5508,7 @@ export interface components {
             /** Format: date-time */
             readonly observed_at?: string | null;
             /**
-             * @description Vrai si une modification de configuration attend un redémarrage pour prendre effet.
+             * @description True if a configuration change awaits a restart to take effect.
              * @default false
              */
             readonly restart_required: boolean;
@@ -5520,61 +5520,61 @@ export interface components {
             /** Format: date-time */
             readonly updated_at?: string | null;
         };
-        /** @description Règles de rétention cumulatives (§7.2) — 0 = illimité. */
+        /** @description Cumulative retention rules (§7.2) — 0 = unlimited. */
         RetentionPolicy: {
             /**
-             * @description Nombre maximal de backups conservés.
+             * @description Maximum number of backups kept.
              * @default 0
              */
             max_count: number;
             /**
-             * @description Ancienneté maximale en jours.
+             * @description Maximum age in days.
              * @default 0
              */
             max_age_days: number;
             /**
-             * @description Taille totale maximale en Go.
+             * @description Maximum total size in GB.
              * @default 0
              */
             max_size_gb: number;
         };
         BackupPlanCreate: {
             /**
-             * @description Expression cron (5 champs) ou alias — every_minute, hourly, daily, weekly, monthly, yearly (§7.1).
+             * @description Cron expression (5 fields) or alias — every_minute, hourly, daily, weekly, monthly, yearly (§7.1).
              * @example daily
              */
             frequency: string;
             /**
-             * @description Timezone d'interprétation du cron (§24.3).
+             * @description Timezone for interpreting the cron (§24.3).
              * @default UTC
              */
             timezone: string;
             /** @default true */
             enabled: boolean;
             /**
-             * @description Sauvegarde toutes les bases de l'instance moteur (pg_dumpall).
+             * @description Backs up all databases of the engine instance (pg_dumpall).
              * @default false
              */
             dump_all: boolean;
             /**
-             * @description Bases à inclure — vide = base principale seulement (ignoré si `dump_all`).
+             * @description Databases to include — empty = main database only (ignored if `dump_all`).
              * @default []
              */
             databases_to_include: string[];
             /**
-             * @description Conserver le fichier local (§7.2).
+             * @description Keep the local file (§7.2).
              * @default true
              */
             save_local: boolean;
             /**
-             * @description Uploader vers un S3 configuré.
+             * @description Upload to a configured S3.
              * @default false
              */
             save_s3: boolean;
-            /** @description S3 Storage cible — requis si `save_s3` (provisionné via l'UI dans cette v1). */
+            /** @description Target S3 Storage — required if `save_s3` (provisioned via the UI in this v1). */
             s3_storage_uuid?: string | null;
             /**
-             * @description Supprimer le fichier local après upload S3 réussi.
+             * @description Delete the local file after a successful S3 upload.
              * @default false
              */
             s3_only: boolean;
@@ -5583,14 +5583,14 @@ export interface components {
             /** @default 3600 */
             timeout_seconds: number;
             /**
-             * @description Restore drill périodique (ADR-014, amendement n°16) : le dernier dump est restauré dans une base **jetable** sur le même serveur, son contenu est recompté puis la base est détruite.
+             * @description Periodic restore drill (ADR-014, amendment #16): the latest dump is restored into a **throwaway** database on the same server, its content is recounted, then the database is destroyed.
              * @default false
              */
             drill_enabled: boolean;
             /** @default 7 */
             drill_interval_days: number;
         };
-        /** @description Mise à jour partielle du plan. */
+        /** @description Partial update of the plan. */
         BackupPlanUpdate: {
             frequency?: string;
             timezone?: string;
@@ -5607,11 +5607,11 @@ export interface components {
             drill_enabled?: boolean;
             drill_interval_days?: number;
         };
-        /** @description Plan de backup planifié (§7) — cible une base managée (`database_uuid`) OU une base interne d'un stack compose (`service_component_uuid`, compose-spec §10) : exactement l'un des deux est renseigné. */
+        /** @description Scheduled backup plan (§7) — targets a managed database (`database_uuid`) OR an internal database of a compose stack (`service_component_uuid`, compose-spec §10): exactly one of the two is set. */
         BackupPlan: {
             readonly uuid: string;
             readonly database_uuid?: string | null;
-            /** @description Composant de stack ciblé (compose-spec §10). */
+            /** @description Targeted stack component (compose-spec §10). */
             readonly service_component_uuid?: string | null;
             frequency: string;
             timezone?: string;
@@ -5627,13 +5627,13 @@ export interface components {
             timeout_seconds?: number;
             /**
              * Format: date-time
-             * @description Prochaine exécution prévisualisée (§24.3).
+             * @description Previewed next execution (§24.3).
              */
             readonly next_run_at?: string | null;
             readonly last_execution_uuid?: string | null;
             /** @enum {string|null} */
             readonly last_execution_status?: "queued" | "running" | "succeeded" | "partial" | "failed" | null;
-            /** @description Restore drill périodique (ADR-014) : le dernier dump est restauré dans une base **jetable** sur le même serveur, le contenu est recompté, puis la base est détruite. Un backup jamais restauré n'est pas un backup, c'est un fichier. */
+            /** @description Periodic restore drill (ADR-014): the latest dump is restored into a **throwaway** database on the same server, the content is recounted, then the database is destroyed. A backup never restored is not a backup, it is a file. */
             drill_enabled?: boolean;
             drill_interval_days?: number;
             /** Format: date-time */
@@ -5646,7 +5646,7 @@ export interface components {
             /** Format: date-time */
             readonly updated_at?: string | null;
         };
-        /** @description Une répétition de restauration (ADR-014). `tables_expected` est le nombre de tables comptées **dans la base source au moment du dump** : un dump peut se décompresser proprement, se restaurer sans erreur et ne rien contenir — un `psql` qui restaure du vide sort en 0. Le drill compare, il ne se contente pas de ne pas échouer. */
+        /** @description A restore rehearsal (ADR-014). `tables_expected` is the number of tables counted **in the source database at dump time**: a dump can decompress cleanly, restore without error and contain nothing — a `psql` restoring emptiness exits with 0. The drill compares, it does not settle for not failing. */
         RestoreDrill: {
             readonly uuid: string;
             readonly execution_uuid?: string | null;
@@ -5654,7 +5654,7 @@ export interface components {
             status: "running" | "succeeded" | "failed";
             tables_expected?: number | null;
             tables_restored?: number | null;
-            /** @description Raison de l'échec — jamais un credential. */
+            /** @description Failure reason — never a credential. */
             error_message?: string | null;
             /** Format: date-time */
             started_at: string;
@@ -5662,7 +5662,7 @@ export interface components {
             finished_at?: string | null;
             duration_ms?: number | null;
         };
-        /** @description Exécution d'un plan de backup (§7.3, §20.5). `partial` = succès local mais échec S3 — jamais présenté comme un succès global. */
+        /** @description Execution of a backup plan (§7.3, §20.5). `partial` = local success but S3 failure — never presented as a global success. */
         BackupExecution: {
             readonly uuid: string;
             readonly backup_plan_uuid: string;
@@ -5671,15 +5671,15 @@ export interface components {
             readonly status: "queued" | "running" | "succeeded" | "partial" | "failed";
             /** @enum {string} */
             readonly trigger?: "scheduled" | "manual";
-            /** @description Nom du fichier de backup produit. */
+            /** @description Name of the produced backup file. */
             readonly filename?: string | null;
             readonly size_bytes?: number | null;
-            /** @description Checksum du fichier (vérifié à l'upload et au restore, §20.5). */
+            /** @description Checksum of the file (verified at upload and restore, §20.5). */
             readonly checksum?: string | null;
-            /** @description Fichier encore présent localement (selon rétention et `s3_only`). */
+            /** @description File still present locally (depending on retention and `s3_only`). */
             readonly local_available?: boolean;
             readonly s3_uploaded?: boolean;
-            /** @description Détail d'erreur ou d'avertissement, sans secret. */
+            /** @description Error or warning detail, without secrets. */
             readonly message?: string | null;
             /** Format: date-time */
             readonly started_at?: string | null;
@@ -5688,80 +5688,80 @@ export interface components {
             /** Format: date-time */
             readonly created_at: string;
         };
-        /** @description Demande de restore — opération destructive à confirmation explicite (§20.5). */
+        /** @description Restore request — destructive operation with explicit confirmation (§20.5). */
         RestoreRequest: {
-            /** @description DOIT valoir `true` — toute autre valeur → `422`. */
+            /** @description MUST be `true` — any other value → `422`. */
             confirm: boolean;
             /**
-             * @description Confirmation renforcée requise pour restaurer vers une base non vide (§20.5).
+             * @description Reinforced confirmation required to restore into a non-empty database (§20.5).
              * @default false
              */
             allow_non_empty: boolean;
             /**
-             * @description Emplacement du fichier à utiliser — `s3` télécharge d'abord l'objet distant.
+             * @description Location of the file to use — `s3` downloads the remote object first.
              * @default local
              * @enum {string}
              */
             source: "local" | "s3";
-            /** @description Commande de restore personnalisée (défaut pg_restore, §7.3). Validée et échappée côté serveur (INV-012). */
+            /** @description Custom restore command (default pg_restore, §7.3). Validated and escaped server-side (INV-012). */
             custom_command?: string | null;
         };
         /**
-         * @description Machine à états d'un job (§21.3). `succeeded`, `cancelled` et `dead_letter` sont terminaux — `dead_letter` signifie échec définitif après épuisement des retries.
+         * @description State machine of a job (§21.3). `succeeded`, `cancelled` and `dead_letter` are terminal — `dead_letter` means definitive failure after retries are exhausted.
          * @enum {string}
          */
         JobStatus: "scheduled" | "queued" | "leased" | "running" | "retry_wait" | "succeeded" | "cancelled" | "dead_letter";
-        /** @description Corps du forget d'un job en dead-letter. */
+        /** @description Body of the forget of a dead-letter job. */
         JobForgetRequest: {
             /**
-             * @description Confirmation explicite que les restes distants du job (ex. `remnants` d'un `resource.delete`, §20.6.4) sont assumés ou ont été nettoyés manuellement. Requis (`true`) si le job laisse des restes distants, sinon `409` (`remnants_present`).
+             * @description Explicit confirmation that the job's remote remnants (e.g. `remnants` of a `resource.delete`, §20.6.4) are accepted or have been cleaned up manually. Required (`true`) if the job leaves remote remnants, otherwise `409` (`remnants_present`).
              * @default false
              */
             acknowledge_remnants: boolean;
         };
-        /** @description Étape d'un job (visible, rejouable, avec remédiation — §20.1, §22.5). */
+        /** @description Step of a job (visible, replayable, with remediation — §20.1, §22.5). */
         JobStep: {
-            /** @description Identifiant de l'étape (ex. ssh_connect, install_docker). */
+            /** @description Identifier of the step (e.g. ssh_connect, install_docker). */
             name: string;
             /** @enum {string} */
             status: "pending" | "running" | "succeeded" | "failed" | "skipped";
-            /** @description Détail ou instruction de remédiation en cas d'échec. */
+            /** @description Detail or remediation instruction in case of failure. */
             message?: string | null;
             /** Format: date-time */
             started_at?: string | null;
             /** Format: date-time */
             finished_at?: string | null;
         };
-        /** @description Opération asynchrone créée par une réponse `202` (§21.3, §24.1). */
+        /** @description Asynchronous operation created by a `202` response (§21.3, §24.1). */
         Job: {
             readonly uuid: string;
-            /** @description Type de job — ex. server.validate, application.start, application.delete, database.start, backup.execute, backup.restore, certificate.renew, encryption.rotate. */
+            /** @description Job type — e.g. server.validate, application.start, application.delete, database.start, backup.execute, backup.restore, certificate.renew, encryption.rotate. */
             readonly type: string;
-            /** @description File logique du job (ex. deploy, backup, cleanup, maintenance — §24.3). */
+            /** @description Logical queue of the job (e.g. deploy, backup, cleanup, maintenance — §24.3). */
             readonly queue?: string;
             status: components["schemas"]["JobStatus"];
-            /** @description Ressource principale concernée. */
+            /** @description Main affected resource. */
             readonly resource_uuid?: string | null;
             /** @enum {string|null} */
             readonly resource_type?: "server" | "application" | "database" | "backup_plan" | "certificate" | null;
-            /** @description UUID du job d'origine si ce job est une **nouvelle tentative liée** créée par un retry depuis la dead-letter (spec deployment-engine §2.4). */
+            /** @description UUID of the original job if this job is a **linked new attempt** created by a retry from the dead-letter (deployment-engine spec §2.4). */
             readonly retry_of_uuid?: string | null;
             /**
              * Format: date-time
-             * @description Passage en dead-letter, le cas échéant (§21.3).
+             * @description Transition to dead-letter, if any (§21.3).
              */
             readonly dead_lettered_at?: string | null;
             readonly steps?: components["schemas"]["JobStep"][];
             /**
-             * @description Numéro de tentative (retries §21.3).
+             * @description Attempt number (retries §21.3).
              * @default 1
              */
             readonly attempt: number;
-            /** @description Résultat structuré en cas de succès (contenu selon le type de job, jamais de secret). */
+            /** @description Structured result on success (content depends on the job type, never a secret). */
             readonly result?: {
                 [key: string]: unknown;
             } | null;
-            /** @description Erreur finale en cas d'échec (même schéma que les erreurs HTTP, sans request_id pertinent). */
+            /** @description Final error on failure (same schema as HTTP errors, without a relevant request_id). */
             readonly error?: components["schemas"]["Error"] | null;
             /** Format: date-time */
             readonly created_at: string;
@@ -5772,7 +5772,7 @@ export interface components {
         };
     };
     responses: {
-        /** @description Requête malformée (syntaxe, paramètre invalide). */
+        /** @description Malformed request (syntax, invalid parameter). */
         BadRequest: {
             headers: {
                 [name: string]: unknown;
@@ -5781,12 +5781,12 @@ export interface components {
                 /**
                  * @example {
                  *       "code": "bad_request",
-                 *       "message": "Paramètre de requête invalide.",
+                 *       "message": "Invalid query parameter.",
                  *       "details": [
                  *         {
                  *           "field": "limit",
                  *           "code": "out_of_range",
-                 *           "message": "limit doit être compris entre 1 et 100."
+                 *           "message": "limit must be between 1 and 100."
                  *         }
                  *       ],
                  *       "request_id": "018f4d2a-7c3b-7e1a-b0c4-9f2e8d1a6b3c"
@@ -5795,7 +5795,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Token absent, invalide, expiré, révoqué, hors IP allowlist, ou API désactivée. */
+        /** @description Token absent, invalid, expired, revoked, outside the IP allowlist, or API disabled. */
         Unauthorized: {
             headers: {
                 [name: string]: unknown;
@@ -5804,7 +5804,7 @@ export interface components {
                 /**
                  * @example {
                  *       "code": "unauthorized",
-                 *       "message": "Authentification requise.",
+                 *       "message": "Authentication required.",
                  *       "details": [],
                  *       "request_id": "018f4d2a-7c3b-7e1a-b0c4-9f2e8d1a6b3c"
                  *     }
@@ -5812,7 +5812,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Permission insuffisante pour cette action (voir `x-required-permission`), ou ressource appartenant à une autre team (INV-002 — peut aussi répondre 404 pour ne pas révéler l'existence). */
+        /** @description Insufficient permission for this action (see `x-required-permission`), or resource belonging to another team (INV-002 — may also respond 404 to avoid revealing existence). */
         Forbidden: {
             headers: {
                 [name: string]: unknown;
@@ -5821,11 +5821,11 @@ export interface components {
                 /**
                  * @example {
                  *       "code": "forbidden",
-                 *       "message": "Permission insuffisante pour cette action.",
+                 *       "message": "Insufficient permission for this action.",
                  *       "details": [
                  *         {
                  *           "code": "missing_permission",
-                 *           "message": "Permission requise : write."
+                 *           "message": "Required permission: write."
                  *         }
                  *       ],
                  *       "request_id": "018f4d2a-7c3b-7e1a-b0c4-9f2e8d1a6b3c"
@@ -5834,7 +5834,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Ressource inexistante ou hors du périmètre de la team du token. */
+        /** @description Resource nonexistent or outside the scope of the token's team. */
         NotFound: {
             headers: {
                 [name: string]: unknown;
@@ -5843,7 +5843,7 @@ export interface components {
                 /**
                  * @example {
                  *       "code": "not_found",
-                 *       "message": "Ressource introuvable.",
+                 *       "message": "Resource not found.",
                  *       "details": [],
                  *       "request_id": "018f4d2a-7c3b-7e1a-b0c4-9f2e8d1a6b3c"
                  *     }
@@ -5851,7 +5851,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Conflit d'état — dépendances existantes (`dependency_exists`), opération concurrente en cours (`operation_in_progress`), unicité violée (`already_exists`), clé d'idempotence rejouée avec un corps différent (`idempotency_conflict`), ou transition d'état invalide (`invalid_state`). */
+        /** @description State conflict — existing dependencies (`dependency_exists`), concurrent operation in progress (`operation_in_progress`), uniqueness violated (`already_exists`), idempotency key replayed with a different body (`idempotency_conflict`), or invalid state transition (`invalid_state`). */
         Conflict: {
             headers: {
                 [name: string]: unknown;
@@ -5860,11 +5860,11 @@ export interface components {
                 /**
                  * @example {
                  *       "code": "dependency_exists",
-                 *       "message": "Le projet contient encore des ressources.",
+                 *       "message": "The project still contains resources.",
                  *       "details": [
                  *         {
                  *           "code": "environment_not_empty",
-                 *           "message": "L'environnement production contient 3 ressources."
+                 *           "message": "The production environment contains 3 resources."
                  *         }
                  *       ],
                  *       "request_id": "018f4d2a-7c3b-7e1a-b0c4-9f2e8d1a6b3c"
@@ -5873,7 +5873,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Conflit de version optimiste — le `If-Match` fourni ne correspond pas à la version courante. `details` contient la version courante (`current_version`) à récupérer via un nouveau `GET` avant de rejouer. */
+        /** @description Optimistic version conflict — the provided `If-Match` does not match the current version. `details` contains the current version (`current_version`) to fetch via a new `GET` before retrying. */
         VersionConflict: {
             headers: {
                 [name: string]: unknown;
@@ -5882,7 +5882,7 @@ export interface components {
                 /**
                  * @example {
                  *       "code": "version_conflict",
-                 *       "message": "La ressource a été modifiée par ailleurs.",
+                 *       "message": "The resource was modified elsewhere.",
                  *       "details": [
                  *         {
                  *           "field": "If-Match",
@@ -5896,7 +5896,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Corps syntaxiquement valide mais sémantiquement invalide (validation métier). */
+        /** @description Body syntactically valid but semantically invalid (business validation). */
         UnprocessableEntity: {
             headers: {
                 [name: string]: unknown;
@@ -5905,12 +5905,12 @@ export interface components {
                 /**
                  * @example {
                  *       "code": "validation_failed",
-                 *       "message": "La requête contient des champs invalides.",
+                 *       "message": "The request contains invalid fields.",
                  *       "details": [
                  *         {
                  *           "field": "git_repository",
                  *           "code": "invalid_url",
-                 *           "message": "URL de dépôt Git invalide."
+                 *           "message": "Invalid Git repository URL."
                  *         }
                  *       ],
                  *       "request_id": "018f4d2a-7c3b-7e1a-b0c4-9f2e8d1a6b3c"
@@ -5919,7 +5919,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Rate limit dépassé (200 req/min par token) ou file de déploiement pleine (`deployment_queue_limit`). Respecter `Retry-After`. */
+        /** @description Rate limit exceeded (200 req/min per token) or deployment queue full (`deployment_queue_limit`). Honor `Retry-After`. */
         TooManyRequests: {
             headers: {
                 "Retry-After": components["headers"]["RetryAfter"];
@@ -5929,7 +5929,7 @@ export interface components {
                 /**
                  * @example {
                  *       "code": "rate_limited",
-                 *       "message": "Trop de requêtes, réessayez plus tard.",
+                 *       "message": "Too many requests, retry later.",
                  *       "details": [],
                  *       "request_id": "018f4d2a-7c3b-7e1a-b0c4-9f2e8d1a6b3c"
                  *     }
@@ -5939,86 +5939,86 @@ export interface components {
         };
     };
     parameters: {
-        /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+        /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
         Cursor: string;
-        /** @description Nombre maximal d'éléments par page (1 à 100). */
+        /** @description Maximum number of items per page (1 to 100). */
         Limit: number;
-        /** @description Fournisseur d'identité du login dashboard (§10.2). */
+        /** @description Identity provider for dashboard login (§10.2). */
         OauthProviderName: "github" | "gitlab" | "google" | "azure" | "bitbucket" | "oidc";
-        /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+        /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
         IdempotencyKey: string;
-        /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
+        /** @description Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`. */
         IfMatch: string;
-        /** @description Reprise d'un flux SSE — sequence du dernier événement reçu (uniquement avec `Accept: text/event-stream`). */
+        /** @description Resume an SSE stream — sequence of the last event received (only with `Accept: text/event-stream`). */
         LastEventId: string;
-        /** @description UUID(s) de ressources à déployer, séparés par des virgules. Requis si `tag` est absent. */
+        /** @description UUID(s) of the resources to deploy, comma-separated. Required if `tag` is absent. */
         WebhookUuid: string;
-        /** @description Tag(s) séparés par des virgules — déploie toutes les ressources de la team portant l'un de ces tags. Requis si `uuid` est absent. */
+        /** @description Comma-separated tag(s) — deploys all the team's resources carrying one of these tags. Required if `uuid` is absent. */
         WebhookTag: string;
-        /** @description Force un rebuild sans cache. */
+        /** @description Forces a rebuild without cache. */
         WebhookForce: boolean;
-        /** @description UUID de la team. */
+        /** @description UUID of the team. */
         TeamUuid: string;
-        /** @description UUID de l'invitation. */
+        /** @description UUID of the invitation. */
         InvitationUuid: string;
-        /** @description UUID d'un rôle custom. */
+        /** @description UUID of a custom role. */
         RoleUuid: string;
-        /** @description UUID public d'un utilisateur (membre d'une team). */
+        /** @description Public UUID of a user (member of a team). */
         UserUuid: string;
-        /** @description UUID du token API (jamais sa valeur). */
+        /** @description UUID of the API token (never its value). */
         TokenUuid: string;
-        /** @description UUID du projet. */
+        /** @description UUID of the project. */
         ProjectUuid: string;
-        /** @description UUID de l'environnement. */
+        /** @description UUID of the environment. */
         EnvironmentUuid: string;
-        /** @description UUID de la clé privée. */
+        /** @description UUID of the private key. */
         PrivateKeyUuid: string;
-        /** @description UUID du canal de notification. */
+        /** @description UUID of the notification channel. */
         ChannelUuid: string;
-        /** @description UUID du stockage S3. */
+        /** @description UUID of the S3 storage. */
         S3StorageUuid: string;
-        /** @description UUID du serveur. */
+        /** @description UUID of the server. */
         ServerUuid: string;
-        /** @description UUID du scan d'adoption (§20.7). */
+        /** @description UUID of the adoption scan (§20.7). */
         AdoptionScanUuid: string;
-        /** @description UUID d'un composant de stack compose. */
+        /** @description UUID of a compose stack component. */
         ServiceComponentUuid: string;
-        /** @description UUID d'un check d'uptime (ADR-017). */
+        /** @description UUID of an uptime check (ADR-017). */
         UptimeCheckUuid: string;
-        /** @description UUID d'une variable partagée (§5.4). */
+        /** @description UUID of a shared variable (§5.4). */
         SharedVariableUuid: string;
-        /** @description UUID du credential de registry. */
+        /** @description UUID of the registry credential. */
         RegistryCredentialUuid: string;
-        /** @description UUID de la tâche planifiée. */
+        /** @description UUID of the scheduled task. */
         TaskUuid: string;
-        /** @description UUID de l'application. */
+        /** @description UUID of the application. */
         ApplicationUuid: string;
-        /** @description UUID du stack compose. */
+        /** @description UUID of the compose stack. */
         ServiceUuid: string;
-        /** @description UUID de la GitHub App. */
+        /** @description UUID of the GitHub App. */
         GithubAppUuid: string;
-        /** @description UUID du stockage persistant. */
+        /** @description UUID of the persistent storage. */
         StorageUuid: string;
-        /** @description UUID de la variable d'environnement. */
+        /** @description UUID of the environment variable. */
         EnvUuid: string;
-        /** @description UUID du déploiement. */
+        /** @description UUID of the deployment. */
         DeploymentUuid: string;
-        /** @description UUID de la base de données. */
+        /** @description UUID of the database. */
         DatabaseUuid: string;
-        /** @description UUID du plan de backup. */
+        /** @description UUID of the backup plan. */
         BackupPlanUuid: string;
-        /** @description UUID de l'exécution de backup. */
+        /** @description UUID of the backup execution. */
         ExecutionUuid: string;
-        /** @description UUID du certificat (reflet observé). */
+        /** @description UUID of the certificate (observed reflection). */
         CertificateUuid: string;
-        /** @description UUID du job. */
+        /** @description UUID of the job. */
         JobUuid: string;
     };
     requestBodies: never;
     headers: {
-        /** @description Version optimiste de la ressource, à renvoyer dans `If-Match` lors d'un `PATCH` sensible. */
+        /** @description Optimistic version of the resource, to send back in `If-Match` on a sensitive `PATCH`. */
         ETag: string;
-        /** @description Nombre de secondes à attendre avant de réessayer. */
+        /** @description Number of seconds to wait before retrying. */
         RetryAfter: number;
     };
     pathItems: never;
@@ -6034,7 +6034,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Le control plane est vivant. */
+            /** @description The control plane is alive. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6054,7 +6054,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Version du control plane. */
+            /** @description Control plane version. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6076,7 +6076,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Catalogue des permissions. */
+            /** @description Permission catalog. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6096,7 +6096,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Reprise d'un flux SSE — sequence du dernier événement reçu (uniquement avec `Accept: text/event-stream`). */
+                /** @description Resume an SSE stream — sequence of the last event received (only with `Accept: text/event-stream`). */
                 "Last-Event-ID"?: components["parameters"]["LastEventId"];
             };
             path?: never;
@@ -6104,7 +6104,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Flux d'événements. */
+            /** @description Event stream. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6127,7 +6127,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description État de l'API après activation. */
+            /** @description API state after enablement. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6150,7 +6150,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description État de l'API après désactivation. */
+            /** @description API state after disablement. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6173,7 +6173,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Les réglages courants. */
+            /** @description The current settings. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6200,7 +6200,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Réglages enregistrés. */
+            /** @description Settings saved. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6225,7 +6225,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description L'état de la configuration. */
+            /** @description The configuration state. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6252,7 +6252,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Configuration enregistrée et vérifiée. */
+            /** @description Configuration saved and verified. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6277,7 +6277,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description L'état de la configuration. */
+            /** @description The configuration state. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6304,7 +6304,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Configuration enregistrée. */
+            /** @description Configuration saved. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6323,9 +6323,9 @@ export interface operations {
     listInstanceAudit: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
                 action?: string;
                 result?: "success" | "failure" | "denied";
@@ -6339,7 +6339,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page d'événements d'audit (du plus récent au plus ancien). */
+            /** @description Page of audit events (newest to oldest). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6366,7 +6366,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description État du chiffrement. */
+            /** @description Encryption state. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6384,7 +6384,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path?: never;
@@ -6392,7 +6392,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Re-chiffrement accepté — suivre le job. */
+            /** @description Re-encryption accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -6416,7 +6416,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Les fournisseurs configurés. */
+            /** @description The configured providers. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6437,7 +6437,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Fournisseur d'identité du login dashboard (§10.2). */
+                /** @description Identity provider for dashboard login (§10.2). */
                 oauth_provider: components["parameters"]["OauthProviderName"];
             };
             cookie?: never;
@@ -6448,7 +6448,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Configuration enregistrée. */
+            /** @description Configuration saved. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6469,14 +6469,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Fournisseur d'identité du login dashboard (§10.2). */
+                /** @description Identity provider for dashboard login (§10.2). */
                 oauth_provider: components["parameters"]["OauthProviderName"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Fournisseur retiré. */
+            /** @description Provider removed. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -6492,9 +6492,9 @@ export interface operations {
     listTeams: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
@@ -6503,7 +6503,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page de teams. */
+            /** @description Page of teams. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6525,14 +6525,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description La team. */
+            /** @description The team. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6552,7 +6552,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
@@ -6563,7 +6563,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Team mise à jour. */
+            /** @description Team updated. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6583,21 +6583,21 @@ export interface operations {
     listTeamMembers: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de membres. */
+            /** @description Page of members. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6620,9 +6620,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID public d'un utilisateur (membre d'une team). */
+                /** @description Public UUID of a user (member of a team). */
                 user_uuid: components["parameters"]["UserUuid"];
             };
             cookie?: never;
@@ -6633,7 +6633,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Membre mis à jour. */
+            /** @description Member updated. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6654,21 +6654,21 @@ export interface operations {
     listTeamRoles: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de rôles custom. */
+            /** @description Page of custom roles. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6691,7 +6691,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
@@ -6702,7 +6702,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Rôle créé. */
+            /** @description Role created. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -6725,16 +6725,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID d'un rôle custom. */
+                /** @description UUID of a custom role. */
                 role_uuid: components["parameters"]["RoleUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Le rôle custom. */
+            /** @description The custom role. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6754,16 +6754,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID d'un rôle custom. */
+                /** @description UUID of a custom role. */
                 role_uuid: components["parameters"]["RoleUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Rôle supprimé. */
+            /** @description Role deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -6781,9 +6781,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID d'un rôle custom. */
+                /** @description UUID of a custom role. */
                 role_uuid: components["parameters"]["RoleUuid"];
             };
             cookie?: never;
@@ -6794,7 +6794,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Rôle mis à jour. */
+            /** @description Role updated. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6815,33 +6815,33 @@ export interface operations {
     listTeamAudit: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Filtre exact sur l'action (ex. `auth.login`, `secret.reveal`). */
+                /** @description Exact filter on the action (e.g. `auth.login`, `secret.reveal`). */
                 action?: string;
-                /** @description Filtre sur le résultat. */
+                /** @description Filter on the outcome. */
                 result?: "success" | "failure" | "denied";
-                /** @description Filtre sur l'UUID de l'acteur (utilisateur ou token). */
+                /** @description Filter on the actor's UUID (user or token). */
                 actor_uuid?: string;
-                /** @description Filtre sur l'UUID de la ressource cible. */
+                /** @description Filter on the target resource's UUID. */
                 target_uuid?: string;
-                /** @description Borne basse (incluse) sur occurred_at (RFC 3339). */
+                /** @description Lower bound (inclusive) on occurred_at (RFC 3339). */
                 from?: string;
-                /** @description Borne haute (incluse) sur occurred_at (RFC 3339). */
+                /** @description Upper bound (inclusive) on occurred_at (RFC 3339). */
                 to?: string;
             };
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page d'événements d'audit (du plus récent au plus ancien). */
+            /** @description Page of audit events (newest to oldest). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6865,14 +6865,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Tokens SCIM. */
+            /** @description SCIM tokens. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6894,7 +6894,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
@@ -6905,7 +6905,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Token créé — la valeur claire est dans `token`. */
+            /** @description Token created — the clear value is in `token`. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -6926,16 +6926,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID du token SCIM (jamais sa valeur). */
+                /** @description UUID of the SCIM token (never its value). */
                 scim_token_uuid: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Token révoqué. */
+            /** @description Token revoked. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -6951,21 +6951,21 @@ export interface operations {
     listTeamInvitations: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page d'invitations. */
+            /** @description Page of invitations. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6987,11 +6987,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
@@ -7002,7 +7002,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Invitation créée. */
+            /** @description Invitation created. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -7025,16 +7025,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID de l'invitation. */
+                /** @description UUID of the invitation. */
                 invitation_uuid: components["parameters"]["InvitationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Invitation révoquée. */
+            /** @description Invitation revoked. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -7053,16 +7053,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID de l'invitation. */
+                /** @description UUID of the invitation. */
                 invitation_uuid: components["parameters"]["InvitationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Invitation régénérée. */
+            /** @description Invitation regenerated. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7080,21 +7080,21 @@ export interface operations {
     listApiTokens: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de tokens (métadonnées uniquement). */
+            /** @description Page of tokens (metadata only). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7116,11 +7116,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
             };
             cookie?: never;
@@ -7131,7 +7131,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Token créé — seule occasion de lire sa valeur en clair. */
+            /** @description Token created — the only occasion to read its clear value. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -7154,16 +7154,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la team. */
+                /** @description UUID of the team. */
                 team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID du token API (jamais sa valeur). */
+                /** @description UUID of the API token (never its value). */
                 token_uuid: components["parameters"]["TokenUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Token révoqué. */
+            /** @description Token revoked. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -7179,9 +7179,9 @@ export interface operations {
     listProjects: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
@@ -7190,7 +7190,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page de projets de la team courante. */
+            /** @description Page of projects of the current team. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7211,7 +7211,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path?: never;
@@ -7223,7 +7223,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Projet créé. */
+            /** @description Project created. */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -7246,14 +7246,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du projet. */
+                /** @description UUID of the project. */
                 project_uuid: components["parameters"]["ProjectUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Le projet (avec ses environnements résumés). */
+            /** @description The project (with its summarized environments). */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -7274,14 +7274,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du projet. */
+                /** @description UUID of the project. */
                 project_uuid: components["parameters"]["ProjectUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Projet supprimé. */
+            /** @description Project deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -7300,7 +7300,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du projet. */
+                /** @description UUID of the project. */
                 project_uuid: components["parameters"]["ProjectUuid"];
             };
             cookie?: never;
@@ -7311,7 +7311,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Projet mis à jour. */
+            /** @description Project updated. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -7333,21 +7333,21 @@ export interface operations {
     listEnvironments: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID du projet. */
+                /** @description UUID of the project. */
                 project_uuid: components["parameters"]["ProjectUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page d'environnements. */
+            /** @description Page of environments. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7369,11 +7369,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID du projet. */
+                /** @description UUID of the project. */
                 project_uuid: components["parameters"]["ProjectUuid"];
             };
             cookie?: never;
@@ -7384,7 +7384,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Environnement créé. */
+            /** @description Environment created. */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -7408,16 +7408,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du projet. */
+                /** @description UUID of the project. */
                 project_uuid: components["parameters"]["ProjectUuid"];
-                /** @description UUID de l'environnement. */
+                /** @description UUID of the environment. */
                 environment_uuid: components["parameters"]["EnvironmentUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description L'environnement. */
+            /** @description The environment. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -7438,16 +7438,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du projet. */
+                /** @description UUID of the project. */
                 project_uuid: components["parameters"]["ProjectUuid"];
-                /** @description UUID de l'environnement. */
+                /** @description UUID of the environment. */
                 environment_uuid: components["parameters"]["EnvironmentUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Environnement supprimé. */
+            /** @description Environment deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -7466,9 +7466,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du projet. */
+                /** @description UUID of the project. */
                 project_uuid: components["parameters"]["ProjectUuid"];
-                /** @description UUID de l'environnement. */
+                /** @description UUID of the environment. */
                 environment_uuid: components["parameters"]["EnvironmentUuid"];
             };
             cookie?: never;
@@ -7479,7 +7479,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Environnement mis à jour. */
+            /** @description Environment updated. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -7501,9 +7501,9 @@ export interface operations {
     listPrivateKeys: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
@@ -7512,7 +7512,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page de clés (sans matériel privé). */
+            /** @description Page of keys (without private material). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7532,7 +7532,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path?: never;
@@ -7544,7 +7544,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Clé enregistrée (métadonnées uniquement). */
+            /** @description Key registered (metadata only). */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -7565,19 +7565,19 @@ export interface operations {
     getPrivateKey: {
         parameters: {
             query?: {
-                /** @description Demande explicite de révélation du matériel privé. Requiert `read:sensitive` (sinon `403`). */
+                /** @description Explicit request to reveal the private material. Requires `read:sensitive` (otherwise `403`). */
                 reveal?: boolean;
             };
             header?: never;
             path: {
-                /** @description UUID de la clé privée. */
+                /** @description UUID of the private key. */
                 private_key_uuid: components["parameters"]["PrivateKeyUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description La clé (matériel privé selon permission et `reveal`). */
+            /** @description The key (private material depending on permission and `reveal`). */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -7598,14 +7598,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la clé privée. */
+                /** @description UUID of the private key. */
                 private_key_uuid: components["parameters"]["PrivateKeyUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Clé supprimée. */
+            /** @description Key deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -7623,11 +7623,11 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
+                /** @description Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`. */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
-                /** @description UUID de la clé privée. */
+                /** @description UUID of the private key. */
                 private_key_uuid: components["parameters"]["PrivateKeyUuid"];
             };
             cookie?: never;
@@ -7638,7 +7638,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Clé mise à jour (métadonnées uniquement). */
+            /** @description Key updated (metadata only). */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -7662,7 +7662,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -7673,7 +7673,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Endpoint créé — le secret n'est visible que dans cette réponse. */
+            /** @description Endpoint created — the secret is only visible in this response. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -7698,14 +7698,14 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Endpoint supprimé — les livraisons suivantes répondront 404. */
+            /** @description Endpoint deleted — subsequent deliveries will respond 404. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -7721,9 +7721,9 @@ export interface operations {
     listNotificationChannels: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
@@ -7732,7 +7732,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page de canaux. */
+            /** @description Page of channels. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7752,7 +7752,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path?: never;
@@ -7764,7 +7764,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Canal créé. */
+            /** @description Channel created. */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -7787,14 +7787,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du canal de notification. */
+                /** @description UUID of the notification channel. */
                 channel_uuid: components["parameters"]["ChannelUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Le canal (sans sa configuration). */
+            /** @description The channel (without its configuration). */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -7814,14 +7814,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du canal de notification. */
+                /** @description UUID of the notification channel. */
                 channel_uuid: components["parameters"]["ChannelUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Canal supprimé. */
+            /** @description Channel deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -7838,11 +7838,11 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
+                /** @description Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`. */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
-                /** @description UUID du canal de notification. */
+                /** @description UUID of the notification channel. */
                 channel_uuid: components["parameters"]["ChannelUuid"];
             };
             cookie?: never;
@@ -7853,7 +7853,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Canal mis à jour. */
+            /** @description Channel updated. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -7877,14 +7877,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du canal de notification. */
+                /** @description UUID of the notification channel. */
                 channel_uuid: components["parameters"]["ChannelUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Résultat de l'envoi. */
+            /** @description Delivery result. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7892,7 +7892,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         delivered: boolean;
-                        /** @description Raison de l'échec — jamais un credential. */
+                        /** @description Failure reason — never a credential. */
                         error?: string | null;
                     };
                 };
@@ -7908,14 +7908,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du canal de notification. */
+                /** @description UUID of the notification channel. */
                 channel_uuid: components["parameters"]["ChannelUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Règles du canal. */
+            /** @description Channel rules. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7936,7 +7936,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du canal de notification. */
+                /** @description UUID of the notification channel. */
                 channel_uuid: components["parameters"]["ChannelUuid"];
             };
             cookie?: never;
@@ -7947,7 +7947,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Règle créée. */
+            /** @description Rule created. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -7970,16 +7970,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du canal de notification. */
+                /** @description UUID of the notification channel. */
                 channel_uuid: components["parameters"]["ChannelUuid"];
-                /** @description UUID de la règle. */
+                /** @description UUID of the rule. */
                 rule_uuid: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Règle supprimée. */
+            /** @description Rule deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -7995,9 +7995,9 @@ export interface operations {
     listS3Storages: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
@@ -8006,7 +8006,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page de stockages S3. */
+            /** @description Page of S3 storages. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8026,7 +8026,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path?: never;
@@ -8038,7 +8038,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Stockage enregistré (credentials jamais renvoyés). */
+            /** @description Storage registered (credentials never returned). */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -8061,14 +8061,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stockage S3. */
+                /** @description UUID of the S3 storage. */
                 s3_storage_uuid: components["parameters"]["S3StorageUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Le stockage (sans credentials). */
+            /** @description The storage (without credentials). */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -8088,14 +8088,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stockage S3. */
+                /** @description UUID of the S3 storage. */
                 s3_storage_uuid: components["parameters"]["S3StorageUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Stockage supprimé. */
+            /** @description Storage deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -8113,11 +8113,11 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
+                /** @description Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`. */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
-                /** @description UUID du stockage S3. */
+                /** @description UUID of the S3 storage. */
                 s3_storage_uuid: components["parameters"]["S3StorageUuid"];
             };
             cookie?: never;
@@ -8128,7 +8128,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Stockage mis à jour. */
+            /** @description Storage updated. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -8152,14 +8152,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stockage S3. */
+                /** @description UUID of the S3 storage. */
                 s3_storage_uuid: components["parameters"]["S3StorageUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Résultat de la vérification. */
+            /** @description Check result. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8177,9 +8177,9 @@ export interface operations {
     listServers: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
@@ -8188,7 +8188,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page de serveurs de la team. */
+            /** @description Page of the team's servers. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8208,7 +8208,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path?: never;
@@ -8220,7 +8220,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Serveur enregistré (statut `pending`). */
+            /** @description Server registered (`pending` status). */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -8243,14 +8243,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Le serveur (états désiré et observé, §21.2). */
+            /** @description The server (desired and observed states, §21.2). */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -8271,14 +8271,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Serveur retiré. */
+            /** @description Server removed. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -8296,11 +8296,11 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
+                /** @description Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`. */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
@@ -8311,7 +8311,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Serveur mis à jour. */
+            /** @description Server updated. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -8335,21 +8335,21 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Le certificat de la CA, en PEM. */
+            /** @description The CA certificate, in PEM. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        /** @description PEM ; `null` tant qu'aucune base SSL n'a été créée sur ce serveur. */
+                        /** @description PEM; `null` until an SSL database has been created on this server. */
                         ca_cert: string | null;
                     };
                 };
@@ -8363,18 +8363,18 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Validation acceptée — suivre le job. */
+            /** @description Validation accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -8393,21 +8393,21 @@ export interface operations {
     listServerResources: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de ressources. */
+            /** @description Page of resources. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8430,16 +8430,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
-                /** @description Cycle de vie du proxy géré du serveur (§3). **`stop` coupe TOUT le trafic entrant du serveur** — chaque domaine routé par ce proxy cesse de répondre jusqu'au redémarrage. */
+                /** @description Lifecycle of the server's managed proxy (§3). **`stop` cuts ALL the server's inbound traffic** — every domain routed by this proxy stops responding until it is restarted. */
                 action: "start" | "stop" | "restart";
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Action acceptée — suivre le job. */
+            /** @description Action accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -8458,19 +8458,19 @@ export interface operations {
     getProxyLogs: {
         parameters: {
             query?: {
-                /** @description Nombre de lignes de queue (défaut 200, max 2000). */
+                /** @description Number of tail lines (default 200, max 2000). */
                 lines?: number;
             };
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Logs du proxy. */
+            /** @description Proxy logs. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8493,14 +8493,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Session créée — le token n'est visible que dans cette réponse. */
+            /** @description Session created — the token is only visible in this response. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -8520,18 +8520,18 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Nettoyage accepté — suivre le job. */
+            /** @description Cleanup accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -8550,21 +8550,21 @@ export interface operations {
     listAdoptionScans: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de scans. */
+            /** @description Page of scans. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8587,18 +8587,18 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Scan accepté — suivre le job puis lire le scan. */
+            /** @description Scan accepted — track the job then read the scan. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -8619,14 +8619,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du scan d'adoption (§20.7). */
+                /** @description UUID of the adoption scan (§20.7). */
                 adoption_scan_uuid: components["parameters"]["AdoptionScanUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Le scan. */
+            /** @description The scan. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8645,11 +8645,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID du scan d'adoption (§20.7). */
+                /** @description UUID of the adoption scan (§20.7). */
                 adoption_scan_uuid: components["parameters"]["AdoptionScanUuid"];
             };
             cookie?: never;
@@ -8660,7 +8660,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Adoption acceptée — suivre le job. */
+            /** @description Adoption accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -8682,14 +8682,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Domaines par ressource. */
+            /** @description Domains per resource. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8709,25 +8709,25 @@ export interface operations {
     listServerCertificates: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Ne retourne que les certificats dont `not_after` est inférieur ou égal à maintenant + N jours (certificats déjà expirés inclus). Usage typique du monitoring d'expiration (alerte J-30/J-7). */
+                /** @description Only returns certificates whose `not_after` is less than or equal to now + N days (already expired certificates included). Typical use for expiration monitoring (D-30/D-7 alert). */
                 expiring_within_days?: number;
-                /** @description Filtrer par statut observé (ex. `failed`, `expired`). */
+                /** @description Filter by observed status (e.g. `failed`, `expired`). */
                 status?: components["schemas"]["CertificateStatus"];
             };
             header?: never;
             path: {
-                /** @description UUID du serveur. */
+                /** @description UUID of the server. */
                 server_uuid: components["parameters"]["ServerUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de certificats. */
+            /** @description Page of certificates. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8751,14 +8751,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du certificat (reflet observé). */
+                /** @description UUID of the certificate (observed reflection). */
                 certificate_uuid: components["parameters"]["CertificateUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Le certificat. */
+            /** @description The certificate. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8777,18 +8777,18 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID du certificat (reflet observé). */
+                /** @description UUID of the certificate (observed reflection). */
                 certificate_uuid: components["parameters"]["CertificateUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Renouvellement accepté — suivre le job. */
+            /** @description Renewal accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -8808,15 +8808,15 @@ export interface operations {
     listApplications: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Filtrer par projet. */
+                /** @description Filter by project. */
                 project_uuid?: string;
-                /** @description Filtrer par environnement. */
+                /** @description Filter by environment. */
                 environment_uuid?: string;
-                /** @description Filtrer par serveur. */
+                /** @description Filter by server. */
                 server_uuid?: string;
             };
             header?: never;
@@ -8825,7 +8825,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page d'applications. */
+            /** @description Page of applications. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8846,7 +8846,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path?: never;
@@ -8858,7 +8858,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Application créée. */
+            /** @description Application created. */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -8882,14 +8882,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description L'application. */
+            /** @description The application. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -8908,19 +8908,19 @@ export interface operations {
     deleteApplication: {
         parameters: {
             query?: {
-                /** @description Détruire aussi les volumes persistants de l'application. */
+                /** @description Also destroy the application's persistent volumes. */
                 delete_volumes?: boolean;
             };
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Suppression acceptée — suivre le job. */
+            /** @description Deletion accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -8940,11 +8940,11 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
+                /** @description Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`. */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -8955,7 +8955,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Application mise à jour. */
+            /** @description Application updated. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -8979,14 +8979,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Stockages de l'application. */
+            /** @description The application's storages. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9007,11 +9007,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -9022,7 +9022,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Stockage déclaré. */
+            /** @description Storage declared. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -9045,16 +9045,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
-                /** @description UUID du stockage persistant. */
+                /** @description UUID of the persistent storage. */
                 storage_uuid: components["parameters"]["StorageUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Stockage retiré de la configuration. */
+            /** @description Storage removed from the configuration. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -9070,23 +9070,23 @@ export interface operations {
     listApplicationEnvs: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Renvoie le jeu de variables des previews au lieu de celui de production. */
+                /** @description Returns the preview variable set instead of the production one. */
                 preview?: boolean;
             };
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de variables. */
+            /** @description Page of variables. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9109,7 +9109,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -9122,7 +9122,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Jeu de variables après remplacement. */
+            /** @description Variable set after replacement. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9144,15 +9144,15 @@ export interface operations {
     createApplicationEnv: {
         parameters: {
             query?: {
-                /** @description Crée la variable dans le jeu des previews au lieu de celui de production. */
+                /** @description Creates the variable in the preview set instead of the production one. */
                 preview?: boolean;
             };
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -9163,7 +9163,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Variable créée (valeur restituée selon permission). */
+            /** @description Variable created (value returned depending on permission). */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -9186,16 +9186,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
-                /** @description UUID de la variable d'environnement. */
+                /** @description UUID of the environment variable. */
                 env_uuid: components["parameters"]["EnvUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Variable supprimée. */
+            /** @description Variable deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -9213,9 +9213,9 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
-                /** @description UUID de la variable d'environnement. */
+                /** @description UUID of the environment variable. */
                 env_uuid: components["parameters"]["EnvUuid"];
             };
             cookie?: never;
@@ -9226,7 +9226,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Variable mise à jour. */
+            /** @description Variable updated. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9249,14 +9249,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Démarrage accepté — suivre le job. */
+            /** @description Start accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -9277,14 +9277,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Arrêt accepté — suivre le job. */
+            /** @description Stop accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -9305,14 +9305,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Redémarrage accepté — suivre le job. */
+            /** @description Restart accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -9332,18 +9332,18 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Désadoption acceptée — suivre le job. */
+            /** @description Unadoption accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -9362,19 +9362,19 @@ export interface operations {
     createApplicationTerminalSession: {
         parameters: {
             query?: {
-                /** @description (build pack compose) Nom du service dont ouvrir le shell — la stack n'a pas de container propre (compose-spec §2.2). `404` si le composant est inconnu ; obligatoire dès que la stack a des composants. */
+                /** @description (compose build pack) Name of the service whose shell to open — the stack has no container of its own (compose-spec §2.2). `404` if the component is unknown; required as soon as the stack has components. */
                 component?: string;
             };
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Session créée — le token n'est visible que dans cette réponse. */
+            /** @description Session created — the token is only visible in this response. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -9393,12 +9393,12 @@ export interface operations {
     createApplicationPortForward: {
         parameters: {
             query?: {
-                /** @description (build pack compose) Service dont on cible le container. */
+                /** @description (compose build pack) Service whose container is targeted. */
                 component?: string;
             };
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -9409,7 +9409,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Session créée — le token n'est visible que dans cette réponse. */
+            /** @description Session created — the token is only visible in this response. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -9430,7 +9430,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
@@ -9441,7 +9441,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Session créée — le token n'est visible que dans cette réponse. */
+            /** @description Session created — the token is only visible in this response. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -9460,21 +9460,21 @@ export interface operations {
     getApplicationLogs: {
         parameters: {
             query?: {
-                /** @description Nombre de lignes de queue (défaut 200, max 2000). */
+                /** @description Number of tail lines (default 200, max 2000). */
                 lines?: number;
-                /** @description Nom du service compose (compose-spec §2.2) dont lire les logs. Ignoré pour les autres build packs. */
+                /** @description Name of the compose service (compose-spec §2.2) whose logs to read. Ignored for other build packs. */
                 component?: string;
             };
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Logs du container. */
+            /** @description Container logs. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9495,22 +9495,22 @@ export interface operations {
     streamApplicationLogs: {
         parameters: {
             query?: {
-                /** @description Nom du service compose dont streamer les logs. */
+                /** @description Name of the compose service whose logs to stream. */
                 component?: string;
             };
             header?: {
-                /** @description Reprise après coupure — dernier `id` d'événement reçu (§27.24). */
+                /** @description Resume after a disconnect — last event `id` received (§27.24). */
                 "Last-Event-ID"?: string;
             };
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Flux SSE ouvert ; chaque événement `log` porte une `LogLine`. */
+            /** @description SSE stream open; each `log` event carries a `LogLine`. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9530,11 +9530,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -9543,7 +9543,7 @@ export interface operations {
             content: {
                 "application/json": {
                     /**
-                     * @description Build sans cache.
+                     * @description Build without cache.
                      * @default false
                      */
                     force_rebuild?: boolean;
@@ -9551,7 +9551,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Déploiement mis en file. */
+            /** @description Deployment queued. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -9571,11 +9571,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -9583,15 +9583,15 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": {
-                    /** @description Déploiement réussi dont l'image doit être redéployée. */
+                    /** @description Successful deployment whose image must be redeployed. */
                     deployment_uuid?: string;
-                    /** @description Digest OCI explicite (ex. sha256:…). */
+                    /** @description Explicit OCI digest (e.g. sha256:…). */
                     image_digest?: string;
                 };
             };
         };
         responses: {
-            /** @description Rollback mis en file (déploiement de type rollback). */
+            /** @description Rollback queued (rollback-type deployment). */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -9611,23 +9611,23 @@ export interface operations {
     listApplicationDeployments: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Filtrer par statut de déploiement. */
+                /** @description Filter by deployment status. */
                 status?: components["schemas"]["DeploymentStatus"];
             };
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de déploiements. */
+            /** @description Page of deployments. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9651,14 +9651,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du déploiement. */
+                /** @description UUID of the deployment. */
                 deployment_uuid: components["parameters"]["DeploymentUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Le déploiement (statut §21.1, SHA, digest, durée). */
+            /** @description The deployment (status §21.1, SHA, digest, duration). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9676,24 +9676,24 @@ export interface operations {
     getDeploymentLogs: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: {
-                /** @description Reprise d'un flux SSE — sequence du dernier événement reçu (uniquement avec `Accept: text/event-stream`). */
+                /** @description Resume an SSE stream — sequence of the last event received (only with `Accept: text/event-stream`). */
                 "Last-Event-ID"?: components["parameters"]["LastEventId"];
             };
             path: {
-                /** @description UUID du déploiement. */
+                /** @description UUID of the deployment. */
                 deployment_uuid: components["parameters"]["DeploymentUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Logs du déploiement. */
+            /** @description Deployment logs. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9718,14 +9718,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du déploiement. */
+                /** @description UUID of the deployment. */
                 deployment_uuid: components["parameters"]["DeploymentUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Annulation demandée — suivre le déploiement. */
+            /** @description Cancellation requested — track the deployment. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -9744,11 +9744,11 @@ export interface operations {
     webhookDeploy: {
         parameters: {
             query?: {
-                /** @description UUID(s) de ressources à déployer, séparés par des virgules. Requis si `tag` est absent. */
+                /** @description UUID(s) of the resources to deploy, comma-separated. Required if `tag` is absent. */
                 uuid?: components["parameters"]["WebhookUuid"];
-                /** @description Tag(s) séparés par des virgules — déploie toutes les ressources de la team portant l'un de ces tags. Requis si `uuid` est absent. */
+                /** @description Comma-separated tag(s) — deploys all the team's resources carrying one of these tags. Required if `uuid` is absent. */
                 tag?: components["parameters"]["WebhookTag"];
-                /** @description Force un rebuild sans cache. */
+                /** @description Forces a rebuild without cache. */
                 force?: components["parameters"]["WebhookForce"];
             };
             header?: never;
@@ -9757,7 +9757,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Déploiements mis en file (un par ressource ciblée). */
+            /** @description Deployments queued (one per targeted resource). */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -9776,15 +9776,15 @@ export interface operations {
     webhookDeployPost: {
         parameters: {
             query?: {
-                /** @description UUID(s) de ressources à déployer, séparés par des virgules. Requis si `tag` est absent. */
+                /** @description UUID(s) of the resources to deploy, comma-separated. Required if `tag` is absent. */
                 uuid?: components["parameters"]["WebhookUuid"];
-                /** @description Tag(s) séparés par des virgules — déploie toutes les ressources de la team portant l'un de ces tags. Requis si `uuid` est absent. */
+                /** @description Comma-separated tag(s) — deploys all the team's resources carrying one of these tags. Required if `uuid` is absent. */
                 tag?: components["parameters"]["WebhookTag"];
-                /** @description Force un rebuild sans cache. */
+                /** @description Forces a rebuild without cache. */
                 force?: components["parameters"]["WebhookForce"];
             };
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path?: never;
@@ -9792,7 +9792,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Déploiements mis en file (un par ressource ciblée). */
+            /** @description Deployments queued (one per targeted resource). */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -9812,9 +9812,9 @@ export interface operations {
     listDnsCredentials: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
@@ -9823,7 +9823,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page de credentials (jamais leur contenu). */
+            /** @description Page of credentials (never their content). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9843,7 +9843,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path?: never;
@@ -9855,7 +9855,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Credential créé. */
+            /** @description Credential created. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -9883,7 +9883,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Le credential (sans son contenu). */
+            /** @description The credential (without its content). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9908,7 +9908,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Credential supprimé. */
+            /** @description Credential deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -9925,9 +9925,9 @@ export interface operations {
     listRegistryCredentials: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
@@ -9936,7 +9936,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page de credentials (jamais de mot de passe). */
+            /** @description Page of credentials (never a password). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9956,7 +9956,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path?: never;
@@ -9968,7 +9968,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Credential créé. */
+            /** @description Credential created. */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -9991,14 +9991,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du credential de registry. */
+                /** @description UUID of the registry credential. */
                 registry_credential_uuid: components["parameters"]["RegistryCredentialUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Le credential (sans son mot de passe). */
+            /** @description The credential (without its password). */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -10018,14 +10018,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du credential de registry. */
+                /** @description UUID of the registry credential. */
                 registry_credential_uuid: components["parameters"]["RegistryCredentialUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Credential supprimé. */
+            /** @description Credential deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -10043,11 +10043,11 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
+                /** @description Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`. */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
-                /** @description UUID du credential de registry. */
+                /** @description UUID of the registry credential. */
                 registry_credential_uuid: components["parameters"]["RegistryCredentialUuid"];
             };
             cookie?: never;
@@ -10058,7 +10058,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Credential mis à jour. */
+            /** @description Credential updated. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -10080,9 +10080,9 @@ export interface operations {
     listGithubApps: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
@@ -10091,7 +10091,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page de GitHub Apps. */
+            /** @description Page of GitHub Apps. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10120,7 +10120,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Brouillon créé — soumettre le manifest. */
+            /** @description Draft created — submit the manifest. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -10142,14 +10142,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la GitHub App. */
+                /** @description UUID of the GitHub App. */
                 github_app_uuid: components["parameters"]["GithubAppUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description L'app. */
+            /** @description The app. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10169,14 +10169,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la GitHub App. */
+                /** @description UUID of the GitHub App. */
                 github_app_uuid: components["parameters"]["GithubAppUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description App supprimée. */
+            /** @description App deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -10197,14 +10197,14 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description UUID de la GitHub App. */
+                /** @description UUID of the GitHub App. */
                 github_app_uuid: components["parameters"]["GithubAppUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Dépôts découverts. */
+            /** @description Discovered repositories. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10225,9 +10225,9 @@ export interface operations {
     listServices: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
@@ -10236,7 +10236,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page de stacks. */
+            /** @description Page of stacks. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10256,7 +10256,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path?: never;
@@ -10268,7 +10268,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Stack créé. */
+            /** @description Stack created. */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -10292,14 +10292,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Le stack. */
+            /** @description The stack. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -10322,14 +10322,14 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Suppression acceptée — suivre le job. */
+            /** @description Deletion accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -10349,11 +10349,11 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
+                /** @description Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`. */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
@@ -10364,7 +10364,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Stack mis à jour. */
+            /** @description Stack updated. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -10387,18 +10387,18 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Désadoption acceptée — suivre le job. */
+            /** @description Unadoption accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -10419,14 +10419,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Composants du stack. */
+            /** @description The stack's components. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10447,18 +10447,18 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Déploiement mis en file. */
+            /** @description Deployment queued. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -10479,14 +10479,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Démarrage accepté. */
+            /** @description Start accepted. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -10506,14 +10506,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Arrêt accepté. */
+            /** @description Stop accepted. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -10533,14 +10533,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Redémarrage accepté. */
+            /** @description Restart accepted. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -10558,21 +10558,21 @@ export interface operations {
     listServiceEnvs: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de variables. */
+            /** @description Page of variables. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10595,7 +10595,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
@@ -10606,7 +10606,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Variable créée. */
+            /** @description Variable created. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -10629,7 +10629,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
                 env_uuid: string;
             };
@@ -10637,7 +10637,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Variable supprimée. */
+            /** @description Variable deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -10655,7 +10655,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
                 env_uuid: string;
             };
@@ -10667,7 +10667,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Variable mise à jour. */
+            /** @description Variable updated. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10686,21 +10686,21 @@ export interface operations {
     listServiceDeployments: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID du stack compose. */
+                /** @description UUID of the compose stack. */
                 service_uuid: components["parameters"]["ServiceUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de déploiements. */
+            /** @description Page of deployments. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10723,14 +10723,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Métriques instantanées. */
+            /** @description Instant metrics. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10753,14 +10753,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Composants du stack. */
+            /** @description The stack's components. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10782,14 +10782,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description PRs ouvertes. */
+            /** @description Open PRs. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10819,14 +10819,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Previews non détruites. */
+            /** @description Non-destroyed previews. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10848,7 +10848,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -10861,7 +10861,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Preview créée ou relancée. */
+            /** @description Preview created or restarted. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -10882,7 +10882,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
@@ -10890,7 +10890,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Destruction enfilée. */
+            /** @description Destruction queued. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -10907,14 +10907,14 @@ export interface operations {
     getPreviewLogs: {
         parameters: {
             query?: {
-                /** @description Nombre de lignes de queue (défaut 200, max 2000). */
+                /** @description Number of tail lines (default 200, max 2000). */
                 lines?: number;
-                /** @description Nom du service compose dont lire les logs. */
+                /** @description Name of the compose service whose logs to read. */
                 component?: string;
             };
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
@@ -10922,7 +10922,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Logs du container. */
+            /** @description Container logs. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10945,7 +10945,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
@@ -10953,7 +10953,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Variables effectives. */
+            /** @description Effective variables. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10975,7 +10975,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
@@ -10987,7 +10987,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Surcharge créée. */
+            /** @description Override created. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -11007,12 +11007,12 @@ export interface operations {
     createPreviewTerminalSession: {
         parameters: {
             query?: {
-                /** @description (build pack compose) Nom du service dont ouvrir le shell. */
+                /** @description (compose build pack) Name of the service whose shell to open. */
                 component?: string;
             };
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
@@ -11020,7 +11020,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Session créée — le token n'est visible que dans cette réponse. */
+            /** @description Session created — the token is only visible in this response. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -11041,7 +11041,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
@@ -11049,7 +11049,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Métriques instantanées. */
+            /** @description Instant metrics. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11070,12 +11070,12 @@ export interface operations {
     createPreviewPortForward: {
         parameters: {
             query?: {
-                /** @description (build pack compose) Service dont on cible le container. */
+                /** @description (compose build pack) Service whose container is targeted. */
                 component?: string;
             };
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
@@ -11087,7 +11087,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Session créée — le token n'est visible que dans cette réponse. */
+            /** @description Session created — the token is only visible in this response. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -11108,7 +11108,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
@@ -11116,7 +11116,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description TTL réarmé. */
+            /** @description TTL re-armed. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -11135,7 +11135,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
                 preview_uuid: string;
             };
@@ -11143,7 +11143,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Approuvée — déploiement promu ou mis en file. */
+            /** @description Approved — deployment promoted or queued. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -11162,21 +11162,21 @@ export interface operations {
     listScheduledTasks: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de tâches planifiées. */
+            /** @description Page of scheduled tasks. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11198,11 +11198,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID de l'application. */
+                /** @description UUID of the application. */
                 application_uuid: components["parameters"]["ApplicationUuid"];
             };
             cookie?: never;
@@ -11213,7 +11213,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Tâche créée. */
+            /** @description Task created. */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -11237,14 +11237,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la tâche planifiée. */
+                /** @description UUID of the scheduled task. */
                 task_uuid: components["parameters"]["TaskUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description La tâche. */
+            /** @description The task. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -11264,14 +11264,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la tâche planifiée. */
+                /** @description UUID of the scheduled task. */
                 task_uuid: components["parameters"]["TaskUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Tâche supprimée. */
+            /** @description Task deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -11288,11 +11288,11 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
+                /** @description Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`. */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
-                /** @description UUID de la tâche planifiée. */
+                /** @description UUID of the scheduled task. */
                 task_uuid: components["parameters"]["TaskUuid"];
             };
             cookie?: never;
@@ -11303,7 +11303,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Tâche mise à jour. */
+            /** @description Task updated. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -11326,18 +11326,18 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID de la tâche planifiée. */
+                /** @description UUID of the scheduled task. */
                 task_uuid: components["parameters"]["TaskUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Exécution acceptée. */
+            /** @description Execution accepted. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -11356,21 +11356,21 @@ export interface operations {
     listTaskExecutions: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID de la tâche planifiée. */
+                /** @description UUID of the scheduled task. */
                 task_uuid: components["parameters"]["TaskUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page d'exécutions. */
+            /** @description Page of executions. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11390,13 +11390,13 @@ export interface operations {
     listDatabases: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Filtrer par environnement. */
+                /** @description Filter by environment. */
                 environment_uuid?: string;
-                /** @description Filtrer par serveur. */
+                /** @description Filter by server. */
                 server_uuid?: string;
             };
             header?: never;
@@ -11405,7 +11405,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page de bases. */
+            /** @description Page of databases. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11426,7 +11426,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path?: never;
@@ -11438,7 +11438,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Base créée (credentials restitués selon permission). */
+            /** @description Database created (credentials returned depending on permission). */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -11462,14 +11462,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description La base. */
+            /** @description The database. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -11488,19 +11488,19 @@ export interface operations {
     deleteDatabase: {
         parameters: {
             query?: {
-                /** @description Détruire aussi les volumes de données. */
+                /** @description Also destroy the data volumes. */
                 delete_volumes?: boolean;
             };
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Suppression acceptée — suivre le job. */
+            /** @description Deletion accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -11520,11 +11520,11 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
+                /** @description Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`. */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
@@ -11535,7 +11535,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Base mise à jour. */
+            /** @description Database updated. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -11559,14 +11559,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Démarrage accepté — suivre le job. */
+            /** @description Start accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -11587,14 +11587,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Arrêt accepté — suivre le job. */
+            /** @description Stop accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -11615,14 +11615,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Redémarrage accepté — suivre le job. */
+            /** @description Restart accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -11643,14 +11643,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Session créée — le token n'est visible que dans cette réponse. */
+            /** @description Session created — the token is only visible in this response. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -11669,21 +11669,21 @@ export interface operations {
     listBackupPlans: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de plans. */
+            /** @description Page of plans. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11705,11 +11705,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
             };
             cookie?: never;
@@ -11720,7 +11720,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Plan créé. */
+            /** @description Plan created. */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -11744,16 +11744,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Le plan. */
+            /** @description The plan. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -11774,16 +11774,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Plan supprimé. */
+            /** @description Plan deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -11801,13 +11801,13 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
+                /** @description Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`. */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
@@ -11818,7 +11818,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Plan mis à jour. */
+            /** @description Plan updated. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -11841,20 +11841,20 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Backup accepté — suivre le job et l'exécution créée. */
+            /** @description Backup accepted — track the job and the created execution. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -11874,20 +11874,20 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Drill accepté. */
+            /** @description Drill accepted. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -11906,23 +11906,23 @@ export interface operations {
     listRestoreDrills: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de drills. */
+            /** @description Page of drills. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11943,23 +11943,23 @@ export interface operations {
     listBackupExecutions: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page d'exécutions. */
+            /** @description Page of executions. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11981,15 +11981,15 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID de la base de données. */
+                /** @description UUID of the database. */
                 database_uuid: components["parameters"]["DatabaseUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
-                /** @description UUID de l'exécution de backup. */
+                /** @description UUID of the backup execution. */
                 execution_uuid: components["parameters"]["ExecutionUuid"];
             };
             cookie?: never;
@@ -12000,7 +12000,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Restore accepté — suivre le job. */
+            /** @description Restore accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -12021,21 +12021,21 @@ export interface operations {
     listComponentBackupPlans: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de plans. */
+            /** @description Page of plans. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12057,11 +12057,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
             };
             cookie?: never;
@@ -12072,7 +12072,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Plan créé. */
+            /** @description Plan created. */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -12096,16 +12096,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Le plan. */
+            /** @description The plan. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -12126,16 +12126,16 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Plan supprimé. */
+            /** @description Plan deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -12153,13 +12153,13 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
+                /** @description Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`. */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
@@ -12170,7 +12170,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Plan mis à jour. */
+            /** @description Plan updated. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -12193,20 +12193,20 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Backup accepté — suivre le job et l'exécution créée. */
+            /** @description Backup accepted — track the job and the created execution. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -12226,20 +12226,20 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Drill accepté. */
+            /** @description Drill accepted. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -12258,23 +12258,23 @@ export interface operations {
     listComponentRestoreDrills: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de drills. */
+            /** @description Page of drills. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12295,23 +12295,23 @@ export interface operations {
     listComponentBackupExecutions: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page d'exécutions. */
+            /** @description Page of executions. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12333,15 +12333,15 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID d'un composant de stack compose. */
+                /** @description UUID of a compose stack component. */
                 service_component_uuid: components["parameters"]["ServiceComponentUuid"];
-                /** @description UUID du plan de backup. */
+                /** @description UUID of the backup plan. */
                 backup_plan_uuid: components["parameters"]["BackupPlanUuid"];
-                /** @description UUID de l'exécution de backup. */
+                /** @description UUID of the backup execution. */
                 execution_uuid: components["parameters"]["ExecutionUuid"];
             };
             cookie?: never;
@@ -12352,7 +12352,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Restore accepté — suivre le job. */
+            /** @description Restore accepted — track the job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -12373,9 +12373,9 @@ export interface operations {
     listUptimeChecks: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
@@ -12384,7 +12384,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page de checks. */
+            /** @description Page of checks. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12406,7 +12406,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path?: never;
@@ -12418,7 +12418,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Check créé. */
+            /** @description Check created. */
             201: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -12441,14 +12441,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'un check d'uptime (ADR-017). */
+                /** @description UUID of an uptime check (ADR-017). */
                 uptime_check_uuid: components["parameters"]["UptimeCheckUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Le check. */
+            /** @description The check. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -12469,14 +12469,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'un check d'uptime (ADR-017). */
+                /** @description UUID of an uptime check (ADR-017). */
                 uptime_check_uuid: components["parameters"]["UptimeCheckUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Check supprimé. */
+            /** @description Check deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -12493,11 +12493,11 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`. */
+                /** @description Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`. */
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
-                /** @description UUID d'un check d'uptime (ADR-017). */
+                /** @description UUID of an uptime check (ADR-017). */
                 uptime_check_uuid: components["parameters"]["UptimeCheckUuid"];
             };
             cookie?: never;
@@ -12508,7 +12508,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Check mis à jour. */
+            /** @description Check updated. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -12530,21 +12530,21 @@ export interface operations {
     listUptimeResults: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path: {
-                /** @description UUID d'un check d'uptime (ADR-017). */
+                /** @description UUID of an uptime check (ADR-017). */
                 uptime_check_uuid: components["parameters"]["UptimeCheckUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Page de résultats. */
+            /** @description Page of results. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12565,9 +12565,9 @@ export interface operations {
     listSharedVariables: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
                 scope?: "team" | "project" | "environment" | "server";
             };
@@ -12577,7 +12577,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page de variables (valeurs seulement avec `read:sensitive`, INV-003). */
+            /** @description Page of variables (values only with `read:sensitive`, INV-003). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12599,7 +12599,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path?: never;
@@ -12611,7 +12611,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Variable créée. */
+            /** @description Variable created. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -12633,14 +12633,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'une variable partagée (§5.4). */
+                /** @description UUID of a shared variable (§5.4). */
                 shared_variable_uuid: components["parameters"]["SharedVariableUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Variable supprimée. */
+            /** @description Variable deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -12658,7 +12658,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID d'une variable partagée (§5.4). */
+                /** @description UUID of a shared variable (§5.4). */
                 shared_variable_uuid: components["parameters"]["SharedVariableUuid"];
             };
             cookie?: never;
@@ -12669,7 +12669,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Variable mise à jour. */
+            /** @description Variable updated. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12688,15 +12688,15 @@ export interface operations {
     listJobs: {
         parameters: {
             query?: {
-                /** @description Curseur opaque de pagination, issu de `next_cursor` de la page précédente. */
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
                 cursor?: components["parameters"]["Cursor"];
-                /** @description Nombre maximal d'éléments par page (1 à 100). */
+                /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
-                /** @description Filtrer par statut (ex. `dead_letter`). */
+                /** @description Filter by status (e.g. `dead_letter`). */
                 status?: components["schemas"]["JobStatus"];
-                /** @description Filtrer par file logique (ex. `deploy`, `backup`, `cleanup`, `maintenance` — §24.3). */
+                /** @description Filter by logical queue (e.g. `deploy`, `backup`, `cleanup`, `maintenance` — §24.3). */
                 queue?: string;
-                /** @description Filtrer par type de job (ex. `resource.delete`, `backup.execute`). */
+                /** @description Filter by job type (e.g. `resource.delete`, `backup.execute`). */
                 type?: string;
             };
             header?: never;
@@ -12705,7 +12705,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Page de jobs. */
+            /** @description Page of jobs. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12727,14 +12727,14 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du job. */
+                /** @description UUID of the job. */
                 job_uuid: components["parameters"]["JobUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Le job. */
+            /** @description The job. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12753,18 +12753,18 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h. */
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description UUID du job. */
+                /** @description UUID of the job. */
                 job_uuid: components["parameters"]["JobUuid"];
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Nouvelle tentative liée créée — suivre le nouveau job. */
+            /** @description Linked new attempt created — track the new job. */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -12785,7 +12785,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description UUID du job. */
+                /** @description UUID of the job. */
                 job_uuid: components["parameters"]["JobUuid"];
             };
             cookie?: never;
@@ -12796,7 +12796,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Job clôturé (statut `cancelled`). */
+            /** @description Job closed (`cancelled` status). */
             200: {
                 headers: {
                     [name: string]: unknown;

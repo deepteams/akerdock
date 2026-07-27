@@ -2056,75 +2056,75 @@ func (e ListTeamAuditParamsResult) Valid() bool {
 	}
 }
 
-// AdoptRequest Sélection de candidats d'un scan à adopter (§20.7).
+// AdoptRequest Selection of a scan's candidates to adopt (§20.7).
 type AdoptRequest struct {
-	// EnvironmentUuid Environnement cible des ressources créées.
+	// EnvironmentUuid Target environment of the created resources.
 	EnvironmentUuid string `json:"environment_uuid"`
 	Items           []struct {
-		// CandidateId `id` du candidat dans le scan.
+		// CandidateId `id` of the candidate in the scan.
 		CandidateId string `json:"candidate_id"`
 
-		// Name Nom de ressource, à défaut `proposed_name`.
+		// Name Resource name, defaulting to `proposed_name`.
 		Name *string `json:"name,omitempty"`
 	} `json:"items"`
 }
 
-// AdoptionCandidate Un container isolé ou un stack compose non géré, avec le mapping proposé (§20.7). `modifications` liste ce que l'adoption puis la première normalisation changeront — l'adoption elle-même ne redémarre jamais le workload.
+// AdoptionCandidate A standalone container or an unmanaged compose stack, with the proposed mapping (§20.7). `modifications` lists what adoption and then the first normalization will change — adoption itself never restarts the workload.
 type AdoptionCandidate struct {
 	Adoptable bool `json:"adoptable"`
 
-	// ComposeProject Nom du projet compose (`com.docker.compose.project`).
+	// ComposeProject Name of the compose project (`com.docker.compose.project`).
 	ComposeProject *string                      `json:"compose_project,omitempty"`
 	Containers     []AdoptionCandidateContainer `json:"containers"`
 
-	// Id Identifiant stable du candidat dans ce scan : ID court du container, ou `compose:<projet>` pour un stack.
+	// Id Stable identifier of the candidate within this scan: short ID of the container, or `compose:<project>` for a stack.
 	Id   string                `json:"id"`
 	Kind AdoptionCandidateKind `json:"kind"`
 
-	// Modifications Ce qui sera modifié — à l'adoption (rien sur le workload) et à la première normalisation (labels, nom, réseau).
+	// Modifications What will be modified — at adoption (nothing on the workload) and at the first normalization (labels, name, network).
 	Modifications *[]string `json:"modifications,omitempty"`
 
-	// ProposedName Nom de ressource proposé (modifiable à l'adoption).
+	// ProposedName Proposed resource name (editable at adoption).
 	ProposedName string `json:"proposed_name"`
 
-	// ProposedResourceType application (container isolé) ou service (stack compose).
+	// ProposedResourceType application (standalone container) or service (compose stack).
 	ProposedResourceType *AdoptionCandidateProposedResourceType `json:"proposed_resource_type,omitempty"`
 
-	// Reasons Motifs de non-adoptabilité quand `adoptable = false`.
+	// Reasons Reasons for non-adoptability when `adoptable = false`.
 	Reasons *[]string `json:"reasons,omitempty"`
 }
 
 // AdoptionCandidateKind defines model for AdoptionCandidate.Kind.
 type AdoptionCandidateKind string
 
-// AdoptionCandidateProposedResourceType application (container isolé) ou service (stack compose).
+// AdoptionCandidateProposedResourceType application (standalone container) or service (compose stack).
 type AdoptionCandidateProposedResourceType string
 
 // AdoptionCandidateContainer defines model for AdoptionCandidateContainer.
 type AdoptionCandidateContainer struct {
-	// ComposeService Nom du service compose, pour un membre de stack.
+	// ComposeService Name of the compose service, for a stack member.
 	ComposeService *string `json:"compose_service,omitempty"`
 
-	// ContainerId ID court du container.
+	// ContainerId Short ID of the container.
 	ContainerId   string `json:"container_id"`
 	ContainerName string `json:"container_name"`
 
-	// Domains FQDN détectés dans les labels de reverse proxy (Traefik).
+	// Domains FQDNs detected in the reverse proxy labels (Traefik).
 	Domains *[]string `json:"domains,omitempty"`
 
-	// EnvKeys NOMS des variables d'environnement — jamais les valeurs (INV-003) ; elles sont capturées et chiffrées à l'adoption.
+	// EnvKeys NAMES of the environment variables — never the values (INV-003); they are captured and encrypted at adoption.
 	EnvKeys *[]string `json:"env_keys,omitempty"`
 	Image   string    `json:"image"`
 
-	// Labels Labels Docker du container (hors namespace `akerdock.*`) — c'est ce qui permet à un outil de migration de reconnaître les workloads d'une plateforme donnée (ex. `coolify.*`) sans rien connaître de son schéma interne (ADR-023).
+	// Labels Docker labels of the container (outside the `akerdock.*` namespace) — this is what allows a migration tool to recognize the workloads of a given platform (e.g. `coolify.*`) without knowing anything about its internal schema (ADR-023).
 	Labels *map[string]string `json:"labels,omitempty"`
 	Mounts *[]struct {
 		Destination string `json:"destination"`
 
-		// Kind `volume` ou `bind`.
+		// Kind `volume` or `bind`.
 		Kind string `json:"kind"`
 
-		// Source Nom du volume ou chemin hôte.
+		// Source Volume name or host path.
 		Source string `json:"source"`
 	} `json:"mounts,omitempty"`
 	Networks *[]string `json:"networks,omitempty"`
@@ -2134,18 +2134,18 @@ type AdoptionCandidateContainer struct {
 		Protocol      string `json:"protocol"`
 	} `json:"ports,omitempty"`
 
-	// State État Docker observé (`running`, `exited`, …).
+	// State Observed Docker state (`running`, `exited`, …).
 	State string `json:"state"`
 }
 
-// AdoptionScan Un scan d'adoption (§20.7, ADR-013) : inventaire des ressources Docker non gérées d'un serveur et mapping proposé vers le modèle AkerDock.
+// AdoptionScan An adoption scan (§20.7, ADR-013): inventory of a server's unmanaged Docker resources and proposed mapping to the AkerDock model.
 type AdoptionScan struct {
-	// Candidates Présent quand `status = completed`. Contient TOUS les candidats, adoptables ou non — un candidat non adoptable porte ses motifs (`reasons`), jamais d'omission silencieuse.
+	// Candidates Present when `status = completed`. Contains ALL candidates, adoptable or not — a non-adoptable candidate carries its reasons (`reasons`), never a silent omission.
 	Candidates  *[]AdoptionCandidate `json:"candidates,omitempty"`
 	CompletedAt *time.Time           `json:"completed_at,omitempty"`
 	CreatedAt   time.Time            `json:"created_at"`
 
-	// Error Cause de l'échec quand `status = failed`.
+	// Error Cause of the failure when `status = failed`.
 	Error      *string            `json:"error,omitempty"`
 	ServerUuid string             `json:"server_uuid"`
 	Status     AdoptionScanStatus `json:"status"`
@@ -2157,23 +2157,23 @@ type AdoptionScanStatus string
 
 // AdoptionScanAccepted defines model for AdoptionScanAccepted.
 type AdoptionScanAccepted struct {
-	// AdoptionScanUuid UUID du scan créé, à lire une fois le job terminé.
+	// AdoptionScanUuid UUID of the created scan, to read once the job is finished.
 	AdoptionScanUuid string `json:"adoption_scan_uuid"`
 
-	// JobUuid UUID du job créé.
+	// JobUuid UUID of the created job.
 	JobUuid string `json:"job_uuid"`
 
-	// StatusUrl URL de suivi du job (relative à /api/v1).
+	// StatusUrl Tracking URL of the job (relative to /api/v1).
 	StatusUrl string `json:"status_url"`
 }
 
 // ApiState defines model for ApiState.
 type ApiState struct {
-	// ApiEnabled État d'activation de l'API publique.
+	// ApiEnabled Enablement state of the public API.
 	ApiEnabled bool `json:"api_enabled"`
 }
 
-// ApiToken Métadonnées d'un token API. La valeur du token est hashée (SHA-256) côté serveur et n'apparaît jamais ici — seul `token_prefix` permet l'identification.
+// ApiToken Metadata of an API token. The token value is hashed (SHA-256) server-side and never appears here — only `token_prefix` allows identification.
 type ApiToken struct {
 	CreatedAt   *time.Time           `json:"created_at,omitempty"`
 	ExpiresAt   *time.Time           `json:"expires_at,omitempty"`
@@ -2182,23 +2182,23 @@ type ApiToken struct {
 	Name        string               `json:"name"`
 	Permissions []ApiTokenPermission `json:"permissions"`
 
-	// TokenPrefix Préfixe d'identification du token (premiers caractères).
+	// TokenPrefix Identification prefix of the token (first characters).
 	TokenPrefix *string `json:"token_prefix,omitempty"`
 	Uuid        *string `json:"uuid,omitempty"`
 }
 
 // ApiTokenCreate defines model for ApiTokenCreate.
 type ApiTokenCreate struct {
-	// ExpiresAt Expiration optionnelle (UTC). `null` = sans expiration.
+	// ExpiresAt Optional expiration (UTC). `null` = no expiration.
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 
-	// IpAllowlist Liste de CIDR autorisés (ex. 203.0.113.0/24). Vide = toutes IP.
+	// IpAllowlist List of allowed CIDRs (e.g. 203.0.113.0/24). Empty = all IPs.
 	IpAllowlist *[]string `json:"ip_allowlist,omitempty"`
 
-	// Name Nom lisible du token (ex. ci-github-actions).
+	// Name Readable name of the token (e.g. ci-github-actions).
 	Name string `json:"name"`
 
-	// Permissions Permissions accordées. Un token ne peut pas accorder une permission qu'il ne possède pas lui-même.
+	// Permissions Permissions granted. A token cannot grant a permission it does not hold itself.
 	Permissions []ApiTokenPermission `json:"permissions"`
 }
 
@@ -2211,99 +2211,99 @@ type ApiTokenCreated struct {
 	Name        string               `json:"name"`
 	Permissions []ApiTokenPermission `json:"permissions"`
 
-	// Token Valeur du token en clair — présente UNIQUEMENT dans cette réponse de création, jamais récupérable ensuite (§10.3).
+	// Token Clear token value — present ONLY in this creation response, never retrievable afterwards (§10.3).
 	Token string `json:"token"`
 
-	// TokenPrefix Préfixe d'identification du token (premiers caractères).
+	// TokenPrefix Identification prefix of the token (first characters).
 	TokenPrefix *string `json:"token_prefix,omitempty"`
 	Uuid        *string `json:"uuid,omitempty"`
 }
 
-// ApiTokenPermission Permission granulaire d'un token API (§10.3).
+// ApiTokenPermission Granular permission of an API token (§10.3).
 type ApiTokenPermission string
 
-// Application Application déployable (§5). Regroupe l'identité, la configuration désirée (source, build, routage, santé, limites) et les statuts désiré/observé (§21.2).
+// Application Deployable application (§5). Groups the identity, the desired configuration (source, build, routing, health, limits) and the desired/observed statuses (§21.2).
 type Application struct {
-	// AutoDeploy (source git) Auto-deploy sur push activé.
+	// AutoDeploy (git source) Auto-deploy on push enabled.
 	AutoDeploy    *bool                 `json:"auto_deploy,omitempty"`
 	BaseDirectory *string               `json:"base_directory,omitempty"`
 	BuildPack     *ApplicationBuildPack `json:"build_pack,omitempty"`
 
-	// ComposeFileLocation (build pack compose) Chemin du fichier compose relatif à `base_directory`.
+	// ComposeFileLocation (compose build pack) Path of the compose file relative to `base_directory`.
 	ComposeFileLocation *string    `json:"compose_file_location,omitempty"`
 	CreatedAt           *time.Time `json:"created_at,omitempty"`
 	Description         *string    `json:"description,omitempty"`
 
-	// DesiredStatus État désiré d'une ressource (§21.2).
+	// DesiredStatus Desired state of a resource (§21.2).
 	DesiredStatus   DesiredStatus `json:"desired_status"`
 	DestinationUuid *string       `json:"destination_uuid,omitempty"`
 
-	// DockerImage (source docker_image) Image configurée.
+	// DockerImage (docker_image source) Configured image.
 	DockerImage    *string `json:"docker_image,omitempty"`
 	DockerImageTag *string `json:"docker_image_tag,omitempty"`
 
-	// Dockerfile (source dockerfile) Contenu du Dockerfile.
+	// Dockerfile (dockerfile source) Content of the Dockerfile.
 	Dockerfile         *string   `json:"dockerfile,omitempty"`
 	DockerfileLocation *string   `json:"dockerfile_location,omitempty"`
 	Domains            *[]string `json:"domains,omitempty"`
 	EnvironmentUuid    *string   `json:"environment_uuid,omitempty"`
 
-	// GitApiTokenSet Un token API de provider est configuré sur la git source (jamais la valeur — INV-003).
+	// GitApiTokenSet A provider API token is configured on the git source (never the value — INV-003).
 	GitApiTokenSet *bool `json:"git_api_token_set,omitempty"`
 
-	// GitApiUrl Endpoint API du provider sur la git source (self-hosted).
+	// GitApiUrl Provider API endpoint on the git source (self-hosted).
 	GitApiUrl     *string `json:"git_api_url,omitempty"`
 	GitBranch     *string `json:"git_branch,omitempty"`
 	GitRepository *string `json:"git_repository,omitempty"`
 
-	// GithubAppUuid (source git) GitHub App qui fournit le dépôt et l'authentification de clone (§5.1) — nul pour une source git manuelle. Lecture seule : le lien est établi à la création.
+	// GithubAppUuid (git source) GitHub App that provides the repository and the clone authentication (§5.1) — null for a manual git source. Read-only: the link is established at creation.
 	GithubAppUuid *string `json:"github_app_uuid,omitempty"`
 
-	// HealthCheck Health check applicatif (§5.3) — conditionne le routage et le zero-downtime.
+	// HealthCheck Application health check (§5.3) — conditions routing and zero-downtime.
 	HealthCheck      *HealthCheckConfig `json:"health_check,omitempty"`
 	LastDeploymentAt *time.Time         `json:"last_deployment_at,omitempty"`
 
-	// LastDeploymentUuid Dernier déploiement (tous statuts confondus).
+	// LastDeploymentUuid Latest deployment (all statuses combined).
 	LastDeploymentUuid *string `json:"last_deployment_uuid,omitempty"`
 
-	// Limits Limites de ressources du container (§5.3).
+	// Limits Resource limits of the container (§5.3).
 	Limits *ResourceLimits `json:"limits,omitempty"`
 	Name   string          `json:"name"`
 
-	// ObservedAt Horodatage de la dernière observation (au-delà d'un seuil, statut stale, §19.2).
+	// ObservedAt Timestamp of the last observation (beyond a threshold, stale status, §19.2).
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
 
-	// ObservedStatus État observé d'une ressource (§21.2) — `unknown` si l'observation est trop ancienne (stale).
+	// ObservedStatus Observed state of a resource (§21.2) — `unknown` if the observation is too old (stale).
 	ObservedStatus        ObservedStatus `json:"observed_status"`
 	PortsExposes          *string        `json:"ports_exposes,omitempty"`
 	PostDeploymentCommand *string        `json:"post_deployment_command,omitempty"`
 	PreDeploymentCommand  *string        `json:"pre_deployment_command,omitempty"`
 
-	// PreviewCancelObsoleteBuilds Annulation du build de preview obsolète (§20.4.7).
+	// PreviewCancelObsoleteBuilds Cancellation of the obsolete preview build (§20.4.7).
 	PreviewCancelObsoleteBuilds *bool `json:"preview_cancel_obsolete_builds,omitempty"`
 
-	// PreviewCommentCommandsEnabled Commandes `/deploy` `/destroy` en commentaire (§20.4.7).
+	// PreviewCommentCommandsEnabled `/deploy` `/destroy` comment commands (§20.4.7).
 	PreviewCommentCommandsEnabled *bool `json:"preview_comment_commands_enabled,omitempty"`
 
-	// PreviewDeployOnOpen Auto-déploiement à l'ouverture d'une PR (défaut true) ; false = premier déploiement manuel (UI ou `/deploy`), §20.4.7.
+	// PreviewDeployOnOpen Auto-deployment at PR opening (default true); false = first deployment manual (UI or `/deploy`), §20.4.7.
 	PreviewDeployOnOpen        *bool                         `json:"preview_deploy_on_open,omitempty"`
 	PreviewExcludeDrafts       *bool                         `json:"preview_exclude_drafts,omitempty"`
 	PreviewForkApprovalEnabled *bool                         `json:"preview_fork_approval_enabled,omitempty"`
 	PreviewMaxConcurrent       *int                          `json:"preview_max_concurrent,omitempty"`
 	PreviewProtection          *ApplicationPreviewProtection `json:"preview_protection,omitempty"`
 
-	// PreviewRequireLabel Opt-in par label de PR (§20.4.7) ; null = désactivé.
+	// PreviewRequireLabel Opt-in by PR label (§20.4.7); null = disabled.
 	PreviewRequireLabel *string `json:"preview_require_label,omitempty"`
 
-	// PreviewScaleToZero Scale-to-zero des previews (ADR-036, opt-in) — endort/réveille via le waker.
+	// PreviewScaleToZero Scale-to-zero for previews (ADR-036, opt-in) — sleeps/wakes via the waker.
 	PreviewScaleToZero *bool `json:"preview_scale_to_zero,omitempty"`
 
-	// PreviewScaleToZeroAfterMinutes Fenêtre d'inactivité des previews avant endormissement, en minutes (défaut 30).
+	// PreviewScaleToZeroAfterMinutes Preview inactivity window before going to sleep, in minutes (default 30).
 	PreviewScaleToZeroAfterMinutes *int    `json:"preview_scale_to_zero_after_minutes,omitempty"`
 	PreviewTtlMinutes              *int    `json:"preview_ttl_minutes,omitempty"`
 	PreviewUrlTemplate             *string `json:"preview_url_template,omitempty"`
 
-	// PreviewUrlTemplates Table de routes de preview (ADR-035). Absent = inchangé ; tableau vide = revient au template unique legacy.
+	// PreviewUrlTemplates Preview route table (ADR-035). Absent = unchanged; empty array = falls back to the legacy single template.
 	PreviewUrlTemplates        *[]PreviewRouteTemplate `json:"preview_url_templates,omitempty"`
 	PreviewsEnabled            *bool                   `json:"previews_enabled,omitempty"`
 	PrivateKeyUuid             *string                 `json:"private_key_uuid,omitempty"`
@@ -2311,19 +2311,19 @@ type Application struct {
 	PublishDirectory           *string                 `json:"publish_directory,omitempty"`
 	PushRegistryCredentialUuid *string                 `json:"push_registry_credential_uuid,omitempty"`
 
-	// RawCompose (build pack compose) Mode raw compose (compose-spec §9).
+	// RawCompose (compose build pack) Raw compose mode (compose-spec §9).
 	RawCompose *bool `json:"raw_compose,omitempty"`
 
-	// RegistryCredentialUuid Credential du registry privé utilisé pour le pull (amendement n°17).
+	// RegistryCredentialUuid Credential of the private registry used for the pull (amendment
 	RegistryCredentialUuid *string `json:"registry_credential_uuid,omitempty"`
 
-	// ScaleAsleep L'application est actuellement en veille (scale-to-zero, ADR-037) — arrêtée volontairement, à ne pas confondre avec un état « down ».
+	// ScaleAsleep The application is currently asleep (scale-to-zero, ADR-037) — voluntarily stopped, not to be confused with a "down" state.
 	ScaleAsleep *bool `json:"scale_asleep,omitempty"`
 
-	// ScaleToZero Scale-to-zero de l'application elle-même (ADR-037, opt-in) — endort/réveille via le waker.
+	// ScaleToZero Scale-to-zero of the application itself (ADR-037, opt-in) — sleeps/wakes via the waker.
 	ScaleToZero *bool `json:"scale_to_zero,omitempty"`
 
-	// ScaleToZeroAfterMinutes Fenêtre d'inactivité de l'application avant endormissement, en minutes (défaut 30).
+	// ScaleToZeroAfterMinutes Application inactivity window before going to sleep, in minutes (default 30).
 	ScaleToZeroAfterMinutes *int                   `json:"scale_to_zero_after_minutes,omitempty"`
 	ServerUuid              *string                `json:"server_uuid,omitempty"`
 	SourceType              *ApplicationSourceType `json:"source_type,omitempty"`
@@ -2332,7 +2332,7 @@ type Application struct {
 	UseBuildServer          *bool                  `json:"use_build_server,omitempty"`
 	Uuid                    *string                `json:"uuid,omitempty"`
 
-	// Version Version optimiste de la configuration (reflétée dans l'ETag).
+	// Version Optimistic version of the configuration (reflected in the ETag).
 	Version    *int      `json:"version,omitempty"`
 	WatchPaths *[]string `json:"watch_paths,omitempty"`
 }
@@ -2346,107 +2346,107 @@ type ApplicationPreviewProtection string
 // ApplicationSourceType defines model for Application.SourceType.
 type ApplicationSourceType string
 
-// ApplicationCreateBase Champs communs à toute création d'application.
+// ApplicationCreateBase Fields common to every application creation.
 type ApplicationCreateBase struct {
 	Description *string `json:"description,omitempty"`
 
-	// DestinationUuid Réseau Docker cible — défaut = destination par défaut du serveur (gestion dédiée hors v1).
+	// DestinationUuid Target Docker network — default = the server's default destination (dedicated management outside v1).
 	DestinationUuid *string `json:"destination_uuid,omitempty"`
 
-	// Domains FQDN de l'application (§4.2) — formats supportés par élément : fqdn simple, fqdn:port (port interne ciblé), fqdn/path (path-based routing). Vide = domaine généré depuis le wildcard du serveur si configuré.
+	// Domains FQDN of the application (§4.2) — supported formats per element: plain fqdn, fqdn:port (targeted internal port), fqdn/path (path-based routing). Empty = domain generated from the server's wildcard if configured.
 	Domains         *[]string `json:"domains,omitempty"`
 	EnvironmentUuid string    `json:"environment_uuid"`
 
-	// HealthCheck Health check applicatif (§5.3) — conditionne le routage et le zero-downtime.
+	// HealthCheck Application health check (§5.3) — conditions routing and zero-downtime.
 	HealthCheck *HealthCheckConfig `json:"health_check,omitempty"`
 
-	// InstantDeploy Déclenche immédiatement un premier déploiement après création.
+	// InstantDeploy Immediately triggers a first deployment after creation.
 	InstantDeploy *bool `json:"instant_deploy,omitempty"`
 
-	// Limits Limites de ressources du container (§5.3).
+	// Limits Resource limits of the container (§5.3).
 	Limits *ResourceLimits `json:"limits,omitempty"`
 	Name   string          `json:"name"`
 
-	// PortsExposes Port(s) interne(s) exposé(s) au proxy, séparés par des virgules (ex. "3000"). Optionnel pour une app sans trafic entrant.
+	// PortsExposes Internal port(s) exposed to the proxy, comma-separated (e.g. "3000"). Optional for an app without inbound traffic.
 	PortsExposes *string `json:"ports_exposes,omitempty"`
 
-	// PostDeploymentCommand Commande exécutée dans le **candidat** une fois sain, avant la bascule (§10). Un échec fait échouer le déploiement : le candidat est supprimé et l'ancien container **reste routé** (INV-005), sans rollback automatique. DOIT être idempotente.
+	// PostDeploymentCommand Command executed in the **candidate** once healthy, before the switchover (§10). A failure fails the deployment: the candidate is deleted and the old container **stays routed** (INV-005), with no automatic rollback. MUST be idempotent.
 	PostDeploymentCommand *string `json:"post_deployment_command,omitempty"`
 
-	// PreDeploymentCommand Commande exécutée dans le container **existant** avant tout clone/build (§10). Un échec fait échouer le déploiement **avant toute mutation** — l'existant n'est pas touché. Sautée s'il n'y a pas de container en cours d'exécution. DOIT être idempotente : elle peut être rejouée lors d'une reprise après crash.
+	// PreDeploymentCommand Command executed in the **existing** container before any clone/build (§10). A failure fails the deployment **before any mutation** — the existing container is untouched. Skipped if there is no running container. MUST be idempotent: it may be replayed during a crash recovery.
 	PreDeploymentCommand *string `json:"pre_deployment_command,omitempty"`
 	ProjectUuid          string  `json:"project_uuid"`
 
-	// PushRegistryCredentialUuid Registry où l'image construite est poussée, et d'où le serveur de déploiement la tire.
+	// PushRegistryCredentialUuid Registry where the built image is pushed, and from which the deployment server pulls it.
 	PushRegistryCredentialUuid *string `json:"push_registry_credential_uuid,omitempty"`
 
-	// ServerUuid Serveur cible (doit être `ready` et ne pas être un build server).
+	// ServerUuid Target server (must be `ready` and not a build server).
 	ServerUuid string `json:"server_uuid"`
 
-	// SourceType Discriminant du type de source (§5.1).
+	// SourceType Discriminator of the source type (§5.1).
 	SourceType ApplicationCreateBaseSourceType `json:"source_type"`
 
-	// Tags Tags libres — utilisables par le deploy webhook (`?tag=`).
+	// Tags Free-form tags — usable by the deploy webhook (`?tag=`).
 	Tags *[]string `json:"tags,omitempty"`
 
-	// UseBuildServer Construire sur un **build server** dédié (§3.4) plutôt que sur le serveur de production. Exige `push_registry_credential_uuid` : sans registry, l'image reste sur la machine de build et le serveur de déploiement ne peut pas la tirer — la construire ailleurs n'aurait servi à rien (amendement n°19). Sans objet pour la source `docker_image`, qui ne construit rien.
+	// UseBuildServer Build on a dedicated **build server** (§3.4) rather than on the production server. Requires `push_registry_credential_uuid`: without a registry, the image stays on the build machine and the deployment server cannot pull it — building it elsewhere would have been pointless (amendment #19). Not applicable for the `docker_image` source, which builds nothing.
 	UseBuildServer *bool `json:"use_build_server,omitempty"`
 }
 
-// ApplicationCreateBaseSourceType Discriminant du type de source (§5.1).
+// ApplicationCreateBaseSourceType Discriminator of the source type (§5.1).
 type ApplicationCreateBaseSourceType string
 
 // ApplicationCreateDockerImage defines model for ApplicationCreateDockerImage.
 type ApplicationCreateDockerImage struct {
 	Description *string `json:"description,omitempty"`
 
-	// DestinationUuid Réseau Docker cible — défaut = destination par défaut du serveur (gestion dédiée hors v1).
+	// DestinationUuid Target Docker network — default = the server's default destination (dedicated management outside v1).
 	DestinationUuid *string `json:"destination_uuid,omitempty"`
 
-	// DockerImage Image pré-construite, registry inclus si non Docker Hub (ex. ghcr.io/acme/app).
+	// DockerImage Pre-built image, registry included if not Docker Hub (e.g. ghcr.io/acme/app).
 	DockerImage string `json:"docker_image"`
 
-	// DockerImageTag Tag de l'image. Le digest est résolu au déploiement (§18.3).
+	// DockerImageTag Tag of the image. The digest is resolved at deployment (§18.3).
 	DockerImageTag *string `json:"docker_image_tag,omitempty"`
 
-	// Domains FQDN de l'application (§4.2) — formats supportés par élément : fqdn simple, fqdn:port (port interne ciblé), fqdn/path (path-based routing). Vide = domaine généré depuis le wildcard du serveur si configuré.
+	// Domains FQDN of the application (§4.2) — supported formats per element: plain fqdn, fqdn:port (targeted internal port), fqdn/path (path-based routing). Empty = domain generated from the server's wildcard if configured.
 	Domains         *[]string `json:"domains,omitempty"`
 	EnvironmentUuid string    `json:"environment_uuid"`
 
-	// HealthCheck Health check applicatif (§5.3) — conditionne le routage et le zero-downtime.
+	// HealthCheck Application health check (§5.3) — conditions routing and zero-downtime.
 	HealthCheck *HealthCheckConfig `json:"health_check,omitempty"`
 
-	// InstantDeploy Déclenche immédiatement un premier déploiement après création.
+	// InstantDeploy Immediately triggers a first deployment after creation.
 	InstantDeploy *bool `json:"instant_deploy,omitempty"`
 
-	// Limits Limites de ressources du container (§5.3).
+	// Limits Resource limits of the container (§5.3).
 	Limits *ResourceLimits `json:"limits,omitempty"`
 	Name   string          `json:"name"`
 
-	// PortsExposes Port(s) interne(s) exposé(s) au proxy, séparés par des virgules (ex. "3000"). Optionnel pour une app sans trafic entrant.
+	// PortsExposes Internal port(s) exposed to the proxy, comma-separated (e.g. "3000"). Optional for an app without inbound traffic.
 	PortsExposes *string `json:"ports_exposes,omitempty"`
 
-	// PostDeploymentCommand Commande exécutée dans le **candidat** une fois sain, avant la bascule (§10). Un échec fait échouer le déploiement : le candidat est supprimé et l'ancien container **reste routé** (INV-005), sans rollback automatique. DOIT être idempotente.
+	// PostDeploymentCommand Command executed in the **candidate** once healthy, before the switchover (§10). A failure fails the deployment: the candidate is deleted and the old container **stays routed** (INV-005), with no automatic rollback. MUST be idempotent.
 	PostDeploymentCommand *string `json:"post_deployment_command,omitempty"`
 
-	// PreDeploymentCommand Commande exécutée dans le container **existant** avant tout clone/build (§10). Un échec fait échouer le déploiement **avant toute mutation** — l'existant n'est pas touché. Sautée s'il n'y a pas de container en cours d'exécution. DOIT être idempotente : elle peut être rejouée lors d'une reprise après crash.
+	// PreDeploymentCommand Command executed in the **existing** container before any clone/build (§10). A failure fails the deployment **before any mutation** — the existing container is untouched. Skipped if there is no running container. MUST be idempotent: it may be replayed during a crash recovery.
 	PreDeploymentCommand *string `json:"pre_deployment_command,omitempty"`
 	ProjectUuid          string  `json:"project_uuid"`
 
-	// PushRegistryCredentialUuid Registry où l'image construite est poussée, et d'où le serveur de déploiement la tire.
+	// PushRegistryCredentialUuid Registry where the built image is pushed, and from which the deployment server pulls it.
 	PushRegistryCredentialUuid *string `json:"push_registry_credential_uuid,omitempty"`
 
-	// RegistryCredentialUuid Credential d'un registry privé (amendement n°17). Le mot de passe n'atteint le serveur que par le **stdin** de `docker login --password-stdin` — jamais dans `argv`, où un `ps` le lirait (INV-003).
+	// RegistryCredentialUuid Credential of a private registry (amendment #17). The password only reaches the server through the **stdin** of `docker login --password-stdin` — never in `argv`, where a `ps` would read it (INV-003).
 	RegistryCredentialUuid *string `json:"registry_credential_uuid,omitempty"`
 
-	// ServerUuid Serveur cible (doit être `ready` et ne pas être un build server).
+	// ServerUuid Target server (must be `ready` and not a build server).
 	ServerUuid string      `json:"server_uuid"`
 	SourceType interface{} `json:"source_type"`
 
-	// Tags Tags libres — utilisables par le deploy webhook (`?tag=`).
+	// Tags Free-form tags — usable by the deploy webhook (`?tag=`).
 	Tags *[]string `json:"tags,omitempty"`
 
-	// UseBuildServer Construire sur un **build server** dédié (§3.4) plutôt que sur le serveur de production. Exige `push_registry_credential_uuid` : sans registry, l'image reste sur la machine de build et le serveur de déploiement ne peut pas la tirer — la construire ailleurs n'aurait servi à rien (amendement n°19). Sans objet pour la source `docker_image`, qui ne construit rien.
+	// UseBuildServer Build on a dedicated **build server** (§3.4) rather than on the production server. Requires `push_registry_credential_uuid`: without a registry, the image stays on the build machine and the deployment server cannot pull it — building it elsewhere would have been pointless (amendment #19). Not applicable for the `docker_image` source, which builds nothing.
 	UseBuildServer *bool `json:"use_build_server,omitempty"`
 }
 
@@ -2454,278 +2454,278 @@ type ApplicationCreateDockerImage struct {
 type ApplicationCreateDockerfile struct {
 	Description *string `json:"description,omitempty"`
 
-	// DestinationUuid Réseau Docker cible — défaut = destination par défaut du serveur (gestion dédiée hors v1).
+	// DestinationUuid Target Docker network — default = the server's default destination (dedicated management outside v1).
 	DestinationUuid *string `json:"destination_uuid,omitempty"`
 
-	// Dockerfile Contenu inline du Dockerfile (P0).
+	// Dockerfile Inline content of the Dockerfile (P0).
 	Dockerfile string `json:"dockerfile"`
 
-	// Domains FQDN de l'application (§4.2) — formats supportés par élément : fqdn simple, fqdn:port (port interne ciblé), fqdn/path (path-based routing). Vide = domaine généré depuis le wildcard du serveur si configuré.
+	// Domains FQDN of the application (§4.2) — supported formats per element: plain fqdn, fqdn:port (targeted internal port), fqdn/path (path-based routing). Empty = domain generated from the server's wildcard if configured.
 	Domains         *[]string `json:"domains,omitempty"`
 	EnvironmentUuid string    `json:"environment_uuid"`
 
-	// HealthCheck Health check applicatif (§5.3) — conditionne le routage et le zero-downtime.
+	// HealthCheck Application health check (§5.3) — conditions routing and zero-downtime.
 	HealthCheck *HealthCheckConfig `json:"health_check,omitempty"`
 
-	// InstantDeploy Déclenche immédiatement un premier déploiement après création.
+	// InstantDeploy Immediately triggers a first deployment after creation.
 	InstantDeploy *bool `json:"instant_deploy,omitempty"`
 
-	// Limits Limites de ressources du container (§5.3).
+	// Limits Resource limits of the container (§5.3).
 	Limits *ResourceLimits `json:"limits,omitempty"`
 	Name   string          `json:"name"`
 
-	// PortsExposes Port(s) interne(s) exposé(s) au proxy, séparés par des virgules (ex. "3000"). Optionnel pour une app sans trafic entrant.
+	// PortsExposes Internal port(s) exposed to the proxy, comma-separated (e.g. "3000"). Optional for an app without inbound traffic.
 	PortsExposes *string `json:"ports_exposes,omitempty"`
 
-	// PostDeploymentCommand Commande exécutée dans le **candidat** une fois sain, avant la bascule (§10). Un échec fait échouer le déploiement : le candidat est supprimé et l'ancien container **reste routé** (INV-005), sans rollback automatique. DOIT être idempotente.
+	// PostDeploymentCommand Command executed in the **candidate** once healthy, before the switchover (§10). A failure fails the deployment: the candidate is deleted and the old container **stays routed** (INV-005), with no automatic rollback. MUST be idempotent.
 	PostDeploymentCommand *string `json:"post_deployment_command,omitempty"`
 
-	// PreDeploymentCommand Commande exécutée dans le container **existant** avant tout clone/build (§10). Un échec fait échouer le déploiement **avant toute mutation** — l'existant n'est pas touché. Sautée s'il n'y a pas de container en cours d'exécution. DOIT être idempotente : elle peut être rejouée lors d'une reprise après crash.
+	// PreDeploymentCommand Command executed in the **existing** container before any clone/build (§10). A failure fails the deployment **before any mutation** — the existing container is untouched. Skipped if there is no running container. MUST be idempotent: it may be replayed during a crash recovery.
 	PreDeploymentCommand *string `json:"pre_deployment_command,omitempty"`
 	ProjectUuid          string  `json:"project_uuid"`
 
-	// PushRegistryCredentialUuid Registry où l'image construite est poussée, et d'où le serveur de déploiement la tire.
+	// PushRegistryCredentialUuid Registry where the built image is pushed, and from which the deployment server pulls it.
 	PushRegistryCredentialUuid *string `json:"push_registry_credential_uuid,omitempty"`
 
-	// ServerUuid Serveur cible (doit être `ready` et ne pas être un build server).
+	// ServerUuid Target server (must be `ready` and not a build server).
 	ServerUuid string      `json:"server_uuid"`
 	SourceType interface{} `json:"source_type"`
 
-	// Tags Tags libres — utilisables par le deploy webhook (`?tag=`).
+	// Tags Free-form tags — usable by the deploy webhook (`?tag=`).
 	Tags *[]string `json:"tags,omitempty"`
 
-	// UseBuildServer Construire sur un **build server** dédié (§3.4) plutôt que sur le serveur de production. Exige `push_registry_credential_uuid` : sans registry, l'image reste sur la machine de build et le serveur de déploiement ne peut pas la tirer — la construire ailleurs n'aurait servi à rien (amendement n°19). Sans objet pour la source `docker_image`, qui ne construit rien.
+	// UseBuildServer Build on a dedicated **build server** (§3.4) rather than on the production server. Requires `push_registry_credential_uuid`: without a registry, the image stays on the build machine and the deployment server cannot pull it — building it elsewhere would have been pointless (amendment #19). Not applicable for the `docker_image` source, which builds nothing.
 	UseBuildServer *bool `json:"use_build_server,omitempty"`
 }
 
 // ApplicationCreateGit defines model for ApplicationCreateGit.
 type ApplicationCreateGit struct {
-	// BaseDirectory Répertoire de base dans le dépôt (monorepos).
+	// BaseDirectory Base directory in the repository (monorepos).
 	BaseDirectory *string `json:"base_directory,omitempty"`
 
-	// BuildPack Build pack (§5.2). `compose` déploie le fichier compose du dépôt comme stack multi-services (compose-spec.md) — un composant par service, domaine par composant. Railpack arrivera dans une version ultérieure du contrat.
+	// BuildPack Build pack (§5.2). `compose` deploys the repository's compose file as a multi-service stack (compose-spec.md) — one component per service, domain per component. Railpack will arrive in a later version of the contract.
 	BuildPack ApplicationCreateGitBuildPack `json:"build_pack"`
 
-	// ComposeFileLocation (build pack compose) Chemin du fichier compose relatif à `base_directory`.
+	// ComposeFileLocation (compose build pack) Path of the compose file relative to `base_directory`.
 	ComposeFileLocation *string `json:"compose_file_location,omitempty"`
 	Description         *string `json:"description,omitempty"`
 
-	// DestinationUuid Réseau Docker cible — défaut = destination par défaut du serveur (gestion dédiée hors v1).
+	// DestinationUuid Target Docker network — default = the server's default destination (dedicated management outside v1).
 	DestinationUuid *string `json:"destination_uuid,omitempty"`
 
-	// DockerfileLocation Chemin du Dockerfile relatif à `base_directory` (build pack dockerfile).
+	// DockerfileLocation Path of the Dockerfile relative to `base_directory` (dockerfile build pack).
 	DockerfileLocation *string `json:"dockerfile_location,omitempty"`
 
-	// Domains FQDN de l'application (§4.2) — formats supportés par élément : fqdn simple, fqdn:port (port interne ciblé), fqdn/path (path-based routing). Vide = domaine généré depuis le wildcard du serveur si configuré.
+	// Domains FQDN of the application (§4.2) — supported formats per element: plain fqdn, fqdn:port (targeted internal port), fqdn/path (path-based routing). Empty = domain generated from the server's wildcard if configured.
 	Domains         *[]string `json:"domains,omitempty"`
 	EnvironmentUuid string    `json:"environment_uuid"`
 
-	// GitBranch Branche à déployer (résolue en SHA immuable à chaque déploiement, §20.2).
+	// GitBranch Branch to deploy (resolved to an immutable SHA at each deployment, §20.2).
 	GitBranch string `json:"git_branch"`
 
-	// GitRepository URL du dépôt — HTTPS pour un dépôt public, SSH (git@host:org/repo.git) pour un dépôt privé par deploy key. Ignorée quand `github_app_uuid` est fourni : l'URL de clone est dérivée du dépôt découvert.
+	// GitRepository URL of the repository — HTTPS for a public repository, SSH (git@host:org/repo.git) for a private repository via deploy key. Ignored when `github_app_uuid` is provided: the clone URL is derived from the discovered repository.
 	GitRepository string `json:"git_repository"`
 
-	// GithubAppUuid Source GitHub App (git-webhook-protocols §2) — clone par token d'installation, auto-deploy par le webhook de l'app. Exige `repository_full_name`.
+	// GithubAppUuid GitHub App source (git-webhook-protocols §2) — clone via installation token, auto-deploy via the app's webhook. Requires `repository_full_name`.
 	GithubAppUuid *string `json:"github_app_uuid,omitempty"`
 
-	// HealthCheck Health check applicatif (§5.3) — conditionne le routage et le zero-downtime.
+	// HealthCheck Application health check (§5.3) — conditions routing and zero-downtime.
 	HealthCheck *HealthCheckConfig `json:"health_check,omitempty"`
 
-	// InstantDeploy Déclenche immédiatement un premier déploiement après création.
+	// InstantDeploy Immediately triggers a first deployment after creation.
 	InstantDeploy *bool `json:"instant_deploy,omitempty"`
 
-	// Limits Limites de ressources du container (§5.3).
+	// Limits Resource limits of the container (§5.3).
 	Limits *ResourceLimits `json:"limits,omitempty"`
 	Name   string          `json:"name"`
 
-	// PortsExposes Port(s) interne(s) exposé(s) au proxy, séparés par des virgules (ex. "3000"). Optionnel pour une app sans trafic entrant.
+	// PortsExposes Internal port(s) exposed to the proxy, comma-separated (e.g. "3000"). Optional for an app without inbound traffic.
 	PortsExposes *string `json:"ports_exposes,omitempty"`
 
-	// PostDeploymentCommand Commande exécutée dans le **candidat** une fois sain, avant la bascule (§10). Un échec fait échouer le déploiement : le candidat est supprimé et l'ancien container **reste routé** (INV-005), sans rollback automatique. DOIT être idempotente.
+	// PostDeploymentCommand Command executed in the **candidate** once healthy, before the switchover (§10). A failure fails the deployment: the candidate is deleted and the old container **stays routed** (INV-005), with no automatic rollback. MUST be idempotent.
 	PostDeploymentCommand *string `json:"post_deployment_command,omitempty"`
 
-	// PreDeploymentCommand Commande exécutée dans le container **existant** avant tout clone/build (§10). Un échec fait échouer le déploiement **avant toute mutation** — l'existant n'est pas touché. Sautée s'il n'y a pas de container en cours d'exécution. DOIT être idempotente : elle peut être rejouée lors d'une reprise après crash.
+	// PreDeploymentCommand Command executed in the **existing** container before any clone/build (§10). A failure fails the deployment **before any mutation** — the existing container is untouched. Skipped if there is no running container. MUST be idempotent: it may be replayed during a crash recovery.
 	PreDeploymentCommand *string `json:"pre_deployment_command,omitempty"`
 
-	// PrivateKeyUuid Clé privée (deploy key) pour un dépôt privé — `null` pour un dépôt public (P1, §5.1).
+	// PrivateKeyUuid Private key (deploy key) for a private repository — `null` for a public repository (P1, §5.1).
 	PrivateKeyUuid *string `json:"private_key_uuid,omitempty"`
 	ProjectUuid    string  `json:"project_uuid"`
 
-	// PublishDirectory Répertoire publié (build pack static).
+	// PublishDirectory Published directory (static build pack).
 	PublishDirectory *string `json:"publish_directory,omitempty"`
 
-	// PushRegistryCredentialUuid Registry où l'image construite est poussée, et d'où le serveur de déploiement la tire.
+	// PushRegistryCredentialUuid Registry where the built image is pushed, and from which the deployment server pulls it.
 	PushRegistryCredentialUuid *string `json:"push_registry_credential_uuid,omitempty"`
 
-	// RawCompose (build pack compose) Mode raw compose (compose-spec §9) — sémantique `docker compose up` au plus près, zero-downtime désactivé, frontières de sécurité conservées.
+	// RawCompose (compose build pack) Raw compose mode (compose-spec §9) — `docker compose up` semantics as close as possible, zero-downtime disabled, security boundaries kept.
 	RawCompose *bool `json:"raw_compose,omitempty"`
 
-	// RepositoryFullName (avec github_app_uuid) Dépôt cible, au format owner/name, parmi les dépôts découverts de l'installation.
+	// RepositoryFullName (with github_app_uuid) Target repository, in owner/name format, among the installation's discovered repositories.
 	RepositoryFullName *string `json:"repository_full_name,omitempty"`
 
-	// ServerUuid Serveur cible (doit être `ready` et ne pas être un build server).
+	// ServerUuid Target server (must be `ready` and not a build server).
 	ServerUuid string      `json:"server_uuid"`
 	SourceType interface{} `json:"source_type"`
 
-	// Tags Tags libres — utilisables par le deploy webhook (`?tag=`).
+	// Tags Free-form tags — usable by the deploy webhook (`?tag=`).
 	Tags *[]string `json:"tags,omitempty"`
 
-	// UseBuildServer Construire sur un **build server** dédié (§3.4) plutôt que sur le serveur de production. Exige `push_registry_credential_uuid` : sans registry, l'image reste sur la machine de build et le serveur de déploiement ne peut pas la tirer — la construire ailleurs n'aurait servi à rien (amendement n°19). Sans objet pour la source `docker_image`, qui ne construit rien.
+	// UseBuildServer Build on a dedicated **build server** (§3.4) rather than on the production server. Requires `push_registry_credential_uuid`: without a registry, the image stays on the build machine and the deployment server cannot pull it — building it elsewhere would have been pointless (amendment #19). Not applicable for the `docker_image` source, which builds nothing.
 	UseBuildServer *bool `json:"use_build_server,omitempty"`
 
-	// WatchPaths Patterns limitant l'auto-deploy aux fichiers modifiés correspondants (§5.5).
+	// WatchPaths Patterns restricting auto-deploy to matching modified files (§5.5).
 	WatchPaths *[]string `json:"watch_paths,omitempty"`
 }
 
-// ApplicationCreateGitBuildPack Build pack (§5.2). `compose` déploie le fichier compose du dépôt comme stack multi-services (compose-spec.md) — un composant par service, domaine par composant. Railpack arrivera dans une version ultérieure du contrat.
+// ApplicationCreateGitBuildPack Build pack (§5.2). `compose` deploys the repository's compose file as a multi-service stack (compose-spec.md) — one component per service, domain per component. Railpack will arrive in a later version of the contract.
 type ApplicationCreateGitBuildPack string
 
-// ApplicationCreateRequest Corps de création d'application — discriminé par `source_type`.
+// ApplicationCreateRequest Application creation body — discriminated by `source_type`.
 type ApplicationCreateRequest struct {
 	union json.RawMessage
 }
 
-// ApplicationUpdate Mise à jour partielle de la configuration. Les changements sont versionnés (INV-014) et appliqués au prochain déploiement, sauf `domains` (routage régénéré immédiatement). `source_type` n'est pas modifiable — recréer l'application pour changer de type de source.
+// ApplicationUpdate Partial update of the configuration. Changes are versioned (INV-014) and applied at the next deployment, except `domains` (routing regenerated immediately). `source_type` is not modifiable — recreate the application to change the source type.
 type ApplicationUpdate struct {
-	// AutoDeploy (source git) Active/désactive l'auto-deploy sur push (§5.5).
+	// AutoDeploy (git source) Enables/disables auto-deploy on push (§5.5).
 	AutoDeploy *bool `json:"auto_deploy,omitempty"`
 
-	// BaseDirectory (source git) Répertoire de base.
+	// BaseDirectory (git source) Base directory.
 	BaseDirectory *string `json:"base_directory,omitempty"`
 
-	// BuildPack (source git) Build pack.
+	// BuildPack (git source) Build pack.
 	BuildPack *ApplicationUpdateBuildPack `json:"build_pack,omitempty"`
 
-	// ComposeFileLocation (build pack compose) Chemin du fichier compose relatif à `base_directory`.
+	// ComposeFileLocation (compose build pack) Path of the compose file relative to `base_directory`.
 	ComposeFileLocation *string `json:"compose_file_location,omitempty"`
 	Description         *string `json:"description,omitempty"`
 
-	// DockerImage (source docker_image) Nouvelle image.
+	// DockerImage (docker_image source) New image.
 	DockerImage *string `json:"docker_image,omitempty"`
 
-	// DockerImageTag (source docker_image) Nouveau tag.
+	// DockerImageTag (docker_image source) New tag.
 	DockerImageTag *string `json:"docker_image_tag,omitempty"`
 
-	// Dockerfile (source dockerfile) Nouveau contenu du Dockerfile.
+	// Dockerfile (dockerfile source) New content of the Dockerfile.
 	Dockerfile *string `json:"dockerfile,omitempty"`
 
-	// DockerfileLocation (source git) Chemin du Dockerfile.
+	// DockerfileLocation (git source) Path of the Dockerfile.
 	DockerfileLocation *string   `json:"dockerfile_location,omitempty"`
 	Domains            *[]string `json:"domains,omitempty"`
 
-	// GitApiToken (source git) Token API du provider, stocké chiffré sur la git source de l'application (protocols §3-§6) : porte le feedback de preview (commit statuses, commentaire upserté) et la vérification des droits des commandes pour GitLab, Gitea et les webhooks GitHub manuels. Write-only — jamais relu par l'API (INV-003). Null pour le retirer. Inutile avec une GitHub App (elle a ses propres credentials).
+	// GitApiToken (git source) Provider API token, stored encrypted on the application's git source (protocols §3-§6): carries the preview feedback (commit statuses, upserted comment) and the rights verification of the commands for GitLab, Gitea and manual GitHub webhooks. Write-only — never read back by the API (INV-003). Null to remove it. Unnecessary with a GitHub App (it has its own credentials).
 	GitApiToken *string `json:"git_api_token,omitempty"`
 
-	// GitApiUrl (source git) Endpoint API du provider sur la git source (self-hosted, protocols §4.1/§6.1) — par exemple https://gitlab.example.com/api/v4. Null pour revenir à la dérivation depuis l'hôte du dépôt.
+	// GitApiUrl (git source) Provider API endpoint on the git source (self-hosted, protocols §4.1/§6.1) — for example https://gitlab.example.com/api/v4. Null to fall back to derivation from the repository host.
 	GitApiUrl *string `json:"git_api_url,omitempty"`
 
-	// GitBranch (source git) Branche.
+	// GitBranch (git source) Branch.
 	GitBranch *string `json:"git_branch,omitempty"`
 
-	// GitRepository (source git) URL du dépôt.
+	// GitRepository (git source) URL of the repository.
 	GitRepository *string `json:"git_repository,omitempty"`
 
-	// HealthCheck Health check applicatif (§5.3) — conditionne le routage et le zero-downtime.
+	// HealthCheck Application health check (§5.3) — conditions routing and zero-downtime.
 	HealthCheck *HealthCheckConfig `json:"health_check,omitempty"`
 
-	// Limits Limites de ressources du container (§5.3).
+	// Limits Resource limits of the container (§5.3).
 	Limits       *ResourceLimits `json:"limits,omitempty"`
 	Name         *string         `json:"name,omitempty"`
 	PortsExposes *string         `json:"ports_exposes,omitempty"`
 
-	// PostDeploymentCommand Commande exécutée dans le **candidat** une fois sain, avant la bascule (§10). Un échec fait échouer le déploiement : le candidat est supprimé et l'ancien container **reste routé** (INV-005), sans rollback automatique. DOIT être idempotente.
+	// PostDeploymentCommand Command executed in the **candidate** once healthy, before the switchover (§10). A failure fails the deployment: the candidate is deleted and the old container **stays routed** (INV-005), with no automatic rollback. MUST be idempotent.
 	PostDeploymentCommand *string `json:"post_deployment_command,omitempty"`
 
-	// PreDeploymentCommand Commande exécutée dans le container **existant** avant tout clone/build (§10). Un échec fait échouer le déploiement **avant toute mutation** — l'existant n'est pas touché. Sautée s'il n'y a pas de container en cours d'exécution. DOIT être idempotente : elle peut être rejouée lors d'une reprise après crash.
+	// PreDeploymentCommand Command executed in the **existing** container before any clone/build (§10). A failure fails the deployment **before any mutation** — the existing container is untouched. Skipped if there is no running container. MUST be idempotent: it may be replayed during a crash recovery.
 	PreDeploymentCommand *string `json:"pre_deployment_command,omitempty"`
 
-	// PreviewCancelObsoleteBuilds Annule le build de preview rendu obsolète par un nouveau commit de la même PR (§20.4.7, opt-in) — le déploiement en file est superseded, le build en cours annulé coopérativement.
+	// PreviewCancelObsoleteBuilds Cancels the preview build made obsolete by a new commit of the same PR (§20.4.7, opt-in) — the queued deployment is superseded, the running build cooperatively cancelled.
 	PreviewCancelObsoleteBuilds *bool `json:"preview_cancel_obsolete_builds,omitempty"`
 
-	// PreviewCommentCommandsEnabled Commandes en commentaire de PR `/deploy` et `/destroy` (§20.4.7, opt-in). Les droits de l'auteur sont vérifiés côté serveur via l'API du provider — un token API est requis pour les webhooks manuels (protocols §2.7d, §3-§6).
+	// PreviewCommentCommandsEnabled PR comment commands `/deploy` and `/destroy` (§20.4.7, opt-in). The author's rights are verified server-side via the provider's API — an API token is required for manual webhooks (protocols §2.7d, §3-§6).
 	PreviewCommentCommandsEnabled *bool `json:"preview_comment_commands_enabled,omitempty"`
 
-	// PreviewDeployOnOpen Auto-déploiement à l'ouverture d'une PR (§20.4.7, défaut true). Si false, l'ouverture réserve seulement la preview (URL, credential) : le PREMIER déploiement doit être déclenché manuellement (UI AkerDock ou commande `/deploy`). Une fois déployée, les push suivants la mettent à jour normalement.
+	// PreviewDeployOnOpen Auto-deployment at PR opening (§20.4.7, default true). If false, opening only reserves the preview (URL, credential): the FIRST deployment must be triggered manually (AkerDock UI or `/deploy` command). Once deployed, subsequent pushes update it normally.
 	PreviewDeployOnOpen *bool `json:"preview_deploy_on_open,omitempty"`
 
-	// PreviewExcludeDrafts Les draft PRs ne déclenchent pas de preview (opt-in, ADR-011).
+	// PreviewExcludeDrafts Draft PRs do not trigger a preview (opt-in, ADR-011).
 	PreviewExcludeDrafts *bool `json:"preview_exclude_drafts,omitempty"`
 
-	// PreviewForkApprovalEnabled Autorise les previews de forks après approbation d'un mainteneur (INV-010).
+	// PreviewForkApprovalEnabled Allows fork previews after a maintainer's approval (INV-010).
 	PreviewForkApprovalEnabled *bool `json:"preview_fork_approval_enabled,omitempty"`
 
-	// PreviewMaxConcurrent Plafond de previews simultanées ; null = illimité (§20.4.3).
+	// PreviewMaxConcurrent Cap on concurrent previews; null = unlimited (§20.4.3).
 	PreviewMaxConcurrent *int `json:"preview_max_concurrent,omitempty"`
 
-	// PreviewProtection Protection d'accès des URLs de preview (§20.4.4) — basic_auth par défaut.
+	// PreviewProtection Access protection of preview URLs (§20.4.4) — basic_auth by default.
 	PreviewProtection *ApplicationUpdatePreviewProtection `json:"preview_protection,omitempty"`
 
-	// PreviewRequireLabel Opt-in par label (§20.4.7, ADR-011) : la PR doit porter ce label pour obtenir une preview ; null = désactivé (comportement de parité).
+	// PreviewRequireLabel Opt-in by label (§20.4.7, ADR-011): the PR must carry this label to get a preview; null = disabled (parity behavior).
 	PreviewRequireLabel *string `json:"preview_require_label,omitempty"`
 
-	// PreviewScaleToZero Scale-to-zero des PREVIEWS (ADR-036, opt-in, défaut false) : une preview inactive est endormie (`docker stop`) et réveillée à la première requête par le conteneur waker.
+	// PreviewScaleToZero Scale-to-zero for PREVIEWS (ADR-036, opt-in, default false): an inactive preview is put to sleep (`docker stop`) and woken at the first request by the waker container.
 	PreviewScaleToZero *bool `json:"preview_scale_to_zero,omitempty"`
 
-	// PreviewScaleToZeroAfterMinutes Fenêtre d'inactivité des previews en minutes avant endormissement (défaut 30).
+	// PreviewScaleToZeroAfterMinutes Preview inactivity window in minutes before going to sleep (default 30).
 	PreviewScaleToZeroAfterMinutes *int `json:"preview_scale_to_zero_after_minutes,omitempty"`
 
-	// PreviewTtlMinutes TTL d'inactivité en minutes ; null = pas de destruction automatique.
+	// PreviewTtlMinutes Inactivity TTL in minutes; null = no automatic destruction.
 	PreviewTtlMinutes *int `json:"preview_ttl_minutes,omitempty"`
 
-	// PreviewUrlTemplate Legacy — motif unique ; utilisez preview_url_templates (§5.6, ADR-035).
+	// PreviewUrlTemplate Legacy — single pattern; use preview_url_templates (§5.6, ADR-035).
 	PreviewUrlTemplate *string `json:"preview_url_template,omitempty"`
 
-	// PreviewUrlTemplates Table de routes de preview (ADR-035) — remplace preview_url_template quand non vide. Vide/absent = comportement legacy.
+	// PreviewUrlTemplates Preview route table (ADR-035) — replaces preview_url_template when non-empty. Empty/absent = legacy behavior.
 	PreviewUrlTemplates *[]PreviewRouteTemplate `json:"preview_url_templates,omitempty"`
 
-	// PreviewsEnabled Previews par PR (§20.4) — déclenchées par le webhook de la GitHub App ou par un webhook manuel GitLab/Gitea/GitHub de l'application (protocols §1.2).
+	// PreviewsEnabled Per-PR previews (§20.4) — triggered by the GitHub App's webhook or by a manual GitLab/Gitea/GitHub webhook of the application (protocols §1.2).
 	PreviewsEnabled *bool `json:"previews_enabled,omitempty"`
 
-	// PrivateKeyUuid (source git) Deploy key.
+	// PrivateKeyUuid (git source) Deploy key.
 	PrivateKeyUuid *string `json:"private_key_uuid,omitempty"`
 
-	// PublishDirectory (source git) Répertoire publié (static).
+	// PublishDirectory (git source) Published directory (static).
 	PublishDirectory           *string `json:"publish_directory,omitempty"`
 	PushRegistryCredentialUuid *string `json:"push_registry_credential_uuid,omitempty"`
 
-	// RawCompose (build pack compose) Mode raw compose (compose-spec §9).
+	// RawCompose (compose build pack) Raw compose mode (compose-spec §9).
 	RawCompose *bool `json:"raw_compose,omitempty"`
 
-	// RegistryCredentialUuid Credential du registry privé (null pour le retirer).
+	// RegistryCredentialUuid Credential of the private registry (null to remove it).
 	RegistryCredentialUuid *string `json:"registry_credential_uuid,omitempty"`
 
-	// ScaleToZero Scale-to-zero de l'APPLICATION elle-même (ADR-037, opt-in explicite, défaut false) : l'app inactive est endormie et réveillée à la première requête. À réserver aux workloads pilotés par requête — un `docker stop` arrête aussi workers/crons, et le premier visiteur après inactivité paie le cold-start (jusqu'à 60 s). Séparé de `preview_scale_to_zero`.
+	// ScaleToZero Scale-to-zero of the APPLICATION itself (ADR-037, explicit opt-in, default false): the inactive app is put to sleep and woken at the first request. Reserve it for request-driven workloads — a `docker stop` also stops workers/crons, and the first visitor after inactivity pays the cold start (up to 60 s). Separate from `preview_scale_to_zero`.
 	ScaleToZero *bool `json:"scale_to_zero,omitempty"`
 
-	// ScaleToZeroAfterMinutes Fenêtre d'inactivité de l'application en minutes avant endormissement (défaut 30).
+	// ScaleToZeroAfterMinutes Application inactivity window in minutes before going to sleep (default 30).
 	ScaleToZeroAfterMinutes *int      `json:"scale_to_zero_after_minutes,omitempty"`
 	Tags                    *[]string `json:"tags,omitempty"`
 	UseBuildServer          *bool     `json:"use_build_server,omitempty"`
 
-	// WatchPaths (source git) Patterns d'auto-deploy.
+	// WatchPaths (git source) Auto-deploy patterns.
 	WatchPaths *[]string `json:"watch_paths,omitempty"`
 }
 
-// ApplicationUpdateBuildPack (source git) Build pack.
+// ApplicationUpdateBuildPack (git source) Build pack.
 type ApplicationUpdateBuildPack string
 
-// ApplicationUpdatePreviewProtection Protection d'accès des URLs de preview (§20.4.4) — basic_auth par défaut.
+// ApplicationUpdatePreviewProtection Access protection of preview URLs (§20.4.4) — basic_auth by default.
 type ApplicationUpdatePreviewProtection string
 
-// AuditEvent Une entrée du journal d'audit append-only (§23.4). Les valeurs sensibles ne sont jamais présentes : un champ modifié apparaît dans `diff` comme `{changed:true, redacted:true}` (INV-003).
+// AuditEvent An entry of the append-only audit log (§23.4). Sensitive values are never present: a modified field appears in `diff` as `{changed:true, redacted:true}` (INV-003).
 type AuditEvent struct {
-	// Action Verbe d'action (ex. `auth.login`, `secret.reveal`, `role.update`).
+	// Action Action verb (e.g. `auth.login`, `secret.reveal`, `role.update`).
 	Action string `json:"action"`
 
-	// ActorDisplay Identifiant lisible de l'acteur (ex. l'email tenté à un login échoué).
+	// ActorDisplay Readable identifier of the actor (e.g. the email attempted at a failed login).
 	ActorDisplay *string              `json:"actor_display,omitempty"`
 	ActorKind    *AuditEventActorKind `json:"actor_kind,omitempty"`
 
-	// ActorUuid UUID de l'utilisateur ou du token acteur (absent pour une action système ou un login échoué).
+	// ActorUuid UUID of the acting user or token (absent for a system action or a failed login).
 	ActorUuid *string `json:"actor_uuid,omitempty"`
 
-	// Diff Ce qui a changé, déjà redacté pour les champs sensibles.
+	// Diff What changed, already redacted for sensitive fields.
 	Diff       *map[string]interface{} `json:"diff,omitempty"`
 	Ip         *string                 `json:"ip,omitempty"`
 	OccurredAt time.Time               `json:"occurred_at"`
@@ -2742,23 +2742,23 @@ type AuditEventActorKind string
 // AuditEventResult defines model for AuditEvent.Result.
 type AuditEventResult string
 
-// BackupExecution Exécution d'un plan de backup (§7.3, §20.5). `partial` = succès local mais échec S3 — jamais présenté comme un succès global.
+// BackupExecution Execution of a backup plan (§7.3, §20.5). `partial` = local success but S3 failure — never presented as a global success.
 type BackupExecution struct {
 	BackupPlanUuid *string `json:"backup_plan_uuid,omitempty"`
 
-	// Checksum Checksum du fichier (vérifié à l'upload et au restore, §20.5).
+	// Checksum Checksum of the file (verified at upload and restore, §20.5).
 	Checksum     *string    `json:"checksum,omitempty"`
 	CreatedAt    *time.Time `json:"created_at,omitempty"`
 	DatabaseUuid *string    `json:"database_uuid,omitempty"`
 
-	// Filename Nom du fichier de backup produit.
+	// Filename Name of the produced backup file.
 	Filename   *string    `json:"filename,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 
-	// LocalAvailable Fichier encore présent localement (selon rétention et `s3_only`).
+	// LocalAvailable File still present locally (depending on retention and `s3_only`).
 	LocalAvailable *bool `json:"local_available,omitempty"`
 
-	// Message Détail d'erreur ou d'avertissement, sans secret.
+	// Message Error or warning detail, without secrets.
 	Message    *string                 `json:"message,omitempty"`
 	S3Uploaded *bool                   `json:"s3_uploaded,omitempty"`
 	SizeBytes  *int                    `json:"size_bytes,omitempty"`
@@ -2776,23 +2776,23 @@ type BackupExecutionTrigger string
 
 // BackupExecutionAccepted defines model for BackupExecutionAccepted.
 type BackupExecutionAccepted struct {
-	// ExecutionUuid UUID de l'exécution de backup créée (traçée dans l'historique du plan).
+	// ExecutionUuid UUID of the created backup execution (traced in the plan's history).
 	ExecutionUuid string `json:"execution_uuid"`
 
-	// JobUuid UUID du job créé.
+	// JobUuid UUID of the created job.
 	JobUuid string `json:"job_uuid"`
 
-	// StatusUrl URL de suivi du job (relative à /api/v1).
+	// StatusUrl Tracking URL of the job (relative to /api/v1).
 	StatusUrl string `json:"status_url"`
 }
 
-// BackupPlan Plan de backup planifié (§7) — cible une base managée (`database_uuid`) OU une base interne d'un stack compose (`service_component_uuid`, compose-spec §10) : exactement l'un des deux est renseigné.
+// BackupPlan Scheduled backup plan (§7) — targets a managed database (`database_uuid`) OR an internal database of a compose stack (`service_component_uuid`, compose-spec §10): exactly one of the two is set.
 type BackupPlan struct {
 	CreatedAt          *time.Time `json:"created_at,omitempty"`
 	DatabaseUuid       *string    `json:"database_uuid,omitempty"`
 	DatabasesToInclude *[]string  `json:"databases_to_include,omitempty"`
 
-	// DrillEnabled Restore drill périodique (ADR-014) : le dernier dump est restauré dans une base **jetable** sur le même serveur, le contenu est recompté, puis la base est détruite. Un backup jamais restauré n'est pas un backup, c'est un fichier.
+	// DrillEnabled Periodic restore drill (ADR-014): the latest dump is restored into a **throwaway** database on the same server, the content is recounted, then the database is destroyed. A backup never restored is not a backup, it is a file.
 	DrillEnabled        *bool                          `json:"drill_enabled,omitempty"`
 	DrillIntervalDays   *int                           `json:"drill_interval_days,omitempty"`
 	DumpAll             *bool                          `json:"dump_all,omitempty"`
@@ -2803,20 +2803,20 @@ type BackupPlan struct {
 	LastExecutionStatus *BackupPlanLastExecutionStatus `json:"last_execution_status,omitempty"`
 	LastExecutionUuid   *string                        `json:"last_execution_uuid,omitempty"`
 
-	// LocalRetention Règles de rétention cumulatives (§7.2) — 0 = illimité.
+	// LocalRetention Cumulative retention rules (§7.2) — 0 = unlimited.
 	LocalRetention *RetentionPolicy `json:"local_retention,omitempty"`
 
-	// NextRunAt Prochaine exécution prévisualisée (§24.3).
+	// NextRunAt Previewed next execution (§24.3).
 	NextRunAt *time.Time `json:"next_run_at,omitempty"`
 	S3Only    *bool      `json:"s3_only,omitempty"`
 
-	// S3Retention Règles de rétention cumulatives (§7.2) — 0 = illimité.
+	// S3Retention Cumulative retention rules (§7.2) — 0 = unlimited.
 	S3Retention   *RetentionPolicy `json:"s3_retention,omitempty"`
 	S3StorageUuid *string          `json:"s3_storage_uuid,omitempty"`
 	SaveLocal     *bool            `json:"save_local,omitempty"`
 	SaveS3        *bool            `json:"save_s3,omitempty"`
 
-	// ServiceComponentUuid Composant de stack ciblé (compose-spec §10).
+	// ServiceComponentUuid Targeted stack component (compose-spec §10).
 	ServiceComponentUuid *string    `json:"service_component_uuid,omitempty"`
 	TimeoutSeconds       *int       `json:"timeout_seconds,omitempty"`
 	Timezone             *string    `json:"timezone,omitempty"`
@@ -2833,44 +2833,44 @@ type BackupPlanLastExecutionStatus string
 
 // BackupPlanCreate defines model for BackupPlanCreate.
 type BackupPlanCreate struct {
-	// DatabasesToInclude Bases à inclure — vide = base principale seulement (ignoré si `dump_all`).
+	// DatabasesToInclude Databases to include — empty = main database only (ignored if `dump_all`).
 	DatabasesToInclude *[]string `json:"databases_to_include,omitempty"`
 
-	// DrillEnabled Restore drill périodique (ADR-014, amendement n°16) : le dernier dump est restauré dans une base **jetable** sur le même serveur, son contenu est recompté puis la base est détruite.
+	// DrillEnabled Periodic restore drill (ADR-014, amendment #16): the latest dump is restored into a **throwaway** database on the same server, its content is recounted, then the database is destroyed.
 	DrillEnabled      *bool `json:"drill_enabled,omitempty"`
 	DrillIntervalDays *int  `json:"drill_interval_days,omitempty"`
 
-	// DumpAll Sauvegarde toutes les bases de l'instance moteur (pg_dumpall).
+	// DumpAll Backs up all databases of the engine instance (pg_dumpall).
 	DumpAll *bool `json:"dump_all,omitempty"`
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// Frequency Expression cron (5 champs) ou alias — every_minute, hourly, daily, weekly, monthly, yearly (§7.1).
+	// Frequency Cron expression (5 fields) or alias — every_minute, hourly, daily, weekly, monthly, yearly (§7.1).
 	Frequency string `json:"frequency"`
 
-	// LocalRetention Règles de rétention cumulatives (§7.2) — 0 = illimité.
+	// LocalRetention Cumulative retention rules (§7.2) — 0 = unlimited.
 	LocalRetention *RetentionPolicy `json:"local_retention,omitempty"`
 
-	// S3Only Supprimer le fichier local après upload S3 réussi.
+	// S3Only Delete the local file after a successful S3 upload.
 	S3Only *bool `json:"s3_only,omitempty"`
 
-	// S3Retention Règles de rétention cumulatives (§7.2) — 0 = illimité.
+	// S3Retention Cumulative retention rules (§7.2) — 0 = unlimited.
 	S3Retention *RetentionPolicy `json:"s3_retention,omitempty"`
 
-	// S3StorageUuid S3 Storage cible — requis si `save_s3` (provisionné via l'UI dans cette v1).
+	// S3StorageUuid Target S3 Storage — required if `save_s3` (provisioned via the UI in this v1).
 	S3StorageUuid *string `json:"s3_storage_uuid,omitempty"`
 
-	// SaveLocal Conserver le fichier local (§7.2).
+	// SaveLocal Keep the local file (§7.2).
 	SaveLocal *bool `json:"save_local,omitempty"`
 
-	// SaveS3 Uploader vers un S3 configuré.
+	// SaveS3 Upload to a configured S3.
 	SaveS3         *bool `json:"save_s3,omitempty"`
 	TimeoutSeconds *int  `json:"timeout_seconds,omitempty"`
 
-	// Timezone Timezone d'interprétation du cron (§24.3).
+	// Timezone Timezone for interpreting the cron (§24.3).
 	Timezone *string `json:"timezone,omitempty"`
 }
 
-// BackupPlanUpdate Mise à jour partielle du plan.
+// BackupPlanUpdate Partial update of the plan.
 type BackupPlanUpdate struct {
 	DatabasesToInclude *[]string `json:"databases_to_include,omitempty"`
 	DrillEnabled       *bool     `json:"drill_enabled,omitempty"`
@@ -2879,11 +2879,11 @@ type BackupPlanUpdate struct {
 	Enabled            *bool     `json:"enabled,omitempty"`
 	Frequency          *string   `json:"frequency,omitempty"`
 
-	// LocalRetention Règles de rétention cumulatives (§7.2) — 0 = illimité.
+	// LocalRetention Cumulative retention rules (§7.2) — 0 = unlimited.
 	LocalRetention *RetentionPolicy `json:"local_retention,omitempty"`
 	S3Only         *bool            `json:"s3_only,omitempty"`
 
-	// S3Retention Règles de rétention cumulatives (§7.2) — 0 = illimité.
+	// S3Retention Cumulative retention rules (§7.2) — 0 = unlimited.
 	S3Retention    *RetentionPolicy `json:"s3_retention,omitempty"`
 	S3StorageUuid  *string          `json:"s3_storage_uuid,omitempty"`
 	SaveLocal      *bool            `json:"save_local,omitempty"`
@@ -2892,90 +2892,90 @@ type BackupPlanUpdate struct {
 	Timezone       *string          `json:"timezone,omitempty"`
 }
 
-// Certificate Certificat TLS servi par le proxy d'un serveur — **reflet observé** (table `certificates`) : l'état réel vit dans `acme.json` et les fichiers du serveur, synchronisés après chaque application de configuration proxy et par réconciliation périodique (§18.3). Le matériel de clé privée ne quitte jamais le serveur et n'apparaît jamais dans l'API.
+// Certificate TLS certificate served by a server's proxy — **observed reflection** (`certificates` table): the actual state lives in `acme.json` and the server's files, synchronized after each proxy configuration application and by periodic reconciliation (§18.3). Private key material never leaves the server and never appears in the API.
 type Certificate struct {
-	// CertPath Chemin distant du certificat sur le serveur (certificats `custom`) ; `null` pour ACME (matériel dans `acme.json`).
+	// CertPath Remote path of the certificate on the server (`custom` certificates); `null` for ACME (material in `acme.json`).
 	CertPath  *string    `json:"cert_path,omitempty"`
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 
-	// DnsCredentialUuid UUID du credential DNS-01 référencé (`acme_dns01`). La valeur du secret n'est jamais exposée ici (INV-003).
+	// DnsCredentialUuid UUID of the referenced DNS-01 credential (`acme_dns01`). The secret value is never exposed here (INV-003).
 	DnsCredentialUuid *string `json:"dns_credential_uuid,omitempty"`
 
-	// DnsProvider Identifiant du provider DNS (Lego, ex. cloudflare) pour `acme_dns01`.
+	// DnsProvider DNS provider identifier (Lego, e.g. cloudflare) for `acme_dns01`.
 	DnsProvider *string `json:"dns_provider,omitempty"`
 
-	// Issuer Émetteur observé (ex. Let's Encrypt R11) — `null` tant que rien n'est émis.
+	// Issuer Observed issuer (e.g. Let's Encrypt R11) — `null` until something is issued.
 	Issuer *string `json:"issuer,omitempty"`
 
-	// Kind Mode d'obtention du certificat (§4.3) : émission ACME par challenge HTTP-01 (défaut) ou DNS-01 (obligatoire pour les wildcards), certificat custom déposé sur le serveur, ou certificat self-signed de fallback servi en attendant une émission valide.
+	// Kind Certificate acquisition mode (§4.3): ACME issuance via HTTP-01 challenge (default) or DNS-01 (mandatory for wildcards), custom certificate deposited on the server, or fallback self-signed certificate served while awaiting a valid issuance.
 	Kind CertificateKind `json:"kind"`
 
-	// LastError Dernière erreur d'émission/renouvellement (challenge en échec, rate limit, CAA…) — jamais de secret.
+	// LastError Last issuance/renewal error (failed challenge, rate limit, CAA…) — never a secret.
 	LastError *string `json:"last_error,omitempty"`
 
-	// MainDomain Domaine principal couvert (CN / premier SAN).
+	// MainDomain Main covered domain (CN / first SAN).
 	MainDomain string `json:"main_domain"`
 
-	// NotAfter Expiration observée — donnée clé du monitoring (alerte intégrée J-30/J-7, filtre `expiring_within_days`).
+	// NotAfter Observed expiration — key monitoring datum (built-in D-30/D-7 alert, `expiring_within_days` filter).
 	NotAfter *time.Time `json:"not_after,omitempty"`
 
-	// NotBefore Début de validité observé.
+	// NotBefore Observed validity start.
 	NotBefore *time.Time `json:"not_before,omitempty"`
 
-	// ObservedAt Fraîcheur du reflet — au-delà d'un seuil, l'état est à considérer comme « stale », jamais comme un `issued` garanti.
+	// ObservedAt Freshness of the reflection — beyond a threshold, the state must be considered "stale", never a guaranteed `issued`.
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
 
-	// Sans Domaines alternatifs couverts, wildcards inclus (ex. `*.preview.example.com`).
+	// Sans Alternative covered domains, wildcards included (e.g. `*.preview.example.com`).
 	Sans *[]string `json:"sans,omitempty"`
 
-	// ServerUuid Serveur dont le proxy sert ce certificat.
+	// ServerUuid Server whose proxy serves this certificate.
 	ServerUuid *string `json:"server_uuid,omitempty"`
 
-	// Status Statut observé du certificat. `pending` = émission en cours (le fallback self-signed est servi entre-temps) ; `renewing` = renouvellement en cours ; `failed` = échec d'émission ou de renouvellement (voir `last_error`).
+	// Status Observed status of the certificate. `pending` = issuance in progress (the self-signed fallback is served in the meantime); `renewing` = renewal in progress; `failed` = issuance or renewal failure (see `last_error`).
 	Status CertificateStatus `json:"status"`
 
-	// UpdatedAt Dernière synchronisation du reflet.
+	// UpdatedAt Last synchronization of the reflection.
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 	Uuid      *string    `json:"uuid,omitempty"`
 }
 
-// CertificateKind Mode d'obtention du certificat (§4.3) : émission ACME par challenge HTTP-01 (défaut) ou DNS-01 (obligatoire pour les wildcards), certificat custom déposé sur le serveur, ou certificat self-signed de fallback servi en attendant une émission valide.
+// CertificateKind Certificate acquisition mode (§4.3): ACME issuance via HTTP-01 challenge (default) or DNS-01 (mandatory for wildcards), custom certificate deposited on the server, or fallback self-signed certificate served while awaiting a valid issuance.
 type CertificateKind string
 
-// CertificateStatus Statut observé du certificat. `pending` = émission en cours (le fallback self-signed est servi entre-temps) ; `renewing` = renouvellement en cours ; `failed` = échec d'émission ou de renouvellement (voir `last_error`).
+// CertificateStatus Observed status of the certificate. `pending` = issuance in progress (the self-signed fallback is served in the meantime); `renewing` = renewal in progress; `failed` = issuance or renewal failure (see `last_error`).
 type CertificateStatus string
 
-// ComponentMetric Instantané de consommation d'un service du stack (ADR-034) — lu à la demande, jamais stocké. `null` sur un champ = la mesure n'a pas pu être lue (container arrêté ou sans limite).
+// ComponentMetric Consumption snapshot of a service of the stack (ADR-034) — read on demand, never stored. `null` on a field = the measurement could not be read (container stopped or without a limit).
 type ComponentMetric struct {
-	// Component Nom du service compose.
+	// Component Name of the compose service.
 	Component *string `json:"component,omitempty"`
 
-	// CpuPercent Pourcentage CPU instantané (peut dépasser 100 sur plusieurs cœurs).
+	// CpuPercent Instant CPU percentage (may exceed 100 on several cores).
 	CpuPercent *float64 `json:"cpu_percent,omitempty"`
 
-	// MemoryBytes Mémoire utilisée en octets.
+	// MemoryBytes Memory used in bytes.
 	MemoryBytes *int64 `json:"memory_bytes,omitempty"`
 
-	// MemoryLimitBytes Limite mémoire en octets ; null si illimitée.
+	// MemoryLimitBytes Memory limit in bytes; null if unlimited.
 	MemoryLimitBytes *int64 `json:"memory_limit_bytes,omitempty"`
 
-	// MemoryPercent Mémoire utilisée en pourcentage de la limite.
+	// MemoryPercent Memory used as a percentage of the limit.
 	MemoryPercent *float64 `json:"memory_percent,omitempty"`
 
-	// Running Faux si aucun container vivant pour ce service.
+	// Running False if no live container for this service.
 	Running *bool `json:"running,omitempty"`
 }
 
-// CustomRole Rôle custom d'une team (ADR-038) : un ensemble nommé de permissions granulaires, composé dans l'UI. Ne peut jamais contenir de permission d'instance (`instance:*`).
+// CustomRole A team's custom role (ADR-038): a named set of granular permissions, composed in the UI. Can never contain an instance permission (`instance:*`).
 type CustomRole struct {
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
 	Description *string    `json:"description,omitempty"`
 
-	// MemberCount Nombre de membres portant ce rôle.
+	// MemberCount Number of members carrying this role.
 	MemberCount *int   `json:"member_count,omitempty"`
 	Name        string `json:"name"`
 
-	// Permissions Permissions granulaires `domaine:action`, fermées sous leurs prérequis (les dépendances manquantes sont ajoutées automatiquement).
+	// Permissions Granular `domain:action` permissions, closed under their prerequisites (missing dependencies are added automatically).
 	Permissions []string   `json:"permissions"`
 	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
 	Uuid        *string    `json:"uuid,omitempty"`
@@ -2985,67 +2985,67 @@ type CustomRole struct {
 type CustomRoleCreate struct {
 	Description *string `json:"description,omitempty"`
 
-	// Name Nom du rôle (unique dans la team).
+	// Name Name of the role (unique within the team).
 	Name string `json:"name"`
 
-	// Permissions Permissions granulaires accordées. Refusées si inconnues, si d'instance (`instance:*`), ou hors des permissions du composeur (anti-élévation). Les prérequis manquants sont ajoutés.
+	// Permissions Granular permissions granted. Rejected if unknown, if instance-level (`instance:*`), or outside the composer's permissions (anti-escalation). Missing prerequisites are added.
 	Permissions []string `json:"permissions"`
 }
 
-// CustomRoleUpdate Mise à jour partielle d'un rôle custom.
+// CustomRoleUpdate Partial update of a custom role.
 type CustomRoleUpdate struct {
 	Description *string   `json:"description,omitempty"`
 	Name        *string   `json:"name,omitempty"`
 	Permissions *[]string `json:"permissions,omitempty"`
 }
 
-// Database Base de données managée (§6, v1 — PostgreSQL). Les champs `postgres_password`, `internal_url` et `external_url` contiennent des credentials — `null` sans `read:sensitive` (INV-003), `is_redacted` l'indique.
+// Database Managed database (§6, v1 — PostgreSQL). The fields `postgres_password`, `internal_url` and `external_url` contain credentials — `null` without `read:sensitive` (INV-003), `is_redacted` indicates it.
 type Database struct {
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
 	Description *string    `json:"description,omitempty"`
 
-	// DesiredStatus État désiré d'une ressource (§21.2).
+	// DesiredStatus Desired state of a resource (§21.2).
 	DesiredStatus   DesiredStatus `json:"desired_status"`
 	DestinationUuid *string       `json:"destination_uuid,omitempty"`
 
-	// Engine Moteur — v1 limitée à PostgreSQL ; enum étendue avec les moteurs P1 suivants.
+	// Engine Engine — v1 limited to PostgreSQL; enum extended with the upcoming P1 engines.
 	Engine          *DatabaseEngine `json:"engine,omitempty"`
 	EnvironmentUuid *string         `json:"environment_uuid,omitempty"`
 
-	// ExternalUrl URL publique si `is_public` — uniquement avec `read:sensitive`.
+	// ExternalUrl Public URL if `is_public` — only with `read:sensitive`.
 	ExternalUrl *string `json:"external_url,omitempty"`
 	Image       *string `json:"image,omitempty"`
 
-	// InternalUrl URL de connexion interne (hostname = UUID sur le réseau Docker, §6.2). Contient le mot de passe — uniquement avec `read:sensitive`.
+	// InternalUrl Internal connection URL (hostname = UUID on the Docker network, §6.2). Contains the password — only with `read:sensitive`.
 	InternalUrl *string `json:"internal_url,omitempty"`
 	IsPublic    *bool   `json:"is_public,omitempty"`
 
-	// IsRedacted Vrai si les champs sensibles ont été masqués faute de `read:sensitive`.
+	// IsRedacted True if the sensitive fields were masked for lack of `read:sensitive`.
 	IsRedacted   *bool      `json:"is_redacted,omitempty"`
 	LastOnlineAt *time.Time `json:"last_online_at,omitempty"`
 
-	// Limits Limites de ressources du container (§5.3).
+	// Limits Resource limits of the container (§5.3).
 	Limits     *ResourceLimits `json:"limits,omitempty"`
 	Name       string          `json:"name"`
 	ObservedAt *time.Time      `json:"observed_at,omitempty"`
 
-	// ObservedStatus État observé d'une ressource (§21.2) — `unknown` si l'observation est trop ancienne (stale).
+	// ObservedStatus Observed state of a resource (§21.2) — `unknown` if the observation is too old (stale).
 	ObservedStatus ObservedStatus `json:"observed_status"`
 	PostgresConf   *string        `json:"postgres_conf,omitempty"`
 	PostgresDb     *string        `json:"postgres_db,omitempty"`
 
-	// PostgresPassword Mot de passe — uniquement avec `read:sensitive`.
+	// PostgresPassword Password — only with `read:sensitive`.
 	PostgresPassword *string                   `json:"postgres_password,omitempty"`
 	PostgresUser     *string                   `json:"postgres_user,omitempty"`
 	ProjectUuid      *string                   `json:"project_uuid,omitempty"`
 	PublicAccessMode *DatabasePublicAccessMode `json:"public_access_mode,omitempty"`
 	PublicPort       *int                      `json:"public_port,omitempty"`
 
-	// RestartRequired Vrai si une modification de configuration attend un redémarrage pour prendre effet.
+	// RestartRequired True if a configuration change awaits a restart to take effect.
 	RestartRequired *bool   `json:"restart_required,omitempty"`
 	ServerUuid      *string `json:"server_uuid,omitempty"`
 
-	// SslEnabled TLS côté base, avec un certificat signé par la **CA du serveur** (§6.3, amendement n°23). La CA est générée à la demande et exposée en lecture (`GET /servers/{uuid}/ca`) pour que les clients puissent *vérifier* — un TLS que le client ne vérifie pas ne protège de rien.
+	// SslEnabled Database-side TLS, with a certificate signed by the **server's CA** (§6.3, amendment #23). The CA is generated on demand and exposed for reading (`GET /servers/{uuid}/ca`) so that clients can *verify* — a TLS the client does not verify protects nothing.
 	SslEnabled *bool            `json:"ssl_enabled,omitempty"`
 	SslMode    *DatabaseSslMode `json:"ssl_mode,omitempty"`
 	UpdatedAt  *time.Time       `json:"updated_at,omitempty"`
@@ -3053,7 +3053,7 @@ type Database struct {
 	Version    *int             `json:"version,omitempty"`
 }
 
-// DatabaseEngine Moteur — v1 limitée à PostgreSQL ; enum étendue avec les moteurs P1 suivants.
+// DatabaseEngine Engine — v1 limited to PostgreSQL; enum extended with the upcoming P1 engines.
 type DatabaseEngine string
 
 // DatabasePublicAccessMode defines model for Database.PublicAccessMode.
@@ -3062,220 +3062,220 @@ type DatabasePublicAccessMode string
 // DatabaseSslMode defines model for Database.SslMode.
 type DatabaseSslMode string
 
-// DatabaseCreatePostgresql Création d'une base PostgreSQL managée (§6). Les credentials omis sont auto-générés.
+// DatabaseCreatePostgresql Creation of a managed PostgreSQL database (§6). Omitted credentials are auto-generated.
 type DatabaseCreatePostgresql struct {
 	Description     *string `json:"description,omitempty"`
 	DestinationUuid *string `json:"destination_uuid,omitempty"`
 	EnvironmentUuid string  `json:"environment_uuid"`
 
-	// Image Image PostgreSQL (tag libre, §6.2).
+	// Image PostgreSQL image (free-form tag, §6.2).
 	Image *string `json:"image,omitempty"`
 
-	// InstantStart Démarre la base immédiatement après création.
+	// InstantStart Starts the database immediately after creation.
 	InstantStart *bool `json:"instant_start,omitempty"`
 
-	// IsPublic Exposition publique (§6.2).
+	// IsPublic Public exposure (§6.2).
 	IsPublic *bool `json:"is_public,omitempty"`
 
-	// Limits Limites de ressources du container (§5.3).
+	// Limits Resource limits of the container (§5.3).
 	Limits *ResourceLimits `json:"limits,omitempty"`
 	Name   string          `json:"name"`
 
-	// PostgresConf Configuration postgresql.conf custom (§6.2).
+	// PostgresConf Custom postgresql.conf configuration (§6.2).
 	PostgresConf *string `json:"postgres_conf,omitempty"`
 
-	// PostgresDb Nom de la base initiale — défaut = valeur de `postgres_user`.
+	// PostgresDb Name of the initial database — default = value of `postgres_user`.
 	PostgresDb         *string `json:"postgres_db,omitempty"`
 	PostgresInitdbArgs *string `json:"postgres_initdb_args,omitempty"`
 
-	// PostgresPassword Omis = mot de passe auto-généré de 64 caractères (§6.2).
+	// PostgresPassword Omitted = auto-generated 64-character password (§6.2).
 	PostgresPassword *string `json:"postgres_password,omitempty"`
 	PostgresUser     *string `json:"postgres_user,omitempty"`
 	ProjectUuid      string  `json:"project_uuid"`
 
-	// PublicAccessMode `port_mapping` publie le port sur le container de la base : le changer la **redémarre**. `tcp_proxy` la route par le proxy : le port public devient modifiable sans jamais toucher à la base (amendement n°22).
+	// PublicAccessMode `port_mapping` publishes the port on the database's container: changing it **restarts** it. `tcp_proxy` routes it through the proxy: the public port becomes modifiable without ever touching the database (amendment #22).
 	PublicAccessMode *DatabaseCreatePostgresqlPublicAccessMode `json:"public_access_mode,omitempty"`
 
-	// PublicPort Port public si `is_public` — omis = attribué automatiquement.
+	// PublicPort Public port if `is_public` — omitted = assigned automatically.
 	PublicPort *int   `json:"public_port,omitempty"`
 	ServerUuid string `json:"server_uuid"`
 
-	// SslEnabled TLS côté base, avec un certificat signé par la **CA du serveur** (§6.3, amendement n°23). La CA est générée à la demande et exposée en lecture (`GET /servers/{uuid}/ca`) pour que les clients puissent *vérifier* — un TLS que le client ne vérifie pas ne protège de rien.
+	// SslEnabled Database-side TLS, with a certificate signed by the **server's CA** (§6.3, amendment #23). The CA is generated on demand and exposed for reading (`GET /servers/{uuid}/ca`) so that clients can *verify* — a TLS the client does not verify protects nothing.
 	SslEnabled *bool `json:"ssl_enabled,omitempty"`
 
-	// SslMode Mode SSL PostgreSQL (§6.3).
+	// SslMode PostgreSQL SSL mode (§6.3).
 	SslMode *DatabaseCreatePostgresqlSslMode `json:"ssl_mode,omitempty"`
 }
 
-// DatabaseCreatePostgresqlPublicAccessMode `port_mapping` publie le port sur le container de la base : le changer la **redémarre**. `tcp_proxy` la route par le proxy : le port public devient modifiable sans jamais toucher à la base (amendement n°22).
+// DatabaseCreatePostgresqlPublicAccessMode `port_mapping` publishes the port on the database's container: changing it **restarts** it. `tcp_proxy` routes it through the proxy: the public port becomes modifiable without ever touching the database (amendment #22).
 type DatabaseCreatePostgresqlPublicAccessMode string
 
-// DatabaseCreatePostgresqlSslMode Mode SSL PostgreSQL (§6.3).
+// DatabaseCreatePostgresqlSslMode PostgreSQL SSL mode (§6.3).
 type DatabaseCreatePostgresqlSslMode string
 
-// DatabaseUpdate Mise à jour partielle. Les changements d'image, de configuration ou de credentials nécessitent un redémarrage (`restart_required=true` dans la réponse).
+// DatabaseUpdate Partial update. Changes to the image, configuration or credentials require a restart (`restart_required=true` in the response).
 type DatabaseUpdate struct {
 	Description *string `json:"description,omitempty"`
 	Image       *string `json:"image,omitempty"`
 	IsPublic    *bool   `json:"is_public,omitempty"`
 
-	// Limits Limites de ressources du container (§5.3).
+	// Limits Resource limits of the container (§5.3).
 	Limits       *ResourceLimits `json:"limits,omitempty"`
 	Name         *string         `json:"name,omitempty"`
 	PostgresConf *string         `json:"postgres_conf,omitempty"`
 
-	// PostgresPassword Rotation du mot de passe.
+	// PostgresPassword Password rotation.
 	PostgresPassword *string `json:"postgres_password,omitempty"`
 
-	// PublicAccessMode Comment la base est exposée (§6.2, amendement n°22). `port_mapping` publie le port sur le container de la base : le changer la **redémarre**. `tcp_proxy` la route par le proxy : changer le port public recrée le **proxy** (quelques secondes, aucune donnée touchée) et la base ne bouge pas.
+	// PublicAccessMode How the database is exposed (§6.2, amendment #22). `port_mapping` publishes the port on the database's container: changing it **restarts** it. `tcp_proxy` routes it through the proxy: changing the public port recreates the **proxy** (a few seconds, no data touched) and the database does not move.
 	PublicAccessMode *DatabaseUpdatePublicAccessMode `json:"public_access_mode,omitempty"`
 	PublicPort       *int                            `json:"public_port,omitempty"`
 
-	// SslEnabled TLS côté base, avec un certificat signé par la **CA du serveur** (§6.3, amendement n°23). La CA est générée à la demande et exposée en lecture (`GET /servers/{uuid}/ca`) pour que les clients puissent *vérifier* — un TLS que le client ne vérifie pas ne protège de rien.
+	// SslEnabled Database-side TLS, with a certificate signed by the **server's CA** (§6.3, amendment #23). The CA is generated on demand and exposed for reading (`GET /servers/{uuid}/ca`) so that clients can *verify* — a TLS the client does not verify protects nothing.
 	SslEnabled *bool                  `json:"ssl_enabled,omitempty"`
 	SslMode    *DatabaseUpdateSslMode `json:"ssl_mode,omitempty"`
 }
 
-// DatabaseUpdatePublicAccessMode Comment la base est exposée (§6.2, amendement n°22). `port_mapping` publie le port sur le container de la base : le changer la **redémarre**. `tcp_proxy` la route par le proxy : changer le port public recrée le **proxy** (quelques secondes, aucune donnée touchée) et la base ne bouge pas.
+// DatabaseUpdatePublicAccessMode How the database is exposed (§6.2, amendment #22). `port_mapping` publishes the port on the database's container: changing it **restarts** it. `tcp_proxy` routes it through the proxy: changing the public port recreates the **proxy** (a few seconds, no data touched) and the database does not move.
 type DatabaseUpdatePublicAccessMode string
 
 // DatabaseUpdateSslMode defines model for DatabaseUpdate.SslMode.
 type DatabaseUpdateSslMode string
 
-// Deployment Déploiement d'une application — une tentative (§21.1). Un retry crée une tentative liée, l'historique n'est jamais réécrit.
+// Deployment Deployment of an application — one attempt (§21.1). A retry creates a linked attempt, the history is never rewritten.
 type Deployment struct {
 	ApplicationUuid *string `json:"application_uuid,omitempty"`
 
-	// Attempt Numéro de tentative (§21.1).
+	// Attempt Attempt number (§21.1).
 	Attempt *int `json:"attempt,omitempty"`
 
-	// Branch Branche git déployée (source git uniquement) ; `null` sinon.
+	// Branch Deployed git branch (git source only); `null` otherwise.
 	Branch *string `json:"branch,omitempty"`
 
-	// CommitAuthor Auteur du dernier commit déployé (source git), lu après checkout — permet de voir qui a poussé le déploiement. `null` hors source git.
+	// CommitAuthor Author of the last deployed commit (git source), read after checkout — shows who pushed the deployment. `null` outside a git source.
 	CommitAuthor  *string `json:"commit_author,omitempty"`
 	CommitMessage *string `json:"commit_message,omitempty"`
 
-	// CommitSha SHA Git immuable résolu au déclenchement (source git uniquement, §18.3).
+	// CommitSha Immutable Git SHA resolved at trigger time (git source only, §18.3).
 	CommitSha *string `json:"commit_sha,omitempty"`
 
-	// ConfigVersion Version de configuration applicative embarquée dans ce déploiement (INV-014).
+	// ConfigVersion Application configuration version embedded in this deployment (INV-014).
 	ConfigVersion *int       `json:"config_version,omitempty"`
 	CreatedAt     *time.Time `json:"created_at,omitempty"`
 
-	// ErrorMessage Résumé d'échec, sans secret ni commande sensible.
+	// ErrorMessage Failure summary, without secrets or sensitive commands.
 	ErrorMessage *string    `json:"error_message,omitempty"`
 	FinishedAt   *time.Time `json:"finished_at,omitempty"`
 	ForceRebuild *bool      `json:"force_rebuild,omitempty"`
 
-	// ImageDigest Digest OCI de l'image produite/déployée (résolu avant bascule, §18.3).
+	// ImageDigest OCI digest of the produced/deployed image (resolved before switchover, §18.3).
 	ImageDigest *string `json:"image_digest,omitempty"`
 	IsRollback  *bool   `json:"is_rollback,omitempty"`
 
-	// LogsUrl URL des logs de build (relative à /api/v1).
+	// LogsUrl URL of the build logs (relative to /api/v1).
 	LogsUrl *string `json:"logs_url,omitempty"`
 
-	// PrId Numéro de la PR/MR quand ce déploiement est celui d'une preview (`trigger = preview`) ; `null` sinon. Permet d'afficher « preview
+	// PrId PR/MR number when this deployment is a preview's (`trigger = preview`); `null` otherwise. Allows displaying "preview
 	PrId *int `json:"pr_id,omitempty"`
 
-	// Provider Forge git de la source, quand connue — détermine la forme des liens (branche/commit/PR).
+	// Provider Git forge of the source, when known — determines the shape of the links (branch/commit/PR).
 	Provider *DeploymentProvider `json:"provider,omitempty"`
 	QueuedAt *time.Time          `json:"queued_at,omitempty"`
 
-	// RepositoryUrl URL navigable du dépôt (normalisée en https, sans `.git`) pour une source git ; `null` sinon. Combinée à `provider`, elle permet de construire les liens vers la branche, le commit et la PR.
+	// RepositoryUrl Browsable URL of the repository (normalized to https, without `.git`) for a git source; `null` otherwise. Combined with `provider`, it allows building the links to the branch, commit and PR.
 	RepositoryUrl *string    `json:"repository_url,omitempty"`
 	StartedAt     *time.Time `json:"started_at,omitempty"`
 
-	// Status Machine à états d'un déploiement (§21.1). `succeeded`, `failed`, `cancelled` et `superseded` sont terminaux ; `superseded` = remplacé en file par un déploiement plus récent (coalescing).
+	// Status State machine of a deployment (§21.1). `succeeded`, `failed`, `cancelled` and `superseded` are terminal; `superseded` = replaced in the queue by a more recent deployment (coalescing).
 	Status DeploymentStatus `json:"status"`
 
-	// Trigger Origine du déclenchement (vocabulaire aligné sur l'enum `deployment_trigger` du data dictionary). Un rollback est signalé par `is_rollback`, pas par le trigger.
+	// Trigger Origin of the trigger (vocabulary aligned with the data dictionary's `deployment_trigger` enum). A rollback is signaled by `is_rollback`, not by the trigger.
 	Trigger *DeploymentTrigger `json:"trigger,omitempty"`
 	Uuid    *string            `json:"uuid,omitempty"`
 }
 
-// DeploymentProvider Forge git de la source, quand connue — détermine la forme des liens (branche/commit/PR).
+// DeploymentProvider Git forge of the source, when known — determines the shape of the links (branch/commit/PR).
 type DeploymentProvider string
 
-// DeploymentTrigger Origine du déclenchement (vocabulaire aligné sur l'enum `deployment_trigger` du data dictionary). Un rollback est signalé par `is_rollback`, pas par le trigger.
+// DeploymentTrigger Origin of the trigger (vocabulary aligned with the data dictionary's `deployment_trigger` enum). A rollback is signaled by `is_rollback`, not by the trigger.
 type DeploymentTrigger string
 
-// DeploymentAccepted Réponse d'un déclenchement de déploiement — le déploiement est l'objet de suivi principal.
+// DeploymentAccepted Response of a deployment trigger — the deployment is the main tracking object.
 type DeploymentAccepted struct {
-	// DeploymentUuid UUID du déploiement mis en file.
+	// DeploymentUuid UUID of the queued deployment.
 	DeploymentUuid string `json:"deployment_uuid"`
 
-	// JobUuid Job interne associé, si exposé.
+	// JobUuid Associated internal job, if exposed.
 	JobUuid *string `json:"job_uuid,omitempty"`
 
-	// StatusUrl URL de suivi du déploiement (relative à /api/v1).
+	// StatusUrl Tracking URL of the deployment (relative to /api/v1).
 	StatusUrl string `json:"status_url"`
 }
 
-// DeploymentStatus Machine à états d'un déploiement (§21.1). `succeeded`, `failed`, `cancelled` et `superseded` sont terminaux ; `superseded` = remplacé en file par un déploiement plus récent (coalescing).
+// DeploymentStatus State machine of a deployment (§21.1). `succeeded`, `failed`, `cancelled` and `superseded` are terminal; `superseded` = replaced in the queue by a more recent deployment (coalescing).
 type DeploymentStatus string
 
-// DesiredStatus État désiré d'une ressource (§21.2).
+// DesiredStatus Desired state of a resource (§21.2).
 type DesiredStatus string
 
-// DnsCredential Credential DNS-01 (proxy-contract §7.2). Le contenu **n'est jamais renvoyé** : il n'existe que chiffré en base et dans un fichier 0600 sur le serveur.
+// DnsCredential DNS-01 credential (proxy-contract §7.2). The content **is never returned**: it only exists encrypted in the database and in a 0600 file on the server.
 type DnsCredential struct {
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 	InUse     *bool      `json:"in_use,omitempty"`
 	Name      string     `json:"name"`
 
-	// Provider Identifiant provider Lego (cloudflare, route53, ovh…).
+	// Provider Lego provider identifier (cloudflare, route53, ovh…).
 	Provider string  `json:"provider"`
 	Uuid     *string `json:"uuid,omitempty"`
 }
 
 // DnsCredentialCreate defines model for DnsCredentialCreate.
 type DnsCredentialCreate struct {
-	// Config Variables d'environnement attendues par Lego pour ce provider.
+	// Config Environment variables expected by Lego for this provider.
 	Config   map[string]string `json:"config"`
 	Name     string            `json:"name"`
 	Provider string            `json:"provider"`
 }
 
-// EncryptionColumnCount Compteur de lignes d'une colonne chiffrée pour une version de clé.
+// EncryptionColumnCount Row count of an encrypted column for a key version.
 type EncryptionColumnCount struct {
 	Column string `json:"column"`
 	Rows   int    `json:"rows"`
 	Table  string `json:"table"`
 }
 
-// EncryptionKeyVersion Usage d'une version de clé maître dans les colonnes chiffrées.
+// EncryptionKeyVersion Usage of a master key version in the encrypted columns.
 type EncryptionKeyVersion struct {
-	// Columns Détail par colonne chiffrée (inventaire §12 du data dictionary).
+	// Columns Breakdown per encrypted column (inventory §12 of the data dictionary).
 	Columns *[]EncryptionColumnCount `json:"columns,omitempty"`
 
-	// KeyVersion Version de clé (préfixe 4 octets des colonnes `*_enc`).
+	// KeyVersion Key version (4-byte prefix of the `*_enc` columns).
 	KeyVersion int `json:"key_version"`
 
-	// TotalRows Nombre total de lignes chiffrées avec cette version, toutes colonnes confondues.
+	// TotalRows Total number of rows encrypted with this version, all columns combined.
 	TotalRows int `json:"total_rows"`
 }
 
-// EncryptionStatus État du chiffrement enveloppe au repos (ADR-003, §23.2) : version de clé active et répartition des lignes chiffrées par version de clé et par colonne. Ne contient jamais de matériel de clé.
+// EncryptionStatus State of envelope encryption at rest (ADR-003, §23.2): active key version and distribution of encrypted rows per key version and per column. Never contains key material.
 type EncryptionStatus struct {
-	// ActiveKeyVersion Version de clé utilisée pour tout nouveau chiffrement.
+	// ActiveKeyVersion Key version used for any new encryption.
 	ActiveKeyVersion int `json:"active_key_version"`
 
-	// KeyVersions Une entrée par version de clé encore référencée en base. Une rotation est convergée quand seule la version active reste référencée.
+	// KeyVersions One entry per key version still referenced in the database. A rotation has converged when only the active version remains referenced.
 	KeyVersions *[]EncryptionKeyVersion `json:"key_versions,omitempty"`
 
-	// RotationJobUuid UUID du job de re-chiffrement en cours, le cas échéant (`null` sinon).
+	// RotationJobUuid UUID of the re-encryption job in progress, if any (`null` otherwise).
 	RotationJobUuid *string `json:"rotation_job_uuid,omitempty"`
 }
 
-// Environment Environnement d'un projet — contient les ressources (§2).
+// Environment A project's environment — contains the resources (§2).
 type Environment struct {
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
 	Description *string    `json:"description,omitempty"`
 	Name        string     `json:"name"`
 	ProjectUuid *string    `json:"project_uuid,omitempty"`
 
-	// ResourceCount Nombre de ressources contenues (0 requis pour la suppression).
+	// ResourceCount Number of contained resources (0 required for deletion).
 	ResourceCount *int       `json:"resource_count,omitempty"`
 	UpdatedAt     *time.Time `json:"updated_at,omitempty"`
 	Uuid          *string    `json:"uuid,omitempty"`
@@ -3286,17 +3286,17 @@ type Environment struct {
 type EnvironmentCreate struct {
 	Description *string `json:"description,omitempty"`
 
-	// Name Nom unique dans le projet (ex. production, staging).
+	// Name Unique name within the project (e.g. production, staging).
 	Name string `json:"name"`
 }
 
-// EnvironmentUpdate Mise à jour partielle.
+// EnvironmentUpdate Partial update.
 type EnvironmentUpdate struct {
 	Description *string `json:"description,omitempty"`
 	Name        *string `json:"name,omitempty"`
 }
 
-// EnvironmentVariable Variable d'environnement d'une application (§5.4). `value` est `null` sans `read:sensitive` ou si `is_locked` (INV-003) — `is_redacted` l'indique.
+// EnvironmentVariable Environment variable of an application (§5.4). `value` is `null` without `read:sensitive` or if `is_locked` (INV-003) — `is_redacted` indicates it.
 type EnvironmentVariable struct {
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
 	IsBuildTime bool       `json:"is_build_time"`
@@ -3304,86 +3304,86 @@ type EnvironmentVariable struct {
 	IsLocked    bool       `json:"is_locked"`
 	IsMultiline bool       `json:"is_multiline"`
 
-	// IsPreviewOverride Surcharge dédiée à UNE preview (§20.4) — absente ou false pour les variables des jeux production et previews partagé.
+	// IsPreviewOverride Override dedicated to ONE preview (§20.4) — absent or false for the variables of the production and shared preview sets.
 	IsPreviewOverride *bool `json:"is_preview_override,omitempty"`
 
-	// IsRedacted Vrai si `value` a été masquée (permission insuffisante ou variable verrouillée).
+	// IsRedacted True if `value` was masked (insufficient permission or locked variable).
 	IsRedacted *bool `json:"is_redacted,omitempty"`
 
-	// IsSecret Secret de build : passé en secret BuildKit, jamais en `--build-arg` (INV-003, §5.2).
+	// IsSecret Build secret: passed as a BuildKit secret, never as a `--build-arg` (INV-003, §5.2).
 	IsSecret  *bool      `json:"is_secret,omitempty"`
 	Key       string     `json:"key"`
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 	Uuid      *string    `json:"uuid,omitempty"`
 
-	// Value Valeur en clair — uniquement avec `read:sensitive` et si non verrouillée.
+	// Value Clear value — only with `read:sensitive` and if not locked.
 	Value *string `json:"value,omitempty"`
 }
 
 // EnvironmentVariableCreate defines model for EnvironmentVariableCreate.
 type EnvironmentVariableCreate struct {
-	// IsBuildTime Injectée au build (ARG ou secret BuildKit selon `is_secret`, §5.2).
+	// IsBuildTime Injected at build (ARG or BuildKit secret depending on `is_secret`, §5.2).
 	IsBuildTime *bool `json:"is_build_time,omitempty"`
 
-	// IsLiteral Valeur littérale, sans interpolation (§5.4).
+	// IsLiteral Literal value, without interpolation (§5.4).
 	IsLiteral *bool `json:"is_literal,omitempty"`
 
-	// IsLocked Verrouillée — masquée pour tous (y compris read:sensitive) et non rééditable ; suppression puis recréation seulement (§5.4).
+	// IsLocked Locked — masked for everyone (including read:sensitive) and not re-editable; deletion then recreation only (§5.4).
 	IsLocked *bool `json:"is_locked,omitempty"`
 
-	// IsMultiline Valeur multi-lignes (clés, certificats).
+	// IsMultiline Multi-line value (keys, certificates).
 	IsMultiline *bool `json:"is_multiline,omitempty"`
 
-	// IsSecret Secret de build (§5.2). Une variable secrète n'est **jamais** un `--build-arg` : un ARG est inscrit dans les métadonnées de l'image et `docker history` l'expose à qui peut la puller. Elle est passée en **secret BuildKit** (`--secret`), monté sous `/run/secrets/<clé>` le temps d'un seul `RUN`, et absent de toutes les couches (INV-003).
+	// IsSecret Build secret (§5.2). A secret variable is **never** a `--build-arg`: an ARG is written into the image metadata and `docker history` exposes it to anyone who can pull it. It is passed as a **BuildKit secret** (`--secret`), mounted under `/run/secrets/<key>` for the duration of a single `RUN`, and absent from all layers (INV-003).
 	IsSecret *bool `json:"is_secret,omitempty"`
 
-	// Key Nom de la variable — unique par application.
+	// Key Name of the variable — unique per application.
 	Key string `json:"key"`
 
-	// Value Valeur — écrite mais restituée seulement avec `read:sensitive` (INV-003).
+	// Value Value — written but only returned with `read:sensitive` (INV-003).
 	Value *string `json:"value,omitempty"`
 }
 
-// EnvironmentVariableUpdate Mise à jour partielle. `key` n'est pas modifiable. Refusé sur une variable `is_locked`.
+// EnvironmentVariableUpdate Partial update. `key` is not modifiable. Refused on an `is_locked` variable.
 type EnvironmentVariableUpdate struct {
 	IsBuildTime *bool `json:"is_build_time,omitempty"`
 	IsLiteral   *bool `json:"is_literal,omitempty"`
 
-	// IsLocked Peut passer de faux à vrai (verrouillage), jamais l'inverse.
+	// IsLocked Can go from false to true (locking), never the reverse.
 	IsLocked    *bool   `json:"is_locked,omitempty"`
 	IsMultiline *bool   `json:"is_multiline,omitempty"`
 	IsSecret    *bool   `json:"is_secret,omitempty"`
 	Value       *string `json:"value,omitempty"`
 }
 
-// Error Schéma d'erreur unique de l'API (§24.1). Ne contient jamais de secret ni de stack trace.
+// Error Single error schema of the API (§24.1). Never contains a secret or a stack trace.
 type Error struct {
-	// Code Code d'erreur stable lisible machine. Valeurs notables — bad_request, unauthorized, forbidden, not_found, already_exists, dependency_exists, operation_in_progress, invalid_state, version_conflict, idempotency_conflict, validation_failed, rate_limited, internal.
+	// Code Stable machine-readable error code. Notable values — bad_request, unauthorized, forbidden, not_found, already_exists, dependency_exists, operation_in_progress, invalid_state, version_conflict, idempotency_conflict, validation_failed, rate_limited, internal.
 	Code string `json:"code"`
 
-	// Details Détails structurés et validés (erreurs de champ, contexte).
+	// Details Structured and validated details (field errors, context).
 	Details *[]ErrorDetail `json:"details,omitempty"`
 
-	// Message Message générique lisible humain (sans donnée sensible).
+	// Message Generic human-readable message (without sensitive data).
 	Message string `json:"message"`
 
-	// RequestId Identifiant de corrélation de la requête (repris dans les logs et l'audit, §23.4).
+	// RequestId Correlation identifier of the request (repeated in logs and audit, §23.4).
 	RequestId string `json:"request_id"`
 }
 
-// ErrorDetail Détail d'erreur — cible optionnelle et code spécifique.
+// ErrorDetail Error detail — optional target and specific code.
 type ErrorDetail struct {
-	// Code Code du détail (ex. required, invalid_url, out_of_range, current_version).
+	// Code Detail code (e.g. required, invalid_url, out_of_range, current_version).
 	Code *string `json:"code,omitempty"`
 
-	// Field Champ ou paramètre concerné (notation pointée), si applicable.
+	// Field Affected field or parameter (dotted notation), if applicable.
 	Field *string `json:"field,omitempty"`
 
-	// Message Explication lisible humain.
+	// Message Human-readable explanation.
 	Message string `json:"message"`
 }
 
-// GitRepository Dépôt découvert via l'installation (data dictionary §7.3).
+// GitRepository Repository discovered via the installation (data dictionary §7.3).
 type GitRepository struct {
 	DefaultBranch *string `json:"default_branch,omitempty"`
 	FullName      *string `json:"full_name,omitempty"`
@@ -3391,19 +3391,19 @@ type GitRepository struct {
 	Uuid          *string `json:"uuid,omitempty"`
 }
 
-// GithubApp GitHub App de la team (git-webhook-protocols §2) — créée par manifest flow, credentials chiffrés jamais exposés par l'API.
+// GithubApp The team's GitHub App (git-webhook-protocols §2) — created via manifest flow, encrypted credentials never exposed by the API.
 type GithubApp struct {
 	ApiUrl *string `json:"api_url,omitempty"`
 
-	// AppId ID chez GitHub — null tant que le manifest flow n'est pas terminé (brouillon).
+	// AppId ID at GitHub — null until the manifest flow is finished (draft).
 	AppId     *int       `json:"app_id,omitempty"`
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 	HtmlUrl   *string    `json:"html_url,omitempty"`
 
-	// InstallUrl URL d'installation chez GitHub (une fois convertie).
+	// InstallUrl Installation URL at GitHub (once converted).
 	InstallUrl *string `json:"install_url,omitempty"`
 
-	// InstallationId Null tant que l'app n'est pas installée sur un compte/organisation.
+	// InstallationId Null until the app is installed on an account/organization.
 	InstallationId *int    `json:"installation_id,omitempty"`
 	IsInstalled    *bool   `json:"is_installed,omitempty"`
 	Name           string  `json:"name"`
@@ -3414,42 +3414,42 @@ type GithubApp struct {
 
 // GithubAppCreateRequest defines model for GithubAppCreateRequest.
 type GithubAppCreateRequest struct {
-	// ApiUrl GitHub Enterprise Server — URL d'API (ex. https://ghe.example.com/api/v3).
+	// ApiUrl GitHub Enterprise Server — API URL (e.g. https://ghe.example.com/api/v3).
 	ApiUrl *string `json:"api_url,omitempty"`
 
-	// HtmlUrl GitHub Enterprise Server — URL web.
+	// HtmlUrl GitHub Enterprise Server — web URL.
 	HtmlUrl *string `json:"html_url,omitempty"`
 
-	// Name Nom souhaité de l'app (unicité globale chez GitHub, ≤ 34 caractères) — défaut généré depuis l'instance.
+	// Name Desired name of the app (globally unique at GitHub, ≤ 34 characters) — default generated from the instance.
 	Name *string `json:"name,omitempty"`
 
-	// Organization Organisation GitHub cible ; null = compte personnel.
+	// Organization Target GitHub organization; null = personal account.
 	Organization *string `json:"organization,omitempty"`
 }
 
-// GithubAppManifest Le nécessaire pour soumettre le manifest à GitHub (§2.1 étape 2).
+// GithubAppManifest What is needed to submit the manifest to GitHub (§2.1 step 2).
 type GithubAppManifest struct {
-	// GithubApp GitHub App de la team (git-webhook-protocols §2) — créée par manifest flow, credentials chiffrés jamais exposés par l'API.
+	// GithubApp The team's GitHub App (git-webhook-protocols §2) — created via manifest flow, encrypted credentials never exposed by the API.
 	GithubApp GithubApp `json:"github_app"`
 
-	// Manifest JSON du manifest, à poster dans le champ de formulaire `manifest`.
+	// Manifest JSON of the manifest, to post in the `manifest` form field.
 	Manifest map[string]interface{} `json:"manifest"`
 
-	// State Jeton anti-CSRF à usage unique (10 minutes) — passé en query `state`.
+	// State Single-use anti-CSRF token (10 minutes) — passed as the `state` query parameter.
 	State string `json:"state"`
 
-	// TargetUrl URL GitHub du formulaire de création (compte ou organisation).
+	// TargetUrl GitHub URL of the creation form (account or organization).
 	TargetUrl string `json:"target_url"`
 }
 
-// HealthCheckConfig Health check applicatif (§5.3) — conditionne le routage et le zero-downtime.
+// HealthCheckConfig Application health check (§5.3) — conditions routing and zero-downtime.
 type HealthCheckConfig struct {
 	Enabled         *bool   `json:"enabled,omitempty"`
 	IntervalSeconds *int    `json:"interval_seconds,omitempty"`
 	Method          *string `json:"method,omitempty"`
 	Path            *string `json:"path,omitempty"`
 
-	// Port Port testé — défaut = premier port exposé.
+	// Port Tested port — default = first exposed port.
 	Port               *int `json:"port,omitempty"`
 	Retries            *int `json:"retries,omitempty"`
 	StartPeriodSeconds *int `json:"start_period_seconds,omitempty"`
@@ -3458,75 +3458,75 @@ type HealthCheckConfig struct {
 
 // HealthStatus defines model for HealthStatus.
 type HealthStatus struct {
-	// Status Toujours `ok` si le control plane répond.
+	// Status Always `ok` if the control plane responds.
 	Status HealthStatusStatus `json:"status"`
 }
 
-// HealthStatusStatus Toujours `ok` si le control plane répond.
+// HealthStatusStatus Always `ok` if the control plane responds.
 type HealthStatusStatus string
 
 // InstanceIdentity defines model for InstanceIdentity.
 type InstanceIdentity struct {
-	// AcmeEmail Contact Let's Encrypt (§4.3). Sans lui, aucun certificat n'est émis.
+	// AcmeEmail Let's Encrypt contact (§4.3). Without it, no certificate is issued.
 	AcmeEmail *string `json:"acme_email,omitempty"`
 
-	// ApiEnabled État du verrou de l'API publique (§10.3). Les sessions du dashboard sont exemptées ; basculer via POST /system/api/enable|disable.
+	// ApiEnabled Lock state of the public API (§10.3). Dashboard sessions are exempt; toggle via POST /system/api/enable|disable.
 	ApiEnabled *bool `json:"api_enabled,omitempty"`
 
-	// Fqdn Nom d'hôte nu, sans schéma ni chemin (ex. `deploy.example.com`). `null` : instance sans FQDN, cookies non-`Secure`, HTTP simple toléré.
+	// Fqdn Bare hostname, without scheme or path (e.g. `deploy.example.com`). `null`: instance without FQDN, non-`Secure` cookies, plain HTTP tolerated.
 	Fqdn *string `json:"fqdn,omitempty"`
 
-	// ImageRetentionCount Nombre d'images de déploiement conservées localement par application (et par preview) pour le rollback (ADR-006, §29.4). Au-delà, les plus anciennes sont récupérées après un déploiement réussi ; l'image en service est toujours protégée. Défaut 5.
+	// ImageRetentionCount Number of deployment images kept locally per application (and per preview) for rollback (ADR-006, §29.4). Beyond that, the oldest ones are reclaimed after a successful deployment; the image in service is always protected. Default 5.
 	ImageRetentionCount *int `json:"image_retention_count,omitempty"`
 
-	// MfaRequired Quand vrai, la double authentification est obligatoire : un utilisateur sans facteur MFA est forcé d'en enrôler un avant de pouvoir utiliser l'instance (§10.2). Un facteur MFA est un TOTP confirmé OU une passkey (vérification utilisateur requise, donc multi-facteur à elle seule). Les connexions déléguées (OIDC/SSO) n'y sont pas soumises : le fournisseur d'identité porte le second facteur.
+	// MfaRequired When true, two-factor authentication is mandatory: a user without an MFA factor is forced to enroll one before being able to use the instance (§10.2). An MFA factor is a confirmed TOTP OR a passkey (user verification required, hence multi-factor on its own). Delegated logins (OIDC/SSO) are not subject to it: the identity provider carries the second factor.
 	MfaRequired *bool `json:"mfa_required,omitempty"`
 
-	// PasswordLoginDisabled SSO obligatoire (§10.2) : quand vrai, le login par mot de passe est refusé (sauf l'administrateur d'instance) — seuls les providers OIDC authentifient.
+	// PasswordLoginDisabled Mandatory SSO (§10.2): when true, password login is refused (except for the instance administrator) — only OIDC providers authenticate.
 	PasswordLoginDisabled *bool `json:"password_login_disabled,omitempty"`
 
-	// RegistrationEnabled Inscription en libre-service (§10.2). Fermée par défaut : personne ne crée de compte seul. Une invitation en attente autorise malgré tout la création de compte au premier login SSO, indépendamment de ce drapeau.
+	// RegistrationEnabled Self-service signup (§10.2). Closed by default: nobody creates an account on their own. A pending invitation nevertheless allows account creation at the first SSO login, regardless of this flag.
 	RegistrationEnabled *bool   `json:"registration_enabled,omitempty"`
 	Timezone            *string `json:"timezone,omitempty"`
 }
 
 // InstanceIdentityUpdate defines model for InstanceIdentityUpdate.
 type InstanceIdentityUpdate struct {
-	// AcmeEmail Chaîne vide ou `null` — efface le contact.
+	// AcmeEmail Empty string or `null` — clears the contact.
 	AcmeEmail *string `json:"acme_email,omitempty"`
 
-	// Fqdn Nom d'hôte nu (`[a-z0-9.-]`, au moins un point). Chaîne vide ou `null` : efface le FQDN.
+	// Fqdn Bare hostname (`[a-z0-9.-]`, at least one dot). Empty string or `null`: clears the FQDN.
 	Fqdn *string `json:"fqdn,omitempty"`
 
-	// ImageRetentionCount Nombre d'images de déploiement conservées par application/preview pour le rollback (ADR-006). Minimum 1. Absent = inchangé.
+	// ImageRetentionCount Number of deployment images kept per application/preview for rollback (ADR-006). Minimum 1. Absent = unchanged.
 	ImageRetentionCount *int `json:"image_retention_count,omitempty"`
 
-	// MfaRequired Active/désactive l'obligation de double authentification (§10.2). Absent = inchangé.
+	// MfaRequired Enables/disables mandatory two-factor authentication (§10.2). Absent = unchanged.
 	MfaRequired *bool `json:"mfa_required,omitempty"`
 
-	// PasswordLoginDisabled Active/désactive le mode SSO obligatoire (§10.2). Refusé si aucun provider OIDC n'est activé. Absent = inchangé.
+	// PasswordLoginDisabled Enables/disables mandatory SSO mode (§10.2). Refused if no OIDC provider is enabled. Absent = unchanged.
 	PasswordLoginDisabled *bool `json:"password_login_disabled,omitempty"`
 
-	// RegistrationEnabled Ouvre/ferme l'inscription en libre-service (§10.2). Absent = inchangé.
+	// RegistrationEnabled Opens/closes self-service signup (§10.2). Absent = unchanged.
 	RegistrationEnabled *bool `json:"registration_enabled,omitempty"`
 }
 
-// Invitation Invitation d'un membre dans une team.
+// Invitation Invitation of a member into a team.
 type Invitation struct {
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 
-	// CustomRoleName Nom du rôle custom quand `role` vaut `custom`.
+	// CustomRoleName Name of the custom role when `role` is `custom`.
 	CustomRoleName *string `json:"custom_role_name,omitempty"`
 
-	// CustomRoleUuid UUID du rôle custom quand `role` vaut `custom`.
+	// CustomRoleUuid UUID of the custom role when `role` is `custom`.
 	CustomRoleUuid *string             `json:"custom_role_uuid,omitempty"`
 	Email          openapi_types.Email `json:"email"`
 	ExpiresAt      time.Time           `json:"expires_at"`
 
-	// InviteUrl Lien d'acceptation — renvoyé uniquement à la création et uniquement si l'email transactionnel de l'instance n'est pas configuré (transmission manuelle).
+	// InviteUrl Acceptance link — returned only at creation and only if the instance's transactional email is not configured (manual delivery).
 	InviteUrl *string `json:"invite_url,omitempty"`
 
-	// InvitedBy UUID de l'utilisateur ou du token à l'origine de l'invitation.
+	// InvitedBy UUID of the user or token that originated the invitation.
 	InvitedBy *string           `json:"invited_by,omitempty"`
 	Role      InvitationRole    `json:"role"`
 	Status    *InvitationStatus `json:"status,omitempty"`
@@ -3541,53 +3541,53 @@ type InvitationStatus string
 
 // InvitationCreate defines model for InvitationCreate.
 type InvitationCreate struct {
-	// CustomRoleUuid UUID d'un rôle custom de la team, requis quand `role` vaut `custom`.
+	// CustomRoleUuid UUID of one of the team's custom roles, required when `role` is `custom`.
 	CustomRoleUuid *string `json:"custom_role_uuid,omitempty"`
 
-	// Email Email de la personne invitée.
+	// Email Email of the invited person.
 	Email openapi_types.Email `json:"email"`
 
-	// ExpiresInHours Durée de validité de l'invitation en heures (défaut 7 jours).
+	// ExpiresInHours Validity duration of the invitation in hours (default 7 days).
 	ExpiresInHours *int `json:"expires_in_hours,omitempty"`
 
-	// Role Rôle attribué à l'acceptation (ADR-038). `custom` exige `custom_role_uuid`.
+	// Role Role granted at acceptance (ADR-038). `custom` requires `custom_role_uuid`.
 	Role *InvitationCreateRole `json:"role,omitempty"`
 }
 
-// InvitationCreateRole Rôle attribué à l'acceptation (ADR-038). `custom` exige `custom_role_uuid`.
+// InvitationCreateRole Role granted at acceptance (ADR-038). `custom` requires `custom_role_uuid`.
 type InvitationCreateRole string
 
-// Job Opération asynchrone créée par une réponse `202` (§21.3, §24.1).
+// Job Asynchronous operation created by a `202` response (§21.3, §24.1).
 type Job struct {
-	// Attempt Numéro de tentative (retries §21.3).
+	// Attempt Attempt number (retries §21.3).
 	Attempt   *int       `json:"attempt,omitempty"`
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 
-	// DeadLetteredAt Passage en dead-letter, le cas échéant (§21.3).
+	// DeadLetteredAt Transition to dead-letter, if any (§21.3).
 	DeadLetteredAt *time.Time `json:"dead_lettered_at,omitempty"`
 
-	// Error Erreur finale en cas d'échec (même schéma que les erreurs HTTP, sans request_id pertinent).
+	// Error Final error on failure (same schema as HTTP errors, without a relevant request_id).
 	Error      *Error     `json:"error,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 
-	// Queue File logique du job (ex. deploy, backup, cleanup, maintenance — §24.3).
+	// Queue Logical queue of the job (e.g. deploy, backup, cleanup, maintenance — §24.3).
 	Queue        *string          `json:"queue,omitempty"`
 	ResourceType *JobResourceType `json:"resource_type,omitempty"`
 
-	// ResourceUuid Ressource principale concernée.
+	// ResourceUuid Main affected resource.
 	ResourceUuid *string `json:"resource_uuid,omitempty"`
 
-	// Result Résultat structuré en cas de succès (contenu selon le type de job, jamais de secret).
+	// Result Structured result on success (content depends on the job type, never a secret).
 	Result *map[string]interface{} `json:"result,omitempty"`
 
-	// RetryOfUuid UUID du job d'origine si ce job est une **nouvelle tentative liée** créée par un retry depuis la dead-letter (spec deployment-engine §2.4).
+	// RetryOfUuid UUID of the original job if this job is a **linked new attempt** created by a retry from the dead-letter (deployment-engine spec §2.4).
 	RetryOfUuid *string `json:"retry_of_uuid,omitempty"`
 
-	// Status Machine à états d'un job (§21.3). `succeeded`, `cancelled` et `dead_letter` sont terminaux — `dead_letter` signifie échec définitif après épuisement des retries.
+	// Status State machine of a job (§21.3). `succeeded`, `cancelled` and `dead_letter` are terminal — `dead_letter` means definitive failure after retries are exhausted.
 	Status JobStatus  `json:"status"`
 	Steps  *[]JobStep `json:"steps,omitempty"`
 
-	// Type Type de job — ex. server.validate, application.start, application.delete, database.start, backup.execute, backup.restore, certificate.renew, encryption.rotate.
+	// Type Job type — e.g. server.validate, application.start, application.delete, database.start, backup.execute, backup.restore, certificate.renew, encryption.rotate.
 	Type      *string    `json:"type,omitempty"`
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 	Uuid      *string    `json:"uuid,omitempty"`
@@ -3596,32 +3596,32 @@ type Job struct {
 // JobResourceType defines model for Job.ResourceType.
 type JobResourceType string
 
-// JobAccepted Réponse standard des mutations longues (§24.1) — `202` avec job de suivi.
+// JobAccepted Standard response of long-running mutations (§24.1) — `202` with a tracking job.
 type JobAccepted struct {
-	// JobUuid UUID du job créé.
+	// JobUuid UUID of the created job.
 	JobUuid string `json:"job_uuid"`
 
-	// StatusUrl URL de suivi du job (relative à /api/v1).
+	// StatusUrl Tracking URL of the job (relative to /api/v1).
 	StatusUrl string `json:"status_url"`
 }
 
-// JobForgetRequest Corps du forget d'un job en dead-letter.
+// JobForgetRequest Body of the forget of a dead-letter job.
 type JobForgetRequest struct {
-	// AcknowledgeRemnants Confirmation explicite que les restes distants du job (ex. `remnants` d'un `resource.delete`, §20.6.4) sont assumés ou ont été nettoyés manuellement. Requis (`true`) si le job laisse des restes distants, sinon `409` (`remnants_present`).
+	// AcknowledgeRemnants Explicit confirmation that the job's remote remnants (e.g. `remnants` of a `resource.delete`, §20.6.4) are accepted or have been cleaned up manually. Required (`true`) if the job leaves remote remnants, otherwise `409` (`remnants_present`).
 	AcknowledgeRemnants *bool `json:"acknowledge_remnants,omitempty"`
 }
 
-// JobStatus Machine à états d'un job (§21.3). `succeeded`, `cancelled` et `dead_letter` sont terminaux — `dead_letter` signifie échec définitif après épuisement des retries.
+// JobStatus State machine of a job (§21.3). `succeeded`, `cancelled` and `dead_letter` are terminal — `dead_letter` means definitive failure after retries are exhausted.
 type JobStatus string
 
-// JobStep Étape d'un job (visible, rejouable, avec remédiation — §20.1, §22.5).
+// JobStep Step of a job (visible, replayable, with remediation — §20.1, §22.5).
 type JobStep struct {
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 
-	// Message Détail ou instruction de remédiation en cas d'échec.
+	// Message Detail or remediation instruction in case of failure.
 	Message *string `json:"message,omitempty"`
 
-	// Name Identifiant de l'étape (ex. ssh_connect, install_docker).
+	// Name Identifier of the step (e.g. ssh_connect, install_docker).
 	Name      string        `json:"name"`
 	StartedAt *time.Time    `json:"started_at,omitempty"`
 	Status    JobStepStatus `json:"status"`
@@ -3630,23 +3630,23 @@ type JobStep struct {
 // JobStepStatus defines model for JobStep.Status.
 type JobStepStatus string
 
-// LogLine Ligne de log de build — neutralisée (ANSI/HTML, §23.3), jamais de secret (INV-003).
+// LogLine Build log line — sanitized (ANSI/HTML, §23.3), never a secret (INV-003).
 type LogLine struct {
-	// Channel Origine de la ligne (`system` = étapes du moteur de déploiement).
+	// Channel Origin of the line (`system` = deployment engine steps).
 	Channel LogLineChannel `json:"channel"`
 	Message string         `json:"message"`
 
-	// Sequence Numéro de séquence monotone — sert de curseur et de Last-Event-ID.
+	// Sequence Monotonic sequence number — serves as cursor and Last-Event-ID.
 	Sequence  int       `json:"sequence"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// LogLineChannel Origine de la ligne (`system` = étapes du moteur de déploiement).
+// LogLineChannel Origin of the line (`system` = deployment engine steps).
 type LogLineChannel string
 
-// MemberRoleUpdate Change le rôle d'un membre (ADR-038). Soit un rôle système (`role`), soit un rôle custom (`role: custom` + `custom_role_uuid`).
+// MemberRoleUpdate Changes a member's role (ADR-038). Either a system role (`role`), or a custom role (`role: custom` + `custom_role_uuid`).
 type MemberRoleUpdate struct {
-	// CustomRoleUuid Requis (et seulement lu) quand `role` vaut `custom`.
+	// CustomRoleUuid Required (and only read) when `role` is `custom`.
 	CustomRoleUuid *string              `json:"custom_role_uuid,omitempty"`
 	Role           MemberRoleUpdateRole `json:"role"`
 }
@@ -3654,7 +3654,7 @@ type MemberRoleUpdate struct {
 // MemberRoleUpdateRole defines model for MemberRoleUpdate.Role.
 type MemberRoleUpdateRole string
 
-// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+// NextCursor Opaque cursor of the next page — `null` on the last page.
 type NextCursor = string
 
 // NotificationChannel defines model for NotificationChannel.
@@ -3679,11 +3679,11 @@ type NotificationChannelCreate struct {
 	Pushover *PushoverConfig               `json:"pushover,omitempty"`
 	Resend   *ResendConfig                 `json:"resend,omitempty"`
 
-	// Smtp Configuration SMTP (amendement n°18). Le mot de passe est chiffré au repos et jamais renvoyé (INV-003).
+	// Smtp SMTP configuration (amendment
 	Smtp     *SmtpConfig     `json:"smtp,omitempty"`
 	Telegram *TelegramConfig `json:"telegram,omitempty"`
 
-	// Url URL du webhook (Slack, Discord, endpoint custom) — **requis** pour ces trois types. Sensible : chiffrée au repos, jamais renvoyée (INV-003).
+	// Url Webhook URL (Slack, Discord, custom endpoint) — **required** for these three types. Sensitive: encrypted at rest, never returned (INV-003).
 	Url *string `json:"url,omitempty"`
 }
 
@@ -3697,7 +3697,7 @@ type NotificationChannelUpdate struct {
 	Pushover *PushoverConfig `json:"pushover,omitempty"`
 	Resend   *ResendConfig   `json:"resend,omitempty"`
 
-	// Smtp Configuration SMTP (amendement n°18). Le mot de passe est chiffré au repos et jamais renvoyé (INV-003).
+	// Smtp SMTP configuration (amendment
 	Smtp     *SmtpConfig     `json:"smtp,omitempty"`
 	Telegram *TelegramConfig `json:"telegram,omitempty"`
 	Url      *string         `json:"url,omitempty"`
@@ -3707,24 +3707,24 @@ type NotificationChannelUpdate struct {
 type NotificationRule struct {
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 
-	// DebounceSeconds Fenêtre d'agrégation anti-flapping. Un événement `critical` la traverse toujours.
+	// DebounceSeconds Anti-flapping aggregation window. A `critical` event always goes through it.
 	DebounceSeconds *int  `json:"debounce_seconds,omitempty"`
 	DigestEnabled   *bool `json:"digest_enabled,omitempty"`
 
-	// DigestIntervalMinutes Fenêtre du résumé différé (ADR-019 §4). Un événement `critical` n'attend jamais un résumé.
+	// DigestIntervalMinutes Deferred digest window (ADR-019 §4). A `critical` event never waits for a digest.
 	DigestIntervalMinutes *int    `json:"digest_interval_minutes,omitempty"`
 	Enabled               bool    `json:"enabled"`
 	EnvironmentUuid       *string `json:"environment_uuid,omitempty"`
 
-	// EventType Type d'événement écouté (§24.2) : deployment.failed.v1, server.unreachable.v1…
+	// EventType Event type listened to (§24.2): deployment.failed.v1, server.unreachable.v1…
 	EventType   string                      `json:"event_type"`
 	MinSeverity NotificationRuleMinSeverity `json:"min_severity"`
 
-	// ProjectUuid Portée projet — `null` = toute la team.
+	// ProjectUuid Project scope — `null` = the whole team.
 	ProjectUuid   *string `json:"project_uuid,omitempty"`
 	QuietHoursEnd *string `json:"quiet_hours_end,omitempty"`
 
-	// QuietHoursStart Début des heures calmes (HH:MM). La fenêtre peut passer minuit (22:00 → 07:00).
+	// QuietHoursStart Start of quiet hours (HH:MM). The window may cross midnight (22:00 → 07:00).
 	QuietHoursStart *string `json:"quiet_hours_start,omitempty"`
 	Uuid            string  `json:"uuid"`
 }
@@ -3749,15 +3749,15 @@ type NotificationRuleCreate struct {
 // NotificationRuleCreateMinSeverity defines model for NotificationRuleCreate.MinSeverity.
 type NotificationRuleCreateMinSeverity string
 
-// OauthProviderConfig Fournisseur OAuth/OIDC du login dashboard (§10.2, amendement n°30). Le client secret n'apparaît jamais ici (INV-003).
+// OauthProviderConfig OAuth/OIDC provider for dashboard login (§10.2, amendment #30). The client secret never appears here (INV-003).
 type OauthProviderConfig struct {
 	ClientId string `json:"client_id"`
 
-	// DisplayName Libellé du bouton de login (utile surtout pour `oidc`, ex. « Okta »).
+	// DisplayName Label of the login button (mostly useful for `oidc`, e.g. "Okta").
 	DisplayName *string `json:"display_name,omitempty"`
 	Enabled     bool    `json:"enabled"`
 
-	// IssuerUrl Base de découverte OpenID Connect (`oidc` et `azure` uniquement).
+	// IssuerUrl OpenID Connect discovery base (`oidc` and `azure` only).
 	IssuerUrl *string                     `json:"issuer_url,omitempty"`
 	Provider  OauthProviderConfigProvider `json:"provider"`
 	UpdatedAt *time.Time                  `json:"updated_at,omitempty"`
@@ -3766,47 +3766,47 @@ type OauthProviderConfig struct {
 // OauthProviderConfigProvider defines model for OauthProviderConfig.Provider.
 type OauthProviderConfigProvider string
 
-// OauthProviderSet Remplacement complet de la configuration du fournisseur. Le secret est requis à chaque écriture : il est chiffré au repos et jamais relu par l'API, il n'y a donc rien à « conserver » silencieusement.
+// OauthProviderSet Full replacement of the provider configuration. The secret is required at every write: it is encrypted at rest and never read back by the API, so there is nothing to silently "keep".
 type OauthProviderSet struct {
 	ClientId     string  `json:"client_id"`
 	ClientSecret string  `json:"client_secret"`
 	DisplayName  *string `json:"display_name,omitempty"`
 	Enabled      *bool   `json:"enabled,omitempty"`
 
-	// IssuerUrl Obligatoire pour `oidc` et `azure` (ex. `https://login.microsoftonline.com/{tenant}/v2.0`), refusé pour les fournisseurs à endpoints fixes.
+	// IssuerUrl Required for `oidc` and `azure` (e.g. `https://login.microsoftonline.com/{tenant}/v2.0`), rejected for providers with fixed endpoints.
 	IssuerUrl *string `json:"issuer_url,omitempty"`
 }
 
-// ObservedStatus État observé d'une ressource (§21.2) — `unknown` si l'observation est trop ancienne (stale).
+// ObservedStatus Observed state of a resource (§21.2) — `unknown` if the observation is too old (stale).
 type ObservedStatus string
 
-// PermissionCatalogEntry Une permission granulaire du catalogue (ADR-038), avec ses prérequis — de quoi construire le composeur de rôles custom côté UI.
+// PermissionCatalogEntry A granular permission from the catalog (ADR-038), with its prerequisites — everything needed to build the custom role composer on the UI side.
 type PermissionCatalogEntry struct {
-	// InstanceScoped Vrai si la permission est réservée à l'instance (jamais assignable à un rôle custom).
+	// InstanceScoped True if the permission is instance-only (never assignable to a custom role).
 	InstanceScoped *bool `json:"instance_scoped,omitempty"`
 
-	// Permission Identifiant `domaine:action`.
+	// Permission `domain:action` identifier.
 	Permission string `json:"permission"`
 
-	// Prerequisites Permissions impliquées automatiquement (fermeture des dépendances).
+	// Prerequisites Permissions implied automatically (dependency closure).
 	Prerequisites []string `json:"prerequisites"`
 
-	// Socle Socle coarse (§10.3).
+	// Socle Coarse base permission (§10.3).
 	Socle PermissionCatalogEntrySocle `json:"socle"`
 }
 
-// PermissionCatalogEntrySocle Socle coarse (§10.3).
+// PermissionCatalogEntrySocle Coarse base permission (§10.3).
 type PermissionCatalogEntrySocle string
 
-// PersistentStorage Stockage persistant d'une application (§8) — les données survivent aux déploiements.
+// PersistentStorage Persistent storage of an application (§8) — the data survives deployments.
 type PersistentStorage struct {
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 
-	// DockerVolumeName Nom Docker réel du volume (`<resource_uuid>_<name>`), déterministe.
+	// DockerVolumeName Actual Docker name of the volume (`<resource_uuid>_<name>`), deterministic.
 	DockerVolumeName *string `json:"docker_volume_name,omitempty"`
 	HostPath         *string `json:"host_path,omitempty"`
 
-	// IsGenerated Miroir d'un volume déclaré dans le fichier compose (§2.4) — réécrit à chaque déploiement, non éditable : le fichier fait foi.
+	// IsGenerated Mirror of a volume declared in the compose file (§2.4) — rewritten at each deployment, not editable: the file is authoritative.
 	IsGenerated *bool                 `json:"is_generated,omitempty"`
 	Kind        PersistentStorageKind `json:"kind"`
 	MountPath   string                `json:"mount_path"`
@@ -3819,45 +3819,45 @@ type PersistentStorageKind string
 
 // PersistentStorageCreate defines model for PersistentStorageCreate.
 type PersistentStorageCreate struct {
-	// HostPath (kind bind) Chemin absolu sur le serveur. Requis pour `bind`.
+	// HostPath (bind kind) Absolute path on the server. Required for `bind`.
 	HostPath *string `json:"host_path,omitempty"`
 
-	// Kind Volume Docker nommé (recommandé) ou bind mount d'un répertoire hôte (§8).
+	// Kind Named Docker volume (recommended) or bind mount of a host directory (§8).
 	Kind PersistentStorageCreateKind `json:"kind"`
 
-	// MountPath Chemin de montage dans le container — unique par ressource.
+	// MountPath Mount path inside the container — unique per resource.
 	MountPath string `json:"mount_path"`
 
-	// Name (kind volume) Nom logique du volume — le nom Docker réel est préfixé par l'UUID de la ressource (INV-011). Requis pour `volume`.
+	// Name (volume kind) Logical name of the volume — the actual Docker name is prefixed with the resource's UUID (INV-011). Required for `volume`.
 	Name *string `json:"name,omitempty"`
 }
 
-// PersistentStorageCreateKind Volume Docker nommé (recommandé) ou bind mount d'un répertoire hôte (§8).
+// PersistentStorageCreateKind Named Docker volume (recommended) or bind mount of a host directory (§8).
 type PersistentStorageCreateKind string
 
-// PortForwardCreate Demande d'ouverture d'un tunnel TCP vers un container de la ressource (ADR-032). La cible (container, port) est **figée et autorisée à la création** ; le tunnel lui-même passe par le WebSocket `websocket_path` (hors OpenAPI). `component` désigne le service pour une stack compose.
+// PortForwardCreate Request to open a TCP tunnel to a container of the resource (ADR-032). The target (container, port) is **frozen and authorized at creation**; the tunnel itself goes through the WebSocket `websocket_path` (outside OpenAPI). `component` designates the service for a compose stack.
 type PortForwardCreate struct {
-	// Port Port interne du container cible.
+	// Port Internal port of the target container.
 	Port int `json:"port"`
 }
 
-// PortForwardSession Session de tunnel TCP (ADR-032). Même contrat de token que le terminal (§24.4) : token d'attache **à usage unique**, renvoyé une seule fois, seul son hash est stocké (§23.2). Bornée à la team, auditée à l'ouverture et à la fermeture, idle timeout / durée maximum / heartbeat / teardown garanti. `409` si la team atteint son plafond (`port_forward_limit`).
+// PortForwardSession TCP tunnel session (ADR-032). Same token contract as the terminal (§24.4): **single-use** attach token, returned once, only its hash is stored (§23.2). Scoped to the team, audited on open and close, idle timeout / maximum duration / heartbeat / guaranteed teardown. `409` if the team reaches its cap (`port_forward_limit`).
 type PortForwardSession struct {
-	// Port Port interne du container cible, figé à la création.
+	// Port Internal port of the target container, frozen at creation.
 	Port int `json:"port"`
 
-	// Token Token d'attache à usage unique, renvoyé uniquement ici, jamais relu — seul son hash est stocké (§23.2, §24.4).
+	// Token Single-use attach token, returned only here, never read back — only its hash is stored (§23.2, §24.4).
 	Token string `json:"token"`
 
-	// TokenExpiresAt Expiration (courte) du token d'attache, pas de la session.
+	// TokenExpiresAt (Short-lived) expiration of the attach token, not of the session.
 	TokenExpiresAt time.Time `json:"token_expires_at"`
 	Uuid           string    `json:"uuid"`
 
-	// WebsocketPath Chemin du WebSocket à ouvrir sur la **même origine** que l'API, token en query string (`?token=…`). Sous-protocole `akerdock-tunnel-v1`, hors OpenAPI (§27.24, ADR-032).
+	// WebsocketPath Path of the WebSocket to open on the **same origin** as the API, token in the query string (`?token=…`). Subprotocol `akerdock-tunnel-v1`, outside OpenAPI (§27.24, ADR-032).
 	WebsocketPath string `json:"websocket_path"`
 }
 
-// Preview Environnement éphémère d'une PR (§20.4, data dictionary §8.9).
+// Preview Ephemeral environment of a PR (§20.4, data dictionary §8.9).
 type Preview struct {
 	CreatedAt      *time.Time `json:"created_at,omitempty"`
 	ForkApproved   *bool      `json:"fork_approved,omitempty"`
@@ -3869,42 +3869,42 @@ type Preview struct {
 	Provider       *string    `json:"provider,omitempty"`
 	SourceBranch   *string    `json:"source_branch,omitempty"`
 
-	// Status État de la preview (§20.4). `sleeping`/`waking` = scale-to-zero (ADR-036) : endormie par inactivité (arrêt volontaire, pas un « down »), et réveillée à la volée par le waker sur la première requête.
+	// Status State of the preview (§20.4). `sleeping`/`waking` = scale-to-zero (ADR-036): put to sleep on inactivity (a voluntary stop, not a "down"), and woken on the fly by the waker on the first request.
 	Status *PreviewStatus `json:"status,omitempty"`
 	Uuid   *string        `json:"uuid,omitempty"`
 }
 
-// PreviewStatus État de la preview (§20.4). `sleeping`/`waking` = scale-to-zero (ADR-036) : endormie par inactivité (arrêt volontaire, pas un « down »), et réveillée à la volée par le waker sur la première requête.
+// PreviewStatus State of the preview (§20.4). `sleeping`/`waking` = scale-to-zero (ADR-036): put to sleep on inactivity (a voluntary stop, not a "down"), and woken on the fly by the waker on the first request.
 type PreviewStatus string
 
-// PreviewRouteTemplate Une route de preview (ADR-035). `host` accepte {{pr_id}}, {{service}}, {{domain}}, {{random}}. Un `host` avec {{service}} est appliqué à chaque service servi ; sans {{service}}, le service cible est résolu par `port`.
+// PreviewRouteTemplate A preview route (ADR-035). `host` accepts {{pr_id}}, {{service}}, {{domain}}, {{random}}. A `host` with {{service}} is applied to each served service; without {{service}}, the target service is resolved by `port`.
 type PreviewRouteTemplate struct {
-	// Host Motif d'hôte (sans schéma), ex. `varuna-pr{{pr_id}}.ad.kedric.fr`.
+	// Host Host pattern (without scheme), e.g. `varuna-pr{{pr_id}}.ad.kedric.fr`.
 	Host string `json:"host"`
 
-	// Port Port interne cible ; null = port exposé par défaut / port du service.
+	// Port Target internal port; null = default exposed port / service port.
 	Port *int `json:"port,omitempty"`
 }
 
-// PrivateKey Clé SSH privée. Le champ `private_key` n'est renseigné que sur `GET` unitaire avec permission `read:sensitive` ET `reveal=true` (INV-003) ; sinon `null` et `is_redacted=true`.
+// PrivateKey Private SSH key. The `private_key` field is only populated on a single-resource `GET` with the `read:sensitive` permission AND `reveal=true` (INV-003); otherwise `null` and `is_redacted=true`.
 type PrivateKey struct {
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
 	Description *string    `json:"description,omitempty"`
 
-	// Fingerprint Fingerprint SHA256 de la clé publique dérivée.
+	// Fingerprint SHA256 fingerprint of the derived public key.
 	Fingerprint *string `json:"fingerprint,omitempty"`
 
-	// InUse Vrai si la clé est référencée par au moins un serveur ou une application.
+	// InUse True if the key is referenced by at least one server or application.
 	InUse *bool `json:"in_use,omitempty"`
 
-	// IsRedacted Vrai si `private_key` a été masqué faute de permission ou de `reveal=true`.
+	// IsRedacted True if `private_key` was masked for lack of permission or of `reveal=true`.
 	IsRedacted *bool  `json:"is_redacted,omitempty"`
 	Name       string `json:"name"`
 
-	// PrivateKey Matériel privé — voir conditions de révélation dans la description du schéma.
+	// PrivateKey Private material — see reveal conditions in the schema description.
 	PrivateKey *string `json:"private_key,omitempty"`
 
-	// PublicKey Clé publique dérivée (utilisable comme deploy key).
+	// PublicKey Derived public key (usable as a deploy key).
 	PublicKey *string    `json:"public_key,omitempty"`
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 	Uuid      *string    `json:"uuid,omitempty"`
@@ -3916,32 +3916,32 @@ type PrivateKeyCreate struct {
 	Description *string `json:"description,omitempty"`
 	Name        string  `json:"name"`
 
-	// PrivateKey Matériel de clé privée SSH au format PEM/OpenSSH, sans passphrase (§3.1). Stocké chiffré (AEAD, §23.2) ; jamais renvoyé dans la réponse de création.
+	// PrivateKey Private SSH key material in PEM/OpenSSH format, without a passphrase (§3.1). Stored encrypted (AEAD, §23.2); never returned in the creation response.
 	PrivateKey *string `json:"private_key,omitempty"`
 }
 
-// PrivateKeyUpdate Mise à jour partielle. Fournir `private_key` remplace le matériel (rotation).
+// PrivateKeyUpdate Partial update. Providing `private_key` replaces the material (rotation).
 type PrivateKeyUpdate struct {
 	Description *string `json:"description,omitempty"`
 	Name        *string `json:"name,omitempty"`
 
-	// PrivateKey Nouveau matériel de clé (rotation). Les serveurs référencés repassent en `pending`.
+	// PrivateKey New key material (rotation). Referencing servers move back to `pending`.
 	PrivateKey *string `json:"private_key,omitempty"`
 }
 
-// Project Projet — regroupement logique d'environnements (§2).
+// Project Project — logical grouping of environments (§2).
 type Project struct {
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
 	Description *string    `json:"description,omitempty"`
 
-	// Environments Environnements du projet (résumé, non paginé — borné en pratique).
+	// Environments The project's environments (summary, not paginated — bounded in practice).
 	Environments *[]Environment `json:"environments,omitempty"`
 	Name         string         `json:"name"`
 	TeamUuid     *string        `json:"team_uuid,omitempty"`
 	UpdatedAt    *time.Time     `json:"updated_at,omitempty"`
 	Uuid         *string        `json:"uuid,omitempty"`
 
-	// Version Version optimiste (reflétée dans l'ETag).
+	// Version Optimistic version (reflected in the ETag).
 	Version *int `json:"version,omitempty"`
 }
 
@@ -3951,7 +3951,7 @@ type ProjectCreate struct {
 	Name        string  `json:"name"`
 }
 
-// ProjectUpdate Mise à jour partielle — seuls les champs fournis sont modifiés.
+// ProjectUpdate Partial update — only the provided fields are modified.
 type ProjectUpdate struct {
 	Description *string `json:"description,omitempty"`
 	Name        *string `json:"name,omitempty"`
@@ -3963,15 +3963,15 @@ type PushoverConfig struct {
 	UserKey string `json:"user_key"`
 }
 
-// RegistryCredential Credential d'un registry privé (§6.5). Le mot de passe **n'est jamais renvoyé**, quelle que soit la permission : il n'existe qu'au bout d'un `docker login --password-stdin` sur le serveur (INV-003).
+// RegistryCredential Credential of a private registry (§6.5). The password **is never returned**, whatever the permission: it only exists at the end of a `docker login --password-stdin` on the server (INV-003).
 type RegistryCredential struct {
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 
-	// InUse Vrai si une application ou un artifact de rollback en dépend — la suppression est alors refusée en 409 (§19.2).
+	// InUse True if an application or a rollback artifact depends on it — deletion is then refused with 409 (§19.2).
 	InUse *bool  `json:"in_use,omitempty"`
 	Name  string `json:"name"`
 
-	// RegistryUrl Ex. ghcr.io, registry.gitlab.com — validé par la policy SSRF (§23.3).
+	// RegistryUrl E.g. ghcr.io, registry.gitlab.com — validated by the SSRF policy (§23.3).
 	RegistryUrl string     `json:"registry_url"`
 	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
 	Username    string     `json:"username"`
@@ -3983,7 +3983,7 @@ type RegistryCredential struct {
 type RegistryCredentialCreate struct {
 	Name string `json:"name"`
 
-	// Password Mot de passe ou token. Chiffré au repos (ADR-003), jamais relu par l'API.
+	// Password Password or token. Encrypted at rest (ADR-003), never read back by the API.
 	Password    string `json:"password"`
 	RegistryUrl string `json:"registry_url"`
 	Username    string `json:"username"`
@@ -4004,26 +4004,26 @@ type ResendConfig struct {
 	To     []string `json:"to"`
 }
 
-// ResourceLimits Limites de ressources du container (§5.3).
+// ResourceLimits Resource limits of the container (§5.3).
 type ResourceLimits struct {
-	// CpuLimit Limite CPU (ex. 0.5, 2).
+	// CpuLimit CPU limit (e.g. 0.5, 2).
 	CpuLimit *string `json:"cpu_limit,omitempty"`
 
-	// CpuSet CPUs autorisés (ex. 0-2).
+	// CpuSet Allowed CPUs (e.g. 0-2).
 	CpuSet    *string `json:"cpu_set,omitempty"`
 	CpuShares *int    `json:"cpu_shares,omitempty"`
 
-	// MemoryLimit Limite mémoire (ex. 512m, 2g). `null` = illimité.
+	// MemoryLimit Memory limit (e.g. 512m, 2g). `null` = unlimited.
 	MemoryLimit       *string `json:"memory_limit,omitempty"`
 	MemoryReservation *string `json:"memory_reservation,omitempty"`
 	MemorySwap        *string `json:"memory_swap,omitempty"`
 }
 
-// RestoreDrill Une répétition de restauration (ADR-014). `tables_expected` est le nombre de tables comptées **dans la base source au moment du dump** : un dump peut se décompresser proprement, se restaurer sans erreur et ne rien contenir — un `psql` qui restaure du vide sort en 0. Le drill compare, il ne se contente pas de ne pas échouer.
+// RestoreDrill A restore rehearsal (ADR-014). `tables_expected` is the number of tables counted **in the source database at dump time**: a dump can decompress cleanly, restore without error and contain nothing — a `psql` restoring emptiness exits with 0. The drill compares, it does not settle for not failing.
 type RestoreDrill struct {
 	DurationMs *int `json:"duration_ms,omitempty"`
 
-	// ErrorMessage Raison de l'échec — jamais un credential.
+	// ErrorMessage Failure reason — never a credential.
 	ErrorMessage   *string            `json:"error_message,omitempty"`
 	ExecutionUuid  *string            `json:"execution_uuid,omitempty"`
 	FinishedAt     *time.Time         `json:"finished_at,omitempty"`
@@ -4037,33 +4037,33 @@ type RestoreDrill struct {
 // RestoreDrillStatus defines model for RestoreDrill.Status.
 type RestoreDrillStatus string
 
-// RestoreRequest Demande de restore — opération destructive à confirmation explicite (§20.5).
+// RestoreRequest Restore request — destructive operation with explicit confirmation (§20.5).
 type RestoreRequest struct {
-	// AllowNonEmpty Confirmation renforcée requise pour restaurer vers une base non vide (§20.5).
+	// AllowNonEmpty Reinforced confirmation required to restore into a non-empty database (§20.5).
 	AllowNonEmpty *bool `json:"allow_non_empty,omitempty"`
 
-	// Confirm DOIT valoir `true` — toute autre valeur → `422`.
+	// Confirm MUST be `true` — any other value → `422`.
 	Confirm bool `json:"confirm"`
 
-	// CustomCommand Commande de restore personnalisée (défaut pg_restore, §7.3). Validée et échappée côté serveur (INV-012).
+	// CustomCommand Custom restore command (default pg_restore, §7.3). Validated and escaped server-side (INV-012).
 	CustomCommand *string `json:"custom_command,omitempty"`
 
-	// Source Emplacement du fichier à utiliser — `s3` télécharge d'abord l'objet distant.
+	// Source Location of the file to use — `s3` downloads the remote object first.
 	Source *RestoreRequestSource `json:"source,omitempty"`
 }
 
-// RestoreRequestSource Emplacement du fichier à utiliser — `s3` télécharge d'abord l'objet distant.
+// RestoreRequestSource Location of the file to use — `s3` downloads the remote object first.
 type RestoreRequestSource string
 
-// RetentionPolicy Règles de rétention cumulatives (§7.2) — 0 = illimité.
+// RetentionPolicy Cumulative retention rules (§7.2) — 0 = unlimited.
 type RetentionPolicy struct {
-	// MaxAgeDays Ancienneté maximale en jours.
+	// MaxAgeDays Maximum age in days.
 	MaxAgeDays *int `json:"max_age_days,omitempty"`
 
-	// MaxCount Nombre maximal de backups conservés.
+	// MaxCount Maximum number of backups kept.
 	MaxCount *int `json:"max_count,omitempty"`
 
-	// MaxSizeGb Taille totale maximale en Go.
+	// MaxSizeGb Maximum total size in GB.
 	MaxSizeGb *float32 `json:"max_size_gb,omitempty"`
 }
 
@@ -4072,33 +4072,33 @@ type S3Storage struct {
 	Bucket    string    `json:"bucket"`
 	CreatedAt time.Time `json:"created_at"`
 
-	// Endpoint Endpoint S3 (https://s3.eu-west-3.amazonaws.com, MinIO self-hosted…).
+	// Endpoint S3 endpoint (https://s3.eu-west-3.amazonaws.com, self-hosted MinIO…).
 	Endpoint string `json:"endpoint"`
 
-	// IsUsable Un aller-retour écriture/lecture/suppression a réussi (§20.5).
+	// IsUsable A write/read/delete round-trip succeeded (§20.5).
 	IsUsable bool `json:"is_usable"`
 
-	// LastCheckError Raison du dernier échec de vérification — jamais un credential.
+	// LastCheckError Reason of the last check failure — never a credential.
 	LastCheckError *string `json:"last_check_error,omitempty"`
 	Name           string  `json:"name"`
 
-	// PathPrefix Préfixe des objets déposés dans le bucket.
+	// PathPrefix Prefix of the objects stored in the bucket.
 	PathPrefix *string `json:"path_prefix,omitempty"`
 	Region     *string `json:"region,omitempty"`
 
-	// ServerSideEncryption Chiffrement au repos demandé aux uploads (SSE-S3). `null` = aucun (le store peut tout de même appliquer un chiffrement par défaut).
+	// ServerSideEncryption Encryption at rest requested for uploads (SSE-S3). `null` = none (the store may still apply a default encryption).
 	ServerSideEncryption *S3StorageServerSideEncryption `json:"server_side_encryption,omitempty"`
 	UpdatedAt            *time.Time                     `json:"updated_at,omitempty"`
 	Uuid                 string                         `json:"uuid"`
 	Version              int                            `json:"version"`
 }
 
-// S3StorageServerSideEncryption Chiffrement au repos demandé aux uploads (SSE-S3). `null` = aucun (le store peut tout de même appliquer un chiffrement par défaut).
+// S3StorageServerSideEncryption Encryption at rest requested for uploads (SSE-S3). `null` = none (the store may still apply a default encryption).
 type S3StorageServerSideEncryption string
 
 // S3StorageCreate defines model for S3StorageCreate.
 type S3StorageCreate struct {
-	// AccessKey Sensible — chiffré au repos, jamais renvoyé (INV-003).
+	// AccessKey Sensitive — encrypted at rest, never returned (INV-003).
 	AccessKey  string  `json:"access_key"`
 	Bucket     string  `json:"bucket"`
 	Endpoint   string  `json:"endpoint"`
@@ -4106,14 +4106,14 @@ type S3StorageCreate struct {
 	PathPrefix *string `json:"path_prefix,omitempty"`
 	Region     *string `json:"region,omitempty"`
 
-	// SecretKey Sensible — chiffré au repos, jamais renvoyé (INV-003).
+	// SecretKey Sensitive — encrypted at rest, never returned (INV-003).
 	SecretKey string `json:"secret_key"`
 
-	// ServerSideEncryption Chiffrement au repos SSE-S3 des uploads (`null`/absent = aucun).
+	// ServerSideEncryption SSE-S3 encryption at rest of uploads (`null`/absent = none).
 	ServerSideEncryption *S3StorageCreateServerSideEncryption `json:"server_side_encryption,omitempty"`
 }
 
-// S3StorageCreateServerSideEncryption Chiffrement au repos SSE-S3 des uploads (`null`/absent = aucun).
+// S3StorageCreateServerSideEncryption SSE-S3 encryption at rest of uploads (`null`/absent = none).
 type S3StorageCreateServerSideEncryption string
 
 // S3StorageUpdate defines model for S3StorageUpdate.
@@ -4126,33 +4126,33 @@ type S3StorageUpdate struct {
 	Region     *string `json:"region,omitempty"`
 	SecretKey  *string `json:"secret_key,omitempty"`
 
-	// ServerSideEncryption Chiffrement au repos SSE-S3 des uploads (`null`/absent = aucun).
+	// ServerSideEncryption SSE-S3 encryption at rest of uploads (`null`/absent = none).
 	ServerSideEncryption *S3StorageUpdateServerSideEncryption `json:"server_side_encryption,omitempty"`
 }
 
-// S3StorageUpdateServerSideEncryption Chiffrement au repos SSE-S3 des uploads (`null`/absent = aucun).
+// S3StorageUpdateServerSideEncryption SSE-S3 encryption at rest of uploads (`null`/absent = none).
 type S3StorageUpdateServerSideEncryption string
 
-// ScheduledTask Cron exécutant une commande dans le container d'une ressource (§192).
+// ScheduledTask Cron running a command inside a resource's container (§192).
 type ScheduledTask struct {
 	ApplicationUuid *string `json:"application_uuid,omitempty"`
 
-	// Command Commande passée au shell du container — jamais assainie (c'est du shell voulu), toujours quotée (INV-012).
+	// Command Command passed to the container's shell — never sanitized (it is intended shell), always quoted (INV-012).
 	Command string `json:"command"`
 
-	// Container Container cible dans un stack ; `null` = le container de la ressource.
+	// Container Target container within a stack; `null` = the resource's container.
 	Container      *string    `json:"container,omitempty"`
 	CreatedAt      *time.Time `json:"created_at,omitempty"`
 	CronExpression string     `json:"cron_expression"`
 	Enabled        *bool      `json:"enabled,omitempty"`
 	LastRunAt      *time.Time `json:"last_run_at,omitempty"`
 
-	// MissedRunPolicy Que faire d'une occurrence que le scheduler n'a pas vue à temps (instance arrêtée). `run` (défaut) la déclenche une fois au redémarrage — un nettoyage nocturne raté reste utile ; `skip` l'abandonne — un « résumé de 9h » envoyé à 15h est du bruit. Dans les deux cas, l'occurrence manquée est **tracée** (`skipped` + raison), jamais oubliée en silence.
+	// MissedRunPolicy What to do with an occurrence the scheduler did not see in time (instance stopped). `run` (default) triggers it once at restart — a missed nightly cleanup is still useful; `skip` drops it — a "9 a.m. digest" sent at 3 p.m. is noise. In both cases, the missed occurrence is **traced** (`skipped` + reason), never silently forgotten.
 	MissedRunPolicy *TaskMissedRunPolicy `json:"missed_run_policy,omitempty"`
 	Name            string               `json:"name"`
 	NextRunAt       *time.Time           `json:"next_run_at,omitempty"`
 
-	// OverlapPolicy Que faire quand une occurrence tombe alors que l'exécution précédente tourne encore. `skip` (défaut) abandonne l'occurrence — un cron qui déclenche plus vite qu'il ne finit ne doit pas empiler les exécutions sur le serveur ; `queue` la met en file derrière la précédente.
+	// OverlapPolicy What to do when an occurrence fires while the previous execution is still running. `skip` (default) drops the occurrence — a cron that fires faster than it finishes must not pile up executions on the server; `queue` queues it behind the previous one.
 	OverlapPolicy  *TaskOverlapPolicy `json:"overlap_policy,omitempty"`
 	TimeoutSeconds *int               `json:"timeout_seconds,omitempty"`
 	Timezone       *string            `json:"timezone,omitempty"`
@@ -4168,11 +4168,11 @@ type ScheduledTaskCreate struct {
 	CronExpression string  `json:"cron_expression"`
 	Enabled        *bool   `json:"enabled,omitempty"`
 
-	// MissedRunPolicy Que faire d'une occurrence que le scheduler n'a pas vue à temps (instance arrêtée). `run` (défaut) la déclenche une fois au redémarrage — un nettoyage nocturne raté reste utile ; `skip` l'abandonne — un « résumé de 9h » envoyé à 15h est du bruit. Dans les deux cas, l'occurrence manquée est **tracée** (`skipped` + raison), jamais oubliée en silence.
+	// MissedRunPolicy What to do with an occurrence the scheduler did not see in time (instance stopped). `run` (default) triggers it once at restart — a missed nightly cleanup is still useful; `skip` drops it — a "9 a.m. digest" sent at 3 p.m. is noise. In both cases, the missed occurrence is **traced** (`skipped` + reason), never silently forgotten.
 	MissedRunPolicy *TaskMissedRunPolicy `json:"missed_run_policy,omitempty"`
 	Name            string               `json:"name"`
 
-	// OverlapPolicy Que faire quand une occurrence tombe alors que l'exécution précédente tourne encore. `skip` (défaut) abandonne l'occurrence — un cron qui déclenche plus vite qu'il ne finit ne doit pas empiler les exécutions sur le serveur ; `queue` la met en file derrière la précédente.
+	// OverlapPolicy What to do when an occurrence fires while the previous execution is still running. `skip` (default) drops the occurrence — a cron that fires faster than it finishes must not pile up executions on the server; `queue` queues it behind the previous one.
 	OverlapPolicy  *TaskOverlapPolicy `json:"overlap_policy,omitempty"`
 	TimeoutSeconds *int               `json:"timeout_seconds,omitempty"`
 	Timezone       *string            `json:"timezone,omitempty"`
@@ -4185,11 +4185,11 @@ type ScheduledTaskUpdate struct {
 	CronExpression *string `json:"cron_expression,omitempty"`
 	Enabled        *bool   `json:"enabled,omitempty"`
 
-	// MissedRunPolicy Que faire d'une occurrence que le scheduler n'a pas vue à temps (instance arrêtée). `run` (défaut) la déclenche une fois au redémarrage — un nettoyage nocturne raté reste utile ; `skip` l'abandonne — un « résumé de 9h » envoyé à 15h est du bruit. Dans les deux cas, l'occurrence manquée est **tracée** (`skipped` + raison), jamais oubliée en silence.
+	// MissedRunPolicy What to do with an occurrence the scheduler did not see in time (instance stopped). `run` (default) triggers it once at restart — a missed nightly cleanup is still useful; `skip` drops it — a "9 a.m. digest" sent at 3 p.m. is noise. In both cases, the missed occurrence is **traced** (`skipped` + reason), never silently forgotten.
 	MissedRunPolicy *TaskMissedRunPolicy `json:"missed_run_policy,omitempty"`
 	Name            *string              `json:"name,omitempty"`
 
-	// OverlapPolicy Que faire quand une occurrence tombe alors que l'exécution précédente tourne encore. `skip` (défaut) abandonne l'occurrence — un cron qui déclenche plus vite qu'il ne finit ne doit pas empiler les exécutions sur le serveur ; `queue` la met en file derrière la précédente.
+	// OverlapPolicy What to do when an occurrence fires while the previous execution is still running. `skip` (default) drops the occurrence — a cron that fires faster than it finishes must not pile up executions on the server; `queue` queues it behind the previous one.
 	OverlapPolicy  *TaskOverlapPolicy `json:"overlap_policy,omitempty"`
 	TimeoutSeconds *int               `json:"timeout_seconds,omitempty"`
 	Timezone       *string            `json:"timezone,omitempty"`
@@ -4205,7 +4205,7 @@ type ScimToken struct {
 
 // ScimTokenCreate defines model for ScimTokenCreate.
 type ScimTokenCreate struct {
-	// Name Nom lisible du token (ex. okta-prod).
+	// Name Readable name of the token (e.g. okta-prod).
 	Name string `json:"name"`
 }
 
@@ -4214,62 +4214,62 @@ type ScimTokenCreated struct {
 	CreatedAt time.Time `json:"created_at"`
 	Name      string    `json:"name"`
 
-	// ScimBaseUrl URL de base SCIM à configurer dans l'IdP (…/scim/v2).
+	// ScimBaseUrl SCIM base URL to configure in the IdP (…/scim/v2).
 	ScimBaseUrl string `json:"scim_base_url"`
 
-	// Token Valeur claire — affichée une seule fois (§23.2).
+	// Token Clear value — shown only once (§23.2).
 	Token string `json:"token"`
 	Uuid  string `json:"uuid"`
 }
 
-// Server Serveur cible SSH (§3) — états du cycle de vie §21.2.
+// Server SSH target server (§3) — lifecycle states §21.2.
 type Server struct {
-	// Architecture Architecture détectée à la validation.
+	// Architecture Architecture detected at validation.
 	Architecture            *ServerArchitecture `json:"architecture,omitempty"`
 	CleanupCron             *string             `json:"cleanup_cron,omitempty"`
 	CleanupDiskThresholdPct *int                `json:"cleanup_disk_threshold_pct,omitempty"`
 
-	// CleanupEnabled Nettoyage disque automatisé (§3.7) — opt-in.
+	// CleanupEnabled Automated disk cleanup (§3.7) — opt-in.
 	CleanupEnabled *bool `json:"cleanup_enabled,omitempty"`
 
-	// CleanupLastRunAt Dernier nettoyage déclenché (cron, seuil ou manuel).
+	// CleanupLastRunAt Last cleanup triggered (cron, threshold or manual).
 	CleanupLastRunAt     *time.Time `json:"cleanup_last_run_at,omitempty"`
 	CleanupPruneNetworks *bool      `json:"cleanup_prune_networks,omitempty"`
 	CleanupPruneVolumes  *bool      `json:"cleanup_prune_volumes,omitempty"`
 	CreatedAt            *time.Time `json:"created_at,omitempty"`
 	Description          *string    `json:"description,omitempty"`
 
-	// DnsCredentialUuid Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). Optionnel même avec un `wildcard_domain` (amendement) : sans credential, le wildcard n'est qu'un gabarit de nommage et chaque hôte attribué reçoit son propre certificat individuel via HTTP-01 (proxy-contract §7.2) — hôtes joignables publiquement sur le port HTTP requis, limites d'émission de la CA par hôte. Avec credential, un unique certificat wildcard est émis en DNS-01.
+	// DnsCredentialUuid DNS-01 credential used for this server's wildcards (amendment #21). Optional even with a `wildcard_domain` (amendment): without a credential, the wildcard is only a naming template and each assigned host receives its own individual certificate via HTTP-01 (proxy-contract §7.2) — hosts publicly reachable on the required HTTP port, CA issuance limits per host. With a credential, a single wildcard certificate is issued via DNS-01.
 	DnsCredentialUuid *string `json:"dns_credential_uuid,omitempty"`
 
-	// DockerVersion Version de Docker Engine détectée (≥ 24 requise, §3.1).
+	// DockerVersion Docker Engine version detected (≥ 24 required, §3.1).
 	DockerVersion *string `json:"docker_version,omitempty"`
 	Host          string  `json:"host"`
 	IsBuildServer *bool   `json:"is_build_server,omitempty"`
 
-	// IsLocalhost Vrai pour le serveur `localhost` pré-enregistré à l'amorçage (instance-config §6.2) — la machine hébergeant l'instance. Jamais positionnable par l'API.
+	// IsLocalhost True for the `localhost` server pre-registered at bootstrap (instance-config §6.2) — the machine hosting the instance. Never settable through the API.
 	IsLocalhost *bool `json:"is_localhost,omitempty"`
 
-	// IsReachable Dernière observation de joignabilité SSH.
+	// IsReachable Last observation of SSH reachability.
 	IsReachable *bool  `json:"is_reachable,omitempty"`
 	Name        string `json:"name"`
 
-	// ObservedAt Horodatage de la dernière observation — au-delà d'un seuil, le statut doit être traité comme stale/inconnu (§19.2).
+	// ObservedAt Timestamp of the last observation — beyond a threshold, the status must be treated as stale/unknown (§19.2).
 	ObservedAt     *time.Time `json:"observed_at,omitempty"`
 	Port           int        `json:"port"`
 	PrivateKeyUuid string     `json:"private_key_uuid"`
 
-	// ProxyDesiredState Intention de l'opérateur sur le proxy (§3). `stopped` à la création : la validation n'installe ni ne démarre le proxy tant que l'opérateur n'a pas revu ses réglages puis demandé le premier démarrage (POST /servers/{server_uuid}/proxy/start, §20.1 étape 5). Un `stopped` explicite n'est pas « réparé » par la réconciliation.
+	// ProxyDesiredState Operator's intent for the proxy (§3). `stopped` at creation: validation neither installs nor starts the proxy until the operator has reviewed its settings and requested the first start (POST /servers/{server_uuid}/proxy/start, §20.1 step 5). An explicit `stopped` is not "repaired" by reconciliation.
 	ProxyDesiredState *ServerProxyDesiredState `json:"proxy_desired_state,omitempty"`
 	ProxyHttpPort     *int                     `json:"proxy_http_port,omitempty"`
 	ProxyHttpsPort    *int                     `json:"proxy_https_port,omitempty"`
 
-	// ProxyObservedStatus État observé d'une ressource (§21.2) — `unknown` si l'observation est trop ancienne (stale).
+	// ProxyObservedStatus Observed state of a resource (§21.2) — `unknown` if the observation is too old (stale).
 	ProxyObservedStatus *ObservedStatus  `json:"proxy_observed_status,omitempty"`
 	ProxyType           *ServerProxyType `json:"proxy_type,omitempty"`
 	SshTimeoutSeconds   *int             `json:"ssh_timeout_seconds,omitempty"`
 
-	// Status Cycle de vie du serveur (§21.2).
+	// Status Server lifecycle (§21.2).
 	Status         *ServerStatus `json:"status,omitempty"`
 	UpdatedAt      *time.Time    `json:"updated_at,omitempty"`
 	User           string        `json:"user"`
@@ -4278,59 +4278,59 @@ type Server struct {
 	WildcardDomain *string       `json:"wildcard_domain,omitempty"`
 }
 
-// ServerArchitecture Architecture détectée à la validation.
+// ServerArchitecture Architecture detected at validation.
 type ServerArchitecture string
 
-// ServerProxyDesiredState Intention de l'opérateur sur le proxy (§3). `stopped` à la création : la validation n'installe ni ne démarre le proxy tant que l'opérateur n'a pas revu ses réglages puis demandé le premier démarrage (POST /servers/{server_uuid}/proxy/start, §20.1 étape 5). Un `stopped` explicite n'est pas « réparé » par la réconciliation.
+// ServerProxyDesiredState Operator's intent for the proxy (§3). `stopped` at creation: validation neither installs nor starts the proxy until the operator has reviewed its settings and requested the first start (POST /servers/{server_uuid}/proxy/start, §20.1 step 5). An explicit `stopped` is not "repaired" by reconciliation.
 type ServerProxyDesiredState string
 
 // ServerProxyType defines model for Server.ProxyType.
 type ServerProxyType string
 
-// ServerStatus Cycle de vie du serveur (§21.2).
+// ServerStatus Server lifecycle (§21.2).
 type ServerStatus string
 
 // ServerCreate defines model for ServerCreate.
 type ServerCreate struct {
 	Description *string `json:"description,omitempty"`
 
-	// DnsCredentialUuid Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). Optionnel même avec un `wildcard_domain` (amendement) : sans credential, le wildcard n'est qu'un gabarit de nommage et chaque hôte attribué reçoit son propre certificat individuel via HTTP-01 (proxy-contract §7.2) — hôtes joignables publiquement sur le port HTTP requis, limites d'émission de la CA par hôte. Avec credential, un unique certificat wildcard est émis en DNS-01.
+	// DnsCredentialUuid DNS-01 credential used for this server's wildcards (amendment #21). Optional even with a `wildcard_domain` (amendment): without a credential, the wildcard is only a naming template and each assigned host receives its own individual certificate via HTTP-01 (proxy-contract §7.2) — hosts publicly reachable on the required HTTP port, CA issuance limits per host. With a credential, a single wildcard certificate is issued via DNS-01.
 	DnsCredentialUuid *string `json:"dns_credential_uuid,omitempty"`
 
-	// Host Adresse IP ou FQDN joignable en SSH.
+	// Host IP address or FQDN reachable over SSH.
 	Host string `json:"host"`
 
-	// IsBuildServer Serveur dédié au build (§3.4) — ne peut pas héberger d'applications.
+	// IsBuildServer Server dedicated to builds (§3.4) — cannot host applications.
 	IsBuildServer *bool  `json:"is_build_server,omitempty"`
 	Name          string `json:"name"`
 	Port          *int   `json:"port,omitempty"`
 
-	// PrivateKeyUuid Clé privée SSH de la même team (INV-002).
+	// PrivateKeyUuid Private SSH key of the same team (INV-002).
 	PrivateKeyUuid string `json:"private_key_uuid"`
 
-	// ProxyHttpPort Port d'écoute HTTP du proxy — configurable par serveur (§27.1).
+	// ProxyHttpPort HTTP listen port of the proxy — configurable per server (§27.1).
 	ProxyHttpPort *int `json:"proxy_http_port,omitempty"`
 
-	// ProxyHttpsPort Port d'écoute HTTPS du proxy — configurable par serveur (§27.1).
+	// ProxyHttpsPort HTTPS listen port of the proxy — configurable per server (§27.1).
 	ProxyHttpsPort *int `json:"proxy_https_port,omitempty"`
 
-	// ProxyType Proxy géré sur le serveur. Traefik seul en P0 (§27.9) ; `none` pour un serveur sans trafic entrant.
+	// ProxyType Managed proxy on the server. Traefik only in P0 (§27.9); `none` for a server without inbound traffic.
 	ProxyType         *ServerCreateProxyType `json:"proxy_type,omitempty"`
 	SshTimeoutSeconds *int                   `json:"ssh_timeout_seconds,omitempty"`
 
-	// User Utilisateur SSH (non-root expérimental, exige sudo NOPASSWD, §3.1).
+	// User SSH user (experimental non-root, requires sudo NOPASSWD, §3.1).
 	User *string `json:"user,omitempty"`
 
-	// WildcardDomain Domaine wildcard du serveur (§4.2) — les nouvelles apps reçoivent uuid.domaine.
+	// WildcardDomain Wildcard domain of the server (§4.2) — new apps receive uuid.domain.
 	WildcardDomain *string `json:"wildcard_domain,omitempty"`
 }
 
-// ServerCreateProxyType Proxy géré sur le serveur. Traefik seul en P0 (§27.9) ; `none` pour un serveur sans trafic entrant.
+// ServerCreateProxyType Managed proxy on the server. Traefik only in P0 (§27.9); `none` for a server without inbound traffic.
 type ServerCreateProxyType string
 
-// ServerDomain Domaines routés par le proxy du serveur pour une ressource.
+// ServerDomain Domains routed by the server's proxy for a resource.
 type ServerDomain struct {
-	// Domains FQDN (avec schéma éventuel https://, port ou path selon la configuration, §4.2).
+	// Domains FQDN (with optional https:// scheme, port or path depending on configuration, §4.2).
 	Domains      []string                 `json:"domains"`
 	ResourceType ServerDomainResourceType `json:"resource_type"`
 	ResourceUuid string                   `json:"resource_uuid"`
@@ -4339,42 +4339,42 @@ type ServerDomain struct {
 // ServerDomainResourceType defines model for ServerDomain.ResourceType.
 type ServerDomainResourceType string
 
-// ServerResource Ressource gérée déployée sur un serveur (union logique, §19.1).
+// ServerResource Managed resource deployed on a server (logical union, §19.1).
 type ServerResource struct {
 	EnvironmentUuid *string `json:"environment_uuid,omitempty"`
 	Name            string  `json:"name"`
 	ProjectUuid     *string `json:"project_uuid,omitempty"`
 
-	// Status État observé d'une ressource (§21.2) — `unknown` si l'observation est trop ancienne (stale).
+	// Status Observed state of a resource (§21.2) — `unknown` if the observation is too old (stale).
 	Status ObservedStatus `json:"status"`
 
-	// Type Type de ressource (les services one-click arriveront en P2).
+	// Type Resource type (one-click services will arrive in P2).
 	Type ServerResourceType `json:"type"`
 	Uuid string             `json:"uuid"`
 }
 
-// ServerResourceType Type de ressource (les services one-click arriveront en P2).
+// ServerResourceType Resource type (one-click services will arrive in P2).
 type ServerResourceType string
 
-// ServerUpdate Mise à jour partielle. Modifier `host`, `port`, `user` ou `private_key_uuid` repasse le serveur en `pending` (revalidation requise).
+// ServerUpdate Partial update. Changing `host`, `port`, `user` or `private_key_uuid` moves the server back to `pending` (revalidation required).
 type ServerUpdate struct {
-	// CleanupCron Planification cron du nettoyage (§3.7) ; NULL = pas de cron.
+	// CleanupCron Cron schedule of the cleanup (§3.7); NULL = no cron.
 	CleanupCron *string `json:"cleanup_cron,omitempty"`
 
-	// CleanupDiskThresholdPct Seuil d'usage disque (%) qui déclenche un nettoyage entre deux crons (§3.7) ; NULL = pas de déclenchement par seuil.
+	// CleanupDiskThresholdPct Disk usage threshold (%) that triggers a cleanup between two crons (§3.7); NULL = no threshold-based triggering.
 	CleanupDiskThresholdPct *int `json:"cleanup_disk_threshold_pct,omitempty"`
 
-	// CleanupEnabled Nettoyage disque automatisé (§3.7) — opt-in. Ne cible que les objets gérés et sûrs (cache de build, images dangling, candidats morts, `/var/lib/akerdock/tmp`) ; jamais un objet non géré ou persistant (INV-015), jamais pendant un déploiement.
+	// CleanupEnabled Automated disk cleanup (§3.7) — opt-in. Only targets managed and safe objects (build cache, dangling images, dead candidates, `/var/lib/akerdock/tmp`); never an unmanaged or persistent object (INV-015), never during a deployment.
 	CleanupEnabled *bool `json:"cleanup_enabled,omitempty"`
 
-	// CleanupPruneNetworks Opt-in — purge des réseaux **gérés** inutilisés (label `akerdock.managed`) ; jamais un réseau non géré (INV-015).
+	// CleanupPruneNetworks Opt-in — purge of unused **managed** networks (label `akerdock.managed`); never an unmanaged network (INV-015).
 	CleanupPruneNetworks *bool `json:"cleanup_prune_networks,omitempty"`
 
-	// CleanupPruneVolumes Opt-in destructeur — purge des volumes **anonymes** inutilisés uniquement : un volume nommé (données, volumes adoptés §20.7) n'est JAMAIS purgé (INV-015).
+	// CleanupPruneVolumes Destructive opt-in — purge of unused **anonymous** volumes only: a named volume (data, adopted volumes §20.7) is NEVER purged (INV-015).
 	CleanupPruneVolumes *bool   `json:"cleanup_prune_volumes,omitempty"`
 	Description         *string `json:"description,omitempty"`
 
-	// DnsCredentialUuid Credential DNS-01 utilisé pour les wildcards de ce serveur (amendement n°21). Optionnel même avec un `wildcard_domain` (amendement) : sans credential, le wildcard n'est qu'un gabarit de nommage et chaque hôte attribué reçoit son propre certificat individuel via HTTP-01 (proxy-contract §7.2) — hôtes joignables publiquement sur le port HTTP requis, limites d'émission de la CA par hôte. Avec credential, un unique certificat wildcard est émis en DNS-01.
+	// DnsCredentialUuid DNS-01 credential used for this server's wildcards (amendment #21). Optional even with a `wildcard_domain` (amendment): without a credential, the wildcard is only a naming template and each assigned host receives its own individual certificate via HTTP-01 (proxy-contract §7.2) — hosts publicly reachable on the required HTTP port, CA issuance limits per host. With a credential, a single wildcard certificate is issued via DNS-01.
 	DnsCredentialUuid *string                `json:"dns_credential_uuid,omitempty"`
 	Host              *string                `json:"host,omitempty"`
 	IsBuildServer     *bool                  `json:"is_build_server,omitempty"`
@@ -4392,17 +4392,17 @@ type ServerUpdate struct {
 // ServerUpdateProxyType defines model for ServerUpdate.ProxyType.
 type ServerUpdateProxyType string
 
-// Service Stack Docker Compose inline (compose-spec.md, data dictionary §9.1) — le fichier est la source de vérité, éditable via PATCH.
+// Service Inline Docker Compose stack (compose-spec.md, data dictionary §9.1) — the file is the source of truth, editable via PATCH.
 type Service struct {
-	// ComposeContent Le fichier compose (sous-ensemble compose-spec §1).
+	// ComposeContent The compose file (compose-spec subset §1).
 	ComposeContent string `json:"compose_content"`
 
-	// ConnectToPredefinedNetwork Attache chaque composant au réseau de la destination (§2.1).
+	// ConnectToPredefinedNetwork Attaches each component to the destination's network (§2.1).
 	ConnectToPredefinedNetwork *bool      `json:"connect_to_predefined_network,omitempty"`
 	CreatedAt                  *time.Time `json:"created_at,omitempty"`
 	Description                *string    `json:"description,omitempty"`
 
-	// DesiredStatus État désiré d'une ressource (§21.2).
+	// DesiredStatus Desired state of a resource (§21.2).
 	DesiredStatus      DesiredStatus `json:"desired_status"`
 	EnvironmentUuid    *string       `json:"environment_uuid,omitempty"`
 	LastDeploymentAt   *time.Time    `json:"last_deployment_at,omitempty"`
@@ -4410,7 +4410,7 @@ type Service struct {
 	Name               string        `json:"name"`
 	ObservedAt         *time.Time    `json:"observed_at,omitempty"`
 
-	// ObservedStatus État observé d'une ressource (§21.2) — `unknown` si l'observation est trop ancienne (stale).
+	// ObservedStatus Observed state of a resource (§21.2) — `unknown` if the observation is too old (stale).
 	ObservedStatus ObservedStatus `json:"observed_status"`
 	ProjectUuid    *string        `json:"project_uuid,omitempty"`
 	ServerUuid     *string        `json:"server_uuid,omitempty"`
@@ -4419,25 +4419,25 @@ type Service struct {
 	Version        *int           `json:"version,omitempty"`
 }
 
-// ServiceComponent Sous-container d'un stack compose (data dictionary §9.2) — un par service du fichier, statut observé individuel (§5.7).
+// ServiceComponent Sub-container of a compose stack (data dictionary §9.2) — one per service of the file, individual observed status (§5.7).
 type ServiceComponent struct {
 	CreatedAt      *time.Time                      `json:"created_at,omitempty"`
 	DatabaseEngine *ServiceComponentDatabaseEngine `json:"database_engine,omitempty"`
 
-	// ExcludeFromHc Job one-shot exclu du statut agrégé (compose-spec §7.3).
+	// ExcludeFromHc One-shot job excluded from the aggregated status (compose-spec §7.3).
 	ExcludeFromHc *bool `json:"exclude_from_hc,omitempty"`
 
-	// Image Image résolue (informatif).
+	// Image Resolved image (informative).
 	Image *string `json:"image,omitempty"`
 
-	// IsDatabase Détection par image (compose-spec §10) — cible valide d'un plan de backup.
+	// IsDatabase Image-based detection (compose-spec §10) — valid target of a backup plan.
 	IsDatabase *bool `json:"is_database,omitempty"`
 
-	// Name Nom du service dans le fichier compose.
+	// Name Name of the service in the compose file.
 	Name       *string    `json:"name,omitempty"`
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
 
-	// ObservedStatus État observé d'une ressource (§21.2) — `unknown` si l'observation est trop ancienne (stale).
+	// ObservedStatus Observed state of a resource (§21.2) — `unknown` if the observation is too old (stale).
 	ObservedStatus ObservedStatus `json:"observed_status"`
 	Uuid           *string        `json:"uuid,omitempty"`
 }
@@ -4447,7 +4447,7 @@ type ServiceComponentDatabaseEngine string
 
 // ServiceCreateRequest defines model for ServiceCreateRequest.
 type ServiceCreateRequest struct {
-	// ComposeContent Fichier compose inline, validé à la sauvegarde (422 + findings compose-spec §11 dans details[]). `build:` refusé — un stack inline n'a pas de source à construire.
+	// ComposeContent Inline compose file, validated on save (422 + compose-spec §11 findings in details[]). `build:` rejected — an inline stack has no source to build.
 	ComposeContent             string  `json:"compose_content"`
 	ConnectToPredefinedNetwork *bool   `json:"connect_to_predefined_network,omitempty"`
 	Description                *string `json:"description,omitempty"`
@@ -4460,14 +4460,14 @@ type ServiceCreateRequest struct {
 
 // ServiceUpdate defines model for ServiceUpdate.
 type ServiceUpdate struct {
-	// ComposeContent Nouveau fichier — validé, appliqué au prochain déploiement.
+	// ComposeContent New file — validated, applied at the next deployment.
 	ComposeContent             *string `json:"compose_content,omitempty"`
 	ConnectToPredefinedNetwork *bool   `json:"connect_to_predefined_network,omitempty"`
 	Description                *string `json:"description,omitempty"`
 	Name                       *string `json:"name,omitempty"`
 }
 
-// SharedVariable Variable partagée hiérarchique (§5.4, §3.1). La valeur n'est rendue qu'avec `read:sensitive` (INV-003).
+// SharedVariable Hierarchical shared variable (§5.4, §3.1). The value is only rendered with `read:sensitive` (INV-003).
 type SharedVariable struct {
 	CreatedAt       *time.Time          `json:"created_at,omitempty"`
 	EnvironmentUuid *string             `json:"environment_uuid,omitempty"`
@@ -4480,7 +4480,7 @@ type SharedVariable struct {
 	UpdatedAt       *time.Time          `json:"updated_at,omitempty"`
 	Uuid            *string             `json:"uuid,omitempty"`
 
-	// Value NULL sans `read:sensitive` (`is_redacted` vaut alors true).
+	// Value NULL without `read:sensitive` (`is_redacted` is then true).
 	Value *string `json:"value,omitempty"`
 }
 
@@ -4489,18 +4489,18 @@ type SharedVariableScope string
 
 // SharedVariableCreate defines model for SharedVariableCreate.
 type SharedVariableCreate struct {
-	// EnvironmentUuid Requis pour le scope `environment`.
+	// EnvironmentUuid Required for the `environment` scope.
 	EnvironmentUuid *string `json:"environment_uuid,omitempty"`
 	IsSecret        *bool   `json:"is_secret,omitempty"`
 
-	// Key Grammaire `[A-Za-z_][A-Za-z0-9_]*` (INV-012).
+	// Key Grammar `[A-Za-z_][A-Za-z0-9_]*` (INV-012).
 	Key string `json:"key"`
 
-	// ProjectUuid Requis pour le scope `project`.
+	// ProjectUuid Required for the `project` scope.
 	ProjectUuid *string                   `json:"project_uuid,omitempty"`
 	Scope       SharedVariableCreateScope `json:"scope"`
 
-	// ServerUuid Requis pour le scope `server`.
+	// ServerUuid Required for the `server` scope.
 	ServerUuid *string `json:"server_uuid,omitempty"`
 	Value      string  `json:"value"`
 }
@@ -4514,9 +4514,9 @@ type SharedVariableUpdate struct {
 	Value    *string `json:"value,omitempty"`
 }
 
-// SmtpConfig Configuration SMTP (amendement n°18). Le mot de passe est chiffré au repos et jamais renvoyé (INV-003).
+// SmtpConfig SMTP configuration (amendment
 type SmtpConfig struct {
-	// Encryption `none` n'est acceptable que vers un relais local : le mot de passe et le contenu de l'alerte traversent alors le réseau en clair.
+	// Encryption `none` is only acceptable towards a local relay: the password and the alert content then cross the network in clear text.
 	Encryption *SmtpConfigEncryption `json:"encryption,omitempty"`
 	From       string                `json:"from"`
 	Host       string                `json:"host"`
@@ -4526,22 +4526,22 @@ type SmtpConfig struct {
 	Username   *string               `json:"username,omitempty"`
 }
 
-// SmtpConfigEncryption `none` n'est acceptable que vers un relais local : le mot de passe et le contenu de l'alerte traversent alors le réseau en clair.
+// SmtpConfigEncryption `none` is only acceptable towards a local relay: the password and the alert content then cross the network in clear text.
 type SmtpConfigEncryption string
 
-// TaskExecution Une exécution — ou une occurrence explicitement non exécutée.
+// TaskExecution An execution — or an explicitly non-executed occurrence.
 type TaskExecution struct {
 	DurationMs *int       `json:"duration_ms,omitempty"`
 	ExitCode   *int       `json:"exit_code,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 
-	// Output stdout et stderr combinés, **tronqués** (voir `output_truncated`). Jamais de valeur de secret (INV-003).
+	// Output Combined stdout and stderr, **truncated** (see `output_truncated`). Never a secret value (INV-003).
 	Output *string `json:"output,omitempty"`
 
-	// OutputTruncated Vrai si la sortie a été coupée — ce qui est affiché n'est alors pas tout.
+	// OutputTruncated True if the output was cut — what is displayed is then not everything.
 	OutputTruncated *bool `json:"output_truncated,omitempty"`
 
-	// SkipReason Renseigné si et seulement si le statut est `skipped`.
+	// SkipReason Populated if and only if the status is `skipped`.
 	SkipReason *string             `json:"skip_reason,omitempty"`
 	StartedAt  time.Time           `json:"started_at"`
 	Status     TaskExecutionStatus `json:"status"`
@@ -4551,44 +4551,44 @@ type TaskExecution struct {
 // TaskExecutionStatus defines model for TaskExecutionStatus.
 type TaskExecutionStatus string
 
-// TaskMissedRunPolicy Que faire d'une occurrence que le scheduler n'a pas vue à temps (instance arrêtée). `run` (défaut) la déclenche une fois au redémarrage — un nettoyage nocturne raté reste utile ; `skip` l'abandonne — un « résumé de 9h » envoyé à 15h est du bruit. Dans les deux cas, l'occurrence manquée est **tracée** (`skipped` + raison), jamais oubliée en silence.
+// TaskMissedRunPolicy What to do with an occurrence the scheduler did not see in time (instance stopped). `run` (default) triggers it once at restart — a missed nightly cleanup is still useful; `skip` drops it — a "9 a.m. digest" sent at 3 p.m. is noise. In both cases, the missed occurrence is **traced** (`skipped` + reason), never silently forgotten.
 type TaskMissedRunPolicy string
 
-// TaskOverlapPolicy Que faire quand une occurrence tombe alors que l'exécution précédente tourne encore. `skip` (défaut) abandonne l'occurrence — un cron qui déclenche plus vite qu'il ne finit ne doit pas empiler les exécutions sur le serveur ; `queue` la met en file derrière la précédente.
+// TaskOverlapPolicy What to do when an occurrence fires while the previous execution is still running. `skip` (default) drops the occurrence — a cron that fires faster than it finishes must not pile up executions on the server; `queue` queues it behind the previous one.
 type TaskOverlapPolicy string
 
-// Team Team — périmètre d'isolation des serveurs, ressources, clés et tokens (§2, §23.1).
+// Team Team — isolation boundary of servers, resources, keys and tokens (§2, §23.1).
 type Team struct {
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
 	Description *string    `json:"description,omitempty"`
 	Name        string     `json:"name"`
 
-	// Personal Team personnelle créée automatiquement avec l'utilisateur.
+	// Personal Personal team created automatically with the user.
 	Personal  *bool      `json:"personal,omitempty"`
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 	Uuid      *string    `json:"uuid,omitempty"`
 }
 
-// TeamMember Appartenance d'un utilisateur à une team.
+// TeamMember A user's membership in a team.
 type TeamMember struct {
-	// CustomRoleName Nom du rôle custom quand `role` vaut `custom`, sinon absent.
+	// CustomRoleName Name of the custom role when `role` is `custom`, otherwise absent.
 	CustomRoleName *string `json:"custom_role_name,omitempty"`
 
-	// CustomRoleUuid UUID du rôle custom quand `role` vaut `custom`, sinon absent.
+	// CustomRoleUuid UUID of the custom role when `role` is `custom`, otherwise absent.
 	CustomRoleUuid *string             `json:"custom_role_uuid,omitempty"`
 	Email          openapi_types.Email `json:"email"`
 	JoinedAt       time.Time           `json:"joined_at"`
 	Name           *string             `json:"name,omitempty"`
 
-	// Role Rôle dans la team (ADR-038, §10.1) : `admin` (contrôle complet de la team, ex-`owner` fusionné), `member` (gère les ressources), `reviewer` (voit uniquement les PR previews), ou `custom` (rôle composé, voir `custom_role_uuid`).
+	// Role Role in the team (ADR-038, §10.1): `admin` (full control of the team, ex-`owner` merged), `member` (manages resources), `reviewer` (only sees PR previews), or `custom` (composed role, see `custom_role_uuid`).
 	Role     TeamMemberRole `json:"role"`
 	UserUuid string         `json:"user_uuid"`
 }
 
-// TeamMemberRole Rôle dans la team (ADR-038, §10.1) : `admin` (contrôle complet de la team, ex-`owner` fusionné), `member` (gère les ressources), `reviewer` (voit uniquement les PR previews), ou `custom` (rôle composé, voir `custom_role_uuid`).
+// TeamMemberRole Role in the team (ADR-038, §10.1): `admin` (full control of the team, ex-`owner` merged), `member` (manages resources), `reviewer` (only sees PR previews), or `custom` (composed role, see `custom_role_uuid`).
 type TeamMemberRole string
 
-// TeamUpdate Mise à jour partielle d'une team.
+// TeamUpdate Partial update of a team.
 type TeamUpdate struct {
 	Description *string `json:"description,omitempty"`
 	Name        *string `json:"name,omitempty"`
@@ -4601,14 +4601,14 @@ type TelegramConfig struct {
 	TopicId  *string `json:"topic_id,omitempty"`
 }
 
-// TelemetryConfig État de l'export OTLP (§14.2, ADR-008). Les en-têtes ne sont jamais renvoyés.
+// TelemetryConfig State of the OTLP export (§14.2, ADR-008). Headers are never returned.
 type TelemetryConfig struct {
 	Configured *bool `json:"configured,omitempty"`
 
-	// Endpoint URL du collector OTLP (le schéma décide du TLS).
+	// Endpoint URL of the OTLP collector (the scheme decides TLS).
 	Endpoint *string `json:"endpoint,omitempty"`
 
-	// HeadersSet Vrai si des en-têtes d'auth sont enregistrés (jamais leur valeur).
+	// HeadersSet True if auth headers are recorded (never their value).
 	HeadersSet *bool                    `json:"headers_set,omitempty"`
 	Logs       *bool                    `json:"logs,omitempty"`
 	Metrics    *bool                    `json:"metrics,omitempty"`
@@ -4619,12 +4619,12 @@ type TelemetryConfig struct {
 // TelemetryConfigProtocol defines model for TelemetryConfig.Protocol.
 type TelemetryConfigProtocol string
 
-// TelemetryConfigSet Configuration de l'export OTLP. `endpoint` vide désactive l'export. Prend effet au prochain redémarrage.
+// TelemetryConfigSet Configuration of the OTLP export. An empty `endpoint` disables the export. Takes effect at the next restart.
 type TelemetryConfigSet struct {
-	// Endpoint URL du collector OTLP ; vide = export désactivé.
+	// Endpoint URL of the OTLP collector; empty = export disabled.
 	Endpoint string `json:"endpoint"`
 
-	// Headers En-têtes d'auth envoyés à chaque export (write-only, chiffrés au repos, jamais renvoyés). Omis = conserver les en-têtes existants ; objet vide `{}` = les effacer.
+	// Headers Auth headers sent with each export (write-only, encrypted at rest, never returned). Omitted = keep the existing headers; empty object `{}` = clear them.
 	Headers  *map[string]string          `json:"headers,omitempty"`
 	Logs     *bool                       `json:"logs,omitempty"`
 	Metrics  *bool                       `json:"metrics,omitempty"`
@@ -4637,30 +4637,30 @@ type TelemetryConfigSetProtocol string
 
 // TerminalSession defines model for TerminalSession.
 type TerminalSession struct {
-	// IdleTimeoutSeconds Inactivité (aucune frappe) au-delà de laquelle la session est fermée.
+	// IdleTimeoutSeconds Inactivity (no keystrokes) beyond which the session is closed.
 	IdleTimeoutSeconds int `json:"idle_timeout_seconds"`
 
-	// MaxDurationSeconds Durée maximum d'une session, quelle que soit l'activité.
+	// MaxDurationSeconds Maximum duration of a session, regardless of activity.
 	MaxDurationSeconds int `json:"max_duration_seconds"`
 
-	// TargetKind Serveur (shell SSH) ou container (`docker exec`) — §5.7.
+	// TargetKind Server (SSH shell) or container (`docker exec`) — §5.7.
 	TargetKind TerminalSessionTargetKind `json:"target_kind"`
 
-	// TargetName Libellé de la cible, snapshot au moment de l'ouverture (survit à la suppression de la cible).
+	// TargetName Label of the target, snapshotted at open time (survives deletion of the target).
 	TargetName string `json:"target_name"`
 
-	// Token Token d'attache **à usage unique**, renvoyé uniquement à la création, jamais relu (§23.2, §24.4) — seul son hash est stocké.
+	// Token **Single-use** attach token, returned only at creation, never read back (§23.2, §24.4) — only its hash is stored.
 	Token string `json:"token"`
 
-	// TokenExpiresAt Expiration du token d'attache (courte) — pas de la session : une fois le WebSocket ouvert, ce sont l'idle timeout et la durée maximum qui bornent la session.
+	// TokenExpiresAt Expiration of the (short-lived) attach token — not of the session: once the WebSocket is open, the idle timeout and the maximum duration bound the session.
 	TokenExpiresAt time.Time `json:"token_expires_at"`
 	Uuid           string    `json:"uuid"`
 
-	// WebsocketPath Chemin du WebSocket à ouvrir sur la **même origine** que l'API (`ws://` ou `wss://` selon le schéma de la page), avec le token en query string (`?token=…`). Le protocole du flux est hors OpenAPI (§27.24).
+	// WebsocketPath Path of the WebSocket to open on the **same origin** as the API (`ws://` or `wss://` depending on the page's scheme), with the token in the query string (`?token=…`). The stream protocol is outside OpenAPI (§27.24).
 	WebsocketPath string `json:"websocket_path"`
 }
 
-// TerminalSessionTargetKind Serveur (shell SSH) ou container (`docker exec`) — §5.7.
+// TerminalSessionTargetKind Server (SSH shell) or container (`docker exec`) — §5.7.
 type TerminalSessionTargetKind string
 
 // TransactionalEmail defines model for TransactionalEmail.
@@ -4678,14 +4678,14 @@ type TransactionalEmailSet struct {
 	Kind   TransactionalEmailSetKind `json:"kind"`
 	Resend *ResendConfig             `json:"resend,omitempty"`
 
-	// Smtp Configuration SMTP (amendement n°18). Le mot de passe est chiffré au repos et jamais renvoyé (INV-003).
+	// Smtp SMTP configuration (amendment
 	Smtp *SmtpConfig `json:"smtp,omitempty"`
 }
 
 // TransactionalEmailSetKind defines model for TransactionalEmailSet.Kind.
 type TransactionalEmailSetKind string
 
-// UptimeCheck Un check d'uptime (ADR-017) : sonde HTTP/TCP exécutée depuis le control plane, verdict à seuils (anti-flapping structurel).
+// UptimeCheck An uptime check (ADR-017): HTTP/TCP probe executed from the control plane, threshold-based verdict (structural anti-flapping).
 type UptimeCheck struct {
 	CreatedAt        *time.Time      `json:"created_at,omitempty"`
 	Enabled          bool            `json:"enabled"`
@@ -4697,13 +4697,13 @@ type UptimeCheck struct {
 	LastLatencyMs    *int            `json:"last_latency_ms,omitempty"`
 	Name             string          `json:"name"`
 
-	// ResourceUuid Ressource liée (historique « par ressource », ADR-017).
+	// ResourceUuid Linked resource ("per resource" history, ADR-017).
 	ResourceUuid     *string            `json:"resource_uuid,omitempty"`
 	Status           *UptimeCheckStatus `json:"status,omitempty"`
 	StatusSince      *time.Time         `json:"status_since,omitempty"`
 	SuccessThreshold int                `json:"success_threshold"`
 
-	// Target URL (http) ou `host:port` (tcp).
+	// Target URL (http) or `host:port` (tcp).
 	Target         string  `json:"target"`
 	TimeoutSeconds int     `json:"timeout_seconds"`
 	Uuid           *string `json:"uuid,omitempty"`
@@ -4726,7 +4726,7 @@ type UptimeCheckCreate struct {
 	ResourceUuid     *string               `json:"resource_uuid,omitempty"`
 	SuccessThreshold *int                  `json:"success_threshold,omitempty"`
 
-	// Target URL http(s) ou `host:port`.
+	// Target http(s) URL or `host:port`.
 	Target         string `json:"target"`
 	TimeoutSeconds *int   `json:"timeout_seconds,omitempty"`
 }
@@ -4734,7 +4734,7 @@ type UptimeCheckCreate struct {
 // UptimeCheckCreateKind defines model for UptimeCheckCreate.Kind.
 type UptimeCheckCreateKind string
 
-// UptimeCheckUpdate Mise à jour partielle — le verdict courant n'est jamais éditable.
+// UptimeCheckUpdate Partial update — the current verdict is never editable.
 type UptimeCheckUpdate struct {
 	Enabled          *bool   `json:"enabled,omitempty"`
 	FailureThreshold *int    `json:"failure_threshold,omitempty"`
@@ -4745,7 +4745,7 @@ type UptimeCheckUpdate struct {
 	TimeoutSeconds   *int    `json:"timeout_seconds,omitempty"`
 }
 
-// UptimeResult Un résultat de sonde brut (rétention bornée).
+// UptimeResult A raw probe result (bounded retention).
 type UptimeResult struct {
 	CheckedAt  time.Time `json:"checked_at"`
 	Error      *string   `json:"error,omitempty"`
@@ -4756,30 +4756,30 @@ type UptimeResult struct {
 
 // VersionInfo defines model for VersionInfo.
 type VersionInfo struct {
-	// BuiltAt Date de build (UTC).
+	// BuiltAt Build date (UTC).
 	BuiltAt *time.Time `json:"built_at,omitempty"`
 
-	// Commit SHA du commit de build.
+	// Commit SHA of the build commit.
 	Commit *string `json:"commit,omitempty"`
 
-	// Version Version sémantique de l'instance AkerDock.
+	// Version Semantic version of the AkerDock instance.
 	Version string `json:"version"`
 }
 
-// WebhookDeployAccepted Résultat du deploy webhook — un déploiement par ressource ciblée.
+// WebhookDeployAccepted Result of the deploy webhook — one deployment per targeted resource.
 type WebhookDeployAccepted struct {
 	Deployments []WebhookDeployResult `json:"deployments"`
 }
 
 // WebhookDeployResult defines model for WebhookDeployResult.
 type WebhookDeployResult struct {
-	// DeploymentUuid UUID du déploiement mis en file pour cette ressource.
+	// DeploymentUuid UUID of the deployment queued for this resource.
 	DeploymentUuid string `json:"deployment_uuid"`
 
-	// Message Précision éventuelle (ex. déploiement coalescé avec un déploiement en attente).
+	// Message Optional clarification (e.g. deployment coalesced with a pending deployment).
 	Message *string `json:"message,omitempty"`
 
-	// ResourceUuid UUID de la ressource ciblée.
+	// ResourceUuid UUID of the targeted resource.
 	ResourceUuid string `json:"resource_uuid"`
 }
 
@@ -4788,10 +4788,10 @@ type WebhookEndpoint struct {
 	Enabled  bool                    `json:"enabled"`
 	Provider WebhookEndpointProvider `json:"provider"`
 
-	// Secret Secret HMAC — renvoyé **uniquement** à la création, jamais relu ensuite (INV-003).
+	// Secret HMAC secret — returned **only** at creation, never read back afterwards (INV-003).
 	Secret *string `json:"secret,omitempty"`
 
-	// Url URL de réception à déclarer chez le fournisseur.
+	// Url Receiving URL to declare at the provider.
 	Url  string `json:"url"`
 	Uuid string `json:"uuid"`
 }
@@ -4918,28 +4918,28 @@ type WebhookTag = string
 // WebhookUuid defines model for WebhookUuid.
 type WebhookUuid = string
 
-// BadRequest Schéma d'erreur unique de l'API (§24.1). Ne contient jamais de secret ni de stack trace.
+// BadRequest Single error schema of the API (§24.1). Never contains a secret or a stack trace.
 type BadRequest = Error
 
-// Conflict Schéma d'erreur unique de l'API (§24.1). Ne contient jamais de secret ni de stack trace.
+// Conflict Single error schema of the API (§24.1). Never contains a secret or a stack trace.
 type Conflict = Error
 
-// Forbidden Schéma d'erreur unique de l'API (§24.1). Ne contient jamais de secret ni de stack trace.
+// Forbidden Single error schema of the API (§24.1). Never contains a secret or a stack trace.
 type Forbidden = Error
 
-// NotFound Schéma d'erreur unique de l'API (§24.1). Ne contient jamais de secret ni de stack trace.
+// NotFound Single error schema of the API (§24.1). Never contains a secret or a stack trace.
 type NotFound = Error
 
-// TooManyRequests Schéma d'erreur unique de l'API (§24.1). Ne contient jamais de secret ni de stack trace.
+// TooManyRequests Single error schema of the API (§24.1). Never contains a secret or a stack trace.
 type TooManyRequests = Error
 
-// Unauthorized Schéma d'erreur unique de l'API (§24.1). Ne contient jamais de secret ni de stack trace.
+// Unauthorized Single error schema of the API (§24.1). Never contains a secret or a stack trace.
 type Unauthorized = Error
 
-// UnprocessableEntity Schéma d'erreur unique de l'API (§24.1). Ne contient jamais de secret ni de stack trace.
+// UnprocessableEntity Single error schema of the API (§24.1). Never contains a secret or a stack trace.
 type UnprocessableEntity = Error
 
-// VersionConflict Schéma d'erreur unique de l'API (§24.1). Ne contient jamais de secret ni de stack trace.
+// VersionConflict Single error schema of the API (§24.1). Never contains a secret or a stack trace.
 type VersionConflict = Error
 
 // bearerAuthContextKey is the context key for bearerAuth security scheme
@@ -4947,94 +4947,94 @@ type bearerAuthContextKey string
 
 // AdoptResourcesParams defines parameters for AdoptResources.
 type AdoptResourcesParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListApplicationsParams defines parameters for ListApplications.
 type ListApplicationsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// ProjectUuid Filtrer par projet.
+	// ProjectUuid Filter by project.
 	ProjectUuid *string `form:"project_uuid,omitempty" json:"project_uuid,omitempty"`
 
-	// EnvironmentUuid Filtrer par environnement.
+	// EnvironmentUuid Filter by environment.
 	EnvironmentUuid *string `form:"environment_uuid,omitempty" json:"environment_uuid,omitempty"`
 
-	// ServerUuid Filtrer par serveur.
+	// ServerUuid Filter by server.
 	ServerUuid *string `form:"server_uuid,omitempty" json:"server_uuid,omitempty"`
 }
 
 // CreateApplicationParams defines parameters for CreateApplication.
 type CreateApplicationParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // DeleteApplicationParams defines parameters for DeleteApplication.
 type DeleteApplicationParams struct {
-	// DeleteVolumes Détruire aussi les volumes persistants de l'application.
+	// DeleteVolumes Also destroy the application's persistent volumes.
 	DeleteVolumes *bool `form:"delete_volumes,omitempty" json:"delete_volumes,omitempty"`
 }
 
 // UpdateApplicationParams defines parameters for UpdateApplication.
 type UpdateApplicationParams struct {
-	// IfMatch Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`.
+	// IfMatch Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`.
 	IfMatch IfMatch `json:"If-Match"`
 }
 
 // DeployApplicationJSONBody defines parameters for DeployApplication.
 type DeployApplicationJSONBody struct {
-	// ForceRebuild Build sans cache.
+	// ForceRebuild Build without cache.
 	ForceRebuild *bool `json:"force_rebuild,omitempty"`
 }
 
 // DeployApplicationParams defines parameters for DeployApplication.
 type DeployApplicationParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListApplicationDeploymentsParams defines parameters for ListApplicationDeployments.
 type ListApplicationDeploymentsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Status Filtrer par statut de déploiement.
+	// Status Filter by deployment status.
 	Status *DeploymentStatus `form:"status,omitempty" json:"status,omitempty"`
 }
 
 // DisownApplicationParams defines parameters for DisownApplication.
 type DisownApplicationParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListApplicationEnvsParams defines parameters for ListApplicationEnvs.
 type ListApplicationEnvsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Preview Renvoie le jeu de variables des previews au lieu de celui de production.
+	// Preview Returns the preview variable set instead of the production one.
 	Preview *bool `form:"preview,omitempty" json:"preview,omitempty"`
 }
 
 // CreateApplicationEnvParams defines parameters for CreateApplicationEnv.
 type CreateApplicationEnvParams struct {
-	// Preview Crée la variable dans le jeu des previews au lieu de celui de production.
+	// Preview Creates the variable in the preview set instead of the production one.
 	Preview *bool `form:"preview,omitempty" json:"preview,omitempty"`
 
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -5045,25 +5045,25 @@ type ReplaceApplicationEnvsJSONBody struct {
 
 // GetApplicationLogsParams defines parameters for GetApplicationLogs.
 type GetApplicationLogsParams struct {
-	// Lines Nombre de lignes de queue (défaut 200, max 2000).
+	// Lines Number of tail lines (default 200, max 2000).
 	Lines *int `form:"lines,omitempty" json:"lines,omitempty"`
 
-	// Component Nom du service compose (compose-spec §2.2) dont lire les logs. Ignoré pour les autres build packs.
+	// Component Name of the compose service (compose-spec §2.2) whose logs to read. Ignored for other build packs.
 	Component *string `form:"component,omitempty" json:"component,omitempty"`
 }
 
 // StreamApplicationLogsParams defines parameters for StreamApplicationLogs.
 type StreamApplicationLogsParams struct {
-	// Component Nom du service compose dont streamer les logs.
+	// Component Name of the compose service whose logs to stream.
 	Component *string `form:"component,omitempty" json:"component,omitempty"`
 
-	// LastEventID Reprise après coupure — dernier `id` d'événement reçu (§27.24).
+	// LastEventID Resume after a disconnect — last event `id` received (§27.24).
 	LastEventID *string `json:"Last-Event-ID,omitempty"`
 }
 
 // CreateApplicationPortForwardParams defines parameters for CreateApplicationPortForward.
 type CreateApplicationPortForwardParams struct {
-	// Component (build pack compose) Service dont on cible le container.
+	// Component (compose build pack) Service whose container is targeted.
 	Component *string `form:"component,omitempty" json:"component,omitempty"`
 }
 
@@ -5074,64 +5074,64 @@ type DeployPreviewForPrJSONBody struct {
 
 // GetPreviewLogsParams defines parameters for GetPreviewLogs.
 type GetPreviewLogsParams struct {
-	// Lines Nombre de lignes de queue (défaut 200, max 2000).
+	// Lines Number of tail lines (default 200, max 2000).
 	Lines *int `form:"lines,omitempty" json:"lines,omitempty"`
 
-	// Component Nom du service compose dont lire les logs.
+	// Component Name of the compose service whose logs to read.
 	Component *string `form:"component,omitempty" json:"component,omitempty"`
 }
 
 // CreatePreviewPortForwardParams defines parameters for CreatePreviewPortForward.
 type CreatePreviewPortForwardParams struct {
-	// Component (build pack compose) Service dont on cible le container.
+	// Component (compose build pack) Service whose container is targeted.
 	Component *string `form:"component,omitempty" json:"component,omitempty"`
 }
 
 // CreatePreviewTerminalSessionParams defines parameters for CreatePreviewTerminalSession.
 type CreatePreviewTerminalSessionParams struct {
-	// Component (build pack compose) Nom du service dont ouvrir le shell.
+	// Component (compose build pack) Name of the service whose shell to open.
 	Component *string `form:"component,omitempty" json:"component,omitempty"`
 }
 
 // RollbackApplicationJSONBody defines parameters for RollbackApplication.
 type RollbackApplicationJSONBody struct {
-	// DeploymentUuid Déploiement réussi dont l'image doit être redéployée.
+	// DeploymentUuid Successful deployment whose image must be redeployed.
 	DeploymentUuid *string `json:"deployment_uuid,omitempty"`
 
-	// ImageDigest Digest OCI explicite (ex. sha256:…).
+	// ImageDigest Explicit OCI digest (e.g. sha256:…).
 	ImageDigest *string `json:"image_digest,omitempty"`
 }
 
 // RollbackApplicationParams defines parameters for RollbackApplication.
 type RollbackApplicationParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListScheduledTasksParams defines parameters for ListScheduledTasks.
 type ListScheduledTasksParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateScheduledTaskParams defines parameters for CreateScheduledTask.
 type CreateScheduledTaskParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // CreateApplicationStorageParams defines parameters for CreateApplicationStorage.
 type CreateApplicationStorageParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // CreateApplicationTerminalSessionParams defines parameters for CreateApplicationTerminalSession.
 type CreateApplicationTerminalSessionParams struct {
-	// Component (build pack compose) Nom du service dont ouvrir le shell — la stack n'a pas de container propre (compose-spec §2.2). `404` si le composant est inconnu ; obligatoire dès que la stack a des composants.
+	// Component (compose build pack) Name of the service whose shell to open — the stack has no container of its own (compose-spec §2.2). `404` if the component is unknown; required as soon as the stack has components.
 	Component *string `form:"component,omitempty" json:"component,omitempty"`
 }
 
@@ -5145,166 +5145,166 @@ type DeleteWebhookEndpointParamsProvider string
 
 // RenewCertificateParams defines parameters for RenewCertificate.
 type RenewCertificateParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListDatabasesParams defines parameters for ListDatabases.
 type ListDatabasesParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// EnvironmentUuid Filtrer par environnement.
+	// EnvironmentUuid Filter by environment.
 	EnvironmentUuid *string `form:"environment_uuid,omitempty" json:"environment_uuid,omitempty"`
 
-	// ServerUuid Filtrer par serveur.
+	// ServerUuid Filter by server.
 	ServerUuid *string `form:"server_uuid,omitempty" json:"server_uuid,omitempty"`
 }
 
 // CreatePostgresqlDatabaseParams defines parameters for CreatePostgresqlDatabase.
 type CreatePostgresqlDatabaseParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // DeleteDatabaseParams defines parameters for DeleteDatabase.
 type DeleteDatabaseParams struct {
-	// DeleteVolumes Détruire aussi les volumes de données.
+	// DeleteVolumes Also destroy the data volumes.
 	DeleteVolumes *bool `form:"delete_volumes,omitempty" json:"delete_volumes,omitempty"`
 }
 
 // UpdateDatabaseParams defines parameters for UpdateDatabase.
 type UpdateDatabaseParams struct {
-	// IfMatch Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`.
+	// IfMatch Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`.
 	IfMatch IfMatch `json:"If-Match"`
 }
 
 // ListBackupPlansParams defines parameters for ListBackupPlans.
 type ListBackupPlansParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateBackupPlanParams defines parameters for CreateBackupPlan.
 type CreateBackupPlanParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdateBackupPlanParams defines parameters for UpdateBackupPlan.
 type UpdateBackupPlanParams struct {
-	// IfMatch Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`.
+	// IfMatch Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`.
 	IfMatch IfMatch `json:"If-Match"`
 }
 
 // RunRestoreDrillParams defines parameters for RunRestoreDrill.
 type RunRestoreDrillParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListRestoreDrillsParams defines parameters for ListRestoreDrills.
 type ListRestoreDrillsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ExecuteBackupPlanParams defines parameters for ExecuteBackupPlan.
 type ExecuteBackupPlanParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListBackupExecutionsParams defines parameters for ListBackupExecutions.
 type ListBackupExecutionsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // RestoreBackupExecutionParams defines parameters for RestoreBackupExecution.
 type RestoreBackupExecutionParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // WebhookDeployParams defines parameters for WebhookDeploy.
 type WebhookDeployParams struct {
-	// Uuid UUID(s) de ressources à déployer, séparés par des virgules. Requis si `tag` est absent.
+	// Uuid UUID(s) of the resources to deploy, comma-separated. Required if `tag` is absent.
 	Uuid *WebhookUuid `form:"uuid,omitempty" json:"uuid,omitempty"`
 
-	// Tag Tag(s) séparés par des virgules — déploie toutes les ressources de la team portant l'un de ces tags. Requis si `uuid` est absent.
+	// Tag Comma-separated tag(s) — deploys all the team's resources carrying one of these tags. Required if `uuid` is absent.
 	Tag *WebhookTag `form:"tag,omitempty" json:"tag,omitempty"`
 
-	// Force Force un rebuild sans cache.
+	// Force Forces a rebuild without cache.
 	Force *WebhookForce `form:"force,omitempty" json:"force,omitempty"`
 }
 
 // WebhookDeployPostParams defines parameters for WebhookDeployPost.
 type WebhookDeployPostParams struct {
-	// Uuid UUID(s) de ressources à déployer, séparés par des virgules. Requis si `tag` est absent.
+	// Uuid UUID(s) of the resources to deploy, comma-separated. Required if `tag` is absent.
 	Uuid *WebhookUuid `form:"uuid,omitempty" json:"uuid,omitempty"`
 
-	// Tag Tag(s) séparés par des virgules — déploie toutes les ressources de la team portant l'un de ces tags. Requis si `uuid` est absent.
+	// Tag Comma-separated tag(s) — deploys all the team's resources carrying one of these tags. Required if `uuid` is absent.
 	Tag *WebhookTag `form:"tag,omitempty" json:"tag,omitempty"`
 
-	// Force Force un rebuild sans cache.
+	// Force Forces a rebuild without cache.
 	Force *WebhookForce `form:"force,omitempty" json:"force,omitempty"`
 
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // GetDeploymentLogsParams defines parameters for GetDeploymentLogs.
 type GetDeploymentLogsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// LastEventID Reprise d'un flux SSE — sequence du dernier événement reçu (uniquement avec `Accept: text/event-stream`).
+	// LastEventID Resume an SSE stream — sequence of the last event received (only with `Accept: text/event-stream`).
 	LastEventID *LastEventId `json:"Last-Event-ID,omitempty"`
 }
 
 // ListDnsCredentialsParams defines parameters for ListDnsCredentials.
 type ListDnsCredentialsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateDnsCredentialParams defines parameters for CreateDnsCredential.
 type CreateDnsCredentialParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // StreamEventsParams defines parameters for StreamEvents.
 type StreamEventsParams struct {
-	// LastEventID Reprise d'un flux SSE — sequence du dernier événement reçu (uniquement avec `Accept: text/event-stream`).
+	// LastEventID Resume an SSE stream — sequence of the last event received (only with `Accept: text/event-stream`).
 	LastEventID *LastEventId `json:"Last-Event-ID,omitempty"`
 }
 
 // ListGithubAppsParams defines parameters for ListGithubApps.
 type ListGithubAppsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
@@ -5315,316 +5315,316 @@ type ListGithubAppRepositoriesParams struct {
 
 // ListJobsParams defines parameters for ListJobs.
 type ListJobsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Status Filtrer par statut (ex. `dead_letter`).
+	// Status Filter by status (e.g. `dead_letter`).
 	Status *JobStatus `form:"status,omitempty" json:"status,omitempty"`
 
-	// Queue Filtrer par file logique (ex. `deploy`, `backup`, `cleanup`, `maintenance` — §24.3).
+	// Queue Filter by logical queue (e.g. `deploy`, `backup`, `cleanup`, `maintenance` — §24.3).
 	Queue *string `form:"queue,omitempty" json:"queue,omitempty"`
 
-	// Type Filtrer par type de job (ex. `resource.delete`, `backup.execute`).
+	// Type Filter by job type (e.g. `resource.delete`, `backup.execute`).
 	Type *string `form:"type,omitempty" json:"type,omitempty"`
 }
 
 // RetryJobParams defines parameters for RetryJob.
 type RetryJobParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListNotificationChannelsParams defines parameters for ListNotificationChannels.
 type ListNotificationChannelsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateNotificationChannelParams defines parameters for CreateNotificationChannel.
 type CreateNotificationChannelParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdateNotificationChannelParams defines parameters for UpdateNotificationChannel.
 type UpdateNotificationChannelParams struct {
-	// IfMatch Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`.
+	// IfMatch Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`.
 	IfMatch IfMatch `json:"If-Match"`
 }
 
 // ListPrivateKeysParams defines parameters for ListPrivateKeys.
 type ListPrivateKeysParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreatePrivateKeyParams defines parameters for CreatePrivateKey.
 type CreatePrivateKeyParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // GetPrivateKeyParams defines parameters for GetPrivateKey.
 type GetPrivateKeyParams struct {
-	// Reveal Demande explicite de révélation du matériel privé. Requiert `read:sensitive` (sinon `403`).
+	// Reveal Explicit request to reveal the private material. Requires `read:sensitive` (otherwise `403`).
 	Reveal *bool `form:"reveal,omitempty" json:"reveal,omitempty"`
 }
 
 // UpdatePrivateKeyParams defines parameters for UpdatePrivateKey.
 type UpdatePrivateKeyParams struct {
-	// IfMatch Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`.
+	// IfMatch Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`.
 	IfMatch IfMatch `json:"If-Match"`
 }
 
 // ListProjectsParams defines parameters for ListProjects.
 type ListProjectsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateProjectParams defines parameters for CreateProject.
 type CreateProjectParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListEnvironmentsParams defines parameters for ListEnvironments.
 type ListEnvironmentsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateEnvironmentParams defines parameters for CreateEnvironment.
 type CreateEnvironmentParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListRegistryCredentialsParams defines parameters for ListRegistryCredentials.
 type ListRegistryCredentialsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateRegistryCredentialParams defines parameters for CreateRegistryCredential.
 type CreateRegistryCredentialParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdateRegistryCredentialParams defines parameters for UpdateRegistryCredential.
 type UpdateRegistryCredentialParams struct {
-	// IfMatch Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`.
+	// IfMatch Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`.
 	IfMatch IfMatch `json:"If-Match"`
 }
 
 // ListS3StoragesParams defines parameters for ListS3Storages.
 type ListS3StoragesParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateS3StorageParams defines parameters for CreateS3Storage.
 type CreateS3StorageParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdateS3StorageParams defines parameters for UpdateS3Storage.
 type UpdateS3StorageParams struct {
-	// IfMatch Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`.
+	// IfMatch Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`.
 	IfMatch IfMatch `json:"If-Match"`
 }
 
 // UpdateScheduledTaskParams defines parameters for UpdateScheduledTask.
 type UpdateScheduledTaskParams struct {
-	// IfMatch Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`.
+	// IfMatch Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`.
 	IfMatch IfMatch `json:"If-Match"`
 }
 
 // ListTaskExecutionsParams defines parameters for ListTaskExecutions.
 type ListTaskExecutionsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // RunScheduledTaskParams defines parameters for RunScheduledTask.
 type RunScheduledTaskParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListServersParams defines parameters for ListServers.
 type ListServersParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateServerParams defines parameters for CreateServer.
 type CreateServerParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdateServerParams defines parameters for UpdateServer.
 type UpdateServerParams struct {
-	// IfMatch Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`.
+	// IfMatch Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`.
 	IfMatch IfMatch `json:"If-Match"`
 }
 
 // ListAdoptionScansParams defines parameters for ListAdoptionScans.
 type ListAdoptionScansParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateAdoptionScanParams defines parameters for CreateAdoptionScan.
 type CreateAdoptionScanParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListServerCertificatesParams defines parameters for ListServerCertificates.
 type ListServerCertificatesParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// ExpiringWithinDays Ne retourne que les certificats dont `not_after` est inférieur ou égal à maintenant + N jours (certificats déjà expirés inclus). Usage typique du monitoring d'expiration (alerte J-30/J-7).
+	// ExpiringWithinDays Only returns certificates whose `not_after` is less than or equal to now + N days (already expired certificates included). Typical use for expiration monitoring (D-30/D-7 alert).
 	ExpiringWithinDays *int `form:"expiring_within_days,omitempty" json:"expiring_within_days,omitempty"`
 
-	// Status Filtrer par statut observé (ex. `failed`, `expired`).
+	// Status Filter by observed status (e.g. `failed`, `expired`).
 	Status *CertificateStatus `form:"status,omitempty" json:"status,omitempty"`
 }
 
 // RunServerCleanupParams defines parameters for RunServerCleanup.
 type RunServerCleanupParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // GetProxyLogsParams defines parameters for GetProxyLogs.
 type GetProxyLogsParams struct {
-	// Lines Nombre de lignes de queue (défaut 200, max 2000).
+	// Lines Number of tail lines (default 200, max 2000).
 	Lines *int `form:"lines,omitempty" json:"lines,omitempty"`
 }
 
 // ListServerResourcesParams defines parameters for ListServerResources.
 type ListServerResourcesParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ValidateServerParams defines parameters for ValidateServer.
 type ValidateServerParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListComponentBackupPlansParams defines parameters for ListComponentBackupPlans.
 type ListComponentBackupPlansParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateComponentBackupPlanParams defines parameters for CreateComponentBackupPlan.
 type CreateComponentBackupPlanParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdateComponentBackupPlanParams defines parameters for UpdateComponentBackupPlan.
 type UpdateComponentBackupPlanParams struct {
-	// IfMatch Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`.
+	// IfMatch Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`.
 	IfMatch IfMatch `json:"If-Match"`
 }
 
 // RunComponentRestoreDrillParams defines parameters for RunComponentRestoreDrill.
 type RunComponentRestoreDrillParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListComponentRestoreDrillsParams defines parameters for ListComponentRestoreDrills.
 type ListComponentRestoreDrillsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ExecuteComponentBackupPlanParams defines parameters for ExecuteComponentBackupPlan.
 type ExecuteComponentBackupPlanParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListComponentBackupExecutionsParams defines parameters for ListComponentBackupExecutions.
 type ListComponentBackupExecutionsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // RestoreComponentBackupExecutionParams defines parameters for RestoreComponentBackupExecution.
 type RestoreComponentBackupExecutionParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListServicesParams defines parameters for ListServices.
 type ListServicesParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateServiceParams defines parameters for CreateService.
 type CreateServiceParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -5635,46 +5635,46 @@ type DeleteServiceParams struct {
 
 // UpdateServiceParams defines parameters for UpdateService.
 type UpdateServiceParams struct {
-	// IfMatch Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`.
+	// IfMatch Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`.
 	IfMatch IfMatch `json:"If-Match"`
 }
 
 // DeployServiceParams defines parameters for DeployService.
 type DeployServiceParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListServiceDeploymentsParams defines parameters for ListServiceDeployments.
 type ListServiceDeploymentsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // DisownServiceParams defines parameters for DisownService.
 type DisownServiceParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListServiceEnvsParams defines parameters for ListServiceEnvs.
 type ListServiceEnvsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListSharedVariablesParams defines parameters for ListSharedVariables.
 type ListSharedVariablesParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit                          `form:"limit,omitempty" json:"limit,omitempty"`
 	Scope *ListSharedVariablesParamsScope `form:"scope,omitempty" json:"scope,omitempty"`
 }
@@ -5684,16 +5684,16 @@ type ListSharedVariablesParamsScope string
 
 // CreateSharedVariableParams defines parameters for CreateSharedVariable.
 type CreateSharedVariableParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListInstanceAuditParams defines parameters for ListInstanceAudit.
 type ListInstanceAuditParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit     *Limit                         `form:"limit,omitempty" json:"limit,omitempty"`
 	Action    *string                        `form:"action,omitempty" json:"action,omitempty"`
 	Result    *ListInstanceAuditParamsResult `form:"result,omitempty" json:"result,omitempty"`
@@ -5707,7 +5707,7 @@ type ListInstanceAuditParamsResult string
 
 // RotateEncryptionParams defines parameters for RotateEncryption.
 type RotateEncryptionParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -5719,37 +5719,37 @@ type SetOauthProviderParamsOauthProvider string
 
 // ListTeamsParams defines parameters for ListTeams.
 type ListTeamsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListTeamAuditParams defines parameters for ListTeamAudit.
 type ListTeamAuditParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Action Filtre exact sur l'action (ex. `auth.login`, `secret.reveal`).
+	// Action Exact filter on the action (e.g. `auth.login`, `secret.reveal`).
 	Action *string `form:"action,omitempty" json:"action,omitempty"`
 
-	// Result Filtre sur le résultat.
+	// Result Filter on the outcome.
 	Result *ListTeamAuditParamsResult `form:"result,omitempty" json:"result,omitempty"`
 
-	// ActorUuid Filtre sur l'UUID de l'acteur (utilisateur ou token).
+	// ActorUuid Filter on the actor's UUID (user or token).
 	ActorUuid *string `form:"actor_uuid,omitempty" json:"actor_uuid,omitempty"`
 
-	// TargetUuid Filtre sur l'UUID de la ressource cible.
+	// TargetUuid Filter on the target resource's UUID.
 	TargetUuid *string `form:"target_uuid,omitempty" json:"target_uuid,omitempty"`
 
-	// From Borne basse (incluse) sur occurred_at (RFC 3339).
+	// From Lower bound (inclusive) on occurred_at (RFC 3339).
 	From *time.Time `form:"from,omitempty" json:"from,omitempty"`
 
-	// To Borne haute (incluse) sur occurred_at (RFC 3339).
+	// To Upper bound (inclusive) on occurred_at (RFC 3339).
 	To *time.Time `form:"to,omitempty" json:"to,omitempty"`
 }
 
@@ -5758,79 +5758,79 @@ type ListTeamAuditParamsResult string
 
 // ListTeamInvitationsParams defines parameters for ListTeamInvitations.
 type ListTeamInvitationsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateTeamInvitationParams defines parameters for CreateTeamInvitation.
 type CreateTeamInvitationParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListTeamMembersParams defines parameters for ListTeamMembers.
 type ListTeamMembersParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListTeamRolesParams defines parameters for ListTeamRoles.
 type ListTeamRolesParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListApiTokensParams defines parameters for ListApiTokens.
 type ListApiTokensParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateApiTokenParams defines parameters for CreateApiToken.
 type CreateApiTokenParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListUptimeChecksParams defines parameters for ListUptimeChecks.
 type ListUptimeChecksParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateUptimeCheckParams defines parameters for CreateUptimeCheck.
 type CreateUptimeCheckParams struct {
-	// IdempotencyKey Clé d'idempotence (§24.1). Rejouer la même clé avec un corps identique renvoie la réponse originale ; même clé avec un corps différent → `409` (`idempotency_conflict`). Conservée au moins 24 h.
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdateUptimeCheckParams defines parameters for UpdateUptimeCheck.
 type UpdateUptimeCheckParams struct {
-	// IfMatch Version optimiste attendue de la ressource (valeur de l'en-tête `ETag` du dernier `GET`). Décalage → `409` (`version_conflict`) avec la version courante dans `details`.
+	// IfMatch Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`.
 	IfMatch IfMatch `json:"If-Match"`
 }
 
 // ListUptimeResultsParams defines parameters for ListUptimeResults.
 type ListUptimeResultsParams struct {
-	// Cursor Curseur opaque de pagination, issu de `next_cursor` de la page précédente.
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
-	// Limit Nombre maximal d'éléments par page (1 à 100).
+	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
@@ -6141,649 +6141,649 @@ func (t *ApplicationCreateRequest) UnmarshalJSON(b []byte) error {
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// Lire un scan d'adoption et ses candidats
+	// Read an adoption scan and its candidates
 	// (GET /adoption-scans/{adoption_scan_uuid})
 	GetAdoptionScan(w http.ResponseWriter, r *http.Request, adoptionScanUuid AdoptionScanUuid)
-	// Adopter des candidats d'un scan, sans redéploiement
+	// Adopt candidates from a scan, without redeployment
 	// (POST /adoption-scans/{adoption_scan_uuid}/adopt)
 	AdoptResources(w http.ResponseWriter, r *http.Request, adoptionScanUuid AdoptionScanUuid, params AdoptResourcesParams)
-	// Lister les applications
+	// List applications
 	// (GET /applications)
 	ListApplications(w http.ResponseWriter, r *http.Request, params ListApplicationsParams)
-	// Créer une application
+	// Create an application
 	// (POST /applications)
 	CreateApplication(w http.ResponseWriter, r *http.Request, params CreateApplicationParams)
-	// Supprimer une application
+	// Delete an application
 	// (DELETE /applications/{application_uuid})
 	DeleteApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params DeleteApplicationParams)
-	// Détail et configuration d'une application
+	// Application details and configuration
 	// (GET /applications/{application_uuid})
 	GetApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
-	// Modifier la configuration d'une application
+	// Update an application's configuration
 	// (PATCH /applications/{application_uuid})
 	UpdateApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params UpdateApplicationParams)
-	// Composants d'une application en build pack compose
+	// Components of an application using the compose build pack
 	// (GET /applications/{application_uuid}/components)
 	ListApplicationComponents(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
-	// Déclencher un déploiement
+	// Trigger a deployment
 	// (POST /applications/{application_uuid}/deploy)
 	DeployApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params DeployApplicationParams)
-	// Historique des déploiements d'une application
+	// An application's deployment history
 	// (GET /applications/{application_uuid}/deployments)
 	ListApplicationDeployments(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params ListApplicationDeploymentsParams)
-	// Désadopter une application — rendue non gérée, jamais détruite
+	// Unadopt an application — made unmanaged, never destroyed
 	// (POST /applications/{application_uuid}/disown)
 	DisownApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params DisownApplicationParams)
-	// Lister les variables d'environnement
+	// List environment variables
 	// (GET /applications/{application_uuid}/envs)
 	ListApplicationEnvs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params ListApplicationEnvsParams)
-	// Créer une variable d'environnement
+	// Create an environment variable
 	// (POST /applications/{application_uuid}/envs)
 	CreateApplicationEnv(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationEnvParams)
-	// Remplacer en bloc les variables d'environnement
+	// Replace environment variables in bulk
 	// (PUT /applications/{application_uuid}/envs)
 	ReplaceApplicationEnvs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
-	// Supprimer une variable d'environnement
+	// Delete an environment variable
 	// (DELETE /applications/{application_uuid}/envs/{env_uuid})
 	DeleteApplicationEnv(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, envUuid EnvUuid)
-	// Modifier une variable d'environnement
+	// Update an environment variable
 	// (PATCH /applications/{application_uuid}/envs/{env_uuid})
 	UpdateApplicationEnv(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, envUuid EnvUuid)
-	// Logs du container de l'application
+	// Logs of the application's container
 	// (GET /applications/{application_uuid}/logs)
 	GetApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params GetApplicationLogsParams)
-	// Flux SSE des logs runtime du container
+	// SSE stream of the container's runtime logs
 	// (GET /applications/{application_uuid}/logs/stream)
 	StreamApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params StreamApplicationLogsParams)
-	// Métriques live par composant
+	// Live metrics per component
 	// (GET /applications/{application_uuid}/metrics)
 	GetApplicationMetrics(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
-	// Ouvrir un tunnel TCP vers un container de l'application
+	// Open a TCP tunnel to a container of the application
 	// (POST /applications/{application_uuid}/port-forwards)
 	CreateApplicationPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationPortForwardParams)
-	// Previews de PR d'une application
+	// PR previews of an application
 	// (GET /applications/{application_uuid}/previews)
 	ListApplicationPreviews(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
-	// Déployer la preview d'une PR depuis la plateforme
+	// Deploy a PR's preview from the platform
 	// (POST /applications/{application_uuid}/previews)
 	DeployPreviewForPr(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
-	// Détruire la preview d'une PR
+	// Destroy a PR's preview
 	// (DELETE /applications/{application_uuid}/previews/{preview_uuid})
 	DestroyPreview(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string)
-	// Approuver la preview d'une PR de fork
+	// Approve the preview of a fork PR
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/approve)
 	ApprovePreviewFork(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string)
-	// Variables effectives d'une preview
+	// Effective variables of a preview
 	// (GET /applications/{application_uuid}/previews/{preview_uuid}/envs)
 	ListPreviewEnvs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string)
-	// Créer une variable dédiée à cette preview
+	// Create a variable dedicated to this preview
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/envs)
 	CreatePreviewEnv(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string)
-	// Réarmer le TTL d'une preview
+	// Re-arm a preview's TTL
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/keep)
 	KeepPreview(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string)
-	// Logs des containers d'une preview
+	// Logs of a preview's containers
 	// (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
 	GetPreviewLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params GetPreviewLogsParams)
-	// Métriques live par composant d'une preview
+	// Live metrics per component of a preview
 	// (GET /applications/{application_uuid}/previews/{preview_uuid}/metrics)
 	GetPreviewMetrics(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string)
-	// Ouvrir un tunnel TCP vers un container de la preview
+	// Open a TCP tunnel to a container of the preview
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/port-forwards)
 	CreatePreviewPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params CreatePreviewPortForwardParams)
-	// Ouvrir une session terminal dans un container de la preview
+	// Open a terminal session in a container of the preview
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions)
 	CreatePreviewTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params CreatePreviewTerminalSessionParams)
-	// Pull requests ouvertes du dépôt de l'application
+	// Open pull requests of the application's repository
 	// (GET /applications/{application_uuid}/pull-requests)
 	ListApplicationPullRequests(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
-	// Redémarrer une application
+	// Restart an application
 	// (POST /applications/{application_uuid}/restart)
 	RestartApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
-	// Rollback vers une image précédente
+	// Rollback to a previous image
 	// (POST /applications/{application_uuid}/rollback)
 	RollbackApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params RollbackApplicationParams)
-	// Lister les tâches planifiées d'une application
+	// List an application's scheduled tasks
 	// (GET /applications/{application_uuid}/scheduled-tasks)
 	ListScheduledTasks(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params ListScheduledTasksParams)
-	// Créer une tâche planifiée
+	// Create a scheduled task
 	// (POST /applications/{application_uuid}/scheduled-tasks)
 	CreateScheduledTask(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateScheduledTaskParams)
-	// Démarrer une application
+	// Start an application
 	// (POST /applications/{application_uuid}/start)
 	StartApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
-	// Arrêter une application
+	// Stop an application
 	// (POST /applications/{application_uuid}/stop)
 	StopApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
-	// Lister les stockages persistants
+	// List persistent storages
 	// (GET /applications/{application_uuid}/storages)
 	ListApplicationStorages(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
-	// Déclarer un stockage persistant
+	// Declare a persistent storage
 	// (POST /applications/{application_uuid}/storages)
 	CreateApplicationStorage(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationStorageParams)
-	// Retirer un stockage persistant
+	// Remove a persistent storage
 	// (DELETE /applications/{application_uuid}/storages/{storage_uuid})
 	DeleteApplicationStorage(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, storageUuid StorageUuid)
-	// Ouvrir une session terminal dans le container de l'application
+	// Open a terminal session in the application's container
 	// (POST /applications/{application_uuid}/terminal-sessions)
 	CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationTerminalSessionParams)
-	// Supprimer l'endpoint de webhook Git
+	// Delete the Git webhook endpoint
 	// (DELETE /applications/{application_uuid}/webhook-endpoint)
 	DeleteWebhookEndpoint(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params DeleteWebhookEndpointParams)
-	// Créer l'endpoint de webhook Git de l'application
+	// Create the application's Git webhook endpoint
 	// (POST /applications/{application_uuid}/webhook-endpoint)
 	CreateWebhookEndpoint(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
-	// Détail d'un certificat
+	// Certificate details
 	// (GET /certificates/{certificate_uuid})
 	GetCertificate(w http.ResponseWriter, r *http.Request, certificateUuid CertificateUuid)
-	// Forcer le renouvellement d'un certificat
+	// Force a certificate's renewal
 	// (POST /certificates/{certificate_uuid}/renew)
 	RenewCertificate(w http.ResponseWriter, r *http.Request, certificateUuid CertificateUuid, params RenewCertificateParams)
-	// Lister les bases de données
+	// List databases
 	// (GET /databases)
 	ListDatabases(w http.ResponseWriter, r *http.Request, params ListDatabasesParams)
-	// Créer une base PostgreSQL
+	// Create a PostgreSQL database
 	// (POST /databases/postgresql)
 	CreatePostgresqlDatabase(w http.ResponseWriter, r *http.Request, params CreatePostgresqlDatabaseParams)
-	// Supprimer une base
+	// Delete a database
 	// (DELETE /databases/{database_uuid})
 	DeleteDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, params DeleteDatabaseParams)
-	// Détail d'une base
+	// Database details
 	// (GET /databases/{database_uuid})
 	GetDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid)
-	// Modifier une base
+	// Update a database
 	// (PATCH /databases/{database_uuid})
 	UpdateDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, params UpdateDatabaseParams)
-	// Lister les plans de backup d'une base
+	// List a database's backup plans
 	// (GET /databases/{database_uuid}/backups)
 	ListBackupPlans(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, params ListBackupPlansParams)
-	// Créer un plan de backup
+	// Create a backup plan
 	// (POST /databases/{database_uuid}/backups)
 	CreateBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, params CreateBackupPlanParams)
-	// Supprimer un plan de backup
+	// Delete a backup plan
 	// (DELETE /databases/{database_uuid}/backups/{backup_plan_uuid})
 	DeleteBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid)
-	// Détail d'un plan de backup
+	// Backup plan details
 	// (GET /databases/{database_uuid}/backups/{backup_plan_uuid})
 	GetBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid)
-	// Modifier un plan de backup
+	// Update a backup plan
 	// (PATCH /databases/{database_uuid}/backups/{backup_plan_uuid})
 	UpdateBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid, params UpdateBackupPlanParams)
-	// Lancer immédiatement un restore drill
+	// Run a restore drill immediately
 	// (POST /databases/{database_uuid}/backups/{backup_plan_uuid}/drill)
 	RunRestoreDrill(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid, params RunRestoreDrillParams)
-	// Historique des restore drills d'un plan
+	// History of a plan's restore drills
 	// (GET /databases/{database_uuid}/backups/{backup_plan_uuid}/drills)
 	ListRestoreDrills(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid, params ListRestoreDrillsParams)
-	// Lancer un backup immédiat (Backup Now)
+	// Run an immediate backup (Backup Now)
 	// (POST /databases/{database_uuid}/backups/{backup_plan_uuid}/execute)
 	ExecuteBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid, params ExecuteBackupPlanParams)
-	// Lister les exécutions d'un plan de backup
+	// List a backup plan's executions
 	// (GET /databases/{database_uuid}/backups/{backup_plan_uuid}/executions)
 	ListBackupExecutions(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid, params ListBackupExecutionsParams)
-	// Restaurer une base depuis une exécution de backup
+	// Restore a database from a backup execution
 	// (POST /databases/{database_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore)
 	RestoreBackupExecution(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid, executionUuid ExecutionUuid, params RestoreBackupExecutionParams)
-	// Ouvrir un tunnel TCP vers une base de données
+	// Open a TCP tunnel to a database
 	// (POST /databases/{database_uuid}/port-forwards)
 	CreateDatabasePortForward(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid)
-	// Redémarrer une base
+	// Restart a database
 	// (POST /databases/{database_uuid}/restart)
 	RestartDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid)
-	// Démarrer une base
+	// Start a database
 	// (POST /databases/{database_uuid}/start)
 	StartDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid)
-	// Arrêter une base
+	// Stop a database
 	// (POST /databases/{database_uuid}/stop)
 	StopDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid)
-	// Ouvrir une session terminal dans le container de la base
+	// Open a terminal session in the database's container
 	// (POST /databases/{database_uuid}/terminal-sessions)
 	CreateDatabaseTerminalSession(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid)
-	// Déclencher des déploiements par UUID ou tag (webhook CI)
+	// Trigger deployments by UUID or tag (CI webhook)
 	// (GET /deploy)
 	WebhookDeploy(w http.ResponseWriter, r *http.Request, params WebhookDeployParams)
-	// Déclencher des déploiements par UUID ou tag (webhook CI, POST)
+	// Trigger deployments by UUID or tag (CI webhook, POST)
 	// (POST /deploy)
 	WebhookDeployPost(w http.ResponseWriter, r *http.Request, params WebhookDeployPostParams)
-	// Détail d'un déploiement
+	// Deployment details
 	// (GET /deployments/{deployment_uuid})
 	GetDeployment(w http.ResponseWriter, r *http.Request, deploymentUuid DeploymentUuid)
-	// Annuler un déploiement
+	// Cancel a deployment
 	// (POST /deployments/{deployment_uuid}/cancel)
 	CancelDeployment(w http.ResponseWriter, r *http.Request, deploymentUuid DeploymentUuid)
-	// Logs de build d'un déploiement (JSON ou SSE)
+	// Build logs of a deployment (JSON or SSE)
 	// (GET /deployments/{deployment_uuid}/logs)
 	GetDeploymentLogs(w http.ResponseWriter, r *http.Request, deploymentUuid DeploymentUuid, params GetDeploymentLogsParams)
-	// Lister les credentials DNS-01
+	// List DNS-01 credentials
 	// (GET /dns-credentials)
 	ListDnsCredentials(w http.ResponseWriter, r *http.Request, params ListDnsCredentialsParams)
-	// Enregistrer un credential DNS-01
+	// Register a DNS-01 credential
 	// (POST /dns-credentials)
 	CreateDnsCredential(w http.ResponseWriter, r *http.Request, params CreateDnsCredentialParams)
-	// Supprimer un credential DNS-01
+	// Delete a DNS-01 credential
 	// (DELETE /dns-credentials/{dns_credential_uuid})
 	DeleteDnsCredential(w http.ResponseWriter, r *http.Request, dnsCredentialUuid string)
-	// Détail d'un credential DNS-01
+	// DNS-01 credential details
 	// (GET /dns-credentials/{dns_credential_uuid})
 	GetDnsCredential(w http.ResponseWriter, r *http.Request, dnsCredentialUuid string)
-	// Flux SSE des événements de la team (statuts, jobs, déploiements)
+	// SSE stream of team events (statuses, jobs, deployments)
 	// (GET /events)
 	StreamEvents(w http.ResponseWriter, r *http.Request, params StreamEventsParams)
-	// Lister les GitHub Apps de la team
+	// List the team's GitHub Apps
 	// (GET /github-apps)
 	ListGithubApps(w http.ResponseWriter, r *http.Request, params ListGithubAppsParams)
-	// Initier la création d'une GitHub App (manifest flow)
+	// Initiate the creation of a GitHub App (manifest flow)
 	// (POST /github-apps)
 	CreateGithubApp(w http.ResponseWriter, r *http.Request)
-	// Supprimer une GitHub App
+	// Delete a GitHub App
 	// (DELETE /github-apps/{github_app_uuid})
 	DeleteGithubApp(w http.ResponseWriter, r *http.Request, githubAppUuid GithubAppUuid)
-	// Détail d'une GitHub App
+	// GitHub App details
 	// (GET /github-apps/{github_app_uuid})
 	GetGithubApp(w http.ResponseWriter, r *http.Request, githubAppUuid GithubAppUuid)
-	// Dépôts accessibles à l'installation
+	// Repositories accessible to the installation
 	// (GET /github-apps/{github_app_uuid}/repositories)
 	ListGithubAppRepositories(w http.ResponseWriter, r *http.Request, githubAppUuid GithubAppUuid, params ListGithubAppRepositoriesParams)
-	// Vérification de vivacité
+	// Liveness check
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
-	// Lister les jobs
+	// List jobs
 	// (GET /jobs)
 	ListJobs(w http.ResponseWriter, r *http.Request, params ListJobsParams)
-	// Suivi d'une opération asynchrone
+	// Track an asynchronous operation
 	// (GET /jobs/{job_uuid})
 	GetJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid)
-	// Abandonner un job en dead-letter
+	// Forget a dead-letter job
 	// (POST /jobs/{job_uuid}/forget)
 	ForgetJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid)
-	// Rejouer un job en dead-letter
+	// Retry a dead-letter job
 	// (POST /jobs/{job_uuid}/retry)
 	RetryJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid, params RetryJobParams)
-	// Lister les canaux de notification
+	// List notification channels
 	// (GET /notification-channels)
 	ListNotificationChannels(w http.ResponseWriter, r *http.Request, params ListNotificationChannelsParams)
-	// Créer un canal de notification
+	// Create a notification channel
 	// (POST /notification-channels)
 	CreateNotificationChannel(w http.ResponseWriter, r *http.Request, params CreateNotificationChannelParams)
-	// Supprimer un canal
+	// Delete a channel
 	// (DELETE /notification-channels/{channel_uuid})
 	DeleteNotificationChannel(w http.ResponseWriter, r *http.Request, channelUuid ChannelUuid)
-	// Détail d'un canal
+	// Channel details
 	// (GET /notification-channels/{channel_uuid})
 	GetNotificationChannel(w http.ResponseWriter, r *http.Request, channelUuid ChannelUuid)
-	// Modifier un canal
+	// Update a channel
 	// (PATCH /notification-channels/{channel_uuid})
 	UpdateNotificationChannel(w http.ResponseWriter, r *http.Request, channelUuid ChannelUuid, params UpdateNotificationChannelParams)
-	// Lister les règles de routage d'un canal
+	// List a channel's routing rules
 	// (GET /notification-channels/{channel_uuid}/rules)
 	ListNotificationRules(w http.ResponseWriter, r *http.Request, channelUuid ChannelUuid)
-	// Ajouter une règle de routage
+	// Add a routing rule
 	// (POST /notification-channels/{channel_uuid}/rules)
 	CreateNotificationRule(w http.ResponseWriter, r *http.Request, channelUuid ChannelUuid)
-	// Supprimer une règle de routage
+	// Delete a routing rule
 	// (DELETE /notification-channels/{channel_uuid}/rules/{rule_uuid})
 	DeleteNotificationRule(w http.ResponseWriter, r *http.Request, channelUuid ChannelUuid, ruleUuid string)
-	// Envoyer un message de test
+	// Send a test message
 	// (POST /notification-channels/{channel_uuid}/test)
 	TestNotificationChannel(w http.ResponseWriter, r *http.Request, channelUuid ChannelUuid)
-	// Catalogue des permissions granulaires
+	// Catalog of granular permissions
 	// (GET /permissions)
 	ListPermissions(w http.ResponseWriter, r *http.Request)
-	// Lister les clés privées
+	// List private keys
 	// (GET /private-keys)
 	ListPrivateKeys(w http.ResponseWriter, r *http.Request, params ListPrivateKeysParams)
-	// Enregistrer une clé privée
+	// Register a private key
 	// (POST /private-keys)
 	CreatePrivateKey(w http.ResponseWriter, r *http.Request, params CreatePrivateKeyParams)
-	// Supprimer une clé privée
+	// Delete a private key
 	// (DELETE /private-keys/{private_key_uuid})
 	DeletePrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid)
-	// Détail d'une clé privée
+	// Private key details
 	// (GET /private-keys/{private_key_uuid})
 	GetPrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid, params GetPrivateKeyParams)
-	// Modifier une clé privée
+	// Update a private key
 	// (PATCH /private-keys/{private_key_uuid})
 	UpdatePrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid, params UpdatePrivateKeyParams)
-	// Lister les projets
+	// List projects
 	// (GET /projects)
 	ListProjects(w http.ResponseWriter, r *http.Request, params ListProjectsParams)
-	// Créer un projet
+	// Create a project
 	// (POST /projects)
 	CreateProject(w http.ResponseWriter, r *http.Request, params CreateProjectParams)
-	// Supprimer un projet
+	// Delete a project
 	// (DELETE /projects/{project_uuid})
 	DeleteProject(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid)
-	// Détail d'un projet
+	// Project details
 	// (GET /projects/{project_uuid})
 	GetProject(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid)
-	// Modifier un projet
+	// Update a project
 	// (PATCH /projects/{project_uuid})
 	UpdateProject(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid)
-	// Lister les environnements d'un projet
+	// List a project's environments
 	// (GET /projects/{project_uuid}/environments)
 	ListEnvironments(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, params ListEnvironmentsParams)
-	// Créer un environnement
+	// Create an environment
 	// (POST /projects/{project_uuid}/environments)
 	CreateEnvironment(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, params CreateEnvironmentParams)
-	// Supprimer un environnement
+	// Delete an environment
 	// (DELETE /projects/{project_uuid}/environments/{environment_uuid})
 	DeleteEnvironment(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, environmentUuid EnvironmentUuid)
-	// Détail d'un environnement
+	// Environment details
 	// (GET /projects/{project_uuid}/environments/{environment_uuid})
 	GetEnvironment(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, environmentUuid EnvironmentUuid)
-	// Modifier un environnement
+	// Update an environment
 	// (PATCH /projects/{project_uuid}/environments/{environment_uuid})
 	UpdateEnvironment(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, environmentUuid EnvironmentUuid)
-	// Lister les credentials de registry
+	// List registry credentials
 	// (GET /registry-credentials)
 	ListRegistryCredentials(w http.ResponseWriter, r *http.Request, params ListRegistryCredentialsParams)
-	// Enregistrer un credential de registry
+	// Register a registry credential
 	// (POST /registry-credentials)
 	CreateRegistryCredential(w http.ResponseWriter, r *http.Request, params CreateRegistryCredentialParams)
-	// Supprimer un credential de registry
+	// Delete a registry credential
 	// (DELETE /registry-credentials/{registry_credential_uuid})
 	DeleteRegistryCredential(w http.ResponseWriter, r *http.Request, registryCredentialUuid RegistryCredentialUuid)
-	// Détail d'un credential de registry
+	// Registry credential details
 	// (GET /registry-credentials/{registry_credential_uuid})
 	GetRegistryCredential(w http.ResponseWriter, r *http.Request, registryCredentialUuid RegistryCredentialUuid)
-	// Modifier un credential de registry
+	// Update a registry credential
 	// (PATCH /registry-credentials/{registry_credential_uuid})
 	UpdateRegistryCredential(w http.ResponseWriter, r *http.Request, registryCredentialUuid RegistryCredentialUuid, params UpdateRegistryCredentialParams)
-	// Lister les stockages S3
+	// List S3 storages
 	// (GET /s3-storages)
 	ListS3Storages(w http.ResponseWriter, r *http.Request, params ListS3StoragesParams)
-	// Enregistrer un stockage S3
+	// Register an S3 storage
 	// (POST /s3-storages)
 	CreateS3Storage(w http.ResponseWriter, r *http.Request, params CreateS3StorageParams)
-	// Supprimer un stockage S3
+	// Delete an S3 storage
 	// (DELETE /s3-storages/{s3_storage_uuid})
 	DeleteS3Storage(w http.ResponseWriter, r *http.Request, s3StorageUuid S3StorageUuid)
-	// Détail d'un stockage S3
+	// S3 storage details
 	// (GET /s3-storages/{s3_storage_uuid})
 	GetS3Storage(w http.ResponseWriter, r *http.Request, s3StorageUuid S3StorageUuid)
-	// Modifier un stockage S3
+	// Update an S3 storage
 	// (PATCH /s3-storages/{s3_storage_uuid})
 	UpdateS3Storage(w http.ResponseWriter, r *http.Request, s3StorageUuid S3StorageUuid, params UpdateS3StorageParams)
-	// Vérifier la connectivité d'un stockage S3
+	// Check an S3 storage's connectivity
 	// (POST /s3-storages/{s3_storage_uuid}/validate)
 	ValidateS3Storage(w http.ResponseWriter, r *http.Request, s3StorageUuid S3StorageUuid)
-	// Supprimer une tâche planifiée
+	// Delete a scheduled task
 	// (DELETE /scheduled-tasks/{task_uuid})
 	DeleteScheduledTask(w http.ResponseWriter, r *http.Request, taskUuid TaskUuid)
-	// Détail d'une tâche planifiée
+	// Scheduled task details
 	// (GET /scheduled-tasks/{task_uuid})
 	GetScheduledTask(w http.ResponseWriter, r *http.Request, taskUuid TaskUuid)
-	// Modifier une tâche planifiée
+	// Update a scheduled task
 	// (PATCH /scheduled-tasks/{task_uuid})
 	UpdateScheduledTask(w http.ResponseWriter, r *http.Request, taskUuid TaskUuid, params UpdateScheduledTaskParams)
-	// Historique d'exécution d'une tâche
+	// A task's execution history
 	// (GET /scheduled-tasks/{task_uuid}/executions)
 	ListTaskExecutions(w http.ResponseWriter, r *http.Request, taskUuid TaskUuid, params ListTaskExecutionsParams)
-	// Déclencher une tâche planifiée immédiatement
+	// Trigger a scheduled task immediately
 	// (POST /scheduled-tasks/{task_uuid}/run)
 	RunScheduledTask(w http.ResponseWriter, r *http.Request, taskUuid TaskUuid, params RunScheduledTaskParams)
-	// Lister les serveurs
+	// List servers
 	// (GET /servers)
 	ListServers(w http.ResponseWriter, r *http.Request, params ListServersParams)
-	// Enregistrer un serveur
+	// Register a server
 	// (POST /servers)
 	CreateServer(w http.ResponseWriter, r *http.Request, params CreateServerParams)
-	// Retirer un serveur
+	// Remove a server
 	// (DELETE /servers/{server_uuid})
 	DeleteServer(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid)
-	// Détail d'un serveur
+	// Server details
 	// (GET /servers/{server_uuid})
 	GetServer(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid)
-	// Modifier un serveur
+	// Update a server
 	// (PATCH /servers/{server_uuid})
 	UpdateServer(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params UpdateServerParams)
-	// Lister les scans d'adoption d'un serveur
+	// List a server's adoption scans
 	// (GET /servers/{server_uuid}/adoption-scans)
 	ListAdoptionScans(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ListAdoptionScansParams)
-	// Scanner les ressources Docker non gérées d'un serveur
+	// Scan a server's unmanaged Docker resources
 	// (POST /servers/{server_uuid}/adoption-scans)
 	CreateAdoptionScan(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params CreateAdoptionScanParams)
-	// Certificat de la CA du serveur (SSL des bases)
+	// Server CA certificate (database SSL)
 	// (GET /servers/{server_uuid}/ca)
 	GetServerCA(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid)
-	// Lister les certificats d'un serveur
+	// List a server's certificates
 	// (GET /servers/{server_uuid}/certificates)
 	ListServerCertificates(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ListServerCertificatesParams)
-	// Lancer un nettoyage disque immédiat
+	// Run an immediate disk cleanup
 	// (POST /servers/{server_uuid}/cleanup)
 	RunServerCleanup(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params RunServerCleanupParams)
-	// Lister les domaines servis par un serveur
+	// List the domains served by a server
 	// (GET /servers/{server_uuid}/domains)
 	ListServerDomains(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid)
-	// Logs du proxy d'un serveur
+	// Logs of a server's proxy
 	// (GET /servers/{server_uuid}/proxy/logs)
 	GetProxyLogs(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params GetProxyLogsParams)
-	// Démarrer, arrêter ou redémarrer le proxy d'un serveur
+	// Start, stop or restart a server's proxy
 	// (POST /servers/{server_uuid}/proxy/{action})
 	ProxyLifecycle(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, action string)
-	// Lister les ressources d'un serveur
+	// List a server's resources
 	// (GET /servers/{server_uuid}/resources)
 	ListServerResources(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ListServerResourcesParams)
-	// Ouvrir une session terminal shell sur le serveur
+	// Open a shell terminal session on the server
 	// (POST /servers/{server_uuid}/terminal-sessions)
 	CreateServerTerminalSession(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid)
-	// Valider un serveur et installer les prérequis
+	// Validate a server and install prerequisites
 	// (POST /servers/{server_uuid}/validate)
 	ValidateServer(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ValidateServerParams)
-	// Lister les plans de backup d'un composant de stack
+	// List a stack component's backup plans
 	// (GET /service-components/{service_component_uuid}/backups)
 	ListComponentBackupPlans(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, params ListComponentBackupPlansParams)
-	// Créer un plan de backup sur une base interne d'un stack
+	// Create a backup plan on a stack's internal database
 	// (POST /service-components/{service_component_uuid}/backups)
 	CreateComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, params CreateComponentBackupPlanParams)
-	// Supprimer un plan de backup de composant
+	// Delete a component backup plan
 	// (DELETE /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
 	DeleteComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid)
-	// Détail d'un plan de backup de composant
+	// Component backup plan details
 	// (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
 	GetComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid)
-	// Modifier un plan de backup de composant
+	// Update a component backup plan
 	// (PATCH /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
 	UpdateComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params UpdateComponentBackupPlanParams)
-	// Lancer immédiatement un restore drill sur une base interne
+	// Run a restore drill immediately on an internal database
 	// (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drill)
 	RunComponentRestoreDrill(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params RunComponentRestoreDrillParams)
-	// Historique des restore drills d'un plan de composant
+	// History of a component plan's restore drills
 	// (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drills)
 	ListComponentRestoreDrills(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params ListComponentRestoreDrillsParams)
-	// Lancer un backup immédiat d'une base interne
+	// Run an immediate backup of an internal database
 	// (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/execute)
 	ExecuteComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params ExecuteComponentBackupPlanParams)
-	// Lister les exécutions d'un plan de backup de composant
+	// List a component backup plan's executions
 	// (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions)
 	ListComponentBackupExecutions(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params ListComponentBackupExecutionsParams)
-	// Restaurer une base interne depuis une exécution de backup
+	// Restore an internal database from a backup execution
 	// (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore)
 	RestoreComponentBackupExecution(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, executionUuid ExecutionUuid, params RestoreComponentBackupExecutionParams)
-	// Lister les stacks compose
+	// List compose stacks
 	// (GET /services)
 	ListServices(w http.ResponseWriter, r *http.Request, params ListServicesParams)
-	// Créer un stack compose inline
+	// Create an inline compose stack
 	// (POST /services)
 	CreateService(w http.ResponseWriter, r *http.Request, params CreateServiceParams)
-	// Supprimer un stack compose
+	// Delete a compose stack
 	// (DELETE /services/{service_uuid})
 	DeleteService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params DeleteServiceParams)
-	// Détail d'un stack compose
+	// Compose stack details
 	// (GET /services/{service_uuid})
 	GetService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid)
-	// Modifier un stack compose
+	// Update a compose stack
 	// (PATCH /services/{service_uuid})
 	UpdateService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params UpdateServiceParams)
-	// Composants d'un stack
+	// Components of a stack
 	// (GET /services/{service_uuid}/components)
 	ListServiceComponents(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid)
-	// Déployer un stack
+	// Deploy a stack
 	// (POST /services/{service_uuid}/deploy)
 	DeployService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params DeployServiceParams)
-	// Déploiements d'un stack
+	// A stack's deployments
 	// (GET /services/{service_uuid}/deployments)
 	ListServiceDeployments(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params ListServiceDeploymentsParams)
-	// Désadopter un stack — rendu non géré, jamais détruit
+	// Unadopt a stack — made unmanaged, never destroyed
 	// (POST /services/{service_uuid}/disown)
 	DisownService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params DisownServiceParams)
-	// Variables d'environnement d'un stack
+	// A stack's environment variables
 	// (GET /services/{service_uuid}/envs)
 	ListServiceEnvs(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params ListServiceEnvsParams)
-	// Ajouter une variable au stack
+	// Add a variable to the stack
 	// (POST /services/{service_uuid}/envs)
 	CreateServiceEnv(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid)
-	// Supprimer une variable du stack
+	// Delete a stack variable
 	// (DELETE /services/{service_uuid}/envs/{env_uuid})
 	DeleteServiceEnv(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, envUuid string)
-	// Modifier une variable du stack
+	// Update a stack variable
 	// (PATCH /services/{service_uuid}/envs/{env_uuid})
 	UpdateServiceEnv(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, envUuid string)
-	// Redémarrer les containers d'un stack
+	// Restart a stack's containers
 	// (POST /services/{service_uuid}/restart)
 	RestartService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid)
-	// Démarrer les containers d'un stack
+	// Start a stack's containers
 	// (POST /services/{service_uuid}/start)
 	StartService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid)
-	// Arrêter les containers d'un stack
+	// Stop a stack's containers
 	// (POST /services/{service_uuid}/stop)
 	StopService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid)
-	// Lister les variables partagées de la team
+	// List the team's shared variables
 	// (GET /shared-variables)
 	ListSharedVariables(w http.ResponseWriter, r *http.Request, params ListSharedVariablesParams)
-	// Créer une variable partagée
+	// Create a shared variable
 	// (POST /shared-variables)
 	CreateSharedVariable(w http.ResponseWriter, r *http.Request, params CreateSharedVariableParams)
-	// Supprimer une variable partagée
+	// Delete a shared variable
 	// (DELETE /shared-variables/{shared_variable_uuid})
 	DeleteSharedVariable(w http.ResponseWriter, r *http.Request, sharedVariableUuid SharedVariableUuid)
-	// Modifier une variable partagée (valeur, masquage)
+	// Update a shared variable (value, masking)
 	// (PATCH /shared-variables/{shared_variable_uuid})
 	UpdateSharedVariable(w http.ResponseWriter, r *http.Request, sharedVariableUuid SharedVariableUuid)
-	// Désactiver l'API
+	// Disable the API
 	// (POST /system/api/disable)
 	DisableApi(w http.ResponseWriter, r *http.Request)
-	// Activer l'API
+	// Enable the API
 	// (POST /system/api/enable)
 	EnableApi(w http.ResponseWriter, r *http.Request)
-	// Journal d'audit de toute l'instance
+	// Instance-wide audit log
 	// (GET /system/audit)
 	ListInstanceAudit(w http.ResponseWriter, r *http.Request, params ListInstanceAuditParams)
-	// Configuration de l'email transactionnel de l'instance
+	// Instance transactional email configuration
 	// (GET /system/email)
 	GetTransactionalEmail(w http.ResponseWriter, r *http.Request)
-	// Configurer l'email transactionnel de l'instance
+	// Configure the instance transactional email
 	// (PUT /system/email)
 	SetTransactionalEmail(w http.ResponseWriter, r *http.Request)
-	// État du chiffrement au repos et de la rotation de clé maître
+	// State of encryption at rest and master key rotation
 	// (GET /system/encryption)
 	GetEncryptionStatus(w http.ResponseWriter, r *http.Request)
-	// Forcer le re-chiffrement vers la version de clé active
+	// Force re-encryption to the active key version
 	// (POST /system/encryption/rotate)
 	RotateEncryption(w http.ResponseWriter, r *http.Request, params RotateEncryptionParams)
-	// Réglages d'identité de l'instance
+	// Instance identity settings
 	// (GET /system/instance)
 	GetInstanceSettings(w http.ResponseWriter, r *http.Request)
-	// Modifier le FQDN et l'email ACME de l'instance
+	// Update the instance FQDN and ACME email
 	// (PUT /system/instance)
 	SetInstanceSettings(w http.ResponseWriter, r *http.Request)
-	// Fournisseurs OAuth/OIDC configurés pour le login du dashboard
+	// OAuth/OIDC providers configured for dashboard login
 	// (GET /system/oauth-providers)
 	ListOauthProviders(w http.ResponseWriter, r *http.Request)
-	// Retirer un fournisseur OAuth/OIDC
+	// Remove an OAuth/OIDC provider
 	// (DELETE /system/oauth-providers/{oauth_provider})
 	DeleteOauthProvider(w http.ResponseWriter, r *http.Request, oauthProvider DeleteOauthProviderParamsOauthProvider)
-	// Configurer un fournisseur OAuth/OIDC
+	// Configure an OAuth/OIDC provider
 	// (PUT /system/oauth-providers/{oauth_provider})
 	SetOauthProvider(w http.ResponseWriter, r *http.Request, oauthProvider SetOauthProviderParamsOauthProvider)
-	// Configuration de l'export OTLP distant
+	// Remote OTLP export configuration
 	// (GET /system/telemetry)
 	GetTelemetry(w http.ResponseWriter, r *http.Request)
-	// Configurer l'export OTLP distant
+	// Configure the remote OTLP export
 	// (PUT /system/telemetry)
 	SetTelemetry(w http.ResponseWriter, r *http.Request)
-	// Lister les teams accessibles
+	// List accessible teams
 	// (GET /teams)
 	ListTeams(w http.ResponseWriter, r *http.Request, params ListTeamsParams)
-	// Détail d'une team
+	// Team details
 	// (GET /teams/{team_uuid})
 	GetTeam(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid)
-	// Modifier une team
+	// Update a team
 	// (PATCH /teams/{team_uuid})
 	UpdateTeam(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid)
-	// Journal d'audit d'une team
+	// Team audit log
 	// (GET /teams/{team_uuid}/audit)
 	ListTeamAudit(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamAuditParams)
-	// Lister les invitations
+	// List invitations
 	// (GET /teams/{team_uuid}/invitations)
 	ListTeamInvitations(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamInvitationsParams)
-	// Inviter un membre
+	// Invite a member
 	// (POST /teams/{team_uuid}/invitations)
 	CreateTeamInvitation(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params CreateTeamInvitationParams)
-	// Révoquer une invitation
+	// Revoke an invitation
 	// (DELETE /teams/{team_uuid}/invitations/{invitation_uuid})
 	RevokeTeamInvitation(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, invitationUuid InvitationUuid)
-	// Régénérer le lien d'une invitation
+	// Regenerate an invitation link
 	// (POST /teams/{team_uuid}/invitations/{invitation_uuid}/resend)
 	ResendTeamInvitation(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, invitationUuid InvitationUuid)
-	// Lister les membres d'une team
+	// List team members
 	// (GET /teams/{team_uuid}/members)
 	ListTeamMembers(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamMembersParams)
-	// Changer le rôle d'un membre
+	// Change a member's role
 	// (PATCH /teams/{team_uuid}/members/{user_uuid})
 	UpdateTeamMember(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, userUuid UserUuid)
-	// Lister les rôles custom d'une team
+	// List a team's custom roles
 	// (GET /teams/{team_uuid}/roles)
 	ListTeamRoles(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamRolesParams)
-	// Créer un rôle custom
+	// Create a custom role
 	// (POST /teams/{team_uuid}/roles)
 	CreateTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid)
-	// Supprimer un rôle custom
+	// Delete a custom role
 	// (DELETE /teams/{team_uuid}/roles/{role_uuid})
 	DeleteTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid)
-	// Détail d'un rôle custom
+	// Custom role details
 	// (GET /teams/{team_uuid}/roles/{role_uuid})
 	GetTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid)
-	// Modifier un rôle custom
+	// Update a custom role
 	// (PATCH /teams/{team_uuid}/roles/{role_uuid})
 	UpdateTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid)
-	// Lister les tokens SCIM d'une team
+	// List a team's SCIM tokens
 	// (GET /teams/{team_uuid}/scim-tokens)
 	ListScimTokens(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid)
-	// Créer un token SCIM
+	// Create a SCIM token
 	// (POST /teams/{team_uuid}/scim-tokens)
 	CreateScimToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid)
-	// Révoquer un token SCIM
+	// Revoke a SCIM token
 	// (DELETE /teams/{team_uuid}/scim-tokens/{scim_token_uuid})
 	RevokeScimToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, scimTokenUuid string)
-	// Lister les tokens API
+	// List API tokens
 	// (GET /teams/{team_uuid}/tokens)
 	ListApiTokens(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListApiTokensParams)
-	// Créer un token API
+	// Create an API token
 	// (POST /teams/{team_uuid}/tokens)
 	CreateApiToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params CreateApiTokenParams)
-	// Révoquer un token API
+	// Revoke an API token
 	// (DELETE /teams/{team_uuid}/tokens/{token_uuid})
 	RevokeApiToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, tokenUuid TokenUuid)
-	// Lister les checks d'uptime de la team
+	// List the team's uptime checks
 	// (GET /uptime-checks)
 	ListUptimeChecks(w http.ResponseWriter, r *http.Request, params ListUptimeChecksParams)
-	// Créer un check d'uptime
+	// Create an uptime check
 	// (POST /uptime-checks)
 	CreateUptimeCheck(w http.ResponseWriter, r *http.Request, params CreateUptimeCheckParams)
-	// Supprimer un check d'uptime
+	// Delete an uptime check
 	// (DELETE /uptime-checks/{uptime_check_uuid})
 	DeleteUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid)
-	// Détail d'un check d'uptime
+	// Uptime check details
 	// (GET /uptime-checks/{uptime_check_uuid})
 	GetUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid)
-	// Modifier un check d'uptime
+	// Update an uptime check
 	// (PATCH /uptime-checks/{uptime_check_uuid})
 	UpdateUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid, params UpdateUptimeCheckParams)
-	// Historique des sondes d'un check
+	// A check's probe history
 	// (GET /uptime-checks/{uptime_check_uuid}/results)
 	ListUptimeResults(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid, params ListUptimeResultsParams)
-	// Version de l'instance
+	// Instance version
 	// (GET /version)
 	GetVersion(w http.ResponseWriter, r *http.Request)
 }
@@ -6792,1291 +6792,1291 @@ type ServerInterface interface {
 
 type Unimplemented struct{}
 
-// Lire un scan d'adoption et ses candidats
+// Read an adoption scan and its candidates
 // (GET /adoption-scans/{adoption_scan_uuid})
 func (_ Unimplemented) GetAdoptionScan(w http.ResponseWriter, r *http.Request, adoptionScanUuid AdoptionScanUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Adopter des candidats d'un scan, sans redéploiement
+// Adopt candidates from a scan, without redeployment
 // (POST /adoption-scans/{adoption_scan_uuid}/adopt)
 func (_ Unimplemented) AdoptResources(w http.ResponseWriter, r *http.Request, adoptionScanUuid AdoptionScanUuid, params AdoptResourcesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les applications
+// List applications
 // (GET /applications)
 func (_ Unimplemented) ListApplications(w http.ResponseWriter, r *http.Request, params ListApplicationsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer une application
+// Create an application
 // (POST /applications)
 func (_ Unimplemented) CreateApplication(w http.ResponseWriter, r *http.Request, params CreateApplicationParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer une application
+// Delete an application
 // (DELETE /applications/{application_uuid})
 func (_ Unimplemented) DeleteApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params DeleteApplicationParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail et configuration d'une application
+// Application details and configuration
 // (GET /applications/{application_uuid})
 func (_ Unimplemented) GetApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier la configuration d'une application
+// Update an application's configuration
 // (PATCH /applications/{application_uuid})
 func (_ Unimplemented) UpdateApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params UpdateApplicationParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Composants d'une application en build pack compose
+// Components of an application using the compose build pack
 // (GET /applications/{application_uuid}/components)
 func (_ Unimplemented) ListApplicationComponents(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Déclencher un déploiement
+// Trigger a deployment
 // (POST /applications/{application_uuid}/deploy)
 func (_ Unimplemented) DeployApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params DeployApplicationParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Historique des déploiements d'une application
+// An application's deployment history
 // (GET /applications/{application_uuid}/deployments)
 func (_ Unimplemented) ListApplicationDeployments(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params ListApplicationDeploymentsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Désadopter une application — rendue non gérée, jamais détruite
+// Unadopt an application — made unmanaged, never destroyed
 // (POST /applications/{application_uuid}/disown)
 func (_ Unimplemented) DisownApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params DisownApplicationParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les variables d'environnement
+// List environment variables
 // (GET /applications/{application_uuid}/envs)
 func (_ Unimplemented) ListApplicationEnvs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params ListApplicationEnvsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer une variable d'environnement
+// Create an environment variable
 // (POST /applications/{application_uuid}/envs)
 func (_ Unimplemented) CreateApplicationEnv(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationEnvParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Remplacer en bloc les variables d'environnement
+// Replace environment variables in bulk
 // (PUT /applications/{application_uuid}/envs)
 func (_ Unimplemented) ReplaceApplicationEnvs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer une variable d'environnement
+// Delete an environment variable
 // (DELETE /applications/{application_uuid}/envs/{env_uuid})
 func (_ Unimplemented) DeleteApplicationEnv(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, envUuid EnvUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier une variable d'environnement
+// Update an environment variable
 // (PATCH /applications/{application_uuid}/envs/{env_uuid})
 func (_ Unimplemented) UpdateApplicationEnv(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, envUuid EnvUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Logs du container de l'application
+// Logs of the application's container
 // (GET /applications/{application_uuid}/logs)
 func (_ Unimplemented) GetApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params GetApplicationLogsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Flux SSE des logs runtime du container
+// SSE stream of the container's runtime logs
 // (GET /applications/{application_uuid}/logs/stream)
 func (_ Unimplemented) StreamApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params StreamApplicationLogsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Métriques live par composant
+// Live metrics per component
 // (GET /applications/{application_uuid}/metrics)
 func (_ Unimplemented) GetApplicationMetrics(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Ouvrir un tunnel TCP vers un container de l'application
+// Open a TCP tunnel to a container of the application
 // (POST /applications/{application_uuid}/port-forwards)
 func (_ Unimplemented) CreateApplicationPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationPortForwardParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Previews de PR d'une application
+// PR previews of an application
 // (GET /applications/{application_uuid}/previews)
 func (_ Unimplemented) ListApplicationPreviews(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Déployer la preview d'une PR depuis la plateforme
+// Deploy a PR's preview from the platform
 // (POST /applications/{application_uuid}/previews)
 func (_ Unimplemented) DeployPreviewForPr(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détruire la preview d'une PR
+// Destroy a PR's preview
 // (DELETE /applications/{application_uuid}/previews/{preview_uuid})
 func (_ Unimplemented) DestroyPreview(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Approuver la preview d'une PR de fork
+// Approve the preview of a fork PR
 // (POST /applications/{application_uuid}/previews/{preview_uuid}/approve)
 func (_ Unimplemented) ApprovePreviewFork(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Variables effectives d'une preview
+// Effective variables of a preview
 // (GET /applications/{application_uuid}/previews/{preview_uuid}/envs)
 func (_ Unimplemented) ListPreviewEnvs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer une variable dédiée à cette preview
+// Create a variable dedicated to this preview
 // (POST /applications/{application_uuid}/previews/{preview_uuid}/envs)
 func (_ Unimplemented) CreatePreviewEnv(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Réarmer le TTL d'une preview
+// Re-arm a preview's TTL
 // (POST /applications/{application_uuid}/previews/{preview_uuid}/keep)
 func (_ Unimplemented) KeepPreview(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Logs des containers d'une preview
+// Logs of a preview's containers
 // (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
 func (_ Unimplemented) GetPreviewLogs(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params GetPreviewLogsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Métriques live par composant d'une preview
+// Live metrics per component of a preview
 // (GET /applications/{application_uuid}/previews/{preview_uuid}/metrics)
 func (_ Unimplemented) GetPreviewMetrics(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Ouvrir un tunnel TCP vers un container de la preview
+// Open a TCP tunnel to a container of the preview
 // (POST /applications/{application_uuid}/previews/{preview_uuid}/port-forwards)
 func (_ Unimplemented) CreatePreviewPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params CreatePreviewPortForwardParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Ouvrir une session terminal dans un container de la preview
+// Open a terminal session in a container of the preview
 // (POST /applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions)
 func (_ Unimplemented) CreatePreviewTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params CreatePreviewTerminalSessionParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Pull requests ouvertes du dépôt de l'application
+// Open pull requests of the application's repository
 // (GET /applications/{application_uuid}/pull-requests)
 func (_ Unimplemented) ListApplicationPullRequests(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Redémarrer une application
+// Restart an application
 // (POST /applications/{application_uuid}/restart)
 func (_ Unimplemented) RestartApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Rollback vers une image précédente
+// Rollback to a previous image
 // (POST /applications/{application_uuid}/rollback)
 func (_ Unimplemented) RollbackApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params RollbackApplicationParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les tâches planifiées d'une application
+// List an application's scheduled tasks
 // (GET /applications/{application_uuid}/scheduled-tasks)
 func (_ Unimplemented) ListScheduledTasks(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params ListScheduledTasksParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer une tâche planifiée
+// Create a scheduled task
 // (POST /applications/{application_uuid}/scheduled-tasks)
 func (_ Unimplemented) CreateScheduledTask(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateScheduledTaskParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Démarrer une application
+// Start an application
 // (POST /applications/{application_uuid}/start)
 func (_ Unimplemented) StartApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Arrêter une application
+// Stop an application
 // (POST /applications/{application_uuid}/stop)
 func (_ Unimplemented) StopApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les stockages persistants
+// List persistent storages
 // (GET /applications/{application_uuid}/storages)
 func (_ Unimplemented) ListApplicationStorages(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Déclarer un stockage persistant
+// Declare a persistent storage
 // (POST /applications/{application_uuid}/storages)
 func (_ Unimplemented) CreateApplicationStorage(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationStorageParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Retirer un stockage persistant
+// Remove a persistent storage
 // (DELETE /applications/{application_uuid}/storages/{storage_uuid})
 func (_ Unimplemented) DeleteApplicationStorage(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, storageUuid StorageUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Ouvrir une session terminal dans le container de l'application
+// Open a terminal session in the application's container
 // (POST /applications/{application_uuid}/terminal-sessions)
 func (_ Unimplemented) CreateApplicationTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params CreateApplicationTerminalSessionParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer l'endpoint de webhook Git
+// Delete the Git webhook endpoint
 // (DELETE /applications/{application_uuid}/webhook-endpoint)
 func (_ Unimplemented) DeleteWebhookEndpoint(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params DeleteWebhookEndpointParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer l'endpoint de webhook Git de l'application
+// Create the application's Git webhook endpoint
 // (POST /applications/{application_uuid}/webhook-endpoint)
 func (_ Unimplemented) CreateWebhookEndpoint(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'un certificat
+// Certificate details
 // (GET /certificates/{certificate_uuid})
 func (_ Unimplemented) GetCertificate(w http.ResponseWriter, r *http.Request, certificateUuid CertificateUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Forcer le renouvellement d'un certificat
+// Force a certificate's renewal
 // (POST /certificates/{certificate_uuid}/renew)
 func (_ Unimplemented) RenewCertificate(w http.ResponseWriter, r *http.Request, certificateUuid CertificateUuid, params RenewCertificateParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les bases de données
+// List databases
 // (GET /databases)
 func (_ Unimplemented) ListDatabases(w http.ResponseWriter, r *http.Request, params ListDatabasesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer une base PostgreSQL
+// Create a PostgreSQL database
 // (POST /databases/postgresql)
 func (_ Unimplemented) CreatePostgresqlDatabase(w http.ResponseWriter, r *http.Request, params CreatePostgresqlDatabaseParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer une base
+// Delete a database
 // (DELETE /databases/{database_uuid})
 func (_ Unimplemented) DeleteDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, params DeleteDatabaseParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'une base
+// Database details
 // (GET /databases/{database_uuid})
 func (_ Unimplemented) GetDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier une base
+// Update a database
 // (PATCH /databases/{database_uuid})
 func (_ Unimplemented) UpdateDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, params UpdateDatabaseParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les plans de backup d'une base
+// List a database's backup plans
 // (GET /databases/{database_uuid}/backups)
 func (_ Unimplemented) ListBackupPlans(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, params ListBackupPlansParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer un plan de backup
+// Create a backup plan
 // (POST /databases/{database_uuid}/backups)
 func (_ Unimplemented) CreateBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, params CreateBackupPlanParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer un plan de backup
+// Delete a backup plan
 // (DELETE /databases/{database_uuid}/backups/{backup_plan_uuid})
 func (_ Unimplemented) DeleteBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'un plan de backup
+// Backup plan details
 // (GET /databases/{database_uuid}/backups/{backup_plan_uuid})
 func (_ Unimplemented) GetBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier un plan de backup
+// Update a backup plan
 // (PATCH /databases/{database_uuid}/backups/{backup_plan_uuid})
 func (_ Unimplemented) UpdateBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid, params UpdateBackupPlanParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lancer immédiatement un restore drill
+// Run a restore drill immediately
 // (POST /databases/{database_uuid}/backups/{backup_plan_uuid}/drill)
 func (_ Unimplemented) RunRestoreDrill(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid, params RunRestoreDrillParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Historique des restore drills d'un plan
+// History of a plan's restore drills
 // (GET /databases/{database_uuid}/backups/{backup_plan_uuid}/drills)
 func (_ Unimplemented) ListRestoreDrills(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid, params ListRestoreDrillsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lancer un backup immédiat (Backup Now)
+// Run an immediate backup (Backup Now)
 // (POST /databases/{database_uuid}/backups/{backup_plan_uuid}/execute)
 func (_ Unimplemented) ExecuteBackupPlan(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid, params ExecuteBackupPlanParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les exécutions d'un plan de backup
+// List a backup plan's executions
 // (GET /databases/{database_uuid}/backups/{backup_plan_uuid}/executions)
 func (_ Unimplemented) ListBackupExecutions(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid, params ListBackupExecutionsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Restaurer une base depuis une exécution de backup
+// Restore a database from a backup execution
 // (POST /databases/{database_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore)
 func (_ Unimplemented) RestoreBackupExecution(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, backupPlanUuid BackupPlanUuid, executionUuid ExecutionUuid, params RestoreBackupExecutionParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Ouvrir un tunnel TCP vers une base de données
+// Open a TCP tunnel to a database
 // (POST /databases/{database_uuid}/port-forwards)
 func (_ Unimplemented) CreateDatabasePortForward(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Redémarrer une base
+// Restart a database
 // (POST /databases/{database_uuid}/restart)
 func (_ Unimplemented) RestartDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Démarrer une base
+// Start a database
 // (POST /databases/{database_uuid}/start)
 func (_ Unimplemented) StartDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Arrêter une base
+// Stop a database
 // (POST /databases/{database_uuid}/stop)
 func (_ Unimplemented) StopDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Ouvrir une session terminal dans le container de la base
+// Open a terminal session in the database's container
 // (POST /databases/{database_uuid}/terminal-sessions)
 func (_ Unimplemented) CreateDatabaseTerminalSession(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Déclencher des déploiements par UUID ou tag (webhook CI)
+// Trigger deployments by UUID or tag (CI webhook)
 // (GET /deploy)
 func (_ Unimplemented) WebhookDeploy(w http.ResponseWriter, r *http.Request, params WebhookDeployParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Déclencher des déploiements par UUID ou tag (webhook CI, POST)
+// Trigger deployments by UUID or tag (CI webhook, POST)
 // (POST /deploy)
 func (_ Unimplemented) WebhookDeployPost(w http.ResponseWriter, r *http.Request, params WebhookDeployPostParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'un déploiement
+// Deployment details
 // (GET /deployments/{deployment_uuid})
 func (_ Unimplemented) GetDeployment(w http.ResponseWriter, r *http.Request, deploymentUuid DeploymentUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Annuler un déploiement
+// Cancel a deployment
 // (POST /deployments/{deployment_uuid}/cancel)
 func (_ Unimplemented) CancelDeployment(w http.ResponseWriter, r *http.Request, deploymentUuid DeploymentUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Logs de build d'un déploiement (JSON ou SSE)
+// Build logs of a deployment (JSON or SSE)
 // (GET /deployments/{deployment_uuid}/logs)
 func (_ Unimplemented) GetDeploymentLogs(w http.ResponseWriter, r *http.Request, deploymentUuid DeploymentUuid, params GetDeploymentLogsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les credentials DNS-01
+// List DNS-01 credentials
 // (GET /dns-credentials)
 func (_ Unimplemented) ListDnsCredentials(w http.ResponseWriter, r *http.Request, params ListDnsCredentialsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Enregistrer un credential DNS-01
+// Register a DNS-01 credential
 // (POST /dns-credentials)
 func (_ Unimplemented) CreateDnsCredential(w http.ResponseWriter, r *http.Request, params CreateDnsCredentialParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer un credential DNS-01
+// Delete a DNS-01 credential
 // (DELETE /dns-credentials/{dns_credential_uuid})
 func (_ Unimplemented) DeleteDnsCredential(w http.ResponseWriter, r *http.Request, dnsCredentialUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'un credential DNS-01
+// DNS-01 credential details
 // (GET /dns-credentials/{dns_credential_uuid})
 func (_ Unimplemented) GetDnsCredential(w http.ResponseWriter, r *http.Request, dnsCredentialUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Flux SSE des événements de la team (statuts, jobs, déploiements)
+// SSE stream of team events (statuses, jobs, deployments)
 // (GET /events)
 func (_ Unimplemented) StreamEvents(w http.ResponseWriter, r *http.Request, params StreamEventsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les GitHub Apps de la team
+// List the team's GitHub Apps
 // (GET /github-apps)
 func (_ Unimplemented) ListGithubApps(w http.ResponseWriter, r *http.Request, params ListGithubAppsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Initier la création d'une GitHub App (manifest flow)
+// Initiate the creation of a GitHub App (manifest flow)
 // (POST /github-apps)
 func (_ Unimplemented) CreateGithubApp(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer une GitHub App
+// Delete a GitHub App
 // (DELETE /github-apps/{github_app_uuid})
 func (_ Unimplemented) DeleteGithubApp(w http.ResponseWriter, r *http.Request, githubAppUuid GithubAppUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'une GitHub App
+// GitHub App details
 // (GET /github-apps/{github_app_uuid})
 func (_ Unimplemented) GetGithubApp(w http.ResponseWriter, r *http.Request, githubAppUuid GithubAppUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Dépôts accessibles à l'installation
+// Repositories accessible to the installation
 // (GET /github-apps/{github_app_uuid}/repositories)
 func (_ Unimplemented) ListGithubAppRepositories(w http.ResponseWriter, r *http.Request, githubAppUuid GithubAppUuid, params ListGithubAppRepositoriesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Vérification de vivacité
+// Liveness check
 // (GET /health)
 func (_ Unimplemented) GetHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les jobs
+// List jobs
 // (GET /jobs)
 func (_ Unimplemented) ListJobs(w http.ResponseWriter, r *http.Request, params ListJobsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Suivi d'une opération asynchrone
+// Track an asynchronous operation
 // (GET /jobs/{job_uuid})
 func (_ Unimplemented) GetJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Abandonner un job en dead-letter
+// Forget a dead-letter job
 // (POST /jobs/{job_uuid}/forget)
 func (_ Unimplemented) ForgetJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Rejouer un job en dead-letter
+// Retry a dead-letter job
 // (POST /jobs/{job_uuid}/retry)
 func (_ Unimplemented) RetryJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid, params RetryJobParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les canaux de notification
+// List notification channels
 // (GET /notification-channels)
 func (_ Unimplemented) ListNotificationChannels(w http.ResponseWriter, r *http.Request, params ListNotificationChannelsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer un canal de notification
+// Create a notification channel
 // (POST /notification-channels)
 func (_ Unimplemented) CreateNotificationChannel(w http.ResponseWriter, r *http.Request, params CreateNotificationChannelParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer un canal
+// Delete a channel
 // (DELETE /notification-channels/{channel_uuid})
 func (_ Unimplemented) DeleteNotificationChannel(w http.ResponseWriter, r *http.Request, channelUuid ChannelUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'un canal
+// Channel details
 // (GET /notification-channels/{channel_uuid})
 func (_ Unimplemented) GetNotificationChannel(w http.ResponseWriter, r *http.Request, channelUuid ChannelUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier un canal
+// Update a channel
 // (PATCH /notification-channels/{channel_uuid})
 func (_ Unimplemented) UpdateNotificationChannel(w http.ResponseWriter, r *http.Request, channelUuid ChannelUuid, params UpdateNotificationChannelParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les règles de routage d'un canal
+// List a channel's routing rules
 // (GET /notification-channels/{channel_uuid}/rules)
 func (_ Unimplemented) ListNotificationRules(w http.ResponseWriter, r *http.Request, channelUuid ChannelUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Ajouter une règle de routage
+// Add a routing rule
 // (POST /notification-channels/{channel_uuid}/rules)
 func (_ Unimplemented) CreateNotificationRule(w http.ResponseWriter, r *http.Request, channelUuid ChannelUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer une règle de routage
+// Delete a routing rule
 // (DELETE /notification-channels/{channel_uuid}/rules/{rule_uuid})
 func (_ Unimplemented) DeleteNotificationRule(w http.ResponseWriter, r *http.Request, channelUuid ChannelUuid, ruleUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Envoyer un message de test
+// Send a test message
 // (POST /notification-channels/{channel_uuid}/test)
 func (_ Unimplemented) TestNotificationChannel(w http.ResponseWriter, r *http.Request, channelUuid ChannelUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Catalogue des permissions granulaires
+// Catalog of granular permissions
 // (GET /permissions)
 func (_ Unimplemented) ListPermissions(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les clés privées
+// List private keys
 // (GET /private-keys)
 func (_ Unimplemented) ListPrivateKeys(w http.ResponseWriter, r *http.Request, params ListPrivateKeysParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Enregistrer une clé privée
+// Register a private key
 // (POST /private-keys)
 func (_ Unimplemented) CreatePrivateKey(w http.ResponseWriter, r *http.Request, params CreatePrivateKeyParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer une clé privée
+// Delete a private key
 // (DELETE /private-keys/{private_key_uuid})
 func (_ Unimplemented) DeletePrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'une clé privée
+// Private key details
 // (GET /private-keys/{private_key_uuid})
 func (_ Unimplemented) GetPrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid, params GetPrivateKeyParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier une clé privée
+// Update a private key
 // (PATCH /private-keys/{private_key_uuid})
 func (_ Unimplemented) UpdatePrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid, params UpdatePrivateKeyParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les projets
+// List projects
 // (GET /projects)
 func (_ Unimplemented) ListProjects(w http.ResponseWriter, r *http.Request, params ListProjectsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer un projet
+// Create a project
 // (POST /projects)
 func (_ Unimplemented) CreateProject(w http.ResponseWriter, r *http.Request, params CreateProjectParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer un projet
+// Delete a project
 // (DELETE /projects/{project_uuid})
 func (_ Unimplemented) DeleteProject(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'un projet
+// Project details
 // (GET /projects/{project_uuid})
 func (_ Unimplemented) GetProject(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier un projet
+// Update a project
 // (PATCH /projects/{project_uuid})
 func (_ Unimplemented) UpdateProject(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les environnements d'un projet
+// List a project's environments
 // (GET /projects/{project_uuid}/environments)
 func (_ Unimplemented) ListEnvironments(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, params ListEnvironmentsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer un environnement
+// Create an environment
 // (POST /projects/{project_uuid}/environments)
 func (_ Unimplemented) CreateEnvironment(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, params CreateEnvironmentParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer un environnement
+// Delete an environment
 // (DELETE /projects/{project_uuid}/environments/{environment_uuid})
 func (_ Unimplemented) DeleteEnvironment(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, environmentUuid EnvironmentUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'un environnement
+// Environment details
 // (GET /projects/{project_uuid}/environments/{environment_uuid})
 func (_ Unimplemented) GetEnvironment(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, environmentUuid EnvironmentUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier un environnement
+// Update an environment
 // (PATCH /projects/{project_uuid}/environments/{environment_uuid})
 func (_ Unimplemented) UpdateEnvironment(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, environmentUuid EnvironmentUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les credentials de registry
+// List registry credentials
 // (GET /registry-credentials)
 func (_ Unimplemented) ListRegistryCredentials(w http.ResponseWriter, r *http.Request, params ListRegistryCredentialsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Enregistrer un credential de registry
+// Register a registry credential
 // (POST /registry-credentials)
 func (_ Unimplemented) CreateRegistryCredential(w http.ResponseWriter, r *http.Request, params CreateRegistryCredentialParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer un credential de registry
+// Delete a registry credential
 // (DELETE /registry-credentials/{registry_credential_uuid})
 func (_ Unimplemented) DeleteRegistryCredential(w http.ResponseWriter, r *http.Request, registryCredentialUuid RegistryCredentialUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'un credential de registry
+// Registry credential details
 // (GET /registry-credentials/{registry_credential_uuid})
 func (_ Unimplemented) GetRegistryCredential(w http.ResponseWriter, r *http.Request, registryCredentialUuid RegistryCredentialUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier un credential de registry
+// Update a registry credential
 // (PATCH /registry-credentials/{registry_credential_uuid})
 func (_ Unimplemented) UpdateRegistryCredential(w http.ResponseWriter, r *http.Request, registryCredentialUuid RegistryCredentialUuid, params UpdateRegistryCredentialParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les stockages S3
+// List S3 storages
 // (GET /s3-storages)
 func (_ Unimplemented) ListS3Storages(w http.ResponseWriter, r *http.Request, params ListS3StoragesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Enregistrer un stockage S3
+// Register an S3 storage
 // (POST /s3-storages)
 func (_ Unimplemented) CreateS3Storage(w http.ResponseWriter, r *http.Request, params CreateS3StorageParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer un stockage S3
+// Delete an S3 storage
 // (DELETE /s3-storages/{s3_storage_uuid})
 func (_ Unimplemented) DeleteS3Storage(w http.ResponseWriter, r *http.Request, s3StorageUuid S3StorageUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'un stockage S3
+// S3 storage details
 // (GET /s3-storages/{s3_storage_uuid})
 func (_ Unimplemented) GetS3Storage(w http.ResponseWriter, r *http.Request, s3StorageUuid S3StorageUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier un stockage S3
+// Update an S3 storage
 // (PATCH /s3-storages/{s3_storage_uuid})
 func (_ Unimplemented) UpdateS3Storage(w http.ResponseWriter, r *http.Request, s3StorageUuid S3StorageUuid, params UpdateS3StorageParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Vérifier la connectivité d'un stockage S3
+// Check an S3 storage's connectivity
 // (POST /s3-storages/{s3_storage_uuid}/validate)
 func (_ Unimplemented) ValidateS3Storage(w http.ResponseWriter, r *http.Request, s3StorageUuid S3StorageUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer une tâche planifiée
+// Delete a scheduled task
 // (DELETE /scheduled-tasks/{task_uuid})
 func (_ Unimplemented) DeleteScheduledTask(w http.ResponseWriter, r *http.Request, taskUuid TaskUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'une tâche planifiée
+// Scheduled task details
 // (GET /scheduled-tasks/{task_uuid})
 func (_ Unimplemented) GetScheduledTask(w http.ResponseWriter, r *http.Request, taskUuid TaskUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier une tâche planifiée
+// Update a scheduled task
 // (PATCH /scheduled-tasks/{task_uuid})
 func (_ Unimplemented) UpdateScheduledTask(w http.ResponseWriter, r *http.Request, taskUuid TaskUuid, params UpdateScheduledTaskParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Historique d'exécution d'une tâche
+// A task's execution history
 // (GET /scheduled-tasks/{task_uuid}/executions)
 func (_ Unimplemented) ListTaskExecutions(w http.ResponseWriter, r *http.Request, taskUuid TaskUuid, params ListTaskExecutionsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Déclencher une tâche planifiée immédiatement
+// Trigger a scheduled task immediately
 // (POST /scheduled-tasks/{task_uuid}/run)
 func (_ Unimplemented) RunScheduledTask(w http.ResponseWriter, r *http.Request, taskUuid TaskUuid, params RunScheduledTaskParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les serveurs
+// List servers
 // (GET /servers)
 func (_ Unimplemented) ListServers(w http.ResponseWriter, r *http.Request, params ListServersParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Enregistrer un serveur
+// Register a server
 // (POST /servers)
 func (_ Unimplemented) CreateServer(w http.ResponseWriter, r *http.Request, params CreateServerParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Retirer un serveur
+// Remove a server
 // (DELETE /servers/{server_uuid})
 func (_ Unimplemented) DeleteServer(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'un serveur
+// Server details
 // (GET /servers/{server_uuid})
 func (_ Unimplemented) GetServer(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier un serveur
+// Update a server
 // (PATCH /servers/{server_uuid})
 func (_ Unimplemented) UpdateServer(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params UpdateServerParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les scans d'adoption d'un serveur
+// List a server's adoption scans
 // (GET /servers/{server_uuid}/adoption-scans)
 func (_ Unimplemented) ListAdoptionScans(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ListAdoptionScansParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Scanner les ressources Docker non gérées d'un serveur
+// Scan a server's unmanaged Docker resources
 // (POST /servers/{server_uuid}/adoption-scans)
 func (_ Unimplemented) CreateAdoptionScan(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params CreateAdoptionScanParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Certificat de la CA du serveur (SSL des bases)
+// Server CA certificate (database SSL)
 // (GET /servers/{server_uuid}/ca)
 func (_ Unimplemented) GetServerCA(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les certificats d'un serveur
+// List a server's certificates
 // (GET /servers/{server_uuid}/certificates)
 func (_ Unimplemented) ListServerCertificates(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ListServerCertificatesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lancer un nettoyage disque immédiat
+// Run an immediate disk cleanup
 // (POST /servers/{server_uuid}/cleanup)
 func (_ Unimplemented) RunServerCleanup(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params RunServerCleanupParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les domaines servis par un serveur
+// List the domains served by a server
 // (GET /servers/{server_uuid}/domains)
 func (_ Unimplemented) ListServerDomains(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Logs du proxy d'un serveur
+// Logs of a server's proxy
 // (GET /servers/{server_uuid}/proxy/logs)
 func (_ Unimplemented) GetProxyLogs(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params GetProxyLogsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Démarrer, arrêter ou redémarrer le proxy d'un serveur
+// Start, stop or restart a server's proxy
 // (POST /servers/{server_uuid}/proxy/{action})
 func (_ Unimplemented) ProxyLifecycle(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, action string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les ressources d'un serveur
+// List a server's resources
 // (GET /servers/{server_uuid}/resources)
 func (_ Unimplemented) ListServerResources(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ListServerResourcesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Ouvrir une session terminal shell sur le serveur
+// Open a shell terminal session on the server
 // (POST /servers/{server_uuid}/terminal-sessions)
 func (_ Unimplemented) CreateServerTerminalSession(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Valider un serveur et installer les prérequis
+// Validate a server and install prerequisites
 // (POST /servers/{server_uuid}/validate)
 func (_ Unimplemented) ValidateServer(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params ValidateServerParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les plans de backup d'un composant de stack
+// List a stack component's backup plans
 // (GET /service-components/{service_component_uuid}/backups)
 func (_ Unimplemented) ListComponentBackupPlans(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, params ListComponentBackupPlansParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer un plan de backup sur une base interne d'un stack
+// Create a backup plan on a stack's internal database
 // (POST /service-components/{service_component_uuid}/backups)
 func (_ Unimplemented) CreateComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, params CreateComponentBackupPlanParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer un plan de backup de composant
+// Delete a component backup plan
 // (DELETE /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
 func (_ Unimplemented) DeleteComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'un plan de backup de composant
+// Component backup plan details
 // (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
 func (_ Unimplemented) GetComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier un plan de backup de composant
+// Update a component backup plan
 // (PATCH /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
 func (_ Unimplemented) UpdateComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params UpdateComponentBackupPlanParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lancer immédiatement un restore drill sur une base interne
+// Run a restore drill immediately on an internal database
 // (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drill)
 func (_ Unimplemented) RunComponentRestoreDrill(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params RunComponentRestoreDrillParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Historique des restore drills d'un plan de composant
+// History of a component plan's restore drills
 // (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drills)
 func (_ Unimplemented) ListComponentRestoreDrills(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params ListComponentRestoreDrillsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lancer un backup immédiat d'une base interne
+// Run an immediate backup of an internal database
 // (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/execute)
 func (_ Unimplemented) ExecuteComponentBackupPlan(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params ExecuteComponentBackupPlanParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les exécutions d'un plan de backup de composant
+// List a component backup plan's executions
 // (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions)
 func (_ Unimplemented) ListComponentBackupExecutions(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, params ListComponentBackupExecutionsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Restaurer une base interne depuis une exécution de backup
+// Restore an internal database from a backup execution
 // (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore)
 func (_ Unimplemented) RestoreComponentBackupExecution(w http.ResponseWriter, r *http.Request, serviceComponentUuid ServiceComponentUuid, backupPlanUuid BackupPlanUuid, executionUuid ExecutionUuid, params RestoreComponentBackupExecutionParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les stacks compose
+// List compose stacks
 // (GET /services)
 func (_ Unimplemented) ListServices(w http.ResponseWriter, r *http.Request, params ListServicesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer un stack compose inline
+// Create an inline compose stack
 // (POST /services)
 func (_ Unimplemented) CreateService(w http.ResponseWriter, r *http.Request, params CreateServiceParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer un stack compose
+// Delete a compose stack
 // (DELETE /services/{service_uuid})
 func (_ Unimplemented) DeleteService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params DeleteServiceParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'un stack compose
+// Compose stack details
 // (GET /services/{service_uuid})
 func (_ Unimplemented) GetService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier un stack compose
+// Update a compose stack
 // (PATCH /services/{service_uuid})
 func (_ Unimplemented) UpdateService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params UpdateServiceParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Composants d'un stack
+// Components of a stack
 // (GET /services/{service_uuid}/components)
 func (_ Unimplemented) ListServiceComponents(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Déployer un stack
+// Deploy a stack
 // (POST /services/{service_uuid}/deploy)
 func (_ Unimplemented) DeployService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params DeployServiceParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Déploiements d'un stack
+// A stack's deployments
 // (GET /services/{service_uuid}/deployments)
 func (_ Unimplemented) ListServiceDeployments(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params ListServiceDeploymentsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Désadopter un stack — rendu non géré, jamais détruit
+// Unadopt a stack — made unmanaged, never destroyed
 // (POST /services/{service_uuid}/disown)
 func (_ Unimplemented) DisownService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params DisownServiceParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Variables d'environnement d'un stack
+// A stack's environment variables
 // (GET /services/{service_uuid}/envs)
 func (_ Unimplemented) ListServiceEnvs(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params ListServiceEnvsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Ajouter une variable au stack
+// Add a variable to the stack
 // (POST /services/{service_uuid}/envs)
 func (_ Unimplemented) CreateServiceEnv(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer une variable du stack
+// Delete a stack variable
 // (DELETE /services/{service_uuid}/envs/{env_uuid})
 func (_ Unimplemented) DeleteServiceEnv(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, envUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier une variable du stack
+// Update a stack variable
 // (PATCH /services/{service_uuid}/envs/{env_uuid})
 func (_ Unimplemented) UpdateServiceEnv(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, envUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Redémarrer les containers d'un stack
+// Restart a stack's containers
 // (POST /services/{service_uuid}/restart)
 func (_ Unimplemented) RestartService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Démarrer les containers d'un stack
+// Start a stack's containers
 // (POST /services/{service_uuid}/start)
 func (_ Unimplemented) StartService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Arrêter les containers d'un stack
+// Stop a stack's containers
 // (POST /services/{service_uuid}/stop)
 func (_ Unimplemented) StopService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les variables partagées de la team
+// List the team's shared variables
 // (GET /shared-variables)
 func (_ Unimplemented) ListSharedVariables(w http.ResponseWriter, r *http.Request, params ListSharedVariablesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer une variable partagée
+// Create a shared variable
 // (POST /shared-variables)
 func (_ Unimplemented) CreateSharedVariable(w http.ResponseWriter, r *http.Request, params CreateSharedVariableParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer une variable partagée
+// Delete a shared variable
 // (DELETE /shared-variables/{shared_variable_uuid})
 func (_ Unimplemented) DeleteSharedVariable(w http.ResponseWriter, r *http.Request, sharedVariableUuid SharedVariableUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier une variable partagée (valeur, masquage)
+// Update a shared variable (value, masking)
 // (PATCH /shared-variables/{shared_variable_uuid})
 func (_ Unimplemented) UpdateSharedVariable(w http.ResponseWriter, r *http.Request, sharedVariableUuid SharedVariableUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Désactiver l'API
+// Disable the API
 // (POST /system/api/disable)
 func (_ Unimplemented) DisableApi(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Activer l'API
+// Enable the API
 // (POST /system/api/enable)
 func (_ Unimplemented) EnableApi(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Journal d'audit de toute l'instance
+// Instance-wide audit log
 // (GET /system/audit)
 func (_ Unimplemented) ListInstanceAudit(w http.ResponseWriter, r *http.Request, params ListInstanceAuditParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Configuration de l'email transactionnel de l'instance
+// Instance transactional email configuration
 // (GET /system/email)
 func (_ Unimplemented) GetTransactionalEmail(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Configurer l'email transactionnel de l'instance
+// Configure the instance transactional email
 // (PUT /system/email)
 func (_ Unimplemented) SetTransactionalEmail(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// État du chiffrement au repos et de la rotation de clé maître
+// State of encryption at rest and master key rotation
 // (GET /system/encryption)
 func (_ Unimplemented) GetEncryptionStatus(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Forcer le re-chiffrement vers la version de clé active
+// Force re-encryption to the active key version
 // (POST /system/encryption/rotate)
 func (_ Unimplemented) RotateEncryption(w http.ResponseWriter, r *http.Request, params RotateEncryptionParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Réglages d'identité de l'instance
+// Instance identity settings
 // (GET /system/instance)
 func (_ Unimplemented) GetInstanceSettings(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier le FQDN et l'email ACME de l'instance
+// Update the instance FQDN and ACME email
 // (PUT /system/instance)
 func (_ Unimplemented) SetInstanceSettings(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Fournisseurs OAuth/OIDC configurés pour le login du dashboard
+// OAuth/OIDC providers configured for dashboard login
 // (GET /system/oauth-providers)
 func (_ Unimplemented) ListOauthProviders(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Retirer un fournisseur OAuth/OIDC
+// Remove an OAuth/OIDC provider
 // (DELETE /system/oauth-providers/{oauth_provider})
 func (_ Unimplemented) DeleteOauthProvider(w http.ResponseWriter, r *http.Request, oauthProvider DeleteOauthProviderParamsOauthProvider) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Configurer un fournisseur OAuth/OIDC
+// Configure an OAuth/OIDC provider
 // (PUT /system/oauth-providers/{oauth_provider})
 func (_ Unimplemented) SetOauthProvider(w http.ResponseWriter, r *http.Request, oauthProvider SetOauthProviderParamsOauthProvider) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Configuration de l'export OTLP distant
+// Remote OTLP export configuration
 // (GET /system/telemetry)
 func (_ Unimplemented) GetTelemetry(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Configurer l'export OTLP distant
+// Configure the remote OTLP export
 // (PUT /system/telemetry)
 func (_ Unimplemented) SetTelemetry(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les teams accessibles
+// List accessible teams
 // (GET /teams)
 func (_ Unimplemented) ListTeams(w http.ResponseWriter, r *http.Request, params ListTeamsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'une team
+// Team details
 // (GET /teams/{team_uuid})
 func (_ Unimplemented) GetTeam(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier une team
+// Update a team
 // (PATCH /teams/{team_uuid})
 func (_ Unimplemented) UpdateTeam(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Journal d'audit d'une team
+// Team audit log
 // (GET /teams/{team_uuid}/audit)
 func (_ Unimplemented) ListTeamAudit(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamAuditParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les invitations
+// List invitations
 // (GET /teams/{team_uuid}/invitations)
 func (_ Unimplemented) ListTeamInvitations(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamInvitationsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Inviter un membre
+// Invite a member
 // (POST /teams/{team_uuid}/invitations)
 func (_ Unimplemented) CreateTeamInvitation(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params CreateTeamInvitationParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Révoquer une invitation
+// Revoke an invitation
 // (DELETE /teams/{team_uuid}/invitations/{invitation_uuid})
 func (_ Unimplemented) RevokeTeamInvitation(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, invitationUuid InvitationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Régénérer le lien d'une invitation
+// Regenerate an invitation link
 // (POST /teams/{team_uuid}/invitations/{invitation_uuid}/resend)
 func (_ Unimplemented) ResendTeamInvitation(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, invitationUuid InvitationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les membres d'une team
+// List team members
 // (GET /teams/{team_uuid}/members)
 func (_ Unimplemented) ListTeamMembers(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamMembersParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Changer le rôle d'un membre
+// Change a member's role
 // (PATCH /teams/{team_uuid}/members/{user_uuid})
 func (_ Unimplemented) UpdateTeamMember(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, userUuid UserUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les rôles custom d'une team
+// List a team's custom roles
 // (GET /teams/{team_uuid}/roles)
 func (_ Unimplemented) ListTeamRoles(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamRolesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer un rôle custom
+// Create a custom role
 // (POST /teams/{team_uuid}/roles)
 func (_ Unimplemented) CreateTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer un rôle custom
+// Delete a custom role
 // (DELETE /teams/{team_uuid}/roles/{role_uuid})
 func (_ Unimplemented) DeleteTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'un rôle custom
+// Custom role details
 // (GET /teams/{team_uuid}/roles/{role_uuid})
 func (_ Unimplemented) GetTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier un rôle custom
+// Update a custom role
 // (PATCH /teams/{team_uuid}/roles/{role_uuid})
 func (_ Unimplemented) UpdateTeamRole(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, roleUuid RoleUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les tokens SCIM d'une team
+// List a team's SCIM tokens
 // (GET /teams/{team_uuid}/scim-tokens)
 func (_ Unimplemented) ListScimTokens(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer un token SCIM
+// Create a SCIM token
 // (POST /teams/{team_uuid}/scim-tokens)
 func (_ Unimplemented) CreateScimToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Révoquer un token SCIM
+// Revoke a SCIM token
 // (DELETE /teams/{team_uuid}/scim-tokens/{scim_token_uuid})
 func (_ Unimplemented) RevokeScimToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, scimTokenUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les tokens API
+// List API tokens
 // (GET /teams/{team_uuid}/tokens)
 func (_ Unimplemented) ListApiTokens(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListApiTokensParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer un token API
+// Create an API token
 // (POST /teams/{team_uuid}/tokens)
 func (_ Unimplemented) CreateApiToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params CreateApiTokenParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Révoquer un token API
+// Revoke an API token
 // (DELETE /teams/{team_uuid}/tokens/{token_uuid})
 func (_ Unimplemented) RevokeApiToken(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, tokenUuid TokenUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Lister les checks d'uptime de la team
+// List the team's uptime checks
 // (GET /uptime-checks)
 func (_ Unimplemented) ListUptimeChecks(w http.ResponseWriter, r *http.Request, params ListUptimeChecksParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Créer un check d'uptime
+// Create an uptime check
 // (POST /uptime-checks)
 func (_ Unimplemented) CreateUptimeCheck(w http.ResponseWriter, r *http.Request, params CreateUptimeCheckParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Supprimer un check d'uptime
+// Delete an uptime check
 // (DELETE /uptime-checks/{uptime_check_uuid})
 func (_ Unimplemented) DeleteUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Détail d'un check d'uptime
+// Uptime check details
 // (GET /uptime-checks/{uptime_check_uuid})
 func (_ Unimplemented) GetUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Modifier un check d'uptime
+// Update an uptime check
 // (PATCH /uptime-checks/{uptime_check_uuid})
 func (_ Unimplemented) UpdateUptimeCheck(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid, params UpdateUptimeCheckParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Historique des sondes d'un check
+// A check's probe history
 // (GET /uptime-checks/{uptime_check_uuid}/results)
 func (_ Unimplemented) ListUptimeResults(w http.ResponseWriter, r *http.Request, uptimeCheckUuid UptimeCheckUuid, params ListUptimeResultsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Version de l'instance
+// Instance version
 // (GET /version)
 func (_ Unimplemented) GetVersion(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -19053,7 +19053,7 @@ type ListApplicationsResponseObject interface {
 type ListApplications200JSONResponse struct {
 	Data []Application `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -19766,7 +19766,7 @@ type ListApplicationDeploymentsResponseObject interface {
 type ListApplicationDeployments200JSONResponse struct {
 	Data []Deployment `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -19963,7 +19963,7 @@ type ListApplicationEnvsResponseObject interface {
 type ListApplicationEnvs200JSONResponse struct {
 	Data []EnvironmentVariable `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -22265,7 +22265,7 @@ type ListScheduledTasksResponseObject interface {
 type ListScheduledTasks200JSONResponse struct {
 	Data []ScheduledTask `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -23455,7 +23455,7 @@ type ListDatabasesResponseObject interface {
 type ListDatabases200JSONResponse struct {
 	Data []Database `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -23988,7 +23988,7 @@ type ListBackupPlansResponseObject interface {
 type ListBackupPlans200JSONResponse struct {
 	Data []BackupPlan `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -24630,7 +24630,7 @@ type ListRestoreDrillsResponseObject interface {
 type ListRestoreDrills200JSONResponse struct {
 	Data []RestoreDrill `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -24815,7 +24815,7 @@ type ListBackupExecutionsResponseObject interface {
 type ListBackupExecutions200JSONResponse struct {
 	Data []BackupExecution `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -25887,7 +25887,7 @@ type GetDeploymentLogsResponseObject interface {
 type GetDeploymentLogs200JSONResponse struct {
 	Data []LogLine `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -26030,7 +26030,7 @@ type ListDnsCredentialsResponseObject interface {
 type ListDnsCredentials200JSONResponse struct {
 	Data []DnsCredential `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -26452,7 +26452,7 @@ type ListGithubAppsResponseObject interface {
 type ListGithubApps200JSONResponse struct {
 	Data []GithubApp `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -26910,7 +26910,7 @@ type ListJobsResponseObject interface {
 type ListJobs200JSONResponse struct {
 	Data []Job `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -27269,7 +27269,7 @@ type ListNotificationChannelsResponseObject interface {
 type ListNotificationChannels200JSONResponse struct {
 	Data []NotificationChannel `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -28009,7 +28009,7 @@ type TestNotificationChannelResponseObject interface {
 type TestNotificationChannel200JSONResponse struct {
 	Delivered bool `json:"delivered"`
 
-	// Error Raison de l'échec — jamais un credential.
+	// Error Failure reason — never a credential.
 	Error *string `json:"error,omitempty"`
 }
 
@@ -28163,7 +28163,7 @@ type ListPrivateKeysResponseObject interface {
 type ListPrivateKeys200JSONResponse struct {
 	Data []PrivateKey `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -28661,7 +28661,7 @@ type ListProjectsResponseObject interface {
 type ListProjects200JSONResponse struct {
 	Data []Project `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -29172,7 +29172,7 @@ type ListEnvironmentsResponseObject interface {
 type ListEnvironments200JSONResponse struct {
 	Data []Environment `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -29714,7 +29714,7 @@ type ListRegistryCredentialsResponseObject interface {
 type ListRegistryCredentials200JSONResponse struct {
 	Data []RegistryCredential `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -30197,7 +30197,7 @@ type ListS3StoragesResponseObject interface {
 type ListS3Storages200JSONResponse struct {
 	Data []S3Storage `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -31051,7 +31051,7 @@ type ListTaskExecutionsResponseObject interface {
 type ListTaskExecutions200JSONResponse struct {
 	Data []TaskExecution `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -31219,7 +31219,7 @@ type ListServersResponseObject interface {
 type ListServers200JSONResponse struct {
 	Data []Server `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -31717,7 +31717,7 @@ type ListAdoptionScansResponseObject interface {
 type ListAdoptionScans200JSONResponse struct {
 	Data []AdoptionScan `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -31911,7 +31911,7 @@ type GetServerCAResponseObject interface {
 }
 
 type GetServerCA200JSONResponse struct {
-	// CaCert PEM ; `null` tant qu'aucune base SSL n'a été créée sur ce serveur.
+	// CaCert PEM; `null` until an SSL database has been created on this server.
 	CaCert *string `json:"ca_cert"`
 }
 
@@ -31984,7 +31984,7 @@ type ListServerCertificatesResponseObject interface {
 type ListServerCertificates200JSONResponse struct {
 	Data []Certificate `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -32458,7 +32458,7 @@ type ListServerResourcesResponseObject interface {
 type ListServerResources200JSONResponse struct {
 	Data []ServerResource `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -32736,7 +32736,7 @@ type ListComponentBackupPlansResponseObject interface {
 type ListComponentBackupPlans200JSONResponse struct {
 	Data []BackupPlan `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -33378,7 +33378,7 @@ type ListComponentRestoreDrillsResponseObject interface {
 type ListComponentRestoreDrills200JSONResponse struct {
 	Data []RestoreDrill `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -33563,7 +33563,7 @@ type ListComponentBackupExecutionsResponseObject interface {
 type ListComponentBackupExecutions200JSONResponse struct {
 	Data []BackupExecution `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -33778,7 +33778,7 @@ type ListServicesResponseObject interface {
 type ListServices200JSONResponse struct {
 	Data []Service `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -34476,7 +34476,7 @@ type ListServiceDeploymentsResponseObject interface {
 type ListServiceDeployments200JSONResponse struct {
 	Data []Deployment `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -34659,7 +34659,7 @@ type ListServiceEnvsResponseObject interface {
 type ListServiceEnvs200JSONResponse struct {
 	Data []EnvironmentVariable `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -35287,7 +35287,7 @@ type ListSharedVariablesResponseObject interface {
 type ListSharedVariables200JSONResponse struct {
 	Data []SharedVariable `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -35788,7 +35788,7 @@ type ListInstanceAuditResponseObject interface {
 type ListInstanceAudit200JSONResponse struct {
 	Data []AuditEvent `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -36751,7 +36751,7 @@ type ListTeamsResponseObject interface {
 type ListTeams200JSONResponse struct {
 	Data []Team `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -37017,7 +37017,7 @@ type ListTeamAuditResponseObject interface {
 type ListTeamAudit200JSONResponse struct {
 	Data []AuditEvent `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -37118,7 +37118,7 @@ type ListTeamInvitationsResponseObject interface {
 type ListTeamInvitations200JSONResponse struct {
 	Data []Invitation `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -37504,7 +37504,7 @@ type ListTeamMembersResponseObject interface {
 type ListTeamMembers200JSONResponse struct {
 	Data []TeamMember `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -37718,7 +37718,7 @@ type ListTeamRolesResponseObject interface {
 type ListTeamRoles200JSONResponse struct {
 	Data []CustomRole `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -38471,7 +38471,7 @@ type ListApiTokensResponseObject interface {
 type ListApiTokens200JSONResponse struct {
 	Data []ApiToken `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -38760,7 +38760,7 @@ type ListUptimeChecksResponseObject interface {
 type ListUptimeChecks200JSONResponse struct {
 	Data []UptimeCheck `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -39272,7 +39272,7 @@ type ListUptimeResultsResponseObject interface {
 type ListUptimeResults200JSONResponse struct {
 	Data []UptimeResult `json:"data"`
 
-	// NextCursor Curseur opaque de la page suivante — `null` sur la dernière page.
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
 	NextCursor *NextCursor `json:"next_cursor,omitempty"`
 }
 
@@ -39401,649 +39401,649 @@ func (response GetVersion429JSONResponse) VisitGetVersionResponse(w http.Respons
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
-	// Lire un scan d'adoption et ses candidats
+	// Read an adoption scan and its candidates
 	// (GET /adoption-scans/{adoption_scan_uuid})
 	GetAdoptionScan(ctx context.Context, request GetAdoptionScanRequestObject) (GetAdoptionScanResponseObject, error)
-	// Adopter des candidats d'un scan, sans redéploiement
+	// Adopt candidates from a scan, without redeployment
 	// (POST /adoption-scans/{adoption_scan_uuid}/adopt)
 	AdoptResources(ctx context.Context, request AdoptResourcesRequestObject) (AdoptResourcesResponseObject, error)
-	// Lister les applications
+	// List applications
 	// (GET /applications)
 	ListApplications(ctx context.Context, request ListApplicationsRequestObject) (ListApplicationsResponseObject, error)
-	// Créer une application
+	// Create an application
 	// (POST /applications)
 	CreateApplication(ctx context.Context, request CreateApplicationRequestObject) (CreateApplicationResponseObject, error)
-	// Supprimer une application
+	// Delete an application
 	// (DELETE /applications/{application_uuid})
 	DeleteApplication(ctx context.Context, request DeleteApplicationRequestObject) (DeleteApplicationResponseObject, error)
-	// Détail et configuration d'une application
+	// Application details and configuration
 	// (GET /applications/{application_uuid})
 	GetApplication(ctx context.Context, request GetApplicationRequestObject) (GetApplicationResponseObject, error)
-	// Modifier la configuration d'une application
+	// Update an application's configuration
 	// (PATCH /applications/{application_uuid})
 	UpdateApplication(ctx context.Context, request UpdateApplicationRequestObject) (UpdateApplicationResponseObject, error)
-	// Composants d'une application en build pack compose
+	// Components of an application using the compose build pack
 	// (GET /applications/{application_uuid}/components)
 	ListApplicationComponents(ctx context.Context, request ListApplicationComponentsRequestObject) (ListApplicationComponentsResponseObject, error)
-	// Déclencher un déploiement
+	// Trigger a deployment
 	// (POST /applications/{application_uuid}/deploy)
 	DeployApplication(ctx context.Context, request DeployApplicationRequestObject) (DeployApplicationResponseObject, error)
-	// Historique des déploiements d'une application
+	// An application's deployment history
 	// (GET /applications/{application_uuid}/deployments)
 	ListApplicationDeployments(ctx context.Context, request ListApplicationDeploymentsRequestObject) (ListApplicationDeploymentsResponseObject, error)
-	// Désadopter une application — rendue non gérée, jamais détruite
+	// Unadopt an application — made unmanaged, never destroyed
 	// (POST /applications/{application_uuid}/disown)
 	DisownApplication(ctx context.Context, request DisownApplicationRequestObject) (DisownApplicationResponseObject, error)
-	// Lister les variables d'environnement
+	// List environment variables
 	// (GET /applications/{application_uuid}/envs)
 	ListApplicationEnvs(ctx context.Context, request ListApplicationEnvsRequestObject) (ListApplicationEnvsResponseObject, error)
-	// Créer une variable d'environnement
+	// Create an environment variable
 	// (POST /applications/{application_uuid}/envs)
 	CreateApplicationEnv(ctx context.Context, request CreateApplicationEnvRequestObject) (CreateApplicationEnvResponseObject, error)
-	// Remplacer en bloc les variables d'environnement
+	// Replace environment variables in bulk
 	// (PUT /applications/{application_uuid}/envs)
 	ReplaceApplicationEnvs(ctx context.Context, request ReplaceApplicationEnvsRequestObject) (ReplaceApplicationEnvsResponseObject, error)
-	// Supprimer une variable d'environnement
+	// Delete an environment variable
 	// (DELETE /applications/{application_uuid}/envs/{env_uuid})
 	DeleteApplicationEnv(ctx context.Context, request DeleteApplicationEnvRequestObject) (DeleteApplicationEnvResponseObject, error)
-	// Modifier une variable d'environnement
+	// Update an environment variable
 	// (PATCH /applications/{application_uuid}/envs/{env_uuid})
 	UpdateApplicationEnv(ctx context.Context, request UpdateApplicationEnvRequestObject) (UpdateApplicationEnvResponseObject, error)
-	// Logs du container de l'application
+	// Logs of the application's container
 	// (GET /applications/{application_uuid}/logs)
 	GetApplicationLogs(ctx context.Context, request GetApplicationLogsRequestObject) (GetApplicationLogsResponseObject, error)
-	// Flux SSE des logs runtime du container
+	// SSE stream of the container's runtime logs
 	// (GET /applications/{application_uuid}/logs/stream)
 	StreamApplicationLogs(ctx context.Context, request StreamApplicationLogsRequestObject) (StreamApplicationLogsResponseObject, error)
-	// Métriques live par composant
+	// Live metrics per component
 	// (GET /applications/{application_uuid}/metrics)
 	GetApplicationMetrics(ctx context.Context, request GetApplicationMetricsRequestObject) (GetApplicationMetricsResponseObject, error)
-	// Ouvrir un tunnel TCP vers un container de l'application
+	// Open a TCP tunnel to a container of the application
 	// (POST /applications/{application_uuid}/port-forwards)
 	CreateApplicationPortForward(ctx context.Context, request CreateApplicationPortForwardRequestObject) (CreateApplicationPortForwardResponseObject, error)
-	// Previews de PR d'une application
+	// PR previews of an application
 	// (GET /applications/{application_uuid}/previews)
 	ListApplicationPreviews(ctx context.Context, request ListApplicationPreviewsRequestObject) (ListApplicationPreviewsResponseObject, error)
-	// Déployer la preview d'une PR depuis la plateforme
+	// Deploy a PR's preview from the platform
 	// (POST /applications/{application_uuid}/previews)
 	DeployPreviewForPr(ctx context.Context, request DeployPreviewForPrRequestObject) (DeployPreviewForPrResponseObject, error)
-	// Détruire la preview d'une PR
+	// Destroy a PR's preview
 	// (DELETE /applications/{application_uuid}/previews/{preview_uuid})
 	DestroyPreview(ctx context.Context, request DestroyPreviewRequestObject) (DestroyPreviewResponseObject, error)
-	// Approuver la preview d'une PR de fork
+	// Approve the preview of a fork PR
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/approve)
 	ApprovePreviewFork(ctx context.Context, request ApprovePreviewForkRequestObject) (ApprovePreviewForkResponseObject, error)
-	// Variables effectives d'une preview
+	// Effective variables of a preview
 	// (GET /applications/{application_uuid}/previews/{preview_uuid}/envs)
 	ListPreviewEnvs(ctx context.Context, request ListPreviewEnvsRequestObject) (ListPreviewEnvsResponseObject, error)
-	// Créer une variable dédiée à cette preview
+	// Create a variable dedicated to this preview
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/envs)
 	CreatePreviewEnv(ctx context.Context, request CreatePreviewEnvRequestObject) (CreatePreviewEnvResponseObject, error)
-	// Réarmer le TTL d'une preview
+	// Re-arm a preview's TTL
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/keep)
 	KeepPreview(ctx context.Context, request KeepPreviewRequestObject) (KeepPreviewResponseObject, error)
-	// Logs des containers d'une preview
+	// Logs of a preview's containers
 	// (GET /applications/{application_uuid}/previews/{preview_uuid}/logs)
 	GetPreviewLogs(ctx context.Context, request GetPreviewLogsRequestObject) (GetPreviewLogsResponseObject, error)
-	// Métriques live par composant d'une preview
+	// Live metrics per component of a preview
 	// (GET /applications/{application_uuid}/previews/{preview_uuid}/metrics)
 	GetPreviewMetrics(ctx context.Context, request GetPreviewMetricsRequestObject) (GetPreviewMetricsResponseObject, error)
-	// Ouvrir un tunnel TCP vers un container de la preview
+	// Open a TCP tunnel to a container of the preview
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/port-forwards)
 	CreatePreviewPortForward(ctx context.Context, request CreatePreviewPortForwardRequestObject) (CreatePreviewPortForwardResponseObject, error)
-	// Ouvrir une session terminal dans un container de la preview
+	// Open a terminal session in a container of the preview
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions)
 	CreatePreviewTerminalSession(ctx context.Context, request CreatePreviewTerminalSessionRequestObject) (CreatePreviewTerminalSessionResponseObject, error)
-	// Pull requests ouvertes du dépôt de l'application
+	// Open pull requests of the application's repository
 	// (GET /applications/{application_uuid}/pull-requests)
 	ListApplicationPullRequests(ctx context.Context, request ListApplicationPullRequestsRequestObject) (ListApplicationPullRequestsResponseObject, error)
-	// Redémarrer une application
+	// Restart an application
 	// (POST /applications/{application_uuid}/restart)
 	RestartApplication(ctx context.Context, request RestartApplicationRequestObject) (RestartApplicationResponseObject, error)
-	// Rollback vers une image précédente
+	// Rollback to a previous image
 	// (POST /applications/{application_uuid}/rollback)
 	RollbackApplication(ctx context.Context, request RollbackApplicationRequestObject) (RollbackApplicationResponseObject, error)
-	// Lister les tâches planifiées d'une application
+	// List an application's scheduled tasks
 	// (GET /applications/{application_uuid}/scheduled-tasks)
 	ListScheduledTasks(ctx context.Context, request ListScheduledTasksRequestObject) (ListScheduledTasksResponseObject, error)
-	// Créer une tâche planifiée
+	// Create a scheduled task
 	// (POST /applications/{application_uuid}/scheduled-tasks)
 	CreateScheduledTask(ctx context.Context, request CreateScheduledTaskRequestObject) (CreateScheduledTaskResponseObject, error)
-	// Démarrer une application
+	// Start an application
 	// (POST /applications/{application_uuid}/start)
 	StartApplication(ctx context.Context, request StartApplicationRequestObject) (StartApplicationResponseObject, error)
-	// Arrêter une application
+	// Stop an application
 	// (POST /applications/{application_uuid}/stop)
 	StopApplication(ctx context.Context, request StopApplicationRequestObject) (StopApplicationResponseObject, error)
-	// Lister les stockages persistants
+	// List persistent storages
 	// (GET /applications/{application_uuid}/storages)
 	ListApplicationStorages(ctx context.Context, request ListApplicationStoragesRequestObject) (ListApplicationStoragesResponseObject, error)
-	// Déclarer un stockage persistant
+	// Declare a persistent storage
 	// (POST /applications/{application_uuid}/storages)
 	CreateApplicationStorage(ctx context.Context, request CreateApplicationStorageRequestObject) (CreateApplicationStorageResponseObject, error)
-	// Retirer un stockage persistant
+	// Remove a persistent storage
 	// (DELETE /applications/{application_uuid}/storages/{storage_uuid})
 	DeleteApplicationStorage(ctx context.Context, request DeleteApplicationStorageRequestObject) (DeleteApplicationStorageResponseObject, error)
-	// Ouvrir une session terminal dans le container de l'application
+	// Open a terminal session in the application's container
 	// (POST /applications/{application_uuid}/terminal-sessions)
 	CreateApplicationTerminalSession(ctx context.Context, request CreateApplicationTerminalSessionRequestObject) (CreateApplicationTerminalSessionResponseObject, error)
-	// Supprimer l'endpoint de webhook Git
+	// Delete the Git webhook endpoint
 	// (DELETE /applications/{application_uuid}/webhook-endpoint)
 	DeleteWebhookEndpoint(ctx context.Context, request DeleteWebhookEndpointRequestObject) (DeleteWebhookEndpointResponseObject, error)
-	// Créer l'endpoint de webhook Git de l'application
+	// Create the application's Git webhook endpoint
 	// (POST /applications/{application_uuid}/webhook-endpoint)
 	CreateWebhookEndpoint(ctx context.Context, request CreateWebhookEndpointRequestObject) (CreateWebhookEndpointResponseObject, error)
-	// Détail d'un certificat
+	// Certificate details
 	// (GET /certificates/{certificate_uuid})
 	GetCertificate(ctx context.Context, request GetCertificateRequestObject) (GetCertificateResponseObject, error)
-	// Forcer le renouvellement d'un certificat
+	// Force a certificate's renewal
 	// (POST /certificates/{certificate_uuid}/renew)
 	RenewCertificate(ctx context.Context, request RenewCertificateRequestObject) (RenewCertificateResponseObject, error)
-	// Lister les bases de données
+	// List databases
 	// (GET /databases)
 	ListDatabases(ctx context.Context, request ListDatabasesRequestObject) (ListDatabasesResponseObject, error)
-	// Créer une base PostgreSQL
+	// Create a PostgreSQL database
 	// (POST /databases/postgresql)
 	CreatePostgresqlDatabase(ctx context.Context, request CreatePostgresqlDatabaseRequestObject) (CreatePostgresqlDatabaseResponseObject, error)
-	// Supprimer une base
+	// Delete a database
 	// (DELETE /databases/{database_uuid})
 	DeleteDatabase(ctx context.Context, request DeleteDatabaseRequestObject) (DeleteDatabaseResponseObject, error)
-	// Détail d'une base
+	// Database details
 	// (GET /databases/{database_uuid})
 	GetDatabase(ctx context.Context, request GetDatabaseRequestObject) (GetDatabaseResponseObject, error)
-	// Modifier une base
+	// Update a database
 	// (PATCH /databases/{database_uuid})
 	UpdateDatabase(ctx context.Context, request UpdateDatabaseRequestObject) (UpdateDatabaseResponseObject, error)
-	// Lister les plans de backup d'une base
+	// List a database's backup plans
 	// (GET /databases/{database_uuid}/backups)
 	ListBackupPlans(ctx context.Context, request ListBackupPlansRequestObject) (ListBackupPlansResponseObject, error)
-	// Créer un plan de backup
+	// Create a backup plan
 	// (POST /databases/{database_uuid}/backups)
 	CreateBackupPlan(ctx context.Context, request CreateBackupPlanRequestObject) (CreateBackupPlanResponseObject, error)
-	// Supprimer un plan de backup
+	// Delete a backup plan
 	// (DELETE /databases/{database_uuid}/backups/{backup_plan_uuid})
 	DeleteBackupPlan(ctx context.Context, request DeleteBackupPlanRequestObject) (DeleteBackupPlanResponseObject, error)
-	// Détail d'un plan de backup
+	// Backup plan details
 	// (GET /databases/{database_uuid}/backups/{backup_plan_uuid})
 	GetBackupPlan(ctx context.Context, request GetBackupPlanRequestObject) (GetBackupPlanResponseObject, error)
-	// Modifier un plan de backup
+	// Update a backup plan
 	// (PATCH /databases/{database_uuid}/backups/{backup_plan_uuid})
 	UpdateBackupPlan(ctx context.Context, request UpdateBackupPlanRequestObject) (UpdateBackupPlanResponseObject, error)
-	// Lancer immédiatement un restore drill
+	// Run a restore drill immediately
 	// (POST /databases/{database_uuid}/backups/{backup_plan_uuid}/drill)
 	RunRestoreDrill(ctx context.Context, request RunRestoreDrillRequestObject) (RunRestoreDrillResponseObject, error)
-	// Historique des restore drills d'un plan
+	// History of a plan's restore drills
 	// (GET /databases/{database_uuid}/backups/{backup_plan_uuid}/drills)
 	ListRestoreDrills(ctx context.Context, request ListRestoreDrillsRequestObject) (ListRestoreDrillsResponseObject, error)
-	// Lancer un backup immédiat (Backup Now)
+	// Run an immediate backup (Backup Now)
 	// (POST /databases/{database_uuid}/backups/{backup_plan_uuid}/execute)
 	ExecuteBackupPlan(ctx context.Context, request ExecuteBackupPlanRequestObject) (ExecuteBackupPlanResponseObject, error)
-	// Lister les exécutions d'un plan de backup
+	// List a backup plan's executions
 	// (GET /databases/{database_uuid}/backups/{backup_plan_uuid}/executions)
 	ListBackupExecutions(ctx context.Context, request ListBackupExecutionsRequestObject) (ListBackupExecutionsResponseObject, error)
-	// Restaurer une base depuis une exécution de backup
+	// Restore a database from a backup execution
 	// (POST /databases/{database_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore)
 	RestoreBackupExecution(ctx context.Context, request RestoreBackupExecutionRequestObject) (RestoreBackupExecutionResponseObject, error)
-	// Ouvrir un tunnel TCP vers une base de données
+	// Open a TCP tunnel to a database
 	// (POST /databases/{database_uuid}/port-forwards)
 	CreateDatabasePortForward(ctx context.Context, request CreateDatabasePortForwardRequestObject) (CreateDatabasePortForwardResponseObject, error)
-	// Redémarrer une base
+	// Restart a database
 	// (POST /databases/{database_uuid}/restart)
 	RestartDatabase(ctx context.Context, request RestartDatabaseRequestObject) (RestartDatabaseResponseObject, error)
-	// Démarrer une base
+	// Start a database
 	// (POST /databases/{database_uuid}/start)
 	StartDatabase(ctx context.Context, request StartDatabaseRequestObject) (StartDatabaseResponseObject, error)
-	// Arrêter une base
+	// Stop a database
 	// (POST /databases/{database_uuid}/stop)
 	StopDatabase(ctx context.Context, request StopDatabaseRequestObject) (StopDatabaseResponseObject, error)
-	// Ouvrir une session terminal dans le container de la base
+	// Open a terminal session in the database's container
 	// (POST /databases/{database_uuid}/terminal-sessions)
 	CreateDatabaseTerminalSession(ctx context.Context, request CreateDatabaseTerminalSessionRequestObject) (CreateDatabaseTerminalSessionResponseObject, error)
-	// Déclencher des déploiements par UUID ou tag (webhook CI)
+	// Trigger deployments by UUID or tag (CI webhook)
 	// (GET /deploy)
 	WebhookDeploy(ctx context.Context, request WebhookDeployRequestObject) (WebhookDeployResponseObject, error)
-	// Déclencher des déploiements par UUID ou tag (webhook CI, POST)
+	// Trigger deployments by UUID or tag (CI webhook, POST)
 	// (POST /deploy)
 	WebhookDeployPost(ctx context.Context, request WebhookDeployPostRequestObject) (WebhookDeployPostResponseObject, error)
-	// Détail d'un déploiement
+	// Deployment details
 	// (GET /deployments/{deployment_uuid})
 	GetDeployment(ctx context.Context, request GetDeploymentRequestObject) (GetDeploymentResponseObject, error)
-	// Annuler un déploiement
+	// Cancel a deployment
 	// (POST /deployments/{deployment_uuid}/cancel)
 	CancelDeployment(ctx context.Context, request CancelDeploymentRequestObject) (CancelDeploymentResponseObject, error)
-	// Logs de build d'un déploiement (JSON ou SSE)
+	// Build logs of a deployment (JSON or SSE)
 	// (GET /deployments/{deployment_uuid}/logs)
 	GetDeploymentLogs(ctx context.Context, request GetDeploymentLogsRequestObject) (GetDeploymentLogsResponseObject, error)
-	// Lister les credentials DNS-01
+	// List DNS-01 credentials
 	// (GET /dns-credentials)
 	ListDnsCredentials(ctx context.Context, request ListDnsCredentialsRequestObject) (ListDnsCredentialsResponseObject, error)
-	// Enregistrer un credential DNS-01
+	// Register a DNS-01 credential
 	// (POST /dns-credentials)
 	CreateDnsCredential(ctx context.Context, request CreateDnsCredentialRequestObject) (CreateDnsCredentialResponseObject, error)
-	// Supprimer un credential DNS-01
+	// Delete a DNS-01 credential
 	// (DELETE /dns-credentials/{dns_credential_uuid})
 	DeleteDnsCredential(ctx context.Context, request DeleteDnsCredentialRequestObject) (DeleteDnsCredentialResponseObject, error)
-	// Détail d'un credential DNS-01
+	// DNS-01 credential details
 	// (GET /dns-credentials/{dns_credential_uuid})
 	GetDnsCredential(ctx context.Context, request GetDnsCredentialRequestObject) (GetDnsCredentialResponseObject, error)
-	// Flux SSE des événements de la team (statuts, jobs, déploiements)
+	// SSE stream of team events (statuses, jobs, deployments)
 	// (GET /events)
 	StreamEvents(ctx context.Context, request StreamEventsRequestObject) (StreamEventsResponseObject, error)
-	// Lister les GitHub Apps de la team
+	// List the team's GitHub Apps
 	// (GET /github-apps)
 	ListGithubApps(ctx context.Context, request ListGithubAppsRequestObject) (ListGithubAppsResponseObject, error)
-	// Initier la création d'une GitHub App (manifest flow)
+	// Initiate the creation of a GitHub App (manifest flow)
 	// (POST /github-apps)
 	CreateGithubApp(ctx context.Context, request CreateGithubAppRequestObject) (CreateGithubAppResponseObject, error)
-	// Supprimer une GitHub App
+	// Delete a GitHub App
 	// (DELETE /github-apps/{github_app_uuid})
 	DeleteGithubApp(ctx context.Context, request DeleteGithubAppRequestObject) (DeleteGithubAppResponseObject, error)
-	// Détail d'une GitHub App
+	// GitHub App details
 	// (GET /github-apps/{github_app_uuid})
 	GetGithubApp(ctx context.Context, request GetGithubAppRequestObject) (GetGithubAppResponseObject, error)
-	// Dépôts accessibles à l'installation
+	// Repositories accessible to the installation
 	// (GET /github-apps/{github_app_uuid}/repositories)
 	ListGithubAppRepositories(ctx context.Context, request ListGithubAppRepositoriesRequestObject) (ListGithubAppRepositoriesResponseObject, error)
-	// Vérification de vivacité
+	// Liveness check
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
-	// Lister les jobs
+	// List jobs
 	// (GET /jobs)
 	ListJobs(ctx context.Context, request ListJobsRequestObject) (ListJobsResponseObject, error)
-	// Suivi d'une opération asynchrone
+	// Track an asynchronous operation
 	// (GET /jobs/{job_uuid})
 	GetJob(ctx context.Context, request GetJobRequestObject) (GetJobResponseObject, error)
-	// Abandonner un job en dead-letter
+	// Forget a dead-letter job
 	// (POST /jobs/{job_uuid}/forget)
 	ForgetJob(ctx context.Context, request ForgetJobRequestObject) (ForgetJobResponseObject, error)
-	// Rejouer un job en dead-letter
+	// Retry a dead-letter job
 	// (POST /jobs/{job_uuid}/retry)
 	RetryJob(ctx context.Context, request RetryJobRequestObject) (RetryJobResponseObject, error)
-	// Lister les canaux de notification
+	// List notification channels
 	// (GET /notification-channels)
 	ListNotificationChannels(ctx context.Context, request ListNotificationChannelsRequestObject) (ListNotificationChannelsResponseObject, error)
-	// Créer un canal de notification
+	// Create a notification channel
 	// (POST /notification-channels)
 	CreateNotificationChannel(ctx context.Context, request CreateNotificationChannelRequestObject) (CreateNotificationChannelResponseObject, error)
-	// Supprimer un canal
+	// Delete a channel
 	// (DELETE /notification-channels/{channel_uuid})
 	DeleteNotificationChannel(ctx context.Context, request DeleteNotificationChannelRequestObject) (DeleteNotificationChannelResponseObject, error)
-	// Détail d'un canal
+	// Channel details
 	// (GET /notification-channels/{channel_uuid})
 	GetNotificationChannel(ctx context.Context, request GetNotificationChannelRequestObject) (GetNotificationChannelResponseObject, error)
-	// Modifier un canal
+	// Update a channel
 	// (PATCH /notification-channels/{channel_uuid})
 	UpdateNotificationChannel(ctx context.Context, request UpdateNotificationChannelRequestObject) (UpdateNotificationChannelResponseObject, error)
-	// Lister les règles de routage d'un canal
+	// List a channel's routing rules
 	// (GET /notification-channels/{channel_uuid}/rules)
 	ListNotificationRules(ctx context.Context, request ListNotificationRulesRequestObject) (ListNotificationRulesResponseObject, error)
-	// Ajouter une règle de routage
+	// Add a routing rule
 	// (POST /notification-channels/{channel_uuid}/rules)
 	CreateNotificationRule(ctx context.Context, request CreateNotificationRuleRequestObject) (CreateNotificationRuleResponseObject, error)
-	// Supprimer une règle de routage
+	// Delete a routing rule
 	// (DELETE /notification-channels/{channel_uuid}/rules/{rule_uuid})
 	DeleteNotificationRule(ctx context.Context, request DeleteNotificationRuleRequestObject) (DeleteNotificationRuleResponseObject, error)
-	// Envoyer un message de test
+	// Send a test message
 	// (POST /notification-channels/{channel_uuid}/test)
 	TestNotificationChannel(ctx context.Context, request TestNotificationChannelRequestObject) (TestNotificationChannelResponseObject, error)
-	// Catalogue des permissions granulaires
+	// Catalog of granular permissions
 	// (GET /permissions)
 	ListPermissions(ctx context.Context, request ListPermissionsRequestObject) (ListPermissionsResponseObject, error)
-	// Lister les clés privées
+	// List private keys
 	// (GET /private-keys)
 	ListPrivateKeys(ctx context.Context, request ListPrivateKeysRequestObject) (ListPrivateKeysResponseObject, error)
-	// Enregistrer une clé privée
+	// Register a private key
 	// (POST /private-keys)
 	CreatePrivateKey(ctx context.Context, request CreatePrivateKeyRequestObject) (CreatePrivateKeyResponseObject, error)
-	// Supprimer une clé privée
+	// Delete a private key
 	// (DELETE /private-keys/{private_key_uuid})
 	DeletePrivateKey(ctx context.Context, request DeletePrivateKeyRequestObject) (DeletePrivateKeyResponseObject, error)
-	// Détail d'une clé privée
+	// Private key details
 	// (GET /private-keys/{private_key_uuid})
 	GetPrivateKey(ctx context.Context, request GetPrivateKeyRequestObject) (GetPrivateKeyResponseObject, error)
-	// Modifier une clé privée
+	// Update a private key
 	// (PATCH /private-keys/{private_key_uuid})
 	UpdatePrivateKey(ctx context.Context, request UpdatePrivateKeyRequestObject) (UpdatePrivateKeyResponseObject, error)
-	// Lister les projets
+	// List projects
 	// (GET /projects)
 	ListProjects(ctx context.Context, request ListProjectsRequestObject) (ListProjectsResponseObject, error)
-	// Créer un projet
+	// Create a project
 	// (POST /projects)
 	CreateProject(ctx context.Context, request CreateProjectRequestObject) (CreateProjectResponseObject, error)
-	// Supprimer un projet
+	// Delete a project
 	// (DELETE /projects/{project_uuid})
 	DeleteProject(ctx context.Context, request DeleteProjectRequestObject) (DeleteProjectResponseObject, error)
-	// Détail d'un projet
+	// Project details
 	// (GET /projects/{project_uuid})
 	GetProject(ctx context.Context, request GetProjectRequestObject) (GetProjectResponseObject, error)
-	// Modifier un projet
+	// Update a project
 	// (PATCH /projects/{project_uuid})
 	UpdateProject(ctx context.Context, request UpdateProjectRequestObject) (UpdateProjectResponseObject, error)
-	// Lister les environnements d'un projet
+	// List a project's environments
 	// (GET /projects/{project_uuid}/environments)
 	ListEnvironments(ctx context.Context, request ListEnvironmentsRequestObject) (ListEnvironmentsResponseObject, error)
-	// Créer un environnement
+	// Create an environment
 	// (POST /projects/{project_uuid}/environments)
 	CreateEnvironment(ctx context.Context, request CreateEnvironmentRequestObject) (CreateEnvironmentResponseObject, error)
-	// Supprimer un environnement
+	// Delete an environment
 	// (DELETE /projects/{project_uuid}/environments/{environment_uuid})
 	DeleteEnvironment(ctx context.Context, request DeleteEnvironmentRequestObject) (DeleteEnvironmentResponseObject, error)
-	// Détail d'un environnement
+	// Environment details
 	// (GET /projects/{project_uuid}/environments/{environment_uuid})
 	GetEnvironment(ctx context.Context, request GetEnvironmentRequestObject) (GetEnvironmentResponseObject, error)
-	// Modifier un environnement
+	// Update an environment
 	// (PATCH /projects/{project_uuid}/environments/{environment_uuid})
 	UpdateEnvironment(ctx context.Context, request UpdateEnvironmentRequestObject) (UpdateEnvironmentResponseObject, error)
-	// Lister les credentials de registry
+	// List registry credentials
 	// (GET /registry-credentials)
 	ListRegistryCredentials(ctx context.Context, request ListRegistryCredentialsRequestObject) (ListRegistryCredentialsResponseObject, error)
-	// Enregistrer un credential de registry
+	// Register a registry credential
 	// (POST /registry-credentials)
 	CreateRegistryCredential(ctx context.Context, request CreateRegistryCredentialRequestObject) (CreateRegistryCredentialResponseObject, error)
-	// Supprimer un credential de registry
+	// Delete a registry credential
 	// (DELETE /registry-credentials/{registry_credential_uuid})
 	DeleteRegistryCredential(ctx context.Context, request DeleteRegistryCredentialRequestObject) (DeleteRegistryCredentialResponseObject, error)
-	// Détail d'un credential de registry
+	// Registry credential details
 	// (GET /registry-credentials/{registry_credential_uuid})
 	GetRegistryCredential(ctx context.Context, request GetRegistryCredentialRequestObject) (GetRegistryCredentialResponseObject, error)
-	// Modifier un credential de registry
+	// Update a registry credential
 	// (PATCH /registry-credentials/{registry_credential_uuid})
 	UpdateRegistryCredential(ctx context.Context, request UpdateRegistryCredentialRequestObject) (UpdateRegistryCredentialResponseObject, error)
-	// Lister les stockages S3
+	// List S3 storages
 	// (GET /s3-storages)
 	ListS3Storages(ctx context.Context, request ListS3StoragesRequestObject) (ListS3StoragesResponseObject, error)
-	// Enregistrer un stockage S3
+	// Register an S3 storage
 	// (POST /s3-storages)
 	CreateS3Storage(ctx context.Context, request CreateS3StorageRequestObject) (CreateS3StorageResponseObject, error)
-	// Supprimer un stockage S3
+	// Delete an S3 storage
 	// (DELETE /s3-storages/{s3_storage_uuid})
 	DeleteS3Storage(ctx context.Context, request DeleteS3StorageRequestObject) (DeleteS3StorageResponseObject, error)
-	// Détail d'un stockage S3
+	// S3 storage details
 	// (GET /s3-storages/{s3_storage_uuid})
 	GetS3Storage(ctx context.Context, request GetS3StorageRequestObject) (GetS3StorageResponseObject, error)
-	// Modifier un stockage S3
+	// Update an S3 storage
 	// (PATCH /s3-storages/{s3_storage_uuid})
 	UpdateS3Storage(ctx context.Context, request UpdateS3StorageRequestObject) (UpdateS3StorageResponseObject, error)
-	// Vérifier la connectivité d'un stockage S3
+	// Check an S3 storage's connectivity
 	// (POST /s3-storages/{s3_storage_uuid}/validate)
 	ValidateS3Storage(ctx context.Context, request ValidateS3StorageRequestObject) (ValidateS3StorageResponseObject, error)
-	// Supprimer une tâche planifiée
+	// Delete a scheduled task
 	// (DELETE /scheduled-tasks/{task_uuid})
 	DeleteScheduledTask(ctx context.Context, request DeleteScheduledTaskRequestObject) (DeleteScheduledTaskResponseObject, error)
-	// Détail d'une tâche planifiée
+	// Scheduled task details
 	// (GET /scheduled-tasks/{task_uuid})
 	GetScheduledTask(ctx context.Context, request GetScheduledTaskRequestObject) (GetScheduledTaskResponseObject, error)
-	// Modifier une tâche planifiée
+	// Update a scheduled task
 	// (PATCH /scheduled-tasks/{task_uuid})
 	UpdateScheduledTask(ctx context.Context, request UpdateScheduledTaskRequestObject) (UpdateScheduledTaskResponseObject, error)
-	// Historique d'exécution d'une tâche
+	// A task's execution history
 	// (GET /scheduled-tasks/{task_uuid}/executions)
 	ListTaskExecutions(ctx context.Context, request ListTaskExecutionsRequestObject) (ListTaskExecutionsResponseObject, error)
-	// Déclencher une tâche planifiée immédiatement
+	// Trigger a scheduled task immediately
 	// (POST /scheduled-tasks/{task_uuid}/run)
 	RunScheduledTask(ctx context.Context, request RunScheduledTaskRequestObject) (RunScheduledTaskResponseObject, error)
-	// Lister les serveurs
+	// List servers
 	// (GET /servers)
 	ListServers(ctx context.Context, request ListServersRequestObject) (ListServersResponseObject, error)
-	// Enregistrer un serveur
+	// Register a server
 	// (POST /servers)
 	CreateServer(ctx context.Context, request CreateServerRequestObject) (CreateServerResponseObject, error)
-	// Retirer un serveur
+	// Remove a server
 	// (DELETE /servers/{server_uuid})
 	DeleteServer(ctx context.Context, request DeleteServerRequestObject) (DeleteServerResponseObject, error)
-	// Détail d'un serveur
+	// Server details
 	// (GET /servers/{server_uuid})
 	GetServer(ctx context.Context, request GetServerRequestObject) (GetServerResponseObject, error)
-	// Modifier un serveur
+	// Update a server
 	// (PATCH /servers/{server_uuid})
 	UpdateServer(ctx context.Context, request UpdateServerRequestObject) (UpdateServerResponseObject, error)
-	// Lister les scans d'adoption d'un serveur
+	// List a server's adoption scans
 	// (GET /servers/{server_uuid}/adoption-scans)
 	ListAdoptionScans(ctx context.Context, request ListAdoptionScansRequestObject) (ListAdoptionScansResponseObject, error)
-	// Scanner les ressources Docker non gérées d'un serveur
+	// Scan a server's unmanaged Docker resources
 	// (POST /servers/{server_uuid}/adoption-scans)
 	CreateAdoptionScan(ctx context.Context, request CreateAdoptionScanRequestObject) (CreateAdoptionScanResponseObject, error)
-	// Certificat de la CA du serveur (SSL des bases)
+	// Server CA certificate (database SSL)
 	// (GET /servers/{server_uuid}/ca)
 	GetServerCA(ctx context.Context, request GetServerCARequestObject) (GetServerCAResponseObject, error)
-	// Lister les certificats d'un serveur
+	// List a server's certificates
 	// (GET /servers/{server_uuid}/certificates)
 	ListServerCertificates(ctx context.Context, request ListServerCertificatesRequestObject) (ListServerCertificatesResponseObject, error)
-	// Lancer un nettoyage disque immédiat
+	// Run an immediate disk cleanup
 	// (POST /servers/{server_uuid}/cleanup)
 	RunServerCleanup(ctx context.Context, request RunServerCleanupRequestObject) (RunServerCleanupResponseObject, error)
-	// Lister les domaines servis par un serveur
+	// List the domains served by a server
 	// (GET /servers/{server_uuid}/domains)
 	ListServerDomains(ctx context.Context, request ListServerDomainsRequestObject) (ListServerDomainsResponseObject, error)
-	// Logs du proxy d'un serveur
+	// Logs of a server's proxy
 	// (GET /servers/{server_uuid}/proxy/logs)
 	GetProxyLogs(ctx context.Context, request GetProxyLogsRequestObject) (GetProxyLogsResponseObject, error)
-	// Démarrer, arrêter ou redémarrer le proxy d'un serveur
+	// Start, stop or restart a server's proxy
 	// (POST /servers/{server_uuid}/proxy/{action})
 	ProxyLifecycle(ctx context.Context, request ProxyLifecycleRequestObject) (ProxyLifecycleResponseObject, error)
-	// Lister les ressources d'un serveur
+	// List a server's resources
 	// (GET /servers/{server_uuid}/resources)
 	ListServerResources(ctx context.Context, request ListServerResourcesRequestObject) (ListServerResourcesResponseObject, error)
-	// Ouvrir une session terminal shell sur le serveur
+	// Open a shell terminal session on the server
 	// (POST /servers/{server_uuid}/terminal-sessions)
 	CreateServerTerminalSession(ctx context.Context, request CreateServerTerminalSessionRequestObject) (CreateServerTerminalSessionResponseObject, error)
-	// Valider un serveur et installer les prérequis
+	// Validate a server and install prerequisites
 	// (POST /servers/{server_uuid}/validate)
 	ValidateServer(ctx context.Context, request ValidateServerRequestObject) (ValidateServerResponseObject, error)
-	// Lister les plans de backup d'un composant de stack
+	// List a stack component's backup plans
 	// (GET /service-components/{service_component_uuid}/backups)
 	ListComponentBackupPlans(ctx context.Context, request ListComponentBackupPlansRequestObject) (ListComponentBackupPlansResponseObject, error)
-	// Créer un plan de backup sur une base interne d'un stack
+	// Create a backup plan on a stack's internal database
 	// (POST /service-components/{service_component_uuid}/backups)
 	CreateComponentBackupPlan(ctx context.Context, request CreateComponentBackupPlanRequestObject) (CreateComponentBackupPlanResponseObject, error)
-	// Supprimer un plan de backup de composant
+	// Delete a component backup plan
 	// (DELETE /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
 	DeleteComponentBackupPlan(ctx context.Context, request DeleteComponentBackupPlanRequestObject) (DeleteComponentBackupPlanResponseObject, error)
-	// Détail d'un plan de backup de composant
+	// Component backup plan details
 	// (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
 	GetComponentBackupPlan(ctx context.Context, request GetComponentBackupPlanRequestObject) (GetComponentBackupPlanResponseObject, error)
-	// Modifier un plan de backup de composant
+	// Update a component backup plan
 	// (PATCH /service-components/{service_component_uuid}/backups/{backup_plan_uuid})
 	UpdateComponentBackupPlan(ctx context.Context, request UpdateComponentBackupPlanRequestObject) (UpdateComponentBackupPlanResponseObject, error)
-	// Lancer immédiatement un restore drill sur une base interne
+	// Run a restore drill immediately on an internal database
 	// (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drill)
 	RunComponentRestoreDrill(ctx context.Context, request RunComponentRestoreDrillRequestObject) (RunComponentRestoreDrillResponseObject, error)
-	// Historique des restore drills d'un plan de composant
+	// History of a component plan's restore drills
 	// (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/drills)
 	ListComponentRestoreDrills(ctx context.Context, request ListComponentRestoreDrillsRequestObject) (ListComponentRestoreDrillsResponseObject, error)
-	// Lancer un backup immédiat d'une base interne
+	// Run an immediate backup of an internal database
 	// (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/execute)
 	ExecuteComponentBackupPlan(ctx context.Context, request ExecuteComponentBackupPlanRequestObject) (ExecuteComponentBackupPlanResponseObject, error)
-	// Lister les exécutions d'un plan de backup de composant
+	// List a component backup plan's executions
 	// (GET /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions)
 	ListComponentBackupExecutions(ctx context.Context, request ListComponentBackupExecutionsRequestObject) (ListComponentBackupExecutionsResponseObject, error)
-	// Restaurer une base interne depuis une exécution de backup
+	// Restore an internal database from a backup execution
 	// (POST /service-components/{service_component_uuid}/backups/{backup_plan_uuid}/executions/{execution_uuid}/restore)
 	RestoreComponentBackupExecution(ctx context.Context, request RestoreComponentBackupExecutionRequestObject) (RestoreComponentBackupExecutionResponseObject, error)
-	// Lister les stacks compose
+	// List compose stacks
 	// (GET /services)
 	ListServices(ctx context.Context, request ListServicesRequestObject) (ListServicesResponseObject, error)
-	// Créer un stack compose inline
+	// Create an inline compose stack
 	// (POST /services)
 	CreateService(ctx context.Context, request CreateServiceRequestObject) (CreateServiceResponseObject, error)
-	// Supprimer un stack compose
+	// Delete a compose stack
 	// (DELETE /services/{service_uuid})
 	DeleteService(ctx context.Context, request DeleteServiceRequestObject) (DeleteServiceResponseObject, error)
-	// Détail d'un stack compose
+	// Compose stack details
 	// (GET /services/{service_uuid})
 	GetService(ctx context.Context, request GetServiceRequestObject) (GetServiceResponseObject, error)
-	// Modifier un stack compose
+	// Update a compose stack
 	// (PATCH /services/{service_uuid})
 	UpdateService(ctx context.Context, request UpdateServiceRequestObject) (UpdateServiceResponseObject, error)
-	// Composants d'un stack
+	// Components of a stack
 	// (GET /services/{service_uuid}/components)
 	ListServiceComponents(ctx context.Context, request ListServiceComponentsRequestObject) (ListServiceComponentsResponseObject, error)
-	// Déployer un stack
+	// Deploy a stack
 	// (POST /services/{service_uuid}/deploy)
 	DeployService(ctx context.Context, request DeployServiceRequestObject) (DeployServiceResponseObject, error)
-	// Déploiements d'un stack
+	// A stack's deployments
 	// (GET /services/{service_uuid}/deployments)
 	ListServiceDeployments(ctx context.Context, request ListServiceDeploymentsRequestObject) (ListServiceDeploymentsResponseObject, error)
-	// Désadopter un stack — rendu non géré, jamais détruit
+	// Unadopt a stack — made unmanaged, never destroyed
 	// (POST /services/{service_uuid}/disown)
 	DisownService(ctx context.Context, request DisownServiceRequestObject) (DisownServiceResponseObject, error)
-	// Variables d'environnement d'un stack
+	// A stack's environment variables
 	// (GET /services/{service_uuid}/envs)
 	ListServiceEnvs(ctx context.Context, request ListServiceEnvsRequestObject) (ListServiceEnvsResponseObject, error)
-	// Ajouter une variable au stack
+	// Add a variable to the stack
 	// (POST /services/{service_uuid}/envs)
 	CreateServiceEnv(ctx context.Context, request CreateServiceEnvRequestObject) (CreateServiceEnvResponseObject, error)
-	// Supprimer une variable du stack
+	// Delete a stack variable
 	// (DELETE /services/{service_uuid}/envs/{env_uuid})
 	DeleteServiceEnv(ctx context.Context, request DeleteServiceEnvRequestObject) (DeleteServiceEnvResponseObject, error)
-	// Modifier une variable du stack
+	// Update a stack variable
 	// (PATCH /services/{service_uuid}/envs/{env_uuid})
 	UpdateServiceEnv(ctx context.Context, request UpdateServiceEnvRequestObject) (UpdateServiceEnvResponseObject, error)
-	// Redémarrer les containers d'un stack
+	// Restart a stack's containers
 	// (POST /services/{service_uuid}/restart)
 	RestartService(ctx context.Context, request RestartServiceRequestObject) (RestartServiceResponseObject, error)
-	// Démarrer les containers d'un stack
+	// Start a stack's containers
 	// (POST /services/{service_uuid}/start)
 	StartService(ctx context.Context, request StartServiceRequestObject) (StartServiceResponseObject, error)
-	// Arrêter les containers d'un stack
+	// Stop a stack's containers
 	// (POST /services/{service_uuid}/stop)
 	StopService(ctx context.Context, request StopServiceRequestObject) (StopServiceResponseObject, error)
-	// Lister les variables partagées de la team
+	// List the team's shared variables
 	// (GET /shared-variables)
 	ListSharedVariables(ctx context.Context, request ListSharedVariablesRequestObject) (ListSharedVariablesResponseObject, error)
-	// Créer une variable partagée
+	// Create a shared variable
 	// (POST /shared-variables)
 	CreateSharedVariable(ctx context.Context, request CreateSharedVariableRequestObject) (CreateSharedVariableResponseObject, error)
-	// Supprimer une variable partagée
+	// Delete a shared variable
 	// (DELETE /shared-variables/{shared_variable_uuid})
 	DeleteSharedVariable(ctx context.Context, request DeleteSharedVariableRequestObject) (DeleteSharedVariableResponseObject, error)
-	// Modifier une variable partagée (valeur, masquage)
+	// Update a shared variable (value, masking)
 	// (PATCH /shared-variables/{shared_variable_uuid})
 	UpdateSharedVariable(ctx context.Context, request UpdateSharedVariableRequestObject) (UpdateSharedVariableResponseObject, error)
-	// Désactiver l'API
+	// Disable the API
 	// (POST /system/api/disable)
 	DisableApi(ctx context.Context, request DisableApiRequestObject) (DisableApiResponseObject, error)
-	// Activer l'API
+	// Enable the API
 	// (POST /system/api/enable)
 	EnableApi(ctx context.Context, request EnableApiRequestObject) (EnableApiResponseObject, error)
-	// Journal d'audit de toute l'instance
+	// Instance-wide audit log
 	// (GET /system/audit)
 	ListInstanceAudit(ctx context.Context, request ListInstanceAuditRequestObject) (ListInstanceAuditResponseObject, error)
-	// Configuration de l'email transactionnel de l'instance
+	// Instance transactional email configuration
 	// (GET /system/email)
 	GetTransactionalEmail(ctx context.Context, request GetTransactionalEmailRequestObject) (GetTransactionalEmailResponseObject, error)
-	// Configurer l'email transactionnel de l'instance
+	// Configure the instance transactional email
 	// (PUT /system/email)
 	SetTransactionalEmail(ctx context.Context, request SetTransactionalEmailRequestObject) (SetTransactionalEmailResponseObject, error)
-	// État du chiffrement au repos et de la rotation de clé maître
+	// State of encryption at rest and master key rotation
 	// (GET /system/encryption)
 	GetEncryptionStatus(ctx context.Context, request GetEncryptionStatusRequestObject) (GetEncryptionStatusResponseObject, error)
-	// Forcer le re-chiffrement vers la version de clé active
+	// Force re-encryption to the active key version
 	// (POST /system/encryption/rotate)
 	RotateEncryption(ctx context.Context, request RotateEncryptionRequestObject) (RotateEncryptionResponseObject, error)
-	// Réglages d'identité de l'instance
+	// Instance identity settings
 	// (GET /system/instance)
 	GetInstanceSettings(ctx context.Context, request GetInstanceSettingsRequestObject) (GetInstanceSettingsResponseObject, error)
-	// Modifier le FQDN et l'email ACME de l'instance
+	// Update the instance FQDN and ACME email
 	// (PUT /system/instance)
 	SetInstanceSettings(ctx context.Context, request SetInstanceSettingsRequestObject) (SetInstanceSettingsResponseObject, error)
-	// Fournisseurs OAuth/OIDC configurés pour le login du dashboard
+	// OAuth/OIDC providers configured for dashboard login
 	// (GET /system/oauth-providers)
 	ListOauthProviders(ctx context.Context, request ListOauthProvidersRequestObject) (ListOauthProvidersResponseObject, error)
-	// Retirer un fournisseur OAuth/OIDC
+	// Remove an OAuth/OIDC provider
 	// (DELETE /system/oauth-providers/{oauth_provider})
 	DeleteOauthProvider(ctx context.Context, request DeleteOauthProviderRequestObject) (DeleteOauthProviderResponseObject, error)
-	// Configurer un fournisseur OAuth/OIDC
+	// Configure an OAuth/OIDC provider
 	// (PUT /system/oauth-providers/{oauth_provider})
 	SetOauthProvider(ctx context.Context, request SetOauthProviderRequestObject) (SetOauthProviderResponseObject, error)
-	// Configuration de l'export OTLP distant
+	// Remote OTLP export configuration
 	// (GET /system/telemetry)
 	GetTelemetry(ctx context.Context, request GetTelemetryRequestObject) (GetTelemetryResponseObject, error)
-	// Configurer l'export OTLP distant
+	// Configure the remote OTLP export
 	// (PUT /system/telemetry)
 	SetTelemetry(ctx context.Context, request SetTelemetryRequestObject) (SetTelemetryResponseObject, error)
-	// Lister les teams accessibles
+	// List accessible teams
 	// (GET /teams)
 	ListTeams(ctx context.Context, request ListTeamsRequestObject) (ListTeamsResponseObject, error)
-	// Détail d'une team
+	// Team details
 	// (GET /teams/{team_uuid})
 	GetTeam(ctx context.Context, request GetTeamRequestObject) (GetTeamResponseObject, error)
-	// Modifier une team
+	// Update a team
 	// (PATCH /teams/{team_uuid})
 	UpdateTeam(ctx context.Context, request UpdateTeamRequestObject) (UpdateTeamResponseObject, error)
-	// Journal d'audit d'une team
+	// Team audit log
 	// (GET /teams/{team_uuid}/audit)
 	ListTeamAudit(ctx context.Context, request ListTeamAuditRequestObject) (ListTeamAuditResponseObject, error)
-	// Lister les invitations
+	// List invitations
 	// (GET /teams/{team_uuid}/invitations)
 	ListTeamInvitations(ctx context.Context, request ListTeamInvitationsRequestObject) (ListTeamInvitationsResponseObject, error)
-	// Inviter un membre
+	// Invite a member
 	// (POST /teams/{team_uuid}/invitations)
 	CreateTeamInvitation(ctx context.Context, request CreateTeamInvitationRequestObject) (CreateTeamInvitationResponseObject, error)
-	// Révoquer une invitation
+	// Revoke an invitation
 	// (DELETE /teams/{team_uuid}/invitations/{invitation_uuid})
 	RevokeTeamInvitation(ctx context.Context, request RevokeTeamInvitationRequestObject) (RevokeTeamInvitationResponseObject, error)
-	// Régénérer le lien d'une invitation
+	// Regenerate an invitation link
 	// (POST /teams/{team_uuid}/invitations/{invitation_uuid}/resend)
 	ResendTeamInvitation(ctx context.Context, request ResendTeamInvitationRequestObject) (ResendTeamInvitationResponseObject, error)
-	// Lister les membres d'une team
+	// List team members
 	// (GET /teams/{team_uuid}/members)
 	ListTeamMembers(ctx context.Context, request ListTeamMembersRequestObject) (ListTeamMembersResponseObject, error)
-	// Changer le rôle d'un membre
+	// Change a member's role
 	// (PATCH /teams/{team_uuid}/members/{user_uuid})
 	UpdateTeamMember(ctx context.Context, request UpdateTeamMemberRequestObject) (UpdateTeamMemberResponseObject, error)
-	// Lister les rôles custom d'une team
+	// List a team's custom roles
 	// (GET /teams/{team_uuid}/roles)
 	ListTeamRoles(ctx context.Context, request ListTeamRolesRequestObject) (ListTeamRolesResponseObject, error)
-	// Créer un rôle custom
+	// Create a custom role
 	// (POST /teams/{team_uuid}/roles)
 	CreateTeamRole(ctx context.Context, request CreateTeamRoleRequestObject) (CreateTeamRoleResponseObject, error)
-	// Supprimer un rôle custom
+	// Delete a custom role
 	// (DELETE /teams/{team_uuid}/roles/{role_uuid})
 	DeleteTeamRole(ctx context.Context, request DeleteTeamRoleRequestObject) (DeleteTeamRoleResponseObject, error)
-	// Détail d'un rôle custom
+	// Custom role details
 	// (GET /teams/{team_uuid}/roles/{role_uuid})
 	GetTeamRole(ctx context.Context, request GetTeamRoleRequestObject) (GetTeamRoleResponseObject, error)
-	// Modifier un rôle custom
+	// Update a custom role
 	// (PATCH /teams/{team_uuid}/roles/{role_uuid})
 	UpdateTeamRole(ctx context.Context, request UpdateTeamRoleRequestObject) (UpdateTeamRoleResponseObject, error)
-	// Lister les tokens SCIM d'une team
+	// List a team's SCIM tokens
 	// (GET /teams/{team_uuid}/scim-tokens)
 	ListScimTokens(ctx context.Context, request ListScimTokensRequestObject) (ListScimTokensResponseObject, error)
-	// Créer un token SCIM
+	// Create a SCIM token
 	// (POST /teams/{team_uuid}/scim-tokens)
 	CreateScimToken(ctx context.Context, request CreateScimTokenRequestObject) (CreateScimTokenResponseObject, error)
-	// Révoquer un token SCIM
+	// Revoke a SCIM token
 	// (DELETE /teams/{team_uuid}/scim-tokens/{scim_token_uuid})
 	RevokeScimToken(ctx context.Context, request RevokeScimTokenRequestObject) (RevokeScimTokenResponseObject, error)
-	// Lister les tokens API
+	// List API tokens
 	// (GET /teams/{team_uuid}/tokens)
 	ListApiTokens(ctx context.Context, request ListApiTokensRequestObject) (ListApiTokensResponseObject, error)
-	// Créer un token API
+	// Create an API token
 	// (POST /teams/{team_uuid}/tokens)
 	CreateApiToken(ctx context.Context, request CreateApiTokenRequestObject) (CreateApiTokenResponseObject, error)
-	// Révoquer un token API
+	// Revoke an API token
 	// (DELETE /teams/{team_uuid}/tokens/{token_uuid})
 	RevokeApiToken(ctx context.Context, request RevokeApiTokenRequestObject) (RevokeApiTokenResponseObject, error)
-	// Lister les checks d'uptime de la team
+	// List the team's uptime checks
 	// (GET /uptime-checks)
 	ListUptimeChecks(ctx context.Context, request ListUptimeChecksRequestObject) (ListUptimeChecksResponseObject, error)
-	// Créer un check d'uptime
+	// Create an uptime check
 	// (POST /uptime-checks)
 	CreateUptimeCheck(ctx context.Context, request CreateUptimeCheckRequestObject) (CreateUptimeCheckResponseObject, error)
-	// Supprimer un check d'uptime
+	// Delete an uptime check
 	// (DELETE /uptime-checks/{uptime_check_uuid})
 	DeleteUptimeCheck(ctx context.Context, request DeleteUptimeCheckRequestObject) (DeleteUptimeCheckResponseObject, error)
-	// Détail d'un check d'uptime
+	// Uptime check details
 	// (GET /uptime-checks/{uptime_check_uuid})
 	GetUptimeCheck(ctx context.Context, request GetUptimeCheckRequestObject) (GetUptimeCheckResponseObject, error)
-	// Modifier un check d'uptime
+	// Update an uptime check
 	// (PATCH /uptime-checks/{uptime_check_uuid})
 	UpdateUptimeCheck(ctx context.Context, request UpdateUptimeCheckRequestObject) (UpdateUptimeCheckResponseObject, error)
-	// Historique des sondes d'un check
+	// A check's probe history
 	// (GET /uptime-checks/{uptime_check_uuid}/results)
 	ListUptimeResults(ctx context.Context, request ListUptimeResultsRequestObject) (ListUptimeResultsResponseObject, error)
-	// Version de l'instance
+	// Instance version
 	// (GET /version)
 	GetVersion(ctx context.Context, request GetVersionRequestObject) (GetVersionResponseObject, error)
 }

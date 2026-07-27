@@ -1,28 +1,28 @@
-# Runbook — Jobs en dead-letter
+# Runbook — Dead-lettered jobs
 
-> Références : PRD §21.3 (machine à états job), §22.1 (classification d'erreurs), §24.3 (files/priorités) ; ADR-002 (queue PostgreSQL) ; spec deployment-engine §2.4 (retry, backoff, dead-letter : « Rejeu depuis la dead-letter = action manuelle auditée qui crée une **nouvelle tentative liée** ») ; data dictionary §11.8 (`jobs`) ; OpenAPI (`GET /jobs`, `GET /jobs/{uuid}`, `POST /jobs/{uuid}/retry`, `POST /jobs/{uuid}/forget`).
+> References: PRD §21.3 (job state machine), §22.1 (error classification), §24.3 (queues/priorities); ADR-002 (PostgreSQL queue); deployment-engine spec §2.4 (retry, backoff, dead-letter: "Replay from the dead-letter = an audited manual action that creates a **new linked attempt**"); data dictionary §11.8 (`jobs`); OpenAPI (`GET /jobs`, `GET /jobs/{uuid}`, `POST /jobs/{uuid}/retry`, `POST /jobs/{uuid}/forget`).
 
-## Symptômes
+## Symptoms
 
-- Entrées « actions prioritaires » sur le dashboard ; notifications `deployment.failed` (ou backup/cleanup failed) répétées.
-- Jobs en statut `dead_letter` (conservés jusqu'à intervention retry/forget, data dictionary §11.8).
-- Symptôme indirect : une opération (déploiement, backup, suppression) qui « ne se fait plus jamais » — son job est mort en silence si les notifications sont mal configurées.
+- "Priority actions" entries on the dashboard; repeated `deployment.failed` notifications (or backup/cleanup failed).
+- Jobs in `dead_letter` status (kept until a retry/forget intervention, data dictionary §11.8).
+- Indirect symptom: an operation (deployment, backup, deletion) that "never happens anymore" — its job died silently if notifications are misconfigured.
 
 ## Impact
 
-- Un job en dead-letter ne sera **jamais** rejoué automatiquement : l'opération qu'il portait est en attente d'une décision humaine.
-- Cas particulier `resource.delete` : un job de suppression en dead-letter laisse un **tombstone réconciliable** avec la liste des restes distants (§20.6.4) — le « forget » sans nettoyage laisse des objets orphelins sur le serveur.
+- A dead-lettered job will **never** be replayed automatically: the operation it carried is waiting for a human decision.
+- Special case `resource.delete`: a dead-lettered deletion job leaves a **reconcilable tombstone** with the list of remote remnants (§20.6.4) — "forget" without cleanup leaves orphaned objects on the server.
 
-## Diagnostic
+## Diagnosis
 
-### 1. Inventaire
+### 1. Inventory
 
 ```sh
 curl -sS "$AKD/jobs?status=dead_letter" -H "Authorization: Bearer $TOKEN"
-# liste paginée (curseur) ; filtres supplémentaires : &queue=deploy, &type=resource.delete
+# paginated list (cursor); extra filters: &queue=deploy, &type=resource.delete
 ```
 
-SQL équivalent (fallback, vue inter-team) :
+Equivalent SQL (fallback, cross-team view):
 
 ```sql
 SELECT uuid, queue, job_type, attempt, max_attempts, priority,
@@ -31,7 +31,7 @@ FROM jobs WHERE status = 'dead_letter'
 ORDER BY dead_lettered_at DESC;
 ```
 
-### 2. Causes récurrentes (agrégation)
+### 2. Recurring causes (aggregation)
 
 ```sql
 SELECT job_type, left(last_error, 80) AS err, count(*) AS n,
@@ -40,92 +40,92 @@ FROM jobs WHERE status = 'dead_letter'
 GROUP BY 1, 2 ORDER BY n DESC;
 ```
 
-Lecture selon la classification (§22.1, spec §2.4) :
+Reading per the classification (§22.1, spec §2.4):
 
-- **Erreurs transitoires** (SSH injoignable, timeout réseau, registry 5xx, disque saturé) arrivées en dead-letter = la panne a duré plus longtemps que la fenêtre de backoff (3 tentatives, backoff expo 30 s → 15 min pour `deployment.run`) → chercher l'incident d'infrastructure sous-jacent (serveur `unreachable` ? registry down ?) **avant** tout rejeu, sinon le rejeu re-mourra.
-- **Erreurs déterministes** (build en échec, healthcheck jamais sain, config invalide) : pour `deployment.run` elles ne passent normalement **pas** par la dead-letter (échec direct sans retry auto, spec §2.4) — en voir en dead-letter suggère une mauvaise classification (bug à remonter). Pour les autres types (backup, cleanup, delete : `max_attempts` défaut 5), c'est le signe d'une cause à corriger avant rejeu.
+- **Transient errors** (SSH unreachable, network timeout, registry 5xx, disk full) that reached the dead-letter = the outage lasted longer than the backoff window (3 attempts, exponential backoff 30 s → 15 min for `deployment.run`) → look for the underlying infrastructure incident (server `unreachable`? registry down?) **before** any replay, otherwise the replay will die again.
+- **Deterministic errors** (failed build, healthcheck never healthy, invalid config): for `deployment.run` they normally do **not** go through the dead-letter (direct failure without auto retry, spec §2.4) — seeing any in dead-letter suggests a misclassification (bug to report). For the other types (backup, cleanup, delete: `max_attempts` default 5), it is the sign of a cause to fix before replaying.
 
-### 3. Contexte d'un job précis
+### 3. Context of a specific job
 
 ```sql
--- Chaîne complète via la corrélation (job → événements → audit) :
+-- Full chain via correlation (job → events → audit):
 SELECT event_type, occurred_at, payload FROM outbox_events
 WHERE correlation_id = '<correlation_id>' ORDER BY id;
 SELECT occurred_at, action, result, actor_display FROM audit_events
 WHERE correlation_id = '<correlation_id>' ORDER BY occurred_at;
--- Si c'est un déploiement : ses étapes et logs
+-- If it is a deployment: its steps and logs
 SELECT seq, name, status, exit_code FROM deployment_steps
 WHERE deployment_id = (SELECT id FROM deployments WHERE uuid = (
   SELECT payload->>'deployment_uuid' FROM jobs WHERE uuid = '<job_uuid>')::uuid)
 ORDER BY seq;
 ```
 
-Suivi API générique d'un job : `GET /jobs/{job_uuid}`.
+Generic API tracking of a job: `GET /jobs/{job_uuid}`.
 
-## Résolution pas à pas
+## Step-by-step resolution
 
-### A. Retry (rejeu)
+### A. Retry (replay)
 
-Règle absolue (spec §2.4) : le rejeu est une **action manuelle auditée qui crée une nouvelle tentative liée**. ⚠️ **Ne jamais** remettre la ligne `dead_letter` en `queued` par UPDATE : cela réécrit l'historique (`attempt`, liaison des tentatives) et contourne l'audit.
+Absolute rule (spec §2.4): a replay is an **audited manual action that creates a new linked attempt**. ⚠️ **Never** put the `dead_letter` row back to `queued` via UPDATE: that rewrites history (`attempt`, attempt linkage) and bypasses the audit trail.
 
-1. Corriger la cause d'abord (serveur re-joignable, disque libéré, credentials réparés, config corrigée).
-2. Rejouer par le canal métier, qui crée la tentative liée :
-   - Déploiement : bouton retry de l'UI (transition `failed → retrying → preparing`, même snapshot/SHA) ou nouveau `POST /applications/{uuid}/deploy` (nouveau snapshot) selon que la config devait changer ou non.
-   - Backup : `POST /databases/{db}/backups/{plan}/execute`.
-   - Validation serveur : `POST /servers/{uuid}/validate`.
-   - Suppression de ressource : relancer la suppression depuis l'UI (retry du tombstone, §20.6.4).
-   - Autres types sans endpoint métier dédié : retry générique
+1. Fix the cause first (server reachable again, disk freed, credentials repaired, config fixed).
+2. Replay through the business channel, which creates the linked attempt:
+   - Deployment: the UI retry button (`failed → retrying → preparing` transition, same snapshot/SHA) or a new `POST /applications/{uuid}/deploy` (new snapshot) depending on whether the config had to change or not.
+   - Backup: `POST /databases/{db}/backups/{plan}/execute`.
+   - Server validation: `POST /servers/{uuid}/validate`.
+   - Resource deletion: relaunch the deletion from the UI (tombstone retry, §20.6.4).
+   - Other types without a dedicated business endpoint: generic retry
      ```sh
      curl -sS -X POST "$AKD/jobs/$JOB_UUID/retry" -H "Authorization: Bearer $TOKEN"
-     # 202 : nouveau job avec retry_of_uuid → job d'origine (tentative liée, spec §2.4) ;
-     # 409 invalid_state si le job n'est pas (plus) en dead_letter
+     # 202: new job with retry_of_uuid → original job (linked attempt, spec §2.4);
+     # 409 invalid_state if the job is not (or no longer) in dead_letter
      ```
-     ou l'UI « actions prioritaires ».
-3. Après rejeu réussi, clôturer l'entrée dead-letter (voir B) si le produit ne le fait pas automatiquement.
+     or the "priority actions" UI.
+3. After a successful replay, close the dead-letter entry (see B) if the product does not do it automatically.
 
 ### B. Forget (abandon)
 
-À réserver aux jobs dont l'opération n'a plus de sens (ressource supprimée entre-temps, doublon, décision d'abandon).
+Reserve for jobs whose operation no longer makes sense (resource deleted in the meantime, duplicate, decision to abandon).
 
-⚠️ Avant d'oublier un job **`resource.delete`** : vérifier la liste des restes distants du tombstone (§20.6.4, colonne `resources.remnants`) et nettoyer manuellement sur le serveur, sinon containers/volumes orphelins :
+⚠️ Before forgetting a **`resource.delete`** job: check the tombstone's list of remote remnants (§20.6.4, `resources.remnants` column) and clean up manually on the server, otherwise orphaned containers/volumes:
 
 ```sql
 SELECT uuid, name, remnants FROM resources
 WHERE deleted_at IS NOT NULL AND remnants IS NOT NULL;
 ```
 
-Via l'API (audité, le job passe en `cancelled`) ou l'UI (« forget ») :
+Via the API (audited, the job moves to `cancelled`) or the UI ("forget"):
 
 ```sh
 curl -sS -X POST "$AKD/jobs/$JOB_UUID/forget" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"acknowledge_remnants": true}'
-# acknowledge_remnants=true OBLIGATOIRE si le job laisse des restes distants,
-# sinon 409 remnants_present (avec la liste des restes dans details)
+# acknowledge_remnants=true REQUIRED if the job leaves remote remnants,
+# otherwise 409 remnants_present (with the list of remnants in details)
 ```
 
-Dernier recours SQL (contourne l'audit et la vérification des remnants — consigner manuellement) :
+SQL last resort (bypasses the audit trail and the remnants check — record manually):
 
 ```sql
 UPDATE jobs SET status = 'cancelled', finished_at = now(), updated_at = now()
 WHERE uuid = '<job_uuid>' AND status = 'dead_letter';
 ```
 
-### C. Traiter une vague (même cause, N jobs)
+### C. Handling a wave (same cause, N jobs)
 
-1. Corriger la cause commune (ex. serveur redevenu joignable).
-2. Rejouer **un** job représentatif ; vérifier son succès.
-3. Rejouer le reste par lot via le canal métier (boucle sur `POST /applications/{uuid}/deploy`, `POST /jobs/{uuid}/retry`, etc.). Attention aux plafonds : `concurrent_builds` (2/serveur) et `deployment_queue_limit` (25/serveur, `429 deployment_queue_full`) — étaler les rejeux.
+1. Fix the common cause (e.g. server reachable again).
+2. Replay **one** representative job; verify its success.
+3. Replay the rest in batches through the business channel (loop over `POST /applications/{uuid}/deploy`, `POST /jobs/{uuid}/retry`, etc.). Beware of the caps: `concurrent_builds` (2/server) and `deployment_queue_limit` (25/server, `429 deployment_queue_full`) — spread the replays out.
 
-## Vérification
+## Verification
 
-- Plus de `dead_letter` inexpliqué : la requête d'inventaire ne montre que des jobs en cours de traitement décisionnel.
-- Les rejeux apparaissent comme **nouvelles tentatives liées** (déploiements : `retry_of_id` renseigné, `attempt` incrémenté ; jobs : `retry_of_uuid` dans `GET /jobs/{uuid}`) et dans `audit_events`.
-- La cause racine est corrigée : plus de nouveaux dead-letters du même `(job_type, last_error)` depuis la correction (requête d'agrégation, colonne `last_seen`).
+- No more unexplained `dead_letter`: the inventory query only shows jobs currently under decision-making.
+- Replays appear as **new linked attempts** (deployments: `retry_of_id` set, `attempt` incremented; jobs: `retry_of_uuid` in `GET /jobs/{uuid}`) and in `audit_events`.
+- The root cause is fixed: no new dead-letters with the same `(job_type, last_error)` since the fix (aggregation query, `last_seen` column).
 
-## Prévention
+## Prevention
 
-- Alerter sur la **métrique dead-letters** (spec §12.3, OTLP) et sur les événements `deployment.failed` (§11) — un dead-letter silencieux est un incident différé.
-- Régler les timeouts par application quand ils sont la cause récurrente (clone 600 s, build 3600 s, pull/push 900 s — spec §11) plutôt que de rejouer en boucle.
-- Les pannes fournisseur ne doivent pas saturer les workers : le circuit breaker (§22.1) est là pour ça — une vague de dead-letters sur un même fournisseur doit le déclencher, sinon bug.
-- Purge : les jobs terminés sont purgés par rétention, les `dead_letter` **conservés jusqu'à intervention** (data dictionary §11.8) — traiter la file régulièrement pour qu'elle reste un signal.
+- Alert on the **dead-letters metric** (spec §12.3, OTLP) and on `deployment.failed` events (§11) — a silent dead-letter is a deferred incident.
+- Tune per-application timeouts when they are the recurring cause (clone 600 s, build 3600 s, pull/push 900 s — spec §11) rather than replaying in a loop.
+- Provider outages must not saturate the workers: the circuit breaker (§22.1) exists for that — a wave of dead-letters on the same provider must trip it, otherwise it is a bug.
+- Purge: finished jobs are purged by retention, `dead_letter` ones are **kept until intervention** (data dictionary §11.8) — process the queue regularly so it remains a signal.

@@ -1,44 +1,44 @@
-# Spécification — Contrat du module proxy
+# Specification — Proxy module contract
 
-> Artefact §29.6 du PRD (`docs/PRD.md`). Le PRD est la source de vérité ; cette spécification précise le contrat du module proxy : représentation intermédiaire (IR), génération Traefik (P0) et Caddy (P2), priorités de routage, certificats, application atomique et fixtures de conformité. Lorsque le PRD est muet, la valeur retenue est marquée **(défaut proposé)**.
+> PRD §29.6 artifact (`docs/PRD.md`). The PRD is the source of truth; this specification details the proxy module contract: intermediate representation (IR), Traefik (P0) and Caddy (P2) generation, routing priorities, certificates, atomic apply and conformance fixtures. Where the PRD is silent, the retained value is marked **(proposed default)**.
 >
-> Cohérence obligatoire : la mécanique de bascule zero-downtime (fichier dynamique par application, cible transitoire par IP du candidat, application atomique tmp+mv, vérification par l'API Traefik puis requête de fumée, rollback du fichier) est définie au §7 de `docs/specs/deployment-engine.md` — cette spécification en est le contrat côté proxy, elle ne la redéfinit pas. Décisions structurantes : §27.9/ADR-009 (IR commune, Traefik P0, Caddy P2, fixtures partagées), §27.1/ADR-001 (ports proxy configurables, control plane mono-port). Tables de référence : `domains` et `proxy_config_revisions` (`docs/specs/data-dictionary.md` §8.4, §11.1).
+> Mandatory consistency: the zero-downtime switchover mechanics (dynamic file per application, transient target via the candidate's IP, atomic tmp+mv apply, verification through the Traefik API then smoke request, file rollback) are defined in §7 of `docs/specs/deployment-engine.md` — this specification is its proxy-side contract; it does not redefine them. Structuring decisions: §27.9/ADR-009 (common IR, Traefik P0, Caddy P2, shared fixtures), §27.1/ADR-001 (configurable proxy ports, single-port control plane). Reference tables: `domains` and `proxy_config_revisions` (`docs/specs/data-dictionary.md` §8.4, §11.1).
 
 ---
 
-## 1. Vue d'ensemble
+## 1. Overview
 
-### 1.1 Rôle du provider proxy
+### 1.1 Role of the proxy provider
 
-Le module proxy est une **capacité remplaçable** (§16.1(5), §18.1) exposée aux services métier via un contrat unique. Un **provider** (Traefik en P0, Caddy en P2) implémente ce contrat ; la logique de routage — domaines, paths, priorités, middlewares, certificats — vit dans la **représentation intermédiaire** (§2), jamais dans le code spécifique à un proxy (ADR-009).
+The proxy module is a **replaceable capability** (§16.1(5), §18.1) exposed to the business services through a single contract. A **provider** (Traefik in P0, Caddy in P2) implements this contract; the routing logic — domains, paths, priorities, middlewares, certificates — lives in the **intermediate representation** (§2), never in proxy-specific code (ADR-009).
 
-Opérations du contrat (sémantique normative, signatures Go non prescrites) :
+Contract operations (normative semantics, Go signatures not prescribed):
 
-| Opération | Rôle | Référence |
+| Operation | Role | Reference |
 |---|---|---|
-| `DeployProxy(server)` | Créer et démarrer le container proxy sur un serveur — uniquement si l'intention est `running` ; un serveur naît avec l'intention `stopped` et le premier démarrage passe par `StartProxy` (onboarding §20.1 étape 5) | §1.3 |
-| `StartProxy` / `StopProxy` / `RestartProxy` | Cycle de vie depuis l'UI ; `StartProxy` converge config **et** container depuis zéro (c'est le premier démarrage nominal) ; l'arrêt coupe tout le trafic entrant du serveur (avertissement explicite, §4.1 PRD) | §1.3 |
-| `UpgradeProxy(server, image)` | Recréation du container avec la nouvelle image épinglée ; notification « proxy obsolète » (§4.1, §11 PRD) | §1.4 |
-| `GenerateStatic(ir) → fichiers` | Configuration statique du proxy (entrypoints, resolvers ACME) depuis l'IR serveur | §5.2 |
-| `GenerateApp(ir, app, endpoint) → fichier` | Fichier de configuration dynamique d'une application ; `endpoint` = IP du candidat (forme transitoire) ou nom du container (forme stable) — deployment-engine §7.2 | §5.3 |
-| `Validate(fichiers)` | Validation syntaxique et sémantique avant tout upload (schéma du format cible + règles §3) | §6.1 |
-| `Apply(server, fichiers) → revision` | Application atomique (tmp + mv), enregistrement `proxy_config_revisions` avec checksum SHA-256 | §6 |
-| `Verify(server, attentes)` | Vérification de prise en compte : API du proxy + requête de fumée | §6.3 |
-| `Rollback(server, revision)` | Ré-application de la dernière révision `applied` | §6.4 |
-| `RemoveApp(server, app_uuid)` | Retrait du routage d'une ressource (précède toute suppression de workload, §20.6) : suppression du fichier `<app_uuid>.yaml` + vérification | §6.5 |
-| `Status(server)` | État observé du container proxy (`proxy_observed_status`), version d'image, dérive de checksum (§18.3) | §1.3 |
+| `DeployProxy(server)` | Create and start the proxy container on a server — only if the intent is `running`; a server is born with the intent `stopped` and the first start goes through `StartProxy` (onboarding §20.1 step 5) | §1.3 |
+| `StartProxy` / `StopProxy` / `RestartProxy` | Lifecycle from the UI; `StartProxy` converges config **and** container from scratch (it is the nominal first start); stopping cuts all of the server's inbound traffic (explicit warning, PRD §4.1) | §1.3 |
+| `UpgradeProxy(server, image)` | Recreation of the container with the new pinned image; "proxy outdated" notification (PRD §4.1, §11) | §1.4 |
+| `GenerateStatic(ir) → files` | Static proxy configuration (entrypoints, ACME resolvers) from the server IR | §5.2 |
+| `GenerateApp(ir, app, endpoint) → file` | Dynamic configuration file of an application; `endpoint` = candidate IP (transient form) or container name (stable form) — deployment-engine §7.2 | §5.3 |
+| `Validate(files)` | Syntactic and semantic validation before any upload (target format schema + §3 rules) | §6.1 |
+| `Apply(server, files) → revision` | Atomic apply (tmp + mv), `proxy_config_revisions` record with SHA-256 checksum | §6 |
+| `Verify(server, expectations)` | Verification that the configuration took effect: proxy API + smoke request | §6.3 |
+| `Rollback(server, revision)` | Re-application of the last `applied` revision | §6.4 |
+| `RemoveApp(server, app_uuid)` | Removal of a resource's routing (precedes any workload deletion, §20.6): deletion of the `<app_uuid>.yaml` file + verification | §6.5 |
+| `Status(server)` | Observed state of the proxy container (`proxy_observed_status`), image version, checksum drift (§18.3) | §1.3 |
 
-Le worker de déploiement **pilote** la bascule ; le proxy l'applique (deployment-engine §1.2). Le control plane n'est jamais dans le chemin des requêtes applicatives (INV-007).
+The deployment worker **drives** the switchover; the proxy applies it (deployment-engine §1.2). The control plane is never in the path of application requests (INV-007).
 
-### 1.2 Un proxy par serveur
+### 1.2 One proxy per server
 
-- Chaque serveur a **son** proxy (§3.3 PRD), de type `proxy_type` (`traefik` | `caddy` | `none`, table `servers`). `none` = serveur sans trafic entrant routé (build server, par exemple).
-- Le switch de type par serveur (§4.1 PRD) = régénération complète depuis l'IR pour le nouveau provider, déploiement du nouveau container, retrait de l'ancien. L'IR est inchangée : c'est précisément sa raison d'être.
-- Le proxy est connecté (`docker network connect`, idempotent) à **chaque réseau de destination** hébergeant une ressource routée ; la connexion est vérifiée en `preparing`/`switching` avant toute bascule **(défaut proposé)**.
+- Each server has **its own** proxy (PRD §3.3), of type `proxy_type` (`traefik` | `caddy` | `none`, `servers` table). `none` = server without routed inbound traffic (a build server, for example).
+- The per-server type switch (PRD §4.1) = full regeneration from the IR for the new provider, deployment of the new container, removal of the old one. The IR is unchanged: that is precisely its reason for being.
+- The proxy is connected (`docker network connect`, idempotent) to **every destination network** hosting a routed resource; the connection is verified in `preparing`/`switching` before any switchover **(proposed default)**.
 
-### 1.3 Le proxy est lui-même un container géré
+### 1.3 The proxy is itself a managed container
 
-Déploiement de référence (Traefik, P0) :
+Reference deployment (Traefik, P0):
 
 ```sh
 docker run -d \
@@ -47,130 +47,130 @@ docker run -d \
   --network AkerDock \
   -p <proxy_http_port>:<proxy_http_port> \
   -p <proxy_https_port>:<proxy_https_port> \
-  [-p <tcp_port>:<tcp_port>]... \                    # routes TCP actives (§2.6, §5.6)
+  [-p <tcp_port>:<tcp_port>]... \                    # active TCP routes (§2.6, §5.6)
   -v /var/lib/akerdock/proxy/traefik.yaml:/etc/traefik/traefik.yaml:ro \
   -v /var/lib/akerdock/proxy/dynamic:/dynamic:ro \
   -v /var/lib/akerdock/proxy/acme.json:/acme/acme.json \
   -v /var/lib/akerdock/proxy/certs:/certs:ro \
   -v /var/lib/akerdock/proxy/auth:/auth:ro \
-  --env-file /var/lib/akerdock/proxy/acme.env \        # credentials DNS-01, 0600, si DNS-01 configuré (§7.2)
+  --env-file /var/lib/akerdock/proxy/acme.env \        # DNS-01 credentials, 0600, if DNS-01 configured (§7.2)
   --label akerdock.managed=true \
   --label akerdock.type=proxy \
-  --label akerdock.team_uuid=<team_uuid_du_serveur> \
+  --label akerdock.team_uuid=<server_team_uuid> \
   --health-cmd 'traefik healthcheck --ping' \
   --health-interval 5s --health-retries 3 \
-  traefik:v3.5                                        # version épinglée par release AkerDock (défaut proposé)
+  traefik:v3.5                                        # version pinned per AkerDock release (proposed default)
 ```
 
-Points normatifs :
+Normative points:
 
-- **Ports d'écoute configurables par serveur** (`proxy_http_port`/`proxy_https_port`, défauts 80/443, décision §27.1) : les entrypoints écoutent directement sur ces ports dans le container et sont publiés à l'identique (`8443:8443`, jamais `8443:443`) — les redirections HTTP→HTTPS émettent ainsi le bon port sans réécriture **(défaut proposé)**.
-- L'API locale du proxy (Traefik `:8080`) n'est **jamais publiée sur l'hôte** : elle n'est accessible que par `docker exec` dans le container (vérification §6.3, conforme deployment-engine §7.2).
-- Le socket Docker n'est **pas** monté dans le proxy : toute la configuration passe par les fichiers (pas de provider docker Traefik ; les labels de parité sont informatifs, §5.1).
-- Arborescence sous `/var/lib/akerdock/proxy/` (extension de deployment-engine §5.1, **(défaut proposé)** — sauf `acme.json` et `acme.env`, dont les emplacements sont **normatifs**, §7.2/§7.5) :
+- **Listen ports configurable per server** (`proxy_http_port`/`proxy_https_port`, defaults 80/443, decision §27.1): the entrypoints listen directly on these ports inside the container and are published identically (`8443:8443`, never `8443:443`) — HTTP→HTTPS redirects thus emit the right port without rewriting **(proposed default)**.
+- The proxy's local API (Traefik `:8080`) is **never published on the host**: it is only reachable via `docker exec` inside the container (verification §6.3, consistent with deployment-engine §7.2).
+- The Docker socket is **not** mounted into the proxy: all configuration goes through the files (no Traefik docker provider; the parity labels are informational, §5.1).
+- Directory tree under `/var/lib/akerdock/proxy/` (extension of deployment-engine §5.1, **(proposed default)** — except `acme.json` and `acme.env`, whose locations are **normative**, §7.2/§7.5):
 
 ```text
 /var/lib/akerdock/proxy/
-├── traefik.yaml              # config statique générée (§5.2) — recréation du container à chaque changement
-├── dynamic/                  # provider file watch: true
-│   ├── 00-certificates.yaml  # certificats custom (§7.3) — nom réservé
-│   ├── 00-control-plane.yaml # routage du FQDN de l'instance si ce serveur l'héberge (§14.2 PRD) — nom réservé
-│   └── <app_uuid>.yaml       # UN fichier par application/preview/composant routé (§5.3)
-│       .<app_uuid>.yaml.tmp      # fichier temporaire d'application atomique (éphémère)
-│       .<app_uuid>.yaml.awake    # variante « éveillée » pré-générée (scale-to-zero, §8)
-├── certs/                    # certificats custom déposés (§4.3 PRD)
-├── acme.json                 # stockage ACME (0600) — emplacement NORMATIF (§7.5)
-├── acme.env                  # credentials DNS-01 matérialisés (0600) — emplacement NORMATIF (§7.2)
-└── auth/<app_uuid>.htpasswd  # fichiers d'utilisateurs basic auth (0600, §4.2)
+├── traefik.yaml              # generated static config (§5.2) — container recreated on every change
+├── dynamic/                  # file provider, watch: true
+│   ├── 00-certificates.yaml  # custom certificates (§7.3) — reserved name
+│   ├── 00-control-plane.yaml # routing of the instance FQDN if this server hosts it (PRD §14.2) — reserved name
+│   └── <app_uuid>.yaml       # ONE file per routed application/preview/component (§5.3)
+│       .<app_uuid>.yaml.tmp      # atomic-apply temporary file (ephemeral)
+│       .<app_uuid>.yaml.awake    # pre-generated "awake" variant (scale-to-zero, §8)
+├── certs/                    # uploaded custom certificates (PRD §4.3)
+├── acme.json                 # ACME storage (0600) — NORMATIVE location (§7.5)
+├── acme.env                  # materialized DNS-01 credentials (0600) — NORMATIVE location (§7.2)
+└── auth/<app_uuid>.htpasswd  # basic auth user files (0600, §4.2)
 ```
 
-Cycle de vie : `proxy_desired_state` (`running`/`stopped`) et `proxy_observed_status` (table `servers`) ; start/stop/restart depuis l'UI avec statut et logs consultables (§4.1 PRD). Stop = `docker stop` du container (les fichiers restent en place ; start = redémarrage sans régénération). Toute opération est auditée (§23.4).
+Lifecycle: `proxy_desired_state` (`running`/`stopped`) and `proxy_observed_status` (`servers` table); start/stop/restart from the UI with status and logs available (PRD §4.1). Stop = `docker stop` of the container (the files stay in place; start = restart without regeneration). Every operation is audited (§23.4).
 
-### 1.4 Upgrade d'image
+### 1.4 Image upgrade
 
-1. Notification « image du proxy obsolète » quand la version épinglée de la release AkerDock est plus récente que celle du container (§4.1, §11 PRD).
-2. Upgrade = action explicite : `docker stop` (grace 10 s) → `docker rm` → `docker run` avec la nouvelle image, mêmes montages et ports. Interruption de trafic de quelques secondes, annoncée avant confirmation **(défaut proposé)**.
-3. `acme.json`, certificats et fichiers dynamiques étant sur l'hôte, l'upgrade ne perd aucun état.
-4. Post-upgrade : `Verify` global (§6.3) sur un échantillon de routes ; échec → recréation avec l'image précédente (l'image n'est purgée qu'après vérification réussie) **(défaut proposé)**.
+1. "Proxy image outdated" notification when the pinned version of the AkerDock release is newer than the container's (PRD §4.1, §11).
+2. Upgrade = explicit action: `docker stop` (10 s grace) → `docker rm` → `docker run` with the new image, same mounts and ports. Traffic interruption of a few seconds, announced before confirmation **(proposed default)**.
+3. Since `acme.json`, certificates and dynamic files live on the host, the upgrade loses no state.
+4. Post-upgrade: global `Verify` (§6.3) on a sample of routes; failure → recreation with the previous image (the image is only pruned after a successful verification) **(proposed default)**.
 
 ---
 
-## 2. Représentation intermédiaire (IR)
+## 2. Intermediate representation (IR)
 
-### 2.1 Principes
+### 2.1 Principles
 
-- L'IR est **la** source unique de génération : Traefik (P0) et Caddy (P2) en dérivent de façon déterministe (ADR-009). Aucun champ de l'IR n'est propre à un proxy, à l'exception de l'échappatoire `provider_raw` (§4.6).
-- L'IR d'un serveur est construite par le control plane depuis PostgreSQL (`servers`, `applications`, `domains`, `service_components`, `databases`, snapshots de déploiement) — jamais éditée à la main.
-- **Sérialisation canonique** : JSON, clés triées, pas de timestamp ni de champ non déterministe. Deux états métier identiques produisent une IR octet-à-octet identique — fondement du checksum et de la détection de dérive (§18.3).
-- **Aucune valeur de secret** dans l'IR : uniquement des références (`secret://…`), résolues à la génération vers des fichiers `0600` sur le serveur (INV-003).
-- Versionnée : `ir_version` entier, incrémenté à chaque changement incompatible ; les fixtures (§9) sont taguées par version.
+- The IR is **the** single generation source: Traefik (P0) and Caddy (P2) derive from it deterministically (ADR-009). No IR field is specific to one proxy, except the `provider_raw` escape hatch (§4.6).
+- A server's IR is built by the control plane from PostgreSQL (`servers`, `applications`, `domains`, `service_components`, `databases`, deployment snapshots) — never edited by hand.
+- **Canonical serialization**: JSON, sorted keys, no timestamp nor non-deterministic field. Two identical business states produce a byte-for-byte identical IR — the foundation of the checksum and of drift detection (§18.3).
+- **No secret value** in the IR: only references (`secret://…`), resolved at generation time into `0600` files on the server (INV-003).
+- Versioned: `ir_version` integer, incremented on every incompatible change; the fixtures (§9) are tagged by version.
 
-### 2.2 Schéma (structure documentée)
+### 2.2 Schema (documented structure)
 
 ```yaml
 ir_version: 1
 server:
   server_uuid: "6d0f…"
   proxy_type: traefik            # traefik | caddy
-  http_port: 80                  # proxy_http_port (§27.1) — ex. 8080 derrière un proxy amont
-  https_port: 443                # proxy_https_port (§27.1) — ex. 8443
-  acme:                          # présent si au moins un domaine en ACME
+  http_port: 80                  # proxy_http_port (§27.1) — e.g. 8080 behind an upstream proxy
+  https_port: 443                # proxy_https_port (§27.1) — e.g. 8443
+  acme:                          # present if at least one domain uses ACME
     email: "ops@example.com"
-    ca_url: "https://acme-v02.api.letsencrypt.org/directory"   # staging en test
+    ca_url: "https://acme-v02.api.letsencrypt.org/directory"   # staging in tests
     resolvers:
-      - name: http01             # resolver par défaut (§7.1)
+      - name: http01             # default resolver (§7.1)
         challenge: http-01
-      - name: dns01-cloudflare   # nom déterministe : dns01-<provider> (§7.2)
+      - name: dns01-cloudflare   # deterministic name: dns01-<provider> (§7.2)
         challenge: dns-01
-        provider: cloudflare     # identifiant provider Lego (§4.3 PRD)
+        provider: cloudflare     # Lego provider identifier (PRD §4.3)
         credentials_ref: "secret://team/<team_uuid>/dns/cloudflare"
-apps: []                         # liste de RouteGroup (§2.3), triée par resource_uuid
-tcp_routes: []                   # liste de TCPRoute (§2.6), triée par listen_port
-certificates: []                 # liste de Certificate (§2.5), triée par premier domaine
+apps: []                         # list of RouteGroup (§2.3), sorted by resource_uuid
+tcp_routes: []                   # list of TCPRoute (§2.6), sorted by listen_port
+certificates: []                 # list of Certificate (§2.5), sorted by first domain
 ```
 
-### 2.3 `RouteGroup` — routage HTTP d'une ressource
+### 2.3 `RouteGroup` — HTTP routing of a resource
 
-Un `RouteGroup` par application, preview ou service component routé. Il correspond **exactement** au périmètre du fichier dynamique `<app_uuid>.yaml` (deployment-engine §6.1) : générer un RouteGroup = générer un fichier ; le supprimer = supprimer le fichier.
+One `RouteGroup` per routed application, preview or service component. It corresponds **exactly** to the scope of the dynamic file `<app_uuid>.yaml` (deployment-engine §6.1): generating a RouteGroup = generating a file; deleting it = deleting the file.
 
 ```yaml
 resource_uuid: "9f3c2a1e-7b44-4c1d-9e2a-1f0b8c6d5a01"
 team_uuid: "…"
 kind: application                # application | service_component | preview
-routes:                          # une entrée par ligne de `domains` (fqdn, path) — §8.4 data dictionary
-  - fqdn: "app.example.com"      # sans schéma, citext ; wildcard serveur déjà matérialisé (§3.4)
-    path: "/"                    # path-based routing (§4.2 PRD)
-    target_port: 3000            # `domains.target_port`, sinon ports_exposes par défaut
-    strip_path: false            # true = retirer le préfixe avant transmission (défaut proposé : false)
+routes:                          # one entry per `domains` row (fqdn, path) — data dictionary §8.4
+  - fqdn: "app.example.com"      # no scheme, citext; server wildcard already materialized (§3.4)
+    path: "/"                    # path-based routing (PRD §4.2)
+    target_port: 3000            # `domains.target_port`, otherwise default ports_exposes
+    strip_path: false            # true = strip the prefix before forwarding (proposed default: false)
     https:
       enabled: true
-      force: true                # force_https par application (§4.3 PRD, défaut true)
-      cert: { resolver: http01 } # { resolver: <nom> } XOR { ref: <certificats §2.5> }
-    redirect_direction: both     # both | www | non_www — « Direction » (§4.2 PRD, §3.5)
-    middlewares: [auth, noindex] # refs vers §2.4, ordre d'application défini au §4.7
-service:                         # cible unique — la bascule remplace ce bloc (deployment-engine §7.2)
-  endpoint_type: container_name  # container_name (forme stable) | container_ip (forme transitoire)
-  endpoint: "9f3c2a1e-7b44-4c1d-9e2a-1f0b8c6d5a01"   # ou "172.18.0.7" pendant switching
-  scheme: http                   # http | https (backend TLS) — (défaut proposé : http)
-middlewares: []                  # définitions locales (§2.4)
-scale_to_zero: null              # bloc optionnel (§8), previews d'abord
+      force: true                # force_https per application (PRD §4.3, default true)
+      cert: { resolver: http01 } # { resolver: <name> } XOR { ref: <certificates §2.5> }
+    redirect_direction: both     # both | www | non_www — "Direction" (PRD §4.2, §3.5)
+    middlewares: [auth, noindex] # refs to §2.4, application order defined in §4.7
+service:                         # single target — the switchover replaces this block (deployment-engine §7.2)
+  endpoint_type: container_name  # container_name (stable form) | container_ip (transient form)
+  endpoint: "9f3c2a1e-7b44-4c1d-9e2a-1f0b8c6d5a01"   # or "172.18.0.7" during switching
+  scheme: http                   # http | https (TLS backend) — (proposed default: http)
+middlewares: []                  # local definitions (§2.4)
+scale_to_zero: null              # optional block (§8), previews first
 ```
 
-Notes :
+Notes:
 
-- `endpoint_type`/`endpoint` sont fournis par le worker (`GenerateApp(ir, app, endpoint)`) : **IP du candidat** pendant `switching`, **nom du container** (DNS Docker) en `finishing` — strictement conforme à deployment-engine §7.2 (étapes 1–2 et 7).
-- Multi-domaines = plusieurs entrées `routes` (une ligne `domains` chacune) ; `domaine:port` = `target_port` explicite (§4.2 PRD).
-- Un `kind: preview` porte par défaut les middlewares de protection (§4.5) et le jeu `scale_to_zero` si activé.
+- `endpoint_type`/`endpoint` are provided by the worker (`GenerateApp(ir, app, endpoint)`): **candidate IP** during `switching`, **container name** (Docker DNS) in `finishing` — strictly consistent with deployment-engine §7.2 (steps 1–2 and 7).
+- Multi-domain = several `routes` entries (one `domains` row each); `domain:port` = explicit `target_port` (PRD §4.2).
+- A `kind: preview` carries the protection middlewares by default (§4.5) and the `scale_to_zero` set if enabled.
 
-### 2.4 `Middleware` — définitions
+### 2.4 `Middleware` — definitions
 
 ```yaml
-- name: auth                       # unique dans le RouteGroup ; nom généré : <app_uuid>-<name>
+- name: auth                       # unique within the RouteGroup; generated name: <app_uuid>-<name>
   type: basic_auth                 # §4.1
-  users_ref: "secret://team/<team_uuid>/app/<app_uuid>/basic_auth"   # htpasswd (hashes bcrypt)
+  users_ref: "secret://team/<team_uuid>/app/<app_uuid>/basic_auth"   # htpasswd (bcrypt hashes)
 - name: limit
   type: rate_limit
-  average: 100                     # req/s en moyenne
+  average: 100                     # req/s on average
   burst: 200
   period: "1s"
 - name: office-only
@@ -179,176 +179,176 @@ Notes :
 - name: noindex
   type: custom_headers
   response: { X-Robots-Tag: "noindex" }
-  request: {}                      # en-têtes ajoutés vers le backend
+  request: {}                      # headers added toward the backend
 - name: gzip
   type: compression
-- name: sablier                    # échappatoire, hors conformance (§4.6)
+- name: sablier                    # escape hatch, out of conformance scope (§4.6)
   type: provider_raw
   provider: traefik
   payload: { … }
 ```
 
-### 2.5 `Certificate` — certificats
+### 2.5 `Certificate` — certificates
 
 ```yaml
-- id: "wildcard-preview"           # référencé par routes[].https.cert.ref
+- id: "wildcard-preview"           # referenced by routes[].https.cert.ref
   type: acme                       # acme | custom | none
-  resolver: dns01-cloudflare       # pour acme
+  resolver: dns01-cloudflare       # for acme
   main: "preview.example.com"
-  sans: ["*.preview.example.com"]  # wildcard ⇒ resolver DNS-01 obligatoire (§7.2)
+  sans: ["*.preview.example.com"]  # wildcard ⇒ DNS-01 resolver required (§7.2)
 - id: "corp-example"
-  type: custom                     # fichiers déposés dans /var/lib/akerdock/proxy/certs (§7.3)
+  type: custom                     # files uploaded to /var/lib/akerdock/proxy/certs (§7.3)
   cert_file: "certs/corp.example.com.pem"
   key_file: "certs/corp.example.com.key"
 ```
 
-`type: none` = HTTP seul (route sans `https.enabled`). Le fallback self-signed n'apparaît pas dans l'IR : c'est un comportement garanti du provider (§7.4).
+`type: none` = HTTP only (route without `https.enabled`). The self-signed fallback does not appear in the IR: it is a guaranteed behavior of the provider (§7.4).
 
-### 2.6 `TCPRoute` — proxy TCP des bases (§6.2 PRD)
+### 2.6 `TCPRoute` — TCP proxying of databases (PRD §6.2)
 
-Mode `public_access_mode = tcp_proxy` de la table `databases` : exposition publique d'une base sans port mapping sur son container (elle ne redémarre jamais pour un changement de port public).
+`public_access_mode = tcp_proxy` mode of the `databases` table: public exposure of a database without a port mapping on its container (it never restarts for a public port change).
 
 ```yaml
-- resource_uuid: "4e7a…"           # UUID de la base
+- resource_uuid: "4e7a…"           # database UUID
   team_uuid: "…"
-  listen_port: 15432               # databases.public_port — modifiable sans toucher à la base
+  listen_port: 15432               # databases.public_port — changeable without touching the database
   target: { container: "4e7a…", port: 5432 }
-  idle_timeout_seconds: 3600       # databases.tcp_proxy_timeout_seconds — best-effort par provider (§5.6)
-  tls_passthrough: true            # le TLS de la base (§6.3 PRD) traverse tel quel (défaut proposé)
+  idle_timeout_seconds: 3600       # databases.tcp_proxy_timeout_seconds — best-effort per provider (§5.6)
+  tls_passthrough: true            # the database's TLS (PRD §6.3) passes through as-is (proposed default)
 ```
 
-Contrainte : `listen_port` unique par serveur, disjoint de `http_port`/`https_port` (validé côté API). L'ensemble des `listen_port` actifs détermine les ports publiés du container proxy : le **modifier** déclenche une révision de configuration statique + recréation du container proxy (§5.6) — la base, elle, ne redémarre pas (parité §6.2) ; le **retargeting** (changer la base ou son port interne) est purement dynamique, sans redémarrage d'aucune sorte **(défaut proposé)**.
+Constraint: `listen_port` unique per server, disjoint from `http_port`/`https_port` (validated API-side). The set of active `listen_port`s determines the published ports of the proxy container: **changing** it triggers a static configuration revision + recreation of the proxy container (§5.6) — the database itself does not restart (parity §6.2); **retargeting** (changing the database or its internal port) is purely dynamic, without any restart whatsoever **(proposed default)**.
 
 ---
 
-## 3. Règles de priorité de routage
+## 3. Routing priority rules
 
-Le comportement doit être **identique quel que soit le provider** : les priorités sont donc calculées dans l'IR, jamais déléguées aux heuristiques du proxy (Traefik trie par longueur de règle : proche mais non contractuel).
+The behavior must be **identical regardless of the provider**: priorities are therefore computed in the IR, never delegated to the proxy's heuristics (Traefik sorts by rule length: close but not contractual).
 
-### 3.1 Formule de priorité (défaut proposé)
+### 3.1 Priority formula (proposed default)
 
-Pour chaque route HTTP :
+For each HTTP route:
 
 ```text
 priority = 1000 × segments(path) + len(path)
 ```
 
-où `segments(path)` = nombre de segments non vides (`/` → 0 ; `/api` → 1 ; `/api/v2` → 2) et `len(path)` = longueur du path en caractères (`/` → 1). Plus la valeur est haute, plus la route est prioritaire.
+where `segments(path)` = number of non-empty segments (`/` → 0; `/api` → 1; `/api/v2` → 2) and `len(path)` = length of the path in characters (`/` → 1). The higher the value, the higher the route's priority.
 
-- **Path le plus spécifique d'abord** (§4.2 PRD) : `/api/v2` (2007) > `/api` (1004) > `/` (1) — quel que soit l'ordre de déclaration.
-- Le FQDN n'entre pas dans la formule : deux FQDN différents ne sont jamais en concurrence (matching exact sur l'hôte), et deux routes de même `(fqdn, path)` sont **impossibles** (§3.3).
-- Les routeurs de redirection (www/non-www, §3.5) héritent de la priorité de la route qu'ils desservent.
+- **Most specific path first** (PRD §4.2): `/api/v2` (2007) > `/api` (1004) > `/` (1) — regardless of declaration order.
+- The FQDN does not enter the formula: two different FQDNs never compete (exact host matching), and two routes with the same `(fqdn, path)` are **impossible** (§3.3).
+- Redirect routers (www/non-www, §3.5) inherit the priority of the route they serve.
 
-### 3.2 `domaine:port`
+### 3.2 `domain:port`
 
-La syntaxe `domaine:port` (§4.2 PRD) cible un **port interne** du container (`domains.target_port`), pas un port d'écoute du proxy. Elle ne crée pas d'entrypoint : la route écoute toujours sur `http_port`/`https_port` et transmet vers `endpoint:target_port`.
+The `domain:port` syntax (PRD §4.2) targets an **internal port** of the container (`domains.target_port`), not a listen port of the proxy. It creates no entrypoint: the route always listens on `http_port`/`https_port` and forwards to `endpoint:target_port`.
 
-### 3.3 Collisions interdites
+### 3.3 Forbidden collisions
 
-- Unicité `(fqdn, path)` **globale à l'instance** — contrainte `UNIQUE` de la table `domains` (§8.4), qui élimine collisions inter-team et ambiguïtés (INV-002). Rejet à la validation API, avant toute IR.
-- Défense en profondeur : `Validate` (§6.1) échoue si une IR contient deux routes `(fqdn, path)` identiques sur un serveur — une IR en collision n'est jamais appliquée.
-- `listen_port` TCP : unicité par serveur + disjonction avec les ports HTTP/HTTPS (§2.6).
+- `(fqdn, path)` uniqueness **instance-wide** — `UNIQUE` constraint of the `domains` table (§8.4), which eliminates cross-team collisions and ambiguities (INV-002). Rejected at API validation, before any IR.
+- Defense in depth: `Validate` (§6.1) fails if an IR contains two identical `(fqdn, path)` routes on one server — a colliding IR is never applied.
+- TCP `listen_port`: uniqueness per server + disjunction from the HTTP/HTTPS ports (§2.6).
 
-### 3.4 Wildcard `<uuid>.domaine` et previews
+### 3.4 `<uuid>.domain` wildcard and previews
 
-- Le **wildcard domain par serveur** (`servers.wildcard_domain`, fallback sslip.io, §4.2 PRD) est résolu **à la création de la ressource** : le control plane matérialise un FQDN exact (`<uuid>.example.com`, `is_generated = true` dans `domains`). L'IR et les proxies ne voient jamais de règle d'hôte wildcard — uniquement des hôtes exacts.
-- Les URLs de preview (template `{{pr_id}}.{{domain}}`, `{{random}}`, §5.6 PRD) suivent le même chemin : FQDN exact par preview, `RouteGroup` propre (`kind: preview`, identité `(application_uuid, provider, pr_id)`), donc fichier dynamique propre et bascule indépendante de la production.
-- Seuls les **certificats** peuvent être wildcard (`sans: ["*.…"]`, DNS-01, §7.2) : un certificat wildcard couvre N hôtes exacts.
+- The **per-server wildcard domain** (`servers.wildcard_domain`, sslip.io fallback, PRD §4.2) is resolved **at resource creation**: the control plane materializes an exact FQDN (`<uuid>.example.com`, `is_generated = true` in `domains`). The IR and the proxies never see a wildcard host rule — only exact hosts.
+- Preview URLs (template `{{pr_id}}.{{domain}}`, `{{random}}`, PRD §5.6) follow the same path: exact FQDN per preview, its own `RouteGroup` (`kind: preview`, identity `(application_uuid, provider, pr_id)`), hence its own dynamic file and a switchover independent of production.
+- Only **certificates** may be wildcard (`sans: ["*.…"]`, DNS-01, §7.2): one wildcard certificate covers N exact hosts.
 
-### 3.5 Redirections www/non-www (« Direction »)
+### 3.5 www/non-www redirects ("Direction")
 
-Champ `redirect_direction` (`both` | `www` | `non_www`, défaut `both` — data dictionary §8.3) :
+`redirect_direction` field (`both` | `www` | `non_www`, default `both` — data dictionary §8.3):
 
-| Valeur | Comportement généré |
+| Value | Generated behavior |
 |---|---|
-| `both` | Le FQDN déclaré et sa contrepartie (`www.` ajouté ou retiré) servent tous deux l'application (deux routeurs vers le même service) |
-| `www` | La contrepartie apex redirige `308` vers `www.<fqdn>` (schéma et path préservés) |
-| `non_www` | `www.<fqdn>` redirige `308` vers l'apex |
+| `both` | The declared FQDN and its counterpart (`www.` added or removed) both serve the application (two routers to the same service) |
+| `www` | The apex counterpart redirects `308` to `www.<fqdn>` (scheme and path preserved) |
+| `non_www` | `www.<fqdn>` redirects `308` to the apex |
 
-La contrepartie n'est générée que si elle n'entre pas en collision avec une ligne `domains` existante (l'unicité §3.3 prime ; en cas de conflit, la redirection est omise et un avertissement de validation est remonté) **(défaut proposé)**. Les redirections HTTPS et www sont composées dans l'ordre du §4.7 (HTTPS d'abord : une seule redirection visible par requête au plus, vers l'URL finale).
+The counterpart is only generated if it does not collide with an existing `domains` row (the §3.3 uniqueness prevails; on conflict, the redirect is omitted and a validation warning is raised) **(proposed default)**. The HTTPS and www redirects are composed in the §4.7 order (HTTPS first: at most one visible redirect per request, to the final URL).
 
 ---
 
-## 4. Middlewares mappés
+## 4. Mapped middlewares
 
 ### 4.1 Basic auth
 
-- IR `type: basic_auth`, `users_ref` vers le secret store. À la génération, la valeur (format htpasswd, hashes bcrypt) est écrite en `/var/lib/akerdock/proxy/auth/<app_uuid>.htpasswd` (0600, SFTP — INV-003/012) et le middleware référence ce fichier. Les hashes ne transitent **pas** dans `proxy_config_revisions.content` (qui ne contient aucun secret, §11.1 data dictionary) **(défaut proposé)**.
-- Traefik : `basicAuth.usersFile: /auth/<app_uuid>.htpasswd`.
+- IR `type: basic_auth`, `users_ref` pointing to the secret store. At generation time, the value (htpasswd format, bcrypt hashes) is written to `/var/lib/akerdock/proxy/auth/<app_uuid>.htpasswd` (0600, SFTP — INV-003/012) and the middleware references this file. The hashes do **not** transit through `proxy_config_revisions.content` (which contains no secret, data dictionary §11.1) **(proposed default)**.
+- Traefik: `basicAuth.usersFile: /auth/<app_uuid>.htpasswd`.
 
 ### 4.2 Rate limiting
 
-- IR `type: rate_limit` (`average`, `burst`, `period`). Traefik : `rateLimit`. Sémantique contractuelle : limitation par IP source **(défaut proposé)** ; au-delà → `429`.
+- IR `type: rate_limit` (`average`, `burst`, `period`). Traefik: `rateLimit`. Contractual semantics: limiting by source IP **(proposed default)**; beyond → `429`.
 
 ### 4.3 IP whitelist
 
-- IR `type: ip_whitelist` (`cidrs`, IPv4/IPv6, validés centralement §23.3). Traefik v3 : `ipAllowList`. Hors liste → `403`.
+- IR `type: ip_whitelist` (`cidrs`, IPv4/IPv6, validated centrally §23.3). Traefik v3: `ipAllowList`. Outside the list → `403`.
 
-### 4.4 Custom headers et compression
+### 4.4 Custom headers and compression
 
-- `type: custom_headers` : en-têtes de réponse et/ou de requête (`headers.customResponseHeaders` / `customRequestHeaders`). Les noms `X-Forwarded-*` sont réservés au proxy et rejetés en validation **(défaut proposé)**.
-- `type: compression` : Traefik `compress` (gzip/brotli négociés).
+- `type: custom_headers`: response and/or request headers (`headers.customResponseHeaders` / `customRequestHeaders`). The `X-Forwarded-*` names are reserved for the proxy and rejected at validation **(proposed default)**.
+- `type: compression`: Traefik `compress` (negotiated gzip/brotli).
 
-### 4.5 Protection des previews (§20.4.4)
+### 4.5 Preview protection (§20.4.4)
 
-Pour `kind: preview`, le control plane injecte par défaut (selon `preview_protection`, défaut `basic_auth`) :
+For `kind: preview`, the control plane injects by default (according to `preview_protection`, default `basic_auth`):
 
-1. un middleware `basic_auth` (credentials générés par preview, jeu de variables preview) — ou la validation de **lien signé** en P2 ;
-2. un middleware `custom_headers` avec `X-Robots-Tag: noindex` — présent **même si** `preview_protection = none` (l'exposition publique reste non indexée) **(défaut proposé)**.
+1. a `basic_auth` middleware (credentials generated per preview, preview variable set) — or **signed link** validation in P2;
+2. a `custom_headers` middleware with `X-Robots-Tag: noindex` — present **even if** `preview_protection = none` (public exposure remains unindexed) **(proposed default)**.
 
-`preview_protection = none` est un choix explicite par application (§20.4.4).
+`preview_protection = none` is an explicit per-application choice (§20.4.4).
 
-### 4.6 Extensibilité
+### 4.6 Extensibility
 
-- Ajouter un type de middleware = étendre l'IR (nouveau `type`, bump éventuel de `ir_version`) **et** fournir son mapping pour chaque provider **et** ses fixtures (§9). Un type sans mapping complet est refusé.
-- Échappatoire `type: provider_raw` (ADR-009, « extensions explicites ») : payload passé tel quel au provider nommé, **exclu des fixtures de conformité**, marqué dans l'UI comme non portable — un switch de proxy le signale et l'ignore.
+- Adding a middleware type = extending the IR (new `type`, possible `ir_version` bump) **and** providing its mapping for every provider **and** its fixtures (§9). A type without a complete mapping is refused.
+- `type: provider_raw` escape hatch (ADR-009, "explicit extensions"): payload passed as-is to the named provider, **excluded from the conformance fixtures**, flagged in the UI as non-portable — a proxy switch reports it and ignores it.
 
-### 4.7 Ordre d'application (déterministe, défaut proposé)
+### 4.7 Application order (deterministic, proposed default)
 
 ```text
-force-https → redirection www/non-www → ip_whitelist → rate_limit → basic_auth → custom_headers → compression → provider_raw
+force-https → www/non-www redirect → ip_whitelist → rate_limit → basic_auth → custom_headers → compression → provider_raw
 ```
 
-Cet ordre est un invariant contractuel testé par fixtures : un client hors whitelist reçoit `403` avant tout challenge d'authentification ; les redirections précèdent tout le reste.
+This order is a contractual invariant tested by fixtures: a client outside the whitelist receives `403` before any authentication challenge; redirects precede everything else.
 
 ---
 
-## 5. Génération Traefik (P0)
+## 5. Traefik generation (P0)
 
-### 5.1 File provider — le fichier fait foi
+### 5.1 File provider — the file is authoritative
 
-Conforme à deployment-engine §7.1 : le routage est matérialisé en **un fichier de configuration dynamique par application** — `/var/lib/akerdock/proxy/dynamic/<app_uuid>.yaml` — monté dans le container (provider `file`, `watch: true`). Les **labels de parité** Traefik sont posés sur le container final en `finishing` (deployment-engine §7.2 étape 7) à des fins de diagnostic et de compatibilité d'usage, mais ne sont **jamais lus** par le proxy (pas de provider docker) : le fichier fait foi, c'est lui qui rend la bascule atomique et vérifiable.
+Consistent with deployment-engine §7.1: routing is materialized as **one dynamic configuration file per application** — `/var/lib/akerdock/proxy/dynamic/<app_uuid>.yaml` — mounted into the container (`file` provider, `watch: true`). The Traefik **parity labels** are set on the final container in `finishing` (deployment-engine §7.2 step 7) for diagnostic and usage-compatibility purposes, but are **never read** by the proxy (no docker provider): the file is authoritative; it is what makes the switchover atomic and verifiable.
 
-Conventions de nommage dans les fichiers générés (déterministes, INV-011) :
+Naming conventions in the generated files (deterministic, INV-011):
 
-| Objet Traefik | Nom |
+| Traefik object | Name |
 |---|---|
-| Routeur HTTP | `<app_uuid>-r<n>` (HTTPS) / `<app_uuid>-r<n>-web` (HTTP) — `n` = index de la route triée par `(fqdn, path)` |
-| Routeur de redirection www | `<app_uuid>-r<n>-www` |
-| Service | `<app_uuid>` (un seul service par RouteGroup) |
-| Middleware | `<app_uuid>-<name>` (+ middlewares implicites `<app_uuid>-https-redirect`, `<app_uuid>-www-redirect`) |
-| Routeur/service TCP | `<db_uuid>-tcp` |
+| HTTP router | `<app_uuid>-r<n>` (HTTPS) / `<app_uuid>-r<n>-web` (HTTP) — `n` = index of the route sorted by `(fqdn, path)` |
+| www redirect router | `<app_uuid>-r<n>-www` |
+| Service | `<app_uuid>` (a single service per RouteGroup) |
+| Middleware | `<app_uuid>-<name>` (+ implicit middlewares `<app_uuid>-https-redirect`, `<app_uuid>-www-redirect`) |
+| TCP router/service | `<db_uuid>-tcp` |
 
-En-tête obligatoire de chaque fichier généré : `# generated by AkerDock — revision <n> — DO NOT EDIT` ; toute édition manuelle est détectée par checksum (§6.2, §18.3).
+Mandatory header of every generated file: `# generated by AkerDock — revision <n> — DO NOT EDIT`; any manual edit is detected by checksum (§6.2, §18.3).
 
-### 5.2 Configuration statique du proxy
+### 5.2 Static proxy configuration
 
-`/var/lib/akerdock/proxy/traefik.yaml`, générée par `GenerateStatic(ir)`. Tout changement (ports, resolvers, entrypoints TCP) crée une révision et **recrée le container** (§1.4) ; les changements de routage passent exclusivement par les fichiers dynamiques (hot reload).
+`/var/lib/akerdock/proxy/traefik.yaml`, generated by `GenerateStatic(ir)`. Any change (ports, resolvers, TCP entrypoints) creates a revision and **recreates the container** (§1.4); routing changes go exclusively through the dynamic files (hot reload).
 
 ```yaml
 # generated by AkerDock — revision 12 — DO NOT EDIT
 api:
   dashboard: false
-  insecure: true          # API sur :8080, port NON publié sur l'hôte — accessible uniquement
-                          # via docker exec (vérification §6.3)
-ping: {}                  # healthcheck du container (§1.3)
+  insecure: true          # API on :8080, port NOT published on the host — reachable only
+                          # via docker exec (verification §6.3)
+ping: {}                  # container healthcheck (§1.3)
 
 entryPoints:
   web:
-    address: ":80"        # = servers.proxy_http_port (§27.1) — ":8080" si 8080 configuré
+    address: ":80"        # = servers.proxy_http_port (§27.1) — ":8080" if 8080 configured
   websecure:
-    address: ":443"       # = servers.proxy_https_port — ":8443" si 8443 configuré
-  tcp-15432:              # un entrypoint par TCPRoute active (§2.6)
+    address: ":443"       # = servers.proxy_https_port — ":8443" if 8443 configured
+  tcp-15432:              # one entrypoint per active TCPRoute (§2.6)
     address: ":15432/tcp"
 
 providers:
@@ -357,30 +357,30 @@ providers:
     watch: true
 
 certificatesResolvers:
-  http01:                                  # défaut (§7.1)
+  http01:                                  # default (§7.1)
     acme:
       email: "ops@example.com"
       storage: /acme/acme.json
       httpChallenge:
         entryPoint: web
-  dns01-cloudflare:                        # généré si un certificat le référence (§7.2)
+  dns01-cloudflare:                        # generated if a certificate references it (§7.2)
     acme:
       email: "ops@example.com"
       storage: /acme/acme.json
       dnsChallenge:
-        provider: cloudflare               # provider Lego ; credentials via env (§7.2)
-        resolvers: ["1.1.1.1:53"]          # dns_validation_server de l'instance (§4.2, §14.2 PRD)
+        provider: cloudflare               # Lego provider; credentials via env (§7.2)
+        resolvers: ["1.1.1.1:53"]          # the instance's dns_validation_server (§4.2, PRD §14.2)
 
 log:
   level: INFO
 accessLog: {}
 ```
 
-> HTTP-01 exige que Let's Encrypt atteigne le serveur sur le port **80 public**. Si `proxy_http_port ≠ 80` (proxy amont détenant 80/443, §27.1), l'amont doit relayer `/.well-known/acme-challenge/` vers le port configuré, sinon utiliser DNS-01 — contrainte documentée à la validation du domaine **(défaut proposé)**.
+> HTTP-01 requires that Let's Encrypt reach the server on public port **80**. If `proxy_http_port ≠ 80` (an upstream proxy holding 80/443, §27.1), the upstream must relay `/.well-known/acme-challenge/` to the configured port, or DNS-01 must be used instead — a constraint documented at domain validation **(proposed default)**.
 
-### 5.3 Exemple 1 — application simple en HTTPS
+### 5.3 Example 1 — simple HTTPS application
 
-Application `9f3c2a1e-7b44-4c1d-9e2a-1f0b8c6d5a01`, `app.example.com`, port interne 3000, `force_https = true`, `redirect_direction = both` sans contrepartie déclarable (pas de `www` généré ici pour la concision). Forme **stable** (`finishing`) ; pendant `switching`, seule l'URL du service diffère (`http://172.18.0.7:3000`, IP du candidat — deployment-engine §7.2).
+Application `9f3c2a1e-7b44-4c1d-9e2a-1f0b8c6d5a01`, `app.example.com`, internal port 3000, `force_https = true`, `redirect_direction = both` with no declarable counterpart (no `www` generated here for brevity). **Stable** form (`finishing`); during `switching`, only the service URL differs (`http://172.18.0.7:3000`, candidate IP — deployment-engine §7.2).
 
 ```yaml
 # /var/lib/akerdock/proxy/dynamic/9f3c2a1e-7b44-4c1d-9e2a-1f0b8c6d5a01.yaml
@@ -409,12 +409,12 @@ http:
     9f3c2a1e-7b44-4c1d-9e2a-1f0b8c6d5a01:
       loadBalancer:
         servers:
-          - url: "http://9f3c2a1e-7b44-4c1d-9e2a-1f0b8c6d5a01:3000"   # DNS Docker par nom de container
+          - url: "http://9f3c2a1e-7b44-4c1d-9e2a-1f0b8c6d5a01:3000"   # Docker DNS via container name
 ```
 
-### 5.4 Exemple 2 — multi-domaines, path routing et redirection non-www
+### 5.4 Example 2 — multi-domain, path routing and non-www redirect
 
-Application `b2d15c78-90ab-4cde-8123-456789abcdef` : `shop.example` → port 3000, `shop.example/api` → port 8081 (`domaine:port`), `redirect_direction = non_www`.
+Application `b2d15c78-90ab-4cde-8123-456789abcdef`: `shop.example` → port 3000, `shop.example/api` → port 8081 (`domain:port`), `redirect_direction = non_www`.
 
 ```yaml
 # /var/lib/akerdock/proxy/dynamic/b2d15c78-90ab-4cde-8123-456789abcdef.yaml
@@ -430,7 +430,7 @@ http:
     b2d15c78-90ab-4cde-8123-456789abcdef-r1:
       entryPoints: [websecure]
       rule: Host(`shop.example`) && PathPrefix(`/api`)
-      priority: 1004                                  # segments=1, len=4 → prime sur "/"
+      priority: 1004                                  # segments=1, len=4 → wins over "/"
       service: b2d15c78-90ab-4cde-8123-456789abcdef-api
       tls: { certResolver: http01 }
     b2d15c78-90ab-4cde-8123-456789abcdef-r0-www:      # www.shop.example → shop.example (308)
@@ -440,7 +440,7 @@ http:
       middlewares: [b2d15c78-90ab-4cde-8123-456789abcdef-www-redirect]
       service: noop@internal
       tls: { certResolver: http01 }
-    b2d15c78-90ab-4cde-8123-456789abcdef-r0-web:      # HTTP : redirection HTTPS pour les deux hôtes
+    b2d15c78-90ab-4cde-8123-456789abcdef-r0-web:      # HTTP: HTTPS redirect for both hosts
       entryPoints: [web]
       rule: Host(`shop.example`) || Host(`www.shop.example`)
       priority: 1
@@ -465,9 +465,9 @@ http:
           - url: "http://b2d15c78-90ab-4cde-8123-456789abcdef:8081"
 ```
 
-### 5.5 Exemple 3 — preview protégée (basic auth + noindex + wildcard DNS-01)
+### 5.5 Example 3 — protected preview (basic auth + noindex + DNS-01 wildcard)
 
-Preview PR #123 de l'application ci-dessus, container `b2d15c78-…-pr-123`, FQDN `123.preview.example.com`, certificat wildcard `*.preview.example.com` (resolver `dns01-cloudflare`).
+Preview of PR #123 of the application above, container `b2d15c78-…-pr-123`, FQDN `123.preview.example.com`, wildcard certificate `*.preview.example.com` (resolver `dns01-cloudflare`).
 
 ```yaml
 # /var/lib/akerdock/proxy/dynamic/b2d15c78-90ab-4cde-8123-456789abcdef-pr-123.yaml
@@ -510,9 +510,9 @@ http:
           - url: "http://b2d15c78-90ab-4cde-8123-456789abcdef-pr-123:3000"
 ```
 
-### 5.6 Exemple 4 — route TCP vers une base de données
+### 5.6 Example 4 — TCP route to a database
 
-PostgreSQL `4e7a9b0c-1122-4334-8556-778899aabbcc`, port interne 5432, `public_port = 15432` (`public_access_mode = tcp_proxy`, §6.2 PRD). Prérequis statique : entrypoint `tcp-15432` (§5.2) + port publié sur le container proxy.
+PostgreSQL `4e7a9b0c-1122-4334-8556-778899aabbcc`, internal port 5432, `public_port = 15432` (`public_access_mode = tcp_proxy`, PRD §6.2). Static prerequisite: entrypoint `tcp-15432` (§5.2) + port published on the proxy container.
 
 ```yaml
 # /var/lib/akerdock/proxy/dynamic/4e7a9b0c-1122-4334-8556-778899aabbcc.yaml
@@ -521,7 +521,7 @@ tcp:
   routers:
     4e7a9b0c-1122-4334-8556-778899aabbcc-tcp:
       entryPoints: [tcp-15432]
-      rule: HostSNI(`*`)                 # passthrough TCP brut ; le TLS de la base (§6.3 PRD) traverse tel quel
+      rule: HostSNI(`*`)                 # raw TCP passthrough; the database's TLS (PRD §6.3) passes through as-is
       service: 4e7a9b0c-1122-4334-8556-778899aabbcc-tcp
   services:
     4e7a9b0c-1122-4334-8556-778899aabbcc-tcp:
@@ -530,78 +530,78 @@ tcp:
           - address: "4e7a9b0c-1122-4334-8556-778899aabbcc:5432"
 ```
 
-- Changer la **cible** (autre base, autre port interne) : fichier dynamique seul, à chaud.
-- Changer le **port public** : révision statique + recréation du proxy (§2.6) — la base ne redémarre pas ; l'UI annonce l'interruption de quelques secondes du proxy.
-- `idle_timeout_seconds` : appliqué si le provider le supporte ; Traefik v3 n'a pas de timeout d'inactivité par routeur TCP — la valeur y est sans effet (divergence documentée, testée en fixture comme « non garanti ») ; Caddy (layer4) l'applique. Le timeout par défaut de 3600 s reste porté par l'IR pour les providers capables.
+- Changing the **target** (another database, another internal port): dynamic file only, applied hot.
+- Changing the **public port**: static revision + proxy recreation (§2.6) — the database does not restart; the UI announces the few-second interruption of the proxy.
+- `idle_timeout_seconds`: applied if the provider supports it; Traefik v3 has no per-TCP-router idle timeout — the value has no effect there (documented divergence, tested in fixtures as "not guaranteed"); Caddy (layer4) applies it. The default 3600 s timeout remains carried by the IR for capable providers.
 
-### 5.7 Fichier réservé `00-control-plane.yaml` — FQDN de l'instance
+### 5.7 Reserved file `00-control-plane.yaml` — instance FQDN
 
-Quand le serveur héberge l'instance (`servers.is_localhost`) **et** qu'un FQDN d'instance est configuré (`instance_settings.fqdn`, §14.2 PRD), le bootstrap du proxy converge le fichier réservé `00-control-plane.yaml` : le dashboard est servi derrière le proxy avec certificat automatique (`certResolver: http01`), redirection HTTPS forcée, route unique `Host(<fqdn>) && PathPrefix(/)` vers le control plane.
+When the server hosts the instance (`servers.is_localhost`) **and** an instance FQDN is configured (`instance_settings.fqdn`, PRD §14.2), the proxy bootstrap converges the reserved file `00-control-plane.yaml`: the dashboard is served behind the proxy with an automatic certificate (`certResolver: http01`), forced HTTPS redirect, single route `Host(<fqdn>) && PathPrefix(/)` to the control plane.
 
-- Scope de révision : `00-control-plane` — mêmes mécanismes que les applications (révision checksummée §6.2.4, application atomique §6.2, vérification §6.3, réconciliation de drift §18.3). Le nom est réservé : les scopes applicatifs sont des UUIDs, aucune collision possible.
-- Cible : `http://host.docker.internal:<AKERDOCK_INSTANCE_PORT>` — le container proxy est lancé avec `--add-host=host.docker.internal:host-gateway` (le control plane est un service compose sur un autre réseau Docker, injoignable par nom de container). Le port ciblé est le port **publié sur l'hôte** (`AKERDOCK_INSTANCE_PORT`, défaut `AKERDOCK_PORT` — instance-config §2.1) : sous compose le processus écoute 8080 dans son container, mais c'est le port hôte du mapping que la route doit atteindre.
-- Convergence au bootstrap uniquement (start/validation/recréation du proxy), idempotente : aucune révision n'est créée si le contenu désiré est identique à la dernière révision appliquée. FQDN retiré ou serveur qui n'héberge plus l'instance → retrait du routage (révision vide, §6.5).
-- Retrait du FQDN ou changement de valeur : pris en compte au prochain bootstrap du proxy (redémarrage depuis la page serveur), pas à chaud — le réglage est rare et le redémarrage coûte quelques secondes.
-
----
-
-## 6. Application atomique et vérification
-
-Contrat d'application d'un fichier dynamique — identique que l'appelant soit le worker de déploiement (`switching`/`finishing`, deployment-engine §7.2 étapes 3–4 et 7) ou une mutation de configuration (domaine ajouté, middleware modifié, retrait de routage) :
-
-### 6.1 Validation avant upload
-
-`Validate` s'exécute côté control plane, avant toute mutation distante : schéma du format cible (YAML Traefik / JSON Caddy), unicité `(fqdn, path)` dans l'IR (§3.3), références de middlewares/certificats résolues, ports dans `1..65535`. Une IR invalide ne produit **aucune** révision.
-
-### 6.2 Écriture atomique et checksum
-
-1. Génération déterministe du contenu depuis l'IR ; calcul du **SHA-256**.
-2. `INSERT proxy_config_revisions` (`server_id`, `revision` = n+1, `proxy_type`, `content`, `checksum_sha256`, `status = 'generated'`) — le `content` ne contient jamais de secret (§11.1 data dictionary ; les htpasswd passent par fichiers séparés, §4.1).
-3. Upload SFTP vers `/var/lib/akerdock/proxy/dynamic/.<app_uuid>.yaml.tmp` puis `mv -f` vers `<app_uuid>.yaml` — rename atomique sur le même système de fichiers : Traefik ne voit jamais un fichier partiel.
-4. Réconciliation de dérive (§18.3) : périodiquement et avant chaque bascule, le checksum du fichier distant est comparé à la dernière révision `applied` ; une dérive (édition manuelle) est signalée et corrigée par ré-application **(défaut proposé)**.
-
-### 6.3 Attente de prise en compte et vérification
-
-Conforme deployment-engine §7.2 étape 4 :
-
-1. **API Traefik** : polling toutes les 1 s, max **30 s**, via `docker exec akerdock-proxy wget -qO- http://127.0.0.1:8080/api/http/services` (routes HTTP) et `/api/http/routers`, ou `/api/tcp/routers` + `/api/tcp/services` (routes TCP) — jusqu'à voir le routeur et l'endpoint attendus (URL exacte du service, y compris l'IP du candidat pendant `switching`).
-2. **Requête de fumée** à travers le proxy, depuis le serveur lui-même :
-   `curl -fsS -o /dev/null --max-time 5 --resolve <fqdn>:<proxy_port>:127.0.0.1 http://<fqdn><health_path>` (et variante `https://` avec `-k` si le certificat n'est pas encore émis — le self-signed de fallback répond, §7.4) **(défaut proposé)**.
-   Pour une route TCP : test de connexion `nc -z 127.0.0.1 <listen_port>` **(défaut proposé)**.
-3. Succès → `UPDATE proxy_config_revisions SET status = 'applied', applied_at = now()`.
-
-### 6.4 Rollback du fichier en cas d'échec
-
-Échec de l'étape 6.3 (timeout API ou fumée en échec) :
-
-1. `status = 'failed'` + `error` sur la révision.
-2. Ré-application du contenu de la **dernière révision `applied`** du même périmètre, par le même mécanisme tmp + mv + vérification ; la révision fautive passe à `rolled_back` une fois l'ancienne configuration re-vérifiée.
-3. Dans le contexte d'une bascule de déploiement : c'est la compensation **C2** (deployment-engine §9.1) — le fichier re-pointe l'ancien container, qui n'a jamais cessé de tourner (INV-005) ; une re-tentative locale immédiate est permise avant C2 (deployment-engine §9.2).
-4. Si la ré-application échoue elle-même (proxy down, disque plein) : le serveur passe en anomalie de routage — alerte, entrée « actions prioritaires », réconciliation par job dédié ; jamais de suppression du dernier fichier connu bon.
-
-### 6.5 Retrait de routage
-
-`RemoveApp` : suppression de `<app_uuid>.yaml` (+ `.awake`, htpasswd associés), vérification par l'API que routeurs et services de l'application ont disparu, révision dédiée tracée. Le retrait du routage **précède** toujours l'arrêt du workload (§20.6).
+- Revision scope: `00-control-plane` — same mechanisms as the applications (checksummed revision §6.2.4, atomic apply §6.2, verification §6.3, drift reconciliation §18.3). The name is reserved: application scopes are UUIDs, no collision possible.
+- Target: `http://host.docker.internal:<AKERDOCK_INSTANCE_PORT>` — the proxy container is started with `--add-host=host.docker.internal:host-gateway` (the control plane is a compose service on another Docker network, unreachable by container name). The targeted port is the port **published on the host** (`AKERDOCK_INSTANCE_PORT`, default `AKERDOCK_PORT` — instance-config §2.1): under compose the process listens on 8080 inside its container, but it is the host port of the mapping that the route must reach.
+- Convergence at bootstrap only (proxy start/validation/recreation), idempotent: no revision is created if the desired content is identical to the last applied revision. FQDN removed or server no longer hosting the instance → routing removal (empty revision, §6.5).
+- FQDN removal or value change: taken into account at the next proxy bootstrap (restart from the server page), not hot — the setting is rare and the restart costs a few seconds.
 
 ---
 
-## 7. Certificats
+## 6. Atomic apply and verification
 
-### 7.1 ACME HTTP-01 (défaut)
+Contract for applying a dynamic file — identical whether the caller is the deployment worker (`switching`/`finishing`, deployment-engine §7.2 steps 3–4 and 7) or a configuration mutation (domain added, middleware changed, routing removal):
 
-- Émission et renouvellement automatiques Let's Encrypt (§4.3 PRD) via le resolver `http01` (§5.2). Le renouvellement est géré par le proxy lui-même (Traefik renouvelle à ~30 jours de l'échéance) — aucune action du control plane.
-- Précondition validée à l'ajout du domaine : résolution DNS du FQDN vers le serveur via le DNS de validation de l'instance (`dns_validation_server`, défaut `1.1.1.1`, §4.2 PRD) ; avertissement bloquant sinon **(défaut proposé : avertissement non bloquant, l'utilisateur peut forcer — le DNS peut converger après coup)**.
+### 6.1 Validation before upload
+
+`Validate` runs control-plane-side, before any remote mutation: target format schema (Traefik YAML / Caddy JSON), `(fqdn, path)` uniqueness within the IR (§3.3), resolved middleware/certificate references, ports within `1..65535`. An invalid IR produces **no** revision.
+
+### 6.2 Atomic write and checksum
+
+1. Deterministic generation of the content from the IR; computation of the **SHA-256**.
+2. `INSERT proxy_config_revisions` (`server_id`, `revision` = n+1, `proxy_type`, `content`, `checksum_sha256`, `status = 'generated'`) — the `content` never contains a secret (data dictionary §11.1; the htpasswd files go through separate files, §4.1).
+3. SFTP upload to `/var/lib/akerdock/proxy/dynamic/.<app_uuid>.yaml.tmp` then `mv -f` to `<app_uuid>.yaml` — atomic rename on the same filesystem: Traefik never sees a partial file.
+4. Drift reconciliation (§18.3): periodically and before each switchover, the checksum of the remote file is compared with the last `applied` revision; a drift (manual edit) is reported and corrected by re-apply **(proposed default)**.
+
+### 6.3 Waiting for effect and verification
+
+Consistent with deployment-engine §7.2 step 4:
+
+1. **Traefik API**: polling every 1 s, max **30 s**, via `docker exec akerdock-proxy wget -qO- http://127.0.0.1:8080/api/http/services` (HTTP routes) and `/api/http/routers`, or `/api/tcp/routers` + `/api/tcp/services` (TCP routes) — until the expected router and endpoint are seen (exact service URL, including the candidate IP during `switching`).
+2. **Smoke request** through the proxy, from the server itself:
+   `curl -fsS -o /dev/null --max-time 5 --resolve <fqdn>:<proxy_port>:127.0.0.1 http://<fqdn><health_path>` (and `https://` variant with `-k` if the certificate is not yet issued — the self-signed fallback answers, §7.4) **(proposed default)**.
+   For a TCP route: connection test `nc -z 127.0.0.1 <listen_port>` **(proposed default)**.
+3. Success → `UPDATE proxy_config_revisions SET status = 'applied', applied_at = now()`.
+
+### 6.4 File rollback on failure
+
+Failure of step 6.3 (API timeout or failed smoke request):
+
+1. `status = 'failed'` + `error` on the revision.
+2. Re-application of the content of the **last `applied` revision** of the same scope, through the same tmp + mv + verification mechanism; the faulty revision moves to `rolled_back` once the old configuration is re-verified.
+3. In the context of a deployment switchover: this is compensation **C2** (deployment-engine §9.1) — the file points back to the old container, which never stopped running (INV-005); an immediate local retry is allowed before C2 (deployment-engine §9.2).
+4. If the re-application itself fails (proxy down, disk full): the server enters a routing anomaly — alert, "priority actions" entry, reconciliation by a dedicated job; never a deletion of the last known-good file.
+
+### 6.5 Routing removal
+
+`RemoveApp`: deletion of `<app_uuid>.yaml` (+ `.awake`, associated htpasswd files), verification via the API that the application's routers and services are gone, dedicated traced revision. Routing removal always **precedes** stopping the workload (§20.6).
+
+---
+
+## 7. Certificates
+
+### 7.1 ACME HTTP-01 (default)
+
+- Automatic Let's Encrypt issuance and renewal (PRD §4.3) via the `http01` resolver (§5.2). Renewal is handled by the proxy itself (Traefik renews ~30 days before expiry) — no control plane action.
+- Precondition validated when the domain is added: DNS resolution of the FQDN to the server via the instance's validation DNS (`dns_validation_server`, default `1.1.1.1`, PRD §4.2); blocking warning otherwise **(proposed default: non-blocking warning, the user can force — DNS may converge afterwards)**.
 
 ### 7.2 DNS-01 (wildcard)
 
-- Obligatoire pour tout **certificat** wildcard (§4.3 PRD). Un resolver `dns01-<provider>` par provider DNS utilisé sur le serveur, `provider` = identifiant **Lego** (cloudflare, route53, ovh, hetzner, …).
-- **Un `wildcard_domain` sans credential DNS-01 est accepté** (amendement de spec) : le domaine ne sert alors que de **gabarit de nommage** — chaque hôte attribué sous le wildcard reçoit son **propre certificat individuel via HTTP-01** (§7.1, `certResolver: http01` par routeur). Contreparties assumées, à afficher à l'opérateur : chaque hôte doit être joignable publiquement sur le port HTTP du serveur (l'ACME HTTP-01 l'exige), et les limites d'émission de la CA s'appliquent **par hôte** (~50 certificats/domaine enregistré/semaine chez Let's Encrypt) — un usage intensif des previews peut les épuiser, là où un certificat wildcard n'en consomme qu'un.
-- **Credentials** : stockés dans le secret store (chiffrement enveloppe, §23.2 — table `cloud_credentials`, référencée par `certificates.dns_credential_id`, data dictionary §6.7), référencés par `credentials_ref` dans l'IR ; matérialisés à la génération en `/var/lib/akerdock/proxy/acme.env` (**emplacement normatif**, 0600, SFTP) sous les noms de variables attendus par Lego (ex. `CF_DNS_API_TOKEN=…`), injectés au container proxy par `--env-file` (§1.3). Jamais dans `proxy_config_revisions.content`, jamais dans argv (INV-003/012). Rotation d'un credential = régénération du fichier + recréation du container.
-- Un certificat wildcard est demandé via `tls.domains` sur un routeur qui le référence (exemple §5.5).
+- Required for any wildcard **certificate** (PRD §4.3). One `dns01-<provider>` resolver per DNS provider used on the server, `provider` = **Lego** identifier (cloudflare, route53, ovh, hetzner, …).
+- **A `wildcard_domain` without a DNS-01 credential is accepted** (spec amendment): the domain then only serves as a **naming template** — each host assigned under the wildcard gets its **own individual certificate via HTTP-01** (§7.1, `certResolver: http01` per router). Accepted trade-offs, to be shown to the operator: each host must be publicly reachable on the server's HTTP port (ACME HTTP-01 requires it), and the CA's issuance limits apply **per host** (~50 certificates/registered domain/week at Let's Encrypt) — heavy preview usage can exhaust them, whereas a wildcard certificate consumes only one.
+- **Credentials**: stored in the secret store (envelope encryption, §23.2 — `cloud_credentials` table, referenced by `certificates.dns_credential_id`, data dictionary §6.7), referenced by `credentials_ref` in the IR; materialized at generation time into `/var/lib/akerdock/proxy/acme.env` (**normative location**, 0600, SFTP) under the variable names expected by Lego (e.g. `CF_DNS_API_TOKEN=…`), injected into the proxy container via `--env-file` (§1.3). Never in `proxy_config_revisions.content`, never in argv (INV-003/012). Rotating a credential = regeneration of the file + recreation of the container.
+- A wildcard certificate is requested via `tls.domains` on a router that references it (example §5.5).
 
-### 7.3 Certificats custom
+### 7.3 Custom certificates
 
-- Dépôt (UI/API) des fichiers PEM dans `/var/lib/akerdock/proxy/certs/` (0600 ; la clé privée ne quitte jamais le serveur — pas en base, §11.1 data dictionary), déclarés dans le fichier dynamique réservé :
+- Upload (UI/API) of the PEM files into `/var/lib/akerdock/proxy/certs/` (0600; the private key never leaves the server — not in the database, data dictionary §11.1), declared in the reserved dynamic file:
 
 ```yaml
 # /var/lib/akerdock/proxy/dynamic/00-certificates.yaml
@@ -612,141 +612,141 @@ tls:
       keyFile: /certs/corp.example.com.key
 ```
 
-- Traefik sélectionne le certificat par SNI ; une route dont le `Certificate` est `type: custom` n'a pas de `certResolver` (elle porte `tls: {}` simple). Expiration surveillée par le control plane (lecture du PEM) : alerte à J-30/J-7 **(défaut proposé)**.
+- Traefik selects the certificate by SNI; a route whose `Certificate` is `type: custom` has no `certResolver` (it carries a plain `tls: {}`). Expiry is monitored by the control plane (reading the PEM): alert at D-30/D-7 **(proposed default)**.
 
-### 7.4 Fallback self-signed
+### 7.4 Self-signed fallback
 
-- Comportement contractuel (§4.3 PRD) : tant qu'aucun certificat valide n'est disponible (émission ACME en cours ou en échec), le proxy sert son **certificat par défaut auto-signé** — Traefik le fait nativement — plutôt que de refuser la connexion. Le trafic HTTP et la route restent fonctionnels ; la fixture correspondante (§9) valide « TLS répond toujours, même sans certificat émis ».
+- Contractual behavior (PRD §4.3): as long as no valid certificate is available (ACME issuance in progress or failed), the proxy serves its **default self-signed certificate** — Traefik does so natively — rather than refusing the connection. HTTP traffic and the route remain functional; the corresponding fixture (§9) validates "TLS always answers, even without an issued certificate".
 
-### 7.5 Stockage et alertes
+### 7.5 Storage and alerts
 
-- Stockage ACME : `/var/lib/akerdock/proxy/acme.json` (**emplacement normatif**, 0600), inclus dans le périmètre de backup de l'instance/du serveur (§7.5 PRD) — sa perte n'est pas grave (ré-émission) mais coûte du rate limit Let's Encrypt.
-- **Alerte d'échec d'émission** : le control plane surveille l'émission après application d'une route ACME — présence du certificat dans `acme.json` (ou API Traefik) sous **10 min (défaut proposé)** ; sinon, événement `proxy.certificate_issue_failed.v1` (outbox §24.2) → notification (§11 PRD) avec la cause extraite des logs du proxy (échec de challenge, rate limit, CAA…). Le fallback self-signed (§7.4) reste servi entre-temps.
-- Rate limits Let's Encrypt : l'instance utilise le CA de staging dans les E2E DinD (§27.26) ; `ca_url` est configurable dans l'IR (§2.2).
+- ACME storage: `/var/lib/akerdock/proxy/acme.json` (**normative location**, 0600), included in the instance/server backup scope (PRD §7.5) — losing it is not serious (re-issuance) but costs Let's Encrypt rate limit.
+- **Issuance failure alert**: the control plane monitors issuance after an ACME route is applied — presence of the certificate in `acme.json` (or Traefik API) within **10 min (proposed default)**; otherwise, event `proxy.certificate_issue_failed.v1` (outbox §24.2) → notification (PRD §11) with the cause extracted from the proxy logs (challenge failure, rate limit, CAA…). The self-signed fallback (§7.4) keeps being served in the meantime.
+- Let's Encrypt rate limits: the instance uses the staging CA in the DinD E2E (§27.26); `ca_url` is configurable in the IR (§2.2).
 
-### 7.6 Synchronisation vers la table `certificates`
+### 7.6 Synchronization to the `certificates` table
 
-Le control plane maintient un **reflet observé** de l'état des certificats de chaque serveur dans la table `certificates` (data dictionary §6.7) : après chaque `Apply` touchant une route TLS et lors de la réconciliation périodique (§18.3), le worker lit `acme.json` et les PEM de `certs/` par SFTP (métadonnées uniquement — le matériel de clé privée n'est jamais rapatrié) et met à jour domaines couverts, émetteur, `not_before`/`not_after`, statut (`pending`/`issued`/`renewing`/`failed`/`expired`/`revoked`), dernière erreur et `observed_at`. Ce reflet alimente l'inventaire API (`GET /servers/{uuid}/certificates`, filtre `expiring_within_days`), l'alerte d'expiration à J-30/J-7 (§7.3) et l'alerte d'échec d'émission (§7.5) ; il n'est **jamais** une source de vérité — l'état réel reste `acme.json` et les fichiers du serveur. `POST /certificates/{uuid}/renew` force une ré-émission via un job audité (sauvegarde puis retrait ciblé de l'entrée d'`acme.json`, redémarrage du proxy — cf. runbook certificats), suivie d'une resynchronisation du reflet.
+The control plane maintains an **observed reflection** of each server's certificate state in the `certificates` table (data dictionary §6.7): after every `Apply` touching a TLS route and during the periodic reconciliation (§18.3), the worker reads `acme.json` and the PEMs in `certs/` over SFTP (metadata only — private key material is never brought back) and updates covered domains, issuer, `not_before`/`not_after`, status (`pending`/`issued`/`renewing`/`failed`/`expired`/`revoked`), last error and `observed_at`. This reflection feeds the API inventory (`GET /servers/{uuid}/certificates`, `expiring_within_days` filter), the D-30/D-7 expiry alert (§7.3) and the issuance failure alert (§7.5); it is **never** a source of truth — the real state remains `acme.json` and the server's files. `POST /certificates/{uuid}/renew` forces a re-issuance via an audited job (backup then targeted removal of the `acme.json` entry, proxy restart — cf. certificates runbook), followed by a resynchronization of the reflection.
 
 ---
 
-## 8. Scale-to-zero (DEVRAIT, §20.4.3) — mécanisme proposé
+## 8. Scale-to-zero (SHOULD, §20.4.3) — proposed mechanism
 
-Tout ce chapitre est **(défaut proposé)** : le PRD exige seulement que le proxy DEVRAIT supporter le scale-to-zero (arrêt du container idle, réveil à la première requête), previews d'abord.
+This entire chapter is **(proposed default)**: the PRD only requires that the proxy SHOULD support scale-to-zero (stopping an idle container, waking on the first request), previews first.
 
-> **Verrouillé par [ADR-036](../adr/ADR-036-scale-to-zero-waker.md)** avec deux précisions par rapport aux défauts ci-dessous : (1) le waker est un **mode du binaire unique** (`akerdock waker`, même image — ADR-021), pas un second artefact ; (2) on écarte le **basculement à deux variantes** de §8.2 au profit d'une **variante unique** où le waker reste **en coupure permanente** des ressources STZ (route toujours vers le waker). Le waker voit ainsi tout le trafic et **date la dernière activité** dans un fichier local que le control plane lit par SSH — l'inactivité est mesurée exactement, sans parser d'access logs. Endormir/réveiller se réduit à `docker stop`/`docker start`, sans toucher au fichier dynamique. Le reste du chapitre (§8.1 rôle et confinement du waker, §8.3 limites) tient.
+> **Locked by [ADR-036](../adr/ADR-036-scale-to-zero-waker.md)** with two clarifications relative to the defaults below: (1) the waker is a **mode of the single binary** (`akerdock waker`, same image — ADR-021), not a second artifact; (2) the **two-variant switch** of §8.2 is discarded in favor of a **single variant** where the waker stays **permanently inline** in front of the STZ resources (route always to the waker). The waker thus sees all the traffic and **timestamps the last activity** in a local file that the control plane reads over SSH — inactivity is measured exactly, without parsing access logs. Sleeping/waking boils down to `docker stop`/`docker start`, without touching the dynamic file. The rest of the chapter (§8.1 waker role and confinement, §8.3 limits) stands.
 
-### 8.1 Composant « waker » local au serveur
+### 8.1 Server-local "waker" component
 
-Un helper container `akerdock-waker` (`akerdock.type=helper`, image du projet, épinglée par release) est déployé sur les serveurs où au moins une ressource a `scale_to_zero` activé. Il écoute sur le réseau interne (jamais publié sur l'hôte) et dispose du socket Docker local, limité par son code au démarrage de containers portant `akerdock.managed=true`.
+A helper container `akerdock-waker` (`akerdock.type=helper`, project image, pinned per release) is deployed on the servers where at least one resource has `scale_to_zero` enabled. It listens on the internal network (never published on the host) and has the local Docker socket, restricted by its code to starting containers labeled `akerdock.managed=true`.
 
-Pourquoi pas le control plane : INV-007 (le control plane ne proxyfie pas le trafic applicatif) et architecture push (§18.1 — le serveur ne contacte jamais le control plane). Le réveil fonctionne donc même control plane éteint ; le control plane est informé a posteriori par réconciliation d'état observé (§18.3, §21.2).
+Why not the control plane: INV-007 (the control plane does not proxy application traffic) and push architecture (§18.1 — the server never contacts the control plane). Waking therefore works even with the control plane down; the control plane is informed after the fact through observed-state reconciliation (§18.3, §21.2).
 
-### 8.2 Endormissement et réveil
+### 8.2 Sleep and wake
 
-**Endormissement** (control plane, sur TTL d'inactivité §20.4.3 — mesuré sur les access logs du proxy ou les métriques Sentinel) :
+**Sleep** (control plane, on the inactivity TTL §20.4.3 — measured on the proxy's access logs or the Sentinel metrics):
 
-1. Générer **deux** variantes du fichier dynamique : la variante « sleeping » (service du RouteGroup → `http://akerdock-waker:8080`, en-tête de requête `X-AkerDock-Wake: <app_uuid>` ajouté par middleware) et la variante « awake » normale, déposée en `/var/lib/akerdock/proxy/dynamic/.<app_uuid>.yaml.awake`.
-2. Appliquer la variante sleeping (§6), puis `docker stop` du container. État désiré : `sleeping`.
+1. Generate **two** variants of the dynamic file: the "sleeping" variant (RouteGroup service → `http://akerdock-waker:8080`, request header `X-AkerDock-Wake: <app_uuid>` added by middleware) and the normal "awake" variant, deposited at `/var/lib/akerdock/proxy/dynamic/.<app_uuid>.yaml.awake`.
+2. Apply the sleeping variant (§6), then `docker stop` the container. Desired state: `sleeping`.
 
-**Réveil** (waker, à la première requête) :
+**Wake** (waker, on the first request):
 
-1. Requête entrante → `docker start <app_uuid>` (idempotent) ; état `waking`.
-2. Attente du healthcheck (`healthy`, ou `running` stable 10 s sans healthcheck), timeout **60 s (défaut proposé)**.
-3. `mv -f .<app_uuid>.yaml.awake <app_uuid>.yaml` (bascule atomique, même mécanisme que §6.2 — le waker ne génère rien, il échange des fichiers pré-générés par le control plane).
-4. **Rejeu** : la requête retenue est transmise au container (hold-and-forward) ; les requêtes suivantes empruntent le chemin normal dès la prise en compte du fichier par Traefik. Pour un client navigateur (`Accept: text/html`) le waker PEUT servir une page d'attente auto-rafraîchissante à la place du hold.
+1. Incoming request → `docker start <app_uuid>` (idempotent); state `waking`.
+2. Wait for the healthcheck (`healthy`, or `running` stable for 10 s without healthcheck), timeout **60 s (proposed default)**.
+3. `mv -f .<app_uuid>.yaml.awake <app_uuid>.yaml` (atomic switch, same mechanism as §6.2 — the waker generates nothing, it swaps files pre-generated by the control plane).
+4. **Replay**: the held request is forwarded to the container (hold-and-forward); subsequent requests take the normal path as soon as Traefik picks up the file. For a browser client (`Accept: text/html`) the waker MAY serve an auto-refreshing waiting page instead of the hold.
 
 ```text
-États : sleeping ──(1ʳᵉ requête)──▶ waking ──(healthy + swap fichier)──▶ running
-             ▲                                                             │
-             └───────────────(TTL d'inactivité, control plane)◀────────────┘
+States: sleeping ──(1st request)──▶ waking ──(healthy + file swap)──▶ running
+             ▲                                                          │
+             └──────────────(inactivity TTL, control plane)◀────────────┘
 ```
 
-### 8.3 Limites assumées
+### 8.3 Accepted limits
 
-- **Timeout de réveil** : au-delà de 60 s (cold start long), `504` + page d'erreur explicite ; l'app reste `waking` jusqu'à résolution ou retour en `sleeping` par le control plane.
-- **Corps de requête** : hold-and-forward borné à **1 MiB (défaut proposé)** ; au-delà, `503` + `Retry-After: 5` (le client rejoue).
-- **WebSockets** : un upgrade pendant `waking` est retenu puis proxifié une fois le container sain, dans la limite du timeout ; les WS de longue durée empêchent par ailleurs la détection d'inactivité — une ressource à WS persistants est un mauvais candidat au scale-to-zero (documenté).
-- Le premier octet de réponse subit la latence complète du démarrage ; le scale-to-zero est activé par ressource, previews d'abord, jamais implicitement en production.
+- **Wake timeout**: beyond 60 s (long cold start), `504` + explicit error page; the app stays `waking` until resolution or a return to `sleeping` by the control plane.
+- **Request body**: hold-and-forward capped at **1 MiB (proposed default)**; beyond, `503` + `Retry-After: 5` (the client replays).
+- **WebSockets**: an upgrade during `waking` is held then proxied once the container is healthy, within the timeout limit; long-lived WS moreover prevent inactivity detection — a resource with persistent WS is a poor scale-to-zero candidate (documented).
+- The first response byte incurs the full startup latency; scale-to-zero is enabled per resource, previews first, never implicitly in production.
 
 ---
 
-## 9. Fixtures de conformité
+## 9. Conformance fixtures
 
-Les fixtures (ADR-009, existantes **dès P0**) garantissent que Caddy (P2) reproduira exactement le comportement de Traefik : **mêmes fixtures, deux providers**.
+The fixtures (ADR-009, existing **from P0 onwards**) guarantee that Caddy (P2) will reproduce Traefik's behavior exactly: **same fixtures, two providers**.
 
 ### 9.1 Format
 
 ```text
 tests/proxy-conformance/
-├── cases/<nom_du_cas>/
-│   ├── ir.json                  # IR complète du serveur (entrée unique, ir_version épinglée)
-│   ├── expected/traefik/        # sortie attendue de GenerateStatic + GenerateApp
+├── cases/<case_name>/
+│   ├── ir.json                  # full server IR (single input, pinned ir_version)
+│   ├── expected/traefik/        # expected output of GenerateStatic + GenerateApp
 │   │   ├── traefik.yaml
 │   │   └── dynamic/<app_uuid>.yaml…
-│   ├── expected/caddy/          # renseigné en P2 (absent = cas non encore porté, CI le signale)
-│   └── assertions.yaml          # assertions comportementales HTTP/TCP (§9.2)
-└── harness/                     # backend echo + client d'assertions (DinD, §27.26)
+│   ├── expected/caddy/          # filled in at P2 (absent = case not yet ported, CI flags it)
+│   └── assertions.yaml          # HTTP/TCP behavioral assertions (§9.2)
+└── harness/                     # echo backend + assertion client (DinD, §27.26)
 ```
 
-Deux niveaux de test, tous deux obligatoires pour qu'un provider soit conforme :
+Two test levels, both mandatory for a provider to be conformant:
 
-1. **Golden files** : `Generate*(ir.json)` doit produire octet-à-octet `expected/<provider>/` (déterminisme, base du checksum).
-2. **Assertions comportementales** : le proxy est lancé en Docker-in-Docker (§27.26) avec la config générée et un backend echo (répond ses en-têtes reçus + `X-Backend: <nom>`) ; chaque assertion est une requête réelle. C'est ce niveau qui rend les providers interchangeables : deux configs différentes, un seul comportement.
+1. **Golden files**: `Generate*(ir.json)` must produce `expected/<provider>/` byte-for-byte (determinism, basis of the checksum).
+2. **Behavioral assertions**: the proxy is launched in Docker-in-Docker (§27.26) with the generated config and an echo backend (answers with its received headers + `X-Backend: <name>`); each assertion is a real request. This level is what makes providers interchangeable: two different configs, a single behavior.
 
-### 9.2 Format des assertions
+### 9.2 Assertion format
 
 ```yaml
-# assertions.yaml — cas "multi-domaines + path"
-- name: "path le plus spécifique d'abord"
+# assertions.yaml — "multi-domain + path" case
+- name: "most specific path first"
   request: { method: GET, url: "https://shop.example/api/users", insecure_tls: true }
   expect:  { status: 200, backend: "api-8081" }
-- name: "redirection non-www"
+- name: "non-www redirect"
   request: { method: GET, url: "https://www.shop.example/x?y=1", follow_redirects: false, insecure_tls: true }
   expect:  { status: 308, headers: { Location: "https://shop.example/x?y=1" } }
 - name: "force HTTPS"
   request: { method: GET, url: "http://shop.example/", follow_redirects: false }
   expect:  { status: 308, headers: { Location: "https://shop.example/" } }
-- name: "preview : non authentifié refusé, jamais indexé"
+- name: "preview: unauthenticated refused, never indexed"
   request: { method: GET, url: "https://123.preview.example.com/", insecure_tls: true }
   expect:  { status: 401 }
-- name: "preview : authentifié, X-Robots-Tag présent"
+- name: "preview: authenticated, X-Robots-Tag present"
   request: { method: GET, url: "https://123.preview.example.com/", basic_auth: "preview:s3cret", insecure_tls: true }
   expect:  { status: 200, headers: { X-Robots-Tag: "noindex" }, backend: "pr-123" }
-- name: "TCP base de données"
+- name: "TCP database"
   tcp:     { connect: "127.0.0.1:15432" }
   expect:  { connected: true, backend: "pg-echo" }
 ```
 
-`insecure_tls: true` accepte le self-signed de fallback (les fixtures n'émettent pas de vrais certificats ; un cas dédié utilise Pebble/staging pour le flux ACME complet). Les URLs utilisent les ports du cas (`http_port`/`https_port` de l'IR) — le cas « ports non standard 8080/8443 » fait partie du jeu minimal.
+`insecure_tls: true` accepts the self-signed fallback (the fixtures do not issue real certificates; a dedicated case uses Pebble/staging for the full ACME flow). URLs use the case's ports (`http_port`/`https_port` of the IR) — the "non-standard ports 8080/8443" case is part of the minimal set.
 
-### 9.3 Jeu de cas minimal (P0)
+### 9.3 Minimal case set (P0)
 
-app simple HTTP ; app HTTPS force ; multi-domaines + paths + `domaine:port` ; redirections www/non-www (3 directions) ; preview protégée (auth + noindex) ; wildcard matérialisé `<uuid>.domaine` ; middlewares (rate limit 429, ip_whitelist 403 avant auth — ordre §4.7) ; certificat custom ; fallback self-signed ; TCP base ; ports proxy 8080/8443 ; bascule (deux `ir.json` séquentiels : IP transitoire puis nom stable — vérifie qu'aucune requête n'échoue pendant le swap) ; retrait de routage (404 après `RemoveApp`).
+simple HTTP app; forced-HTTPS app; multi-domain + paths + `domain:port`; www/non-www redirects (3 directions); protected preview (auth + noindex); materialized `<uuid>.domain` wildcard; middlewares (rate limit 429, ip_whitelist 403 before auth — §4.7 order); custom certificate; self-signed fallback; TCP database; proxy ports 8080/8443; switchover (two sequential `ir.json`: transient IP then stable name — verifies that no request fails during the swap); routing removal (404 after `RemoveApp`).
 
 ---
 
-## 10. Mapping Caddy (P2, esquisse)
+## 10. Caddy mapping (P2, sketch)
 
-Objectif : démontrer que l'IR est suffisante — pas une spécification complète (elle accompagnera la livraison P2, validée par les fixtures §9).
+Goal: demonstrate that the IR is sufficient — not a complete specification (it will accompany the P2 delivery, validated by the §9 fixtures).
 
-| Élément IR | Traefik | Caddy |
+| IR element | Traefik | Caddy |
 |---|---|---|
-| Route `(fqdn, path)` | router `Host && PathPrefix` + priority | bloc de site `fqdn` + matcher `path /api/*` ; l'ordre des matchers est **émis trié** par la priorité §3.1 (Caddy évalue dans l'ordre de la config JSON) |
-| Service (endpoint IP ou nom) | `loadBalancer.servers[].url` | `reverse_proxy <endpoint>:<port>` |
-| force HTTPS | routeur web + `redirectScheme` | natif (auto-HTTPS redirect) ; désactivé par site si `https.enabled: false` (`auto_https off` ciblé) |
-| Redirection www | `redirectRegex` | `redir` dans un site dédié à la contrepartie |
+| `(fqdn, path)` route | `Host && PathPrefix` router + priority | site block `fqdn` + matcher `path /api/*`; the matcher order is **emitted sorted** by the §3.1 priority (Caddy evaluates in JSON config order) |
+| Service (IP or name endpoint) | `loadBalancer.servers[].url` | `reverse_proxy <endpoint>:<port>` |
+| force HTTPS | web router + `redirectScheme` | native (auto-HTTPS redirect); disabled per site if `https.enabled: false` (targeted `auto_https off`) |
+| www redirect | `redirectRegex` | `redir` in a site dedicated to the counterpart |
 | basic_auth | `basicAuth.usersFile` | `basic_auth` (bcrypt) |
-| rate_limit | `rateLimit` | module `rate_limit` (extension embarquée dans l'image Caddy AkerDock) |
-| ip_whitelist | `ipAllowList` | matcher `remote_ip` + `abort`/`respond 403` |
+| rate_limit | `rateLimit` | `rate_limit` module (extension embedded in the AkerDock Caddy image) |
+| ip_whitelist | `ipAllowList` | `remote_ip` matcher + `abort`/`respond 403` |
 | custom_headers / compression | `headers` / `compress` | `header` / `encode gzip br` |
-| ACME HTTP-01 / DNS-01 | certResolvers | natif / modules DNS Caddy (credentials via env, même fichier `acme.env`) |
-| Certificat custom | `tls.certificates` | `tls /certs/x.pem /certs/x.key` |
-| Fallback self-signed | certificat par défaut Traefik | `tls internal` en fallback |
-| Route TCP | routeur TCP + entrypoint | module `layer4` (image AkerDock) — supporte `idle_timeout` (§5.6) |
-| Ports 80/443 configurables | adresses d'entrypoints | `http_port` / `https_port` globaux |
+| ACME HTTP-01 / DNS-01 | certResolvers | native / Caddy DNS modules (credentials via env, same `acme.env` file) |
+| Custom certificate | `tls.certificates` | `tls /certs/x.pem /certs/x.key` |
+| Self-signed fallback | Traefik default certificate | `tls internal` as fallback |
+| TCP route | TCP router + entrypoint | `layer4` module (AkerDock image) — supports `idle_timeout` (§5.6) |
+| Configurable 80/443 ports | entrypoint addresses | global `http_port` / `https_port` |
 
-Esquisse pour l'exemple §5.3 (Caddyfile ; la génération réelle émettra du JSON Caddy, plus déterministe) :
+Sketch for the §5.3 example (Caddyfile; the real generation will emit Caddy JSON, more deterministic):
 
 ```caddyfile
 {
@@ -759,13 +759,13 @@ app.example.com {
 }
 ```
 
-Différence opérationnelle assumée : Caddy ne surveille pas un répertoire de fichiers — l'application atomique (§6) passe par son **admin API** locale (`POST /load`, transactionnel, rollback natif en cas de config invalide), appelée via `docker exec` comme l'API Traefik ; le contrat §6 (génération → checksum → apply → verify → rollback, un périmètre par application) est inchangé, seul le transport d'application diffère. Les fichiers par application restent la matérialisation sur disque (assemblés avant `POST /load`), conservant le diagnostic et la réconciliation par checksum.
+Accepted operational difference: Caddy does not watch a directory of files — the atomic apply (§6) goes through its local **admin API** (`POST /load`, transactional, native rollback on invalid config), called via `docker exec` like the Traefik API; the §6 contract (generate → checksum → apply → verify → rollback, one scope per application) is unchanged, only the apply transport differs. The per-application files remain the on-disk materialization (assembled before `POST /load`), preserving diagnostics and checksum reconciliation.
 
 ---
 
-## 11. Traçabilité PRD
+## 11. PRD traceability
 
-| Section de cette spec | Sections PRD / specs |
+| Section of this spec | PRD sections / specs |
 |---|---|
 | 1 | §4.1, §16.1(5), §18.1, §20.1, §20.6, §27.1, ADR-001, deployment-engine §1.2 |
 | 2 | §4.2–4.3, §6.2, §18.3, §27.9/ADR-009, data dictionary §8.3–8.4, §9.1 (`databases`), deployment-engine §6.1, §7.2 |

@@ -1,37 +1,37 @@
-# Runbook — Panne de la base PostgreSQL interne
+# Runbook — Internal PostgreSQL database failure
 
-> Références : PRD §7.5, §16.4 (RPO ≤ 24 h, RTO ≤ 2 h), §22.1, INV-007, INV-013 ; spec deployment-engine §2.3–2.5 (leases, reprise par inspection) ; data dictionary §9.5–9.6 (`database_backup_plans`, `backup_executions`), §11.8 (`jobs`).
+> References: PRD §7.5, §16.4 (RPO ≤ 24 h, RTO ≤ 2 h), §22.1, INV-007, INV-013; deployment-engine spec §2.3–2.5 (leases, resume by inspection); data dictionary §9.5–9.6 (`database_backup_plans`, `backup_executions`), §11.8 (`jobs`).
 
-## Symptômes
+## Symptoms
 
-- UI/API en erreur 5xx ; `GET /api/v1/health` échoue ou signale la base injoignable.
-- `docker compose ps` : service `postgres` `Exited`/`Restarting`, ou `AkerDock` en crash-loop avec erreurs de connexion dans les logs.
-- Notifications arrêtées, déploiements figés, webhooks non traités.
-- **Les applications déployées continuent de servir le trafic** : le control plane n'est pas dans le chemin des requêtes (INV-007). Si les apps sont aussi down, ce n'est pas (que) ce runbook.
+- UI/API returning 5xx errors; `GET /api/v1/health` fails or reports the database unreachable.
+- `docker compose ps`: `postgres` service `Exited`/`Restarting`, or `AkerDock` crash-looping with connection errors in the logs.
+- Notifications stopped, deployments frozen, webhooks unprocessed.
+- **Deployed applications keep serving traffic**: the control plane is not in the request path (INV-007). If the apps are also down, this is not (only) this runbook.
 
 ## Impact
 
-- Aucune action de pilotage possible (deploy, rollback, terminal) tant que la base est down.
-- Les jobs `leased`/`running` s'interrompent ; ils seront repris automatiquement (INV-013).
-- En cas de restore : **perte de tout ce qui suit le backup** (RPO ≤ 24 h avec backup quotidien, §16.4).
+- No control action possible (deploy, rollback, terminal) while the database is down.
+- `leased`/`running` jobs are interrupted; they will be resumed automatically (INV-013).
+- In case of restore: **loss of everything after the backup** (RPO ≤ 24 h with a daily backup, §16.4).
 
-## Diagnostic
+## Diagnosis
 
 ```sh
 cd /var/lib/akerdock
 docker compose ps
 docker compose logs --tail 200 postgres
 docker compose exec postgres pg_isready -U AkerDock || echo "PG DOWN"
-df -h /var/lib/akerdock                          # disque plein = cause n°1
-docker compose exec postgres psql -U AkerDock AkerDock -c "SELECT 1;"   # si PG répond
+df -h /var/lib/akerdock                          # full disk = cause #1
+docker compose exec postgres psql -U AkerDock AkerDock -c "SELECT 1;"   # if PG responds
 ```
 
-Classifier :
+Classify:
 
-1. **Transitoire** (OOM kill, disque plein, redémarrage machine) → résolution A.
-2. **Corruption / perte de données** (`invalid page`, `could not read block`, volume perdu) → résolution B (restore).
+1. **Transient** (OOM kill, full disk, machine restart) → resolution A.
+2. **Corruption / data loss** (`invalid page`, `could not read block`, lost volume) → resolution B (restore).
 
-Localiser le dernier backup exploitable — si la base répond encore partiellement :
+Locate the last usable backup — if the database still responds partially:
 
 ```sql
 SELECT be.uuid, be.status, be.filename, be.size_bytes, be.checksum_sha256,
@@ -42,45 +42,45 @@ WHERE p.is_instance_backup AND be.status IN ('succeeded','partial')
 ORDER BY be.finished_at DESC LIMIT 5;
 ```
 
-Sinon : fichiers locaux `/var/lib/akerdock/backups/…` (§7.2) et/ou bucket S3 du plan (`aws s3 ls s3://<bucket>/<prefix>/ --endpoint-url <endpoint>`).
+Otherwise: local files `/var/lib/akerdock/backups/…` (§7.2) and/or the plan's S3 bucket (`aws s3 ls s3://<bucket>/<prefix>/ --endpoint-url <endpoint>`).
 
-## Résolution pas à pas
+## Step-by-step resolution
 
-### A. Panne transitoire
+### A. Transient failure
 
-1. Libérer la cause (disque : purger `backups/` anciens, logs Docker `docker system df` ; RAM : vérifier l'OOM killer `dmesg | grep -i oom`).
-2. `docker compose up -d` puis surveiller `docker compose logs -f postgres` (recovery WAL automatique au démarrage).
-3. Passer directement à **Vérification** — pas de restore si la recovery aboutit.
+1. Clear the cause (disk: purge old `backups/`, Docker logs `docker system df`; RAM: check the OOM killer `dmesg | grep -i oom`).
+2. `docker compose up -d` then watch `docker compose logs -f postgres` (automatic WAL recovery on startup).
+3. Go directly to **Verification** — no restore if the recovery succeeds.
 
-### B. Restore depuis backup
+### B. Restore from backup
 
-1. **Arrêter le control plane**, conserver l'état corrompu :
+1. **Stop the control plane**, keep the corrupted state:
    ```sh
    docker compose stop AkerDock
    docker compose stop postgres
-   mv postgres postgres.corrupted-$(date -u +%Y%m%d)    # ne PAS supprimer (forensic/récupération partielle)
+   mv postgres postgres.corrupted-$(date -u +%Y%m%d)    # do NOT delete (forensics/partial recovery)
    mkdir postgres
    ```
-2. Récupérer le dump (local ou S3) et **vérifier son intégrité** :
+2. Retrieve the dump (local or S3) and **verify its integrity**:
    ```sh
-   sha256sum backups/akerdock-instance-….dump    # comparer à backup_executions.checksum_sha256 si connue
+   sha256sum backups/akerdock-instance-….dump    # compare against backup_executions.checksum_sha256 if known
    ```
-3. Redémarrer PostgreSQL seul, restaurer :
+3. Restart PostgreSQL alone, restore:
    ```sh
    docker compose up -d postgres
-   # attendre pg_isready, puis :
+   # wait for pg_isready, then:
    docker compose exec -T postgres pg_restore -U AkerDock -d AkerDock --no-owner --exit-on-error \
      < backups/akerdock-instance-….dump
    ```
-   ⚠️ **Point de non-retour** : restaurer dans une base **vide** uniquement. Un restore vers une base non vide exige la confirmation renforcée prévue au §20.5 — en manuel, ne le faites simplement pas.
-4. Vérifier que la **clé maître courante** correspond aux données restaurées : si une rotation a eu lieu **après** le backup, le fichier `master.key` doit encore contenir l'ancienne version de clé (voir [key-rotation.md](key-rotation.md) — c'est pour cela qu'on ne supprime jamais une version trop tôt).
-5. Redémarrer le control plane : `docker compose up -d AkerDock`.
+   ⚠️ **Point of no return**: restore into an **empty** database only. A restore into a non-empty database requires the reinforced confirmation defined in §20.5 — when operating manually, simply do not do it.
+4. Verify that the **current master key** matches the restored data: if a rotation happened **after** the backup, the `master.key` file must still contain the old key version (see [key-rotation.md](key-rotation.md) — this is why a version is never deleted too early).
+5. Restart the control plane: `docker compose up -d AkerDock`.
 
-### C. Reprise des jobs après restore (INV-013, spec §2.3/§2.5)
+### C. Job recovery after restore (INV-013, spec §2.3/§2.5)
 
-Rien à forcer : le **scan des leases expirés** (toutes les 30 s) remet en `queued` les jobs `leased`/`running` dont la lease est morte, avec marqueur `recovered = true`. Chaque job de déploiement récupéré commence par une **inspection distante** (image labellisée `akerdock.deployment_uuid`, containers `<uuid>-next`/`<uuid>`, checksum du fichier proxy) avant de reprendre, compenser ou terminer — **ne jamais rejouer manuellement à l'aveugle** (§22.1).
+Nothing to force: the **expired-lease scan** (every 30 s) puts `leased`/`running` jobs whose lease is dead back to `queued`, with the `recovered = true` marker. Each recovered deployment job starts with a **remote inspection** (image labeled `akerdock.deployment_uuid`, `<uuid>-next`/`<uuid>` containers, proxy file checksum) before resuming, compensating or finishing — **never replay manually blind** (§22.1).
 
-Surveiller la reprise :
+Monitor the recovery:
 
 ```sql
 SELECT queue, status, count(*) FROM jobs GROUP BY 1,2 ORDER BY 1,2;
@@ -89,33 +89,33 @@ WHERE status NOT IN ('succeeded','failed','cancelled','superseded')
 ORDER BY updated_at;
 ```
 
-Les déploiements non repris proprement finissent en `failed`/`dead_letter` → [queue-dead-letter.md](queue-dead-letter.md) et [orphaned-deployment.md](orphaned-deployment.md).
+Deployments not resumed cleanly end up in `failed`/`dead_letter` → [queue-dead-letter.md](queue-dead-letter.md) and [orphaned-deployment.md](orphaned-deployment.md).
 
-### D. Réconciliation control plane ↔ serveurs (fenêtre RPO)
+### D. Control plane ↔ servers reconciliation (RPO window)
 
-Tout ce qui s'est passé **entre le backup et la panne** est absent de la base. Conséquences à traiter :
+Everything that happened **between the backup and the failure** is absent from the database. Consequences to handle:
 
-1. **Statuts observés périmés** : la réconciliation converge seule ; l'UI affiche « inconnu/stale » plutôt qu'un faux `running` (§19.2) — attendre un cycle avant de conclure.
-2. **Déploiements réussis après le backup** : la base croit qu'une version plus ancienne tourne. Inventorier la réalité sur chaque serveur :
+1. **Stale observed statuses**: reconciliation converges on its own; the UI shows "unknown/stale" rather than a false `running` (§19.2) — wait one cycle before concluding.
+2. **Deployments that succeeded after the backup**: the database believes an older version is running. Inventory reality on each server:
    ```sh
-   ssh <user>@<serveur> "docker ps --filter label=akerdock.managed=true \
+   ssh <user>@<server> "docker ps --filter label=akerdock.managed=true \
      --format '{{.Names}}\t{{.Label \"akerdock.deployment_uuid\"}}\t{{.Label \"akerdock.commit_sha\"}}'"
    ```
-   Croiser avec `deployments.uuid` en base ; un `deployment_uuid` inconnu = déploiement perdu dans la fenêtre RPO. **Ne pas « corriger » en arrêtant le container** : re-déclencher un déploiement normal de la ressource pour réaligner base et réalité (le snapshot/SHA courant reprend la main).
-3. **Livraisons webhook perdues** : la déduplication `(provider, delivery_id)` a perdu sa mémoire ; les pushes survenus pendant la panne n'ont déclenché personne. Redéployer manuellement les applications à auto-deploy dont le repo a bougé (`POST /applications/{uuid}/deploy`).
-4. **Objets créés après le backup** (tokens, clés, ressources) : à re-créer ; les tokens API recréés changent de valeur.
+   Cross-check against `deployments.uuid` in the database; an unknown `deployment_uuid` = a deployment lost in the RPO window. **Do not "fix" it by stopping the container**: re-trigger a normal deployment of the resource to realign database and reality (the current snapshot/SHA takes over).
+3. **Lost webhook deliveries**: the `(provider, delivery_id)` deduplication lost its memory; pushes that occurred during the outage triggered nothing. Manually redeploy the auto-deploy applications whose repo moved (`POST /applications/{uuid}/deploy`).
+4. **Objects created after the backup** (tokens, keys, resources): to be re-created; re-created API tokens change value.
 
-## Vérification
+## Verification
 
-- `curl -fsS http://localhost:8080/api/v1/health` → 200 ; login UI OK.
-- Queue vivante : jobs récents `succeeded` ; plus de `leased` avec `lease_expires_at < now()`.
-- Un déploiement de test de bout en bout réussit.
-- Dashboard : serveurs `ready`, statuts observés rafraîchis (`observed_at` récents), pas d'alerte « actions prioritaires » inexpliquée.
-- Relancer immédiatement un « Backup Now » du plan d'instance et vérifier `succeeded`.
+- `curl -fsS http://localhost:8080/api/v1/health` → 200; UI login OK.
+- Queue alive: recent jobs `succeeded`; no more `leased` with `lease_expires_at < now()`.
+- An end-to-end test deployment succeeds.
+- Dashboard: servers `ready`, observed statuses refreshed (recent `observed_at`), no unexplained "priority actions" alert.
+- Immediately relaunch a "Backup Now" of the instance plan and verify `succeeded`.
 
-## Prévention
+## Prevention
 
-- Plan de backup d'instance **quotidien minimum** avec destination **S3** et vérification d'upload (§7.2, §7.5) ; le statut `partial` (succès local, échec S3) est une alerte à traiter, pas un succès (§20.5).
-- **Restore drills** automatiques (§20.5, §22.3) : un backup jamais restauré n'est pas fiable.
-- Alerte disque sur l'hôte de l'instance (cause n°1 de panne PG) ; dimensionner `/var/lib/akerdock`.
-- Rétention des backups locaux ≠ 0 même avec S3 (restore plus rapide) ; RTO documenté ≤ 2 h (§16.4) — chronométrer le drill.
+- Instance backup plan **at least daily** with an **S3** destination and upload verification (§7.2, §7.5); the `partial` status (local success, S3 failure) is an alert to handle, not a success (§20.5).
+- Automatic **restore drills** (§20.5, §22.3): a backup that has never been restored is not reliable.
+- Disk alert on the instance host (cause #1 of PG failure); size `/var/lib/akerdock`.
+- Local backup retention ≠ 0 even with S3 (faster restore); documented RTO ≤ 2 h (§16.4) — time the drill.

@@ -1,7 +1,7 @@
 # Contributing to AkerDock
 
 This document defines the engineering conventions for the project. The product
-design lives in `docs/` (in French): the [PRD](docs/PRD.md) is the
+design lives in `docs/`: the [PRD](docs/PRD.md) is the
 functional reference, the [ADRs](docs/adr/README.md) are binding architecture
 decisions, and `docs/specs/` holds the technical specifications.
 
@@ -9,7 +9,7 @@ decisions, and `docs/specs/` holds the technical specifications.
 
 - **Code, comments, error messages, commit messages, and this kind of
   contributor documentation: English.**
-- Design documents under `docs/` (PRD, ADRs, specs, runbooks): French.
+- Design documents under `docs/` (PRD, ADRs, specs, runbooks): English.
 - UI strings: English via i18n keys, never hardcoded (PRD §25.2).
 
 ## Repository layout
