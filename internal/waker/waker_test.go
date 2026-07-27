@@ -616,6 +616,53 @@ func TestAwakeButUnhealthyForwardsImmediately(t *testing.T) {
 	}
 }
 
+func TestWaitingPageStaysWhileWakeInProgress(t *testing.T) {
+	// The graph wake starts every container within seconds, so everything is
+	// Running long before it is ready. A navigation arriving mid-wake must
+	// keep getting the waiting page — immediately, without queuing on the
+	// wake gate — so the user sees the starting→ready progression instead of
+	// a tab stuck loading.
+	d := newFakeDocker()
+	d.health["c1"] = "starting" // wake stays in flight until its budget
+	w, hits, closeFn := newTestWaker(t, d, &fakeActivity{})
+	defer closeFn()
+
+	rr := httptest.NewRecorder()
+	w.ServeHTTP(rr, browserRequest("app.example.com", "/"))
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("first navigation: status = %d, want the waiting page", rr.Code)
+	}
+
+	// Wait until the background wake has started both containers: they are
+	// all Running, yet the wake is still in flight (c1 never ready).
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		d.mu.Lock()
+		allRunning := d.running["c1"] && d.running["c2"]
+		d.mu.Unlock()
+		if allRunning {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("background wake never started the containers")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	start := time.Now()
+	rr = httptest.NewRecorder()
+	w.ServeHTTP(rr, browserRequest("app.example.com", "/"))
+	if rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Body.String(), "Waking up") {
+		t.Fatalf("mid-wake navigation: status=%d body=%q, want the waiting page", rr.Code, rr.Body.String())
+	}
+	if elapsed := time.Since(start); elapsed > w.WakeTimeout/2 {
+		t.Fatalf("mid-wake navigation held %s — must answer immediately, never queue on the gate", elapsed)
+	}
+	if *hits != 0 {
+		t.Fatal("nothing must reach the backend while the wake is in flight")
+	}
+}
+
 func TestPostWithHTMLAcceptKeepsHoldAndForward(t *testing.T) {
 	// A form submission must never be answered with a waiting page its body
 	// cannot survive: non-GET requests keep the hold-and-forward path.

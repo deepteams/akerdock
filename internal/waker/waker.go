@@ -237,9 +237,15 @@ func (w *Waker) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	// A browser navigation on a sleeping resource gets the waiting page (§8.2)
 	// instead of a connection held through the whole cold start: the wake runs
 	// in the background and the page auto-refreshes with each container's
-	// state until the stack answers for itself. Only safe navigations qualify —
-	// holding stays correct for API clients and for bodies a page cannot replay.
-	if isBrowserNavigation(req) && !w.isRunning(req.Context(), route.ResourceUUID) {
+	// state until the stack answers for itself. The page also stays up while
+	// a background wake is still in flight even once every container is
+	// running — otherwise the graph wake starts everything within seconds and
+	// the refresh would hand off (or queue on the wake gate) before the user
+	// ever sees the starting→ready progression. Only safe navigations
+	// qualify — holding stays correct for API clients and for bodies a page
+	// cannot replay.
+	if isBrowserNavigation(req) &&
+		(w.wakingNow(route.ResourceUUID) || !w.isRunning(req.Context(), route.ResourceUUID)) {
 		w.serveWaitingPage(rw, req, route)
 		return
 	}
@@ -275,6 +281,14 @@ func (w *Waker) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 // failed wake and starts a new attempt. Stripped before proxying so the app
 // never sees it.
 const retryParam = "akd_wake_retry"
+
+// wakingNow reports whether a background wake for uuid is in flight.
+func (w *Waker) wakingNow(uuid string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	ws := w.wakes[uuid]
+	return ws != nil && ws.waking
+}
 
 // isBrowserNavigation reports whether the request is a page navigation a human
 // is watching: a safe method with an HTML Accept. Anything else — API calls,
