@@ -677,6 +677,13 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 		r.skipStep(ctx, "push", "built on the deployment server (no registry push needed)")
 	}
 
+	// The image is built: reclaim the source checkouts beyond the current +
+	// previous (deployment-engine §5.1). Nothing else removes them, so a busy
+	// app would otherwise fill the disk with hundreds of full clones.
+	if !r.d.IsRollback {
+		r.pruneOldSources(ctx, appDir)
+	}
+
 	// --- starting ---------------------------------------------------------
 	if err := r.checkpoint(ctx); err != nil {
 		return err
@@ -1636,6 +1643,21 @@ func (r *deploymentRun) recordArtifact(ctx context.Context) {
 	}); err != nil {
 		r.h.Logger.Warn("could not record rollback artifact", "error", err)
 	}
+}
+
+// pruneOldSources keeps the current and previous source checkout of this app on
+// the build machine and reclaims older ones (deployment-engine §5.1): every
+// build clones into source/<deployment-uuid> and nothing else removes them, so
+// a busy application would otherwise fill the disk with hundreds of full
+// checkouts. Best-effort — a leftover clone never fails a deployment. `ls -1dt`
+// lists newest-first; the two most recent (this build + the last) are kept.
+func (r *deploymentRun) pruneOldSources(ctx context.Context, appDir string) {
+	bc := r.bc()
+	if bc == nil {
+		return
+	}
+	_, _ = bc.Run(ctx, fmt.Sprintf(
+		"ls -1dt %s/source/*/ 2>/dev/null | tail -n +3 | xargs -r rm -rf", appDir))
 }
 
 // prunableImage is one rollback artifact considered for reclamation.

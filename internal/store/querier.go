@@ -515,7 +515,9 @@ type Querier interface {
 	ListDatabaseCredentialsToRotate(ctx context.Context, arg ListDatabaseCredentialsToRotateParams) ([]ListDatabaseCredentialsToRotateRow, error)
 	ListDatabasesPage(ctx context.Context, arg ListDatabasesPageParams) ([]ListDatabasesPageRow, error)
 	ListDeploymentSteps(ctx context.Context, deploymentID int64) ([]DeploymentStep, error)
-	ListDeploymentsForResource(ctx context.Context, arg ListDeploymentsForResourceParams) ([]Deployment, error)
+	// The preview's PR number (NULL for a production deployment) rides along so the
+	// UI can say "preview #N" instead of a bare "preview".
+	ListDeploymentsForResource(ctx context.Context, arg ListDeploymentsForResourceParams) ([]ListDeploymentsForResourceRow, error)
 	// --- deferred digest (ADR-019 §4) --------------------------------------------
 	// Digest rules whose window has elapsed and that have something to say. A rule
 	// with nothing pending is not woken up: an empty digest is noise.

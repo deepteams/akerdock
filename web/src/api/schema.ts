@@ -5212,6 +5212,8 @@ export interface components {
              * @enum {string}
              */
             readonly trigger: "manual" | "api" | "webhook" | "preview" | "schedule" | "config_apply" | "cli_local";
+            /** @description Numéro de la PR/MR quand ce déploiement est celui d'une preview (`trigger = preview`) ; `null` sinon. Permet d'afficher « preview */
+            readonly pr_id?: number | null;
             /** @default false */
             readonly is_rollback: boolean;
             /** @default false */

@@ -603,11 +603,11 @@ func (a *API) ListServiceDeployments(w http.ResponseWriter, r *http.Request, ser
 		a.internalError(w, r, "list deployments", err)
 		return
 	}
-	rows, cursor := nextCursor(rows, limit, func(d store.Deployment) int64 { return d.ID })
+	rows, cursor := nextCursor(rows, limit, func(d store.ListDeploymentsForResourceRow) int64 { return d.Deployment.ID })
 	stackUUID := uuidString(row.Resource.Uuid)
 	data := make([]api.Deployment, 0, len(rows))
 	for _, d := range rows {
-		data = append(data, deploymentToAPI(d, stackUUID))
+		data = append(data, deploymentToAPI(d.Deployment, stackUUID, d.PrID))
 	}
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": data, "next_cursor": cursor})
 }

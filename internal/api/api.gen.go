@@ -3134,7 +3134,10 @@ type Deployment struct {
 	IsRollback  *bool   `json:"is_rollback,omitempty"`
 
 	// LogsUrl URL des logs de build (relative à /api/v1).
-	LogsUrl   *string    `json:"logs_url,omitempty"`
+	LogsUrl *string `json:"logs_url,omitempty"`
+
+	// PrId Numéro de la PR/MR quand ce déploiement est celui d'une preview (`trigger = preview`) ; `null` sinon. Permet d'afficher « preview
+	PrId      *int       `json:"pr_id,omitempty"`
 	QueuedAt  *time.Time `json:"queued_at,omitempty"`
 	StartedAt *time.Time `json:"started_at,omitempty"`
 

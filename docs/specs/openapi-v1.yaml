@@ -11758,6 +11758,11 @@ components:
           enum: [manual, api, webhook, preview, schedule, config_apply, cli_local]
           description: Origine du déclenchement (vocabulaire aligné sur l'enum `deployment_trigger` du data dictionary). Un rollback est signalé par `is_rollback`, pas par le trigger.
           readOnly: true
+        pr_id:
+          type: integer
+          nullable: true
+          readOnly: true
+          description: Numéro de la PR/MR quand ce déploiement est celui d'une preview (`trigger = preview`) ; `null` sinon. Permet d'afficher « preview #N » au lieu d'un simple « preview ».
         is_rollback:
           type: boolean
           default: false

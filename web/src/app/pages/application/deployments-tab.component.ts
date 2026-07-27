@@ -78,7 +78,7 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
                   }
                 </td>
                 <td><akd-status-badge domain="deployment" [state]="d.status" /></td>
-                <td class="akd-muted">{{ d.trigger }}{{ d.is_rollback ? ' · rollback' : '' }}</td>
+                <td class="akd-muted">{{ d.trigger }}{{ d.pr_id ? ' #' + d.pr_id : '' }}{{ d.is_rollback ? ' · rollback' : '' }}</td>
                 <td>
                   <span class="akd-mono akd-muted">{{ duration(d) }}</span>
                 </td>

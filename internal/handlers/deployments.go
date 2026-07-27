@@ -11,9 +11,9 @@ import (
 	"github.com/deepteams/akerdock/internal/store"
 )
 
-func deploymentToAPI(d store.Deployment, applicationUUID string) api.Deployment {
+func deploymentToAPI(d store.Deployment, applicationUUID string, prID *int32) api.Deployment {
 	u := uuidString(d.Uuid)
-	return api.Deployment{
+	dep := api.Deployment{
 		Uuid:            ptr(u),
 		ApplicationUuid: ptr(applicationUUID),
 		Status:          api.DeploymentStatus(d.Status),
@@ -30,6 +30,10 @@ func deploymentToAPI(d store.Deployment, applicationUUID string) api.Deployment 
 		FinishedAt:      timePtr(d.FinishedAt),
 		CreatedAt:       timePtr(d.CreatedAt),
 	}
+	if prID != nil {
+		dep.PrId = ptr(int(*prID))
+	}
+	return dep
 }
 
 // GetDeployment implements GET /deployments/{deployment_uuid} (permission:
@@ -49,7 +53,7 @@ func (a *API) GetDeployment(w http.ResponseWriter, r *http.Request, deploymentUu
 		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "deployment not found")
 		return
 	}
-	httpapi.WriteJSON(w, http.StatusOK, deploymentToAPI(row.Deployment, uuidString(row.ResourceUuid)))
+	httpapi.WriteJSON(w, http.StatusOK, deploymentToAPI(row.Deployment, uuidString(row.ResourceUuid), row.PrID))
 }
 
 // CancelDeployment implements POST /deployments/{deployment_uuid}/cancel
@@ -124,12 +128,12 @@ func (a *API) ListApplicationDeployments(w http.ResponseWriter, r *http.Request,
 		a.internalError(w, r, "list deployments", err)
 		return
 	}
-	rows, cursor := nextCursor(rows, limit, func(d store.Deployment) int64 { return d.ID })
+	rows, cursor := nextCursor(rows, limit, func(d store.ListDeploymentsForResourceRow) int64 { return d.Deployment.ID })
 
 	appUUID := uuidString(row.Resource.Uuid)
 	data := make([]api.Deployment, 0, len(rows))
 	for _, d := range rows {
-		data = append(data, deploymentToAPI(d, appUUID))
+		data = append(data, deploymentToAPI(d.Deployment, appUUID, d.PrID))
 	}
 	httpapi.WriteJSON(w, http.StatusOK, struct {
 		Data       []api.Deployment `json:"data"`

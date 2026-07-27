@@ -10,15 +10,19 @@ RETURNING *;
 SELECT * FROM deployments WHERE id = $1;
 
 -- name: GetDeploymentByUUIDForTeam :one
-SELECT sqlc.embed(d), r.uuid AS resource_uuid FROM deployments d
+SELECT sqlc.embed(d), r.uuid AS resource_uuid, p.pr_id FROM deployments d
 JOIN resources r ON r.id = d.resource_id
+LEFT JOIN previews p ON p.id = d.preview_id
 WHERE d.uuid = $1 AND r.team_id = $2;
 
 -- name: ListDeploymentsForResource :many
-SELECT * FROM deployments
-WHERE resource_id = sqlc.arg(resource_id)
-  AND (sqlc.arg(after_id)::bigint = 0 OR id < sqlc.arg(after_id))
-ORDER BY id DESC
+-- The preview's PR number (NULL for a production deployment) rides along so the
+-- UI can say "preview #N" instead of a bare "preview".
+SELECT sqlc.embed(d), p.pr_id FROM deployments d
+LEFT JOIN previews p ON p.id = d.preview_id
+WHERE d.resource_id = sqlc.arg(resource_id)
+  AND (sqlc.arg(after_id)::bigint = 0 OR d.id < sqlc.arg(after_id))
+ORDER BY d.id DESC
 LIMIT sqlc.arg(page_limit);
 
 -- name: SetDeploymentStatus :exec

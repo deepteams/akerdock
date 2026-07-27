@@ -371,8 +371,9 @@ func (q *Queries) GetDeploymentByID(ctx context.Context, id int64) (Deployment, 
 }
 
 const getDeploymentByUUIDForTeam = `-- name: GetDeploymentByUUIDForTeam :one
-SELECT d.id, d.uuid, d.resource_id, d.status, d.attempt, d.retry_of_id, d.superseded_by_id, d.is_rollback, d.trigger, d.triggered_by, d.api_token_id, d.git_branch, d.commit_sha, d.is_local_source, d.context_digest, d.force_rebuild, d.image_name, d.image_tag, d.image_digest, d.config_snapshot, d.config_diff, d.error_message, d.server_id, d.build_server_id, d.queued_at, d.started_at, d.finished_at, d.created_at, d.updated_at, d.preview_id, r.uuid AS resource_uuid FROM deployments d
+SELECT d.id, d.uuid, d.resource_id, d.status, d.attempt, d.retry_of_id, d.superseded_by_id, d.is_rollback, d.trigger, d.triggered_by, d.api_token_id, d.git_branch, d.commit_sha, d.is_local_source, d.context_digest, d.force_rebuild, d.image_name, d.image_tag, d.image_digest, d.config_snapshot, d.config_diff, d.error_message, d.server_id, d.build_server_id, d.queued_at, d.started_at, d.finished_at, d.created_at, d.updated_at, d.preview_id, r.uuid AS resource_uuid, p.pr_id FROM deployments d
 JOIN resources r ON r.id = d.resource_id
+LEFT JOIN previews p ON p.id = d.preview_id
 WHERE d.uuid = $1 AND r.team_id = $2
 `
 
@@ -384,6 +385,7 @@ type GetDeploymentByUUIDForTeamParams struct {
 type GetDeploymentByUUIDForTeamRow struct {
 	Deployment   Deployment
 	ResourceUuid pgtype.UUID
+	PrID         *int32
 }
 
 func (q *Queries) GetDeploymentByUUIDForTeam(ctx context.Context, arg GetDeploymentByUUIDForTeamParams) (GetDeploymentByUUIDForTeamRow, error) {
@@ -421,6 +423,7 @@ func (q *Queries) GetDeploymentByUUIDForTeam(ctx context.Context, arg GetDeploym
 		&i.Deployment.UpdatedAt,
 		&i.Deployment.PreviewID,
 		&i.ResourceUuid,
+		&i.PrID,
 	)
 	return i, err
 }
@@ -535,10 +538,11 @@ func (q *Queries) ListDeploymentSteps(ctx context.Context, deploymentID int64) (
 }
 
 const listDeploymentsForResource = `-- name: ListDeploymentsForResource :many
-SELECT id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id FROM deployments
-WHERE resource_id = $1
-  AND ($2::bigint = 0 OR id < $2)
-ORDER BY id DESC
+SELECT d.id, d.uuid, d.resource_id, d.status, d.attempt, d.retry_of_id, d.superseded_by_id, d.is_rollback, d.trigger, d.triggered_by, d.api_token_id, d.git_branch, d.commit_sha, d.is_local_source, d.context_digest, d.force_rebuild, d.image_name, d.image_tag, d.image_digest, d.config_snapshot, d.config_diff, d.error_message, d.server_id, d.build_server_id, d.queued_at, d.started_at, d.finished_at, d.created_at, d.updated_at, d.preview_id, p.pr_id FROM deployments d
+LEFT JOIN previews p ON p.id = d.preview_id
+WHERE d.resource_id = $1
+  AND ($2::bigint = 0 OR d.id < $2)
+ORDER BY d.id DESC
 LIMIT $3
 `
 
@@ -548,46 +552,54 @@ type ListDeploymentsForResourceParams struct {
 	PageLimit  int32
 }
 
-func (q *Queries) ListDeploymentsForResource(ctx context.Context, arg ListDeploymentsForResourceParams) ([]Deployment, error) {
+type ListDeploymentsForResourceRow struct {
+	Deployment Deployment
+	PrID       *int32
+}
+
+// The preview's PR number (NULL for a production deployment) rides along so the
+// UI can say "preview #N" instead of a bare "preview".
+func (q *Queries) ListDeploymentsForResource(ctx context.Context, arg ListDeploymentsForResourceParams) ([]ListDeploymentsForResourceRow, error) {
 	rows, err := q.db.Query(ctx, listDeploymentsForResource, arg.ResourceID, arg.AfterID, arg.PageLimit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Deployment
+	var items []ListDeploymentsForResourceRow
 	for rows.Next() {
-		var i Deployment
+		var i ListDeploymentsForResourceRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.Uuid,
-			&i.ResourceID,
-			&i.Status,
-			&i.Attempt,
-			&i.RetryOfID,
-			&i.SupersededByID,
-			&i.IsRollback,
-			&i.Trigger,
-			&i.TriggeredBy,
-			&i.ApiTokenID,
-			&i.GitBranch,
-			&i.CommitSha,
-			&i.IsLocalSource,
-			&i.ContextDigest,
-			&i.ForceRebuild,
-			&i.ImageName,
-			&i.ImageTag,
-			&i.ImageDigest,
-			&i.ConfigSnapshot,
-			&i.ConfigDiff,
-			&i.ErrorMessage,
-			&i.ServerID,
-			&i.BuildServerID,
-			&i.QueuedAt,
-			&i.StartedAt,
-			&i.FinishedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.PreviewID,
+			&i.Deployment.ID,
+			&i.Deployment.Uuid,
+			&i.Deployment.ResourceID,
+			&i.Deployment.Status,
+			&i.Deployment.Attempt,
+			&i.Deployment.RetryOfID,
+			&i.Deployment.SupersededByID,
+			&i.Deployment.IsRollback,
+			&i.Deployment.Trigger,
+			&i.Deployment.TriggeredBy,
+			&i.Deployment.ApiTokenID,
+			&i.Deployment.GitBranch,
+			&i.Deployment.CommitSha,
+			&i.Deployment.IsLocalSource,
+			&i.Deployment.ContextDigest,
+			&i.Deployment.ForceRebuild,
+			&i.Deployment.ImageName,
+			&i.Deployment.ImageTag,
+			&i.Deployment.ImageDigest,
+			&i.Deployment.ConfigSnapshot,
+			&i.Deployment.ConfigDiff,
+			&i.Deployment.ErrorMessage,
+			&i.Deployment.ServerID,
+			&i.Deployment.BuildServerID,
+			&i.Deployment.QueuedAt,
+			&i.Deployment.StartedAt,
+			&i.Deployment.FinishedAt,
+			&i.Deployment.CreatedAt,
+			&i.Deployment.UpdatedAt,
+			&i.Deployment.PreviewID,
+			&i.PrID,
 		); err != nil {
 			return nil, err
 		}

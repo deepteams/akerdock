@@ -58,7 +58,7 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
         @if (d.commit_sha) {
           <span class="akd-badge akd-badge--mono">{{ d.commit_sha | slice: 0 : 8 }}</span>
         }
-        <span class="akd-muted">{{ d.trigger }}{{ d.is_rollback ? ' · rollback' : '' }}</span>
+        <span class="akd-muted">{{ d.trigger }}{{ d.pr_id ? ' #' + d.pr_id : '' }}{{ d.is_rollback ? ' · rollback' : '' }}</span>
         <span class="spacer"></span>
         <span class="akd-muted when">{{ duration(d) }}</span>
         @if (cancellable(d)) {
