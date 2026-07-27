@@ -469,13 +469,21 @@ func (r *deploymentRun) plainEnvVars(ctx context.Context) (map[string]string, er
 		if err != nil {
 			return nil, err
 		}
+		// The preview's own identity ({{deployment.*}}) resolves in values too —
+		// not a production secret, so it is INV-010-safe unlike the shared scopes.
+		depEnv := sharedEnv{}
+		r.mergeDeploymentRefs(&depEnv, r.deploymentRefs(ctx))
 		vars := make(map[string]string, len(rows)+3)
 		for _, v := range rows {
 			plaintext, err := r.h.Keyring.Decrypt("environment_variables", "value_enc", pguuid.String(v.Uuid), v.ValueEnc)
 			if err != nil {
 				return nil, fmt.Errorf("decrypt variable %s: %w", v.Key, err)
 			}
-			vars[v.Key] = string(plaintext)
+			value := string(plaintext)
+			if !v.IsLiteral {
+				value = depEnv.interpolate(value)
+			}
+			vars[v.Key] = value
 		}
 		vars["AKERDOCK_PR_ID"] = fmt.Sprint(r.preview.PrID)
 		if r.preview.Fqdn != nil && *r.preview.Fqdn != "" {
@@ -496,6 +504,11 @@ func (r *deploymentRun) plainEnvVars(ctx context.Context) (map[string]string, er
 	if err != nil {
 		return nil, err
 	}
+	// {{deployment.fqdn|url|pr_id}} resolves inside stack values too (§5.4): the
+	// deployment's own public identity, so a compose service can carry a CORS
+	// origin that follows the app's domain.
+	dep := r.deploymentRefs(ctx)
+	r.mergeDeploymentRefs(&shared, dep)
 	vars := make(map[string]string, len(rows)+len(shared.server))
 	for k, v := range shared.server {
 		vars[k] = v
@@ -510,6 +523,16 @@ func (r *deploymentRun) plainEnvVars(ctx context.Context) (map[string]string, er
 			value = shared.interpolate(value)
 		}
 		vars[v.Key] = value
+	}
+	// Predefined standalone vars, also so ${AKERDOCK_URL} interpolates in the
+	// compose file itself (§5.6). A stack variable of the same name wins.
+	if fqdn := dep["deployment.fqdn"]; fqdn != "" {
+		if _, ok := vars["AKERDOCK_FQDN"]; !ok {
+			vars["AKERDOCK_FQDN"] = fqdn
+		}
+		if _, ok := vars["AKERDOCK_URL"]; !ok {
+			vars["AKERDOCK_URL"] = dep["deployment.url"]
+		}
 	}
 	return vars, nil
 }
