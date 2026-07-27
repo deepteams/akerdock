@@ -86,7 +86,7 @@ services:
         condition: service_healthy
 
   postgres:
-    image: postgres:16                            # tag épinglé par la release
+    image: postgres:17                            # tag épinglé par la release
     restart: unless-stopped
     environment:
       POSTGRES_USER: AkerDock

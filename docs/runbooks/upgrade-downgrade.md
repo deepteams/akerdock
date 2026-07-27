@@ -77,29 +77,45 @@ Trois niveaux, du moins au plus destructif :
 3. **Restore du dump pré-upgrade** — si les migrations down sont impossibles/défectueuses :
    ⚠️ **Point de non-retour** : tout ce qui a été créé/modifié depuis le backup (déploiements, tokens, livraisons webhook, audit) est perdu. Suivre [postgres-failure.md](postgres-failure.md) §« Restore », avec le dump `pre-upgrade-*`, puis revenir à l'ancien tag.
 
-### C. Upgrade majeur du PostgreSQL interne (§14.3, §22.4, ADR-021)
+### C. Upgrade majeur du PostgreSQL interne (§14.3, §22.4, ADR-021, ADR-039)
 
-Procédure **séparée** des releases AkerDock, par dump/restore (pas de `pg_upgrade` in-place entre volumes de containers) :
+Une majeure Postgres n'est **pas compatible in-place** : après un bump du tag, l'image épinglée refuse de démarrer sur un volume d'une majeure antérieure (`database files are incompatible`). L'upgrade est donc **explicite et opt-in** (ADR-039) — jamais automatique. `install.sh` détecte l'écart de version et s'arrête en pointant ici, plutôt que de laisser le container crash-looper.
 
-1. Backup complet (étape A.1) — c'est le fichier qui sera restauré.
-2. Arrêter le control plane, garder PostgreSQL :
+**Chemin recommandé — outillé, in-place, backup-first (ADR-039)**
+
+Une fois le tag bumpé dans `docker-compose.yml` (rester dans la **plage testée** par la release, §22.4) :
+
+```sh
+./scripts/pg-upgrade.sh          # confirmation interactive
+# ou, en maintenance scriptée :
+./scripts/pg-upgrade.sh --yes
+```
+
+Le script : détecte la majeure du volume vs la cible → **copie intégrale du volume** de données sous `backups/` (rollback) → migre in-place via `pgautoupgrade` (one-shot) → redémarre la stack sur l'image **officielle** `postgres:<major>` → vérifie le health. ⚠️ **Point de non-retour** : ne supprimer la copie `backups/pgdata-pre-upgrade-*.tar.gz` qu'après plusieurs jours de fonctionnement vérifié.
+
+**Repli — dump/restore manuel**
+
+Si `pgautoupgrade` ne convient pas (image tierce refusée, cas particulier), la voie logique reste valable. Le service, l'utilisateur et la base sont `akerdock` (minuscules) ; les données vivent dans le **volume nommé** `akerdock_pgdata`, pas dans un dossier bind-monté :
+
+1. Backup complet (étape A.1).
+2. Dumper, control plane arrêté mais PostgreSQL gardé :
    ```sh
-   docker compose stop AkerDock
-   docker compose exec -T postgres pg_dump -U AkerDock -Fc AkerDock > backups/pg-major-upgrade.dump
-   docker compose stop postgres
+   docker compose stop akerdock
+   docker compose exec -T postgres pg_dump -U akerdock -Fc akerdock > backups/pg-major-upgrade.dump
+   docker compose down
    ```
-3. Mettre l'ancien répertoire de données de côté (**ne pas supprimer**) :
+3. Écarter le volume actuel (**ne pas supprimer**), en créer un neuf :
    ```sh
-   mv postgres postgres.old-pg16
-   mkdir postgres
+   docker volume rename akerdock_akerdock_pgdata akerdock_akerdock_pgdata.old
+   docker volume create akerdock_akerdock_pgdata
    ```
-4. Changer le tag PostgreSQL dans `docker-compose.yml` (ex. `postgres:16` → `postgres:17` — rester dans la **plage de versions testée** par la release, §22.4), puis :
+4. Bumper le tag PostgreSQL dans `docker-compose.yml`, puis restaurer dans le volume neuf :
    ```sh
    docker compose up -d postgres
-   docker compose exec -T postgres pg_restore -U AkerDock -d AkerDock --no-owner < backups/pg-major-upgrade.dump
-   docker compose up -d AkerDock
+   docker compose exec -T postgres pg_restore -U akerdock -d akerdock --no-owner < backups/pg-major-upgrade.dump
+   docker compose up -d akerdock
    ```
-5. ⚠️ **Point de non-retour** : la suppression de `postgres.old-pg16/` — ne la faire qu'après plusieurs jours de fonctionnement vérifié.
+5. ⚠️ **Point de non-retour** : la suppression du volume `akerdock_akerdock_pgdata.old` — seulement après plusieurs jours vérifiés.
 
 ## Vérification
 

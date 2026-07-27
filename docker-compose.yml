@@ -62,7 +62,7 @@ services:
     stop_grace_period: 40s               # > AKERDOCK_SHUTDOWN_TIMEOUT (30s, §6.5)
 
   postgres:
-    image: postgres:16
+    image: postgres:17
     restart: unless-stopped
     environment:
       POSTGRES_USER: akerdock

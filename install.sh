@@ -175,6 +175,19 @@ EOF
 say "building akerdock:${VERSION} from sources (first build downloads the Go toolchain image — this can take a few minutes)"
 docker compose build akerdock
 
+## PostgreSQL major-version guard (ADR-039). An existing data volume from an
+## older major would make the pinned postgres image crash-loop ("database files
+## are incompatible") — catch it HERE, with the upgrade path, instead of after a
+## confusing boot failure. Fresh installs (no volume yet) skip this untouched.
+pgvol=$(docker volume ls -q --filter "name=akerdock_pgdata" | head -1)
+if [ -n "$pgvol" ]; then
+  data_major=$(docker run --rm -v "$pgvol":/d:ro busybox cat /d/PG_VERSION 2>/dev/null | tr -d '[:space:]' || true)
+  target_major=$(sed -n 's/.*image: *postgres:\([0-9][0-9]*\).*/\1/p' docker-compose.yml | head -1)
+  if [ -n "$data_major" ] && [ -n "$target_major" ] && [ "$data_major" != "$target_major" ]; then
+    die "your PostgreSQL data is major $data_major but the compose pins postgres:$target_major — starting now would crash-loop. Upgrade the database in place first (backup-first, ADR-039):  ./scripts/pg-upgrade.sh   then re-run ./install.sh"
+  fi
+fi
+
 say "starting the stack"
 docker compose up -d
 

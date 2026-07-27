@@ -183,7 +183,7 @@ services:
     stop_grace_period: 40s               # > AKERDOCK_SHUTDOWN_TIMEOUT (30 s, §6.5)
 
   postgres:
-    image: postgres:16                   # tag exact épinglé par les notes de release (≥ 15, data dictionary §2)
+    image: postgres:17                   # tag exact épinglé par les notes de release (≥ 15, data dictionary §2)
     restart: unless-stopped
     environment:
       POSTGRES_USER: akerdock
