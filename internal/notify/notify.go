@@ -144,6 +144,18 @@ func payloadStr(p map[string]any, key string) string {
 	}
 }
 
+// eventURL is the public URL an event points at: the explicit `url` payload
+// field, or one derived from `fqdn` (preview lifecycle events carry the FQDN).
+func eventURL(p map[string]any) string {
+	if u := payloadStr(p, "url"); u != "" {
+		return u
+	}
+	if f := payloadStr(p, "fqdn"); f != "" {
+		return "https://" + f
+	}
+	return ""
+}
+
 func shortCommit(sha string) string {
 	if len(sha) > 8 {
 		return sha[:8]
@@ -189,6 +201,9 @@ func (e Event) Text() string {
 	if msg := payloadStr(e.Payload, "error"); msg != "" {
 		fmt.Fprintf(&b, " — %s", firstLine(msg))
 	}
+	if url := eventURL(e.Payload); url != "" {
+		fmt.Fprintf(&b, " — %s", url)
+	}
 	if e.Suppressed > 0 {
 		fmt.Fprintf(&b, " (and %d similar events)", e.Suppressed)
 	}
@@ -223,6 +238,10 @@ func slackMessage(e Event) map[string]any {
 	if c := payloadStr(e.Payload, "commit_sha"); c != "" {
 		field("Commit", shortCommit(c))
 	}
+	url := eventURL(e.Payload)
+	if url != "" {
+		field("URL", "<"+url+"|"+url+">")
+	}
 	if !e.OccurredAt.IsZero() {
 		field("When", e.OccurredAt.UTC().Format("2006-01-02 15:04 UTC"))
 	}
@@ -236,7 +255,7 @@ func slackMessage(e Event) map[string]any {
 	if msg := payloadStr(e.Payload, "error"); msg != "" {
 		blocks = append(blocks, map[string]any{"type": "section", "text": map[string]any{"type": "mrkdwn", "text": "*Error:*\n```" + truncate(firstLine(msg), 2500) + "```"}})
 	}
-	if url := payloadStr(e.Payload, "url"); url != "" {
+	if url != "" {
 		blocks = append(blocks, map[string]any{"type": "actions", "elements": []map[string]any{
 			{"type": "button", "text": map[string]any{"type": "plain_text", "text": "Open", "emoji": true}, "url": url},
 		}})

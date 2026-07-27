@@ -475,6 +475,7 @@ func (r *deploymentRun) setStatus(ctx context.Context, s store.DeploymentStatus)
 					"preview_uuid": pguuid.String(r.preview.Uuid),
 					"pr_id":        r.preview.PrID,
 					"fqdn":         fqdn,
+					"name":         r.app.Resource.Name,
 				})
 		}
 	}

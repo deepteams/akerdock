@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -108,6 +109,19 @@ func TestEventText(t *testing.T) {
 	}
 	if strings.Contains(got, ".v1") {
 		t.Errorf("the version suffix must not reach a human message: %q", got)
+	}
+
+	// A preview event carries `fqdn`, not `url`: the URL must still surface, in
+	// the text and in the Slack blocks.
+	prev := Event{Type: "application.preview.updated.v1", Severity: "info", Payload: map[string]any{
+		"name": "varuna", "pr_id": float64(8), "fqdn": "varuna-pr8.ad.example.com",
+	}}
+	if pt := prev.Text(); !strings.Contains(pt, "https://varuna-pr8.ad.example.com") {
+		t.Errorf("preview Text() missing url: %q", pt)
+	}
+	att, _ := slackMessage(prev)["attachments"].([]map[string]any)
+	if len(att) == 0 || !strings.Contains(fmt.Sprint(att[0]["blocks"]), "https://varuna-pr8.ad.example.com") {
+		t.Errorf("slack blocks missing the preview url: %#v", att)
 	}
 }
 
