@@ -55,5 +55,3 @@ formatters:
     goimports:
       local-prefixes:
         - github.com/deepteams/akerdock
-
-issues:
