@@ -10,9 +10,15 @@ RETURNING *;
 SELECT * FROM deployments WHERE id = $1;
 
 -- name: GetDeploymentByUUIDForTeam :one
-SELECT sqlc.embed(d), r.uuid AS resource_uuid, p.pr_id FROM deployments d
+-- The git repository URL and provider ride along (git source only) so the UI can
+-- link the branch, commit and PR back to the forge.
+SELECT sqlc.embed(d), r.uuid AS resource_uuid, p.pr_id,
+    a.git_repository_url, gs.provider AS git_provider
+FROM deployments d
 JOIN resources r ON r.id = d.resource_id
 LEFT JOIN previews p ON p.id = d.preview_id
+LEFT JOIN applications a ON a.id = d.resource_id
+LEFT JOIN git_sources gs ON gs.id = a.git_source_id
 WHERE d.uuid = $1 AND r.team_id = $2;
 
 -- name: ListDeploymentsForResource :many
@@ -69,6 +75,16 @@ WHERE id = $1 AND status = 'queued';
 
 -- name: SetDeploymentCommit :exec
 UPDATE deployments SET commit_sha = $2, git_branch = $3, updated_at = now() WHERE id = $1;
+
+-- name: SetDeploymentCommitMeta :exec
+-- Author name and subject of the resolved commit, read on the build server
+-- after checkout — surfaces "who last pushed" in the deployment view. Best
+-- effort: a missing value leaves the column untouched.
+UPDATE deployments SET
+    commit_author = COALESCE(sqlc.narg(commit_author), commit_author),
+    commit_message = COALESCE(sqlc.narg(commit_message), commit_message),
+    updated_at = now()
+WHERE id = $1;
 
 -- Rollback artifacts (ADR-006, §10.3).
 

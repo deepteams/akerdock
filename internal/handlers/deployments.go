@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -11,7 +13,35 @@ import (
 	"github.com/deepteams/akerdock/internal/store"
 )
 
-func deploymentToAPI(d store.Deployment, applicationUUID string, prID *int32) api.Deployment {
+// browsableRepo normalises a git remote (scp-like `git@host:owner/repo.git`,
+// `ssh://…`, or an http(s) URL) into the browsable https base, so the dashboard
+// can link the branch, commit and PR back to the forge. Empty stays empty.
+func browsableRepo(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	s = strings.TrimSuffix(s, ".git")
+	switch {
+	case strings.HasPrefix(s, "git@"):
+		if host, path, ok := strings.Cut(strings.TrimPrefix(s, "git@"), ":"); ok {
+			s = "https://" + host + "/" + strings.TrimPrefix(path, "/")
+		}
+	case strings.HasPrefix(s, "ssh://"):
+		if u, err := url.Parse(s); err == nil {
+			host := u.Host
+			if at := strings.LastIndexByte(host, '@'); at >= 0 {
+				host = host[at+1:]
+			}
+			s = "https://" + host + u.Path
+		}
+	case strings.HasPrefix(s, "http://"):
+		s = "https://" + strings.TrimPrefix(s, "http://")
+	}
+	return strings.TrimRight(s, "/")
+}
+
+func deploymentToAPI(d store.Deployment, applicationUUID string, prID *int32, repoURL, provider string) api.Deployment {
 	u := uuidString(d.Uuid)
 	dep := api.Deployment{
 		Uuid:            ptr(u),
@@ -21,6 +51,8 @@ func deploymentToAPI(d store.Deployment, applicationUUID string, prID *int32) ap
 		IsRollback:      ptr(d.IsRollback),
 		ForceRebuild:    ptr(d.ForceRebuild),
 		CommitSha:       d.CommitSha,
+		CommitAuthor:    d.CommitAuthor,
+		CommitMessage:   d.CommitMessage,
 		ImageDigest:     d.ImageDigest,
 		Attempt:         ptr(int(d.Attempt)),
 		ErrorMessage:    d.ErrorMessage,
@@ -32,6 +64,15 @@ func deploymentToAPI(d store.Deployment, applicationUUID string, prID *int32) ap
 	}
 	if prID != nil {
 		dep.PrId = ptr(int(*prID))
+	}
+	if d.GitBranch != nil && *d.GitBranch != "" {
+		dep.Branch = d.GitBranch
+	}
+	if repoURL != "" {
+		dep.RepositoryUrl = ptr(repoURL)
+	}
+	if provider != "" {
+		dep.Provider = ptr(api.DeploymentProvider(provider))
 	}
 	return dep
 }
@@ -53,7 +94,15 @@ func (a *API) GetDeployment(w http.ResponseWriter, r *http.Request, deploymentUu
 		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "deployment not found")
 		return
 	}
-	httpapi.WriteJSON(w, http.StatusOK, deploymentToAPI(row.Deployment, uuidString(row.ResourceUuid), row.PrID))
+	repoURL := ""
+	if row.GitRepositoryUrl != nil {
+		repoURL = browsableRepo(*row.GitRepositoryUrl)
+	}
+	provider := ""
+	if row.GitProvider != nil {
+		provider = string(*row.GitProvider)
+	}
+	httpapi.WriteJSON(w, http.StatusOK, deploymentToAPI(row.Deployment, uuidString(row.ResourceUuid), row.PrID, repoURL, provider))
 }
 
 // CancelDeployment implements POST /deployments/{deployment_uuid}/cancel
@@ -133,7 +182,7 @@ func (a *API) ListApplicationDeployments(w http.ResponseWriter, r *http.Request,
 	appUUID := uuidString(row.Resource.Uuid)
 	data := make([]api.Deployment, 0, len(rows))
 	for _, d := range rows {
-		data = append(data, deploymentToAPI(d.Deployment, appUUID, d.PrID))
+		data = append(data, deploymentToAPI(d.Deployment, appUUID, d.PrID, "", ""))
 	}
 	httpapi.WriteJSON(w, http.StatusOK, struct {
 		Data       []api.Deployment `json:"data"`

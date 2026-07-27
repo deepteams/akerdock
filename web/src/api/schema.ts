@@ -5214,6 +5214,15 @@ export interface components {
             readonly trigger: "manual" | "api" | "webhook" | "preview" | "schedule" | "config_apply" | "cli_local";
             /** @description Numéro de la PR/MR quand ce déploiement est celui d'une preview (`trigger = preview`) ; `null` sinon. Permet d'afficher « preview */
             readonly pr_id?: number | null;
+            /** @description Branche git déployée (source git uniquement) ; `null` sinon. */
+            readonly branch?: string | null;
+            /** @description URL navigable du dépôt (normalisée en https, sans `.git`) pour une source git ; `null` sinon. Combinée à `provider`, elle permet de construire les liens vers la branche, le commit et la PR. */
+            readonly repository_url?: string | null;
+            /**
+             * @description Forge git de la source, quand connue — détermine la forme des liens (branche/commit/PR).
+             * @enum {string|null}
+             */
+            readonly provider?: "github" | "gitlab" | "bitbucket" | "gitea" | "other" | null;
             /** @default false */
             readonly is_rollback: boolean;
             /** @default false */
@@ -5221,6 +5230,8 @@ export interface components {
             /** @description SHA Git immuable résolu au déclenchement (source git uniquement, §18.3). */
             readonly commit_sha?: string | null;
             readonly commit_message?: string | null;
+            /** @description Auteur du dernier commit déployé (source git), lu après checkout — permet de voir qui a poussé le déploiement. `null` hors source git. */
+            readonly commit_author?: string | null;
             /** @description Digest OCI de l'image produite/déployée (résolu avant bascule, §18.3). */
             readonly image_digest?: string | null;
             /** @description Version de configuration applicative embarquée dans ce déploiement (INV-014). */

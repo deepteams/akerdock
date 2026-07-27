@@ -51,7 +51,7 @@ const createDeployment = `-- name: CreateDeployment :one
 
 INSERT INTO deployments (uuid, resource_id, trigger, api_token_id, force_rebuild, image_name, image_tag, server_id, config_snapshot, preview_id, commit_sha)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id
+RETURNING id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id, commit_author, commit_message
 `
 
 type CreateDeploymentParams struct {
@@ -116,6 +116,8 @@ func (q *Queries) CreateDeployment(ctx context.Context, arg CreateDeploymentPara
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.PreviewID,
+		&i.CommitAuthor,
+		&i.CommitMessage,
 	)
 	return i, err
 }
@@ -170,7 +172,7 @@ func (q *Queries) CreateDeploymentStep(ctx context.Context, arg CreateDeployment
 const createRollbackDeployment = `-- name: CreateRollbackDeployment :one
 INSERT INTO deployments (uuid, resource_id, trigger, api_token_id, is_rollback, image_name, image_tag, image_digest, server_id, config_snapshot)
 VALUES ($1, $2, $3, $4, true, $5, $6, $7, $8, $9)
-RETURNING id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id
+RETURNING id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id, commit_author, commit_message
 `
 
 type CreateRollbackDeploymentParams struct {
@@ -229,6 +231,8 @@ func (q *Queries) CreateRollbackDeployment(ctx context.Context, arg CreateRollba
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.PreviewID,
+		&i.CommitAuthor,
+		&i.CommitMessage,
 	)
 	return i, err
 }
@@ -329,7 +333,7 @@ func (q *Queries) GetArtifactForDeployment(ctx context.Context, arg GetArtifactF
 }
 
 const getDeploymentByID = `-- name: GetDeploymentByID :one
-SELECT id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id FROM deployments WHERE id = $1
+SELECT id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id, commit_author, commit_message FROM deployments WHERE id = $1
 `
 
 func (q *Queries) GetDeploymentByID(ctx context.Context, id int64) (Deployment, error) {
@@ -366,14 +370,20 @@ func (q *Queries) GetDeploymentByID(ctx context.Context, id int64) (Deployment, 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.PreviewID,
+		&i.CommitAuthor,
+		&i.CommitMessage,
 	)
 	return i, err
 }
 
 const getDeploymentByUUIDForTeam = `-- name: GetDeploymentByUUIDForTeam :one
-SELECT d.id, d.uuid, d.resource_id, d.status, d.attempt, d.retry_of_id, d.superseded_by_id, d.is_rollback, d.trigger, d.triggered_by, d.api_token_id, d.git_branch, d.commit_sha, d.is_local_source, d.context_digest, d.force_rebuild, d.image_name, d.image_tag, d.image_digest, d.config_snapshot, d.config_diff, d.error_message, d.server_id, d.build_server_id, d.queued_at, d.started_at, d.finished_at, d.created_at, d.updated_at, d.preview_id, r.uuid AS resource_uuid, p.pr_id FROM deployments d
+SELECT d.id, d.uuid, d.resource_id, d.status, d.attempt, d.retry_of_id, d.superseded_by_id, d.is_rollback, d.trigger, d.triggered_by, d.api_token_id, d.git_branch, d.commit_sha, d.is_local_source, d.context_digest, d.force_rebuild, d.image_name, d.image_tag, d.image_digest, d.config_snapshot, d.config_diff, d.error_message, d.server_id, d.build_server_id, d.queued_at, d.started_at, d.finished_at, d.created_at, d.updated_at, d.preview_id, d.commit_author, d.commit_message, r.uuid AS resource_uuid, p.pr_id,
+    a.git_repository_url, gs.provider AS git_provider
+FROM deployments d
 JOIN resources r ON r.id = d.resource_id
 LEFT JOIN previews p ON p.id = d.preview_id
+LEFT JOIN applications a ON a.id = d.resource_id
+LEFT JOIN git_sources gs ON gs.id = a.git_source_id
 WHERE d.uuid = $1 AND r.team_id = $2
 `
 
@@ -383,11 +393,15 @@ type GetDeploymentByUUIDForTeamParams struct {
 }
 
 type GetDeploymentByUUIDForTeamRow struct {
-	Deployment   Deployment
-	ResourceUuid pgtype.UUID
-	PrID         *int32
+	Deployment       Deployment
+	ResourceUuid     pgtype.UUID
+	PrID             *int32
+	GitRepositoryUrl *string
+	GitProvider      *GitProvider
 }
 
+// The git repository URL and provider ride along (git source only) so the UI can
+// link the branch, commit and PR back to the forge.
 func (q *Queries) GetDeploymentByUUIDForTeam(ctx context.Context, arg GetDeploymentByUUIDForTeamParams) (GetDeploymentByUUIDForTeamRow, error) {
 	row := q.db.QueryRow(ctx, getDeploymentByUUIDForTeam, arg.Uuid, arg.TeamID)
 	var i GetDeploymentByUUIDForTeamRow
@@ -422,8 +436,12 @@ func (q *Queries) GetDeploymentByUUIDForTeam(ctx context.Context, arg GetDeploym
 		&i.Deployment.CreatedAt,
 		&i.Deployment.UpdatedAt,
 		&i.Deployment.PreviewID,
+		&i.Deployment.CommitAuthor,
+		&i.Deployment.CommitMessage,
 		&i.ResourceUuid,
 		&i.PrID,
+		&i.GitRepositoryUrl,
+		&i.GitProvider,
 	)
 	return i, err
 }
@@ -538,7 +556,7 @@ func (q *Queries) ListDeploymentSteps(ctx context.Context, deploymentID int64) (
 }
 
 const listDeploymentsForResource = `-- name: ListDeploymentsForResource :many
-SELECT d.id, d.uuid, d.resource_id, d.status, d.attempt, d.retry_of_id, d.superseded_by_id, d.is_rollback, d.trigger, d.triggered_by, d.api_token_id, d.git_branch, d.commit_sha, d.is_local_source, d.context_digest, d.force_rebuild, d.image_name, d.image_tag, d.image_digest, d.config_snapshot, d.config_diff, d.error_message, d.server_id, d.build_server_id, d.queued_at, d.started_at, d.finished_at, d.created_at, d.updated_at, d.preview_id, p.pr_id FROM deployments d
+SELECT d.id, d.uuid, d.resource_id, d.status, d.attempt, d.retry_of_id, d.superseded_by_id, d.is_rollback, d.trigger, d.triggered_by, d.api_token_id, d.git_branch, d.commit_sha, d.is_local_source, d.context_digest, d.force_rebuild, d.image_name, d.image_tag, d.image_digest, d.config_snapshot, d.config_diff, d.error_message, d.server_id, d.build_server_id, d.queued_at, d.started_at, d.finished_at, d.created_at, d.updated_at, d.preview_id, d.commit_author, d.commit_message, p.pr_id FROM deployments d
 LEFT JOIN previews p ON p.id = d.preview_id
 WHERE d.resource_id = $1
   AND ($2::bigint = 0 OR d.id < $2)
@@ -599,6 +617,8 @@ func (q *Queries) ListDeploymentsForResource(ctx context.Context, arg ListDeploy
 			&i.Deployment.CreatedAt,
 			&i.Deployment.UpdatedAt,
 			&i.Deployment.PreviewID,
+			&i.Deployment.CommitAuthor,
+			&i.Deployment.CommitMessage,
 			&i.PrID,
 		); err != nil {
 			return nil, err
@@ -693,6 +713,28 @@ type SetDeploymentCommitParams struct {
 
 func (q *Queries) SetDeploymentCommit(ctx context.Context, arg SetDeploymentCommitParams) error {
 	_, err := q.db.Exec(ctx, setDeploymentCommit, arg.ID, arg.CommitSha, arg.GitBranch)
+	return err
+}
+
+const setDeploymentCommitMeta = `-- name: SetDeploymentCommitMeta :exec
+UPDATE deployments SET
+    commit_author = COALESCE($2, commit_author),
+    commit_message = COALESCE($3, commit_message),
+    updated_at = now()
+WHERE id = $1
+`
+
+type SetDeploymentCommitMetaParams struct {
+	ID            int64
+	CommitAuthor  *string
+	CommitMessage *string
+}
+
+// Author name and subject of the resolved commit, read on the build server
+// after checkout — surfaces "who last pushed" in the deployment view. Best
+// effort: a missing value leaves the column untouched.
+func (q *Queries) SetDeploymentCommitMeta(ctx context.Context, arg SetDeploymentCommitMetaParams) error {
+	_, err := q.db.Exec(ctx, setDeploymentCommitMeta, arg.ID, arg.CommitAuthor, arg.CommitMessage)
 	return err
 }
 

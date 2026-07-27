@@ -198,6 +198,9 @@ func (e Event) Text() string {
 	if c := payloadStr(e.Payload, "commit_sha"); c != "" {
 		fmt.Fprintf(&b, " · %s", shortCommit(c))
 	}
+	if a := payloadStr(e.Payload, "commit_author"); a != "" {
+		fmt.Fprintf(&b, " by %s", a)
+	}
 	if msg := payloadStr(e.Payload, "error"); msg != "" {
 		fmt.Fprintf(&b, " — %s", firstLine(msg))
 	}
@@ -238,6 +241,7 @@ func slackMessage(e Event) map[string]any {
 	if c := payloadStr(e.Payload, "commit_sha"); c != "" {
 		field("Commit", shortCommit(c))
 	}
+	field("Author", payloadStr(e.Payload, "commit_author"))
 	url := eventURL(e.Payload)
 	if url != "" {
 		field("URL", "<"+url+"|"+url+">")

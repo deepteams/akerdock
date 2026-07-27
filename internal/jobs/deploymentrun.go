@@ -438,6 +438,9 @@ func (r *deploymentRun) setStatus(ctx context.Context, s store.DeploymentStatus)
 		if r.d.CommitSha != nil && *r.d.CommitSha != "" {
 			payload["commit_sha"] = *r.d.CommitSha
 		}
+		if r.d.CommitAuthor != nil && *r.d.CommitAuthor != "" {
+			payload["commit_author"] = *r.d.CommitAuthor
+		}
 		if r.d.GitBranch != nil && *r.d.GitBranch != "" {
 			payload["branch"] = *r.d.GitBranch
 		}
@@ -1111,6 +1114,28 @@ func (r *deploymentRun) buildFromGit(ctx context.Context, appUUID, appDir, label
 			return res, err
 		}); err != nil {
 			return "", err
+		}
+	}
+
+	// Author and subject of the checked-out commit — best effort: it answers
+	// "who last pushed" in the deployment view, never a reason to fail a build.
+	// The unit separator (\x1f) can't appear in a commit line, so it is a safe
+	// field delimiter.
+	if res, err := r.bc().Run(ctx, "cd "+srcDir+" && git log -1 --format='%an%x1f%s'"); err == nil && res.ExitCode == 0 {
+		author, message, _ := strings.Cut(strings.TrimRight(res.Stdout, "\n"), "\x1f")
+		var authorPtr, messagePtr *string
+		if author = strings.TrimSpace(author); author != "" {
+			authorPtr = &author
+			r.d.CommitAuthor = &author
+		}
+		if message = strings.TrimSpace(message); message != "" {
+			messagePtr = &message
+			r.d.CommitMessage = &message
+		}
+		if authorPtr != nil || messagePtr != nil {
+			_ = r.h.Store.SetDeploymentCommitMeta(ctx, store.SetDeploymentCommitMetaParams{
+				ID: r.d.ID, CommitAuthor: authorPtr, CommitMessage: messagePtr,
+			})
 		}
 	}
 

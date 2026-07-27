@@ -73,6 +73,9 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
                     @if (d.commit_message) {
                       <span class="akd-muted commit-msg"> {{ d.commit_message }}</span>
                     }
+                    @if (d.commit_author) {
+                      <span class="akd-muted commit-author"> · {{ d.commit_author }}</span>
+                    }
                   } @else {
                     <span class="akd-muted">—</span>
                   }

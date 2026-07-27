@@ -333,6 +333,8 @@ type Querier interface {
 	// reusing the same key for several applications must not multiply the rows.
 	GetDeployKeySource(ctx context.Context, arg GetDeployKeySourceParams) (GitSource, error)
 	GetDeploymentByID(ctx context.Context, id int64) (Deployment, error)
+	// The git repository URL and provider ride along (git source only) so the UI can
+	// link the branch, commit and PR back to the forge.
 	GetDeploymentByUUIDForTeam(ctx context.Context, arg GetDeploymentByUUIDForTeamParams) (GetDeploymentByUUIDForTeamRow, error)
 	GetDestinationByID(ctx context.Context, id int64) (Destination, error)
 	GetEnvVarByKey(ctx context.Context, arg GetEnvVarByKeyParams) (EnvironmentVariable, error)
@@ -785,6 +787,10 @@ type Querier interface {
 	SetCertificateStatus(ctx context.Context, arg SetCertificateStatusParams) error
 	SetDeploymentBuildServer(ctx context.Context, arg SetDeploymentBuildServerParams) error
 	SetDeploymentCommit(ctx context.Context, arg SetDeploymentCommitParams) error
+	// Author name and subject of the resolved commit, read on the build server
+	// after checkout — surfaces "who last pushed" in the deployment view. Best
+	// effort: a missing value leaves the column untouched.
+	SetDeploymentCommitMeta(ctx context.Context, arg SetDeploymentCommitMetaParams) error
 	SetDeploymentError(ctx context.Context, arg SetDeploymentErrorParams) error
 	SetDeploymentImage(ctx context.Context, arg SetDeploymentImageParams) error
 	SetDeploymentImageDigest(ctx context.Context, arg SetDeploymentImageDigestParams) error

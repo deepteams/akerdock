@@ -415,6 +415,26 @@ func (r *deploymentRun) cloneForCompose(ctx context.Context, _, appDir string) (
 			return "", "", err
 		}
 	}
+
+	// Author and subject of the checked-out commit — best effort, "who last
+	// pushed" for the deployment view (same as the single-container path).
+	if res, err := r.client.Run(ctx, "cd "+srcDir+" && git log -1 --format='%an%x1f%s'"); err == nil && res.ExitCode == 0 {
+		author, message, _ := strings.Cut(strings.TrimRight(res.Stdout, "\n"), "\x1f")
+		var authorPtr, messagePtr *string
+		if author = strings.TrimSpace(author); author != "" {
+			authorPtr = &author
+			r.d.CommitAuthor = &author
+		}
+		if message = strings.TrimSpace(message); message != "" {
+			messagePtr = &message
+			r.d.CommitMessage = &message
+		}
+		if authorPtr != nil || messagePtr != nil {
+			_ = r.h.Store.SetDeploymentCommitMeta(ctx, store.SetDeploymentCommitMetaParams{
+				ID: r.d.ID, CommitAuthor: authorPtr, CommitMessage: messagePtr,
+			})
+		}
+	}
 	return srcDir, sha, nil
 }
 

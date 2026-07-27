@@ -11763,6 +11763,25 @@ components:
           nullable: true
           readOnly: true
           description: Numéro de la PR/MR quand ce déploiement est celui d'une preview (`trigger = preview`) ; `null` sinon. Permet d'afficher « preview #N » au lieu d'un simple « preview ».
+        branch:
+          type: string
+          nullable: true
+          readOnly: true
+          description: Branche git déployée (source git uniquement) ; `null` sinon.
+        repository_url:
+          type: string
+          nullable: true
+          readOnly: true
+          description: >-
+            URL navigable du dépôt (normalisée en https, sans `.git`) pour une
+            source git ; `null` sinon. Combinée à `provider`, elle permet de
+            construire les liens vers la branche, le commit et la PR.
+        provider:
+          type: string
+          nullable: true
+          readOnly: true
+          enum: [github, gitlab, bitbucket, gitea, other]
+          description: Forge git de la source, quand connue — détermine la forme des liens (branche/commit/PR).
         is_rollback:
           type: boolean
           default: false
@@ -11780,6 +11799,11 @@ components:
           type: string
           nullable: true
           readOnly: true
+        commit_author:
+          type: string
+          nullable: true
+          readOnly: true
+          description: Auteur du dernier commit déployé (source git), lu après checkout — permet de voir qui a poussé le déploiement. `null` hors source git.
         image_digest:
           type: string
           nullable: true

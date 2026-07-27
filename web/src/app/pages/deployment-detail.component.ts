@@ -56,9 +56,43 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
       @if (deployment(); as d) {
         <akd-status-badge domain="deployment" [state]="d.status" />
         @if (d.commit_sha) {
-          <span class="akd-badge akd-badge--mono">{{ d.commit_sha | slice: 0 : 8 }}</span>
+          @if (links()?.commit; as href) {
+            <a class="akd-badge akd-badge--mono gitlink" [href]="href" target="_blank" rel="noopener">
+              {{ d.commit_sha | slice: 0 : 8 }}
+            </a>
+          } @else {
+            <span class="akd-badge akd-badge--mono">{{ d.commit_sha | slice: 0 : 8 }}</span>
+          }
         }
-        <span class="akd-muted">{{ d.trigger }}{{ d.pr_id ? ' #' + d.pr_id : '' }}{{ d.is_rollback ? ' · rollback' : '' }}</span>
+        @if (d.branch) {
+          @if (links()?.branch; as href) {
+            <a class="akd-muted gitlink" [href]="href" target="_blank" rel="noopener">
+              <akd-icon name="git-branch" [size]="13" />{{ d.branch }}
+            </a>
+          } @else {
+            <span class="akd-muted"><akd-icon name="git-branch" [size]="13" />{{ d.branch }}</span>
+          }
+        }
+        @if (links()?.repo; as href) {
+          <a
+            class="akd-iconbtn akd-iconbtn--bordered akd-iconbtn--sm"
+            [href]="href"
+            target="_blank"
+            rel="noopener"
+            aria-label="Open repository"
+          >
+            <akd-icon name="external-link" [size]="13" />
+          </a>
+        }
+        <span class="akd-muted">
+          {{ d.trigger }}@if (d.pr_id) {
+            @if (links()?.pr; as href) {
+              <a class="gitlink" [href]="href" target="_blank" rel="noopener">&nbsp;#{{ d.pr_id }}</a>
+            } @else {
+              <span>&nbsp;#{{ d.pr_id }}</span>
+            }
+          }{{ d.is_rollback ? ' · rollback' : '' }}
+        </span>
         <span class="spacer"></span>
         <span class="akd-muted when">{{ duration(d) }}</span>
         @if (cancellable(d)) {
@@ -78,8 +112,19 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
       <p class="akd-error" role="alert">{{ message }}</p>
     }
 
-    @if (deployment()?.commit_message; as msg) {
-      <p class="akd-muted commit">{{ msg }}</p>
+    @if (deployment(); as d) {
+      @if (d.commit_message || d.commit_author) {
+        <p class="akd-muted commit">
+          @if (d.commit_message) {
+            <span>{{ d.commit_message }}</span>
+          }
+          @if (d.commit_author) {
+            <span class="author"
+              ><akd-icon name="users" [size]="13" />{{ d.commit_author }}</span
+            >
+          }
+        </p>
+      }
     }
 
     <akd-card title="Build logs" [padded]="false">
@@ -130,7 +175,32 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
         font-family: var(--font-mono);
       }
       .commit {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--space-2) var(--space-3);
         margin: 0 0 var(--space-4);
+      }
+      .commit .author {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-1);
+        font-size: var(--text-sm);
+      }
+      .gitlink {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-1);
+        text-decoration: none;
+        color: inherit;
+      }
+      a.gitlink:hover {
+        text-decoration: underline;
+        color: var(--text-1);
+      }
+      .akd-iconbtn--sm {
+        width: 26px;
+        height: 26px;
       }
       .pad {
         margin: 0;
@@ -191,6 +261,31 @@ export class DeploymentDetailComponent {
   protected cancellable(d: Deployment): boolean {
     return !TERMINAL.includes(d.status);
   }
+
+  /**
+   * Browsable forge links derived from repository_url + provider. The path
+   * conventions differ per forge (github `/tree`, gitlab `/-/tree`, …); an
+   * unknown forge still gets the plain repository link, just no deep links.
+   */
+  protected readonly links = computed(() => {
+    const d = this.deployment();
+    const base = d?.repository_url;
+    if (!base) return null;
+    const paths: Record<string, { branch: string; commit: string; pr: string }> = {
+      github: { branch: '/tree/', commit: '/commit/', pr: '/pull/' },
+      gitlab: { branch: '/-/tree/', commit: '/-/commit/', pr: '/-/merge_requests/' },
+      gitea: { branch: '/src/branch/', commit: '/commit/', pr: '/pulls/' },
+      bitbucket: { branch: '/src/', commit: '/commits/', pr: '/pull-requests/' },
+    };
+    const p = d.provider ? paths[d.provider] : undefined;
+    const enc = (s: string) => s.split('/').map(encodeURIComponent).join('/');
+    return {
+      repo: base,
+      branch: p && d.branch ? base + p.branch + enc(d.branch) : null,
+      commit: p && d.commit_sha ? base + p.commit + d.commit_sha : null,
+      pr: p && d.pr_id ? base + p.pr + d.pr_id : null,
+    };
+  });
 
   /** Derived from started_at/finished_at — a deployment still running has none. */
   protected duration(d: Deployment): string {

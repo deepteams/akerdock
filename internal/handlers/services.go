@@ -607,7 +607,7 @@ func (a *API) ListServiceDeployments(w http.ResponseWriter, r *http.Request, ser
 	stackUUID := uuidString(row.Resource.Uuid)
 	data := make([]api.Deployment, 0, len(rows))
 	for _, d := range rows {
-		data = append(data, deploymentToAPI(d.Deployment, stackUUID, d.PrID))
+		data = append(data, deploymentToAPI(d.Deployment, stackUUID, d.PrID, "", ""))
 	}
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": data, "next_cursor": cursor})
 }

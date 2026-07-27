@@ -2305,6 +2305,8 @@ type Deployment struct {
 	CreatedAt      pgtype.Timestamptz
 	UpdatedAt      pgtype.Timestamptz
 	PreviewID      *int64
+	CommitAuthor   *string
+	CommitMessage  *string
 }
 
 type DeploymentArtifact struct {

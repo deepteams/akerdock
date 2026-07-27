@@ -622,6 +622,33 @@ func (e DatabaseUpdateSslMode) Valid() bool {
 	}
 }
 
+// Defines values for DeploymentProvider.
+const (
+	DeploymentProviderBitbucket DeploymentProvider = "bitbucket"
+	DeploymentProviderGitea     DeploymentProvider = "gitea"
+	DeploymentProviderGithub    DeploymentProvider = "github"
+	DeploymentProviderGitlab    DeploymentProvider = "gitlab"
+	DeploymentProviderOther     DeploymentProvider = "other"
+)
+
+// Valid indicates whether the value is a known member of the DeploymentProvider enum.
+func (e DeploymentProvider) Valid() bool {
+	switch e {
+	case DeploymentProviderBitbucket:
+		return true
+	case DeploymentProviderGitea:
+		return true
+	case DeploymentProviderGithub:
+		return true
+	case DeploymentProviderGitlab:
+		return true
+	case DeploymentProviderOther:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeploymentTrigger.
 const (
 	DeploymentTriggerApi         DeploymentTrigger = "api"
@@ -1974,28 +2001,28 @@ func (e DeleteOauthProviderParamsOauthProvider) Valid() bool {
 
 // Defines values for SetOauthProviderParamsOauthProvider.
 const (
-	Azure     SetOauthProviderParamsOauthProvider = "azure"
-	Bitbucket SetOauthProviderParamsOauthProvider = "bitbucket"
-	Github    SetOauthProviderParamsOauthProvider = "github"
-	Gitlab    SetOauthProviderParamsOauthProvider = "gitlab"
-	Google    SetOauthProviderParamsOauthProvider = "google"
-	Oidc      SetOauthProviderParamsOauthProvider = "oidc"
+	SetOauthProviderParamsOauthProviderAzure     SetOauthProviderParamsOauthProvider = "azure"
+	SetOauthProviderParamsOauthProviderBitbucket SetOauthProviderParamsOauthProvider = "bitbucket"
+	SetOauthProviderParamsOauthProviderGithub    SetOauthProviderParamsOauthProvider = "github"
+	SetOauthProviderParamsOauthProviderGitlab    SetOauthProviderParamsOauthProvider = "gitlab"
+	SetOauthProviderParamsOauthProviderGoogle    SetOauthProviderParamsOauthProvider = "google"
+	SetOauthProviderParamsOauthProviderOidc      SetOauthProviderParamsOauthProvider = "oidc"
 )
 
 // Valid indicates whether the value is a known member of the SetOauthProviderParamsOauthProvider enum.
 func (e SetOauthProviderParamsOauthProvider) Valid() bool {
 	switch e {
-	case Azure:
+	case SetOauthProviderParamsOauthProviderAzure:
 		return true
-	case Bitbucket:
+	case SetOauthProviderParamsOauthProviderBitbucket:
 		return true
-	case Github:
+	case SetOauthProviderParamsOauthProviderGithub:
 		return true
-	case Gitlab:
+	case SetOauthProviderParamsOauthProviderGitlab:
 		return true
-	case Google:
+	case SetOauthProviderParamsOauthProviderGoogle:
 		return true
-	case Oidc:
+	case SetOauthProviderParamsOauthProviderOidc:
 		return true
 	default:
 		return false
@@ -3114,7 +3141,13 @@ type Deployment struct {
 	ApplicationUuid *string `json:"application_uuid,omitempty"`
 
 	// Attempt Numéro de tentative (§21.1).
-	Attempt       *int    `json:"attempt,omitempty"`
+	Attempt *int `json:"attempt,omitempty"`
+
+	// Branch Branche git déployée (source git uniquement) ; `null` sinon.
+	Branch *string `json:"branch,omitempty"`
+
+	// CommitAuthor Auteur du dernier commit déployé (source git), lu après checkout — permet de voir qui a poussé le déploiement. `null` hors source git.
+	CommitAuthor  *string `json:"commit_author,omitempty"`
 	CommitMessage *string `json:"commit_message,omitempty"`
 
 	// CommitSha SHA Git immuable résolu au déclenchement (source git uniquement, §18.3).
@@ -3137,9 +3170,15 @@ type Deployment struct {
 	LogsUrl *string `json:"logs_url,omitempty"`
 
 	// PrId Numéro de la PR/MR quand ce déploiement est celui d'une preview (`trigger = preview`) ; `null` sinon. Permet d'afficher « preview
-	PrId      *int       `json:"pr_id,omitempty"`
-	QueuedAt  *time.Time `json:"queued_at,omitempty"`
-	StartedAt *time.Time `json:"started_at,omitempty"`
+	PrId *int `json:"pr_id,omitempty"`
+
+	// Provider Forge git de la source, quand connue — détermine la forme des liens (branche/commit/PR).
+	Provider *DeploymentProvider `json:"provider,omitempty"`
+	QueuedAt *time.Time          `json:"queued_at,omitempty"`
+
+	// RepositoryUrl URL navigable du dépôt (normalisée en https, sans `.git`) pour une source git ; `null` sinon. Combinée à `provider`, elle permet de construire les liens vers la branche, le commit et la PR.
+	RepositoryUrl *string    `json:"repository_url,omitempty"`
+	StartedAt     *time.Time `json:"started_at,omitempty"`
 
 	// Status Machine à états d'un déploiement (§21.1). `succeeded`, `failed`, `cancelled` et `superseded` sont terminaux ; `superseded` = remplacé en file par un déploiement plus récent (coalescing).
 	Status DeploymentStatus `json:"status"`
@@ -3148,6 +3187,9 @@ type Deployment struct {
 	Trigger *DeploymentTrigger `json:"trigger,omitempty"`
 	Uuid    *string            `json:"uuid,omitempty"`
 }
+
+// DeploymentProvider Forge git de la source, quand connue — détermine la forme des liens (branche/commit/PR).
+type DeploymentProvider string
 
 // DeploymentTrigger Origine du déclenchement (vocabulaire aligné sur l'enum `deployment_trigger` du data dictionary). Un rollback est signalé par `is_rollback`, pas par le trigger.
 type DeploymentTrigger string
