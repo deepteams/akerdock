@@ -24,6 +24,9 @@ type Store interface {
 	ClearMfaPendingForUser(context.Context, int64) error
 
 	GetMfaFactorForUser(context.Context, int64) (store.MfaFactor, error)
+	// CountPasskeysForUser lets forced MFA enrolment treat a passkey (user
+	// verification required) as a satisfied factor, not only a TOTP secret.
+	CountPasskeysForUser(context.Context, int64) (int64, error)
 	UpsertUnconfirmedMfaFactor(context.Context, store.UpsertUnconfirmedMfaFactorParams) (store.MfaFactor, error)
 	ConfirmMfaFactor(context.Context, store.ConfirmMfaFactorParams) (store.MfaFactor, error)
 	DeleteMfaFactorForUser(context.Context, int64) (int64, error)

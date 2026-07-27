@@ -8,6 +8,12 @@ RETURNING *;
 -- name: ListPasskeysForUser :many
 SELECT * FROM passkey_credentials WHERE user_id = $1 ORDER BY created_at;
 
+-- name: CountPasskeysForUser :one
+-- A passkey requires user verification (possession + biometric/PIN), so it is
+-- an MFA-grade factor in its own right: forced MFA enrolment (§10.2) is
+-- satisfied by one, not only by a TOTP secret.
+SELECT count(*) FROM passkey_credentials WHERE user_id = $1;
+
 -- name: GetPasskeyByCredentialID :one
 -- The login ceremony starts from the credential: the authenticator presents a
 -- credential id, and the user is whoever enrolled it. A deleted user's

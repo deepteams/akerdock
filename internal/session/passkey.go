@@ -284,7 +284,8 @@ func (p *Passkeys) FinishLogin(ctx context.Context, r *http.Request, ceremonyTok
 	if err != nil {
 		return nil, "", ErrPasskeyRejected
 	}
-	return p.Sessions.Open(ctx, r, user)
+	// A verified passkey is multi-factor by itself: MFA is satisfied.
+	return p.Sessions.Open(ctx, r, user, true)
 }
 
 // BeginStepUp starts a re-authentication ceremony (rbac-matrix §5) for an

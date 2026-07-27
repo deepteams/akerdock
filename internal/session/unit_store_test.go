@@ -187,6 +187,10 @@ func (f *fakeSessionStore) ListPasskeysForUser(context.Context, int64) ([]store.
 	return f.passkeys, f.err("passkeys")
 }
 
+func (f *fakeSessionStore) CountPasskeysForUser(context.Context, int64) (int64, error) {
+	return int64(len(f.passkeys)), f.err("countPasskeys")
+}
+
 func (f *fakeSessionStore) CreatePasskeyCredential(_ context.Context, arg store.CreatePasskeyCredentialParams) (store.PasskeyCredential, error) {
 	f.passkeyCreates = append(f.passkeyCreates, arg)
 	if f.passkey.ID == 0 {

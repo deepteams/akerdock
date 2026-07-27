@@ -241,7 +241,9 @@ func (o *OAuth) Callback(ctx context.Context, r *http.Request, provider, state, 
 	if err != nil {
 		return nil, err
 	}
-	sess, token, err := o.Sessions.Open(ctx, r, user)
+	// Federated login: the IdP owns the second factor, so local forced MFA
+	// enrolment does not apply (§10.2).
+	sess, token, err := o.Sessions.Open(ctx, r, user, true)
 	if err != nil {
 		return nil, err
 	}

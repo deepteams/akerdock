@@ -132,7 +132,7 @@ func TestOpenSessionBranches(t *testing.T) {
 	user := store.User{ID: 1, Email: "user@example.test", Name: "User"}
 	t.Run("no team", func(t *testing.T) {
 		manager := &Manager{Store: &fakeSessionStore{errs: map[string]error{"membership": errors.New("missing")}}}
-		if _, _, err := manager.Open(context.Background(), loginRequest(), user); err == nil ||
+		if _, _, err := manager.Open(context.Background(), loginRequest(), user, false); err == nil ||
 			!strings.Contains(err.Error(), "no team") {
 			t.Fatalf("Open = %v", err)
 		}
@@ -142,7 +142,7 @@ func TestOpenSessionBranches(t *testing.T) {
 			membership: store.GetTeamMembershipForUserRow{TeamID: 2},
 			errs:       map[string]error{"createSession": errors.New("insert")},
 		}
-		if _, _, err := (&Manager{Store: database}).Open(context.Background(), loginRequest(), user); err == nil {
+		if _, _, err := (&Manager{Store: database}).Open(context.Background(), loginRequest(), user, false); err == nil {
 			t.Fatal("session insert error was hidden")
 		}
 	})
@@ -151,7 +151,7 @@ func TestOpenSessionBranches(t *testing.T) {
 			membership: store.GetTeamMembershipForUserRow{TeamID: 2, Role: store.TeamRoleOwner},
 			session:    store.Session{ID: 3},
 		}
-		session, token, err := (&Manager{Store: database}).Open(context.Background(), loginRequest(), user)
+		session, token, err := (&Manager{Store: database}).Open(context.Background(), loginRequest(), user, false)
 		if err != nil || token == "" || session.ID != 3 || session.CSRFToken == "" {
 			t.Fatalf("Open = %#v, %q, %v", session, token, err)
 		}
@@ -178,7 +178,7 @@ func TestTokenEntropyFailure(t *testing.T) {
 	}
 	database := &fakeSessionStore{membership: store.GetTeamMembershipForUserRow{TeamID: 1}}
 	if _, _, err := (&Manager{Store: database}).Open(
-		context.Background(), loginRequest(), store.User{ID: 1},
+		context.Background(), loginRequest(), store.User{ID: 1}, false,
 	); err == nil {
 		t.Fatal("Open hid entropy failure")
 	}
@@ -248,18 +248,21 @@ func TestOpenForcesMfaEnrollment(t *testing.T) {
 	confirmed := store.MfaFactor{ConfirmedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true}}
 
 	cases := []struct {
-		name        string
-		db          *fakeSessionStore
-		wantPending bool
+		name         string
+		db           *fakeSessionStore
+		mfaSatisfied bool
+		wantPending  bool
 	}{
-		{"required, no factor → pending", &fakeSessionStore{membership: membership, settings: store.InstanceSetting{MfaRequired: true}}, true},
-		{"required, confirmed factor → not pending", &fakeSessionStore{membership: membership, settings: store.InstanceSetting{MfaRequired: true}, factor: confirmed}, false},
-		{"not required → not pending", &fakeSessionStore{membership: membership, settings: store.InstanceSetting{MfaRequired: false}}, false},
+		{"password, required, no factor → pending", &fakeSessionStore{membership: membership, settings: store.InstanceSetting{MfaRequired: true}}, false, true},
+		{"password, required, confirmed TOTP → not pending", &fakeSessionStore{membership: membership, settings: store.InstanceSetting{MfaRequired: true}, factor: confirmed}, false, false},
+		{"password, required, has passkey → not pending", &fakeSessionStore{membership: membership, settings: store.InstanceSetting{MfaRequired: true}, passkeys: []store.PasskeyCredential{{}}}, false, false},
+		{"federated/passkey login, required, no local factor → not pending", &fakeSessionStore{membership: membership, settings: store.InstanceSetting{MfaRequired: true}}, true, false},
+		{"not required → not pending", &fakeSessionStore{membership: membership, settings: store.InstanceSetting{MfaRequired: false}}, false, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			m := &Manager{Store: tc.db}
-			sess, _, err := m.Open(context.Background(), httptest.NewRequest(http.MethodPost, "/", nil), user)
+			sess, _, err := m.Open(context.Background(), httptest.NewRequest(http.MethodPost, "/", nil), user, tc.mfaSatisfied)
 			if err != nil {
 				t.Fatalf("Open: %v", err)
 			}

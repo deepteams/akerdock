@@ -39,6 +39,20 @@ func (q *Queries) ConsumePasskeyCeremony(ctx context.Context, arg ConsumePasskey
 	return i, err
 }
 
+const countPasskeysForUser = `-- name: CountPasskeysForUser :one
+SELECT count(*) FROM passkey_credentials WHERE user_id = $1
+`
+
+// A passkey requires user verification (possession + biometric/PIN), so it is
+// an MFA-grade factor in its own right: forced MFA enrolment (§10.2) is
+// satisfied by one, not only by a TOTP secret.
+func (q *Queries) CountPasskeysForUser(ctx context.Context, userID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, countPasskeysForUser, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createPasskeyCeremony = `-- name: CreatePasskeyCeremony :exec
 INSERT INTO passkey_ceremonies (token_hash, purpose, user_id, data, expires_at)
 VALUES ($1, $2, $3, $4, $5)

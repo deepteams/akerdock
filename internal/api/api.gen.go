@@ -3428,7 +3428,7 @@ type InstanceIdentity struct {
 	// ImageRetentionCount Nombre d'images de déploiement conservées localement par application (et par preview) pour le rollback (ADR-006, §29.4). Au-delà, les plus anciennes sont récupérées après un déploiement réussi ; l'image en service est toujours protégée. Défaut 5.
 	ImageRetentionCount *int `json:"image_retention_count,omitempty"`
 
-	// MfaRequired Quand vrai, la double authentification est obligatoire : un utilisateur sans facteur confirmé est forcé de l'enrôler avant de pouvoir utiliser l'instance (§10.2).
+	// MfaRequired Quand vrai, la double authentification est obligatoire : un utilisateur sans facteur MFA est forcé d'en enrôler un avant de pouvoir utiliser l'instance (§10.2). Un facteur MFA est un TOTP confirmé OU une passkey (vérification utilisateur requise, donc multi-facteur à elle seule). Les connexions déléguées (OIDC/SSO) n'y sont pas soumises : le fournisseur d'identité porte le second facteur.
 	MfaRequired *bool `json:"mfa_required,omitempty"`
 
 	// PasswordLoginDisabled SSO obligatoire (§10.2) : quand vrai, le login par mot de passe est refusé (sauf l'administrateur d'instance) — seuls les providers OIDC authentifient.

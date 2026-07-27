@@ -241,7 +241,8 @@ func (t *TOTP) VerifyLogin(ctx context.Context, r *http.Request, challengeToken,
 	if err := t.Store.ClearFailedLogins(ctx, user.ID); err != nil {
 		return nil, "", err
 	}
-	return t.Sessions.Open(ctx, r, user)
+	// The TOTP challenge just passed: MFA is satisfied for this session.
+	return t.Sessions.Open(ctx, r, user, true)
 }
 
 // Disable turns 2FA off. It demands a currently-valid code (or a recovery

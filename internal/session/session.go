@@ -165,14 +165,21 @@ func (m *Manager) Login(ctx context.Context, r *http.Request, email, plaintext s
 		return nil, "", err
 	}
 
-	return m.Open(ctx, r, user)
+	// A bare password is a single factor: forced MFA enrolment may still apply.
+	return m.Open(ctx, r, user, false)
 }
 
 // Open mints a brand-new session for an already-authenticated user. It is the
-// shared tail of every login flow (password, passkey): whatever proved the
-// identity, the session that comes out is the same — new token, new CSRF
-// secret, so there is no pre-login session id to fixate onto.
-func (m *Manager) Open(ctx context.Context, r *http.Request, user store.User) (*Session, string, error) {
+// shared tail of every login flow (password, passkey, federated): whatever
+// proved the identity, the session that comes out is the same — new token, new
+// CSRF secret, so there is no pre-login session id to fixate onto.
+//
+// mfaSatisfied says the login method already provided multi-factor assurance,
+// so forced MFA enrolment does not apply: a passkey (user verification is
+// REQUIRED — possession + biometric/PIN) and a federated login (the IdP owns
+// the second factor, §10.2) both pass it, as does a login that just cleared the
+// TOTP challenge. Only a bare password sets it false.
+func (m *Manager) Open(ctx context.Context, r *http.Request, user store.User, mfaSatisfied bool) (*Session, string, error) {
 	membership, err := m.Store.GetTeamMembershipForUser(ctx, user.ID)
 	if err != nil {
 		return nil, "", fmt.Errorf("the account belongs to no team")
@@ -188,14 +195,15 @@ func (m *Manager) Open(ctx context.Context, r *http.Request, user store.User) (*
 	}
 
 	// Forced MFA enrollment (ISO A.8.5): if the instance requires MFA and this
-	// user has no confirmed factor, the session opens PENDING — usable only to
-	// enroll a factor, blocked on the API until they do. A user WITH a factor
-	// never reaches Open without having just passed the MFA challenge, so is
-	// never pending.
+	// user has no MFA-grade factor, the session opens PENDING — usable only to
+	// enroll one, blocked on the API until they do. A factor is a confirmed TOTP
+	// secret OR a passkey (which does user verification, so it is multi-factor on
+	// its own). A login that already carried its own assurance — passkey,
+	// federated, or a cleared TOTP challenge — is never pending.
 	pending := false
-	if settings, err := m.Store.GetInstanceSettings(ctx); err == nil && settings.MfaRequired {
-		if factor, err := m.Store.GetMfaFactorForUser(ctx, user.ID); err != nil || !factor.ConfirmedAt.Valid {
-			pending = true
+	if !mfaSatisfied {
+		if settings, err := m.Store.GetInstanceSettings(ctx); err == nil && settings.MfaRequired {
+			pending = !m.hasMFAFactor(ctx, user.ID)
 		}
 	}
 
@@ -218,6 +226,19 @@ func (m *Manager) Open(ctx context.Context, r *http.Request, user store.User) (*
 		Email: user.Email, Name: user.Name, CSRFToken: csrf, Role: membership.Role,
 		MFAPending: pending,
 	}, token, nil
+}
+
+// hasMFAFactor reports whether the user already holds an MFA-grade factor: a
+// confirmed TOTP secret, or at least one passkey (user verification is required
+// on passkeys, so a single one is possession + inherence — multi-factor).
+func (m *Manager) hasMFAFactor(ctx context.Context, userID int64) bool {
+	if factor, err := m.Store.GetMfaFactorForUser(ctx, userID); err == nil && factor.ConfirmedAt.Valid {
+		return true
+	}
+	if n, err := m.Store.CountPasskeysForUser(ctx, userID); err == nil && n > 0 {
+		return true
+	}
+	return false
 }
 
 // SessionFromRequest resolves the session cookie into its full row (user

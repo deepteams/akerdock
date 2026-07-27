@@ -4130,7 +4130,7 @@ export interface components {
             readonly api_enabled?: boolean;
             /** @description Inscription en libre-service (§10.2). Fermée par défaut : personne ne crée de compte seul. Une invitation en attente autorise malgré tout la création de compte au premier login SSO, indépendamment de ce drapeau. */
             readonly registration_enabled?: boolean;
-            /** @description Quand vrai, la double authentification est obligatoire : un utilisateur sans facteur confirmé est forcé de l'enrôler avant de pouvoir utiliser l'instance (§10.2). */
+            /** @description Quand vrai, la double authentification est obligatoire : un utilisateur sans facteur MFA est forcé d'en enrôler un avant de pouvoir utiliser l'instance (§10.2). Un facteur MFA est un TOTP confirmé OU une passkey (vérification utilisateur requise, donc multi-facteur à elle seule). Les connexions déléguées (OIDC/SSO) n'y sont pas soumises : le fournisseur d'identité porte le second facteur. */
             readonly mfa_required?: boolean;
             /** @description SSO obligatoire (§10.2) : quand vrai, le login par mot de passe est refusé (sauf l'administrateur d'instance) — seuls les providers OIDC authentifient. */
             readonly password_login_disabled?: boolean;

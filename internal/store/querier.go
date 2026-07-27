@@ -97,6 +97,10 @@ type Querier interface {
 	// Live sessions plus still-claimable tokens: both hold a slot of the per-team
 	// cap, otherwise issuing tokens in a burst would bypass it.
 	CountOpenTerminalSessions(ctx context.Context, teamID int64) (int64, error)
+	// A passkey requires user verification (possession + biometric/PIN), so it is
+	// an MFA-grade factor in its own right: forced MFA enrolment (§10.2) is
+	// satisfied by one, not only by a TOTP secret.
+	CountPasskeysForUser(ctx context.Context, userID int64) (int64, error)
 	// A credential still referenced by a build config or by a rollback artifact
 	// cannot be deleted: the deployment that depends on it would stop being able
 	// to pull its own image (§19.2).

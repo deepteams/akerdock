@@ -9516,8 +9516,12 @@ components:
           readOnly: true
           description: >-
             Quand vrai, la double authentification est obligatoire : un
-            utilisateur sans facteur confirmé est forcé de l'enrôler avant de
-            pouvoir utiliser l'instance (§10.2).
+            utilisateur sans facteur MFA est forcé d'en enrôler un avant de
+            pouvoir utiliser l'instance (§10.2). Un facteur MFA est un TOTP
+            confirmé OU une passkey (vérification utilisateur requise, donc
+            multi-facteur à elle seule). Les connexions déléguées (OIDC/SSO)
+            n'y sont pas soumises : le fournisseur d'identité porte le second
+            facteur.
         password_login_disabled:
           type: boolean
           readOnly: true
