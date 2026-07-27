@@ -990,15 +990,18 @@ func (r *deploymentRun) ensureComposeImage(ctx context.Context, sp compose.Servi
 			}
 			args += fmt.Sprintf(" --build-arg %s=%s", key, shellQuote(*value))
 		}
-		if err := r.step(ctx, "build_"+sp.Name, func() (*sshexec.Result, error) {
-			return r.client.Run(ctx, fmt.Sprintf(
+		// Streamed: a service image build is often the longest part of a compose
+		// deploy — its progress must show live, not arrive in one block at the end.
+		if err := r.streamStep(ctx, "build_"+sp.Name, func(onOutput func(string)) (*sshexec.Result, error) {
+			return r.client.RunStream(ctx, fmt.Sprintf(
 				"cd %s/%s && DOCKER_BUILDKIT=1 docker build --file %s --progress plain%s --tag %s %s --label akerdock.commit_sha=%s --label akerdock.component=%s .",
-				workDir, strings.TrimPrefix(buildCtx, "./"), dockerfile, args, ref, labels, sha, sp.Name))
+				workDir, strings.TrimPrefix(buildCtx, "./"), dockerfile, args, ref, labels, sha, sp.Name), onOutput)
 		}); err != nil {
 			return composeImage{}, err
 		}
-	} else if err := r.step(ctx, "pull_"+sp.Name, func() (*sshexec.Result, error) {
-		return r.client.Run(ctx, "docker pull "+ref)
+	} else if err := r.streamStep(ctx, "pull_"+sp.Name, func(onOutput func(string)) (*sshexec.Result, error) {
+		// A pull of a large image is a long, opaque wait otherwise.
+		return r.client.RunStream(ctx, "docker pull "+ref, onOutput)
 	}); err != nil {
 		return composeImage{}, err
 	}

@@ -618,8 +618,9 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 			return err
 		}
 		defer logout()
-		if err := r.step(ctx, "pull", func() (*sshexec.Result, error) {
-			return r.client.Run(ctx, "docker pull "+imageRef)
+		// Streamed: pulling a large image is otherwise a long, silent wait.
+		if err := r.streamStep(ctx, "pull", func(onOutput func(string)) (*sshexec.Result, error) {
+			return r.client.RunStream(ctx, "docker pull "+imageRef, onOutput)
 		}); err != nil {
 			return err
 		}
@@ -1858,7 +1859,7 @@ func (r *deploymentRun) buildWithNixpacks(ctx context.Context, srcDir, baseDir, 
 		return nil
 	}
 
-	return r.step(ctx, "package_static", func() (*sshexec.Result, error) {
+	return r.streamStep(ctx, "package_static", func(onOutput func(string)) (*sshexec.Result, error) {
 		conf := defaultNginxConfig
 		if c := r.app.BuildConfig.CustomNginxConfig; c != nil && *c != "" {
 			conf = *c
@@ -1880,9 +1881,12 @@ EXPOSE 80
 		if res, err := r.bc().RunInput(ctx, "cat > "+path, dockerfile); err != nil || res.ExitCode != 0 {
 			return res, fmt.Errorf("writing the static Dockerfile failed")
 		}
-		res, err := r.bc().Run(ctx, fmt.Sprintf(
+		// Streamed like every other docker build: the nginx packaging can pull a
+		// base image and copy a large asset tree, so its progress must show live
+		// rather than land in one block at the end.
+		res, err := r.bc().RunStream(ctx, fmt.Sprintf(
 			"cd %s/%s && DOCKER_BUILDKIT=1 docker build --file %s --progress plain --tag %s %s --label akerdock.commit_sha=%s . && docker rmi %s >/dev/null 2>&1 || true",
-			srcDir, baseDir, staticDockerfileName, imageRef, labels, sha, buildRef))
+			srcDir, baseDir, staticDockerfileName, imageRef, labels, sha, buildRef), onOutput)
 		if err == nil && res.ExitCode != 0 {
 			return res, fmt.Errorf("packaging the built assets into nginx failed: %s", firstLine(res.Stderr))
 		}
@@ -2191,13 +2195,13 @@ func (r *deploymentRun) pushBuiltImage(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	if err := r.step(ctx, "pull_from_registry", func() (*sshexec.Result, error) {
+	if err := r.streamStep(ctx, "pull_from_registry", func(onOutput func(string)) (*sshexec.Result, error) {
 		if err := dockerLogin(ctx, r.client, cred.RegistryUrl, cred.Username, string(password)); err != nil {
 			return nil, err
 		}
 		defer dockerLogout(ctx, r.client, cred.RegistryUrl, r.h.Logger)
 
-		res, err := r.client.Run(ctx, "docker pull "+shellQuote(digest))
+		res, err := r.client.RunStream(ctx, "docker pull "+shellQuote(digest), onOutput)
 		if err != nil {
 			return res, err
 		}
