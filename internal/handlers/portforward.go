@@ -252,6 +252,11 @@ func (a *API) TunnelWebSocket(w http.ResponseWriter, r *http.Request) {
 		a.endPortForwardSession(row, tunnel.EndDisconnect)
 		return
 	}
+	// The client frames raw TCP into binary messages whose size follows the
+	// forwarded stream (a bulk COPY upload sends large frames). Without this,
+	// coder/websocket's 32 KiB default read limit aborts the whole tunnel the
+	// moment a big frame arrives — the client sets the same unlimited read.
+	conn.SetReadLimit(-1)
 	dial := func(ctx context.Context) (net.Conn, error) { return client.DialTCP(addr) }
 	reason := tunnel.Bridge(r.Context(), tunnelConn{conn}, dial, tunnel.Options{})
 	a.endPortForwardSession(row, reason)
