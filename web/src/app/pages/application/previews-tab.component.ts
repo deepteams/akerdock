@@ -102,7 +102,16 @@ type PullRequestInfo =
                     <span class="akd-muted">(fork)</span>
                   }
                 </td>
-                <td><akd-status-badge domain="preview" [state]="p.status" /></td>
+                <td>
+                  @if (awaitingDeploy(p)) {
+                    <!-- Manual-first policy: the row is a RESERVATION — the
+                         internal status stays 'queued', but nothing will
+                         deploy it until a human says so (§20.4). -->
+                    <span class="akd-badge akd-badge--mono">awaiting deploy</span>
+                  } @else {
+                    <akd-status-badge domain="preview" [state]="p.status" />
+                  }
+                </td>
                 <td>
                   @if (p.fqdn) {
                     <a class="akd-mono" [href]="'https://' + p.fqdn" target="_blank" rel="noopener">
@@ -113,6 +122,16 @@ type PullRequestInfo =
                   }
                 </td>
                 <td class="right">
+                  @if (awaitingDeploy(p) && !p.is_fork && p.pr_id) {
+                    <button
+                      class="akd-btn akd-btn--primary akd-btn--sm"
+                      type="button"
+                      [disabled]="busy()"
+                      (click)="deployPr(p.pr_id)"
+                    >
+                      Deploy
+                    </button>
+                  }
                   <a
                     class="akd-btn akd-btn--ghost akd-btn--sm"
                     [routerLink]="['/applications', uuid(), 'previews', p.uuid]"
@@ -224,6 +243,24 @@ export class ApplicationPreviewsTabComponent implements OnDestroy {
   readonly uuid = input.required<string>();
 
   private readonly api = inject(ApiService);
+
+  /** The application's preview_deploy_on_open — fed by the parent page so a
+   * manual-first reservation can be labeled for what it is. */
+  readonly deployOnOpen = input<boolean | undefined>(undefined);
+
+  /**
+   * Manual-first reservation (§20.4): the internal status is 'queued', but
+   * with auto-deploy off, no deployment ever ran and no human ordered one,
+   * nothing will pick it up — the honest label is "awaiting deploy".
+   */
+  protected awaitingDeploy(p: Preview): boolean {
+    return (
+      this.deployOnOpen() === false &&
+      p.status === 'queued' &&
+      !p.deploy_requested_at &&
+      !p.last_deployed_at
+    );
+  }
 
   protected readonly previews = signal<Preview[]>([]);
   protected readonly loading = signal(true);

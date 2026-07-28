@@ -4785,6 +4785,11 @@ export interface components {
              * @enum {string}
              */
             readonly status: "queued" | "deploying" | "active" | "failed" | "destroying" | "cleanup_failed" | "destroyed" | "sleeping" | "waking";
+            /**
+             * Format: date-time
+             * @description First explicit human deploy order (/deploy, /rebuild, the Previews tab, a fork approval). Under the manual-first policy (`preview_deploy_on_open=false`), a `queued` preview with neither this nor `last_deployed_at` is a RESERVATION awaiting a human — nothing will deploy it automatically (§20.4).
+             */
+            readonly deploy_requested_at?: string | null;
             /** Format: date-time */
             readonly last_deployed_at?: string | null;
             /** Format: date-time */

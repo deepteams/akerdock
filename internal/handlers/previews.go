@@ -24,17 +24,18 @@ import (
 
 func previewToAPI(p store.Preview) api.Preview {
 	out := api.Preview{
-		Uuid:           ptr(uuidString(p.Uuid)),
-		PrId:           ptr(int(p.PrID)),
-		Provider:       ptr(string(p.Provider)),
-		SourceBranch:   p.SourceBranch,
-		HeadSha:        p.HeadSha,
-		IsFork:         ptr(p.IsFork),
-		ForkApproved:   ptr(p.ForkApprovedAt.Valid),
-		Fqdn:           p.Fqdn,
-		Status:         ptr(api.PreviewStatus(p.Status)),
-		LastDeployedAt: timePtr(p.LastDeployedAt),
-		CreatedAt:      timePtr(p.CreatedAt),
+		Uuid:              ptr(uuidString(p.Uuid)),
+		PrId:              ptr(int(p.PrID)),
+		Provider:          ptr(string(p.Provider)),
+		SourceBranch:      p.SourceBranch,
+		HeadSha:           p.HeadSha,
+		IsFork:            ptr(p.IsFork),
+		ForkApproved:      ptr(p.ForkApprovedAt.Valid),
+		Fqdn:              p.Fqdn,
+		Status:            ptr(api.PreviewStatus(p.Status)),
+		DeployRequestedAt: timePtr(p.DeployRequestedAt),
+		LastDeployedAt:    timePtr(p.LastDeployedAt),
+		CreatedAt:         timePtr(p.CreatedAt),
 	}
 	return out
 }

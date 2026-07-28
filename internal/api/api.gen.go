@@ -3859,15 +3859,18 @@ type PortForwardSession struct {
 
 // Preview Ephemeral environment of a PR (§20.4, data dictionary §8.9).
 type Preview struct {
-	CreatedAt      *time.Time `json:"created_at,omitempty"`
-	ForkApproved   *bool      `json:"fork_approved,omitempty"`
-	Fqdn           *string    `json:"fqdn,omitempty"`
-	HeadSha        *string    `json:"head_sha,omitempty"`
-	IsFork         *bool      `json:"is_fork,omitempty"`
-	LastDeployedAt *time.Time `json:"last_deployed_at,omitempty"`
-	PrId           *int       `json:"pr_id,omitempty"`
-	Provider       *string    `json:"provider,omitempty"`
-	SourceBranch   *string    `json:"source_branch,omitempty"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// DeployRequestedAt First explicit human deploy order (/deploy, /rebuild, the Previews tab, a fork approval). Under the manual-first policy (`preview_deploy_on_open=false`), a `queued` preview with neither this nor `last_deployed_at` is a RESERVATION awaiting a human — nothing will deploy it automatically (§20.4).
+	DeployRequestedAt *time.Time `json:"deploy_requested_at,omitempty"`
+	ForkApproved      *bool      `json:"fork_approved,omitempty"`
+	Fqdn              *string    `json:"fqdn,omitempty"`
+	HeadSha           *string    `json:"head_sha,omitempty"`
+	IsFork            *bool      `json:"is_fork,omitempty"`
+	LastDeployedAt    *time.Time `json:"last_deployed_at,omitempty"`
+	PrId              *int       `json:"pr_id,omitempty"`
+	Provider          *string    `json:"provider,omitempty"`
+	SourceBranch      *string    `json:"source_branch,omitempty"`
 
 	// Status State of the preview (§20.4). `sleeping`/`waking` = scale-to-zero (ADR-036): put to sleep on inactivity (a voluntary stop, not a "down"), and woken on the fly by the waker on the first request.
 	Status *PreviewStatus `json:"status,omitempty"`

@@ -10788,6 +10788,17 @@ components:
             (ADR-036): put to sleep on inactivity (a voluntary stop, not a
             "down"), and woken on the fly by the waker on the first
             request.
+        deploy_requested_at:
+          type: string
+          nullable: true
+          format: date-time
+          readOnly: true
+          description: >-
+            First explicit human deploy order (/deploy, /rebuild, the
+            Previews tab, a fork approval). Under the manual-first policy
+            (`preview_deploy_on_open=false`), a `queued` preview with neither
+            this nor `last_deployed_at` is a RESERVATION awaiting a human —
+            nothing will deploy it automatically (§20.4).
         last_deployed_at:
           type: string
           nullable: true

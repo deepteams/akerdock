@@ -242,7 +242,10 @@ type TabId =
         <app-application-deployments-tab [uuid]="uuid()" />
       }
       @case ('previews') {
-        <app-application-previews-tab [uuid]="uuid()" />
+        <app-application-previews-tab
+          [uuid]="uuid()"
+          [deployOnOpen]="application()?.preview_deploy_on_open"
+        />
       }
       @case ('logs') {
         <app-application-logs-tab [uuid]="uuid()" [preselect]="componentParam() ?? ''" />
