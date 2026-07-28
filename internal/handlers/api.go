@@ -42,6 +42,9 @@ type API struct {
 	// OAuth is the federated login engine behind /auth/oauth/* (§10.2).
 	// Nil in API-only deployments, like Sessions.
 	OAuth *session.OAuth
+	// Agents tracks the live agent channels (ADR-041): presence is the
+	// connection. Zero value ready.
+	Agents AgentPresence
 	api.Unimplemented
 
 	Store    *store.Queries
@@ -145,6 +148,9 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 		return req.Header.Get("Authorization")
 	})
 	r.With(agentLimit).Post("/agent/v1/observations", a.AgentObservations)
+	// The persistent channel (ADR-041): one long-lived WebSocket per server,
+	// no rate limiter — a connection, not a request stream.
+	r.Get("/agent/v1/ws", a.AgentChannel)
 
 	// Preview SSO (ADR-030): forward-auth is Traefik calling per request,
 	// authorize is a BROWSER redirect authenticated by the panel session —

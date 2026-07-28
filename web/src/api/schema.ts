@@ -4462,6 +4462,13 @@ export interface components {
             is_build_server?: boolean;
             /** @description True for the `localhost` server pre-registered at bootstrap (instance-config §6.2) — the machine hosting the instance. Never settable through the API. */
             readonly is_localhost?: boolean;
+            /** @description Whether the server's agent holds a live channel to the control plane right now (ADR-041) — presence is the connection. False for a silent agent, a pre-enrollment helper, or blocked egress; the SSH scans keep working either way (ADR-040). */
+            readonly agent_connected?: boolean;
+            /**
+             * Format: date-time
+             * @description Last authenticated observation push from the server's agent (ADR-040). NULL before the first push.
+             */
+            readonly agent_seen_at?: string | null;
             wildcard_domain?: string | null;
             /** @enum {string} */
             proxy_type?: "traefik" | "none";

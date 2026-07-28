@@ -4224,6 +4224,12 @@ type ScimTokenCreated struct {
 
 // Server SSH target server (§3) — lifecycle states §21.2.
 type Server struct {
+	// AgentConnected Whether the server's agent holds a live channel to the control plane right now (ADR-041) — presence is the connection. False for a silent agent, a pre-enrollment helper, or blocked egress; the SSH scans keep working either way (ADR-040).
+	AgentConnected *bool `json:"agent_connected,omitempty"`
+
+	// AgentSeenAt Last authenticated observation push from the server's agent (ADR-040). NULL before the first push.
+	AgentSeenAt *time.Time `json:"agent_seen_at,omitempty"`
+
 	// Architecture Architecture detected at validation.
 	Architecture            *ServerArchitecture `json:"architecture,omitempty"`
 	CleanupCron             *string             `json:"cleanup_cron,omitempty"`

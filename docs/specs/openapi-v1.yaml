@@ -10227,6 +10227,22 @@ components:
             (instance-config §6.2) — the machine hosting the instance. Never
             settable through the API.
           readOnly: true
+        agent_connected:
+          type: boolean
+          description: >-
+            Whether the server's agent holds a live channel to the control
+            plane right now (ADR-041) — presence is the connection. False for
+            a silent agent, a pre-enrollment helper, or blocked egress; the
+            SSH scans keep working either way (ADR-040).
+          readOnly: true
+        agent_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            Last authenticated observation push from the server's agent
+            (ADR-040). NULL before the first push.
+          readOnly: true
         wildcard_domain:
           type: string
           nullable: true

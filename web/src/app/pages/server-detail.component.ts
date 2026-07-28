@@ -170,6 +170,20 @@ const EXPIRY_WARN_DAYS = 14;
               <dd>{{ srv.wildcard_domain ?? '—' }}</dd>
               <dt>Last observed</dt>
               <dd>{{ srv.observed_at ?? 'never' }}</dd>
+              <dt>Agent</dt>
+              <dd>
+                @if (srv.agent_connected) {
+                  <akd-status-badge domain="resource" state="healthy" label="connected" />
+                } @else if (srv.agent_seen_at) {
+                  <akd-status-badge
+                    domain="resource"
+                    state="unknown"
+                    [label]="'silent — last seen ' + srv.agent_seen_at"
+                  />
+                } @else {
+                  <span class="akd-badge akd-badge--mono">not enrolled</span>
+                }
+              </dd>
             </dl>
           </akd-card>
 

@@ -5,13 +5,16 @@
 package handlers
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/httpapi"
@@ -32,20 +35,30 @@ type agentObservation struct {
 // leaves headroom without letting a broken sender stuff megabytes of hints.
 const agentBatchMax = 500
 
-// AgentObservations implements POST /agent/v1/observations: authenticate the
-// per-server token, then apply each observation best-effort — a malformed or
-// out-of-scope entry is skipped, never a reason to fail the batch (delivery
-// is at-least-once; the agent would only resend it).
-func (a *API) AgentObservations(w http.ResponseWriter, r *http.Request) {
+// authAgentToken resolves the per-server token of an agent request; ok=false
+// means the 401 was already written.
+func (a *API) authAgentToken(w http.ResponseWriter, r *http.Request) (store.AgentToken, bool) {
 	raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !strings.HasPrefix(raw, "akda_") {
 		httpapi.WriteError(w, r, http.StatusUnauthorized, httpapi.CodeUnauthorized, "agent token required")
-		return
+		return store.AgentToken{}, false
 	}
 	sum := sha256.Sum256([]byte(raw))
 	token, err := a.Store.GetAgentTokenByHash(r.Context(), hex.EncodeToString(sum[:]))
 	if err != nil {
 		httpapi.WriteError(w, r, http.StatusUnauthorized, httpapi.CodeUnauthorized, "unknown agent token")
+		return store.AgentToken{}, false
+	}
+	return token, true
+}
+
+// AgentObservations implements POST /agent/v1/observations: authenticate the
+// per-server token, then apply each observation best-effort — a malformed or
+// out-of-scope entry is skipped, never a reason to fail the batch (delivery
+// is at-least-once; the agent would only resend it).
+func (a *API) AgentObservations(w http.ResponseWriter, r *http.Request) {
+	token, ok := a.authAgentToken(w, r)
+	if !ok {
 		return
 	}
 	_ = a.Store.TouchAgentTokenSeen(r.Context(), token.ID)
@@ -63,16 +76,131 @@ func (a *API) AgentObservations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, o := range payload.Observations {
-		a.applyAgentObservation(r, token.ServerID, o)
+		a.applyAgentObservation(r.Context(), token.ServerID, o)
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// AgentPresence tracks the live agent channels per server (ADR-041 §2) —
+// in-memory, accurate within the supported single-api topology.
+type AgentPresence struct {
+	mu   sync.Mutex
+	live map[int64]int
+}
+
+func (p *AgentPresence) connect(serverID int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.live == nil {
+		p.live = map[int64]int{}
+	}
+	p.live[serverID]++
+}
+
+func (p *AgentPresence) disconnect(serverID int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.live[serverID]--; p.live[serverID] <= 0 {
+		delete(p.live, serverID)
+	}
+}
+
+// Connected reports whether the server's agent holds a live channel.
+func (p *AgentPresence) Connected(serverID int64) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.live[serverID] > 0
+}
+
+// AgentChannel implements GET /agent/v1/ws (ADR-041): the persistent
+// outbound channel. Presence is the connection; observation frames are
+// acknowledged by sequence — a refused batch is acked `denied` so the agent
+// drops it instead of retrying forever.
+func (a *API) AgentChannel(w http.ResponseWriter, r *http.Request) {
+	token, ok := a.authAgentToken(w, r)
+	if !ok {
+		return
+	}
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"akerdock-agent-v1"}})
+	if err != nil {
+		return
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+	conn.SetReadLimit(1 << 20)
+
+	a.Agents.connect(token.ServerID)
+	defer a.Agents.disconnect(token.ServerID)
+	_ = a.Store.TouchAgentTokenSeen(r.Context(), token.ID)
+	a.Logger.Info("agent channel connected", "server_id", token.ServerID)
+	defer a.Logger.Info("agent channel closed", "server_id", token.ServerID)
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	// Dead-peer detection (ADR-041 §2): a ping that cannot round-trip ends
+	// the connection — presence flips within seconds, not heartbeat minutes.
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				pingCtx, pingCancel := context.WithTimeout(ctx, 10*time.Second)
+				err := conn.Ping(pingCtx)
+				pingCancel()
+				if err != nil {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
+	type frame struct {
+		Type         string             `json:"type"`
+		Seq          int64              `json:"seq"`
+		Observations []agentObservation `json:"observations,omitempty"`
+		Denied       bool               `json:"denied,omitempty"`
+	}
+	writeAck := func(seq int64, denied bool) error {
+		data, err := json.Marshal(frame{Type: "ack", Seq: seq, Denied: denied})
+		if err != nil {
+			return err
+		}
+		writeCtx, writeCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer writeCancel()
+		return conn.Write(writeCtx, websocket.MessageText, data)
+	}
+	for {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			return
+		}
+		var f frame
+		if json.Unmarshal(data, &f) != nil || f.Type != "observations" {
+			continue
+		}
+		if len(f.Observations) > agentBatchMax {
+			if writeAck(f.Seq, true) != nil {
+				return
+			}
+			continue
+		}
+		for _, o := range f.Observations {
+			a.applyAgentObservation(ctx, token.ServerID, o)
+		}
+		_ = a.Store.TouchAgentTokenSeen(ctx, token.ID)
+		if writeAck(f.Seq, false) != nil {
+			return
+		}
+	}
 }
 
 // applyAgentObservation applies one hint, scoped to the sender's server by
 // construction: every query carries the server id, so a compromised agent can
 // never touch another server's state.
-func (a *API) applyAgentObservation(r *http.Request, serverID int64, o agentObservation) {
-	ctx := r.Context()
+func (a *API) applyAgentObservation(ctx context.Context, serverID int64, o agentObservation) {
 	switch o.Type {
 	case "heartbeat":
 		// The touch on the token row already recorded liveness.
@@ -90,14 +218,14 @@ func (a *API) applyAgentObservation(r *http.Request, serverID int64, o agentObse
 			if err := a.Store.SetPreviewAwake(ctx, p.ID); err != nil {
 				return
 			}
-			a.emitAgentPreviewWoken(r, p)
+			a.emitAgentPreviewWoken(ctx, p)
 			return
 		}
 		// Else: a slept scale-to-zero application on this server.
 		if id, err := a.Store.WakeSleptApplicationForServer(ctx, store.WakeSleptApplicationForServerParams{
 			Uuid: u, ServerID: serverID,
 		}); err == nil {
-			a.emitAgentApplicationWoken(r, id, u)
+			a.emitAgentApplicationWoken(ctx, id, u)
 		}
 	case "container_state":
 		resourceUUID, component, ok := splitComponentContainer(o.Container)
@@ -116,8 +244,7 @@ func (a *API) applyAgentObservation(r *http.Request, serverID int64, o agentObse
 
 // emitAgentPreviewWoken publishes the same event the scheduler's scan emits,
 // so the previews tab refreshes within a second of the wake.
-func (a *API) emitAgentPreviewWoken(r *http.Request, p store.Preview) {
-	ctx := r.Context()
+func (a *API) emitAgentPreviewWoken(ctx context.Context, p store.Preview) {
 	app, err := a.Store.GetApplicationByID(ctx, p.ApplicationID)
 	if err != nil {
 		return
@@ -136,8 +263,7 @@ func (a *API) emitAgentPreviewWoken(r *http.Request, p store.Preview) {
 
 // emitAgentApplicationWoken mirrors the scheduler's application.woken.v1, so
 // the application pages refresh within a second of the wake.
-func (a *API) emitAgentApplicationWoken(r *http.Request, resourceID int64, resourceUUID pgtype.UUID) {
-	ctx := r.Context()
+func (a *API) emitAgentApplicationWoken(ctx context.Context, resourceID int64, resourceUUID pgtype.UUID) {
 	app, err := a.Store.GetApplicationByID(ctx, resourceID)
 	if err != nil {
 		return

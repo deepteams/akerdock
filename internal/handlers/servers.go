@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -17,12 +18,21 @@ import (
 	"github.com/deepteams/akerdock/internal/store"
 )
 
-func serverToAPI(s store.Server, privateKeyUUID string, dnsCredentialUUID *string) api.Server {
+func (a *API) serverToAPI(r *http.Request, s store.Server, privateKeyUUID string, dnsCredentialUUID *string) api.Server {
 	var arch *api.ServerArchitecture
 	if s.Architecture != nil {
 		arch = ptr(api.ServerArchitecture(*s.Architecture))
 	}
+	// Agent presence (ADR-040/041): live connection from the in-memory
+	// registry, durable trace from the token row. Best-effort — a server
+	// without a token simply reads as never seen.
+	var agentSeen *time.Time
+	if token, err := a.Store.GetAgentTokenByServerID(r.Context(), s.ID); err == nil {
+		agentSeen = timePtr(token.LastSeenAt)
+	}
 	return api.Server{
+		AgentConnected:    ptr(a.Agents.Connected(s.ID)),
+		AgentSeenAt:       agentSeen,
 		Uuid:              ptr(uuidString(s.Uuid)),
 		Name:              s.Name,
 		Description:       s.Description,
@@ -105,7 +115,7 @@ func (a *API) ListServers(w http.ResponseWriter, r *http.Request, params api.Lis
 
 	data := make([]api.Server, 0, len(rows))
 	for _, s := range rows {
-		data = append(data, serverToAPI(s, a.privateKeyUUIDByID(r, s.PrivateKeyID), a.dnsCredentialUUIDByID(r, s.DnsCredentialID)))
+		data = append(data, a.serverToAPI(r, s, a.privateKeyUUIDByID(r, s.PrivateKeyID), a.dnsCredentialUUIDByID(r, s.DnsCredentialID)))
 	}
 	httpapi.WriteJSON(w, http.StatusOK, struct {
 		Data       []api.Server `json:"data"`
@@ -228,7 +238,7 @@ func (a *API) CreateServer(w http.ResponseWriter, r *http.Request, params api.Cr
 		return
 	}
 	w.Header().Set("ETag", etagFor(server.Version))
-	httpapi.WriteJSON(w, http.StatusCreated, serverToAPI(server, uuidString(key.Uuid), a.dnsCredentialUUIDByID(r, server.DnsCredentialID)))
+	httpapi.WriteJSON(w, http.StatusCreated, a.serverToAPI(r, server, uuidString(key.Uuid), a.dnsCredentialUUIDByID(r, server.DnsCredentialID)))
 }
 
 // GetServer implements GET /servers/{server_uuid} (permission: read).
@@ -242,7 +252,7 @@ func (a *API) GetServer(w http.ResponseWriter, r *http.Request, serverUuid api.S
 		return
 	}
 	w.Header().Set("ETag", etagFor(server.Version))
-	httpapi.WriteJSON(w, http.StatusOK, serverToAPI(server, a.privateKeyUUIDByID(r, server.PrivateKeyID), a.dnsCredentialUUIDByID(r, server.DnsCredentialID)))
+	httpapi.WriteJSON(w, http.StatusOK, a.serverToAPI(r, server, a.privateKeyUUIDByID(r, server.PrivateKeyID), a.dnsCredentialUUIDByID(r, server.DnsCredentialID)))
 }
 
 // UpdateServer implements PATCH /servers/{server_uuid} (permission: write).
@@ -424,7 +434,7 @@ func (a *API) UpdateServer(w http.ResponseWriter, r *http.Request, serverUuid ap
 		return
 	}
 	w.Header().Set("ETag", etagFor(updated.Version))
-	httpapi.WriteJSON(w, http.StatusOK, serverToAPI(updated, a.privateKeyUUIDByID(r, updated.PrivateKeyID), a.dnsCredentialUUIDByID(r, updated.DnsCredentialID)))
+	httpapi.WriteJSON(w, http.StatusOK, a.serverToAPI(r, updated, a.privateKeyUUIDByID(r, updated.PrivateKeyID), a.dnsCredentialUUIDByID(r, updated.DnsCredentialID)))
 }
 
 // DeleteServer implements DELETE /servers/{server_uuid} (permission:

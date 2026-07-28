@@ -15,7 +15,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 // Observation is one pushed fact. Types: "container_state" (a managed
@@ -62,7 +65,18 @@ type Agent struct {
 	Heartbeat time.Duration
 	Flush     time.Duration
 	Backoff   time.Duration
+	// WSCooldown is how long the agent stays on the POST fallback after a
+	// WebSocket failure before re-dialing (ADR-041 §4).
+	WSCooldown time.Duration
+	// DisableWS forces the POST fallback (tests, or an egress known to break
+	// WebSockets).
+	DisableWS bool
 	now       func() time.Time
+
+	// Channel state — owned by the flush loop, never shared.
+	ws        *websocket.Conn
+	wsSeq     int64
+	wsRetryAt time.Time
 }
 
 // NewAgent builds an agent; events may be nil (no Docker stream).
@@ -71,15 +85,16 @@ func NewAgent(cfg AgentConfig, events eventStreamer, logger *slog.Logger) *Agent
 		logger = slog.Default()
 	}
 	return &Agent{
-		cfg:       cfg,
-		events:    events,
-		logger:    logger,
-		http:      &http.Client{Timeout: 10 * time.Second},
-		queue:     make(chan Observation, agentQueueCap),
-		Heartbeat: time.Minute,
-		Flush:     2 * time.Second,
-		Backoff:   5 * time.Second,
-		now:       time.Now,
+		cfg:        cfg,
+		events:     events,
+		logger:     logger,
+		http:       &http.Client{Timeout: 10 * time.Second},
+		queue:      make(chan Observation, agentQueueCap),
+		Heartbeat:  time.Minute,
+		Flush:      2 * time.Second,
+		Backoff:    5 * time.Second,
+		WSCooldown: time.Minute,
+		now:        time.Now,
 	}
 }
 
@@ -193,7 +208,7 @@ func (a *Agent) flushLoop(ctx context.Context) {
 
 		backoff := a.Backoff
 		for {
-			err := a.post(ctx, batch)
+			err := a.send(ctx, batch)
 			if err == nil {
 				break
 			}
@@ -204,12 +219,109 @@ func (a *Agent) flushLoop(ctx context.Context) {
 			}
 			a.logger.Warn("agent: push failed, retrying", "error", err, "count", len(batch))
 			if sleepCtx(ctx, backoff) != nil {
+				a.closeWS()
 				return
 			}
 			if backoff < time.Minute {
 				backoff *= 2
 			}
 		}
+	}
+}
+
+// agentSubprotocol names the ADR-041 channel, next to akerdock-tunnel-v1.
+const agentSubprotocol = "akerdock-agent-v1"
+
+// wsFrame is one message on the channel, both directions: the agent sends
+// observations, the control plane acknowledges the sequence (Denied marks a
+// batch the control plane refuses — dropped like a POST 4xx, not retried).
+type wsFrame struct {
+	Type         string        `json:"type"`
+	Seq          int64         `json:"seq"`
+	Observations []Observation `json:"observations,omitempty"`
+	Denied       bool          `json:"denied,omitempty"`
+}
+
+// send delivers one batch: over the persistent WebSocket when it is up (or
+// due a re-dial), over the phase-1 POST otherwise — the ADR-041 degradation
+// ladder. A socket failure closes it, arms the cooldown and falls straight
+// through to the POST for THIS batch: delivery never waits on a transport.
+func (a *Agent) send(ctx context.Context, batch []Observation) error {
+	if !a.DisableWS {
+		if a.ws == nil && a.now().After(a.wsRetryAt) {
+			if err := a.dialWS(ctx); err != nil {
+				a.wsRetryAt = a.now().Add(a.WSCooldown)
+				a.logger.Warn("agent: channel dial failed — POST fallback", "error", err)
+			}
+		}
+		if a.ws != nil {
+			err := a.sendWS(ctx, batch)
+			if err == nil {
+				return nil
+			}
+			var deny *denyError
+			if errors.As(err, &deny) {
+				return err
+			}
+			a.closeWS()
+			a.wsRetryAt = a.now().Add(a.WSCooldown)
+			a.logger.Warn("agent: channel broke — POST fallback", "error", err)
+		}
+	}
+	return a.post(ctx, batch)
+}
+
+func (a *Agent) dialWS(ctx context.Context) error {
+	url := strings.Replace(a.cfg.InstanceURL, "http", "ws", 1) + "/agent/v1/ws"
+	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(dialCtx, url, &websocket.DialOptions{
+		Subprotocols: []string{agentSubprotocol},
+		HTTPHeader:   http.Header{"Authorization": {"Bearer " + a.cfg.Token}},
+	})
+	if err != nil {
+		return err
+	}
+	conn.SetReadLimit(1 << 20)
+	a.ws = conn
+	a.logger.Info("agent: channel connected", "instance", a.cfg.InstanceURL)
+	return nil
+}
+
+// sendWS writes the batch as a frame and waits for its acknowledgement — one
+// batch in flight at a time, so at-least-once needs no bookkeeping beyond the
+// sequence number.
+func (a *Agent) sendWS(ctx context.Context, batch []Observation) error {
+	a.wsSeq++
+	frame, err := json.Marshal(wsFrame{Type: "observations", Seq: a.wsSeq, Observations: batch})
+	if err != nil {
+		return err
+	}
+	ioCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := a.ws.Write(ioCtx, websocket.MessageText, frame); err != nil {
+		return err
+	}
+	for {
+		_, data, err := a.ws.Read(ioCtx)
+		if err != nil {
+			return err
+		}
+		var ack wsFrame
+		if json.Unmarshal(data, &ack) != nil || ack.Type != "ack" || ack.Seq != a.wsSeq {
+			continue
+		}
+		if ack.Denied {
+			return &denyError{status: http.StatusBadRequest}
+		}
+		return nil
+	}
+}
+
+func (a *Agent) closeWS() {
+	if a.ws != nil {
+		_ = a.ws.Close(websocket.StatusNormalClosure, "")
+		a.ws = nil
 	}
 }
 
