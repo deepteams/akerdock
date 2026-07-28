@@ -31,6 +31,7 @@ is how an operator ends up believing in a boundary that is not there.
 | **Role assignment scoped to a project or an environment (§3)** | **NOT implemented** — an assignment lives on `team_memberships` and is therefore team-wide. §3 is the specification of that work, not a description of it |
 | Automatic token revocation on loss of rights (§4.4) | **Not implemented** (proposed default) |
 | Scope of an external endpoint (ADR-045 §1) | **Declared, not enforced** — see §3.10 |
+| `projects:create` (team-only, split from `projects:manage`) and the `none` base role | **Specified, not implemented** — added by ADR-046; the catalogue in code still has 78 permissions and three system roles |
 
 Anything marked NOT implemented has one practical consequence today: **inside a team, a
 member holds their permissions on every project of that team**. The only real isolation
@@ -236,7 +237,8 @@ Domain families:
 > disagree, the code is right and this table is stale — regenerate it rather than argue
 > with it. ● = granted; ○ = not granted. `socle` is the coarse token scope the permission
 > projects onto (§4). The three system roles are **immutable** (§3.6); an admin who wants
-> to deviate composes a **custom role** (§1).
+> to deviate composes a **custom role** (§1). ADR-046 adds a fourth, `none` — the empty set —
+> as the base role of a member who only holds scoped assignments (§3.3).
 
 | Permission | socle | admin | member | reviewer |
 |---|---|:---:|:---:|:---:|
@@ -345,7 +347,8 @@ Domain families:
 
 ## 3. Resolution rules
 
-> §3.1 to §3.8 specify the **scoped assignment model**, which is **not implemented today**
+> §3.1 to §3.8 specify the **scoped assignment model**, decided by
+> **[ADR-046](../adr/ADR-046-scoped-role-assignments.md)** and **not implemented today**
 > (see *State of implementation*). They are written to be implementable as they stand: the
 > data model, what a scope can and cannot grant, how a resource's scope is derived, and what
 > a denial looks like. §3.9 (instance root) is implemented and describes the running system.
@@ -395,10 +398,11 @@ role_assignments(uuid, team_id, user_id,
   outliving its scope is a dangling grant, which is exactly the kind of thing that is still
   in the table three years later.
 
-> **An ADR is required before this is built.** The data model above is a proposal; the
-> decisions that need recording are the base-role-plus-exceptions shape, the override
-> semantics of §3.4 (a narrow scope can *reduce* rights), and the `none` base role of §3.3.
-> Not the SQL.
+> Decided by **[ADR-046](../adr/ADR-046-scoped-role-assignments.md)**: the
+> base-role-plus-exceptions shape above, the override semantics of §3.4 (a narrow scope may
+> *reduce* rights), the `none` base role of §3.3, invisibility outside the scope (§3.6), and
+> both levels — project **and** environment — in v1. Scoped delegation (`roles:manage` at a
+> project scope) stays out of scope there too.
 
 ### 3.2 The scope of a resource
 
@@ -450,6 +454,17 @@ what the permission actually reaches:
   its own `project_id`/`environment_id` (`00024_notifications.sql`). The channel — with its
   webhook URL and its token — is team-level, and managing rules today means managing
   channels. Splitting the two is a reasonable follow-up, not part of this specification.
+
+Two entries move with ADR-046 and are listed here in their decided form, ahead of the code:
+
+- **`projects:create` (team-only, new)** — creating a project has no scope to be evaluated
+  against, so the capability is split out rather than turned into a special case of
+  `projects:manage`, which stays **scoped** and means "rename or delete *this* project".
+- **`notifications:read` stays team-read, but notification *rules* are filtered.** A channel
+  carries no project name and knowing which exist is how anyone asks for a rule; a rule
+  carries `project_id`/`environment_id` and would otherwise publish the names of projects a
+  scoped member must not see — the §3.6 leak, through the one collection nobody thinks of as
+  a resource list.
 
 The classification must stay exhaustive: **every catalogue permission appears in exactly one
 class**, and a new permission added to `auth.Catalog` without a class here is a permission
@@ -506,6 +521,10 @@ perms(subject, r) = ⋃ { role.permissions | assignment(subject, role, s) }
     does not exist as far as they are concerned. A `403` here would answer the question the
     boundary exists to refuse;
   - resource the caller **can read but not act on** → `403`.
+- **Where the check happens.** `require(perm)` keeps its meaning — holds the permission
+  *somewhere* — and the scoped evaluation lives in the `resolve*` helpers, which already load
+  the row and own the team-boundary 404 (ADR-046 §6). A handler that skips it cannot compile,
+  because it has no resource without calling a resolver.
 - **Collections must filter, not just guard.** `GET /projects`, `GET /applications`,
   `GET /servers/{uuid}/resources`, the search endpoints and every SSE stream return only what
   the caller's scopes cover. A list endpoint that returns everything and relies on the detail
@@ -546,6 +565,29 @@ every request, never frozen at creation (§4.2).
   `actor.type=user` plus the root flag (§23.4).
 - A token created by the root is **scoped to one team** like any other (§10.3); there is no
   global token.
+
+### 3.11 The access view (reverse resolution)
+
+The rules above answer "may this subject act on this resource". An operator also needs the
+same question with the subject unbound — **who can reach this resource** — and its mirror,
+**what does this member reach**. Both are the resolution of §3.4 evaluated on demand, never a
+stored copy: a denormalized access table drifts from the rules it summarizes, and a review
+reading a stale copy asserts a safety nobody verified.
+
+- Per resource, on applications, databases, services, projects and environments; per member,
+  on the member's own screen (the offboarding question).
+- Each row names **the scope that granted it**, because "Bob" is not actionable and "Bob —
+  member on `project:billing`" is.
+- **API tokens are subjects** (§3.7 makes a token's reach exactly its creator's at that
+  scope), and the instance root is listed apart (§3.9) — omitting either makes the view
+  reassure without grounds.
+- Guarded in two halves: the human rows need `members:read`, the token rows need
+  `tokens:read`.
+- It says nothing about network reach (ADR-042's auth wall), live tunnels or grants
+  (ADR-045), or credentials held outside the platform. Platform permissions, no more.
+
+Specified by [ADR-046 §8](../adr/ADR-046-scoped-role-assignments.md); shippable before the
+assignments exist, where it truthfully answers "every member of the team".
 
 ### 3.10 Consequence for external endpoints (ADR-045)
 
