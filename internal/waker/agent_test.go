@@ -129,25 +129,35 @@ func TestAgentPrefersChannel(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		mu.Lock()
-		done := len(frames) > 0
+		delivered := false
+		for _, f := range frames {
+			for _, o := range f.Observations {
+				delivered = delivered || (f.Type == "observations" && o.ResourceUUID == "res-1")
+			}
+		}
 		mu.Unlock()
-		if done {
+		if delivered {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("no frame ever reached the channel")
+			t.Fatal("the observation never reached the channel")
 		}
 		time.Sleep(time.Millisecond)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if frames[0].Type != "observations" || len(frames[0].Observations) != 1 ||
-		frames[0].Observations[0].ResourceUUID != "res-1" {
-		t.Fatalf("frame = %+v, want the observation batch", frames[0])
-	}
 	if posts != 0 {
 		t.Fatalf("POST fallback used %d times while the channel was healthy", posts)
 	}
+}
+
+// flatten gathers every delivered observation across batches.
+func flatten(batches [][]Observation) []Observation {
+	var out []Observation
+	for _, b := range batches {
+		out = append(out, b...)
+	}
+	return out
 }
 
 func TestAgentPostsAuthenticatedBatches(t *testing.T) {
@@ -158,39 +168,56 @@ func TestAgentPostsAuthenticatedBatches(t *testing.T) {
 	a.Push(Observation{Type: "stz_woken", ResourceUUID: "res-1"})
 	a.Push(Observation{Type: "container_state", Container: "res-1-web", State: "start"})
 
-	batches := c.waitBatches(t, 1)
+	// The startup hello heartbeat may ride the same batch or its own: assert
+	// on delivered content, not batch layout.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		all := flatten(c.waitBatches(t, 1))
+		woken, state := false, false
+		for _, o := range all {
+			woken = woken || o.ResourceUUID == "res-1"
+			state = state || o.Container == "res-1-web"
+		}
+		if woken && state {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("observations never delivered: %+v", all)
+		}
+		time.Sleep(time.Millisecond)
+	}
 	if got := c.auth[0]; got != "Bearer akda_test" {
 		t.Fatalf("authorization = %q, want the agent bearer", got)
-	}
-	if len(batches[0]) != 2 || batches[0][0].Type != "stz_woken" || batches[0][1].Container != "res-1-web" {
-		t.Fatalf("batch = %+v, want both observations in order", batches[0])
 	}
 }
 
 func TestAgentRetriesThenDelivers(t *testing.T) {
+	// The first delivery (the startup hello) fails with a 500: the SAME batch
+	// must be redelivered and accepted.
 	c := &capture{status: []int{http.StatusInternalServerError}}
-	a, cancel := newTestAgent(t, c)
+	_, cancel := newTestAgent(t, c)
 	defer cancel()
 
-	a.Push(Observation{Type: "heartbeat"})
 	batches := c.waitBatches(t, 2) // failed attempt + successful retry
-	if len(batches[1]) != 1 || batches[1][0].Type != "heartbeat" {
-		t.Fatalf("retried batch = %+v, want the same observation redelivered", batches[1])
+	if len(batches[1]) != len(batches[0]) || len(batches[1]) == 0 || batches[1][0].Type != "heartbeat" {
+		t.Fatalf("retried batch = %+v, want the failed batch redelivered", batches[1])
 	}
 }
 
 func TestAgentDropsDeniedBatch(t *testing.T) {
-	c := &capture{status: []int{http.StatusBadRequest}}
+	// Batch 1 (the hello) passes, batch 2 is denied and must be dropped —
+	// batch 3 then carries only the new observation.
+	c := &capture{status: []int{http.StatusAccepted, http.StatusBadRequest}}
 	a, cancel := newTestAgent(t, c)
 	defer cancel()
 
-	a.Push(Observation{Type: "stz_woken", ResourceUUID: "denied"})
 	c.waitBatches(t, 1)
+	a.Push(Observation{Type: "stz_woken", ResourceUUID: "denied"})
+	c.waitBatches(t, 2)
 	a.Push(Observation{Type: "stz_woken", ResourceUUID: "next"})
-	batches := c.waitBatches(t, 2)
-	// The denied batch is NOT retried: the second POST carries only the new one.
-	if len(batches[1]) != 1 || batches[1][0].ResourceUUID != "next" {
-		t.Fatalf("post-deny batch = %+v, want only the new observation", batches[1])
+	batches := c.waitBatches(t, 3)
+	if len(batches[2]) != 1 || batches[2][0].ResourceUUID != "next" {
+		t.Fatalf("post-deny batch = %+v, want only the new observation", batches[2])
 	}
 }
 

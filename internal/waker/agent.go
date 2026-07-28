@@ -122,6 +122,10 @@ func (a *Agent) Run(ctx context.Context) {
 		return
 	}
 	a.logger.Info("agent: observation push enabled", "instance", a.cfg.InstanceURL)
+	// An immediate hello heartbeat opens the channel right away: presence is
+	// the connection (ADR-041 §2), so it must not wait a full heartbeat
+	// interval after the helper starts.
+	a.Push(Observation{Type: "heartbeat", At: a.now()})
 	if a.events != nil {
 		go contain(a.logger, "agent stream", func() { a.streamLoop(ctx) })
 	}
