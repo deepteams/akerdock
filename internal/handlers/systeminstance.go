@@ -40,6 +40,8 @@ func (a *API) instanceIdentity(r *http.Request) (api.InstanceIdentity, error) {
 		MfaRequired:           ptr(settings.MfaRequired),
 		PasswordLoginDisabled: ptr(settings.PasswordLoginDisabled),
 		ImageRetentionCount:   ptr(int(settings.ImageRetentionCount)),
+		McpEnabled:            ptr(settings.McpEnabled),
+		McpDcrEnabled:         ptr(settings.McpDcrEnabled),
 	}, nil
 }
 
@@ -101,6 +103,24 @@ func (a *API) SetInstanceSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.recordAudit(r, id, "instance.mfa_required_updated", "instance", pgtype.UUID{})
+	}
+	// The MCP surface (ADR-043): off by default, and enabling it is audited —
+	// it opens a read path onto the instance's inventory.
+	if body.McpEnabled != nil {
+		if err := a.Store.SetInstanceMcpEnabled(r.Context(), *body.McpEnabled); err != nil {
+			a.internalError(w, r, "set instance settings", err)
+			return
+		}
+		a.recordAudit(r, id, "instance.mcp_enabled_updated", "instance", pgtype.UUID{})
+	}
+	// Opening dynamic client registration (ADR-044) lowers who may identify
+	// as a client: audited like every instance-wide loosening.
+	if body.McpDcrEnabled != nil {
+		if err := a.Store.SetInstanceMcpDcrEnabled(r.Context(), *body.McpDcrEnabled); err != nil {
+			a.internalError(w, r, "set instance settings", err)
+			return
+		}
+		a.recordAudit(r, id, "instance.mcp_dcr_enabled_updated", "instance", pgtype.UUID{})
 	}
 	// SSO-only mode: enabling it with no OIDC provider would lock everyone but
 	// the instance root out — refuse it.

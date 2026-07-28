@@ -2511,6 +2511,8 @@ type InstanceSetting struct {
 	MfaRequired                 bool
 	PasswordLoginDisabled       bool
 	ImageRetentionCount         int32
+	McpEnabled                  bool
+	McpDcrEnabled               bool
 }
 
 type Invitation struct {
@@ -2557,6 +2559,40 @@ type Job struct {
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
 	ResumeCount       int32
+}
+
+type McpAccessToken struct {
+	ID         int64
+	Uuid       pgtype.UUID
+	TokenHash  string
+	ClientID   string
+	ClientName string
+	UserID     int64
+	TeamID     int64
+	ExpiresAt  pgtype.Timestamptz
+	LastUsedAt pgtype.Timestamptz
+	RevokedAt  pgtype.Timestamptz
+	CreatedAt  pgtype.Timestamptz
+}
+
+type McpOauthClient struct {
+	ID           int64
+	ClientID     string
+	ClientName   string
+	RedirectUris []string
+	CreatedAt    pgtype.Timestamptz
+}
+
+type McpOauthCode struct {
+	ID            int64
+	CodeHash      string
+	ClientID      string
+	UserID        int64
+	TeamID        int64
+	RedirectUri   string
+	CodeChallenge string
+	ExpiresAt     pgtype.Timestamptz
+	CreatedAt     pgtype.Timestamptz
 }
 
 type MfaChallenge struct {

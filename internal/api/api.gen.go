@@ -3539,6 +3539,12 @@ type InstanceIdentity struct {
 	// ImageRetentionCount Number of deployment images kept locally per application (and per preview) for rollback (ADR-006, §29.4). Beyond that, the oldest ones are reclaimed after a successful deployment; the image in service is always protected. Default 5.
 	ImageRetentionCount *int `json:"image_retention_count,omitempty"`
 
+	// McpDcrEnabled Whether the MCP server accepts dynamic client registration (ADR-044). Off by default: a client identifies itself with a Client ID Metadata Document (an https `client_id` serving its own metadata), an identity bound to a domain it controls. Enable this only for a client that does not implement CIMD yet.
+	McpDcrEnabled *bool `json:"mcp_dcr_enabled,omitempty"`
+
+	// McpEnabled Whether the built-in MCP server is exposed on `/mcp` (ADR-043, §12). Off by default: the whole surface — endpoint, OAuth metadata and endpoints — answers 404 until an instance root enables it. The tools are read-only and scoped to one team.
+	McpEnabled *bool `json:"mcp_enabled,omitempty"`
+
 	// MfaRequired When true, two-factor authentication is mandatory: a user without an MFA factor is forced to enroll one before being able to use the instance (§10.2). An MFA factor is a confirmed TOTP OR a passkey (user verification required, hence multi-factor on its own). Delegated logins (OIDC/SSO) are not subject to it: the identity provider carries the second factor.
 	MfaRequired *bool `json:"mfa_required,omitempty"`
 
@@ -3560,6 +3566,12 @@ type InstanceIdentityUpdate struct {
 
 	// ImageRetentionCount Number of deployment images kept per application/preview for rollback (ADR-006). Minimum 1. Absent = unchanged.
 	ImageRetentionCount *int `json:"image_retention_count,omitempty"`
+
+	// McpDcrEnabled Opens/closes MCP dynamic client registration (ADR-044). Absent = unchanged.
+	McpDcrEnabled *bool `json:"mcp_dcr_enabled,omitempty"`
+
+	// McpEnabled Exposes/hides the built-in MCP server on `/mcp` (ADR-043). Absent = unchanged.
+	McpEnabled *bool `json:"mcp_enabled,omitempty"`
 
 	// MfaRequired Enables/disables mandatory two-factor authentication (§10.2). Absent = unchanged.
 	MfaRequired *bool `json:"mfa_required,omitempty"`

@@ -56,6 +56,7 @@ func AddCommands(root *cobra.Command, _ string) {
 		shellCmd(),
 		portForwardCmd(),
 		dbCmd(),
+		mcpCmd(),
 	)
 }
 

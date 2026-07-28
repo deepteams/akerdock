@@ -9557,6 +9557,23 @@ components:
             creates an account on their own. A pending invitation nevertheless
             allows account creation at the first SSO login, regardless of this
             flag.
+        mcp_dcr_enabled:
+          type: boolean
+          readOnly: true
+          description: >-
+            Whether the MCP server accepts dynamic client registration
+            (ADR-044). Off by default: a client identifies itself with a
+            Client ID Metadata Document (an https `client_id` serving its own
+            metadata), an identity bound to a domain it controls. Enable this
+            only for a client that does not implement CIMD yet.
+        mcp_enabled:
+          type: boolean
+          readOnly: true
+          description: >-
+            Whether the built-in MCP server is exposed on `/mcp` (ADR-043,
+            §12). Off by default: the whole surface — endpoint, OAuth
+            metadata and endpoints — answers 404 until an instance root
+            enables it. The tools are read-only and scoped to one team.
         mfa_required:
           type: boolean
           readOnly: true
@@ -9601,6 +9618,14 @@ components:
           type: boolean
           nullable: true
           description: Opens/closes self-service signup (§10.2). Absent = unchanged.
+        mcp_dcr_enabled:
+          type: boolean
+          nullable: true
+          description: Opens/closes MCP dynamic client registration (ADR-044). Absent = unchanged.
+        mcp_enabled:
+          type: boolean
+          nullable: true
+          description: Exposes/hides the built-in MCP server on `/mcp` (ADR-043). Absent = unchanged.
         mfa_required:
           type: boolean
           nullable: true

@@ -21,6 +21,7 @@ import (
 	"github.com/deepteams/akerdock/internal/events"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/instance"
+	"github.com/deepteams/akerdock/internal/mcp"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/session"
 	"github.com/deepteams/akerdock/internal/store"
@@ -45,6 +46,9 @@ type API struct {
 	// Agents tracks the live agent channels (ADR-041): presence is the
 	// connection. Zero value ready.
 	Agents AgentPresence
+	// MCP is the built-in Model Context Protocol server (ADR-043). Nil
+	// disables the surface entirely, whatever the instance setting.
+	MCP *mcp.Server
 	api.Unimplemented
 
 	Store    *store.Queries
@@ -165,6 +169,17 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 	r.Get("/webhooks/applications/forward-auth", a.ApplicationForwardAuth)
 	r.Get("/webhooks/applications/authorize", a.ApplicationAuthorize)
 	r.Get("/.akerdock/app-callback", a.ApplicationCallback)
+
+	// Built-in MCP server (ADR-043): its own bearer resolution (API token or
+	// OAuth access token) and its own OAuth endpoints. Outside /api/v1 like
+	// the webhooks — an MCP client is not an API client.
+	r.Post("/mcp", a.McpEndpoint)
+	r.Get("/mcp", a.McpEndpoint)
+	r.Get("/.well-known/oauth-protected-resource", a.McpProtectedResourceMetadata)
+	r.Get("/.well-known/oauth-authorization-server", a.McpAuthorizationServerMetadata)
+	r.Post("/oauth/mcp/register", a.McpRegisterClient)
+	r.Get("/oauth/mcp/authorize", a.McpAuthorize)
+	r.Post("/oauth/mcp/token", a.McpToken)
 
 	// Browser authentication (PRD §698). Outside /api/v1 and outside the bearer
 	// middleware: the v1 contract knows nothing of sessions (§10.2), and these

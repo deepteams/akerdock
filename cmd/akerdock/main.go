@@ -36,6 +36,7 @@ import (
 	"github.com/deepteams/akerdock/internal/instance"
 	"github.com/deepteams/akerdock/internal/jobs"
 	"github.com/deepteams/akerdock/internal/logredact"
+	"github.com/deepteams/akerdock/internal/mcp"
 	"github.com/deepteams/akerdock/internal/notify"
 	"github.com/deepteams/akerdock/internal/postgres"
 
@@ -390,7 +391,10 @@ func serveRun(mode string) int {
 			baseURL = fmt.Sprintf("http://localhost:%d", cfg.Port)
 		}
 
+		mcpServer := mcp.New(version)
+		mcp.RegisterTools(mcpServer, q)
 		apiHandler = handlers.NewRouter(&handlers.API{
+			MCP:      mcpServer,
 			Sessions: sessions,
 			Passkeys: passkeys,
 			MFA:      &session.TOTP{Store: q, Sessions: sessions, Keyring: keyring},
@@ -448,6 +452,11 @@ func serveRun(mode string) int {
 		// persistent channel. Forgetting a prefix here hands the route to the
 		// SPA, whose 200 masquerades as a successful ingestion.
 		mux.Handle("/agent/", apiHandler)
+		// The MCP surface and its OAuth endpoints (ADR-043) — same rule as
+		// /agent/: a prefix missing here is answered by the SPA.
+		mux.Handle("/mcp", apiHandler)
+		mux.Handle("/oauth/", apiHandler)
+		mux.Handle("/.well-known/", apiHandler)
 		// The preview SSO callback (ADR-030) arrives under the PREVIEW's
 		// host, proxied here by its dedicated router — served by the API,
 		// never by the dashboard.

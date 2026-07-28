@@ -14,7 +14,7 @@ const setApiEnabled = `-- name: SetApiEnabled :one
 UPDATE instance_settings
 SET api_enabled = $1, updated_at = now(), version = version + 1
 WHERE id = 1
-RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled, image_retention_count
+RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled, image_retention_count, mcp_enabled, mcp_dcr_enabled
 `
 
 // Instance settings mutations (§14.2).
@@ -42,6 +42,8 @@ func (q *Queries) SetApiEnabled(ctx context.Context, apiEnabled bool) (InstanceS
 		&i.MfaRequired,
 		&i.PasswordLoginDisabled,
 		&i.ImageRetentionCount,
+		&i.McpEnabled,
+		&i.McpDcrEnabled,
 	)
 	return i, err
 }
@@ -50,7 +52,7 @@ const setImageRetentionCount = `-- name: SetImageRetentionCount :one
 UPDATE instance_settings
 SET image_retention_count = $1, updated_at = now(), version = version + 1
 WHERE id = 1
-RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled, image_retention_count
+RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled, image_retention_count, mcp_enabled, mcp_dcr_enabled
 `
 
 // Rollback image retention (ADR-006, §29.4). The CHECK (>= 1) keeps the live
@@ -79,6 +81,8 @@ func (q *Queries) SetImageRetentionCount(ctx context.Context, imageRetentionCoun
 		&i.MfaRequired,
 		&i.PasswordLoginDisabled,
 		&i.ImageRetentionCount,
+		&i.McpEnabled,
+		&i.McpDcrEnabled,
 	)
 	return i, err
 }
@@ -87,7 +91,7 @@ const setInstanceIdentity = `-- name: SetInstanceIdentity :one
 UPDATE instance_settings
 SET fqdn = $1, acme_email = $2, updated_at = now(), version = version + 1
 WHERE id = 1
-RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled, image_retention_count
+RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled, image_retention_count, mcp_enabled, mcp_dcr_enabled
 `
 
 type SetInstanceIdentityParams struct {
@@ -121,6 +125,8 @@ func (q *Queries) SetInstanceIdentity(ctx context.Context, arg SetInstanceIdenti
 		&i.MfaRequired,
 		&i.PasswordLoginDisabled,
 		&i.ImageRetentionCount,
+		&i.McpEnabled,
+		&i.McpDcrEnabled,
 	)
 	return i, err
 }
@@ -129,7 +135,7 @@ const setMfaRequired = `-- name: SetMfaRequired :one
 UPDATE instance_settings
 SET mfa_required = $1, updated_at = now(), version = version + 1
 WHERE id = 1
-RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled, image_retention_count
+RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled, image_retention_count, mcp_enabled, mcp_dcr_enabled
 `
 
 func (q *Queries) SetMfaRequired(ctx context.Context, mfaRequired bool) (InstanceSetting, error) {
@@ -156,6 +162,8 @@ func (q *Queries) SetMfaRequired(ctx context.Context, mfaRequired bool) (Instanc
 		&i.MfaRequired,
 		&i.PasswordLoginDisabled,
 		&i.ImageRetentionCount,
+		&i.McpEnabled,
+		&i.McpDcrEnabled,
 	)
 	return i, err
 }
@@ -164,7 +172,7 @@ const setPasswordLoginDisabled = `-- name: SetPasswordLoginDisabled :one
 UPDATE instance_settings
 SET password_login_disabled = $1, updated_at = now(), version = version + 1
 WHERE id = 1
-RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled, image_retention_count
+RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled, image_retention_count, mcp_enabled, mcp_dcr_enabled
 `
 
 func (q *Queries) SetPasswordLoginDisabled(ctx context.Context, passwordLoginDisabled bool) (InstanceSetting, error) {
@@ -191,6 +199,8 @@ func (q *Queries) SetPasswordLoginDisabled(ctx context.Context, passwordLoginDis
 		&i.MfaRequired,
 		&i.PasswordLoginDisabled,
 		&i.ImageRetentionCount,
+		&i.McpEnabled,
+		&i.McpDcrEnabled,
 	)
 	return i, err
 }
@@ -199,7 +209,7 @@ const setRegistrationEnabled = `-- name: SetRegistrationEnabled :one
 UPDATE instance_settings
 SET registration_enabled = $1, updated_at = now(), version = version + 1
 WHERE id = 1
-RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled, image_retention_count
+RETURNING id, fqdn, timezone, registration_enabled, api_enabled, dns_validation_server, transactional_email_config_enc, auto_update_enabled, auto_update_cron, onboarding_completed_at, updated_by, created_at, updated_at, version, acme_email, localhost_seeded, otlp_config_enc, mfa_required, password_login_disabled, image_retention_count, mcp_enabled, mcp_dcr_enabled
 `
 
 // Open/close self-service signup (§10.2). Closed is the default; with SSO an
@@ -228,6 +238,8 @@ func (q *Queries) SetRegistrationEnabled(ctx context.Context, registrationEnable
 		&i.MfaRequired,
 		&i.PasswordLoginDisabled,
 		&i.ImageRetentionCount,
+		&i.McpEnabled,
+		&i.McpDcrEnabled,
 	)
 	return i, err
 }

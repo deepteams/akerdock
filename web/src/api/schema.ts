@@ -4139,6 +4139,10 @@ export interface components {
             readonly api_enabled?: boolean;
             /** @description Self-service signup (§10.2). Closed by default: nobody creates an account on their own. A pending invitation nevertheless allows account creation at the first SSO login, regardless of this flag. */
             readonly registration_enabled?: boolean;
+            /** @description Whether the MCP server accepts dynamic client registration (ADR-044). Off by default: a client identifies itself with a Client ID Metadata Document (an https `client_id` serving its own metadata), an identity bound to a domain it controls. Enable this only for a client that does not implement CIMD yet. */
+            readonly mcp_dcr_enabled?: boolean;
+            /** @description Whether the built-in MCP server is exposed on `/mcp` (ADR-043, §12). Off by default: the whole surface — endpoint, OAuth metadata and endpoints — answers 404 until an instance root enables it. The tools are read-only and scoped to one team. */
+            readonly mcp_enabled?: boolean;
             /** @description When true, two-factor authentication is mandatory: a user without an MFA factor is forced to enroll one before being able to use the instance (§10.2). An MFA factor is a confirmed TOTP OR a passkey (user verification required, hence multi-factor on its own). Delegated logins (OIDC/SSO) are not subject to it: the identity provider carries the second factor. */
             readonly mfa_required?: boolean;
             /** @description Mandatory SSO (§10.2): when true, password login is refused (except for the instance administrator) — only OIDC providers authenticate. */
@@ -4153,6 +4157,10 @@ export interface components {
             acme_email?: string | null;
             /** @description Opens/closes self-service signup (§10.2). Absent = unchanged. */
             registration_enabled?: boolean | null;
+            /** @description Opens/closes MCP dynamic client registration (ADR-044). Absent = unchanged. */
+            mcp_dcr_enabled?: boolean | null;
+            /** @description Exposes/hides the built-in MCP server on `/mcp` (ADR-043). Absent = unchanged. */
+            mcp_enabled?: boolean | null;
             /** @description Enables/disables mandatory two-factor authentication (§10.2). Absent = unchanged. */
             mfa_required?: boolean | null;
             /** @description Enables/disables mandatory SSO mode (§10.2). Refused if no OIDC provider is enabled. Absent = unchanged. */

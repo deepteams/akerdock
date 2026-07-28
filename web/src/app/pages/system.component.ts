@@ -130,6 +130,34 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
                 </span>
               </div>
               <div class="akd-field">
+                <label class="akd-check">
+                  <input type="checkbox" name="mcpEnabled" [(ngModel)]="instanceMcpEnabled" [disabled]="busy()" />
+                  Expose the MCP server (/mcp)
+                </label>
+                <span class="akd-field__hint">
+                  Lets an AI assistant read this instance's inventory — servers, projects,
+                  applications, databases and stacks — with ten read-only tools scoped to one team.
+                  No tool can deploy, restart or reveal a secret. Off by default; the whole surface
+                  answers 404 while disabled. Local clients run the akerdock mcp command, remote
+                  ones use the OAuth flow.
+                </span>
+              </div>
+              @if (instanceMcpEnabled) {
+                <div class="akd-field">
+                  <label class="akd-check">
+                    <input type="checkbox" name="mcpDcrEnabled" [(ngModel)]="instanceMcpDcrEnabled" [disabled]="busy()" />
+                    Also accept dynamic client registration (legacy MCP clients)
+                  </label>
+                  <span class="akd-field__hint">
+                    By default a remote client identifies itself with a Client ID Metadata Document:
+                    its client_id is an https URL serving its own metadata, so the identity you see
+                    at consent is a domain it controls. Dynamic registration lets any caller declare
+                    a name instead — enable it only for a client that does not support metadata
+                    documents yet.
+                  </span>
+                </div>
+              }
+              <div class="akd-field">
                 <label class="akd-field__label" for="inst-retention">Rollback images kept per app</label>
                 <input
                   id="inst-retention"
@@ -887,6 +915,8 @@ export class SystemComponent {
   protected instanceMfaRequired = false;
   protected instancePasswordLoginDisabled = false;
   protected instanceImageRetention = 5;
+  protected instanceMcpEnabled = false;
+  protected instanceMcpDcrEnabled = false;
 
   protected emailKind: 'smtp' | 'resend' = 'smtp';
   protected emailFrom = '';
@@ -966,6 +996,8 @@ export class SystemComponent {
       this.instanceMfaRequired = updated.mfa_required ?? false;
       this.instancePasswordLoginDisabled = updated.password_login_disabled ?? false;
       this.instanceImageRetention = updated.image_retention_count ?? 5;
+      this.instanceMcpEnabled = updated.mcp_enabled ?? false;
+      this.instanceMcpDcrEnabled = updated.mcp_dcr_enabled ?? false;
       this.instanceNotice.set(
         updated.fqdn
           ? 'Saved. Session cookie security follows the FQDN at the next restart of the binary.'
@@ -994,6 +1026,8 @@ export class SystemComponent {
       this.instanceMfaRequired = instance.mfa_required ?? false;
       this.instancePasswordLoginDisabled = instance.password_login_disabled ?? false;
       this.instanceImageRetention = instance.image_retention_count ?? 5;
+      this.instanceMcpEnabled = instance.mcp_enabled ?? false;
+      this.instanceMcpDcrEnabled = instance.mcp_dcr_enabled ?? false;
       this.apiOn = instance.api_enabled ?? true;
       this.email.set(email);
       this.encryption.set(encryption);

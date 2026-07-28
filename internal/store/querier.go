@@ -193,6 +193,9 @@ type Querier interface {
 	// ON CONFLICT: the operator may already have a server named "localhost" in
 	// that team — theirs wins, the seed backs off silently.
 	CreateLocalhostServerIfAbsent(ctx context.Context, arg CreateLocalhostServerIfAbsentParams) (int64, error)
+	CreateMcpAccessToken(ctx context.Context, arg CreateMcpAccessTokenParams) (McpAccessToken, error)
+	// Single-use authorization code, PKCE challenge attached (ADR-043 §3).
+	CreateMcpOauthCode(ctx context.Context, arg CreateMcpOauthCodeParams) error
 	CreateMfaChallenge(ctx context.Context, arg CreateMfaChallengeParams) error
 	CreateNotificationChannel(ctx context.Context, arg CreateNotificationChannelParams) (NotificationChannel, error)
 	// ON CONFLICT DO NOTHING: re-reading an outbox event must never notify twice.
@@ -268,6 +271,7 @@ type Querier interface {
 	DeleteDomainsForApplication(ctx context.Context, applicationID *int64) error
 	DeleteEnvVar(ctx context.Context, id int64) (int64, error)
 	DeleteEnvVarsNotInKeys(ctx context.Context, arg DeleteEnvVarsNotInKeysParams) error
+	DeleteExpiredMcpOauthCodes(ctx context.Context) error
 	DeleteExpiredPreviewAccessTokens(ctx context.Context) error
 	// The compose-mirrored rows (§2.4): rewritten wholesale at each deployment —
 	// the FILE is the source of truth, these rows only make it visible.
@@ -387,6 +391,8 @@ type Querier interface {
 	GetJobUUIDByID(ctx context.Context, id int64) (pgtype.UUID, error)
 	GetLastAppliedProxyRevision(ctx context.Context, arg GetLastAppliedProxyRevisionParams) (ProxyConfigRevision, error)
 	GetLatestSuccessfulBackupExecution(ctx context.Context, backupPlanID int64) (BackupExecution, error)
+	GetMcpAccessTokenByHash(ctx context.Context, tokenHash string) (McpAccessToken, error)
+	GetMcpOauthClient(ctx context.Context, clientID string) (McpOauthClient, error)
 	// Read without consuming: a mistyped code must not send the user back to the
 	// password form — the account lockout is what bounds the guesses.
 	GetMfaChallenge(ctx context.Context, tokenHash string) (MfaChallenge, error)
@@ -588,6 +594,7 @@ type Querier interface {
 	// Scan exclusion (INV-015): "managed" means tracked by a live row, not just
 	// labelled — a disowned resource keeps its labels but is adoptable again.
 	ListLiveResourceUUIDs(ctx context.Context, uuids []pgtype.UUID) ([]pgtype.UUID, error)
+	ListMcpAccessTokensForTeam(ctx context.Context, teamID int64) ([]McpAccessToken, error)
 	// Notifications (§11, ADR-019).
 	ListNotificationChannelsPage(ctx context.Context, arg ListNotificationChannelsPageParams) ([]NotificationChannel, error)
 	ListNotificationChannelsToRotate(ctx context.Context, arg ListNotificationChannelsToRotateParams) ([]ListNotificationChannelsToRotateRow, error)
@@ -765,6 +772,9 @@ type Querier interface {
 	RecordFailedLogin(ctx context.Context, arg RecordFailedLoginParams) (RecordFailedLoginRow, error)
 	RecordServerFacts(ctx context.Context, arg RecordServerFactsParams) error
 	RecordUptimeResult(ctx context.Context, arg RecordUptimeResultParams) error
+	// Built-in MCP server (ADR-043): OAuth 2.1 for remote clients. Everything
+	// here is read-only in effect — a grant only ever reads one team's inventory.
+	RegisterMcpOauthClient(ctx context.Context, arg RegisterMcpOauthClientParams) (McpOauthClient, error)
 	// Deprovision: drop the membership (the account and its sessions are handled
 	// separately). Team-scoped by the member's user UUID.
 	RemoveTeamMemberByUUID(ctx context.Context, arg RemoveTeamMemberByUUIDParams) (int64, error)
@@ -783,6 +793,7 @@ type Querier interface {
 	// Deprovision: revoke every API token the user holds in this team.
 	RevokeApiTokensForUserInTeam(ctx context.Context, arg RevokeApiTokensForUserInTeamParams) (int64, error)
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)
+	RevokeMcpAccessToken(ctx context.Context, arg RevokeMcpAccessTokenParams) (int64, error)
 	RevokeScimToken(ctx context.Context, arg RevokeScimTokenParams) (int64, error)
 	RevokeSession(ctx context.Context, id int64) error
 	RotateDatabaseCredentialEnc(ctx context.Context, arg RotateDatabaseCredentialEncParams) error
@@ -845,6 +856,8 @@ type Querier interface {
 	// FQDN + contact ACME (§14.2) : la base fait foi après le premier démarrage,
 	// c'est donc ici — et nulle part ailleurs — qu'ils se modifient.
 	SetInstanceIdentity(ctx context.Context, arg SetInstanceIdentityParams) (InstanceSetting, error)
+	SetInstanceMcpDcrEnabled(ctx context.Context, mcpDcrEnabled bool) error
+	SetInstanceMcpEnabled(ctx context.Context, mcpEnabled bool) error
 	SetLocalhostSeeded(ctx context.Context) (int64, error)
 	SetMembershipExternalID(ctx context.Context, arg SetMembershipExternalIDParams) error
 	SetMfaRequired(ctx context.Context, mfaRequired bool) (InstanceSetting, error)
@@ -922,8 +935,11 @@ type Querier interface {
 	// tokens are closed as revoked.
 	SweepTerminalSessions(ctx context.Context, maxDurationSeconds int32) (int64, error)
 	TagResource(ctx context.Context, arg TagResourceParams) error
+	// Consumes the code: a replay finds nothing (DELETE … RETURNING).
+	TakeMcpOauthCode(ctx context.Context, codeHash string) (McpOauthCode, error)
 	TouchAgentTokenSeen(ctx context.Context, id int64) error
 	TouchApiTokenLastUsed(ctx context.Context, id int64) error
+	TouchMcpAccessToken(ctx context.Context, id int64) error
 	// The anti-replay gate (data-dictionary §4.3): last_used_at holds the start
 	// of the last accepted TOTP step, and only a strictly later step may pass.
 	// Enforced in SQL so two concurrent verifications of the same code cannot
