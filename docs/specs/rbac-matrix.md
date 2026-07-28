@@ -1,30 +1,40 @@
 # RBAC / Permissions Matrix — AkerDock (artifact §29.7)
 
-> ⚠️ **Role model updated by [ADR-038](../adr/ADR-038-roles-model.md)**
-> (supersedes the roles part of ADR-007). Team roles = **`admin` / `member` /
-> `reviewer`** + **custom roles**; `owner` is merged into `admin`; the **root
-> is reserved to the instance** (`users.is_root`, outside the team model). ADR-038 also
-> records that the **granular `domain:action` permissions in this document
-> become the actual unit of evaluation** (today enforcement is coarse
-> and the granular level is documentation-only): each operation will carry a
-> granular `x-required-permission`, with a **prerequisites table** (§3 ADR-038)
-> and transitive closure. The `owner / developer / viewer` columns below
-> are replaced by `admin / member / reviewer` (+ custom) and **regenerated** at
-> implementation time.
-
 > Authorization specification document (artifact §29.7 of the PRD, `docs/PRD.md`).
-> Reference decision: **ADR-007 / §27.7** — fine-grained RBAC, **à la carte permissions** model:
-> each product action produces a granular `domain:action` permission; a role is a
-> named set of permissions, assignable at the **team, project or environment** level
-> (the most specific scope wins). Immutable system roles: **owner, admin, developer,
-> viewer** (strictly read-only); custom roles composable by team admins.
+> Reference decisions: **ADR-007 / §27.7** — fine-grained RBAC, **à la carte permissions**
+> model: each product action produces a granular `domain:action` permission; a role is a
+> named set of permissions, assignable at the **team, project or environment** level (the
+> most specific scope wins) — and **[ADR-038](../adr/ADR-038-roles-model.md)**, which
+> replaced the system roles with **`admin` / `member` / `reviewer` + custom roles**
+> (`owner` merged into `admin`; the **root reserved to the instance**, `users.is_root`,
+> outside the team model).
 >
 > Consistency: the §10.3 API token permissions (`read`, `read:sensitive`, `write`,
 > `deploy`, `root`) remain the per-action evaluation baseline (§24.1) and are **mapped**
-> onto this granular model (§4 + §7). The OpenAPI `x-required-permission` values become
+> onto this granular model (§4 + §7). The OpenAPI `x-required-permission` values are
 > a projection of these granular permissions (mapping table §7).
 >
 > Defaults proposed beyond parity are marked **(proposed default)**.
+
+### State of implementation
+
+This document describes both what the code enforces today and what it is specified to
+enforce. Keeping the two apart matters: a spec read as a description of the running system
+is how an operator ends up believing in a boundary that is not there.
+
+| Part | State |
+|---|---|
+| Granular `domain:action` catalogue (§1.2) and per-operation enforcement | **Implemented** — `internal/auth/permissions.go` is the catalogue in code; every operation carries a granular `x-required-permission` |
+| System roles `admin` / `member` / `reviewer` (§2) | **Implemented** — `session.PermissionsForRole`; §2 below is generated from that code |
+| Custom roles, composed from the catalogue, with prerequisite closure and anti-elevation | **Implemented** — `custom_roles`, `auth.ValidateCustomPermissions` |
+| Instance root outside the team model (§3.9) | **Implemented** — `users.is_root` |
+| **Role assignment scoped to a project or an environment (§3)** | **NOT implemented** — an assignment lives on `team_memberships` and is therefore team-wide. §3 is the specification of that work, not a description of it |
+| Automatic token revocation on loss of rights (§4.4) | **Not implemented** (proposed default) |
+| Scope of an external endpoint (ADR-045 §1) | **Declared, not enforced** — see §3.10 |
+
+Anything marked NOT implemented has one practical consequence today: **inside a team, a
+member holds their permissions on every project of that team**. The only real isolation
+boundary in a running instance is the team itself (§23.1).
 
 ---
 
@@ -34,7 +44,7 @@
 
 A permission is named `domain:action`. It represents **one atomic product capability**.
 It is **positive only** (no negative permissions): the absence of a permission means
-**implicit deny** (§3.4).
+**implicit deny** (§3.6).
 
 Domain families:
 
@@ -71,7 +81,7 @@ Domain families:
 | `config` | Config-as-code (export/apply) |
 | `instance` | Instance settings (root only) |
 
-### 1.2 Complete list of permissions (74)
+### 1.2 Complete list of permissions (78)
 
 > Convention: `read`/`view`/`list` = non-sensitive read; `read:sensitive` = secret
 > revelation (INV-003); `manage`/`create`/`update`/`delete` = mutation; `deploy`/actions
@@ -183,6 +193,7 @@ Domain families:
 | 53 | `deployments:read` | History, detail, build logs (SSE) | `read` |
 | 54 | `deployments:cancel` | Cancel an in-progress deployment | `deploy` |
 | 70 | `jobs:manage` | Retry/forget dead-letter jobs (audited manual action, §21.3, deployment-engine §2.4) | `write` |
+| 75 | `previews:read` | See the PR previews and their status — the whole of the `reviewer` role (ADR-038) | `read` |
 | 55 | `previews:manage` | Manage previews, approve a fork PR (§20.4.8) | `write` |
 | 56 | `templates:manage` | Register/sync template repos (§27.10) | `write` |
 | 57 | `terminal:open` | Open a container/server terminal (non-root) | `write` |
@@ -193,6 +204,9 @@ Domain families:
 | 59 | `logs:read` | Container runtime logs | `read` |
 | 60 | `logs:manage` | Configure log drains | `write` |
 | 61 | `metrics:read` | Server/resource metrics, uptime | `read` |
+| 76 | `uptime:read` | Uptime monitors and their history | `read` |
+| 77 | `uptime:manage` | Create/update/delete uptime monitors | `write` |
+| 78 | `notifications:read` | List notification channels and rules (without their secrets) | `read` |
 | 62 | `notifications:manage` | Notification channels and rules | `write` |
 | 63 | `audit:read` | View the audit log | `read` |
 | 64 | `config:export` | Export config-as-code (YAML) | `read` |
@@ -206,166 +220,344 @@ Domain families:
 | 67 | `instance:audit` | Global cross-team audit | `root` |
 | 71 | `instance:encryption` | Encryption-at-rest status and forced master key rotation (re-encryption — ADR-003) | `root` |
 
-> **Total: 72 granular permissions** (of which 3 are exclusively `instance:*`, reserved to the
-> instance root, outside the team role model). The "team product" baseline covers 68 permissions,
-> i.e. within the §29.7 target range (~40-60), widened to cover the full scope of the PRD.
+> **Total: 78 granular permissions** (of which 3 are exclusively `instance:*`, reserved to the
+> instance root, outside the team role model), so 75 in the team model. This is above the
+> §29.7 target range (~40-60): the range was set before the product covered previews, uptime,
+> tunnels and bastion endpoints, and a capability that exists is better named than folded into
+> a neighbour. The count must match `auth.Catalog` — the numbering column is historical and
+> has gaps, which is harmless; a missing permission is not.
 
 ---
 
 ## 2. Permissions × system roles matrix
 
-> Legend: ● = granted; ○ = not granted. The 4 system roles are **immutable** (§3.4).
-> `owner` and `admin` differ only on administration of the team itself
-> (team deletion, role management, owner removal). `viewer` is **strictly read-only**:
-> **no mutation, no secrets** (INV-003).
+> **Generated from the code** (`internal/auth/permissions.go` for the catalogue and its
+> socles, `session.PermissionsForRole` for the roles). Where this table and the code
+> disagree, the code is right and this table is stale — regenerate it rather than argue
+> with it. ● = granted; ○ = not granted. `socle` is the coarse token scope the permission
+> projects onto (§4). The three system roles are **immutable** (§3.6); an admin who wants
+> to deviate composes a **custom role** (§1).
 
-| Permission | owner | admin | developer | viewer |
-|---|:---:|:---:|:---:|:---:|
-| team:read | ● | ● | ● | ● |
-| team:manage | ● | ○ | ○ | ○ |
-| members:read | ● | ● | ● | ● |
-| members:manage | ● | ● | ○ | ○ |
-| invitations:manage | ● | ● | ○ | ○ |
-| roles:read | ● | ● | ● | ● |
-| roles:manage | ● | ● | ○ | ○ |
-| tokens:read | ● | ● | ● | ○ |
-| tokens:create | ● | ● | ○ | ○ |
-| tokens:revoke | ● | ● | ○ | ○ |
-| projects:read | ● | ● | ● | ● |
-| projects:manage | ● | ● | ● | ○ |
-| environments:read | ● | ● | ● | ● |
-| environments:manage | ● | ● | ● | ○ |
-| resources:read | ● | ● | ● | ● |
-| resources:adopt | ● | ● | ● | ○ |
-| environments:deploy | ● | ● | ● | ○ |
-| applications:read | ● | ● | ● | ● |
-| applications:create | ● | ● | ● | ○ |
-| applications:update | ● | ● | ● | ○ |
-| applications:delete | ● | ● | ● | ○ |
-| applications:deploy | ● | ● | ● | ○ |
-| applications:lifecycle | ● | ● | ● | ○ |
-| applications:exec | ● | ● | ● | ○ |
-| databases:read | ● | ● | ● | ● |
-| databases:create | ● | ● | ● | ○ |
-| databases:update | ● | ● | ● | ○ |
-| databases:delete | ● | ● | ● | ○ |
-| databases:lifecycle | ● | ● | ● | ○ |
-| databases:credentials | ● | ● | ● | ○ |
-| services:read | ● | ● | ● | ● |
-| services:manage | ● | ● | ● | ○ |
-| services:deploy | ● | ● | ● | ○ |
-| secrets:read | ● | ● | ● | ● |
-| secrets:reveal | ● | ● | ● | ○ |
-| secrets:write | ● | ● | ● | ○ |
-| servers:read | ● | ● | ● | ● |
-| servers:manage | ● | ● | ○ | ○ |
-| servers:maintain | ● | ● | ○ | ○ |
-| servers:proxy | ● | ● | ○ | ○ |
-| certificates:read | ● | ● | ● | ● |
-| certificates:renew | ● | ● | ○ | ○ |
-| keys:read | ● | ● | ● | ● |
-| keys:reveal | ● | ● | ○ | ○ |
-| keys:manage | ● | ● | ○ | ○ |
-| sources:read | ● | ● | ● | ● |
-| sources:manage | ● | ● | ● | ○ |
-| registries:manage | ● | ● | ● | ○ |
-| cloud:read | ● | ● | ○ | ○ |
-| cloud:manage | ● | ● | ○ | ○ |
-| storages:manage | ● | ● | ● | ○ |
-| backups:read | ● | ● | ● | ● |
-| backups:manage | ● | ● | ● | ○ |
-| backups:restore | ● | ● | ● | ○ |
-| deployments:read | ● | ● | ● | ● |
-| deployments:cancel | ● | ● | ● | ○ |
-| jobs:manage | ● | ● | ○ | ○ |
-| previews:manage | ● | ● | ● | ○ |
-| templates:manage | ● | ● | ● | ○ |
-| terminal:open | ● | ● | ● | ○ |
-| terminal:root | ● | ● | ○ | ○ |
-| port-forwards:open | ● | ● | ● | ○ |
-| external-endpoints:read | ● | ● | ● | ○ |
-| external-endpoints:manage | ● | ● | ○ | ○ |
-| logs:read | ● | ● | ● | ● |
-| logs:manage | ● | ● | ● | ○ |
-| metrics:read | ● | ● | ● | ● |
-| notifications:manage | ● | ● | ● | ○ |
-| audit:read | ● | ● | ● | ○ |
-| config:export | ● | ● | ● | ● |
-| config:apply | ● | ● | ● | ○ |
+| Permission | socle | admin | member | reviewer |
+|---|---|:---:|:---:|:---:|
+| `applications:create` | write | ● | ● | ○ |
+| `applications:delete` | write | ● | ● | ○ |
+| `applications:deploy` | deploy | ● | ● | ○ |
+| `applications:exec` | deploy | ● | ● | ○ |
+| `applications:lifecycle` | deploy | ● | ● | ○ |
+| `applications:read` | read | ● | ● | ○ |
+| `applications:update` | write | ● | ● | ○ |
+| `audit:read` | read | ● | ● | ○ |
+| `backups:manage` | write | ● | ● | ○ |
+| `backups:read` | read | ● | ● | ○ |
+| `backups:restore` | write | ● | ● | ○ |
+| `certificates:read` | read | ● | ● | ○ |
+| `certificates:renew` | write | ● | ○ | ○ |
+| `cloud:manage` | write | ● | ○ | ○ |
+| `cloud:read` | read | ● | ○ | ○ |
+| `config:apply` | write | ● | ○ | ○ |
+| `config:export` | read | ● | ○ | ○ |
+| `databases:create` | write | ● | ● | ○ |
+| `databases:credentials` | read:sensitive | ● | ○ | ○ |
+| `databases:delete` | write | ● | ● | ○ |
+| `databases:lifecycle` | deploy | ● | ● | ○ |
+| `databases:read` | read | ● | ● | ○ |
+| `databases:update` | write | ● | ● | ○ |
+| `deployments:cancel` | deploy | ● | ● | ○ |
+| `deployments:read` | read | ● | ● | ○ |
+| `environments:deploy` | deploy | ● | ○ | ○ |
+| `environments:manage` | write | ● | ● | ○ |
+| `environments:read` | read | ● | ● | ○ |
+| `external-endpoints:manage` | write | ● | ○ | ○ |
+| `external-endpoints:read` | read | ● | ● | ○ |
+| `instance:audit` | root | ○ | ○ | ○ |
+| `instance:encryption` | root | ○ | ○ | ○ |
+| `instance:manage` | root | ○ | ○ | ○ |
+| `invitations:manage` | write | ● | ○ | ○ |
+| `jobs:manage` | write | ● | ○ | ○ |
+| `keys:manage` | write | ● | ○ | ○ |
+| `keys:read` | read | ● | ● | ○ |
+| `keys:reveal` | read:sensitive | ● | ○ | ○ |
+| `logs:manage` | write | ● | ○ | ○ |
+| `logs:read` | read | ● | ● | ○ |
+| `members:manage` | write | ● | ○ | ○ |
+| `members:read` | read | ● | ● | ○ |
+| `metrics:read` | read | ● | ● | ○ |
+| `notifications:manage` | write | ● | ● | ○ |
+| `notifications:read` | read | ● | ● | ○ |
+| `port-forwards:open` | write | ● | ● | ○ |
+| `previews:manage` | write | ● | ● | ○ |
+| `previews:read` | read | ● | ● | ● |
+| `projects:manage` | write | ● | ● | ○ |
+| `projects:read` | read | ● | ● | ○ |
+| `registries:manage` | write | ● | ● | ○ |
+| `resources:adopt` | write | ● | ● | ○ |
+| `resources:read` | read | ● | ● | ○ |
+| `roles:manage` | write | ● | ○ | ○ |
+| `roles:read` | read | ● | ○ | ○ |
+| `secrets:read` | read | ● | ● | ○ |
+| `secrets:reveal` | read:sensitive | ● | ○ | ○ |
+| `secrets:write` | write | ● | ● | ○ |
+| `servers:maintain` | write | ● | ○ | ○ |
+| `servers:manage` | write | ● | ○ | ○ |
+| `servers:proxy` | write | ● | ○ | ○ |
+| `servers:read` | read | ● | ● | ○ |
+| `services:deploy` | deploy | ● | ● | ○ |
+| `services:manage` | write | ● | ● | ○ |
+| `services:read` | read | ● | ● | ○ |
+| `sources:manage` | write | ● | ● | ○ |
+| `sources:read` | read | ● | ● | ○ |
+| `storages:manage` | write | ● | ● | ○ |
+| `team:manage` | write | ● | ○ | ○ |
+| `team:read` | read | ● | ● | ○ |
+| `templates:manage` | write | ● | ○ | ○ |
+| `terminal:open` | write | ● | ● | ○ |
+| `terminal:root` | write | ● | ○ | ○ |
+| `tokens:create` | write | ● | ○ | ○ |
+| `tokens:read` | read | ● | ○ | ○ |
+| `tokens:revoke` | write | ● | ○ | ○ |
+| `uptime:manage` | write | ● | ● | ○ |
+| `uptime:read` | read | ● | ● | ○ |
 
 > Design notes:
-> - **developer** = the "Member/Developer" and "Operator/SRE" actor (§16.3): full application
->   power (create/deploy/backup/restore/non-root terminal) but **no** administration
->   of sensitive infrastructure (servers, SSH keys, cloud, root terminal, member/role management).
->   Finer-grained deployment (e.g. "deploy to staging but not production") is done via
->   **environment-scoped role assignment** (§3.1) — the `developer` system role assigned
->   to `env=staging` only.
-> - **viewer** = "read-only/MCP integration" and audit: no mutation, `secrets:reveal` denied,
->   `databases:credentials`/`keys:reveal` denied (INV-003). `config:export` allowed because it
->   never contains inline secrets (§24.5).
-> - **certificates:read** is granted to `viewer`: the expiration inventory (domains,
->   `not_after`, status) contains no secret — the private key material never leaves
->   the server — and read-only monitoring is precisely the viewer/MCP use case,
->   consistent with `servers:read` and `metrics:read` (INV-003 respected). **certificates:renew**
->   is aligned with `servers:maintain` (admin+): a forced renewal touches the server's
->   infrastructure (editing `acme.json`, restarting the proxy) and consumes Let's Encrypt quota.
-> - **jobs:manage** (dead-letter retry/forget) is reserved to admin+: forget can abandon
->   a deletion leaving remote remnants (§20.6.4); replay through the business channel (deploy,
->   backup, server validation) remains accessible to the developer via their existing permissions.
-> - The `instance:*` permissions (66, 67, 71) do not appear in team roles: they
->   are carried exclusively by the **instance root** (§3.5).
+> - **admin** is every catalogue permission **except** the `instance:*` ones. There is a
+>   single top team role: `owner` was merged into it (ADR-038) and the enum value survives
+>   in the database only because PostgreSQL does not remove one.
+> - **member** manages the team's resources — applications, databases, services, secrets,
+>   deployments, backups, previews, notifications, uptime — and administers nothing: no
+>   members/roles/tokens/invitations, no servers/keys/cloud, no root terminal.
+> - **member writes secrets but cannot reveal them.** `secrets:write` without
+>   `secrets:reveal`, `databases:read` without `databases:credentials`, `keys:read` without
+>   `keys:reveal`: setting a value is a configuration act, reading one back is exfiltration
+>   of a secret, and INV-003 separates the two. This surprises people; it is deliberate.
+> - **reviewer** holds exactly one permission, `previews:read`. It is not a "read-only
+>   member" — someone reviewing a pull request has no business listing the team's databases.
+>   A read-only profile broader than that is a **custom role**, which is what custom roles
+>   are for.
+> - **`environments:deploy` is admin-only**, while `applications:deploy` is granted to
+>   member. Deploying one application is routine; redeploying an entire environment at once
+>   is a fleet operation. Worth re-examining if members end up asking for it — it is a
+>   defensible line, not an obviously correct one.
+> - The `instance:*` permissions are held by nobody in the team model: they belong to the
+>   instance root (§3.9), whose identity bypasses this table entirely.
 
 ---
 
 ## 3. Resolution rules
 
-### 3.1 Assignment and scopes
+> §3.1 to §3.8 specify the **scoped assignment model**, which is **not implemented today**
+> (see *State of implementation*). They are written to be implementable as they stand: the
+> data model, what a scope can and cannot grant, how a resource's scope is derived, and what
+> a denial looks like. §3.9 (instance root) is implemented and describes the running system.
 
-A role is assignable at three levels, from most general to most specific:
+### 3.1 What an assignment is
 
 ```
 team  ⊃  project  ⊃  environment
 ```
 
-An assignment = `(subject, role, scope)` where `subject ∈ {member, custom role}` and
-`scope ∈ {team_uuid, project_uuid, environment_uuid}`.
+An assignment is a triple `(member, role, scope)`:
 
-### 3.2 Inheritance (the most specific wins — override, not intersection)
+- **member** — a user in a team. Never a group, never an email: an invitation carries a
+  role, but the assignment exists only once the membership does.
+- **role** — a system role (§2) or a custom role of the same team. A role is a *name for a
+  set of permissions*; nothing is ever assigned permission by permission, which is what
+  keeps the model auditable ("Alice is member on billing", not a list of 40 checkboxes).
+- **scope** — the team, one of its projects, or one of its environments.
 
-- A **team**-level assignment applies to all its projects and environments.
-- A **project**-level assignment applies to all its environments.
-- An **environment**-level assignment applies only to that environment.
-- **The most specific scope wins**: if a member is `viewer` at the team level but
-  `developer` on `project=X`, they are developer on X and reader elsewhere.
-- The override is **per assignment set**, resolved at action time for the targeted resource:
-  we retain the most specific assignment covering the resource's scope.
+The team-level assignment stays where it is today, on `team_memberships`
+(`role` + `custom_role_id`): every member has exactly one **base role**, and the narrower
+assignments are the exceptions to it. Keeping the base on the membership row is what
+preserves the "last admin cannot be demoted" guard and lets the members list stay one query.
 
-### 3.3 Multi-role accumulation (union)
+Narrower assignments live in a new table, sketched here because its shape carries the
+rules rather than merely storing them:
 
-- A member can hold multiple roles (system and/or custom) **at the same scope**: the effective
-  set of permissions at that scope is the **union** of their permissions.
-- Across different scopes, the most-specific rule is applied first (§3.2), then the union
-  within the retained scope.
-- Formally, for an action on a resource `r`:
-  `perms(subject, r) = ⋃ { role.permissions | assignment(subject, role, scope) ∧ scope = most_specific_covering(r) }`.
+```
+role_assignments(uuid, team_id, user_id,
+                 role,              -- system role, XOR custom_role_id
+                 custom_role_id,
+                 project_id,        -- XOR environment_id, both NULL is not an assignment
+                 environment_id,
+                 created_by, created_at, updated_at)
+```
 
-### 3.4 Implicit deny and immutability
+- CHECK: exactly one of (`role`, `custom_role_id`) — a role source that is neither or both
+  is not a role.
+- CHECK: exactly one of (`project_id`, `environment_id`) — the team level is the membership
+  row, not a row here with two NULLs.
+- `UNIQUE NULLS NOT DISTINCT (user_id, project_id, environment_id, role, custom_role_id)`:
+  assigning the same role twice at the same scope is a no-op, not a duplicate. `NULLS NOT
+  DISTINCT` is load-bearing — a plain UNIQUE lets rows whose `custom_role_id` is NULL
+  duplicate freely, because NULL never equals NULL. Same reasoning as the notification-rule
+  index (`00024_notifications.sql`).
+- `ON DELETE CASCADE` from team, user, project, environment and custom role: an assignment
+  outliving its scope is a dangling grant, which is exactly the kind of thing that is still
+  in the table three years later.
 
-- **Deny by default**: a permission absent from the effective set is denied. No
-  negative permission exists (no exceptions to compose).
-- **Immutable system roles**: `owner`, `admin`, `developer`, `viewer` are neither editable nor
-  deletable. An admin who wants to deviate creates a **custom role** (composable, §1).
-- Denial response: `not_found` for a resource of another team (no oracle, INV-002);
-  `403 forbidden` for an intra-team permission denial.
+> **An ADR is required before this is built.** The data model above is a proposal; the
+> decisions that need recording are the base-role-plus-exceptions shape, the override
+> semantics of §3.4 (a narrow scope can *reduce* rights), and the `none` base role of §3.3.
+> Not the SQL.
 
-### 3.5 The instance root case
+### 3.2 The scope of a resource
 
-- The **instance root** (`users.is_root`) is outside the team role model: it implicitly
-  holds all permissions on all teams **plus** `instance:*` (§10.1).
-- It is never an implicit member of a team for audit purposes: its cross-team actions are traced
-  with `actor.type=user` + root flag (§23.4).
-- A token created by the root is **scoped to a team** like any token (§10.3); the root cannot
-  create a "global" token — a `root` token remains bounded to its team (see §4).
+Resolution needs one function: given the resource an operation targets, which project and
+environment does it belong to? It is the part that touches every handler, so it is spelled
+out here rather than discovered per endpoint.
+
+| Resource | Scope |
+|---|---|
+| Application, database, compose service | its environment → that environment's project |
+| Environment variable, storage attached to a resource, backup plan/execution, deployment, preview, uptime monitor | the scope of the resource it belongs to |
+| Job | the scope of the resource it acts on; a job with no resource is team-level |
+| External endpoint (ADR-045) | its declared `project_id` / `environment_id`, team-level when both are NULL |
+| Project | itself |
+| Environment | itself, and its project |
+| **Server, SSH key, git source, GitHub App, registry credential, DNS credential, S3 storage, notification channel, template, API token, member, custom role, audit trail, instance settings** | **team-level — they have no project** |
+
+The bottom row is the load-bearing one: a server is shared by every project of the team, so
+"scoping a server to a project" would be a lie the moment a second project deploys onto it.
+Infrastructure is administered at the team level, full stop.
+
+### 3.3 What a scoped assignment can grant
+
+A role is a set of permissions, but not every permission means anything at a project scope.
+Three classes, and every catalogue permission belongs to exactly one:
+
+| Class | Permissions | Behavior when the role is assigned at project/environment scope |
+|---|---|---|
+| **Scoped** | `applications:read`, `applications:create`, `applications:update`, `applications:delete`, `applications:deploy`, `applications:lifecycle`, `applications:exec`, `databases:read`, `databases:create`, `databases:update`, `databases:delete`, `databases:lifecycle`, `services:read`, `services:manage`, `services:deploy`, `secrets:read`, `secrets:write`, `backups:read`, `backups:manage`, `backups:restore`, `deployments:read`, `deployments:cancel`, `previews:read`, `previews:manage`, `environments:read`, `environments:manage`, `environments:deploy`, `projects:read`, `projects:manage`, `resources:read`, `resources:adopt`, `logs:read`, `metrics:read`, `uptime:read`, `uptime:manage`, `terminal:open`, `port-forwards:open`, `external-endpoints:read` | Granted **on the resources of that scope only** |
+| **Team-read** | `team:read`, `members:read`, `servers:read`, `certificates:read`, `keys:read`, `sources:read`, `notifications:read` | Granted **team-wide**, because they are working prerequisites: you cannot deploy an application without seeing the server it lands on. They expose no secret — the sensitive half lives in `*:reveal` / `*:credentials`, which are not in this class (INV-003). Note that `resources:read` is **not** here: it is the cross-cutting view of the resources themselves, so it is scoped like them, or the scoping leaks through the one endpoint that lists everything |
+| **Team-only** | `team:manage`, `members:manage`, `invitations:manage`, `roles:read`, `roles:manage`*, `tokens:read`, `tokens:create`, `tokens:revoke`, `servers:manage`, `servers:maintain`, `servers:proxy`, `certificates:renew`, `keys:manage`, `keys:reveal`, `sources:manage`, `registries:manage`, `cloud:read`, `cloud:manage`, `storages:manage`, `templates:manage`, `config:export`, `config:apply`, `logs:manage`, `jobs:manage`, `audit:read`, `notifications:manage`, `external-endpoints:manage`, `secrets:reveal`, `databases:credentials`, `terminal:root`, `instance:manage`, `instance:audit`, `instance:encryption` | **Never granted by a scoped assignment.** Assigning a role that contains them at a project scope is not an error — the permission is simply not conferred — but the API MUST say so in the response, or an admin will believe they delegated something they did not |
+
+\* `roles:manage` is the one exception worth allowing later: a project-scoped `roles:manage`
+would let a team lead manage assignments *on their own project*. It is deliberately **not**
+in v1 — delegating the power to delegate is the kind of thing that needs its own ADR.
+
+Three entries in that table deserve their reason, because each looks misplaced until you ask
+what the permission actually reaches:
+
+- **`terminal:root` is team-only.** It opens a shell on the *server*, not in a container, and
+  a server is shared by every project (§3.2). Scoping it to a project would suggest a
+  boundary the shell does not have. `terminal:open` — a shell inside one resource's
+  container — is scoped, as it should be.
+- **`secrets:reveal` and `databases:credentials` are team-only**, although `secrets:write`
+  and `databases:read` are scoped. This is §2's asymmetry again: writing configuration is a
+  project act, reading a secret back is exfiltration, and INV-003 keeps the second one an
+  admin decision.
+- **`notifications:manage` is team-only** even though a notification *rule* already carries
+  its own `project_id`/`environment_id` (`00024_notifications.sql`). The channel — with its
+  webhook URL and its token — is team-level, and managing rules today means managing
+  channels. Splitting the two is a reasonable follow-up, not part of this specification.
+
+The classification must stay exhaustive: **every catalogue permission appears in exactly one
+class**, and a new permission added to `auth.Catalog` without a class here is a permission
+whose behavior under scoping nobody decided. Worth a test that walks the catalogue against
+this table once §3 exists.
+
+`audit:read` is team-only on purpose: the trail is team-wide and un-partitioned, so granting
+it at a project scope would either leak other projects' activity or require partitioning the
+audit read path — a much larger question (§23.4).
+
+**The `none` base role.** Restricting somebody *to* a project needs a base role that grants
+nothing, otherwise the team-level role keeps leaking everywhere. `member` is too much,
+`reviewer` still sees every preview of the team. The model therefore needs a fourth system
+role — `none`, the empty permission set — as the base for a member who only holds scoped
+assignments. Without it, §3 buys nothing: this is the first thing to build, not the last.
+
+### 3.4 Inheritance — the most specific wins (override, not intersection)
+
+- A **team**-level assignment applies to every project and environment.
+- A **project**-level assignment applies to all of that project's environments.
+- An **environment**-level assignment applies to that environment only.
+- **The most specific scope that has an assignment wins**, and it *replaces* the broader one
+  rather than adding to it. A member who is `member` on the team and `reviewer` on
+  `project=payments` is a reviewer there — a narrow scope can **reduce** rights, which is
+  what makes "everything except production" expressible.
+- Resolution happens **per operation, against the targeted resource**, not once per session.
+
+For an action on resource `r`, with `S(r)` the scopes covering `r` ordered
+environment → project → team:
+
+```
+perms(subject, r) = ⋃ { role.permissions | assignment(subject, role, s) }
+                    where s = the first scope in S(r) that has at least one assignment
+                  ∪ { team-read permissions of every assignment held by the subject }
+```
+
+### 3.5 Multi-role accumulation (union at equal scope)
+
+- Several roles may be held **at the same scope**: the effective set there is their **union**.
+- Across scopes, §3.4 selects the scope first, then the union applies within it. Union never
+  crosses a scope boundary — that is what an override means.
+
+### 3.6 Implicit deny, invisibility and immutability
+
+- **Deny by default**: a permission absent from the effective set is denied. There are no
+  negative permissions, so there are no exceptions to compose and none to forget.
+- **Immutable system roles**: `admin`, `member`, `reviewer` (and `none`, §3.3) are neither
+  editable nor deletable. Deviating means composing a custom role (§1).
+- **What a denial looks like**:
+  - resource of **another team** → `404` (INV-002: no oracle);
+  - resource of this team that the caller lacks the domain's `:read` for **at the scope
+    covering it** → `404`. This is a departure from "404 only across teams", and it is
+    deliberate: the point of scoping a member out of `project=payments` is that the project
+    does not exist as far as they are concerned. A `403` here would answer the question the
+    boundary exists to refuse;
+  - resource the caller **can read but not act on** → `403`.
+- **Collections must filter, not just guard.** `GET /projects`, `GET /applications`,
+  `GET /servers/{uuid}/resources`, the search endpoints and every SSE stream return only what
+  the caller's scopes cover. A list endpoint that returns everything and relies on the detail
+  endpoint to say no has already leaked the names, and names are half of what a competitor
+  wants. This is the largest single piece of implementation work in §3.
+
+### 3.7 API tokens under scoping
+
+§4 is unchanged in principle and gains one word: the intersection is evaluated **at the
+scope of the targeted resource**.
+
+```
+perms_effective(token, r) = perms_token(token) ∩ perms_RBAC(creator, r)
+```
+
+A token created by a member scoped to `project=billing` therefore reaches `billing` and
+nothing else, and it narrows by itself the day their assignment narrows — re-evaluated on
+every request, never frozen at creation (§4.2).
+
+### 3.8 Anti-elevation on assignment
+
+- Creating, changing or deleting an assignment requires `members:manage` — team-level in v1
+  (§3.3), so only a team admin assigns.
+- An assigner may never grant a role whose permission set exceeds their own **at the target
+  scope** — the same rule as custom-role composition (`auth.ValidateCustomPermissions`),
+  applied to assignment rather than authorship.
+- The **last admin** guard stays team-level: an admin cannot be demoted or scoped away if
+  they are the last one, or a team locks itself out.
+- Every assignment change is audited with actor, subject, role and scope (§23.4). "Who could
+  reach production last March" is an audit question, and it is answerable only if the
+  assignment history is in the trail.
+
+### 3.9 The instance root case
+
+- The **instance root** (`users.is_root`) is outside the team role model: it implicitly holds
+  every permission on every team **plus** `instance:*` (§10.1), and §3.4 never runs for it.
+- It is not an implicit member for audit purposes: its cross-team actions are recorded with
+  `actor.type=user` plus the root flag (§23.4).
+- A token created by the root is **scoped to one team** like any other (§10.3); there is no
+  global token.
+
+### 3.10 Consequence for external endpoints (ADR-045)
+
+ADR-045 declares that an external endpoint carries an optional project/environment scope and
+that `port-forwards:open` is "evaluated against that endpoint's scope". Today
+`endpointInScope` only checks that the endpoint's project belongs to the caller's team —
+the field is **declared but not enforced**, and the dashboard exposes it, which is worse than
+not having it.
+
+Once §3 exists, the enforcement is one line of the general rule: the endpoint's scope is
+`(project_id, environment_id)` per §3.2, and the mint requires `port-forwards:open` **there**.
+No special case, which is the point of specifying scoping once for the whole product.
 
 ---
 
@@ -393,15 +585,15 @@ perms_effective(token) = perms_token(token)  ∩  perms_RBAC(creator, re-evaluat
 
 ### 4.3 Anti-elevation guard at creation (`tokens:create`)
 
-- Token creation requires the dedicated permission **`tokens:create`** (included in `admin` and
-  `owner`, absent from `developer` and `viewer` — see §2). This is the resolution of the point raised by
+- Token creation requires the dedicated permission **`tokens:create`** (held by `admin`,
+  absent from `member` and `reviewer` — see §2). This is the resolution of the point raised by
   the OpenAPI (`createApiToken`, `x-required-permission: write` + guard): `write` alone is not
-  conceptually sufficient; the capability is carried by `tokens:create`, reserved to admin+.
+  conceptually sufficient; the capability is carried by `tokens:create`, reserved to admins.
 - **Mandatory anti-elevation**: the creator can only grant the token permissions
   they **hold themselves** at the targeted scope. Any request for a token scope whose projection
   exceeds `perms_RBAC(creator)` → `403` (consistent with the OpenAPI description of `createApiToken`).
 - A `root` token can only be created by a holder of `instance:manage` (instance root) or,
-  by extension, an owner/admin for a `root` token **bounded to their team** — never a token with
+  by extension, a team admin for a `root` token **bounded to their team** — never a token with
   instance privileges.
 
 ### 4.4 Automatic revocation on loss of rights **(proposed default)**
@@ -449,26 +641,52 @@ diff (§23.4).
   a leak).
 - Covers: servers, keys, sources, destinations, storages, resources, tokens, backups, previews.
 
-### 6.2 Scope hopping (inheritance §3.2)
-- A `developer` scoped to `env=staging` cannot act on `env=production` of the same project.
-- A role scoped to `project=X` does not leak to `project=Y`.
-- Verify that the most specific wins (override) and that multi-role union does not cross
-  scope boundaries (§3.3).
+### 6.2 Scope hopping (§3.4) — **for the scoped-assignment work**
+
+These tests do not exist yet; they are the acceptance criteria of §3.
+
+- A member scoped `member` on `env=staging` cannot act on `env=production` of the same
+  project → `404` on read, `403` on an action they can see.
+- A role scoped to `project=X` grants nothing on `project=Y`, including through an indirect
+  route: a deployment, a backup, a job, an SSE stream or a preview belonging to Y.
+- **Override, not addition**: a `member` on the team who is `reviewer` on `project=payments`
+  can no longer deploy in payments.
+- **Union at equal scope only**: two roles on the same project accumulate; a role on the
+  project never accumulates with the team role it overrides.
+- **Team-only permissions are not conferred by a scoped assignment** (§3.3): a member scoped
+  `admin` on `project=X` still cannot manage servers, keys, tokens, members or read the audit
+  trail.
+- **Team-read permissions are conferred team-wide**: the same member can list the servers,
+  or they cannot deploy at all.
+- **Collections filter**: `GET /projects`, `GET /applications`, `GET /databases`,
+  `GET /servers/{uuid}/resources` and the SSE streams never mention a resource outside the
+  caller's scopes. This is tested per collection, not once — a single unfiltered list is the
+  whole leak.
+- A member whose base role is `none` and who holds no assignment sees an empty dashboard,
+  not an error.
+- **Regression, no-assignment case**: with no scoped assignment anywhere, every existing
+  authorization test still passes unchanged. Scoping must be inert until it is used.
 
 ### 6.3 Elevation via token (§4)
-- A `developer` creator cannot create a token carrying `write`/`deploy` exceeding their rights
+- A `member` creator cannot create a token carrying `write`/`deploy` exceeding their rights
   → `403` (anti-elevation §4.3).
 - A token whose creator is downgraded loses the corresponding right on the next request
   (re-evaluation §4.2); **(proposed default)** verify automatic revocation (§4.4).
 - A `write` without `tokens:create` cannot create a token → `403` (§4.3).
+- **(Scoped work)** A token created by a member scoped to `project=X` reaches X and returns
+  `404` on Y, and narrows on its own when the creator's assignment narrows (§3.7).
 
 ### 6.4 Each system role × each endpoint family
-- `owner`, `admin`, `developer`, `viewer` tested on each family (applications, databases,
-  services, secrets, servers, keys, backups, terminal, deployments, cloud, config).
-- **viewer**: any mutation → `403`; `secrets:reveal`, `keys:reveal`,
-  `databases:credentials`, `terminal:*` → `403` (strictly read-only, INV-003).
-- **developer**: `servers:manage`, `keys:manage`, `cloud:*`, `terminal:root`,
-  `members:manage`, `roles:manage`, `tokens:create` → `403`.
+- `admin`, `member`, `reviewer` tested on each family (applications, databases, services,
+  secrets, servers, keys, backups, terminal, deployments, cloud, config).
+- **reviewer**: everything except `previews:read` → `403`/`404`. It is not a read-only
+  member, and a test that only checks "cannot mutate" would miss the point.
+- **member**: `servers:manage`, `keys:manage`, `cloud:*`, `terminal:root`, `members:manage`,
+  `roles:manage`, `tokens:create`, `jobs:manage`, `config:*` → `403`.
+- **member and secrets**: `secrets:write` succeeds, `secrets:reveal`,
+  `databases:credentials` and `keys:reveal` are refused (INV-003) — the asymmetry of §2 is
+  deliberate and must stay tested, or it will be "fixed" by someone who reads it as a bug.
+- **admin**: every team permission granted, every `instance:*` refused.
 
 ### 6.5 Sensitive actions (dual control §5)
 - Root terminal, restore onto a non-empty database, deletion with volumes, CA rotation: verify
@@ -483,10 +701,14 @@ diff (§23.4).
 
 ## 7. OpenAPI `x-required-permission` → granular permissions mapping table
 
-> The `x-required-permission` values of `docs/specs/openapi-v1.yaml` remain the per-action
-> evaluation baseline (§24.1). This table projects them onto granular permissions: effective
-> access control = granular permission below, **and** the token must carry the indicated
-> `x-required-permission` scope (both conditions, consistent with §4.2 intersection).
+> ⚠️ **Historical and partial.** Since ADR-038, each operation carries its granular
+> `x-required-permission` **in the OpenAPI contract itself**, which is the single source of
+> truth and is checked against `auth.Catalog` by a test. The table below predates that and
+> covers only the operations that existed then — it is kept for the reasoning in its notes,
+> not as an inventory. Read the contract for the mapping of any given operation.
+>
+> Effective access control = the granular permission carried by the operation, **and** the
+> token must carry the socle it projects onto (both conditions, §4.2 intersection).
 
 | operationId (OpenAPI) | x-required-permission | Granular permission(s) |
 |---|---|---|
@@ -494,7 +716,7 @@ diff (§23.4).
 | getVersion | read | `team:read` |
 | enableApi / disableApi | root | `instance:manage` |
 | listTeams / getTeam | read | `team:read` |
-| **createTeam** | root | **`instance:manage`** — instance-root SESSION only (§3.5): a team is the isolation boundary of every resource, so creating one is an instance-level act. The creator joins as `admin`. |
+| **createTeam** | root | **`instance:manage`** — instance-root SESSION only (§3.9): a team is the isolation boundary of every resource, so creating one is an instance-level act. The creator joins as `admin`. |
 | listTeamMembers | read | `members:read` |
 | listTeamInvitations | read | `members:read` |
 | createTeamInvitation / revokeTeamInvitation | write | `invitations:manage` |
@@ -549,12 +771,16 @@ diff (§23.4).
 
 ## 8. Summary
 
-- **71 granular permissions** defined (`domain:action`), of which 68 for the team role
-  model and 3 exclusively `instance:*` (instance root).
-- **4 immutable system roles**: owner, admin, developer, viewer (strictly read-only) + custom
-  roles composable by team admins (ADR-007 / §27.7).
-- Assignment scoped team/project/environment, **the most specific wins**; multi-role accumulation
-  by **union**; **implicit deny**.
+- **78 granular permissions** defined (`domain:action`), of which 75 for the team role model
+  and 3 exclusively `instance:*` (instance root). §1.2 and §2 are kept in step with
+  `internal/auth/permissions.go`, which is the catalogue in code.
+- **3 immutable system roles**: `admin`, `member`, `reviewer` (previews only) + custom roles
+  composable by team admins (ADR-038, replacing ADR-007's owner/developer/viewer). A fourth,
+  `none`, is required by the scoped work (§3.3).
+- Assignment scoped team/project/environment, **the most specific wins** (an override, so a
+  narrow scope may *reduce* rights); multi-role accumulation by **union** at equal scope;
+  **implicit deny**. **Specified in §3, not implemented** — today a member holds their
+  permissions across their whole team, and the team is the only isolation boundary.
 - API tokens = **intersection** (token perms ∩ creator's RBAC perms re-evaluated at use time);
   creation via `tokens:create` (admin+) with **mandatory anti-elevation guard**; **automatic
   revocation on loss of rights (proposed default)**.
