@@ -43,10 +43,13 @@ audited instance opt-in.
    settings when a client they need does not implement CIMD yet; enabling it
    is audited, and the authorization-server metadata then — and only then —
    advertises a `registration_endpoint`.
-4. **Consent shows the verified identity**: for a CIMD client, the origin of
-   the document is displayed as the client's identity, because that is the
-   part nobody can forge. A DCR client keeps showing its self-declared name,
-   which is exactly the difference the operator opted into.
+4. **Consent is an explicit act, and shows the verified identity**: the
+   authorize endpoint RENDERS a consent screen and grants nothing by itself —
+   a session alone must never be enough, or any third-party page could send
+   the browser there and walk away with a code. The grant happens on a POST
+   carrying the session's CSRF token. For a CIMD client the screen shows the
+   document's origin, because that is the part nobody can forge; a DCR client
+   is shown with an explicit "self-declared, unverified" warning.
 5. **Clients already registered keep working**: an opaque `client_id` still
    resolves against `mcp_oauth_clients` whatever the toggle says — turning DCR
    off stops NEW registrations, it does not revoke the grants of an assistant

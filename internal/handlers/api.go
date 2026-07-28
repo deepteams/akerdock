@@ -179,6 +179,7 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 	r.Get("/.well-known/oauth-authorization-server", a.McpAuthorizationServerMetadata)
 	r.Post("/oauth/mcp/register", a.McpRegisterClient)
 	r.Get("/oauth/mcp/authorize", a.McpAuthorize)
+	r.Post("/oauth/mcp/approve", a.McpApprove)
 	r.Post("/oauth/mcp/token", a.McpToken)
 
 	// Browser authentication (PRD §698). Outside /api/v1 and outside the bearer

@@ -89,3 +89,34 @@ func TestRegistrationRefusalNamesCIMD(t *testing.T) {
 		t.Fatalf("refusal body = %s", body)
 	}
 }
+
+// The consent screen is the one page whose text the user must be able to
+// trust: it shows a verified origin for a CIMD client, warns explicitly for a
+// self-declared one, and escapes everything the client controls.
+func TestConsentPageShowsIdentityAndEscapes(t *testing.T) {
+	req := mcpAuthorizeParams{
+		ClientID: "https://client.example.com/mcp.json", RedirectURI: "https://client.example.com/cb",
+		State: "st", Challenge: "ch",
+	}
+	verified := mcpConsentPage(
+		mcpClient{Name: "Assistant", Verified: true, Origin: "https://client.example.com"},
+		req, "Platform", "csrf-value")
+	if !strings.Contains(verified, "Verified") || !strings.Contains(verified, "https://client.example.com") {
+		t.Fatalf("verified identity not shown:\n%s", verified)
+	}
+	if !strings.Contains(verified, "Platform") || !strings.Contains(verified, "Read-only") {
+		t.Fatalf("scope not stated:\n%s", verified)
+	}
+	if !strings.Contains(verified, `name="csrf_token" value="csrf-value"`) {
+		t.Fatal("the form must carry the session CSRF token")
+	}
+
+	unverified := mcpConsentPage(
+		mcpClient{Name: `<img src=x onerror=alert(1)>`, Verified: false}, req, "", "csrf")
+	if !strings.Contains(unverified, "self-declared") {
+		t.Fatalf("a dynamically registered client must be flagged:\n%s", unverified)
+	}
+	if strings.Contains(unverified, "<img src=x") {
+		t.Fatal("the client-controlled name was not escaped — that is stored XSS on the consent page")
+	}
+}

@@ -7,6 +7,7 @@ package handlers
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -226,46 +227,18 @@ func (a *API) McpRegisterClient(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// McpAuthorize implements GET /oauth/mcp/authorize: the consent step. It runs
-// on the panel origin, so the AkerDock session is the trust anchor — the same
-// one preview SSO and CLI login use. Consent grants READ on the session's
-// current team, nothing else.
+// McpAuthorize implements GET /oauth/mcp/authorize: it validates the request
+// and RENDERS THE CONSENT SCREEN. It never grants anything by itself — a
+// session alone must not be enough, or any third-party page could send the
+// browser here and walk away with a code. The grant happens on the POST
+// below, which carries the session's CSRF token.
 func (a *API) McpAuthorize(w http.ResponseWriter, r *http.Request) {
-	if !a.mcpEnabled(r) {
-		http.NotFound(w, r)
-		return
-	}
-	query := r.URL.Query()
-	clientID := query.Get("client_id")
-	redirectURI := query.Get("redirect_uri")
-	state := query.Get("state")
-	challenge := query.Get("code_challenge")
-
-	client, err := a.resolveMcpClient(r.Context(), clientID)
-	if err != nil {
-		writeOAuthError(w, http.StatusBadRequest, "invalid_client", err.Error())
-		return
-	}
-	if !allowedRedirect(client.RedirectURIs, redirectURI) {
-		// Never redirect to an unregistered uri — that is the open-redirect
-		// rule of the whole flow.
-		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "redirect_uri is not registered for this client")
-		return
-	}
-	if query.Get("response_type") != "code" {
-		redirectOAuthError(w, r, redirectURI, state, "unsupported_response_type", "only the authorization code flow is supported")
-		return
-	}
-	if challenge == "" || query.Get("code_challenge_method") != "S256" {
-		redirectOAuthError(w, r, redirectURI, state, "invalid_request", "PKCE with S256 is mandatory")
-		return
-	}
-	if a.Sessions == nil {
-		writeOAuthError(w, http.StatusConflict, "server_error", "sessions are not available on this deployment")
+	req, client, ok := a.mcpAuthorizeRequest(w, r)
+	if !ok {
 		return
 	}
 	sess, err := a.Sessions.SessionFromRequest(r.Context(), r)
-	if err != nil {
+	if err != nil || sess.CsrfToken == nil {
 		// No session: sign in first, then come back to this exact URL.
 		http.Redirect(w, r, "/?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 		return
@@ -275,34 +248,127 @@ func (a *API) McpAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
+	teamName := ""
+	if team, err := a.Store.GetTeamByID(r.Context(), id.TeamID); err == nil {
+		teamName = team.Name
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write([]byte(mcpConsentPage(client, req, teamName, *sess.CsrfToken)))
+}
+
+// McpApprove implements POST /oauth/mcp/approve: the explicit grant. The
+// session's CSRF token must be echoed by the form, so only AkerDock's own
+// consent page can trigger it.
+func (a *API) McpApprove(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "malformed form body")
+		return
+	}
+	req, client, ok := a.mcpAuthorizeRequest(w, r)
+	if !ok {
+		return
+	}
+	sess, err := a.Sessions.SessionFromRequest(r.Context(), r)
+	if err != nil || sess.CsrfToken == nil {
+		writeOAuthError(w, http.StatusUnauthorized, "access_denied", "no active session")
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(r.Form.Get("csrf_token")), []byte(*sess.CsrfToken)) != 1 {
+		writeOAuthError(w, http.StatusForbidden, "access_denied", "invalid CSRF token")
+		return
+	}
+	id := a.Sessions.Authenticate(r.Context(), r)
+	if id == nil || id.TeamID == 0 {
+		writeOAuthError(w, http.StatusUnauthorized, "access_denied", "no active session")
+		return
+	}
+	// The user said no: tell the client, per OAuth.
+	if r.Form.Get("approve") != "yes" {
+		redirectOAuthError(w, r, req.RedirectURI, req.State, "access_denied", "the user declined")
+		return
+	}
 
 	code := make([]byte, 32)
 	if _, err := rand.Read(code); err != nil {
-		redirectOAuthError(w, r, redirectURI, state, "server_error", "cannot mint a code")
+		redirectOAuthError(w, r, req.RedirectURI, req.State, "server_error", "cannot mint a code")
 		return
 	}
 	raw := hex.EncodeToString(code)
 	_ = a.Store.DeleteExpiredMcpOauthCodes(r.Context())
 	if err := a.Store.CreateMcpOauthCode(r.Context(), store.CreateMcpOauthCodeParams{
-		CodeHash: hashMcpToken(raw), ClientID: clientID, UserID: sess.UserID, TeamID: id.TeamID,
-		RedirectUri: redirectURI, CodeChallenge: challenge,
+		CodeHash: hashMcpToken(raw), ClientID: req.ClientID, UserID: sess.UserID, TeamID: id.TeamID,
+		RedirectUri: req.RedirectURI, CodeChallenge: req.Challenge,
 		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(mcpCodeTTL), Valid: true},
 	}); err != nil {
-		redirectOAuthError(w, r, redirectURI, state, "server_error", "cannot store the code")
+		redirectOAuthError(w, r, req.RedirectURI, req.State, "server_error", "cannot store the code")
 		return
 	}
 	a.recordAudit(r, id, "mcp.authorize", "team", pgtype.UUID{})
 	a.Logger.Info("mcp authorization granted",
 		"client", client.Name, "verified", client.Verified, "origin", client.Origin, "team_id", id.TeamID)
 
-	target, _ := url.Parse(redirectURI)
+	target, _ := url.Parse(req.RedirectURI)
 	q := target.Query()
 	q.Set("code", raw)
-	if state != "" {
-		q.Set("state", state)
+	if req.State != "" {
+		q.Set("state", req.State)
 	}
 	target.RawQuery = q.Encode()
 	http.Redirect(w, r, target.String(), http.StatusFound)
+}
+
+// mcpAuthorizeParams is one validated authorization request, carried from the
+// consent screen to the approval unchanged.
+type mcpAuthorizeParams struct {
+	ClientID    string
+	RedirectURI string
+	State       string
+	Challenge   string
+}
+
+// mcpAuthorizeRequest validates the OAuth parameters and resolves the client
+// (CIMD or registered). Shared by the consent screen and the approval, so the
+// approval can never be pushed parameters the screen would have refused.
+func (a *API) mcpAuthorizeRequest(w http.ResponseWriter, r *http.Request) (mcpAuthorizeParams, mcpClient, bool) {
+	if !a.mcpEnabled(r) {
+		http.NotFound(w, r)
+		return mcpAuthorizeParams{}, mcpClient{}, false
+	}
+	values := r.URL.Query()
+	if r.Method == http.MethodPost {
+		values = r.Form
+	}
+	req := mcpAuthorizeParams{
+		ClientID:    values.Get("client_id"),
+		RedirectURI: values.Get("redirect_uri"),
+		State:       values.Get("state"),
+		Challenge:   values.Get("code_challenge"),
+	}
+	client, err := a.resolveMcpClient(r.Context(), req.ClientID)
+	if err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_client", err.Error())
+		return req, client, false
+	}
+	if !allowedRedirect(client.RedirectURIs, req.RedirectURI) {
+		// Never redirect to an unregistered uri — that is the open-redirect
+		// rule of the whole flow.
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "redirect_uri is not registered for this client")
+		return req, client, false
+	}
+	if values.Get("response_type") != "code" {
+		redirectOAuthError(w, r, req.RedirectURI, req.State, "unsupported_response_type", "only the authorization code flow is supported")
+		return req, client, false
+	}
+	if req.Challenge == "" || values.Get("code_challenge_method") != "S256" {
+		redirectOAuthError(w, r, req.RedirectURI, req.State, "invalid_request", "PKCE with S256 is mandatory")
+		return req, client, false
+	}
+	if a.Sessions == nil {
+		writeOAuthError(w, http.StatusConflict, "server_error", "sessions are not available on this deployment")
+		return req, client, false
+	}
+	return req, client, true
 }
 
 // McpToken implements POST /oauth/mcp/token: the code exchange, PKCE verified.

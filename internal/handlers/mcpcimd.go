@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -181,4 +182,74 @@ func sameOrigin(uri, origin string) bool {
 		return false
 	}
 	return u.Scheme+"://"+u.Host == origin
+}
+
+// mcpConsentPage renders the authorization screen. Self-contained HTML: it is
+// served on the panel origin but must not depend on the SPA being loaded, and
+// what it says is the one thing the user has to be able to trust — hence the
+// verified origin front and centre, and an explicit warning when the identity
+// is only self-declared (a DCR client, ADR-044).
+func mcpConsentPage(client mcpClient, req mcpAuthorizeParams, teamName, csrfToken string) string {
+	identity := htmlEscape(client.Name)
+	var badge string
+	if client.Verified {
+		badge = `<p class="verified">Verified: this client is served by <strong>` +
+			htmlEscape(client.Origin) + `</strong></p>`
+	} else {
+		badge = `<p class="unverified">This client registered dynamically — its name is
+			self-declared and nobody verified it. Approve only if you recognise it.</p>`
+	}
+	team := htmlEscape(teamName)
+	if team == "" {
+		team = "your current team"
+	}
+	return `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authorize ` + identity + ` — AkerDock</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#101014;color:#e6e6ea;font:15px/1.55 system-ui,sans-serif}
+main{max-width:30rem;padding:2rem}
+h1{font-size:1.2rem;margin:0 0 .75rem}
+p{margin:.4rem 0;color:#9a9aa5}
+.verified{color:#4cb782}
+.unverified{color:#d9a441}
+ul{margin:1rem 0;padding-left:1.1rem;color:#c9c9d2}
+li{margin:.2rem 0}
+.actions{display:flex;gap:.6rem;margin-top:1.5rem}
+button{font:inherit;padding:.55rem 1.1rem;border-radius:.5rem;border:1px solid #2a2a33;cursor:pointer}
+.approve{background:#4cb782;border-color:#4cb782;color:#08130d;font-weight:600}
+.deny{background:transparent;color:#e6e6ea}
+code{font-family:ui-monospace,monospace;font-size:.85rem;color:#9a9aa5;word-break:break-all}
+</style></head><body><main>
+<h1>` + identity + ` wants to read your AkerDock inventory</h1>
+` + badge + `
+<ul>
+<li>Scope: <strong>` + team + `</strong> — that team only</li>
+<li>Read-only: servers, projects, applications, databases and stacks</li>
+<li>It cannot deploy, restart, or read a secret or an environment variable</li>
+<li>Access expires after 12 hours</li>
+</ul>
+<p><code>` + htmlEscape(req.RedirectURI) + `</code></p>
+<form method="post" action="/oauth/mcp/approve">
+<input type="hidden" name="client_id" value="` + htmlEscape(req.ClientID) + `">
+<input type="hidden" name="redirect_uri" value="` + htmlEscape(req.RedirectURI) + `">
+<input type="hidden" name="state" value="` + htmlEscape(req.State) + `">
+<input type="hidden" name="code_challenge" value="` + htmlEscape(req.Challenge) + `">
+<input type="hidden" name="code_challenge_method" value="S256">
+<input type="hidden" name="response_type" value="code">
+<input type="hidden" name="csrf_token" value="` + htmlEscape(csrfToken) + `">
+<div class="actions">
+<button class="approve" type="submit" name="approve" value="yes">Approve</button>
+<button class="deny" type="submit" name="approve" value="no">Cancel</button>
+</div>
+</form>
+</main></body></html>`
+}
+
+// htmlEscape neutralises the client-controlled strings the consent page
+// shows: a client name comes from a document we fetched, so it is untrusted
+// text on a page whose whole job is to be trustworthy.
+func htmlEscape(s string) string {
+	return html.EscapeString(s)
 }
