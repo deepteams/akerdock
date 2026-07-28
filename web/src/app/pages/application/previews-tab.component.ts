@@ -16,6 +16,7 @@ import { ModalComponent } from '../../../ui/modal/modal.component';
 import { IconComponent } from '../../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../../ui/status-badge/status-badge.component';
 import { ApiService } from '../../core/api.service';
+import { DEPLOYMENT_EVENTS, LiveEventsService, PREVIEW_EVENTS } from '../../core/live-refresh';
 import type { components } from '../../../api/schema';
 
 type Preview = components['schemas']['Preview'];
@@ -272,40 +273,8 @@ export class ApplicationPreviewsTabComponent implements OnDestroy {
   protected readonly prsError = signal<string | null>(null);
   protected prSearch = '';
 
-  private source: EventSource | null = null;
-  private reloadTimer: ReturnType<typeof setTimeout> | null = null;
-
-  /**
-   * Event types that can change a row of this list. EventSource fires NAMED
-   * events only for registered listeners (no wildcard — see the events page),
-   * so the catalogue is explicit: the preview lifecycle, including the
-   * scheduler's sleep/wake, plus every deployment state a PR deploy goes
-   * through.
-   */
-  private static readonly refreshEvents = [
-    'application.preview.created.v1',
-    'application.preview.updated.v1',
-    'application.preview.deleted.v1',
-    'application.preview.expiring.v1',
-    'application.preview.slept.v1',
-    'application.preview.woken.v1',
-    ...[
-      'queued',
-      'preparing',
-      'cloning',
-      'building',
-      'pushing',
-      'starting',
-      'healthchecking',
-      'switching',
-      'finishing',
-      'succeeded',
-      'failed',
-      'cancelled',
-      'retrying',
-      'superseded',
-    ].map((status) => `deployment.${status}.v1`),
-  ];
+  private readonly live = inject(LiveEventsService);
+  private readonly stopLive: () => void;
 
   constructor() {
     effect(() => {
@@ -314,35 +283,16 @@ export class ApplicationPreviewsTabComponent implements OnDestroy {
     });
     // Live refresh (ADR-024): the list reloads on any event touching THIS
     // application, so preview states (deploying, active, sleeping, waking…)
-    // move without a manual page refresh.
-    this.source = this.api.client().events();
-    for (const type of ApplicationPreviewsTabComponent.refreshEvents) {
-      this.source.addEventListener(type, (msg: MessageEvent<string>) => {
-        try {
-          const ev = JSON.parse(msg.data) as { resource_uuid?: string };
-          if (ev.resource_uuid === this.uuid()) this.scheduleReload();
-        } catch {
-          // Malformed frame: never break the page for a bad event.
-        }
-      });
-    }
+    // move without a manual page refresh — on the app's ONE shared stream.
+    this.stopLive = this.live.refresh(
+      [...PREVIEW_EVENTS, ...DEPLOYMENT_EVENTS],
+      (ev) => ev.resource_uuid === this.uuid(),
+      () => untracked(() => void this.load(this.uuid())),
+    );
   }
 
   ngOnDestroy(): void {
-    this.source?.close();
-    if (this.reloadTimer) clearTimeout(this.reloadTimer);
-  }
-
-  /**
-   * Collapse bursts into one reload — a deployment emits one event per state,
-   * and reloading fourteen times per deploy would hammer the API for nothing.
-   */
-  private scheduleReload(): void {
-    if (this.reloadTimer) return;
-    this.reloadTimer = setTimeout(() => {
-      this.reloadTimer = null;
-      void this.load(this.uuid());
-    }, 400);
+    this.stopLive();
   }
 
   private async load(uuid: string): Promise<void> {

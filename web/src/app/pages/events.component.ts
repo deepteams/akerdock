@@ -2,7 +2,12 @@ import { SlicePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, OnDestroy, inject, signal } from '@angular/core';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
-import { ApiService } from '../core/api.service';
+import {
+  APPLICATION_EVENTS,
+  DEPLOYMENT_EVENTS,
+  LiveEventsService,
+  PREVIEW_EVENTS,
+} from '../core/live-refresh';
 
 interface LiveEvent {
   id: string;
@@ -101,30 +106,22 @@ interface LiveEvent {
   ],
 })
 export class EventsComponent implements OnDestroy {
-  private readonly api = inject(ApiService);
-  private source: EventSource | null = null;
+  private readonly live = inject(LiveEventsService);
+  private readonly stopLive: () => void;
 
   protected readonly events = signal<LiveEvent[]>([]);
-  protected readonly connected = signal(false);
+  protected readonly connected = this.live.connected;
 
   /**
    * The server names its SSE events (`event: deployment.failed.v1`), and
    * EventSource fires NAMED events only for registered listeners — there is no
    * wildcard. So the feed subscribes to the catalogue explicitly: the static
-   * outbox types, plus `deployment.<status>.v1` for every deployment state.
-   * An event type absent from this list is invisible here (and only here) —
-   * when a new type is added server-side, add it below.
+   * outbox types plus the shared lifecycle catalogues. An event type absent
+   * from this list is invisible here (and only here) — when a new type is
+   * added server-side, add it below (or to the shared catalogues).
    */
   private static readonly eventTypes = [
     'application.created.v1',
-    'application.slept.v1',
-    'application.woken.v1',
-    'application.preview.created.v1',
-    'application.preview.updated.v1',
-    'application.preview.deleted.v1',
-    'application.preview.expiring.v1',
-    'application.preview.slept.v1',
-    'application.preview.woken.v1',
     'backup.drill_failed.v1',
     'backup.failed.v1',
     'backup.partial.v1',
@@ -136,31 +133,17 @@ export class EventsComponent implements OnDestroy {
     'scheduled_task.succeeded.v1',
     'server.unreachable.v1',
     'team.invitation.v1',
-    ...[
-      'queued',
-      'preparing',
-      'cloning',
-      'building',
-      'pushing',
-      'starting',
-      'healthchecking',
-      'switching',
-      'finishing',
-      'succeeded',
-      'failed',
-      'cancelled',
-      'retrying',
-      'superseded',
-    ].map((status) => `deployment.${status}.v1`),
+    ...APPLICATION_EVENTS,
+    ...PREVIEW_EVENTS,
+    ...DEPLOYMENT_EVENTS,
   ];
 
   constructor() {
-    this.source = this.api.client().events();
-    this.source.onopen = () => this.connected.set(true);
-    this.source.onerror = () => this.connected.set(false);
-    for (const type of EventsComponent.eventTypes) {
-      this.source.addEventListener(type, (msg) => this.push(type, msg));
-    }
+    // One shared stream for the whole app (LiveEventsService): this page is a
+    // subscriber like any other, never a second connection.
+    this.stopLive = this.live.subscribe(EventsComponent.eventTypes, (type, msg) =>
+      this.push(type, msg),
+    );
   }
 
   /**
@@ -187,7 +170,6 @@ export class EventsComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.source?.close();
-    this.source = null;
+    this.stopLive();
   }
 }

@@ -22,7 +22,7 @@ import { ApplicationEnvsTabComponent } from './application/envs-tab.component';
 import { TerminalComponent } from '../../ui/terminal/terminal.component';
 import type { TerminalSessionInfo } from '../../ui/terminal/protocol';
 import { ApiService } from '../core/api.service';
-import { DEPLOYMENT_EVENTS, PREVIEW_EVENTS, liveRefresh } from '../core/live-refresh';
+import { DEPLOYMENT_EVENTS, LiveEventsService, PREVIEW_EVENTS } from '../core/live-refresh';
 import type { components } from '../../api/schema';
 
 type Preview = components['schemas']['Preview'];
@@ -648,13 +648,14 @@ export class PreviewDetailComponent {
       });
     });
     // Live refresh (ADR-024/040): preview status and component states move on
-    // their own — deploys, sleep/wake by the scheduler or the agent.
+    // their own — deploys, sleep/wake by the scheduler or the agent. One
+    // shared stream for the whole app (LiveEventsService).
+    const live = inject(LiveEventsService);
     effect((onCleanup) => {
       const app = this.uuid();
       const preview = this.previewUuid();
       onCleanup(
-        liveRefresh(
-          this.api,
+        live.refresh(
           [...PREVIEW_EVENTS, ...DEPLOYMENT_EVENTS],
           (ev) => ev.resource_uuid === app,
           () => untracked(() => void this.refreshState(app, preview)),

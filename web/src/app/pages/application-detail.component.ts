@@ -16,7 +16,7 @@ import {
   type StackComponentAction,
 } from '../../ui/stack-components/stack-components.component';
 import { ApiService } from '../core/api.service';
-import { APPLICATION_EVENTS, DEPLOYMENT_EVENTS, liveRefresh } from '../core/live-refresh';
+import { APPLICATION_EVENTS, DEPLOYMENT_EVENTS, LiveEventsService } from '../core/live-refresh';
 import type { components } from '../../api/schema';
 import { ApplicationSettingsTabComponent } from './application/settings-tab.component';
 import { ApplicationEnvsTabComponent } from './application/envs-tab.component';
@@ -393,12 +393,13 @@ export class ApplicationDetailComponent {
       untracked(() => void this.load(uuid));
     });
     // Live refresh (ADR-024/040): deployments, sleep/wake and the observed
-    // component states (pushed by the server agent) move on their own.
+    // component states (pushed by the server agent) move on their own — on
+    // the app's ONE shared stream (LiveEventsService).
+    const live = inject(LiveEventsService);
     effect((onCleanup) => {
       const uuid = this.uuid();
       onCleanup(
-        liveRefresh(
-          this.api,
+        live.refresh(
           [...APPLICATION_EVENTS, ...DEPLOYMENT_EVENTS],
           (ev) => ev.resource_uuid === uuid,
           () => untracked(() => void this.load(uuid)),
