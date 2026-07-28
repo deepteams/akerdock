@@ -292,18 +292,25 @@ func splitComponentContainer(name string) (pgtype.UUID, string, bool) {
 	return u, name[uuidLen+1:], true
 }
 
-// observedFromDockerAction maps a Docker event action to the observed-status
-// enum; actions with no observed meaning (pause, destroy, …) are skipped.
-func observedFromDockerAction(action string) (store.ResourceObservedStatus, bool) {
-	switch action {
-	case "start", "restart":
+// observedFromDockerAction maps what an agent reports for a container to the
+// observed-status enum. Agents send a VERIFIED state (read from the daemon
+// after the event settled — a Docker action alone is a trigger, not a truth:
+// during a zero-downtime replacement the old container dies under the
+// service's name while its replacement is renamed into place). The raw action
+// names are still accepted so an older agent keeps working; anything without
+// an observed meaning is skipped.
+func observedFromDockerAction(state string) (store.ResourceObservedStatus, bool) {
+	switch state {
+	case "healthy":
+		return store.ResourceObservedStatusHealthy, true
+	case "unhealthy", "health_status: unhealthy":
+		return store.ResourceObservedStatusUnhealthy, true
+	case "starting", "start", "restart":
 		return store.ResourceObservedStatusStarting, true
+	case "exited", "die", "stop", "kill", "oom":
+		return store.ResourceObservedStatusExited, true
 	case "health_status: healthy":
 		return store.ResourceObservedStatusHealthy, true
-	case "health_status: unhealthy":
-		return store.ResourceObservedStatusUnhealthy, true
-	case "die", "stop", "kill", "oom":
-		return store.ResourceObservedStatusExited, true
 	default:
 		return "", false
 	}

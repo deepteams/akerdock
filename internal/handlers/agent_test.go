@@ -53,6 +53,12 @@ func TestSplitComponentContainer(t *testing.T) {
 
 func TestObservedFromDockerAction(t *testing.T) {
 	cases := map[string]store.ResourceObservedStatus{
+		// Verified states (what a current agent sends).
+		"healthy":   store.ResourceObservedStatusHealthy,
+		"unhealthy": store.ResourceObservedStatusUnhealthy,
+		"starting":  store.ResourceObservedStatusStarting,
+		"exited":    store.ResourceObservedStatusExited,
+		// Raw action names, still accepted from an older agent.
 		"start":                    store.ResourceObservedStatusStarting,
 		"restart":                  store.ResourceObservedStatusStarting,
 		"health_status: healthy":   store.ResourceObservedStatusHealthy,
@@ -62,12 +68,12 @@ func TestObservedFromDockerAction(t *testing.T) {
 	}
 	for action, want := range cases {
 		if got, ok := observedFromDockerAction(action); !ok || got != want {
-			t.Fatalf("action %q → %v (%v), want %v", action, got, ok, want)
+			t.Fatalf("state %q → %v (%v), want %v", action, got, ok, want)
 		}
 	}
-	for _, action := range []string{"pause", "destroy", "exec_start", ""} {
+	for _, action := range []string{"pause", "destroy", "exec_start", "unknown", ""} {
 		if _, ok := observedFromDockerAction(action); ok {
-			t.Fatalf("action %q mapped to an observed status, want skipped", action)
+			t.Fatalf("state %q mapped to an observed status, want skipped", action)
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -159,6 +160,45 @@ func (c *SocketDocker) Stop(ctx context.Context, container string) error {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return fmt.Errorf("waker: docker stop %s: %s: %s", container, resp.Status, body)
 	}
+}
+
+// listResponse is the subset of GET /containers/json the agent reads.
+type listResponse struct {
+	Names []string `json:"Names"`
+}
+
+// ListManaged returns the names of the akerdock.managed containers on this
+// host, running or not — the agent's periodic resync (ADR-040): a missed or
+// misread event must never leave the control plane with a stale observed
+// state forever.
+func (c *SocketDocker) ListManaged(ctx context.Context) ([]string, error) {
+	filters := `{"label":["akerdock.managed=true"]}`
+	u := c.endpoint("/containers/json?all=true&filters=" + url.QueryEscape(filters))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("waker: docker ps: %s: %s", resp.Status, body)
+	}
+	var out []listResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(out))
+	for _, c := range out {
+		for _, n := range c.Names {
+			names = append(names, strings.TrimPrefix(n, "/"))
+			break // the first name is the container's own
+		}
+	}
+	return names, nil
 }
 
 // inspectResponse is the subset of GET /containers/{id}/json the waker reads.

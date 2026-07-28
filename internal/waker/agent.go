@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -47,6 +48,36 @@ type eventStreamer interface {
 	StreamEvents(ctx context.Context, handler func(ContainerEvent)) error
 }
 
+// stateReader is what the agent needs to VERIFY a container's state: a Docker
+// event is a trigger, never the truth. During a zero-downtime replacement the
+// OLD container dies under the service's name while its replacement is being
+// renamed into place — pushing the event's action verbatim marks a perfectly
+// healthy service "exited" until something else corrects it.
+type stateReader interface {
+	Inspect(ctx context.Context, container string) (ContainerState, error)
+}
+
+// containerLister enumerates the managed containers for the periodic resync.
+type containerLister interface {
+	ListManaged(ctx context.Context) ([]string, error)
+}
+
+// observedState maps a container's real state to the control plane's observed
+// vocabulary. A running container with no healthcheck counts as healthy — the
+// same call the deploy makes when it declares a service up.
+func observedState(st ContainerState) string {
+	switch {
+	case !st.Running:
+		return "exited"
+	case st.Health == "unhealthy":
+		return "unhealthy"
+	case st.Health == "starting":
+		return "starting"
+	default: // "healthy", "none" or empty
+		return "healthy"
+	}
+}
+
 const (
 	agentQueueCap = 512
 	agentBatchMax = 100
@@ -58,9 +89,22 @@ const (
 type Agent struct {
 	cfg    AgentConfig
 	events eventStreamer
+	state  stateReader
+	lister containerLister
 	logger *slog.Logger
 	http   *http.Client
 	queue  chan Observation
+
+	// Settle is how long the agent waits after a container event before
+	// reading the real state: a replacement (stop old → rm → rename
+	// candidate) must have landed, or the reading describes a container that
+	// no longer exists. Resync is the safety net that repairs any state a
+	// missed event left stale.
+	Settle time.Duration
+	Resync time.Duration
+
+	mu      sync.Mutex
+	pending map[string]bool // containers with a verification in flight
 
 	Heartbeat time.Duration
 	Flush     time.Duration
@@ -79,12 +123,14 @@ type Agent struct {
 	wsRetryAt time.Time
 }
 
-// NewAgent builds an agent; events may be nil (no Docker stream).
+// NewAgent builds an agent; events may be nil (no Docker stream). When the
+// source also reads container state and lists managed containers (the socket
+// client does), the agent verifies every event and resyncs periodically.
 func NewAgent(cfg AgentConfig, events eventStreamer, logger *slog.Logger) *Agent {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Agent{
+	a := &Agent{
 		cfg:        cfg,
 		events:     events,
 		logger:     logger,
@@ -94,8 +140,14 @@ func NewAgent(cfg AgentConfig, events eventStreamer, logger *slog.Logger) *Agent
 		Flush:      2 * time.Second,
 		Backoff:    5 * time.Second,
 		WSCooldown: time.Minute,
+		Settle:     3 * time.Second,
+		Resync:     5 * time.Minute,
+		pending:    map[string]bool{},
 		now:        time.Now,
 	}
+	a.state, _ = events.(stateReader)
+	a.lister, _ = events.(containerLister)
+	return a
 }
 
 // Push queues an observation, dropping the oldest when full. Never blocks.
@@ -129,6 +181,9 @@ func (a *Agent) Run(ctx context.Context) {
 	if a.events != nil {
 		go contain(a.logger, "agent stream", func() { a.streamLoop(ctx) })
 	}
+	if a.lister != nil && a.state != nil {
+		go contain(a.logger, "agent resync", func() { a.resyncLoop(ctx) })
+	}
 	go contain(a.logger, "agent heartbeat", func() { a.heartbeatLoop(ctx) })
 	contain(a.logger, "agent flush", func() { a.flushLoop(ctx) })
 }
@@ -157,7 +212,7 @@ func (a *Agent) streamLoop(ctx context.Context) {
 			if !interestingActions[ev.Action] {
 				return
 			}
-			a.Push(Observation{Type: "container_state", At: ev.At, Container: ev.Container, State: ev.Action})
+			a.verifyLater(ctx, ev.Container)
 		})
 		if ctx.Err() != nil {
 			return
@@ -165,6 +220,73 @@ func (a *Agent) streamLoop(ctx context.Context) {
 		a.logger.Warn("agent: docker event stream interrupted, reconnecting", "error", err)
 		if sleepCtx(ctx, a.Backoff) != nil {
 			return
+		}
+	}
+}
+
+// verifyLater schedules ONE state reading per container after the settle
+// delay: bursts (die + start of a restart, a rolling replacement) collapse
+// into a single observation describing what is actually there afterwards.
+// Without a state reader (tests) the event is pushed as-is.
+func (a *Agent) verifyLater(ctx context.Context, container string) {
+	if container == "" {
+		return
+	}
+	if a.state == nil {
+		a.Push(Observation{Type: "container_state", At: a.now(), Container: container, State: "unknown"})
+		return
+	}
+	a.mu.Lock()
+	if a.pending[container] {
+		a.mu.Unlock()
+		return
+	}
+	a.pending[container] = true
+	a.mu.Unlock()
+
+	go contain(a.logger, "agent verify", func() {
+		if sleepCtx(ctx, a.Settle) != nil {
+			return
+		}
+		a.mu.Lock()
+		delete(a.pending, container)
+		a.mu.Unlock()
+		a.observe(ctx, container)
+	})
+}
+
+// observe reads a container's real state and pushes it. A container that no
+// longer exists pushes NOTHING: mid-replacement, its absence says nothing
+// about the service — the resync or the next event will tell the truth.
+func (a *Agent) observe(ctx context.Context, container string) {
+	st, err := a.state.Inspect(ctx, container)
+	if err != nil {
+		return
+	}
+	a.Push(Observation{
+		Type: "container_state", At: a.now(), Container: container, State: observedState(st),
+	})
+}
+
+// resyncLoop re-reads every managed container periodically — the self-healing
+// net for a missed event, a restart during a control-plane outage, or a state
+// an interrupted deploy left stale.
+func (a *Agent) resyncLoop(ctx context.Context) {
+	t := time.NewTicker(a.Resync)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			names, err := a.lister.ListManaged(ctx)
+			if err != nil {
+				a.logger.Warn("agent: resync listing failed", "error", err)
+				continue
+			}
+			for _, name := range names {
+				a.observe(ctx, name)
+			}
 		}
 	}
 }

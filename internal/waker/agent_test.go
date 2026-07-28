@@ -236,6 +236,97 @@ func TestAgentQueueShedsOldest(t *testing.T) {
 	}
 }
 
+// eventDocker is a fake Docker exposing the event stream, state reads and the
+// managed listing — the three the agent uses to observe.
+type eventDocker struct {
+	*fakeDocker
+	events  chan ContainerEvent
+	managed []string
+}
+
+func newEventDocker() *eventDocker {
+	return &eventDocker{fakeDocker: newFakeDocker(), events: make(chan ContainerEvent, 8)}
+}
+
+func (d *eventDocker) StreamEvents(ctx context.Context, handler func(ContainerEvent)) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case ev := <-d.events:
+			handler(ev)
+		}
+	}
+}
+
+func (d *eventDocker) ListManaged(context.Context) ([]string, error) { return d.managed, nil }
+
+// Regression for the "exited while the service is up" report: during a
+// zero-downtime replacement the OLD container dies under the service's name
+// while its replacement is renamed into place. The event is a trigger — the
+// agent must report what the daemon says AFTERWARDS, not the action itself.
+func TestAgentVerifiesStateAfterEventInsteadOfTrustingIt(t *testing.T) {
+	c := &capture{}
+	srv := httptest.NewServer(c.handler())
+	defer srv.Close()
+
+	d := newEventDocker()
+	// The replacement is already running and healthy when the settle delay
+	// expires — exactly the state the deploy leaves behind.
+	d.running["app-1-frontend"] = true
+	d.health["app-1-frontend"] = "healthy"
+
+	a := NewAgent(AgentConfig{InstanceURL: srv.URL, Token: "akda_test"}, d, nil)
+	a.Flush, a.Backoff, a.Heartbeat = 10*time.Millisecond, 5*time.Millisecond, time.Hour
+	a.Settle, a.Resync, a.DisableWS = 5*time.Millisecond, time.Hour, true
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go a.Run(ctx)
+
+	d.events <- ContainerEvent{Container: "app-1-frontend", Action: "die", At: time.Now()}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		for _, o := range flatten(c.waitBatches(t, 1)) {
+			if o.Type != "container_state" {
+				continue
+			}
+			if o.Container != "app-1-frontend" {
+				t.Fatalf("unexpected container in observation: %+v", o)
+			}
+			if o.State == "exited" || o.State == "die" {
+				t.Fatalf("the agent reported the raw event instead of the verified state: %+v", o)
+			}
+			if o.State == "healthy" {
+				return // the running replacement is what got reported
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no verified container_state observation was delivered")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestObservedState(t *testing.T) {
+	cases := []struct {
+		st   ContainerState
+		want string
+	}{
+		{ContainerState{Running: false, Health: "none"}, "exited"},
+		{ContainerState{Running: true, Health: "healthy"}, "healthy"},
+		{ContainerState{Running: true, Health: "unhealthy"}, "unhealthy"},
+		{ContainerState{Running: true, Health: "starting"}, "starting"},
+		// No healthcheck: running IS up — the same call the deploy makes.
+		{ContainerState{Running: true, Health: "none"}, "healthy"},
+	}
+	for _, c := range cases {
+		if got := observedState(c.st); got != c.want {
+			t.Fatalf("observedState(%+v) = %q, want %q", c.st, got, c.want)
+		}
+	}
+}
+
 func TestAgentDisabledWithoutEnrollment(t *testing.T) {
 	if (AgentConfig{}).Enabled() || (AgentConfig{InstanceURL: "http://x"}).Enabled() {
 		t.Fatal("an incomplete enrollment must disable the agent")
