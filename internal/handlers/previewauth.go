@@ -86,7 +86,7 @@ func (a *API) PreviewForwardAuth(w http.ResponseWriter, r *http.Request) {
 	// A valid cookie is the fast path — one indexed lookup per request.
 	if cookie, err := r.Cookie(previewCookieName); err == nil && cookie.Value != "" {
 		token, err := a.Store.GetPreviewAccessTokenByHash(r.Context(), hashPreviewToken(cookie.Value))
-		if err == nil && token.PreviewID == preview.ID {
+		if err == nil && token.PreviewID != nil && *token.PreviewID == preview.ID {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -169,7 +169,7 @@ func (a *API) PreviewAuthorize(w http.ResponseWriter, r *http.Request) {
 	token := hex.EncodeToString(raw)
 	_ = a.Store.DeleteExpiredPreviewAccessTokens(r.Context())
 	if err := a.Store.CreatePreviewAccessToken(r.Context(), store.CreatePreviewAccessTokenParams{
-		TokenHash: hashPreviewToken(token), PreviewID: preview.ID,
+		TokenHash: hashPreviewToken(token), PreviewID: &preview.ID,
 		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(previewAccessTTL), Valid: true},
 	}); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)

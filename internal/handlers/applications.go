@@ -116,6 +116,8 @@ func applicationToAPI(row appRow) api.Application {
 		PreviewMaxConcurrent:           intPtrOf(row.Application.PreviewMaxConcurrent),
 		PreviewTtlMinutes:              intPtrOf(row.Application.PreviewTtlMinutes),
 		PreviewProtection:              ptr(api.ApplicationPreviewProtection(row.Application.PreviewProtection)),
+		AccessProtection:               ptr(api.ApplicationAccessProtection(row.Application.AccessProtection)),
+		AccessBasicAuthSet:             ptr(len(row.Application.AccessBasicAuthEnc) > 0),
 		PreviewForkApprovalEnabled:     ptr(row.Application.PreviewForkApprovalEnabled),
 		PreviewExcludeDrafts:           ptr(row.Application.PreviewExcludeDrafts),
 		PreviewDeployOnOpen:            ptr(row.Application.PreviewDeployOnOpen),

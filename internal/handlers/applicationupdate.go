@@ -286,6 +286,54 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 			return
 		}
 	}
+
+	// Application access wall (ADR-042): its own block — it is not a preview
+	// setting, and switching to basic_auth without supplying credentials
+	// generates them rather than leaving a protection that cannot be applied.
+	if body.AccessProtection != nil || body.AccessBasicAuth != nil {
+		if body.AccessProtection != nil {
+			if err := qtx.SetApplicationAccessProtection(r.Context(), store.SetApplicationAccessProtectionParams{
+				ID: row.Resource.ID, AccessProtection: store.PreviewProtection(*body.AccessProtection),
+			}); err != nil {
+				a.internalError(w, r, "update application", err)
+				return
+			}
+		}
+		credentials := ""
+		switch {
+		case body.AccessBasicAuth != nil && *body.AccessBasicAuth != "":
+			credentials = *body.AccessBasicAuth
+		case body.AccessProtection != nil && *body.AccessProtection == api.ApplicationUpdateAccessProtectionBasicAuth &&
+			len(row.Application.AccessBasicAuthEnc) == 0:
+			generated, err := generateBasicAuthCredentials()
+			if err != nil {
+				a.internalError(w, r, "update application", err)
+				return
+			}
+			credentials = generated
+		}
+		if credentials != "" {
+			if !strings.Contains(credentials, ":") {
+				httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+					Field: ptr("access_basic_auth"), Code: ptr("invalid_format"),
+					Message: "access_basic_auth must be \"user:password\"",
+				}})
+				return
+			}
+			enc, err := a.Keyring.Encrypt("applications", "access_basic_auth_enc",
+				uuidString(row.Resource.Uuid), []byte(credentials))
+			if err != nil {
+				a.internalError(w, r, "update application", err)
+				return
+			}
+			if err := qtx.SetApplicationAccessBasicAuth(r.Context(), store.SetApplicationAccessBasicAuthParams{
+				ID: row.Resource.ID, AccessBasicAuthEnc: enc,
+			}); err != nil {
+				a.internalError(w, r, "update application", err)
+				return
+			}
+		}
+	}
 	// Scale-to-zero of the application itself (ADR-037): a separate opt-in from
 	// the preview scale-to-zero above.
 	if body.ScaleToZero != nil || body.ScaleToZeroAfterMinutes != nil {

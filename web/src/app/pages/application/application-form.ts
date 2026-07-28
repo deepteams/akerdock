@@ -90,6 +90,12 @@ export interface SettingsForm extends ConfigForm {
   previewMaxConcurrent: string;
   previewTtlMinutes: string;
   previewProtection: 'none' | 'basic_auth' | 'sso';
+  /** Access wall of the application's OWN urls (ADR-042) — independent of
+   * the preview protection above. */
+  accessProtection: 'none' | 'basic_auth' | 'sso';
+  /** Shared credentials for accessProtection=basic_auth; empty keeps the
+   * stored ones (generated on first switch). Write-only, never read back. */
+  accessBasicAuth: string;
   previewForkApprovalEnabled: boolean;
   previewExcludeDrafts: boolean;
   /** Auto-deploy the preview when a PR opens (default); false = first deploy
@@ -222,6 +228,8 @@ export function settingsFromApplication(app: Application): SettingsForm {
       app.preview_max_concurrent != null ? String(app.preview_max_concurrent) : '',
     previewTtlMinutes: app.preview_ttl_minutes != null ? String(app.preview_ttl_minutes) : '',
     previewProtection: (app.preview_protection as 'none' | 'basic_auth' | 'sso') ?? 'basic_auth',
+    accessProtection: (app.access_protection as 'none' | 'basic_auth' | 'sso') ?? 'none',
+    accessBasicAuth: '',
     previewForkApprovalEnabled: app.preview_fork_approval_enabled ?? false,
     previewExcludeDrafts: app.preview_exclude_drafts ?? false,
     previewDeployOnOpen: app.preview_deploy_on_open ?? true,
@@ -394,6 +402,14 @@ export function settingsToUpdate(form: SettingsForm, sourceType: SourceType): Ap
       update.push_registry_credential_uuid = orNull(form.pushRegistryCredentialUuid);
       break;
     }
+  }
+
+  // The access wall (ADR-042) belongs to the application itself, not to its
+  // build source: sent for every kind. Blank credentials keep the stored ones
+  // — the backend generates them on the first switch to basic_auth.
+  update.access_protection = form.accessProtection;
+  if (form.accessBasicAuth.trim()) {
+    update.access_basic_auth = form.accessBasicAuth.trim();
   }
 
   return update;

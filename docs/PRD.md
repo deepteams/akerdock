@@ -850,6 +850,7 @@ The "Sections" column refers to the requirements of this document that define th
 | Observability/terminal | §3.8, §5.7, §13 | P2 | To do | Load + auth + reconnect |
 | Multi-server HA for one app | §3.3, §27.4 | P3 | To do | Spike + manual validation (Swarm not reimplemented, ADR-004) |
 | Server agent: outbound observation push (waker merged) | §18.1, §18.3, §21.2 | P2 | Compliant | ADR-040/041; agent_tokens + SSH-injected enrollment, push loop (docker events, wakes, heartbeat; bounded, at-least-once), persistent WebSocket channel `akerdock-agent-v1` (presence = connection, acked frames, POST fallback, SSH last), `/agent/v1` ingestion (server-scoped), helper ensured on every server, threat-model §3.4bis, application slept/woken events + live UI, agent presence in the server API/UI, unit tests |
+| Application access protection (auth wall) | §20.4.4, §21 | P2 | Compliant | ADR-042; access_protection none/basic_auth/sso per application, injected Traefik middlewares (basicAuth bcrypt / forwardAuth with identity in the address), app-scoped cookie + authorize/callback ritual, API + UI, unit tests |
 | Cloudflare tunnels / cloud provisioning / server patching | §3.2, §3.6 | — | Abandoned | ADR-027 (re-assessable upon proven demand) |
 
 The allowed status is `To do | In progress | Partial | Compliant | Documented divergence | Abandoned`. A proof points to tests, screenshots, benchmark or ADR.

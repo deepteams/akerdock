@@ -339,6 +339,29 @@ func injectPreviewSSOCallback(content, previewUUID string, hosts []string, insta
 	return strings.Join(out, "\n")
 }
 
+// injectApplicationMiddlewares puts a protected application behind the same
+// wall as a preview (ADR-042), minus the noindex header: a production app
+// decides its own indexing policy. Nothing is injected when the protection is
+// `none` or its credential is missing — the content is returned untouched.
+func injectApplicationMiddlewares(content, appUUID string, protection store.PreviewProtection, basicAuthHash, ssoAuthURL string) string {
+	var name, definition string
+	switch {
+	case protection == store.PreviewProtectionBasicAuth && basicAuthHash != "":
+		// The clear text never enters a routing file — Traefik gets bcrypt.
+		name = appUUID + "-access"
+		definition = fmt.Sprintf("    %s-access:\n      basicAuth:\n        users:\n          - %q\n", appUUID, basicAuthHash)
+	case protection == store.PreviewProtectionSso && ssoAuthURL != "":
+		// The application identity travels IN THE ADDRESS: intermediate
+		// proxies rewrite X-Forwarded-Host, a query parameter survives.
+		name = appUUID + "-access"
+		definition = fmt.Sprintf("    %s-access:\n      forwardAuth:\n        address: %q\n",
+			appUUID, ssoAuthURL+"?application="+appUUID)
+	default:
+		return content
+	}
+	return injectMiddlewares(content, []string{name}, definition)
+}
+
 func injectPreviewMiddlewares(content, previewUUID string, protection store.PreviewProtection, basicAuthHash, ssoAuthURL string) string {
 	middlewares := []string{previewUUID + "-noindex"}
 	extra := fmt.Sprintf("    %s-noindex:\n      headers:\n        customResponseHeaders:\n          X-Robots-Tag: noindex\n", previewUUID)
@@ -362,10 +385,14 @@ func injectPreviewMiddlewares(content, previewUUID string, protection store.Prev
 			previewUUID, ssoAuthURL+"?preview="+previewUUID)
 	}
 
-	// Attach the middlewares to the https routers, and define them in the
-	// middlewares section — which must exist BEFORE the services section: a
-	// definition appended at the end of the file would be parsed as a service
-	// and Traefik would reject the whole routing file.
+	return injectMiddlewares(content, middlewares, extra)
+}
+
+// injectMiddlewares attaches names to every https router of the file and
+// defines them in the middlewares section — which must exist BEFORE the
+// services section: a definition appended at the end of the file would be
+// parsed as a service and Traefik would reject the whole routing file.
+func injectMiddlewares(content string, names []string, definitions string) string {
 	var out []string
 	inserted := false
 	for _, line := range strings.Split(content, "\n") {
@@ -374,17 +401,17 @@ func injectPreviewMiddlewares(content, previewUUID string, protection store.Prev
 		case trimmed == "middlewares:" && strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "   "):
 			// The generator's own middlewares section (https-redirect).
 			out = append(out, line)
-			out = append(out, strings.TrimRight(extra, "\n"))
+			out = append(out, strings.TrimRight(definitions, "\n"))
 			inserted = true
 			continue
 		case trimmed == "services:" && !inserted:
 			out = append(out, "  middlewares:")
-			out = append(out, strings.TrimRight(extra, "\n"))
+			out = append(out, strings.TrimRight(definitions, "\n"))
 			inserted = true
 		}
 		out = append(out, line)
 		if strings.HasPrefix(trimmed, "entryPoints: [websecure]") {
-			out = append(out, "      middlewares: ["+strings.Join(middlewares, ", ")+"]")
+			out = append(out, "      middlewares: ["+strings.Join(names, ", ")+"]")
 		}
 	}
 	return strings.Join(out, "\n")

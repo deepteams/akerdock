@@ -11273,6 +11273,22 @@ components:
           type: integer
           nullable: true
           description: Inactivity TTL in minutes; null = no automatic destruction.
+        access_protection:
+          type: string
+          enum: [none, basic_auth, sso]
+          description: >-
+            Access wall of the application's own URLs (ADR-042): `sso`
+            requires an AkerDock session with access to the team,
+            `basic_auth` shared credentials, `none` (default) is public.
+            Applies to EVERY domain of the application and every routed
+            service of a compose stack.
+        access_basic_auth:
+          type: string
+          nullable: true
+          description: >-
+            Shared credentials `user:password` for `basic_auth` protection
+            (ADR-042). Write-only; stored encrypted, never returned. Sending
+            null with `access_protection: basic_auth` generates one.
         preview_protection:
           type: string
           enum: [none, basic_auth, sso]
@@ -11487,6 +11503,17 @@ components:
         preview_ttl_minutes:
           type: integer
           nullable: true
+        access_protection:
+          type: string
+          enum: [none, basic_auth, sso]
+          description: >-
+            Access wall of the application's own URLs (ADR-042) — `none` by
+            default (public), `sso` = AkerDock session + team membership,
+            `basic_auth` = shared credentials.
+        access_basic_auth_set:
+          type: boolean
+          readOnly: true
+          description: Whether shared basic-auth credentials are configured (ADR-042).
         preview_protection:
           type: string
           enum: [none, basic_auth, sso]

@@ -49,7 +49,7 @@ VALUES ($1, $2, $4, $3)
 
 type CreatePreviewAccessTokenParams struct {
 	TokenHash string
-	PreviewID int64
+	PreviewID *int64
 	ExpiresAt pgtype.Timestamptz
 	UserID    *int64
 }
@@ -75,7 +75,7 @@ func (q *Queries) DeleteExpiredPreviewAccessTokens(ctx context.Context) error {
 }
 
 const getPreviewAccessTokenByHash = `-- name: GetPreviewAccessTokenByHash :one
-SELECT id, token_hash, preview_id, user_id, expires_at, created_at FROM preview_access_tokens WHERE token_hash = $1 AND expires_at > now()
+SELECT id, token_hash, preview_id, user_id, expires_at, created_at, application_id FROM preview_access_tokens WHERE token_hash = $1 AND expires_at > now()
 `
 
 func (q *Queries) GetPreviewAccessTokenByHash(ctx context.Context, tokenHash string) (PreviewAccessToken, error) {
@@ -88,6 +88,7 @@ func (q *Queries) GetPreviewAccessTokenByHash(ctx context.Context, tokenHash str
 		&i.UserID,
 		&i.ExpiresAt,
 		&i.CreatedAt,
+		&i.ApplicationID,
 	)
 	return i, err
 }

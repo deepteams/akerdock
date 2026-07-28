@@ -2085,6 +2085,8 @@ type Application struct {
 	PreviewScaleToZero             bool
 	PreviewScaleToZeroAfterMinutes int32
 	ScaleSleptAt                   pgtype.Timestamptz
+	AccessProtection               PreviewProtection
+	AccessBasicAuthEnc             []byte
 }
 
 type AuditEvent struct {
@@ -2762,12 +2764,13 @@ type Preview struct {
 }
 
 type PreviewAccessToken struct {
-	ID        int64
-	TokenHash string
-	PreviewID int64
-	UserID    *int64
-	ExpiresAt pgtype.Timestamptz
-	CreatedAt pgtype.Timestamptz
+	ID            int64
+	TokenHash     string
+	PreviewID     *int64
+	UserID        *int64
+	ExpiresAt     pgtype.Timestamptz
+	CreatedAt     pgtype.Timestamptz
+	ApplicationID *int64
 }
 
 type PrivateKey struct {

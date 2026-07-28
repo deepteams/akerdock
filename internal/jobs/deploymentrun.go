@@ -175,6 +175,51 @@ func (r *deploymentRun) previewSSOAuthURL(ctx context.Context) (string, error) {
 	return "https://" + *settings.Fqdn + "/webhooks/previews/forward-auth", nil
 }
 
+// applicationSSOAuthURL is the forward-auth address of a protected
+// application (ADR-042), empty when the protection is not sso. Same routing
+// rule as previews: the host gateway for the localhost server (no DNS, no
+// public hairpin — this runs on EVERY request), the public URL elsewhere.
+func (r *deploymentRun) applicationSSOAuthURL(ctx context.Context) (string, error) {
+	if r.app.Application.AccessProtection != store.PreviewProtectionSso {
+		return "", nil
+	}
+	settings, err := r.h.Store.GetInstanceSettings(ctx)
+	if err != nil {
+		return "", err
+	}
+	if settings.Fqdn == nil || *settings.Fqdn == "" {
+		return "", fmt.Errorf("access_protection sso requires the instance FQDN (ADR-042) — set it in the instance settings")
+	}
+	if r.server.IsLocalhost && r.h.ControlPlanePort > 0 {
+		return fmt.Sprintf("http://host.docker.internal:%d/webhooks/applications/forward-auth", r.h.ControlPlanePort), nil
+	}
+	return "https://" + *settings.Fqdn + "/webhooks/applications/forward-auth", nil
+}
+
+// applicationAuthHash renders the htpasswd line protecting this application
+// (ADR-042): the generated "user:password", bcrypt-hashed for the proxy —
+// the clear text never enters a routing file.
+func (r *deploymentRun) applicationAuthHash(ctx context.Context) string {
+	if r.app.Application.AccessProtection != store.PreviewProtectionBasicAuth ||
+		len(r.app.Application.AccessBasicAuthEnc) == 0 {
+		return ""
+	}
+	plaintext, err := r.h.Keyring.Decrypt("applications", "access_basic_auth_enc",
+		pguuid.String(r.app.Resource.Uuid), r.app.Application.AccessBasicAuthEnc)
+	if err != nil {
+		return ""
+	}
+	user, pass, ok := strings.Cut(string(plaintext), ":")
+	if !ok {
+		return ""
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
+	if err != nil {
+		return ""
+	}
+	return user + ":" + string(hash)
+}
+
 // namingIdentity is the base of the Docker names of this run: the preview
 // uuid for a PR instance, the resource uuid otherwise (INV-011).
 func (r *deploymentRun) namingIdentity() string {
@@ -1365,6 +1410,17 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 	}
 	if err != nil {
 		return err
+	}
+	// The application access wall (ADR-042) applies to every routed host of
+	// the application — production routing and the scale-to-zero waker path
+	// alike, since the waker routes by Host behind the same routers.
+	if r.preview == nil && content != "" {
+		accessSSO, ssoErr := r.applicationSSOAuthURL(ctx)
+		if ssoErr != nil {
+			return ssoErr
+		}
+		content = injectApplicationMiddlewares(content, appUUID,
+			r.app.Application.AccessProtection, r.applicationAuthHash(ctx), accessSSO)
 	}
 	name := "apply_routing"
 	if endpoint != "" {

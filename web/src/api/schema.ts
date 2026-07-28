@@ -4999,6 +4999,13 @@ export interface components {
             /** @description Inactivity TTL in minutes; null = no automatic destruction. */
             preview_ttl_minutes?: number | null;
             /**
+             * @description Access wall of the application's own URLs (ADR-042): `sso` requires an AkerDock session with access to the team, `basic_auth` shared credentials, `none` (default) is public. Applies to EVERY domain of the application and every routed service of a compose stack.
+             * @enum {string}
+             */
+            access_protection?: "none" | "basic_auth" | "sso";
+            /** @description Shared credentials `user:password` for `basic_auth` protection (ADR-042). Write-only; stored encrypted, never returned. Sending null with `access_protection: basic_auth` generates one. */
+            access_basic_auth?: string | null;
+            /**
              * @description Access protection of preview URLs (§20.4.4) — basic_auth by default.
              * @enum {string}
              */
@@ -5073,6 +5080,13 @@ export interface components {
             preview_url_templates?: components["schemas"]["PreviewRouteTemplate"][] | null;
             preview_max_concurrent?: number | null;
             preview_ttl_minutes?: number | null;
+            /**
+             * @description Access wall of the application's own URLs (ADR-042) — `none` by default (public), `sso` = AkerDock session + team membership, `basic_auth` = shared credentials.
+             * @enum {string}
+             */
+            access_protection?: "none" | "basic_auth" | "sso";
+            /** @description Whether shared basic-auth credentials are configured (ADR-042). */
+            readonly access_basic_auth_set?: boolean;
             /** @enum {string} */
             preview_protection?: "none" | "basic_auth" | "sso";
             preview_fork_approval_enabled?: boolean;

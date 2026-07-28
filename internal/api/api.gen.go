@@ -109,6 +109,27 @@ func (e ApiTokenPermission) Valid() bool {
 	}
 }
 
+// Defines values for ApplicationAccessProtection.
+const (
+	ApplicationAccessProtectionBasicAuth ApplicationAccessProtection = "basic_auth"
+	ApplicationAccessProtectionNone      ApplicationAccessProtection = "none"
+	ApplicationAccessProtectionSso       ApplicationAccessProtection = "sso"
+)
+
+// Valid indicates whether the value is a known member of the ApplicationAccessProtection enum.
+func (e ApplicationAccessProtection) Valid() bool {
+	switch e {
+	case ApplicationAccessProtectionBasicAuth:
+		return true
+	case ApplicationAccessProtectionNone:
+		return true
+	case ApplicationAccessProtectionSso:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ApplicationBuildPack.
 const (
 	ApplicationBuildPackCompose     ApplicationBuildPack = "compose"
@@ -217,6 +238,27 @@ func (e ApplicationCreateGitBuildPack) Valid() bool {
 	case ApplicationCreateGitBuildPackNixpacks:
 		return true
 	case ApplicationCreateGitBuildPackStatic:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ApplicationUpdateAccessProtection.
+const (
+	ApplicationUpdateAccessProtectionBasicAuth ApplicationUpdateAccessProtection = "basic_auth"
+	ApplicationUpdateAccessProtectionNone      ApplicationUpdateAccessProtection = "none"
+	ApplicationUpdateAccessProtectionSso       ApplicationUpdateAccessProtection = "sso"
+)
+
+// Valid indicates whether the value is a known member of the ApplicationUpdateAccessProtection enum.
+func (e ApplicationUpdateAccessProtection) Valid() bool {
+	switch e {
+	case ApplicationUpdateAccessProtectionBasicAuth:
+		return true
+	case ApplicationUpdateAccessProtectionNone:
+		return true
+	case ApplicationUpdateAccessProtectionSso:
 		return true
 	default:
 		return false
@@ -2224,6 +2266,12 @@ type ApiTokenPermission string
 
 // Application Deployable application (§5). Groups the identity, the desired configuration (source, build, routing, health, limits) and the desired/observed statuses (§21.2).
 type Application struct {
+	// AccessBasicAuthSet Whether shared basic-auth credentials are configured (ADR-042).
+	AccessBasicAuthSet *bool `json:"access_basic_auth_set,omitempty"`
+
+	// AccessProtection Access wall of the application's own URLs (ADR-042) — `none` by default (public), `sso` = AkerDock session + team membership, `basic_auth` = shared credentials.
+	AccessProtection *ApplicationAccessProtection `json:"access_protection,omitempty"`
+
 	// AutoDeploy (git source) Auto-deploy on push enabled.
 	AutoDeploy    *bool                 `json:"auto_deploy,omitempty"`
 	BaseDirectory *string               `json:"base_directory,omitempty"`
@@ -2336,6 +2384,9 @@ type Application struct {
 	Version    *int      `json:"version,omitempty"`
 	WatchPaths *[]string `json:"watch_paths,omitempty"`
 }
+
+// ApplicationAccessProtection Access wall of the application's own URLs (ADR-042) — `none` by default (public), `sso` = AkerDock session + team membership, `basic_auth` = shared credentials.
+type ApplicationAccessProtection string
 
 // ApplicationBuildPack defines model for Application.BuildPack.
 type ApplicationBuildPack string
@@ -2588,6 +2639,12 @@ type ApplicationCreateRequest struct {
 
 // ApplicationUpdate Partial update of the configuration. Changes are versioned (INV-014) and applied at the next deployment, except `domains` (routing regenerated immediately). `source_type` is not modifiable — recreate the application to change the source type.
 type ApplicationUpdate struct {
+	// AccessBasicAuth Shared credentials `user:password` for `basic_auth` protection (ADR-042). Write-only; stored encrypted, never returned. Sending null with `access_protection: basic_auth` generates one.
+	AccessBasicAuth *string `json:"access_basic_auth,omitempty"`
+
+	// AccessProtection Access wall of the application's own URLs (ADR-042): `sso` requires an AkerDock session with access to the team, `basic_auth` shared credentials, `none` (default) is public. Applies to EVERY domain of the application and every routed service of a compose stack.
+	AccessProtection *ApplicationUpdateAccessProtection `json:"access_protection,omitempty"`
+
 	// AutoDeploy (git source) Enables/disables auto-deploy on push (§5.5).
 	AutoDeploy *bool `json:"auto_deploy,omitempty"`
 
@@ -2706,6 +2763,9 @@ type ApplicationUpdate struct {
 	// WatchPaths (git source) Auto-deploy patterns.
 	WatchPaths *[]string `json:"watch_paths,omitempty"`
 }
+
+// ApplicationUpdateAccessProtection Access wall of the application's own URLs (ADR-042): `sso` requires an AkerDock session with access to the team, `basic_auth` shared credentials, `none` (default) is public. Applies to EVERY domain of the application and every routed service of a compose stack.
+type ApplicationUpdateAccessProtection string
 
 // ApplicationUpdateBuildPack (git source) Build pack.
 type ApplicationUpdateBuildPack string

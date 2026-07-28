@@ -161,6 +161,11 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 	// proxied here by its dedicated router (ADR-030).
 	r.Get("/.akerdock/preview-callback", a.PreviewCallback)
 
+	// The same ritual for a protected APPLICATION (ADR-042).
+	r.Get("/webhooks/applications/forward-auth", a.ApplicationForwardAuth)
+	r.Get("/webhooks/applications/authorize", a.ApplicationAuthorize)
+	r.Get("/.akerdock/app-callback", a.ApplicationCallback)
+
 	// Browser authentication (PRD §698). Outside /api/v1 and outside the bearer
 	// middleware: the v1 contract knows nothing of sessions (§10.2), and these
 	// routes exist for the dashboard alone.

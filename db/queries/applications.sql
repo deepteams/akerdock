@@ -263,3 +263,36 @@ FROM resources r
 JOIN destinations d ON d.id = r.destination_id
 WHERE a.id = r.id AND r.uuid = $1 AND d.server_id = $2 AND a.scale_slept_at IS NOT NULL
 RETURNING a.id;
+
+-- name: CreateApplicationAccessToken :exec
+-- ADR-042: application access wall — only the HASH is stored, the cookie
+-- value never touches the base (same rule as previews, ADR-030).
+INSERT INTO preview_access_tokens (token_hash, application_id, user_id, expires_at)
+VALUES ($1, $2, sqlc.narg(user_id), $3);
+
+-- name: GetApplicationByRoutedHost :one
+-- Resolves a browser Host to the application that serves it (ADR-042): an
+-- application-level domain or a compose component's own domain.
+SELECT a.id, r.uuid, r.team_id, a.access_protection
+FROM applications a
+JOIN resources r ON r.id = a.id
+LEFT JOIN domains d ON d.resource_id = r.id
+LEFT JOIN service_components sc ON sc.resource_id = r.id
+LEFT JOIN domains cd ON cd.service_component_id = sc.id
+WHERE r.deleted_at IS NULL
+  AND (d.fqdn = sqlc.arg(host)::citext OR cd.fqdn = sqlc.arg(host)::citext)
+LIMIT 1;
+
+-- name: GetApplicationAccessByUUID :one
+-- The application behind a forward-auth call (identity carried in the
+-- middleware address, ADR-030's lesson about rewritten X-Forwarded-Host).
+SELECT a.id, r.uuid, r.team_id, a.access_protection
+FROM applications a
+JOIN resources r ON r.id = a.id
+WHERE r.uuid = $1 AND r.deleted_at IS NULL;
+
+-- name: SetApplicationAccessProtection :exec
+UPDATE applications SET access_protection = $2 WHERE id = $1;
+
+-- name: SetApplicationAccessBasicAuth :exec
+UPDATE applications SET access_basic_auth_enc = $2 WHERE id = $1;

@@ -148,6 +148,54 @@ type SettingsSection = ConfigSection | 'deploys' | 'previews';
               </section>
             }
 
+            @if (active() === 'general') {
+              <!-- The application's own access wall (ADR-042) — independent
+                   of the PR preview protection. -->
+              <section class="akd-card group">
+                <div class="akd-card__header">
+                  <h2 class="akd-card__title">Access protection</h2>
+                </div>
+                <div class="akd-card__body body">
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="app-access">Who can reach this application</label>
+                    <div class="akd-select">
+                      <select
+                        id="app-access"
+                        name="accessProtection"
+                        class="akd-input"
+                        [(ngModel)]="form.accessProtection"
+                        [disabled]="busy()"
+                      >
+                        <option value="none">Public (default)</option>
+                        <option value="sso">AkerDock login (SSO — team members only)</option>
+                        <option value="basic_auth">Basic auth (shared credentials)</option>
+                      </select>
+                    </div>
+                    <p class="akd-field__hint">
+                      Applies to every domain of the application, and to every routed service of a
+                      compose stack. Machine clients (webhooks, APIs) receive a 401 — leave it public
+                      if the application answers them.
+                    </p>
+                  </div>
+                  @if (form.accessProtection === 'basic_auth') {
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="app-access-credentials">
+                        Shared credentials, user:password (empty = keep / generate)
+                      </label>
+                      <input
+                        id="app-access-credentials"
+                        name="accessBasicAuth"
+                        class="akd-input akd-input--mono"
+                        autocomplete="off"
+                        [(ngModel)]="form.accessBasicAuth"
+                        [disabled]="busy()"
+                      />
+                    </div>
+                  }
+                </div>
+              </section>
+            }
+
             @if (active() === 'previews') {
               <section class="akd-card group">
                 <div class="akd-card__header">
@@ -629,6 +677,8 @@ export class ApplicationSettingsTabComponent {
     previewMaxConcurrent: '',
     previewTtlMinutes: '',
     previewProtection: 'basic_auth',
+    accessProtection: 'none',
+    accessBasicAuth: '',
     previewForkApprovalEnabled: false,
     previewExcludeDrafts: false,
     previewDeployOnOpen: true,

@@ -132,6 +132,9 @@ type Querier interface {
 	// to — hence uuid = excluded.uuid on conflict.
 	CreateAgentToken(ctx context.Context, arg CreateAgentTokenParams) (AgentToken, error)
 	CreateApiToken(ctx context.Context, arg CreateApiTokenParams) (ApiToken, error)
+	// ADR-042: application access wall — only the HASH is stored, the cookie
+	// value never touches the base (same rule as previews, ADR-030).
+	CreateApplicationAccessToken(ctx context.Context, arg CreateApplicationAccessTokenParams) error
 	CreateApplicationRow(ctx context.Context, arg CreateApplicationRowParams) error
 	CreateBackupExecution(ctx context.Context, arg CreateBackupExecutionParams) (BackupExecution, error)
 	// Backups (§7, ADR-014).
@@ -315,7 +318,13 @@ type Querier interface {
 	// server helper. One row per server; the plaintext survives encrypted so the
 	// idempotent provisioning re-injects the same token at every ensure pass.
 	GetAgentTokenByServerID(ctx context.Context, serverID int64) (AgentToken, error)
+	// The application behind a forward-auth call (identity carried in the
+	// middleware address, ADR-030's lesson about rewritten X-Forwarded-Host).
+	GetApplicationAccessByUUID(ctx context.Context, uuid pgtype.UUID) (GetApplicationAccessByUUIDRow, error)
 	GetApplicationByID(ctx context.Context, id int64) (GetApplicationByIDRow, error)
+	// Resolves a browser Host to the application that serves it (ADR-042): an
+	// application-level domain or a compose component's own domain.
+	GetApplicationByRoutedHost(ctx context.Context, host string) (GetApplicationByRoutedHostRow, error)
 	GetApplicationByUUID(ctx context.Context, arg GetApplicationByUUIDParams) (GetApplicationByUUIDRow, error)
 	GetArtifactByDigest(ctx context.Context, arg GetArtifactByDigestParams) (DeploymentArtifact, error)
 	GetArtifactForDeployment(ctx context.Context, arg GetArtifactForDeploymentParams) (DeploymentArtifact, error)
@@ -788,6 +797,8 @@ type Querier interface {
 	SetAdoptionScanRunning(ctx context.Context, id int64) error
 	// Instance settings mutations (§14.2).
 	SetApiEnabled(ctx context.Context, apiEnabled bool) (InstanceSetting, error)
+	SetApplicationAccessBasicAuth(ctx context.Context, arg SetApplicationAccessBasicAuthParams) error
+	SetApplicationAccessProtection(ctx context.Context, arg SetApplicationAccessProtectionParams) error
 	SetApplicationAwake(ctx context.Context, id int64) error
 	// Links an application to a git source after creation — used when a provider
 	// API token arrives on an application whose public repository needed no source
