@@ -9,11 +9,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	"github.com/deepteams/akerdock/internal/compose"
+	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/sshexec"
+	"github.com/deepteams/akerdock/internal/store"
 	"github.com/deepteams/akerdock/internal/waker"
 )
 
@@ -156,15 +159,17 @@ func removeWakerResource(base waker.Config, resourceUUID string) waker.Config {
 
 // ensureWaker deploys the waker helper container (idempotent) and merges this
 // resource's routes into the shared table. image is the AkerDock release image;
-// empty is a configuration error, never a guessed registry.
-func ensureWaker(ctx context.Context, client *sshexec.Client, network, image, resourceUUID string, cfg waker.Config) error {
+// empty is a configuration error, never a guessed registry. agentEnv carries
+// the ADR-040 enrollment (instance URL + per-server token); zero-valued, the
+// helper runs waker-only.
+func ensureWaker(ctx context.Context, client *sshexec.Client, network, image, resourceUUID string, cfg waker.Config, agentEnv AgentEnv) error {
 	if image == "" {
 		return fmt.Errorf("scale_to_zero requires AKERDOCK_IMAGE to be set — the waker runs the AkerDock image")
 	}
 	if err := depositWakerRoutes(ctx, client, mergeWakerConfig(readWakerConfig(ctx, client), resourceUUID, cfg)); err != nil {
 		return err
 	}
-	res, err := client.Run(ctx, WakerEnsureCommand(network, image))
+	res, err := client.Run(ctx, WakerEnsureCommand(network, image, agentEnv))
 	if err != nil {
 		return err
 	}
@@ -174,12 +179,41 @@ func ensureWaker(ctx context.Context, client *sshexec.Client, network, image, re
 	return nil
 }
 
+// AgentEnv is the ADR-040 enrollment injected into the helper container at
+// (re)creation: where to push observations, and the per-server credential.
+// Either field empty disables the agent loop (degradation to SSH scans).
+type AgentEnv struct {
+	InstanceURL string
+	Token       string
+}
+
+// AgentEnvForServer assembles the enrollment for one server — best-effort by
+// design: an error yields a waker-only helper and a log line, never a failed
+// deploy. The agent is an accelerator, not a dependency (ADR-040 §6).
+func AgentEnvForServer(ctx context.Context, q AgentEnrollmentStore, keyring *envelope.Keyring,
+	logger *slog.Logger, server store.Server, controlPlanePort int) AgentEnv {
+	url := AgentInstanceURL(ctx, q, server, controlPlanePort)
+	if url == "" {
+		return AgentEnv{}
+	}
+	token, err := EnsureAgentToken(ctx, q, keyring, server.ID)
+	if err != nil {
+		if logger != nil {
+			logger.Warn("agent enrollment unavailable — helper deployed waker-only",
+				"server_id", server.ID, "error", err)
+		}
+		return AgentEnv{}
+	}
+	return AgentEnv{InstanceURL: url, Token: token}
+}
+
 // wakerSpec is the run-spec generation of the waker container. Bump it whenever
 // the `docker run` flags change — or when the waker's own behavior changes and
 // must reach servers whose image tag is unchanged (local "dirty" builds reuse a
 // tag): the deploy recreates the container when EITHER the image OR this spec
 // differs. 3: ordered wake set + rollback + waiting page, per-container budget.
-const wakerSpec = "3"
+// 4: agent enrollment env (ADR-040 phase 1).
+const wakerSpec = "4"
 
 // WakerEnsureCommand is the idempotent deploy of the waker helper. It recreates
 // the container when the running image OR the run spec differs (or when it is
@@ -193,8 +227,14 @@ const wakerSpec = "3"
 // needs the local Docker socket — whose access is root-equivalent anyway, so the
 // distroless nonroot default simply cannot read it, and every wake would fail.
 // Shared by the deploy path (ensureWaker) and the scheduler's cross-server
-// upgrade reconciliation.
-func WakerEnsureCommand(network, image string) string {
+// upgrade reconciliation. agentEnv (ADR-040) enrolls the agent loop; empty
+// fields inject nothing and the helper runs waker-only.
+func WakerEnsureCommand(network, image string, agentEnv AgentEnv) string {
+	env := ""
+	if agentEnv.InstanceURL != "" && agentEnv.Token != "" {
+		env = fmt.Sprintf("-e AKERDOCK_INSTANCE_URL=%s -e AKERDOCK_AGENT_TOKEN=%s ",
+			shellQuote(agentEnv.InstanceURL), shellQuote(agentEnv.Token))
+	}
 	return fmt.Sprintf(
 		"mkdir -p %s && "+
 			"img=$(docker inspect -f '{{.Config.Image}}' %s 2>/dev/null || true); "+
@@ -203,10 +243,10 @@ func WakerEnsureCommand(network, image string) string {
 			"docker run -d --name %s --restart unless-stopped --network %s --user 0 "+
 			"-v /var/run/docker.sock:/var/run/docker.sock -v %s:%s "+
 			"--label akerdock.managed=true --label akerdock.type=helper --label akerdock.waker_spec=%s "+
-			"%s waker; fi",
+			"%s%s waker; fi",
 		wakerDir, proxy.WakerContainerName, proxy.WakerContainerName,
 		image, wakerSpec, proxy.WakerContainerName,
-		proxy.WakerContainerName, network, wakerDir, wakerDir, wakerSpec, image)
+		proxy.WakerContainerName, network, wakerDir, wakerDir, wakerSpec, env, image)
 }
 
 // removeWakerRoutes drops a resource from the shared table (preview destroy).

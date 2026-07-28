@@ -282,6 +282,51 @@ func (q *Queries) GetPreviewByUUIDForTeam(ctx context.Context, arg GetPreviewByU
 	return i, err
 }
 
+const getSleepingPreviewForServer = `-- name: GetSleepingPreviewForServer :one
+SELECT p.id, p.uuid, p.application_id, p.provider, p.pr_id, p.source_branch, p.head_sha, p.is_fork, p.fork_approved_by, p.fork_approved_at, p.fqdn, p.status, p.cleanup_error, p.last_deployed_at, p.last_activity_at, p.destroyed_at, p.created_at, p.updated_at, p.repo_reference, p.expiry_warned_at, p.random_slug, p.deploy_requested_at FROM previews p
+JOIN resources r ON r.id = p.application_id
+JOIN destinations d ON d.id = r.destination_id
+WHERE p.uuid = $1 AND p.status = 'sleeping' AND d.server_id = $2
+`
+
+type GetSleepingPreviewForServerParams struct {
+	Uuid     pgtype.UUID
+	ServerID int64
+}
+
+// Agent ingestion ownership check (ADR-040): resolve a SLEEPING preview by
+// uuid only when it lives on the given server — an agent token can never
+// touch another server's state.
+func (q *Queries) GetSleepingPreviewForServer(ctx context.Context, arg GetSleepingPreviewForServerParams) (Preview, error) {
+	row := q.db.QueryRow(ctx, getSleepingPreviewForServer, arg.Uuid, arg.ServerID)
+	var i Preview
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.ApplicationID,
+		&i.Provider,
+		&i.PrID,
+		&i.SourceBranch,
+		&i.HeadSha,
+		&i.IsFork,
+		&i.ForkApprovedBy,
+		&i.ForkApprovedAt,
+		&i.Fqdn,
+		&i.Status,
+		&i.CleanupError,
+		&i.LastDeployedAt,
+		&i.LastActivityAt,
+		&i.DestroyedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RepoReference,
+		&i.ExpiryWarnedAt,
+		&i.RandomSlug,
+		&i.DeployRequestedAt,
+	)
+	return i, err
+}
+
 const keepPreviewAlive = `-- name: KeepPreviewAlive :exec
 UPDATE previews SET last_activity_at = now(), expiry_warned_at = NULL, updated_at = now()
 WHERE id = $1

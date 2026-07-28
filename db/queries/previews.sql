@@ -192,3 +192,12 @@ LIMIT 1;
 
 -- name: GetPreviewByUUID :one
 SELECT * FROM previews WHERE uuid = $1;
+
+-- name: GetSleepingPreviewForServer :one
+-- Agent ingestion ownership check (ADR-040): resolve a SLEEPING preview by
+-- uuid only when it lives on the given server — an agent token can never
+-- touch another server's state.
+SELECT p.* FROM previews p
+JOIN resources r ON r.id = p.application_id
+JOIN destinations d ON d.id = r.destination_id
+WHERE p.uuid = $1 AND p.status = 'sleeping' AND d.server_id = $2;

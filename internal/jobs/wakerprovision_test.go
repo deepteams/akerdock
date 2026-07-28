@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/deepteams/akerdock/internal/compose"
@@ -124,6 +125,20 @@ func TestStackWakeSetSkipsOneShotAndResolvesDeps(t *testing.T) {
 	}
 	if len(got[2].Needs) != 1 || got[2].Needs[0] != "app-1-nats" {
 		t.Fatalf("worker needs = %v, want [app-1-nats] — independent of web", got[2].Needs)
+	}
+}
+
+func TestWakerEnsureCommandAgentEnv(t *testing.T) {
+	// With an enrollment, the run command injects the ADR-040 env, quoted;
+	// without one, no -e flag at all (waker-only helper).
+	with := WakerEnsureCommand("net", "img:1", AgentEnv{InstanceURL: "https://akerdock.example.com", Token: "akda_abc"})
+	if !strings.Contains(with, "-e AKERDOCK_INSTANCE_URL='https://akerdock.example.com'") ||
+		!strings.Contains(with, "-e AKERDOCK_AGENT_TOKEN='akda_abc'") {
+		t.Fatalf("enrollment env missing from the ensure command:\n%s", with)
+	}
+	without := WakerEnsureCommand("net", "img:1", AgentEnv{})
+	if strings.Contains(without, "AKERDOCK_INSTANCE_URL") || strings.Contains(without, "-e ") {
+		t.Fatalf("empty enrollment must inject nothing:\n%s", without)
 	}
 }
 

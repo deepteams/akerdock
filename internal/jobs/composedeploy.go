@@ -865,7 +865,8 @@ func (r *deploymentRun) applyComposePreviewRouting(ctx context.Context, content 
 	// middlewares injected below are untouched.
 	if r.app.Application.PreviewScaleToZero && len(rg.Routes) > 0 {
 		wcfg := wakerConfigFromRouteGroup(appUUID, rg, stackWakeSet(plan))
-		if err := ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, appUUID, wcfg); err != nil {
+		if err := ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, appUUID, wcfg,
+			AgentEnvForServer(ctx, r.h.Store, r.h.Keyring, r.h.Logger, r.server, r.h.ControlPlanePort)); err != nil {
 			return err
 		}
 		rg = pointRouteGroupAtWaker(rg)

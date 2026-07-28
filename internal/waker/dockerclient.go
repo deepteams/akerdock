@@ -12,8 +12,9 @@ import (
 )
 
 // DockerSocket is the local Docker Engine API socket the waker is given (§8.1).
-// The waker only ever calls start/inspect/stop — a minimal client over this
-// socket keeps the static binary free of the full Docker SDK (ADR-021).
+// The waker only ever calls start/inspect/stop plus the read-only event
+// stream (ADR-040) — a minimal client over this socket keeps the static
+// binary free of the full Docker SDK (ADR-021).
 const DockerSocket = "/var/run/docker.sock"
 
 // SocketDocker talks to the local Docker daemon over its unix socket. It
@@ -73,6 +74,66 @@ func (c *SocketDocker) Start(ctx context.Context, container string) error {
 	default:
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return fmt.Errorf("waker: docker start %s: %s: %s", container, resp.Status, body)
+	}
+}
+
+// ContainerEvent is the slice of a Docker event the agent pushes (ADR-040):
+// a state transition of an akerdock.managed container.
+type ContainerEvent struct {
+	Container string // container name
+	Action    string // start, die, stop, oom, health_status: healthy, …
+	At        time.Time
+}
+
+// eventsResponse is the subset of GET /events entries the agent reads.
+type eventsResponse struct {
+	Type     string `json:"Type"`
+	Action   string `json:"Action"`
+	TimeNano int64  `json:"timeNano"`
+	Actor    struct {
+		Attributes map[string]string `json:"Attributes"`
+	} `json:"Actor"`
+}
+
+// StreamEvents follows the daemon's event stream, filtered to container
+// events of akerdock.managed containers, and calls handler for each until ctx
+// ends or the stream breaks (the caller reconnects with backoff). It uses a
+// dedicated timeout-free client: the shared one's 15 s budget would kill the
+// stream mid-flight.
+func (c *SocketDocker) StreamEvents(ctx context.Context, handler func(ContainerEvent)) error {
+	filters := `{"type":["container"],"label":["akerdock.managed=true"]}`
+	u := c.endpoint("/events?filters=" + url.QueryEscape(filters))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return err
+	}
+	stream := &http.Client{Transport: c.http.Transport}
+	resp, err := stream.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("waker: docker events: %s: %s", resp.Status, body)
+	}
+	dec := json.NewDecoder(resp.Body)
+	for {
+		var ev eventsResponse
+		if err := dec.Decode(&ev); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return err
+		}
+		if ev.Type != "container" {
+			continue
+		}
+		handler(ContainerEvent{
+			Container: ev.Actor.Attributes["name"],
+			Action:    ev.Action,
+			At:        time.Unix(0, ev.TimeNano),
+		})
 	}
 }
 

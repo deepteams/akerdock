@@ -77,3 +77,13 @@ WHERE r.team_id = $1 AND r.deleted_at IS NULL AND r.resource_type = 'service'
   AND r.id > sqlc.arg(after_id)
 ORDER BY r.id
 LIMIT sqlc.arg(page_limit);
+
+-- name: SetServiceComponentObservedByName :execrows
+-- Agent ingestion (ADR-040): refresh a component's observed state from a
+-- pushed Docker event, scoped to the resource's server. No-op when the state
+-- is unchanged, so at-least-once delivery stays idempotent.
+UPDATE service_components sc SET observed_status = $3, observed_at = now()
+FROM resources r
+JOIN destinations d ON d.id = r.destination_id
+WHERE sc.resource_id = r.id AND r.uuid = $1 AND sc.name = $2
+  AND d.server_id = $4 AND sc.observed_status <> $3;

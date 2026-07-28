@@ -2023,6 +2023,17 @@ type AdoptionScan struct {
 	CompletedAt pgtype.Timestamptz
 }
 
+type AgentToken struct {
+	ID         int64
+	Uuid       pgtype.UUID
+	ServerID   int64
+	TokenHash  string
+	TokenEnc   []byte
+	CreatedAt  pgtype.Timestamptz
+	RotatedAt  pgtype.Timestamptz
+	LastSeenAt pgtype.Timestamptz
+}
+
 type ApiToken struct {
 	ID          int64
 	Uuid        pgtype.UUID

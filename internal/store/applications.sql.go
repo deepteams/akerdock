@@ -1288,3 +1288,25 @@ func (q *Queries) UpsertTag(ctx context.Context, arg UpsertTagParams) (Tag, erro
 	)
 	return i, err
 }
+
+const wakeSleptApplicationForServer = `-- name: WakeSleptApplicationForServer :execrows
+UPDATE applications a SET scale_slept_at = NULL
+FROM resources r
+JOIN destinations d ON d.id = r.destination_id
+WHERE a.id = r.id AND r.uuid = $1 AND d.server_id = $2 AND a.scale_slept_at IS NOT NULL
+`
+
+type WakeSleptApplicationForServerParams struct {
+	Uuid     pgtype.UUID
+	ServerID int64
+}
+
+// Agent ingestion (ADR-040): flip a slept scale-to-zero application back to
+// awake, only when its resource lives on the given server.
+func (q *Queries) WakeSleptApplicationForServer(ctx context.Context, arg WakeSleptApplicationForServerParams) (int64, error) {
+	result, err := q.db.Exec(ctx, wakeSleptApplicationForServer, arg.Uuid, arg.ServerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

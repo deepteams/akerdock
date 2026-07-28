@@ -224,6 +224,20 @@ func (f *fakeSchedulerStore) GetApplicationByID(context.Context, int64) (store.G
 	return f.application, f.err("application")
 }
 
+// Agent enrollment stubs (ADR-040): the fake has no instance FQDN, so
+// AgentEnvForServer resolves to a waker-only helper in every scheduler test.
+func (f *fakeSchedulerStore) GetInstanceSettings(context.Context) (store.InstanceSetting, error) {
+	return store.InstanceSetting{}, nil
+}
+
+func (f *fakeSchedulerStore) GetAgentTokenByServerID(context.Context, int64) (store.AgentToken, error) {
+	return store.AgentToken{}, errors.New("no agent token in the fake")
+}
+
+func (f *fakeSchedulerStore) CreateAgentToken(context.Context, store.CreateAgentTokenParams) (store.AgentToken, error) {
+	return store.AgentToken{}, nil
+}
+
 func (f *fakeSchedulerStore) ListSchedulableTasks(context.Context) ([]store.ListSchedulableTasksRow, error) {
 	return f.tasks, f.err("tasks")
 }

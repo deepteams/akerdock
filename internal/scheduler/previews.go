@@ -340,13 +340,15 @@ func (w *wakerScan) client(server store.Server) remoteClient {
 }
 
 // reconcile upgrades a server's waker in place once per pass when its running
-// image differs from this release's (ADR-036).
+// image differs from this release's (ADR-036), re-injecting the agent
+// enrollment (ADR-040) so a recreate never loses it.
 func (w *wakerScan) reconcile(server store.Server, network string, client remoteClient) {
 	if w.s.WakerImage == "" || network == "" || w.reconciled[server.ID] {
 		return
 	}
 	w.reconciled[server.ID] = true
-	if _, err := client.Run(w.ctx, jobs.WakerEnsureCommand(network, w.s.WakerImage)); err != nil {
+	env := jobs.AgentEnvForServer(w.ctx, w.s.Store, w.s.Keyring, w.s.Logger, server, w.s.InstancePort)
+	if _, err := client.Run(w.ctx, jobs.WakerEnsureCommand(network, w.s.WakerImage, env)); err != nil {
 		w.s.Logger.Warn("waker image reconcile failed", "server_id", server.ID, "error", err)
 	}
 }

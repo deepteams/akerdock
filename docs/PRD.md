@@ -849,6 +849,7 @@ The "Sections" column refers to the requirements of this document that define th
 | Notifications: routing/aggregation | §11, §27.19 | P2 | To do | Flapping/debounce tests + quiet hours |
 | Observability/terminal | §3.8, §5.7, §13 | P2 | To do | Load + auth + reconnect |
 | Multi-server HA for one app | §3.3, §27.4 | P3 | To do | Spike + manual validation (Swarm not reimplemented, ADR-004) |
+| Server agent: outbound observation push (waker merged) | §18.1, §18.3, §21.2 | P2 | Partial | ADR-040; delivered: agent_tokens + SSH-injected enrollment, push loop (docker events, wakes, heartbeat; bounded, at-least-once) + `/agent/v1/observations` ingestion (server-scoped), unit tests. Remaining: helper on servers without STZ resources, threat-model §, agent-silent surfacing |
 | Cloudflare tunnels / cloud provisioning / server patching | §3.2, §3.6 | — | Abandoned | ADR-027 (re-assessable upon proven demand) |
 
 The allowed status is `To do | In progress | Partial | Compliant | Documented divergence | Abandoned`. A proof points to tests, screenshots, benchmark or ADR.

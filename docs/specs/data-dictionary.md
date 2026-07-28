@@ -251,6 +251,21 @@ API token with granular permissions (§10.3, §23.2). Shown only once; stored as
 | `created_at` | `timestamptz` | no | `now()` | — | no | — |
 | `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
+### 4.9 `agent_tokens`
+
+Per-server agent credential (ADR-040): the server helper authenticates its outbound observation pushes with it — observations only, one server, nothing else. One row per server. The plaintext survives under envelope encryption solely so the idempotent SSH provisioning can re-inject the SAME value at every ensure pass; the hash authenticates ingestion.
+
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
+|---|---|---|---|---|---|---|
+| `id` | `bigint` | no | identity | PK | no | — |
+| `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | Envelope-encryption context of `token_enc` (app-generated on insert). |
+| `server_id` | `bigint` | no | — | UNIQUE, FK `servers(id)` ON DELETE CASCADE | no | Exactly one token per server. |
+| `token_hash` | `text` | no | — | UNIQUE | no (SHA-256 hash) | Authenticates `/agent/v1` ingestion; prefix scheme `akda_`. |
+| `token_enc` | `bytea` | no | — | — | **yes** | AEAD ciphertext of the plaintext (re-injected at helper recreation). |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+| `rotated_at` | `timestamptz` | yes | — | — | no | Last replacement of the token. |
+| `last_seen_at` | `timestamptz` | yes | — | — | no | Last authenticated push — a silent agent is a signal, not an outage. |
+
 ---
 
 ## 5. Organization aggregate

@@ -137,6 +137,15 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 	r.Get("/webhooks/github/apps/{app_uuid}/setup", a.GithubAppSetup)
 	r.Post("/webhooks/github/apps/{app_uuid}", a.ReceiveGithubAppWebhook)
 
+	// Agent ingestion (ADR-040): the server helpers pushing observation
+	// batches, authenticated by their per-server token — never a user bearer,
+	// hence outside /api/v1 like the webhooks. Its own limiter bounds a
+	// broken or hostile agent per token.
+	agentLimit := httpapi.NewLimiterRate(300).Handler(func(req *http.Request) string {
+		return req.Header.Get("Authorization")
+	})
+	r.With(agentLimit).Post("/agent/v1/observations", a.AgentObservations)
+
 	// Preview SSO (ADR-030): forward-auth is Traefik calling per request,
 	// authorize is a BROWSER redirect authenticated by the panel session —
 	// neither carries a bearer token.

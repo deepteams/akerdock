@@ -142,6 +142,12 @@ type Waker struct {
 	// newProxy builds the reverse proxy to a running target; overridable in tests.
 	newProxy func(target *url.URL) http.Handler
 
+	// OnWake, when set, is told about every wake that actually started
+	// containers — the agent pushes it as an "stz_woken" observation
+	// (ADR-040) so the control plane can flip the resource's status without
+	// waiting for its next SSH scan. Called outside any lock; must not block.
+	OnWake func(resourceUUID string)
+
 	mu        sync.Mutex
 	byHost    map[string]Route
 	resources map[string]Resource
@@ -584,6 +590,9 @@ func (w *Waker) ensureAwake(ctx context.Context, uuid string) error {
 	}()
 	if err != nil {
 		w.rollback(uuid, started)
+	}
+	if err == nil && len(started) > 0 && w.OnWake != nil {
+		w.OnWake(uuid)
 	}
 	return err
 }

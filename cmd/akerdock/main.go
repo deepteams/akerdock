@@ -160,7 +160,14 @@ func wakerRun(_ context.Context) error {
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	docker := waker.NewSocketDocker(socket, apiVersion)
-	return waker.Serve(ctx, dir, addr, docker, logger)
+	// ADR-040 enrollment, injected by the control plane at container creation;
+	// absent, the helper runs waker-only and observation flow degrades to the
+	// control plane's SSH scans.
+	agentCfg := waker.AgentConfig{
+		InstanceURL: os.Getenv("AKERDOCK_INSTANCE_URL"),
+		Token:       os.Getenv("AKERDOCK_AGENT_TOKEN"),
+	}
+	return waker.Serve(ctx, dir, addr, docker, agentCfg, logger)
 }
 
 // envOr returns the environment value for key, or def when unset/empty.
@@ -282,6 +289,7 @@ func serveRun(mode string) int {
 			TerminalMaxDuration: cfg.TerminalMaxDuration,
 			AuditRetentionDays:  cfg.AuditRetentionDays,
 			WakerImage:          cfg.Image,
+			InstancePort:        cfg.InstancePort,
 		}).Run(ctx)
 	}
 

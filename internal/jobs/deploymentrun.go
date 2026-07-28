@@ -1330,7 +1330,8 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 			if rg, ok := previewSingleRouteGroup(r.app, *r.preview, ""); ok {
 				previewUUID := pguuid.String(r.preview.Uuid)
 				if err = ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, previewUUID,
-					wakerConfigFromRouteGroup(previewUUID, rg, r.stzWakeSet)); err != nil {
+					wakerConfigFromRouteGroup(previewUUID, rg, r.stzWakeSet),
+					AgentEnvForServer(ctx, r.h.Store, r.h.Keyring, r.h.Logger, r.server, r.h.ControlPlanePort)); err != nil {
 					return err
 				}
 				content = renderPreviewContent(pointRouteGroupAtWaker(rg), previewUUID, r.d.ID,
@@ -1353,7 +1354,8 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 		}
 		if ok && len(rg.Routes) > 0 {
 			if err = ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, appUUID,
-				wakerConfigFromRouteGroup(appUUID, rg, r.stzWakeSet)); err != nil {
+				wakerConfigFromRouteGroup(appUUID, rg, r.stzWakeSet),
+				AgentEnvForServer(ctx, r.h.Store, r.h.Keyring, r.h.Logger, r.server, r.h.ControlPlanePort)); err != nil {
 				return err
 			}
 			content = proxy.GenerateDynamic(pointRouteGroupAtWaker(rg), r.d.ID)

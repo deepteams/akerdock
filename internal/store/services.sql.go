@@ -359,6 +359,37 @@ func (q *Queries) SetServiceComponentObserved(ctx context.Context, arg SetServic
 	return err
 }
 
+const setServiceComponentObservedByName = `-- name: SetServiceComponentObservedByName :execrows
+UPDATE service_components sc SET observed_status = $3, observed_at = now()
+FROM resources r
+JOIN destinations d ON d.id = r.destination_id
+WHERE sc.resource_id = r.id AND r.uuid = $1 AND sc.name = $2
+  AND d.server_id = $4 AND sc.observed_status <> $3
+`
+
+type SetServiceComponentObservedByNameParams struct {
+	Uuid           pgtype.UUID
+	Name           string
+	ObservedStatus ResourceObservedStatus
+	ServerID       int64
+}
+
+// Agent ingestion (ADR-040): refresh a component's observed state from a
+// pushed Docker event, scoped to the resource's server. No-op when the state
+// is unchanged, so at-least-once delivery stays idempotent.
+func (q *Queries) SetServiceComponentObservedByName(ctx context.Context, arg SetServiceComponentObservedByNameParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setServiceComponentObservedByName,
+		arg.Uuid,
+		arg.Name,
+		arg.ObservedStatus,
+		arg.ServerID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateServiceCompose = `-- name: UpdateServiceCompose :execrows
 UPDATE services SET compose_content = $2, connect_to_predefined_network = $3, updated_at = now()
 WHERE id = $1

@@ -13,12 +13,22 @@ import (
 // Serve runs the waker HTTP server on addr, forwarding for the routing table in
 // dir/routes.json and waking targets on demand. The routing file is reloaded
 // when its modification time changes, so the control plane can add or remove
-// scale-to-zero resources without restarting the container.
-func Serve(ctx context.Context, dir, addr string, docker Docker, logger *slog.Logger) error {
+// scale-to-zero resources without restarting the container. agent, when
+// enabled (ADR-040 enrollment injected at container creation), pushes
+// outbound observations alongside — its failure modes never touch the wake
+// path.
+func Serve(ctx context.Context, dir, addr string, docker Docker, agentCfg AgentConfig, logger *slog.Logger) error {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	activity := FileActivity{Dir: dir}
+
+	var agent *Agent
+	if agentCfg.Enabled() {
+		events, _ := docker.(eventStreamer) // the socket client streams; fakes may not
+		agent = NewAgent(agentCfg, events, logger)
+		go agent.Run(ctx)
+	}
 
 	var current atomic.Pointer[Waker]
 	load := func() {
@@ -31,6 +41,11 @@ func Serve(ctx context.Context, dir, addr string, docker Docker, logger *slog.Lo
 		}
 		wk := New(cfg, docker, activity, nil)
 		wk.Logger = logger
+		if agent != nil {
+			wk.OnWake = func(resourceUUID string) {
+				agent.Push(Observation{Type: "stz_woken", At: time.Now(), ResourceUUID: resourceUUID})
+			}
+		}
 		current.Store(wk)
 		logger.Info("waker: routing config loaded", "routes", len(cfg.Routes), "resources", len(cfg.Resources))
 	}

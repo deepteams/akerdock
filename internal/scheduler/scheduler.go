@@ -61,6 +61,9 @@ type Scheduler struct {
 	// default) keeps everything; a positive value enables the daily purge of
 	// aged-out rows through the sanctioned append-only bypass.
 	AuditRetentionDays int
+	// InstancePort is the control plane's port, used to build the localhost
+	// server's agent push URL through the Docker host gateway (ADR-040).
+	InstancePort int
 	// WakerImage is this release's own image (AKERDOCK_IMAGE / baked default):
 	// the scale-to-zero pass recreates any waker whose running image differs, so
 	// an upgrade propagates to every server's waker without waiting for a deploy
@@ -88,6 +91,9 @@ type remoteClient interface {
 // are ordinary unit-testable state machines; only advisory-lock and SQL
 // concurrency guarantees need PostgreSQL module tests.
 type Store interface {
+	// Agent enrollment (ADR-040): the reconcile re-injects the per-server
+	// token whenever it recreates the helper.
+	jobs.AgentEnrollmentStore
 	jobs.PreviewPromotionStore
 	audit.OutboxStore
 
