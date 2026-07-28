@@ -73,10 +73,18 @@ export type AccessFetch = () => Promise<AccessPage>;
                 <td>{{ entry.role }}</td>
                 <td class="akd-mono">{{ entry.scope }}</td>
                 <td class="caps">
-                  @for (cap of entry.capabilities; track cap) {
-                    <span class="akd-badge" [class.akd-badge--warn]="cap === 'secrets'">{{
-                      cap
-                    }}</span>
+                  <!-- One dense line rather than a row of pills: this column is
+                       read by scanning down it, and six badges per subject turn
+                       the scan into work. Only what deserves a second look is
+                       highlighted. -->
+                  @for (cap of entry.capabilities; track cap; let last = $last) {
+                    <span [class.sensitive]="isSensitive(cap)">{{ cap }}</span>
+                    @if (!last) {
+                      <span class="sep" aria-hidden="true">·</span>
+                    }
+                  }
+                  @if (entry.capabilities.length === 0) {
+                    <span class="akd-muted">—</span>
                   }
                 </td>
               </tr>
@@ -105,9 +113,18 @@ export type AccessFetch = () => Promise<AccessPage>;
         color: var(--text-muted);
       }
       .caps {
-        display: flex;
-        flex-wrap: wrap;
-        gap: var(--space-1);
+        font-size: var(--text-xs);
+        color: var(--text-2);
+      }
+      /* Reading secrets or opening a shell is not the same kind of access as
+         viewing: the eye should stop on those two without the row shouting. */
+      .caps .sensitive {
+        color: var(--warn);
+        font-weight: var(--weight-medium);
+      }
+      .caps .sep {
+        margin: 0 4px;
+        color: var(--text-3);
       }
       .note {
         display: flex;
@@ -136,6 +153,11 @@ export class AccessTabComponent {
       const fetch = this.fetch();
       void this.load(fetch);
     });
+  }
+
+  /** Capabilities worth a second look when reviewing who reaches what. */
+  protected isSensitive(cap: string): boolean {
+    return cap === 'secrets' || cap === 'terminal' || cap === 'delete';
   }
 
   private async load(fetch: AccessFetch): Promise<void> {

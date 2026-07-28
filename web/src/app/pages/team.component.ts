@@ -212,9 +212,14 @@ interface PermissionGroup {
                                       >{{ scope.resource_count }} resources</span
                                     >
                                   }
-                                  @for (cap of scope.capabilities; track cap) {
-                                    <span class="akd-badge">{{ cap }}</span>
-                                  }
+                                  <span class="caps">
+                                    @for (cap of scope.capabilities; track cap; let last = $last) {
+                                      {{ cap }}
+                                      @if (!last) {
+                                        <span class="sep" aria-hidden="true">·</span>
+                                      }
+                                    }
+                                  </span>
                                 </div>
                               }
                             }
@@ -947,6 +952,16 @@ interface PermissionGroup {
         flex-wrap: wrap;
         align-items: center;
         gap: var(--space-2);
+      }
+      /* Same reading as the resource-side review: one dense line, not a row of
+         pills — the two views must not drift apart visually either. */
+      .access-scope .caps {
+        font-size: var(--text-xs);
+        color: var(--text-2);
+      }
+      .access-scope .sep {
+        margin: 0 2px;
+        color: var(--text-3);
       }
       .sub-mono {
         font-family: var(--font-mono);
