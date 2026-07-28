@@ -1753,6 +1753,7 @@ const (
 	TeamRoleAdmin    TeamRole = "admin"
 	TeamRoleMember   TeamRole = "member"
 	TeamRoleReviewer TeamRole = "reviewer"
+	TeamRoleNone     TeamRole = "none"
 )
 
 func (e *TeamRole) Scan(src interface{}) error {
@@ -3008,6 +3009,20 @@ type RestoreDrill struct {
 	StartedAt      pgtype.Timestamptz
 	FinishedAt     pgtype.Timestamptz
 	DurationMs     *int32
+}
+
+type RoleAssignment struct {
+	ID            int64
+	Uuid          pgtype.UUID
+	TeamID        int64
+	UserID        int64
+	Role          *TeamRole
+	CustomRoleID  *int64
+	ProjectID     *int64
+	EnvironmentID *int64
+	CreatedBy     *int64
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
 }
 
 type RuntimeConfig struct {

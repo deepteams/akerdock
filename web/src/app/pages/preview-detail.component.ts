@@ -118,7 +118,12 @@ function browsableRepo(raw: string | null | undefined): string {
         }
         @if (p.head_sha; as sha) {
           @if (links()?.commit; as href) {
-            <a class="akd-badge akd-badge--mono gitlink" [href]="href" target="_blank" rel="noopener">
+            <a
+              class="akd-badge akd-badge--mono gitlink"
+              [href]="href"
+              target="_blank"
+              rel="noopener"
+            >
               {{ sha.slice(0, 8) }}
             </a>
           } @else {

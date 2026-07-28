@@ -25,6 +25,7 @@ import { ApplicationTasksTabComponent } from './application/tasks-tab.component'
 import { ApplicationDeploymentsTabComponent } from './application/deployments-tab.component';
 import { ApplicationWebhookTabComponent } from './application/webhook-tab.component';
 import { ApplicationDangerTabComponent } from './application/danger-tab.component';
+import { AccessTabComponent, type AccessFetch } from './access/access-tab.component';
 import { ApplicationPreviewsTabComponent } from './application/previews-tab.component';
 import { ApplicationTerminalTabComponent } from './application/terminal-tab.component';
 import { ApplicationLogsTabComponent } from './application/logs-tab.component';
@@ -45,6 +46,7 @@ type TabId =
   | 'previews'
   | 'terminal'
   | 'webhook'
+  | 'access'
   | 'danger';
 
 @Component({
@@ -62,6 +64,7 @@ type TabId =
     ApplicationDeploymentsTabComponent,
     ApplicationWebhookTabComponent,
     ApplicationDangerTabComponent,
+    AccessTabComponent,
     ApplicationPreviewsTabComponent,
     ApplicationTerminalTabComponent,
     ApplicationLogsTabComponent,
@@ -256,6 +259,9 @@ type TabId =
       @case ('webhook') {
         <app-application-webhook-tab [uuid]="uuid()" />
       }
+      @case ('access') {
+        <akd-access-tab [fetch]="fetchAccess" />
+      }
       @case ('danger') {
         <app-application-danger-tab [uuid]="uuid()" [name]="application()?.name ?? ''" />
       }
@@ -313,9 +319,14 @@ export class ApplicationDetailComponent {
     { id: 'previews', label: 'Previews' },
     { id: 'terminal', label: 'Terminal' },
     { id: 'webhook', label: 'Webhook' },
+    { id: 'access', label: 'Access' },
     { id: 'danger', label: 'Danger' },
   ];
   protected readonly tab = signal<TabId>('overview');
+
+  /** Who can reach this application (ADR-046 §9). */
+  protected readonly fetchAccess: AccessFetch = () =>
+    this.api.client().getApplicationAccess(this.uuid());
   /** The active tab lives in the URL (?tab=…): a refresh keeps it, and
    * back/forward walk the tabs — withComponentInputBinding feeds this input
    * from the query parameter on every navigation. */

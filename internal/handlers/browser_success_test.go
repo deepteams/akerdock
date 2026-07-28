@@ -25,6 +25,12 @@ type browserSessionStore struct {
 	factor     store.MfaFactor
 }
 
+// No scoped assignment: the un-partitioned team every other assertion here
+// assumes, and the state ADR-046 §11 requires to behave exactly as before.
+func (s *browserSessionStore) ListRoleAssignmentsForUser(context.Context, store.ListRoleAssignmentsForUserParams) ([]store.ListRoleAssignmentsForUserRow, error) {
+	return nil, nil
+}
+
 func newBrowserSessionStore(t *testing.T) *browserSessionStore {
 	t.Helper()
 	csrf := "unit-csrf"

@@ -57,7 +57,12 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
         <akd-status-badge domain="deployment" [state]="d.status" />
         @if (d.commit_sha) {
           @if (links()?.commit; as href) {
-            <a class="akd-badge akd-badge--mono gitlink" [href]="href" target="_blank" rel="noopener">
+            <a
+              class="akd-badge akd-badge--mono gitlink"
+              [href]="href"
+              target="_blank"
+              rel="noopener"
+            >
               {{ d.commit_sha | slice: 0 : 8 }}
             </a>
           } @else {
@@ -85,13 +90,17 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
           </a>
         }
         <span class="akd-muted">
-          {{ d.trigger }}@if (d.pr_id) {
+          {{ d.trigger }}
+          @if (d.pr_id) {
             @if (links()?.pr; as href) {
-              <a class="gitlink" [href]="href" target="_blank" rel="noopener">&nbsp;#{{ d.pr_id }}</a>
+              <a class="gitlink" [href]="href" target="_blank" rel="noopener"
+                >&nbsp;#{{ d.pr_id }}</a
+              >
             } @else {
               <span>&nbsp;#{{ d.pr_id }}</span>
             }
-          }{{ d.is_rollback ? ' · rollback' : '' }}
+          }
+          {{ d.is_rollback ? ' · rollback' : '' }}
         </span>
         <span class="spacer"></span>
         <span class="akd-muted when">{{ duration(d) }}</span>
@@ -119,9 +128,7 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
             <span>{{ d.commit_message }}</span>
           }
           @if (d.commit_author) {
-            <span class="author"
-              ><akd-icon name="users" [size]="13" />{{ d.commit_author }}</span
-            >
+            <span class="author"><akd-icon name="users" [size]="13" />{{ d.commit_author }}</span>
           }
         </p>
       }

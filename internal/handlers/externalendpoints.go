@@ -579,12 +579,27 @@ func (a *API) RequestExternalEndpointGrant(w http.ResponseWriter, r *http.Reques
 // endpointInScope enforces the endpoint's optional project/environment scope
 // (ADR-045 §1). Holding port-forwards:open on the team is not enough for an
 // endpoint restricted to production: the caller must hold it THERE.
+//
+// Until ADR-046 this function checked only that the endpoint's project belonged
+// to the caller's team and returned true — the field was declared, displayed in
+// the dashboard, and enforced nowhere, which is worse than not having it. It is
+// now the general rule applied to one more resource kind: the endpoint's scope
+// is (project, environment), and the mint requires port-forwards:open there.
 func (a *API) endpointInScope(w http.ResponseWriter, r *http.Request, id *auth.Identity, endpoint store.ExternalEndpoint) bool {
 	if endpoint.ProjectID == nil {
 		return true
 	}
 	project, err := a.Store.GetProjectByID(r.Context(), *endpoint.ProjectID)
 	if err != nil || project.TeamID != id.TeamID {
+		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "external endpoint not found")
+		return false
+	}
+	if id.Scoped() && !id.CanOnScope(
+		auth.Scope{ProjectID: endpoint.ProjectID, EnvironmentID: endpoint.EnvironmentID},
+		auth.PermPortForwardsOpen,
+	) {
+		// Not found, not forbidden: an endpoint the caller holds no scope over
+		// is not part of their world (ADR-046 §5).
 		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "external endpoint not found")
 		return false
 	}

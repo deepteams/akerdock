@@ -46,7 +46,8 @@ func (a *API) resolveServiceStack(w http.ResponseWriter, r *http.Request, id *au
 	var u pgtype.UUID
 	if err := u.Scan(serviceUUID); err == nil {
 		row, err := a.Store.GetServiceStackByUUID(r.Context(), store.GetServiceStackByUUIDParams{Uuid: u, TeamID: id.TeamID})
-		if err == nil {
+		// Scoped enforcement (ADR-046 §6), out of scope reading as not found.
+		if err == nil && a.allowedAtScope(r, id, &row.Resource.EnvironmentID, "") {
 			return row, true
 		}
 	}
@@ -104,6 +105,9 @@ func (a *API) ListServices(w http.ResponseWriter, r *http.Request, params api.Li
 		a.internalError(w, r, "list services", err)
 		return
 	}
+	rows = keepInScope(a, r, id, rows, func(s store.ListServiceStacksPageRow) *int64 {
+		return &s.Resource.EnvironmentID
+	})
 	rows, cursor := nextCursor(rows, limit, func(s store.ListServiceStacksPageRow) int64 { return s.Resource.ID })
 	data := make([]api.Service, 0, len(rows))
 	for _, row := range rows {

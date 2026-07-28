@@ -613,18 +613,26 @@ const EXPIRY_WARN_DAYS = 14;
           <akd-card title="Automated cleanup">
             <p class="akd-muted intro">
               Reclaims the Docker build cache, dangling images and dead deployment candidates on a
-              schedule or when the disk crosses a threshold (§3.7). It is deferred while a deployment
-              is running, and never touches tagged images (rollback artifacts) or named volumes.
+              schedule or when the disk crosses a threshold (§3.7). It is deferred while a
+              deployment is running, and never touches tagged images (rollback artifacts) or named
+              volumes.
             </p>
             <form class="form" (ngSubmit)="saveCleanup()">
               <div class="akd-field">
                 <label class="akd-check">
-                  <input type="checkbox" name="cleanupEnabled" [(ngModel)]="cleanupEnabled" [disabled]="busy()" />
+                  <input
+                    type="checkbox"
+                    name="cleanupEnabled"
+                    [(ngModel)]="cleanupEnabled"
+                    [disabled]="busy()"
+                  />
                   Enable automated cleanup
                 </label>
               </div>
               <div class="akd-field">
-                <label class="akd-field__label" for="sd-cleanup-threshold">Disk usage threshold (%)</label>
+                <label class="akd-field__label" for="sd-cleanup-threshold"
+                  >Disk usage threshold (%)</label
+                >
                 <input
                   id="sd-cleanup-threshold"
                   name="cleanupThreshold"
@@ -637,7 +645,8 @@ const EXPIRY_WARN_DAYS = 14;
                   [disabled]="busy() || !cleanupEnabled"
                 />
                 <span class="akd-field__hint">
-                  Runs a cleanup when disk usage crosses this percentage. Empty = no threshold trigger.
+                  Runs a cleanup when disk usage crosses this percentage. Empty = no threshold
+                  trigger.
                 </span>
               </div>
               <div class="akd-field">
@@ -657,13 +666,23 @@ const EXPIRY_WARN_DAYS = 14;
               </div>
               <div class="akd-field">
                 <label class="akd-check">
-                  <input type="checkbox" name="cleanupPruneVolumes" [(ngModel)]="cleanupPruneVolumes" [disabled]="busy() || !cleanupEnabled" />
+                  <input
+                    type="checkbox"
+                    name="cleanupPruneVolumes"
+                    [(ngModel)]="cleanupPruneVolumes"
+                    [disabled]="busy() || !cleanupEnabled"
+                  />
                   Also prune anonymous volumes (named and data volumes are never touched)
                 </label>
               </div>
               <div class="akd-field">
                 <label class="akd-check">
-                  <input type="checkbox" name="cleanupPruneNetworks" [(ngModel)]="cleanupPruneNetworks" [disabled]="busy() || !cleanupEnabled" />
+                  <input
+                    type="checkbox"
+                    name="cleanupPruneNetworks"
+                    [(ngModel)]="cleanupPruneNetworks"
+                    [disabled]="busy() || !cleanupEnabled"
+                  />
                   Also prune unused managed networks
                 </label>
               </div>
@@ -671,8 +690,15 @@ const EXPIRY_WARN_DAYS = 14;
                 <p class="akd-muted sm">Last cleanup: {{ last }}</p>
               }
               <div class="cleanup-actions">
-                <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">Save cleanup</button>
-                <button class="akd-btn akd-btn--secondary" type="button" [disabled]="busy()" (click)="runCleanup()">
+                <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
+                  Save cleanup
+                </button>
+                <button
+                  class="akd-btn akd-btn--secondary"
+                  type="button"
+                  [disabled]="busy()"
+                  (click)="runCleanup()"
+                >
                   Run cleanup now
                 </button>
               </div>
@@ -1226,7 +1252,9 @@ export class ServerDetailComponent {
     this.notice.set(null);
     try {
       await this.api.client().runServerCleanup(this.uuid());
-      this.notice.set('Cleanup queued — build cache, dangling images and dead candidates are reclaimed.');
+      this.notice.set(
+        'Cleanup queued — build cache, dangling images and dead candidates are reclaimed.',
+      );
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {

@@ -15,14 +15,15 @@ type fakeSessionStore struct {
 	// totpVerified are the session ids stamped by a TOTP step-up.
 	totpVerified []int64
 
-	user       store.User
-	userByMail store.User
-	membership store.GetTeamMembershipForUserRow
-	session    store.Session
-	sessionRow store.GetSessionByTokenHashRow
-	settings   store.InstanceSetting
-	factor     store.MfaFactor
-	challenge  store.MfaChallenge
+	user        store.User
+	userByMail  store.User
+	membership  store.GetTeamMembershipForUserRow
+	assignments []store.ListRoleAssignmentsForUserRow
+	session     store.Session
+	sessionRow  store.GetSessionByTokenHashRow
+	settings    store.InstanceSetting
+	factor      store.MfaFactor
+	challenge   store.MfaChallenge
 
 	clearedPending []int64
 
@@ -103,6 +104,12 @@ func (f *fakeSessionStore) ClearFailedLogins(_ context.Context, id int64) error 
 
 func (f *fakeSessionStore) GetTeamMembershipForUser(context.Context, int64) (store.GetTeamMembershipForUserRow, error) {
 	return f.membership, f.err("membership")
+}
+
+// assignments is what a partitioned team looks like to the resolver; empty by
+// default, which is the state every existing test exercises (ADR-046 §11).
+func (f *fakeSessionStore) ListRoleAssignmentsForUser(context.Context, store.ListRoleAssignmentsForUserParams) ([]store.ListRoleAssignmentsForUserRow, error) {
+	return f.assignments, f.err("assignments")
 }
 
 func (f *fakeSessionStore) CreateSession(_ context.Context, arg store.CreateSessionParams) (store.Session, error) {

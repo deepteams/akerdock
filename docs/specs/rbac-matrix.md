@@ -28,14 +28,19 @@ is how an operator ends up believing in a boundary that is not there.
 | System roles `admin` / `member` / `reviewer` (§2) | **Implemented** — `session.PermissionsForRole`; §2 below is generated from that code |
 | Custom roles, composed from the catalogue, with prerequisite closure and anti-elevation | **Implemented** — `custom_roles`, `auth.ValidateCustomPermissions` |
 | Instance root outside the team model (§3.9) | **Implemented** — `users.is_root` |
-| **Role assignment scoped to a project or an environment (§3)** | **NOT implemented** — an assignment lives on `team_memberships` and is therefore team-wide. §3 is the specification of that work, not a description of it |
+| **Role assignment scoped to a project or an environment (§3)** | **Implemented** (ADR-046) — `role_assignments` + `auth.Resolve`; the scoped check lives in the `resolve*` helpers and the collection filters |
+| The access view — who reaches a resource / what a member reaches (§3.11) | **Implemented** — computed on demand, no stored copy |
+| `projects:create` (team-only) and the `none` base role | **Implemented** — the catalogue holds 79 permissions and four system roles |
+| Invitations and SCIM defaulting to `none` | **Implemented** — an arrival holds nothing until assigned |
 | Automatic token revocation on loss of rights (§4.4) | **Not implemented** (proposed default) |
-| Scope of an external endpoint (ADR-045 §1) | **Declared, not enforced** — see §3.10 |
-| `projects:create` (team-only, split from `projects:manage`) and the `none` base role | **Specified, not implemented** — added by ADR-046; the catalogue in code still has 78 permissions and three system roles |
+| Scope of an external endpoint (ADR-045 §1) | **Implemented** — `endpointInScope` evaluates `port-forwards:open` at the endpoint's scope |
+| Scoped delegation (`roles:manage` at a project scope) | **Not implemented** — deliberately out of ADR-046's v1 |
 
-Anything marked NOT implemented has one practical consequence today: **inside a team, a
-member holds their permissions on every project of that team**. The only real isolation
-boundary in a running instance is the team itself (§23.1).
+Partitioning is **inert until it is used**: with no scoped assignment and no member set to
+`none`, every caller resolves to their base role exactly as before ADR-046, and the extra
+lookup is never performed. A team that wants a boundary sets a member's base role to `none`
+and assigns them the projects they work on — an assignment alone changes nothing, because it
+is an *exception* to a base role that otherwise still grants everything.
 
 ---
 
@@ -82,7 +87,7 @@ Domain families:
 | `config` | Config-as-code (export/apply) |
 | `instance` | Instance settings (root only) |
 
-### 1.2 Complete list of permissions (78)
+### 1.2 Complete list of permissions (79)
 
 > Convention: `read`/`view`/`list` = non-sensitive read; `read:sensitive` = secret
 > revelation (INV-003); `manage`/`create`/`update`/`delete` = mutation; `deploy`/actions
@@ -108,7 +113,8 @@ Domain families:
 | # | Permission | Description | Token map |
 |---|---|---|---|
 | 11 | `projects:read` | List/view projects | `read` |
-| 12 | `projects:manage` | Create/edit/delete projects | `write` |
+| 12 | `projects:manage` | Edit/delete **this** project — scoped (ADR-046 §4) | `write` |
+| 79 | `projects:create` | Create a project — team-only, since creation has no parent scope to be evaluated against (ADR-046 §4) | `write` |
 | 13 | `environments:read` | List/view environments | `read` |
 | 14 | `environments:manage` | Create/edit/delete environments | `write` |
 | 15 | `resources:read` | Cross-cutting resource view | `read` |
@@ -221,8 +227,8 @@ Domain families:
 | 67 | `instance:audit` | Global cross-team audit | `root` |
 | 71 | `instance:encryption` | Encryption-at-rest status and forced master key rotation (re-encryption — ADR-003) | `root` |
 
-> **Total: 78 granular permissions** (of which 3 are exclusively `instance:*`, reserved to the
-> instance root, outside the team role model), so 75 in the team model. This is above the
+> **Total: 79 granular permissions** (of which 3 are exclusively `instance:*`, reserved to the
+> instance root, outside the team role model), so 76 in the team model. This is above the
 > §29.7 target range (~40-60): the range was set before the product covered previews, uptime,
 > tunnels and bastion endpoints, and a capability that exists is better named than folded into
 > a neighbour. The count must match `auth.Catalog` — the numbering column is historical and
@@ -239,6 +245,10 @@ Domain families:
 > projects onto (§4). The three system roles are **immutable** (§3.6); an admin who wants
 > to deviate composes a **custom role** (§1). ADR-046 adds a fourth, `none` — the empty set —
 > as the base role of a member who only holds scoped assignments (§3.3).
+
+> A fourth system role, **`none`**, holds nothing at all and is therefore not worth a column:
+> every cell would read ○. It exists so a member can be restricted to their scoped
+> assignments (ADR-046 §2).
 
 | Permission | socle | admin | member | reviewer |
 |---|---|:---:|:---:|:---:|
@@ -290,6 +300,7 @@ Domain families:
 | `port-forwards:open` | write | ● | ● | ○ |
 | `previews:manage` | write | ● | ● | ○ |
 | `previews:read` | read | ● | ● | ● |
+| `projects:create` | write | ● | ● | ○ |
 | `projects:manage` | write | ● | ● | ○ |
 | `projects:read` | read | ● | ● | ○ |
 | `registries:manage` | write | ● | ● | ○ |
@@ -813,12 +824,12 @@ These tests do not exist yet; they are the acceptance criteria of §3.
 
 ## 8. Summary
 
-- **78 granular permissions** defined (`domain:action`), of which 75 for the team role model
+- **79 granular permissions** defined (`domain:action`), of which 76 for the team role model
   and 3 exclusively `instance:*` (instance root). §1.2 and §2 are kept in step with
   `internal/auth/permissions.go`, which is the catalogue in code.
-- **3 immutable system roles**: `admin`, `member`, `reviewer` (previews only) + custom roles
-  composable by team admins (ADR-038, replacing ADR-007's owner/developer/viewer). A fourth,
-  `none`, is required by the scoped work (§3.3).
+- **4 immutable system roles**: `admin`, `member`, `reviewer` (previews only), `none` (nothing at all) + custom roles
+  composable by team admins (ADR-038, replacing ADR-007's owner/developer/viewer); `none` is
+  what makes partitioning possible (§3.3).
 - Assignment scoped team/project/environment, **the most specific wins** (an override, so a
   narrow scope may *reduce* rights); multi-role accumulation by **union** at equal scope;
   **implicit deny**. **Specified in §3, not implemented** — today a member holds their

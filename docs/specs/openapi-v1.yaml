@@ -1503,7 +1503,7 @@ paths:
         Creates a project in the current team. A `production` environment
         is created by default (§2). The slug must be unique within the team
         (§19.2).
-      x-required-permission: projects:manage
+      x-required-permission: projects:create
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -7972,6 +7972,270 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /applications/{application_uuid}/access:
+    parameters:
+      - $ref: "#/components/parameters/ApplicationUuid"
+    get:
+      tags: [Applications]
+      operationId: getApplicationAccess
+      summary: Who can reach this application
+      description: >-
+        The access review of ADR-046 §9: every subject holding platform
+        permissions on this resource, with **the scope that granted them** — a
+        name alone is not actionable, "member on project:billing" is. Computed
+        on demand from the same resolution that authorizes a request, never
+        from a stored copy: a denormalized access table drifts from the rules it
+        claims to summarize, and a stale review asserts a safety nobody checked.
+
+
+        Human rows need `members:read`; **API token rows additionally need
+        `tokens:read`** and are omitted otherwise — a token's owner and expiry
+        is administrative information. The instance root is listed apart, since
+        omitting it would make the view lie by the account that matters most in
+        an audit.
+
+
+        It answers who holds *platform* permissions. It says nothing about who
+        can reach the deployed application over the network (ADR-042), who holds
+        a live tunnel or grant (ADR-045), or who knows a database's credentials.
+      x-required-permission: applications:read
+      responses:
+        "200":
+          $ref: "#/components/responses/AccessView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /databases/{database_uuid}/access:
+    parameters:
+      - $ref: "#/components/parameters/DatabaseUuid"
+    get:
+      tags: [Databases]
+      operationId: getDatabaseAccess
+      summary: Who can reach this database
+      description: >-
+        Access review of the database (ADR-046 §9). Same rules as
+        `getApplicationAccess`, including that it says nothing about who knows
+        the database's own credentials — the tunnel carries the path, not the
+        secret.
+      x-required-permission: databases:read
+      responses:
+        "200":
+          $ref: "#/components/responses/AccessView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /services/{service_uuid}/access:
+    parameters:
+      - $ref: "#/components/parameters/ServiceUuid"
+    get:
+      tags: [Services]
+      operationId: getServiceAccess
+      summary: Who can reach this compose stack
+      description: Access review of the service (ADR-046 §9).
+      x-required-permission: services:read
+      responses:
+        "200":
+          $ref: "#/components/responses/AccessView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /projects/{project_uuid}/access:
+    parameters:
+      - $ref: "#/components/parameters/ProjectUuid"
+    get:
+      tags: [Projects]
+      operationId: getProjectAccess
+      summary: Who can reach this project
+      description: >-
+        Access review at the project level (ADR-046 §9) — the scope at which
+        partitioning is decided, and therefore the screen an admin reviews.
+      x-required-permission: projects:read
+      responses:
+        "200":
+          $ref: "#/components/responses/AccessView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /projects/{project_uuid}/environments/{environment_uuid}/access:
+    parameters:
+      - $ref: "#/components/parameters/ProjectUuid"
+      - $ref: "#/components/parameters/EnvironmentUuid"
+    get:
+      tags: [Projects]
+      operationId: getEnvironmentAccess
+      summary: Who can reach this environment
+      description: >-
+        Access review at the environment level (ADR-046 §9) — "who can deploy to
+        production" asked directly.
+      x-required-permission: environments:read
+      responses:
+        "200":
+          $ref: "#/components/responses/AccessView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /teams/{team_uuid}/members/{user_uuid}/access:
+    parameters:
+      - $ref: "#/components/parameters/TeamUuid"
+      - $ref: "#/components/parameters/UserUuid"
+    get:
+      tags: [Teams]
+      operationId: getMemberAccess
+      summary: What this member reaches
+      description: >-
+        The mirror of the per-resource view (ADR-046 §9): the scopes this member
+        holds and what each one covers. This is the offboarding screen —
+        "what does Alice reach" is the question asked the day Alice leaves, and
+        answering it by opening resources one by one is how something gets
+        missed.
+      x-required-permission: members:read
+      responses:
+        "200":
+          description: What the member reaches.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MemberAccessEntry"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /teams/{team_uuid}/role-assignments:
+    parameters:
+      - $ref: "#/components/parameters/TeamUuid"
+    get:
+      tags: [Teams]
+      operationId: listRoleAssignments
+      summary: List the team's scoped role assignments
+      description: >-
+        The exceptions to members' base roles (ADR-046 §1): a role held on one
+        project or one environment. An empty list is the normal state of a team
+        that never partitioned anything, and scoping stays inert until the first
+        row exists.
+      x-required-permission: members:read
+      responses:
+        "200":
+          description: The team's assignments.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RoleAssignment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Teams]
+      operationId: createRoleAssignment
+      summary: Assign a role on a project or an environment
+      description: >-
+        Grants a member a role on one scope. **The narrowest scope wins and it
+        REPLACES the broader one** (ADR-046 §3): assigning `reviewer` on a
+        project to somebody who is `member` on the team REMOVES their ability to
+        deploy there. That is what makes "everything except production"
+        expressible, and it is why the response states the effective result
+        rather than leaving the semantics to be discovered.
+
+
+        Team-only permissions (team/member/role/token administration,
+        infrastructure, `audit:read`, `secrets:reveal`, `terminal:root`) are
+        **never conferred by a scoped assignment**: assigning a role that
+        contains them is not an error, they are simply not granted, and
+        `not_conferred` says which.
+
+
+        Anti-elevation: an assigner may not grant a role whose permissions
+        exceed their own at the target scope.
+      x-required-permission: members:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleAssignmentCreate"
+      responses:
+        "201":
+          description: Assignment created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleAssignment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /teams/{team_uuid}/role-assignments/{assignment_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/TeamUuid"
+      - name: assignment_uuid
+        in: path
+        required: true
+        description: UUID of the role assignment.
+        schema:
+          type: string
+    delete:
+      tags: [Teams]
+      operationId: deleteRoleAssignment
+      summary: Remove a scoped role assignment
+      description: >-
+        The member falls back to their base role on that scope. If their base
+        role is `none`, removing their last assignment leaves them reaching
+        nothing — which is a legitimate state, not an error.
+      x-required-permission: members:manage
+      responses:
+        "204":
+          description: Assignment removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /port-forward-sessions:
     get:
       tags: [ExternalEndpoints]
@@ -8416,6 +8680,25 @@ components:
                 code: out_of_range
                 message: limit must be between 1 and 100.
             request_id: 018f4d2a-7c3b-7e1a-b0c4-9f2e8d1a6b3c
+    AccessView:
+      description: >-
+        Who holds platform permissions on this resource, most privileged first.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AccessEntry"
+              tokens_included:
+                type: boolean
+                description: >-
+                  False when the caller lacks `tokens:read`: API tokens hold
+                  access too, so the view says when it is showing only half of
+                  it rather than letting an incomplete list read as complete.
     Unauthorized:
       description: Token absent, invalid, expired, revoked, outside the IP allowlist, or API disabled.
       content:
@@ -8827,12 +9110,13 @@ components:
           nullable: true
         role:
           type: string
-          enum: [admin, member, reviewer, custom]
+          enum: [admin, member, reviewer, none, custom]
           description: >-
             Role in the team (ADR-038, §10.1): `admin` (full control of the
             team, ex-`owner` merged), `member` (manages resources), `reviewer`
-            (only sees PR previews), or `custom` (composed role, see
-            `custom_role_uuid`).
+            (only sees PR previews), `none` (nothing team-wide — the base role
+            of somebody who only holds scoped assignments, ADR-046 §2), or
+            `custom` (composed role, see `custom_role_uuid`).
         custom_role_uuid:
           type: string
           nullable: true
@@ -9093,7 +9377,12 @@ components:
       properties:
         role:
           type: string
-          enum: [admin, member, reviewer, custom]
+          enum: [admin, member, reviewer, none, custom]
+          description: >-
+            `none` grants nothing team-wide: it is how a member is restricted
+            TO their scoped assignments (ADR-046 §2). Without it an assignment
+            is only ever an exception on top of a role that still reaches
+            everything, and nothing is partitioned.
         custom_role_uuid:
           type: string
           nullable: true
@@ -9459,6 +9748,143 @@ components:
             on a `sensitive` external endpoint, the ADR-032 maximum duration
             otherwise. The CLI announces it when the listener comes up and warns
             before it lands, so a deadline never arrives unannounced.
+
+    RoleAssignment:
+      type: object
+      required: [uuid, user_uuid, user_email, role, scope]
+      description: >-
+        A role held on one project or one environment — an exception to the
+        member's team-wide base role (ADR-046 §1).
+      properties:
+        uuid:
+          type: string
+        user_uuid:
+          type: string
+        user_email:
+          type: string
+        role:
+          type: string
+          description: System role name, or the custom role's name.
+        custom_role_uuid:
+          type: string
+        scope:
+          type: string
+          description: '`project:<uuid>` or `project:<uuid>/environment:<uuid>` (ADR-046 §10).'
+        scope_label:
+          type: string
+          description: Human name of the project or environment.
+        not_conferred:
+          type: array
+          items:
+            type: string
+          description: >-
+            Permissions of the role that a scoped assignment cannot grant
+            (team-only, rbac-matrix §3.3). Reported so an admin does not believe
+            they delegated something they did not.
+        created_at:
+          type: string
+          format: date-time
+
+    RoleAssignmentCreate:
+      type: object
+      required: [user_uuid]
+      description: >-
+        Exactly one role source (`role` or `custom_role_uuid`) and exactly one
+        scope (`project_uuid` or `environment_uuid`). The team scope is the
+        member's base role, changed through the member endpoint, never here.
+      properties:
+        user_uuid:
+          type: string
+        role:
+          type: string
+          enum: [admin, member, reviewer, none]
+          description: >-
+            System role to grant at this scope. `none` is accepted and means
+            "explicitly nothing here" — the way to carve a hole in a broader
+            assignment.
+        custom_role_uuid:
+          type: string
+        project_uuid:
+          type: string
+        environment_uuid:
+          type: string
+
+    AccessEntry:
+      type: object
+      required: [subject_kind, subject_name, role, scope, capabilities]
+      description: >-
+        One subject's access to a resource, with the reason it has it. Computed,
+        never stored (ADR-046 §9).
+      properties:
+        subject_kind:
+          type: string
+          description: >-
+            `user`, `token` or `instance_root`. Left as a plain string on
+            purpose: a generated enum constant collides across the contract and
+            renames unrelated ones, and this field is a display facet, never a
+            branch in the authorization path.
+        subject_uuid:
+          type: string
+          description: User UUID, or token UUID for a `token` row.
+        subject_name:
+          type: string
+          description: The member's email, or the token's name.
+        role:
+          type: string
+          description: >-
+            The role this access comes from — a system role, a custom role's
+            name, or the token's coarse scopes.
+        scope:
+          type: string
+          description: >-
+            Canonical scope that granted it: `team`, `project:<uuid>` or
+            `project:<uuid>/environment:<uuid>` (ADR-046 §10). Everything reads
+            `team` until scoped assignments exist.
+        capabilities:
+          type: array
+          items:
+            type: string
+          description: >-
+            One of `view`, `deploy`, `manage`, `delete`, `secrets`, `terminal`.
+
+            What the subject can actually do here, summarized for review. The
+            granular permissions remain the unit of evaluation; this is the
+            reading an operator can act on.
+        token_creator_email:
+          type: string
+          description: >-
+            Creator of the token — a token's reach is its creator's, so this is
+            the person to talk to (ADR-046 §7).
+        token_expires_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          description: Last use of the token, when known — an unused token is a candidate for revocation.
+
+    MemberAccessEntry:
+      type: object
+      required: [scope, role, capabilities]
+      description: One scope a member holds, and what it covers (ADR-046 §9).
+      properties:
+        scope:
+          type: string
+          description: '`team`, `project:<uuid>` or `project:<uuid>/environment:<uuid>`.'
+        scope_label:
+          type: string
+          description: Human name of the scope — the project or environment name, or "team".
+        role:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        resource_count:
+          type: integer
+          description: >-
+            How many deployable resources the scope covers, so "member on
+            billing" carries its weight when read.
 
     PortForwardSessionInfo:
       type: object

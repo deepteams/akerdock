@@ -371,7 +371,77 @@ func (a *API) require(w http.ResponseWriter, r *http.Request, perm auth.Permissi
 		httpapi.WriteError(w, r, http.StatusForbidden, httpapi.CodeForbidden, "this operation requires the "+string(perm)+" permission")
 		return nil, false
 	}
+	// Remembered for the resolvers: they know which resource is being touched
+	// and re-evaluate THIS permission at its scope (ADR-046 §6). The identity is
+	// built per request, so this cannot bleed across callers.
+	id.Required = perm
 	return id, true
+}
+
+// allowedAtScope re-evaluates the operation's permission at a resource's scope.
+//
+// It is the whole of scoped enforcement, and it is deliberately one function
+// called from the resolvers rather than a check sprinkled across ~200 handlers:
+// a handler that forgets it cannot compile, because it has no resource without
+// calling a resolver.
+//
+// With no scoped assignment — every team that never partitioned anything — it
+// answers true immediately, which is why this feature is inert until used.
+func (a *API) allowedAtScope(r *http.Request, id *auth.Identity, environmentID *int64, perm auth.Permission) bool {
+	if id == nil || !id.Scoped() {
+		return true
+	}
+	scope := auth.TeamScope
+	if environmentID != nil {
+		scope = a.scopeOfEnvironment(r, *environmentID)
+	}
+	if perm == "" {
+		perm = id.Required
+	}
+	// Both the operation's permission and the domain read: an action the caller
+	// may perform on a resource they may not see is not an action they may
+	// perform.
+	return id.CanOnScope(scope, perm)
+}
+
+// keepInScope filters a collection down to what the caller's scopes cover
+// (ADR-046 §5).
+//
+// A list endpoint that returns everything and relies on the detail endpoint to
+// say no has already leaked the inventory, and names are half of what an
+// internal leak is about. Filtering happens after the page query rather than
+// inside it: the SQL stays one shape for every caller, and the alternative —
+// a scope predicate threaded through thirty queries — is thirty chances to get
+// it subtly wrong.
+//
+// The cost of filtering after paging is a short page, never a wrong one: the
+// cursor still walks every row, so nothing is skipped, and a caller with no
+// scoped assignment (the overwhelming case) pays nothing at all.
+// The API is a parameter rather than a receiver because a Go method cannot be
+// generic, and the row types differ per collection.
+func keepInScope[T any](a *API, r *http.Request, id *auth.Identity, rows []T, envOf func(T) *int64) []T {
+	if id == nil || !id.Scoped() {
+		return rows
+	}
+	out := make([]T, 0, len(rows))
+	for _, row := range rows {
+		if a.allowedAtScope(r, id, envOf(row), "") {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+// scopeOfEnvironment turns an environment id into the scope chain the
+// resolution needs (project + environment). Only ever called for a caller that
+// holds a scoped assignment, so the extra lookup is paid by the instances that
+// partitioned something and by nobody else.
+func (a *API) scopeOfEnvironment(r *http.Request, environmentID int64) auth.Scope {
+	scope := auth.Scope{EnvironmentID: &environmentID}
+	if env, err := a.Store.GetEnvironmentByID(r.Context(), environmentID); err == nil {
+		scope.ProjectID = &env.ProjectID
+	}
+	return scope
 }
 
 // requireInstanceRoot gates instance-wide settings (/system/*): only a session

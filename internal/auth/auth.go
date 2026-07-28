@@ -74,6 +74,45 @@ type Identity struct {
 	// (instance mfa_required, user without a confirmed factor): it may only
 	// enroll a factor — every other operation is refused until it does.
 	MFAPending bool
+
+	// UserID is the acting human, when there is one. An API token has none,
+	// which is why it holds no scoped assignment of its own (ADR-046 §7): it
+	// reaches what its creator reaches.
+	UserID *int64
+	// Required is the permission the current operation asked `require` for. It
+	// is what the resolvers re-evaluate at the resource's scope (ADR-046 §6):
+	// `require` cannot do it — it has no resource — and the handlers must not
+	// have to remember to, or the first endpoint written after this ADR leaks.
+	Required Permission
+	// ScopedAssignments are the caller's exceptions to their base role
+	// (ADR-046 §1), loaded once per request. Empty in the overwhelming case —
+	// a team that never used scoping — and the resolution then short-circuits
+	// to Permissions, which is why this feature is inert until someone uses it.
+	//
+	// Permissions above stays the TEAM-level answer: it is what `require`
+	// tests, and what every endpoint touching a team-level resource needs. The
+	// scope-aware question is asked by CanOnScope, in the resolvers that know
+	// which resource is being touched (ADR-046 §6).
+	ScopedAssignments []Assignment
+}
+
+// Scoped reports whether this caller has any scoped assignment at all. False is
+// the common case and lets callers skip the resolution entirely.
+func (id *Identity) Scoped() bool { return len(id.ScopedAssignments) > 0 }
+
+// CanOnScope answers the scoped question: does this caller hold perm on a
+// resource living at this scope? With no scoped assignment it is exactly
+// Has(Permissions, perm) — the behavior of every instance that never partitioned
+// anything.
+func (id *Identity) CanOnScope(scope Scope, perm Permission) bool {
+	if !id.Scoped() {
+		return Has(id.Permissions, perm)
+	}
+	if id.IsRoot() {
+		return true
+	}
+	base := Assignment{Scope: TeamScope, Permissions: id.Permissions}
+	return CanOn(base, id.ScopedAssignments, scope, perm)
 }
 
 // IsRoot reports whether the token carries the root permission.

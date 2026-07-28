@@ -53,12 +53,25 @@ func (a *API) resolveEnvironment(w http.ResponseWriter, r *http.Request, project
 	var u pgtype.UUID
 	if err := u.Scan(envUUID); err == nil {
 		env, err := a.Store.GetEnvironmentByUUID(r.Context(), store.GetEnvironmentByUUIDParams{Uuid: u, ProjectID: project.ID})
-		if err == nil {
+		// Scoped enforcement (ADR-046 §6). The identity comes from the request
+		// rather than a parameter: the ten call sites all resolved the project
+		// first, and threading it through each would be ten chances to forget.
+		if err == nil && a.allowedInEnvironment(r, env.ProjectID, env.ID) {
 			return env, true
 		}
 	}
 	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "environment not found")
 	return store.Environment{}, false
+}
+
+// allowedInEnvironment re-evaluates the operation's permission at an
+// environment's scope. Inert for a caller with no scoped assignment.
+func (a *API) allowedInEnvironment(r *http.Request, projectID, environmentID int64) bool {
+	id, ok := auth.FromContext(r.Context())
+	if !ok || !id.Scoped() {
+		return true
+	}
+	return id.CanOnScope(auth.Scope{ProjectID: &projectID, EnvironmentID: &environmentID}, id.Required)
 }
 
 // ListEnvironments implements GET /projects/{project_uuid}/environments
@@ -86,6 +99,17 @@ func (a *API) ListEnvironments(w http.ResponseWriter, r *http.Request, projectUu
 	if err != nil {
 		a.internalError(w, r, "list environments", err)
 		return
+	}
+	// Same rule as everywhere else: an environment outside the caller's scopes
+	// is absent from the list, not shown as denied (ADR-046 §5).
+	if id, ok := auth.FromContext(r.Context()); ok && id.Scoped() {
+		kept := make([]store.Environment, 0, len(rows))
+		for _, env := range rows {
+			if id.CanOnScope(auth.Scope{ProjectID: &env.ProjectID, EnvironmentID: &env.ID}, id.Required) {
+				kept = append(kept, env)
+			}
+		}
+		rows = kept
 	}
 	rows, cursor := nextCursor(rows, limit, func(e store.Environment) int64 { return e.ID })
 

@@ -16,6 +16,7 @@ import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
+import { AccessTabComponent, type AccessFetch } from './access/access-tab.component';
 import type { components } from '../../api/schema';
 
 type Project = components['schemas']['Project'];
@@ -58,6 +59,7 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
     EmptyStateComponent,
     IconComponent,
     StatusBadgeComponent,
+    AccessTabComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -145,6 +147,16 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
         >
           Config
         </button>
+        <button
+          type="button"
+          class="akd-tab"
+          role="tab"
+          [class.akd-tab--active]="active() === 'access'"
+          [attr.aria-selected]="active() === 'access'"
+          (click)="active.set('access')"
+        >
+          Access
+        </button>
       </nav>
 
       @if (error(); as message) {
@@ -205,6 +217,8 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
             </table>
           }
         </akd-card>
+      } @else if (active() === 'access') {
+        <akd-access-tab [fetch]="fetchAccess" />
       } @else if (active() === 'variables') {
         <akd-card title="Environment variables" [padded]="false">
           <table class="akd-table">
@@ -224,7 +238,9 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
                 <tr>
                   <td>
                     <span class="akd-mono">{{ v.key }}</span>
-                    <div class="ref akd-mono akd-muted">{{ '{{' }}environment.{{ v.key }}{{ '}}' }}</div>
+                    <div class="ref akd-mono akd-muted">
+                      {{ '{{' }}environment.{{ v.key }}{{ '}}' }}
+                    </div>
                   </td>
                   <td class="akd-mono akd-muted">{{ v.is_redacted ? '••••••••' : v.value }}</td>
                   <td>
@@ -272,7 +288,12 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
                 </td>
                 <td>
                   <label class="akd-check" title="Encrypted at rest, never shown again (INV-003)">
-                    <input type="checkbox" name="newSecret" [(ngModel)]="varSecret" [disabled]="busy()" />
+                    <input
+                      type="checkbox"
+                      name="newSecret"
+                      [(ngModel)]="varSecret"
+                      [disabled]="busy()"
+                    />
                     secret
                   </label>
                 </td>
@@ -295,9 +316,9 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
         <p class="footnote">
           Reference these anywhere in a resource's env of this environment as
           <code class="akd-mono">{{ '{{' }}environment.KEY{{ '}}' }}</code> — for example
-          <code class="akd-mono">DATABASE_URL={{ '{{' }}environment.DB_DSN{{ '}}' }}</code>. Interpolated at
-          deploy time; an unknown reference stays verbatim in the container (visible, therefore
-          diagnosable). Previews never receive shared secrets.
+          <code class="akd-mono">DATABASE_URL={{ '{{' }}environment.DB_DSN{{ '}}' }}</code>.
+          Interpolated at deploy time; an unknown reference stays verbatim in the container
+          (visible, therefore diagnosable). Previews never receive shared secrets.
         </p>
       } @else {
         <akd-card title="Environment settings" class="cfg">
@@ -362,7 +383,6 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
           </div>
         </akd-card>
       }
-
     </div>
   `,
   styles: [
@@ -502,7 +522,11 @@ export class EnvironmentDetailComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly menu = signal(false);
 
-  protected readonly active = signal<'resources' | 'variables' | 'config'>('resources');
+  protected readonly active = signal<'resources' | 'variables' | 'config' | 'access'>('resources');
+
+  /** Who can reach this environment (ADR-046 §9) — "who can deploy to production". */
+  protected readonly fetchAccess: AccessFetch = () =>
+    this.api.client().getEnvironmentAccess(this.uuid(), this.envUuid());
   protected readonly variables = signal<SharedVariable[]>([]);
   protected readonly busy = signal(false);
   protected varKey = '';
@@ -664,7 +688,11 @@ export class EnvironmentDetailComponent {
   }
 
   protected async removeVar(v: SharedVariable): Promise<void> {
-    if (!confirm(`Delete the environment variable "${v.key}"? Resources pick it up at their next deployment.`)) {
+    if (
+      !confirm(
+        `Delete the environment variable "${v.key}"? Resources pick it up at their next deployment.`,
+      )
+    ) {
       return;
     }
     this.busy.set(true);

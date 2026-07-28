@@ -129,10 +129,16 @@ func (a *API) CreateTeamInvitation(w http.ResponseWriter, r *http.Request, teamU
 		return
 	}
 	// Roles an invitation may grant (ADR-038). `admin`/`reviewer` are explicit;
-	// `custom` requires a custom_role_uuid of THIS team; anything else — including
-	// a missing role — defaults to `member`. A custom role keeps `member` as the
-	// stored fallback and rides on custom_role_id.
-	role := store.TeamRoleMember
+	// `custom` requires a custom_role_uuid of THIS team.
+	//
+	// The DEFAULT is `none` (ADR-046 §2), not `member`: with the old default,
+	// every arrival opened a window — minutes if an admin is watching, days
+	// otherwise — during which the newcomer reached every project of the team,
+	// and that window is what partitioning exists to close. Someone invited
+	// without an explicit role arrives holding nothing and is given scopes
+	// deliberately. An instance that wants the previous behavior asks for
+	// `member` explicitly, which is exactly what it meant all along.
+	role := store.TeamRoleNone
 	var customRole *store.CustomRole
 	if body.Role != nil {
 		switch *body.Role {

@@ -311,7 +311,51 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) *auth.Ident
 		Session:      true,
 		InstanceRoot: membership.IsRoot,
 		MFAPending:   row.MfaPending,
+		UserID:       &row.UserID,
+		// The exceptions to the base role, loaded once per request (ADR-046
+		// §6). Almost always empty — a team that never partitioned anything —
+		// and the resolution then short-circuits to the flat set above.
+		ScopedAssignments: m.scopedAssignments(ctx, row.UserID, teamID),
 	}
+}
+
+// scopedAssignments loads the caller's project/environment assignments and
+// turns each into the resolution's own shape. Best effort by design: a failure
+// here must not hand somebody MORE than they hold, and an empty list is the
+// narrowest possible answer for a scoped member — it leaves them with their
+// base role, which is what they had before this feature existed.
+func (m *Manager) scopedAssignments(ctx context.Context, userID, teamID int64) []auth.Assignment {
+	rows, err := m.Store.ListRoleAssignmentsForUser(ctx, store.ListRoleAssignmentsForUserParams{
+		UserID: userID, TeamID: teamID,
+	})
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	out := make([]auth.Assignment, 0, len(rows))
+	for _, row := range rows {
+		granular := row.CustomPermissions
+		name := "custom"
+		if row.CustomRoleName != nil {
+			name = *row.CustomRoleName
+		}
+		if row.Role != nil {
+			granular = PermissionsForRole(*row.Role)
+			name = string(*row.Role)
+		}
+		scope := auth.Scope{ProjectID: row.ProjectID}
+		if row.EnvironmentID != nil {
+			// An environment assignment carries its project too: without it,
+			// "does project X cover environment Y" cannot be answered from the
+			// assignment alone.
+			scope = auth.Scope{ProjectID: row.EnvironmentProjectID, EnvironmentID: row.EnvironmentID}
+		}
+		out = append(out, auth.Assignment{
+			Scope:       scope,
+			Permissions: auth.ExpandGranular(granular),
+			RoleName:    name,
+		})
+	}
+	return out
 }
 
 // memberPermissions is the granular set of the team `member` role — the old
@@ -323,7 +367,7 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) *auth.Ident
 // listed here.
 var memberPermissions = []string{
 	string(auth.PermTeamRead), string(auth.PermMembersRead),
-	string(auth.PermProjectsRead), string(auth.PermProjectsManage),
+	string(auth.PermProjectsRead), string(auth.PermProjectsManage), string(auth.PermProjectsCreate),
 	string(auth.PermEnvironmentsRead), string(auth.PermEnvironmentsManage),
 	string(auth.PermResourcesRead), string(auth.PermResourcesAdopt),
 	string(auth.PermApplicationsRead), string(auth.PermApplicationsCreate),
@@ -365,6 +409,12 @@ func PermissionsForRole(role store.TeamRole) []string {
 	case store.TeamRoleReviewer:
 		// reviewer sees only PR previews — nothing else (ADR-038).
 		return []string{string(auth.PermPreviewsRead)}
+	case store.TeamRoleNone:
+		// `none` holds nothing team-wide (ADR-046 §2): the base role of a member
+		// who only reaches what their scoped assignments grant. Without it
+		// nothing partitions, because every other base role keeps granting
+		// something everywhere.
+		return nil
 	default: // member
 		return memberPermissions
 	}
