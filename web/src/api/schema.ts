@@ -319,7 +319,11 @@ export interface paths {
          */
         get: operations["listTeams"];
         put?: never;
-        post?: never;
+        /**
+         * Create a team
+         * @description Creates a team on the instance. Reserved to the instance root (`instance:manage`): teams are the isolation boundary of every resource (INV-002), so their creation is an instance-level act, not a team-level one. The caller becomes `admin` of the new team so it is immediately usable.
+         */
+        post: operations["createTeam"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3594,6 +3598,11 @@ export interface components {
             /** Format: date-time */
             readonly updated_at?: string | null;
         };
+        /** @description Creation of a team (instance root only). */
+        TeamCreate: {
+            name: string;
+            description?: string | null;
+        };
         /** @description Partial update of a team. */
         TeamUpdate: {
             name?: string;
@@ -6543,6 +6552,35 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamCreate"];
+            };
+        };
+        responses: {
+            /** @description Team created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
             429: components["responses"]["TooManyRequests"];
         };
     };

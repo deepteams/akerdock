@@ -488,6 +488,7 @@ diff (§23.4).
 | getVersion | read | `team:read` |
 | enableApi / disableApi | root | `instance:manage` |
 | listTeams / getTeam | read | `team:read` |
+| **createTeam** | root | **`instance:manage`** — instance-root SESSION only (§3.5): a team is the isolation boundary of every resource, so creating one is an instance-level act. The creator joins as `admin`. |
 | listTeamMembers | read | `members:read` |
 | listTeamInvitations | read | `members:read` |
 | createTeamInvitation / revokeTeamInvitation | write | `invitations:manage` |

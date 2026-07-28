@@ -244,6 +244,9 @@ type Querier interface {
 	// Persistent storages (§8).
 	CreateStorage(ctx context.Context, arg CreateStorageParams) (PersistentStorage, error)
 	CreateTaskExecution(ctx context.Context, arg CreateTaskExecutionParams) (TaskExecution, error)
+	// A team created by the instance root (ADR-038): not personal — it exists to
+	// be shared, unlike the bootstrap team of a user.
+	CreateTeam(ctx context.Context, arg CreateTeamParams) (Team, error)
 	// Web terminal sessions (PRD §5.7/§24.4, ADR-024, data-dictionary §10.6).
 	CreateTerminalSession(ctx context.Context, arg CreateTerminalSessionParams) (TerminalSession, error)
 	// Uptime monitoring (ADR-017).

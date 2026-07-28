@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -65,6 +66,52 @@ func (a *API) ListTeams(w http.ResponseWriter, r *http.Request, params api.ListT
 		Data       []api.Team `json:"data"`
 		NextCursor *string    `json:"next_cursor"`
 	}{data, cursor})
+}
+
+// CreateTeam implements POST /teams (permission: instance:manage). Teams are
+// the isolation boundary of every resource (INV-002), so creating one is an
+// instance-level act reserved to the root — and the caller joins it as
+// `admin`, otherwise the instance would gain a team nobody can enter.
+func (a *API) CreateTeam(w http.ResponseWriter, r *http.Request) {
+	// A SESSION of the instance root, like every instance-scoped operation
+	// (rbac-matrix §3.5): a team owner's team-scoped `root` permission is not
+	// enough, and API tokens are team-bound so never qualify.
+	id, ok := a.requireInstanceRoot(w, r)
+	if !ok {
+		return
+	}
+	var body api.TeamCreate
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "invalid JSON body")
+		return
+	}
+	name, ok := validateName(w, r, body.Name)
+	if !ok {
+		return
+	}
+	team, err := a.Store.CreateTeam(r.Context(), store.CreateTeamParams{
+		Name: name, Description: body.Description,
+	})
+	if err != nil {
+		a.internalError(w, r, "create team", err)
+		return
+	}
+	// The creator joins as `admin`, the top team role (ADR-038) — otherwise
+	// the instance gains a team nobody can enter. Only a SESSION carries a
+	// user; an API token has none, and its team is then joined from the
+	// members page like any other.
+	if a.Sessions != nil {
+		if sess, err := a.Sessions.SessionFromRequest(r.Context(), r); err == nil {
+			if err := a.Store.AddTeamMember(r.Context(), store.AddTeamMemberParams{
+				TeamID: team.ID, UserID: sess.UserID, Role: store.TeamRoleAdmin,
+			}); err != nil {
+				a.internalError(w, r, "create team", err)
+				return
+			}
+		}
+	}
+	a.recordAudit(r, id, "team.create", "team", team.Uuid)
+	httpapi.WriteJSON(w, http.StatusCreated, teamToAPI(team))
 }
 
 // GetTeam implements GET /teams/{team_uuid} (permission: read).

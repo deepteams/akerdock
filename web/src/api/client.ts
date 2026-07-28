@@ -577,6 +577,12 @@ export class AkerDockClient {
     return this.request<Response>('GET', '/teams', { query });
   }
 
+  /** Instance root only: a team is the isolation boundary of every resource. */
+  createTeam(body: components['schemas']['TeamCreate']) {
+    type Response = paths['/teams']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', '/teams', { body });
+  }
+
   getTeam(uuid: string) {
     type Response =
       paths['/teams/{team_uuid}']['get']['responses']['200']['content']['application/json'];

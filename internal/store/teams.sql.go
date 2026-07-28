@@ -107,6 +107,37 @@ func (q *Queries) CreateInvitation(ctx context.Context, arg CreateInvitationPara
 	return i, err
 }
 
+const createTeam = `-- name: CreateTeam :one
+INSERT INTO teams (name, description, personal) VALUES ($1, $2, false)
+RETURNING id, uuid, name, description, created_by, updated_by, created_at, updated_at, deleted_at, version, personal
+`
+
+type CreateTeamParams struct {
+	Name        string
+	Description *string
+}
+
+// A team created by the instance root (ADR-038): not personal — it exists to
+// be shared, unlike the bootstrap team of a user.
+func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) (Team, error) {
+	row := q.db.QueryRow(ctx, createTeam, arg.Name, arg.Description)
+	var i Team
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.Name,
+		&i.Description,
+		&i.CreatedBy,
+		&i.UpdatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.Version,
+		&i.Personal,
+	)
+	return i, err
+}
+
 const getTeamByID = `-- name: GetTeamByID :one
 
 SELECT id, uuid, name, description, created_by, updated_by, created_at, updated_at, deleted_at, version, personal FROM teams WHERE id = $1 AND deleted_at IS NULL

@@ -6,7 +6,16 @@ import { AuditFetch, AuditLogComponent } from './audit-log.component';
 import { CardComponent } from '../../ui/card/card.component';
 import type { components } from '../../api/schema';
 
-type SystemTab = 'instance' | 'email' | 'api' | 'telemetry' | 'providers' | 'encryption' | 'audit';
+type SystemTab =
+  | 'instance'
+  | 'teams'
+  | 'email'
+  | 'api'
+  | 'telemetry'
+  | 'providers'
+  | 'encryption'
+  | 'audit';
+type Team = components['schemas']['Team'];
 type TransactionalEmail = components['schemas']['TransactionalEmail'];
 type TransactionalEmailSet = components['schemas']['TransactionalEmailSet'];
 type EncryptionStatus = components['schemas']['EncryptionStatus'];
@@ -652,6 +661,81 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
             </div>
           </akd-card>
         }
+        @case ('teams') {
+          <akd-card title="Teams">
+            <p class="akd-field__hint">
+              A team is the isolation boundary of every resource: servers, projects and
+              applications belong to one, and nothing crosses. Creating one is reserved to the
+              instance root — you join it as admin, then invite people from its Members page.
+            </p>
+            <form class="team-new" (ngSubmit)="createTeam()">
+              <div class="akd-field">
+                <label class="akd-field__label" for="team-name">Name</label>
+                <input
+                  id="team-name"
+                  name="teamName"
+                  class="akd-input"
+                  placeholder="Platform"
+                  [(ngModel)]="newTeamName"
+                  [disabled]="busy()"
+                />
+              </div>
+              <div class="akd-field">
+                <label class="akd-field__label" for="team-desc">Description (optional)</label>
+                <input
+                  id="team-desc"
+                  name="teamDescription"
+                  class="akd-input"
+                  [(ngModel)]="newTeamDescription"
+                  [disabled]="busy()"
+                />
+              </div>
+              <button
+                class="akd-btn akd-btn--primary"
+                type="submit"
+                [disabled]="busy() || !newTeamName.trim()"
+              >
+                Create team
+              </button>
+            </form>
+
+            @if (teams(); as list) {
+              @if (list.length === 0) {
+                <p class="akd-muted">No team yet.</p>
+              } @else {
+                <table class="akd-table">
+                  <caption class="sr-only">
+                    Teams of this instance
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Name</th>
+                      <th scope="col">Description</th>
+                      <th scope="col">Kind</th>
+                      <th scope="col">Created</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (t of list; track t.uuid) {
+                      <tr>
+                        <td>{{ t.name }}</td>
+                        <td class="akd-muted">{{ t.description ?? '—' }}</td>
+                        <td>
+                          <span class="akd-badge akd-badge--mono">
+                            {{ t.personal ? 'personal' : 'shared' }}
+                          </span>
+                        </td>
+                        <td class="akd-muted">{{ t.created_at }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+            } @else {
+              <p class="akd-muted">Loading…</p>
+            }
+          </akd-card>
+        }
         @case ('audit') {
           <akd-audit-log [fetch]="fetchAudit" exportName="instance-audit" />
         }
@@ -764,6 +848,7 @@ export class SystemComponent {
   protected readonly tab = signal<SystemTab>('instance');
   protected readonly tabs: { key: SystemTab; label: string }[] = [
     { key: 'instance', label: 'Instance' },
+    { key: 'teams', label: 'Teams' },
     { key: 'email', label: 'Email' },
     { key: 'api', label: 'API access' },
     { key: 'providers', label: 'Sign-in' },
@@ -774,6 +859,11 @@ export class SystemComponent {
 
   // Instance-wide audit: the reusable viewer loads itself when the tab renders.
   protected readonly fetchAudit: AuditFetch = (query) => this.api.client().listInstanceAudit(query);
+
+  /** Teams of the instance (root-only view): loaded when the tab opens. */
+  protected readonly teams = signal<Team[] | null>(null);
+  protected newTeamName = '';
+  protected newTeamDescription = '';
 
   protected readonly email = signal<TransactionalEmail | null>(null);
   protected readonly encryption = signal<EncryptionStatus | null>(null);
@@ -819,6 +909,41 @@ export class SystemComponent {
 
   constructor() {
     void this.load();
+    void this.loadTeams();
+  }
+
+  /** Teams of the instance — a root token lists them all (INV-001). */
+  private async loadTeams(): Promise<void> {
+    try {
+      const page = await this.api.client().listTeams({ limit: 100 });
+      this.teams.set(page.data);
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+      this.teams.set([]);
+    } finally {
+      this.cdr.markForCheck();
+    }
+  }
+
+  protected async createTeam(): Promise<void> {
+    const name = this.newTeamName.trim();
+    if (this.busy() || !name) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.client().createTeam({
+        name,
+        description: this.newTeamDescription.trim() || null,
+      });
+      this.newTeamName = '';
+      this.newTeamDescription = '';
+      await this.loadTeams();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+      this.cdr.markForCheck();
+    }
   }
 
   protected async saveInstance(): Promise<void> {

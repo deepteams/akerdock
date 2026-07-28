@@ -733,6 +733,40 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+    post:
+      tags: [Teams]
+      operationId: createTeam
+      summary: Create a team
+      description: >-
+        Creates a team on the instance. Reserved to the instance root
+        (`instance:manage`): teams are the isolation boundary of every
+        resource (INV-002), so their creation is an instance-level act, not a
+        team-level one. The caller becomes `admin` of the new team so it is
+        immediately usable.
+      x-required-permission: instance:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamCreate"
+      responses:
+        "201":
+          description: Team created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   /teams/{team_uuid}:
     parameters:
@@ -8344,6 +8378,18 @@ components:
           nullable: true
           format: date-time
           readOnly: true
+
+    TeamCreate:
+      type: object
+      description: Creation of a team (instance root only).
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
 
     TeamUpdate:
       type: object
