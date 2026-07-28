@@ -136,6 +136,11 @@ func TestWakerEnsureCommandAgentEnv(t *testing.T) {
 		!strings.Contains(with, "-e AKERDOCK_AGENT_TOKEN='akda_abc'") {
 		t.Fatalf("enrollment env missing from the ensure command:\n%s", with)
 	}
+	// Linux hosts do not resolve host.docker.internal without the gateway
+	// alias — without it the localhost server's agent can reach nothing.
+	if !strings.Contains(with, "--add-host=host.docker.internal:host-gateway") {
+		t.Fatalf("host-gateway alias missing from the ensure command:\n%s", with)
+	}
 	without := WakerEnsureCommand("net", "img:1", AgentEnv{})
 	if strings.Contains(without, "AKERDOCK_INSTANCE_URL") || strings.Contains(without, "-e ") {
 		t.Fatalf("empty enrollment must inject nothing:\n%s", without)

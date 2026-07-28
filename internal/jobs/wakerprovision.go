@@ -212,8 +212,10 @@ func AgentEnvForServer(ctx context.Context, q AgentEnrollmentStore, keyring *env
 // must reach servers whose image tag is unchanged (local "dirty" builds reuse a
 // tag): the deploy recreates the container when EITHER the image OR this spec
 // differs. 3: ordered wake set + rollback + waiting page, per-container budget.
-// 4: agent enrollment env (ADR-040 phase 1).
-const wakerSpec = "4"
+// 4: agent enrollment env (ADR-040 phase 1). 5: host-gateway add-host — on a
+// Linux host, host.docker.internal does not resolve without it, and the
+// localhost server's agent could reach neither the channel nor the POST.
+const wakerSpec = "5"
 
 // WakerEnsureCommand is the idempotent deploy of the waker helper. It recreates
 // the container when the running image OR the run spec differs (or when it is
@@ -241,6 +243,7 @@ func WakerEnsureCommand(network, image string, agentEnv AgentEnv) string {
 			"spec=$(docker inspect -f '{{index .Config.Labels \"akerdock.waker_spec\"}}' %s 2>/dev/null || true); "+
 			"if [ \"$img\" != \"%s\" ] || [ \"$spec\" != \"%s\" ]; then docker rm -f %s >/dev/null 2>&1 || true; "+
 			"docker run -d --name %s --restart unless-stopped --network %s --user 0 "+
+			"--add-host=host.docker.internal:host-gateway "+
 			"-v /var/run/docker.sock:/var/run/docker.sock -v %s:%s "+
 			"--label akerdock.managed=true --label akerdock.type=helper --label akerdock.waker_spec=%s "+
 			"%s%s waker; fi",
