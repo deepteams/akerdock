@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { CardComponent } from '../../ui/card/card.component';
+import { DrawerComponent } from '../../ui/drawer/drawer.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { ApiService } from '../core/api.service';
@@ -10,6 +11,8 @@ import type { components } from '../../api/schema';
 
 type ExternalEndpoint = components['schemas']['ExternalEndpoint'];
 type Server = components['schemas']['Server'];
+type Project = components['schemas']['Project'];
+type Environment = components['schemas']['Environment'];
 type PortForwardSession = components['schemas']['PortForwardSessionInfo'];
 
 /**
@@ -25,132 +28,29 @@ type PortForwardSession = components['schemas']['PortForwardSessionInfo'];
 @Component({
   selector: 'app-external-endpoints',
   standalone: true,
-  imports: [FormsModule, DatePipe, RouterLink, CardComponent, EmptyStateComponent, IconComponent],
+  imports: [
+    FormsModule,
+    DatePipe,
+    RouterLink,
+    CardComponent,
+    DrawerComponent,
+    EmptyStateComponent,
+    IconComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
         <h2>External endpoints</h2>
+        <button class="akd-btn akd-btn--primary" type="button" (click)="openNew()">
+          <akd-icon name="plus" [size]="15" />
+          Declare endpoint
+        </button>
       </header>
 
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
-
-      <akd-card title="Declare an endpoint">
-        <form class="fields" (ngSubmit)="create()">
-          <p class="intro">
-            A single destination reached from one of your servers — no ranges, no wildcards. The CLI
-            tunnels to it by name, and never sends an address of its own.
-          </p>
-          <div class="row">
-            <div class="akd-field">
-              <label class="akd-field__label" for="ep-name">Name</label>
-              <input
-                id="ep-name"
-                name="name"
-                class="akd-input akd-input--mono"
-                placeholder="e.g. prod-replica"
-                [(ngModel)]="name"
-                [disabled]="busy()"
-                required
-              />
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="ep-host">Host</label>
-              <input
-                id="ep-host"
-                name="host"
-                class="akd-input akd-input--mono"
-                placeholder="e.g. db.internal or 10.0.0.7"
-                [(ngModel)]="host"
-                [disabled]="busy()"
-                required
-              />
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="ep-port">Port</label>
-              <input
-                id="ep-port"
-                name="port"
-                type="number"
-                class="akd-input akd-input--mono"
-                [(ngModel)]="port"
-                [disabled]="busy()"
-                required
-              />
-            </div>
-          </div>
-          <div class="akd-field">
-            <label class="akd-field__label" for="ep-description">Description</label>
-            <input
-              id="ep-description"
-              name="description"
-              class="akd-input"
-              placeholder="e.g. read replica of the billing database"
-              [(ngModel)]="description"
-              [disabled]="busy()"
-            />
-          </div>
-          <div class="row">
-            <div class="akd-field">
-              <label class="akd-field__label" for="ep-server">Egress server</label>
-              <select
-                id="ep-server"
-                name="server"
-                class="akd-input"
-                [(ngModel)]="serverUuid"
-                [disabled]="busy()"
-                required
-              >
-                <option value="">Select a server…</option>
-                @for (server of servers(); track server.uuid) {
-                  <option [value]="server.uuid">{{ server.name }}</option>
-                }
-              </select>
-              <span class="akd-field__hint">The tunnel is dialed from this server.</span>
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="ep-criticality">Access regime</label>
-              <select
-                id="ep-criticality"
-                name="criticality"
-                class="akd-input"
-                [(ngModel)]="criticality"
-                [disabled]="busy()"
-              >
-                <option value="sensitive">Sensitive — access must be requested</option>
-                <option value="standard">Standard — open to anyone who may tunnel</option>
-              </select>
-              <span class="akd-field__hint">
-                Sensitive requires a reason and a fresh second factor, for a bounded window.
-              </span>
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="ep-window"
-                >Longest access window (minutes)</label
-              >
-              <input
-                id="ep-window"
-                name="window"
-                type="number"
-                class="akd-input akd-input--mono"
-                [(ngModel)]="maxGrantMinutes"
-                [disabled]="busy() || criticality === 'standard'"
-              />
-              <span class="akd-field__hint"
-                >Up to 480. Renewal is unlimited but always re-asks.</span
-              >
-            </div>
-          </div>
-          <div>
-            <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
-              <akd-icon name="plus" [size]="15" />
-              Declare endpoint
-            </button>
-          </div>
-        </form>
-      </akd-card>
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
@@ -277,6 +177,180 @@ type PortForwardSession = components['schemas']['PortForwardSessionInfo'];
         }
       </akd-card>
     </div>
+
+    <akd-drawer [open]="showNew()" title="Declare an endpoint" (closed)="closeNew()">
+      <form id="endpoint-form" class="fields" (ngSubmit)="create()">
+        @if (error(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        }
+        <p class="intro">
+          A single destination reached from one of your servers — no ranges, no wildcards. The CLI
+          tunnels to it by name, and never sends an address of its own.
+        </p>
+        <div class="akd-field">
+          <label class="akd-field__label" for="ep-name">Name</label>
+          <input
+            id="ep-name"
+            name="name"
+            class="akd-input akd-input--mono"
+            placeholder="e.g. prod-replica"
+            [(ngModel)]="name"
+            [disabled]="busy()"
+            required
+          />
+        </div>
+        <div class="row">
+          <div class="akd-field">
+            <label class="akd-field__label" for="ep-host">Host</label>
+            <input
+              id="ep-host"
+              name="host"
+              class="akd-input akd-input--mono"
+              placeholder="e.g. db.internal or 10.0.0.7"
+              [(ngModel)]="host"
+              [disabled]="busy()"
+              required
+            />
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="ep-port">Port</label>
+            <input
+              id="ep-port"
+              name="port"
+              type="number"
+              class="akd-input akd-input--mono"
+              [(ngModel)]="port"
+              [disabled]="busy()"
+              required
+            />
+          </div>
+        </div>
+        <div class="akd-field">
+          <label class="akd-field__label" for="ep-description">Description</label>
+          <input
+            id="ep-description"
+            name="description"
+            class="akd-input"
+            placeholder="e.g. read replica of the billing database"
+            [(ngModel)]="description"
+            [disabled]="busy()"
+          />
+        </div>
+        <div class="akd-field">
+          <label class="akd-field__label" for="ep-server">Egress server</label>
+          <div class="akd-select">
+            <select
+              id="ep-server"
+              name="server"
+              class="akd-input"
+              [(ngModel)]="serverUuid"
+              [disabled]="busy()"
+              required
+            >
+              <option value="">Select a server…</option>
+              @for (server of servers(); track server.uuid) {
+                <option [value]="server.uuid">{{ server.name }}</option>
+              }
+            </select>
+          </div>
+          <span class="akd-field__hint">The tunnel is dialed from this server.</span>
+        </div>
+        <div class="akd-field">
+          <label class="akd-field__label" for="ep-criticality">Access regime</label>
+          <div class="akd-select">
+            <select
+              id="ep-criticality"
+              name="criticality"
+              class="akd-input"
+              [(ngModel)]="criticality"
+              [disabled]="busy()"
+            >
+              <option value="sensitive">Sensitive — access must be requested</option>
+              <option value="standard">Standard — open to anyone who may tunnel</option>
+            </select>
+          </div>
+          <span class="akd-field__hint">
+            Sensitive requires a reason and a fresh second factor, for a bounded window.
+          </span>
+        </div>
+        @if (criticality === 'sensitive') {
+          <div class="akd-field">
+            <label class="akd-field__label" for="ep-window">Longest access window (minutes)</label>
+            <input
+              id="ep-window"
+              name="window"
+              type="number"
+              class="akd-input akd-input--mono"
+              [(ngModel)]="maxGrantMinutes"
+              [disabled]="busy()"
+            />
+            <span class="akd-field__hint">
+              Up to 480. Renewal is unlimited but always re-asks.
+            </span>
+          </div>
+        }
+        <div class="akd-field">
+          <label class="akd-field__label" for="ep-project">Restricted to project</label>
+          <div class="akd-select">
+            <select
+              id="ep-project"
+              name="project"
+              class="akd-input"
+              [ngModel]="projectUuid"
+              (ngModelChange)="onProjectChange($event)"
+              [disabled]="busy()"
+            >
+              <option value="">Anyone on the team who may tunnel</option>
+              @for (project of projects(); track project.uuid) {
+                <option [value]="project.uuid">{{ project.name }}</option>
+              }
+            </select>
+          </div>
+          <span class="akd-field__hint">
+            Scopes the endpoint (ADR-038): a production replica is then reachable only by the people
+            who already hold rights there.
+          </span>
+        </div>
+        @if (projectUuid) {
+          <div class="akd-field">
+            <label class="akd-field__label" for="ep-environment">…and environment</label>
+            <div class="akd-select">
+              <select
+                id="ep-environment"
+                name="environment"
+                class="akd-input"
+                [(ngModel)]="environmentUuid"
+                [disabled]="busy()"
+              >
+                <option value="">Every environment of the project</option>
+                @for (environment of environments(); track environment.uuid) {
+                  <option [value]="environment.uuid">{{ environment.name }}</option>
+                }
+              </select>
+            </div>
+          </div>
+        }
+      </form>
+      <div drawer-footer>
+        <button
+          class="akd-btn akd-btn--ghost"
+          type="button"
+          (click)="closeNew()"
+          [disabled]="busy()"
+        >
+          Cancel
+        </button>
+        <button
+          class="akd-btn akd-btn--primary"
+          type="submit"
+          form="endpoint-form"
+          [disabled]="busy() || !valid()"
+        >
+          <akd-icon name="plus" [size]="15" />
+          Declare endpoint
+        </button>
+      </div>
+    </akd-drawer>
   `,
   styles: [
     `
@@ -307,9 +381,12 @@ export class ExternalEndpointsComponent {
 
   protected readonly endpoints = signal<ExternalEndpoint[]>([]);
   protected readonly servers = signal<Server[]>([]);
+  protected readonly projects = signal<Project[]>([]);
+  protected readonly environments = signal<Environment[]>([]);
   protected readonly sessions = signal<PortForwardSession[]>([]);
   protected readonly loading = signal(true);
   protected readonly busy = signal(false);
+  protected readonly showNew = signal(false);
   protected readonly error = signal<string | null>(null);
 
   protected name = '';
@@ -321,6 +398,8 @@ export class ExternalEndpointsComponent {
   // means reaching a real database, so downgrading should be deliberate.
   protected criticality: 'standard' | 'sensitive' = 'sensitive';
   protected maxGrantMinutes = 240;
+  protected projectUuid = '';
+  protected environmentUuid = '';
 
   constructor() {
     void this.load();
@@ -328,13 +407,15 @@ export class ExternalEndpointsComponent {
 
   private async load(): Promise<void> {
     try {
-      const [endpoints, servers, sessions] = await Promise.all([
+      const [endpoints, servers, projects, sessions] = await Promise.all([
         this.api.client().listExternalEndpoints({ limit: 100 }),
         this.api.client().listServers({ limit: 100 }),
+        this.api.client().listProjects({ limit: 100 }),
         this.api.client().listPortForwardSessions({ limit: 100 }),
       ]);
       this.endpoints.set(endpoints.data);
       this.servers.set(servers.data);
+      this.projects.set(projects.data);
       this.sessions.set(sessions.data);
     } catch (err) {
       this.error.set(ApiService.describe(err));
@@ -343,8 +424,52 @@ export class ExternalEndpointsComponent {
     }
   }
 
+  protected openNew(): void {
+    this.error.set(null);
+    this.showNew.set(true);
+  }
+
+  /** Closing discards the draft: a half-filled form kept around is a trap. */
+  protected closeNew(): void {
+    this.showNew.set(false);
+    this.resetForm();
+  }
+
+  private resetForm(): void {
+    this.name = '';
+    this.description = '';
+    this.host = '';
+    this.port = 5432;
+    this.serverUuid = '';
+    this.criticality = 'sensitive';
+    this.maxGrantMinutes = 240;
+    this.projectUuid = '';
+    this.environmentUuid = '';
+    this.environments.set([]);
+  }
+
+  /** The three fields the API cannot default: everything else has one. */
+  protected valid(): boolean {
+    return !!this.name.trim() && !!this.host.trim() && !!this.serverUuid;
+  }
+
+  protected async onProjectChange(uuid: string): Promise<void> {
+    this.projectUuid = uuid;
+    // An environment is scoped by its project, so dropping the project drops
+    // the environment with it — the API refuses the other combination anyway.
+    this.environmentUuid = '';
+    this.environments.set([]);
+    if (!uuid) return;
+    try {
+      const page = await this.api.client().listEnvironments(uuid, { limit: 100 });
+      this.environments.set(page.data);
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    }
+  }
+
   protected async create(): Promise<void> {
-    if (!this.name.trim() || !this.host.trim() || !this.serverUuid) return;
+    if (!this.valid()) return;
     this.busy.set(true);
     this.error.set(null);
     try {
@@ -354,15 +479,17 @@ export class ExternalEndpointsComponent {
         host: this.host.trim(),
         port: this.port,
         server_uuid: this.serverUuid,
+        project_uuid: this.projectUuid || undefined,
+        environment_uuid: this.environmentUuid || undefined,
         criticality: this.criticality,
         max_grant_minutes: this.maxGrantMinutes,
       });
-      this.name = '';
-      this.description = '';
-      this.host = '';
-      this.port = 5432;
+      this.showNew.set(false);
+      this.resetForm();
       await this.load();
     } catch (err) {
+      // The drawer stays open on failure — a name collision is fixed in place,
+      // not by retyping the whole form.
       this.error.set(ApiService.describe(err));
     } finally {
       this.busy.set(false);
