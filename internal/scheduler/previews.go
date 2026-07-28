@@ -197,6 +197,12 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 			}
 			s.emitPreviewEvent(ctx, "application.preview.woken.v1", p.ApplicationID, p.Uuid, p.PrID)
 			s.Logger.Info("preview woken by waker", "preview", uuid, "pr", p.PrID)
+		} else {
+			// The one trace that tells a stuck-sleeping investigation apart:
+			// no activity file (the waker never served/recorded) vs a stale
+			// one (older than the sleep — the wake never completed).
+			s.Logger.Debug("scale-to-zero: sleeping preview not woken",
+				"preview", uuid, "activity", last, "slept_at", p.UpdatedAt.Time)
 		}
 	}
 }
@@ -276,6 +282,9 @@ func (s *Scheduler) scaleZeroApplications(ctx context.Context) {
 				continue
 			}
 			s.Logger.Info("application woken by waker", "application", uuid)
+		} else {
+			s.Logger.Debug("scale-to-zero: sleeping application not woken",
+				"application", uuid, "activity", last, "slept_at", a.ScaleSleptAt.Time)
 		}
 	}
 }
@@ -297,13 +306,24 @@ func (w *wakerScan) client(server store.Server) remoteClient {
 	if c, ok := w.clients[server.ID]; ok {
 		return c
 	}
+	// A nil client silently skips every scale-to-zero decision for the
+	// server's resources — sleeping previews then LOOK stuck (never flipped
+	// back to active) with no trace. Log the cause; cache the nil so one
+	// broken server costs one dial and one log line per pass, not one per
+	// resource.
+	fail := func(stage string, err error) remoteClient {
+		w.clients[server.ID] = nil
+		w.s.Logger.Warn("scale-to-zero scan: server unreachable, resources skipped",
+			"server_id", server.ID, "host", server.Host, "stage", stage, "error", err)
+		return nil
+	}
 	key, err := w.s.Store.GetPrivateKeyByID(w.ctx, server.PrivateKeyID)
 	if err != nil {
-		return nil
+		return fail("private key fetch", err)
 	}
 	pem, err := w.s.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
 	if err != nil {
-		return nil
+		return fail("private key decrypt", err)
 	}
 	var c remoteClient
 	if w.s.dialSSH != nil {
@@ -313,7 +333,7 @@ func (w *wakerScan) client(server store.Server) remoteClient {
 			time.Duration(server.SshTimeoutSeconds)*time.Second, hostKeyOf(server))
 	}
 	if err != nil {
-		return nil
+		return fail("ssh dial", err)
 	}
 	w.clients[server.ID] = c
 	return c
