@@ -444,6 +444,10 @@ func serveRun(mode string) int {
 		// The CLI TCP tunnel WebSocket (ADR-032), like /terminal/ws: outside
 		// the OpenAPI contract, served by the API.
 		mux.Handle("/tunnel/", apiHandler)
+		// The server agents (ADR-040/041): observation POSTs and the
+		// persistent channel. Forgetting a prefix here hands the route to the
+		// SPA, whose 200 masquerades as a successful ingestion.
+		mux.Handle("/agent/", apiHandler)
 		// The preview SSO callback (ADR-030) arrives under the PREVIEW's
 		// host, proxied here by its dedicated router — served by the API,
 		// never by the dashboard.

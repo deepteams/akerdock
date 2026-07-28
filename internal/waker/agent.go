@@ -349,11 +349,15 @@ func (a *Agent) post(ctx context.Context, batch []Observation) error {
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 512))
 	switch {
-	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+	case resp.StatusCode == http.StatusAccepted:
+		// The ingestion endpoint answers 202 and nothing else. A generic 200
+		// is NOT a success: a misrouted request landing on the SPA answers
+		// 200 with HTML, and treating it as delivered silently drops every
+		// observation — exactly the bug this guard is here to surface.
 		return nil
 	case resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests:
 		return &denyError{status: resp.StatusCode}
 	default:
-		return fmt.Errorf("agent push: %s", resp.Status)
+		return fmt.Errorf("agent push: unexpected %s", resp.Status)
 	}
 }
