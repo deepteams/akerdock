@@ -199,6 +199,15 @@ export const routes: Routes = [
             (m) => m.RequestEndpointAccessComponent,
           ),
       },
+      // Declared last: the deep-linked route above is the more specific one,
+      // and its shape is part of the CLI contract.
+      {
+        path: 'external-endpoints/:uuid',
+        loadComponent: () =>
+          import('./pages/external-endpoint-detail.component').then(
+            (m) => m.ExternalEndpointDetailComponent,
+          ),
+      },
 
       // Team
       {

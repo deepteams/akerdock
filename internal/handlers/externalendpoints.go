@@ -417,6 +417,10 @@ func (a *API) endSessionsOfGrant(r *http.Request, grantID int64) {
 		return
 	}
 	for _, row := range rows {
+		// Cut first, record second: the socket is what the developer is holding,
+		// and they are told why it went away rather than left with a tunnel that
+		// died in silence.
+		a.Tunnels.Cut(row.ID, tunnelEndReasonRevoked)
 		a.endPortForwardSession(row, tunnelEndReasonRevoked)
 	}
 }

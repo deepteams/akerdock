@@ -46,6 +46,10 @@ type API struct {
 	// Agents tracks the live agent channels (ADR-041): presence is the
 	// connection. Zero value ready.
 	Agents AgentPresence
+	// Tunnels tracks the bridges this process runs (ADR-032/ADR-045), so a
+	// revoked grant or a closed session cuts the socket instead of merely
+	// recording that it should be gone. Zero value ready.
+	Tunnels TunnelPresence
 	// MCP is the built-in Model Context Protocol server (ADR-043). Nil
 	// disables the surface entirely, whatever the instance setting.
 	MCP *mcp.Server

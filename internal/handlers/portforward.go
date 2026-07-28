@@ -259,7 +259,13 @@ func (a *API) TunnelWebSocket(w http.ResponseWriter, r *http.Request) {
 	// moment a big frame arrives — the client sets the same unlimited read.
 	conn.SetReadLimit(-1)
 	dial := func(ctx context.Context) (net.Conn, error) { return client.DialTCP(addr) }
-	reason := tunnel.Bridge(r.Context(), tunnelConn{conn}, dial, sessionBounds(row))
+	// Registered for the whole life of the bridge so a revoked grant or an
+	// operator's close reaches this socket, rather than only the row that
+	// records it (ADR-045 §5).
+	bounds := sessionBounds(row)
+	bounds.Cancel = a.Tunnels.register(row.ID)
+	defer a.Tunnels.unregister(row.ID)
+	reason := tunnel.Bridge(r.Context(), tunnelConn{conn}, dial, bounds)
 	// A session cut by its grant running out is neither an idle timeout nor a
 	// revocation, and the CLI says exactly that to the developer (ADR-045 §5).
 	if reason == tunnel.EndMaxDuration && row.GrantID != nil {

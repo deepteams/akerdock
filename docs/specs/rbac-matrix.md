@@ -187,7 +187,7 @@ Domain families:
 | 56 | `templates:manage` | Register/sync template repos (§27.10) | `write` |
 | 57 | `terminal:open` | Open a container/server terminal (non-root) | `write` |
 | 58 | `terminal:root` | Open a **root** terminal (dual control §5) | `write` |
-| 72 | `port-forwards:open` | Open a TCP tunnel to a resource's container or to a declared external endpoint (CLI, ADR-032/ADR-045) — boundary at resource granularity; on an external endpoint it is evaluated against that endpoint's scope | `write` |
+| 72 | `port-forwards:open` | Open a TCP tunnel to a resource's container or to a declared external endpoint (CLI, ADR-032/ADR-045) — boundary at resource granularity; on an external endpoint it is evaluated against that endpoint's scope. Also lists the team's tunnel sessions and closes **one's own**; closing somebody else's requires `external-endpoints:manage`, the same power that revokes a grant | `write` |
 | 73 | `external-endpoints:read` | List the team's declared external endpoints (bastion targets, ADR-045) | `read` |
 | 74 | `external-endpoints:manage` | Declare/update/delete an external endpoint — draws a network boundary, admin-level (ADR-045) | `write` |
 | 59 | `logs:read` | Container runtime logs | `read` |

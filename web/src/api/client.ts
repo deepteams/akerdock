@@ -1712,6 +1712,29 @@ export class AkerDockClient {
   }
 
   /**
+   * The tunnels open right now (ADR-032/ADR-045), every target kind. Defaults
+   * to the live ones; `active: false` walks the history too.
+   */
+  listPortForwardSessions(query?: {
+    external_endpoint_uuid?: string;
+    active?: boolean;
+    cursor?: string;
+    limit?: number;
+  }) {
+    type Response =
+      paths['/port-forward-sessions']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', '/port-forward-sessions', { query });
+  }
+
+  /**
+   * Cuts a live tunnel. Closing one's own needs nothing beyond the permission
+   * that opened it; closing somebody else's is an administrative act.
+   */
+  closePortForwardSession(uuid: string) {
+    return this.request<void>('DELETE', `/port-forward-sessions/${uuid}`);
+  }
+
+  /**
    * Server-sent events (ADR-024). Resumption is the point: `lastEventId` picks
    * up exactly where a dropped connection left off, so a reconnect does not
    * replay — or skip — deployment transitions.

@@ -1306,6 +1306,66 @@ func (e PersistentStorageCreateKind) Valid() bool {
 	}
 }
 
+// Defines values for PortForwardSessionInfoEndReason.
+const (
+	Disconnect   PortForwardSessionInfoEndReason = "disconnect"
+	GrantExpired PortForwardSessionInfoEndReason = "grant_expired"
+	IdleTimeout  PortForwardSessionInfoEndReason = "idle_timeout"
+	MaxDuration  PortForwardSessionInfoEndReason = "max_duration"
+	Revoked      PortForwardSessionInfoEndReason = "revoked"
+	UserClose    PortForwardSessionInfoEndReason = "user_close"
+)
+
+// Valid indicates whether the value is a known member of the PortForwardSessionInfoEndReason enum.
+func (e PortForwardSessionInfoEndReason) Valid() bool {
+	switch e {
+	case Disconnect:
+		return true
+	case GrantExpired:
+		return true
+	case IdleTimeout:
+		return true
+	case MaxDuration:
+		return true
+	case Revoked:
+		return true
+	case UserClose:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PortForwardSessionInfoTargetKind.
+const (
+	PortForwardSessionInfoTargetKindApplication      PortForwardSessionInfoTargetKind = "application"
+	PortForwardSessionInfoTargetKindDatabase         PortForwardSessionInfoTargetKind = "database"
+	PortForwardSessionInfoTargetKindExternalEndpoint PortForwardSessionInfoTargetKind = "external_endpoint"
+	PortForwardSessionInfoTargetKindPreview          PortForwardSessionInfoTargetKind = "preview"
+	PortForwardSessionInfoTargetKindService          PortForwardSessionInfoTargetKind = "service"
+	PortForwardSessionInfoTargetKindUnknown          PortForwardSessionInfoTargetKind = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the PortForwardSessionInfoTargetKind enum.
+func (e PortForwardSessionInfoTargetKind) Valid() bool {
+	switch e {
+	case PortForwardSessionInfoTargetKindApplication:
+		return true
+	case PortForwardSessionInfoTargetKindDatabase:
+		return true
+	case PortForwardSessionInfoTargetKindExternalEndpoint:
+		return true
+	case PortForwardSessionInfoTargetKindPreview:
+		return true
+	case PortForwardSessionInfoTargetKindService:
+		return true
+	case PortForwardSessionInfoTargetKindUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PreviewStatus.
 const (
 	PreviewStatusActive        PreviewStatus = "active"
@@ -1896,19 +1956,19 @@ func (e UptimeCheckKind) Valid() bool {
 
 // Defines values for UptimeCheckStatus.
 const (
-	UptimeCheckStatusDown    UptimeCheckStatus = "down"
-	UptimeCheckStatusUnknown UptimeCheckStatus = "unknown"
-	UptimeCheckStatusUp      UptimeCheckStatus = "up"
+	Down    UptimeCheckStatus = "down"
+	Unknown UptimeCheckStatus = "unknown"
+	Up      UptimeCheckStatus = "up"
 )
 
 // Valid indicates whether the value is a known member of the UptimeCheckStatus enum.
 func (e UptimeCheckStatus) Valid() bool {
 	switch e {
-	case UptimeCheckStatusDown:
+	case Down:
 		return true
-	case UptimeCheckStatusUnknown:
+	case Unknown:
 		return true
-	case UptimeCheckStatusUp:
+	case Up:
 		return true
 	default:
 		return false
@@ -4081,6 +4141,49 @@ type PortForwardSession struct {
 	WebsocketPath string `json:"websocket_path"`
 }
 
+// PortForwardSessionInfo A tunnel session as an operator sees it — who opened it, onto what, from where, and until when. Deliberately NOT the mint response: no token is readable back, so this schema carries none.
+type PortForwardSessionInfo struct {
+	// Active Still open: not ended, and either attached or with an attach token that has not expired yet.
+	Active bool `json:"active"`
+
+	// AuthorizedUntil Instant the session is cut (ADR-045 §5) — the grant's expiry on a `sensitive` endpoint.
+	AuthorizedUntil *time.Time `json:"authorized_until,omitempty"`
+
+	// ClientIp Address the mint was requested from.
+	ClientIp  *string   `json:"client_ip,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// EndReason Why it closed. `grant_expired` is an ADR-045 session that reached its authorization's deadline, distinct from the ADR-032 ceiling.
+	EndReason *PortForwardSessionInfoEndReason `json:"end_reason,omitempty"`
+	EndedAt   *time.Time                       `json:"ended_at,omitempty"`
+
+	// ExternalEndpointUuid Set when the target is a declared external endpoint (ADR-045).
+	ExternalEndpointUuid *string `json:"external_endpoint_uuid,omitempty"`
+
+	// StartedAt When the WebSocket was attached — absent while the token is unredeemed.
+	StartedAt *time.Time `json:"started_at,omitempty"`
+
+	// TargetComponent Compose service, when the target is one component of a stack.
+	TargetComponent *string `json:"target_component,omitempty"`
+
+	// TargetKind What the tunnel points at. `unknown` is a session whose target was deleted after it opened — the row outlives the resource so the audit trail stays complete.
+	TargetKind PortForwardSessionInfoTargetKind `json:"target_kind"`
+
+	// TargetName Human label frozen at mint time (resource name, or endpoint name).
+	TargetName string `json:"target_name"`
+	TargetPort int    `json:"target_port"`
+
+	// UserEmail The human who opened it. Absent for a session opened with an API token, which has no user — which is also why it can hold no grant.
+	UserEmail *string `json:"user_email,omitempty"`
+	Uuid      string  `json:"uuid"`
+}
+
+// PortForwardSessionInfoEndReason Why it closed. `grant_expired` is an ADR-045 session that reached its authorization's deadline, distinct from the ADR-032 ceiling.
+type PortForwardSessionInfoEndReason string
+
+// PortForwardSessionInfoTargetKind What the tunnel points at. `unknown` is a session whose target was deleted after it opened — the row outlives the resource so the audit trail stays complete.
+type PortForwardSessionInfoTargetKind string
+
 // Preview Ephemeral environment of a PR (§20.4, data dictionary §8.9).
 type Preview struct {
 	CreatedAt *time.Time `json:"created_at,omitempty"`
@@ -5109,6 +5212,9 @@ type Limit = int
 // OauthProviderName defines model for OauthProviderName.
 type OauthProviderName string
 
+// PortForwardSessionUuid defines model for PortForwardSessionUuid.
+type PortForwardSessionUuid = string
+
 // PrivateKeyUuid defines model for PrivateKeyUuid.
 type PrivateKeyUuid = string
 
@@ -5619,6 +5725,21 @@ type CreateNotificationChannelParams struct {
 type UpdateNotificationChannelParams struct {
 	// IfMatch Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`.
 	IfMatch IfMatch `json:"If-Match"`
+}
+
+// ListPortForwardSessionsParams defines parameters for ListPortForwardSessions.
+type ListPortForwardSessionsParams struct {
+	// ExternalEndpointUuid Restrict to the sessions targeting this external endpoint.
+	ExternalEndpointUuid *string `form:"external_endpoint_uuid,omitempty" json:"external_endpoint_uuid,omitempty"`
+
+	// Active `true` (default) lists only the sessions still open — claimed or still redeemable, and not ended. `false` walks the history too.
+	Active *bool `form:"active,omitempty" json:"active,omitempty"`
+
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of items per page (1 to 100).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListPrivateKeysParams defines parameters for ListPrivateKeys.
@@ -6731,6 +6852,12 @@ type ServerInterface interface {
 	// Catalog of granular permissions
 	// (GET /permissions)
 	ListPermissions(w http.ResponseWriter, r *http.Request)
+	// List the team's tunnel sessions
+	// (GET /port-forward-sessions)
+	ListPortForwardSessions(w http.ResponseWriter, r *http.Request, params ListPortForwardSessionsParams)
+	// Close a tunnel session
+	// (DELETE /port-forward-sessions/{session_uuid})
+	ClosePortForwardSession(w http.ResponseWriter, r *http.Request, sessionUuid PortForwardSessionUuid)
 	// List private keys
 	// (GET /private-keys)
 	ListPrivateKeys(w http.ResponseWriter, r *http.Request, params ListPrivateKeysParams)
@@ -7724,6 +7851,18 @@ func (_ Unimplemented) TestNotificationChannel(w http.ResponseWriter, r *http.Re
 // Catalog of granular permissions
 // (GET /permissions)
 func (_ Unimplemented) ListPermissions(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the team's tunnel sessions
+// (GET /port-forward-sessions)
+func (_ Unimplemented) ListPortForwardSessions(w http.ResponseWriter, r *http.Request, params ListPortForwardSessionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Close a tunnel session
+// (DELETE /port-forward-sessions/{session_uuid})
+func (_ Unimplemented) ClosePortForwardSession(w http.ResponseWriter, r *http.Request, sessionUuid PortForwardSessionUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -13296,6 +13435,116 @@ func (siw *ServerInterfaceWrapper) ListPermissions(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListPermissions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPortForwardSessions operation middleware
+func (siw *ServerInterfaceWrapper) ListPortForwardSessions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPortForwardSessionsParams
+
+	// ------------- Optional query parameter "external_endpoint_uuid" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "external_endpoint_uuid", r.URL.Query(), &params.ExternalEndpointUuid, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "external_endpoint_uuid"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "external_endpoint_uuid", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "active" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "active", r.URL.Query(), &params.Active, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "active"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "active", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPortForwardSessions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ClosePortForwardSession operation middleware
+func (siw *ServerInterfaceWrapper) ClosePortForwardSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "session_uuid" -------------
+	var sessionUuid PortForwardSessionUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "session_uuid", chi.URLParam(r, "session_uuid"), &sessionUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClosePortForwardSession(w, r, sessionUuid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -19200,6 +19449,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/permissions", wrapper.ListPermissions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/port-forward-sessions", wrapper.ListPortForwardSessions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/port-forward-sessions/{session_uuid}", wrapper.ClosePortForwardSession)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/private-keys", wrapper.ListPrivateKeys)
@@ -29552,6 +29807,133 @@ func (response ListPermissions429JSONResponse) VisitListPermissionsResponse(w ht
 		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
 	}
 	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPortForwardSessionsRequestObject struct {
+	Params ListPortForwardSessionsParams
+}
+
+type ListPortForwardSessionsResponseObject interface {
+	VisitListPortForwardSessionsResponse(w http.ResponseWriter) error
+}
+
+type ListPortForwardSessions200JSONResponse struct {
+	Data []PortForwardSessionInfo `json:"data"`
+
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListPortForwardSessions200JSONResponse) VisitListPortForwardSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPortForwardSessions400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListPortForwardSessions400JSONResponse) VisitListPortForwardSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPortForwardSessions401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListPortForwardSessions401JSONResponse) VisitListPortForwardSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPortForwardSessions403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListPortForwardSessions403JSONResponse) VisitListPortForwardSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClosePortForwardSessionRequestObject struct {
+	SessionUuid PortForwardSessionUuid `json:"session_uuid"`
+}
+
+type ClosePortForwardSessionResponseObject interface {
+	VisitClosePortForwardSessionResponse(w http.ResponseWriter) error
+}
+
+type ClosePortForwardSession204Response struct {
+}
+
+func (response ClosePortForwardSession204Response) VisitClosePortForwardSessionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ClosePortForwardSession401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ClosePortForwardSession401JSONResponse) VisitClosePortForwardSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClosePortForwardSession403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ClosePortForwardSession403JSONResponse) VisitClosePortForwardSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClosePortForwardSession404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ClosePortForwardSession404JSONResponse) VisitClosePortForwardSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -41217,6 +41599,12 @@ type StrictServerInterface interface {
 	// Catalog of granular permissions
 	// (GET /permissions)
 	ListPermissions(ctx context.Context, request ListPermissionsRequestObject) (ListPermissionsResponseObject, error)
+	// List the team's tunnel sessions
+	// (GET /port-forward-sessions)
+	ListPortForwardSessions(ctx context.Context, request ListPortForwardSessionsRequestObject) (ListPortForwardSessionsResponseObject, error)
+	// Close a tunnel session
+	// (DELETE /port-forward-sessions/{session_uuid})
+	ClosePortForwardSession(ctx context.Context, request ClosePortForwardSessionRequestObject) (ClosePortForwardSessionResponseObject, error)
 	// List private keys
 	// (GET /private-keys)
 	ListPrivateKeys(ctx context.Context, request ListPrivateKeysRequestObject) (ListPrivateKeysResponseObject, error)
@@ -44600,6 +44988,58 @@ func (sh *strictHandler) ListPermissions(w http.ResponseWriter, r *http.Request)
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListPermissionsResponseObject); ok {
 		if err := validResponse.VisitListPermissionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListPortForwardSessions operation middleware
+func (sh *strictHandler) ListPortForwardSessions(w http.ResponseWriter, r *http.Request, params ListPortForwardSessionsParams) {
+	var request ListPortForwardSessionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPortForwardSessions(ctx, request.(ListPortForwardSessionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPortForwardSessions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPortForwardSessionsResponseObject); ok {
+		if err := validResponse.VisitListPortForwardSessionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ClosePortForwardSession operation middleware
+func (sh *strictHandler) ClosePortForwardSession(w http.ResponseWriter, r *http.Request, sessionUuid PortForwardSessionUuid) {
+	var request ClosePortForwardSessionRequestObject
+
+	request.SessionUuid = sessionUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ClosePortForwardSession(ctx, request.(ClosePortForwardSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ClosePortForwardSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ClosePortForwardSessionResponseObject); ok {
+		if err := validResponse.VisitClosePortForwardSessionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

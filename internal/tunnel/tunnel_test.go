@@ -135,3 +135,53 @@ func waitData(t *testing.T, fc *fakeConn) (uint32, []byte) {
 		}
 	}
 }
+
+// A tunnel cut from outside — a revoked grant, an operator closing it in the
+// dashboard — must report WHY, not merely stop. The reason is what the CLI
+// prints to the developer, and a socket that dies without a word is read as a
+// bug in the platform rather than as the control it is (ADR-045 §5).
+func TestBridgeCancelReportsTheReasonItWasGiven(t *testing.T) {
+	fc := newFakeConn()
+	serverEnd, _ := net.Pipe()
+	dial := func(context.Context) (net.Conn, error) { return serverEnd, nil }
+
+	cancel := make(chan EndReason, 1)
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- Bridge(context.Background(), fc, dial, Options{Cancel: cancel})
+	}()
+
+	cancel <- EndReason("revoked")
+
+	select {
+	case got := <-done:
+		if got != EndReason("revoked") {
+			t.Fatalf("end reason = %q, want the reason the canceller gave", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("bridge ignored its cancel channel")
+	}
+}
+
+// The zero Options must stay inert: a nil cancel channel never fires, which is
+// what lets every existing caller keep passing Options{}.
+func TestBridgeWithoutCancelChannelStillEndsNormally(t *testing.T) {
+	fc := newFakeConn()
+	serverEnd, _ := net.Pipe()
+	dial := func(context.Context) (net.Conn, error) { return serverEnd, nil }
+
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- Bridge(context.Background(), fc, dial, Options{})
+	}()
+
+	close(fc.in) // the client hangs up
+	select {
+	case got := <-done:
+		if got != EndUserClose {
+			t.Fatalf("end reason = %q, want user_close", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("bridge did not return after client close")
+	}
+}

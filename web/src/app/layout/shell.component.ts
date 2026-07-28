@@ -345,6 +345,10 @@ export class ShellComponent {
     {
       title: 'Operations',
       items: [
+        // Bastion targets and the tunnels open onto them (ADR-045). Under
+        // Operations rather than Platform: declaring one is rare, watching who
+        // is connected to production is not.
+        { path: '/external-endpoints', label: 'Tunnels', icon: 'cable' },
         { path: '/notifications', label: 'Notifications', icon: 'bell' },
         { path: '/jobs', label: 'Jobs', icon: 'list-checks' },
         { path: '/events', label: 'Events', icon: 'activity' },
@@ -367,6 +371,7 @@ export class ShellComponent {
     databases: 'databases',
     servers: 'servers',
     sources: 'sources',
+    'external-endpoints': 'tunnels',
     notifications: 'notifications',
     jobs: 'jobs',
     events: 'events',

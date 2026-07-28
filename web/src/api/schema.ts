@@ -3570,6 +3570,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/port-forward-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the team's tunnel sessions
+         * @description The tunnels open right now, and the ones that closed recently — every target kind (application, database, preview, external endpoint), because the operational question is "what is currently forwarded out of this team", not "out of this endpoint". Read-only: the attach token is never readable back, here or anywhere else (§23.2).
+         *
+         *     Defaults to the live sessions only; pass `active=false` to walk the history, and `external_endpoint_uuid` to narrow to one declared endpoint (ADR-045).
+         */
+        get: operations["listPortForwardSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/port-forward-sessions/{session_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the tunnel session. */
+                session_uuid: components["parameters"]["PortForwardSessionUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Close a tunnel session
+         * @description Cuts a live tunnel. Closing **your own** session needs nothing more than the permission that opened it; closing **someone else's** is an administrative act and requires `external-endpoints:manage` — the same power that revokes a grant, for the same reason.
+         *
+         *     The client is told why it was cut rather than left with a socket that died in silence (ADR-045 §5): `user_close` when the holder closed it, `revoked` when an administrator did. Ending an already-closed session is a no-op, not an error.
+         */
+        delete: operations["closePortForwardSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4037,6 +4084,47 @@ export interface components {
             /**
              * Format: date-time
              * @description Instant the session is actually cut (ADR-045 §5): the grant's expiry on a `sensitive` external endpoint, the ADR-032 maximum duration otherwise. The CLI announces it when the listener comes up and warns before it lands, so a deadline never arrives unannounced.
+             */
+            authorized_until?: string;
+        };
+        /** @description A tunnel session as an operator sees it — who opened it, onto what, from where, and until when. Deliberately NOT the mint response: no token is readable back, so this schema carries none. */
+        PortForwardSessionInfo: {
+            uuid: string;
+            /**
+             * @description What the tunnel points at. `unknown` is a session whose target was deleted after it opened — the row outlives the resource so the audit trail stays complete.
+             * @enum {string}
+             */
+            target_kind: "application" | "database" | "service" | "preview" | "external_endpoint" | "unknown";
+            /** @description Human label frozen at mint time (resource name, or endpoint name). */
+            target_name: string;
+            /** @description Compose service, when the target is one component of a stack. */
+            target_component?: string;
+            target_port: number;
+            /** @description Set when the target is a declared external endpoint (ADR-045). */
+            external_endpoint_uuid?: string;
+            /** @description The human who opened it. Absent for a session opened with an API token, which has no user — which is also why it can hold no grant. */
+            user_email?: string;
+            /** @description Address the mint was requested from. */
+            client_ip?: string;
+            /** @description Still open: not ended, and either attached or with an attach token that has not expired yet. */
+            active: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description When the WebSocket was attached — absent while the token is unredeemed.
+             */
+            started_at?: string;
+            /** Format: date-time */
+            ended_at?: string;
+            /**
+             * @description Why it closed. `grant_expired` is an ADR-045 session that reached its authorization's deadline, distinct from the ADR-032 ceiling.
+             * @enum {string}
+             */
+            end_reason?: "user_close" | "idle_timeout" | "max_duration" | "disconnect" | "revoked" | "grant_expired";
+            /**
+             * Format: date-time
+             * @description Instant the session is cut (ADR-045 §5) — the grant's expiry on a `sensitive` endpoint.
              */
             authorized_until?: string;
         };
@@ -6228,6 +6316,8 @@ export interface components {
         ExternalEndpointUuid: string;
         /** @description UUID of the access grant. */
         GrantUuid: string;
+        /** @description UUID of the tunnel session. */
+        PortForwardSessionUuid: string;
         /** @description UUID of the server. */
         ServerUuid: string;
         /** @description UUID of the adoption scan (§20.7). */
@@ -13356,6 +13446,65 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Grant revoked and its sessions closed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listPortForwardSessions: {
+        parameters: {
+            query?: {
+                /** @description Restrict to the sessions targeting this external endpoint. */
+                external_endpoint_uuid?: string;
+                /** @description `true` (default) lists only the sessions still open — claimed or still redeemable, and not ended. `false` walks the history too. */
+                active?: boolean;
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Maximum number of items per page (1 to 100). */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of tunnel sessions, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PortForwardSessionInfo"][];
+                        next_cursor?: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    closePortForwardSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the tunnel session. */
+                session_uuid: components["parameters"]["PortForwardSessionUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session closed (or already was). */
             204: {
                 headers: {
                     [name: string]: unknown;

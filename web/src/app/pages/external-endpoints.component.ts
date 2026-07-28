@@ -10,6 +10,7 @@ import type { components } from '../../api/schema';
 
 type ExternalEndpoint = components['schemas']['ExternalEndpoint'];
 type Server = components['schemas']['Server'];
+type PortForwardSession = components['schemas']['PortForwardSessionInfo'];
 
 /**
  * Declared bastion targets (ADR-045): destinations outside the server that a
@@ -36,7 +37,7 @@ type Server = components['schemas']['Server'];
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      <akd-card title="Declare an endpoint" class="create">
+      <akd-card title="Declare an endpoint">
         <form class="fields" (ngSubmit)="create()">
           <p class="intro">
             A single destination reached from one of your servers — no ranges, no wildcards. The CLI
@@ -79,6 +80,17 @@ type Server = components['schemas']['Server'];
                 required
               />
             </div>
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="ep-description">Description</label>
+            <input
+              id="ep-description"
+              name="description"
+              class="akd-input"
+              placeholder="e.g. read replica of the billing database"
+              [(ngModel)]="description"
+              [disabled]="busy()"
+            />
           </div>
           <div class="row">
             <div class="akd-field">
@@ -164,7 +176,9 @@ type Server = components['schemas']['Server'];
               @for (endpoint of endpoints(); track endpoint.uuid) {
                 <tr>
                   <td>
-                    <strong>{{ endpoint.name }}</strong>
+                    <a [routerLink]="['/external-endpoints', endpoint.uuid]">
+                      <strong>{{ endpoint.name }}</strong>
+                    </a>
                     @if (endpoint.description) {
                       <span class="akd-muted"> — {{ endpoint.description }}</span>
                     }
@@ -207,11 +221,66 @@ type Server = components['schemas']['Server'];
           </table>
         </akd-card>
       }
+
+      <akd-card title="Open tunnels">
+        <p class="intro">
+          Every tunnel your team currently holds — to a container as much as to a declared endpoint.
+          Cutting one tells its holder why it went away.
+        </p>
+        @if (sessions().length === 0) {
+          <p class="akd-muted">No tunnel open right now.</p>
+        } @else {
+          <table class="akd-table">
+            <thead>
+              <tr>
+                <th>Target</th>
+                <th>Who</th>
+                <th>From</th>
+                <th>Opened</th>
+                <th>Until</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (session of sessions(); track session.uuid) {
+                <tr>
+                  <td>
+                    <strong>{{ session.target_name }}</strong>
+                    @if (session.target_component) {
+                      <span class="akd-muted"> · {{ session.target_component }}</span>
+                    }
+                    <span class="akd-muted"> :{{ session.target_port }}</span>
+                    <span class="akd-badge">{{ session.target_kind }}</span>
+                  </td>
+                  <td>{{ session.user_email ?? 'API token' }}</td>
+                  <td class="akd-mono">{{ session.client_ip ?? '—' }}</td>
+                  <td>{{ session.started_at ?? session.created_at | date: 'short' }}</td>
+                  <td>
+                    {{
+                      session.authorized_until ? (session.authorized_until | date: 'short') : '—'
+                    }}
+                  </td>
+                  <td class="actions">
+                    <button
+                      class="akd-btn akd-btn--ghost"
+                      type="button"
+                      (click)="cut(session)"
+                      [disabled]="busy()"
+                    >
+                      Cut
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </akd-card>
     </div>
   `,
   styles: [
     `
-      .create {
+      .akd-page > akd-card {
         margin-bottom: var(--space-5);
       }
       .fields {
@@ -238,11 +307,13 @@ export class ExternalEndpointsComponent {
 
   protected readonly endpoints = signal<ExternalEndpoint[]>([]);
   protected readonly servers = signal<Server[]>([]);
+  protected readonly sessions = signal<PortForwardSession[]>([]);
   protected readonly loading = signal(true);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
 
   protected name = '';
+  protected description = '';
   protected host = '';
   protected port = 5432;
   protected serverUuid = '';
@@ -257,12 +328,14 @@ export class ExternalEndpointsComponent {
 
   private async load(): Promise<void> {
     try {
-      const [endpoints, servers] = await Promise.all([
+      const [endpoints, servers, sessions] = await Promise.all([
         this.api.client().listExternalEndpoints({ limit: 100 }),
         this.api.client().listServers({ limit: 100 }),
+        this.api.client().listPortForwardSessions({ limit: 100 }),
       ]);
       this.endpoints.set(endpoints.data);
       this.servers.set(servers.data);
+      this.sessions.set(sessions.data);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -277,6 +350,7 @@ export class ExternalEndpointsComponent {
     try {
       await this.api.client().createExternalEndpoint({
         name: this.name.trim(),
+        description: this.description.trim() || undefined,
         host: this.host.trim(),
         port: this.port,
         server_uuid: this.serverUuid,
@@ -284,6 +358,7 @@ export class ExternalEndpointsComponent {
         max_grant_minutes: this.maxGrantMinutes,
       });
       this.name = '';
+      this.description = '';
       this.host = '';
       this.port = 5432;
       await this.load();
@@ -304,6 +379,26 @@ export class ExternalEndpointsComponent {
     this.error.set(null);
     try {
       await this.api.client().deleteExternalEndpoint(endpoint.uuid);
+      await this.load();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /**
+   * Cuts a live tunnel. Closing one's own needs nothing beyond the permission
+   * that opened it; closing somebody else's is an administrative act and the
+   * API says so — the refusal is surfaced rather than hidden behind a disabled
+   * button, because who owns which session is the server's call, not ours.
+   */
+  protected async cut(session: PortForwardSession): Promise<void> {
+    if (!confirm(`Cut the tunnel to "${session.target_name}"?`)) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.client().closePortForwardSession(session.uuid);
       await this.load();
     } catch (err) {
       this.error.set(ApiService.describe(err));

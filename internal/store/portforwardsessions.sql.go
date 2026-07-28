@@ -155,6 +155,149 @@ func (q *Queries) EndPortForwardSession(ctx context.Context, arg EndPortForwardS
 	return result.RowsAffected(), nil
 }
 
+const getPortForwardSessionByUUID = `-- name: GetPortForwardSessionByUUID :one
+SELECT id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until FROM port_forward_sessions WHERE uuid = $1 AND team_id = $2
+`
+
+type GetPortForwardSessionByUUIDParams struct {
+	Uuid   pgtype.UUID
+	TeamID int64
+}
+
+func (q *Queries) GetPortForwardSessionByUUID(ctx context.Context, arg GetPortForwardSessionByUUIDParams) (PortForwardSession, error) {
+	row := q.db.QueryRow(ctx, getPortForwardSessionByUUID, arg.Uuid, arg.TeamID)
+	var i PortForwardSession
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.TeamID,
+		&i.UserID,
+		&i.ServerID,
+		&i.ResourceID,
+		&i.PreviewID,
+		&i.TargetName,
+		&i.TargetComponent,
+		&i.TargetPort,
+		&i.ClientIp,
+		&i.TokenHash,
+		&i.TokenExpiresAt,
+		&i.ClaimedAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.EndReason,
+		&i.CreatedAt,
+		&i.ExternalEndpointID,
+		&i.GrantID,
+		&i.AuthorizedUntil,
+	)
+	return i, err
+}
+
+const listPortForwardSessionsPage = `-- name: ListPortForwardSessionsPage :many
+SELECT s.id, s.uuid, s.team_id, s.user_id, s.server_id, s.resource_id, s.preview_id, s.target_name, s.target_component, s.target_port, s.client_ip, s.token_hash, s.token_expires_at, s.claimed_at, s.started_at, s.ended_at, s.end_reason, s.created_at, s.external_endpoint_id, s.grant_id, s.authorized_until, u.email AS user_email, e.uuid AS endpoint_uuid
+FROM port_forward_sessions s
+LEFT JOIN users u ON u.id = s.user_id
+LEFT JOIN external_endpoints e ON e.id = s.external_endpoint_id
+WHERE s.team_id = $1
+  AND s.id < $2::bigint
+  AND ($3::bigint IS NULL OR s.external_endpoint_id = $3)
+  -- Same definition of "open" as the team cap, so the list and the 409 never
+  -- disagree about how many sessions exist.
+  AND (NOT $4::boolean
+       OR (s.ended_at IS NULL AND (s.claimed_at IS NOT NULL OR s.token_expires_at > now())))
+ORDER BY s.id DESC
+LIMIT $5::int
+`
+
+type ListPortForwardSessionsPageParams struct {
+	TeamID     int64
+	BeforeID   int64
+	EndpointID *int64
+	ActiveOnly bool
+	PageLimit  int32
+}
+
+type ListPortForwardSessionsPageRow struct {
+	ID                 int64
+	Uuid               pgtype.UUID
+	TeamID             int64
+	UserID             *int64
+	ServerID           *int64
+	ResourceID         *int64
+	PreviewID          *int64
+	TargetName         string
+	TargetComponent    *string
+	TargetPort         int32
+	ClientIp           *netip.Addr
+	TokenHash          string
+	TokenExpiresAt     pgtype.Timestamptz
+	ClaimedAt          pgtype.Timestamptz
+	StartedAt          pgtype.Timestamptz
+	EndedAt            pgtype.Timestamptz
+	EndReason          *TerminalEndReason
+	CreatedAt          pgtype.Timestamptz
+	ExternalEndpointID *int64
+	GrantID            *int64
+	AuthorizedUntil    pgtype.Timestamptz
+	UserEmail          *string
+	EndpointUuid       pgtype.UUID
+}
+
+// The operator's view of the team's tunnels. Newest first, like the grant list:
+// the question asked is almost always "what is forwarded right now". The joins
+// are LEFT because a session outlives its user and its endpoint — a row whose
+// target was deleted still has to be readable, or the audit trail has holes
+// exactly where something was removed.
+func (q *Queries) ListPortForwardSessionsPage(ctx context.Context, arg ListPortForwardSessionsPageParams) ([]ListPortForwardSessionsPageRow, error) {
+	rows, err := q.db.Query(ctx, listPortForwardSessionsPage,
+		arg.TeamID,
+		arg.BeforeID,
+		arg.EndpointID,
+		arg.ActiveOnly,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPortForwardSessionsPageRow
+	for rows.Next() {
+		var i ListPortForwardSessionsPageRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.TeamID,
+			&i.UserID,
+			&i.ServerID,
+			&i.ResourceID,
+			&i.PreviewID,
+			&i.TargetName,
+			&i.TargetComponent,
+			&i.TargetPort,
+			&i.ClientIp,
+			&i.TokenHash,
+			&i.TokenExpiresAt,
+			&i.ClaimedAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.EndReason,
+			&i.CreatedAt,
+			&i.ExternalEndpointID,
+			&i.GrantID,
+			&i.AuthorizedUntil,
+			&i.UserEmail,
+			&i.EndpointUuid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const purgePortForwardSessions = `-- name: PurgePortForwardSessions :execrows
 DELETE FROM port_forward_sessions
 WHERE ended_at IS NOT NULL

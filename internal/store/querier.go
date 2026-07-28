@@ -437,6 +437,7 @@ type Querier interface {
 	// credential id, and the user is whoever enrolled it. A deleted user's
 	// passkeys must not open sessions, hence the join.
 	GetPasskeyByCredentialID(ctx context.Context, credentialID []byte) (GetPasskeyByCredentialIDRow, error)
+	GetPortForwardSessionByUUID(ctx context.Context, arg GetPortForwardSessionByUUIDParams) (PortForwardSession, error)
 	GetPreviewAccessTokenByHash(ctx context.Context, tokenHash string) (PreviewAccessToken, error)
 	// Resolves the browser's Host to a preview (ADR-030): the preview's own fqdn,
 	// or a compose service's derived `<service>-<fqdn>` (§20.4.1).
@@ -642,6 +643,12 @@ type Querier interface {
 	// signup path: an invitation authorizes account creation even when open
 	// registration is off — the admin who issued it vouched for this exact address.
 	ListPendingInvitationsByEmail(ctx context.Context, email string) ([]ListPendingInvitationsByEmailRow, error)
+	// The operator's view of the team's tunnels. Newest first, like the grant list:
+	// the question asked is almost always "what is forwarded right now". The joins
+	// are LEFT because a session outlives its user and its endpoint — a row whose
+	// target was deleted still has to be readable, or the audit trail has holes
+	// exactly where something was removed.
+	ListPortForwardSessionsPage(ctx context.Context, arg ListPortForwardSessionsPageParams) ([]ListPortForwardSessionsPageRow, error)
 	// Same, scoped to one preview: its images live under akerdock/<preview_uuid>,
 	// a namespace distinct from production (deployment engine §5.7).
 	ListPreviewArtifactsOnServer(ctx context.Context, arg ListPreviewArtifactsOnServerParams) ([]ListPreviewArtifactsOnServerRow, error)

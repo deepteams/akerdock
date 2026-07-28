@@ -61,6 +61,15 @@ type Options struct {
 	MaxDuration time.Duration
 	Heartbeat   time.Duration
 	MaxStreams  int
+	// Cancel ends the session from outside, with the reason to report — a
+	// revoked grant, an operator closing the tunnel from the dashboard. A nil
+	// channel simply never fires, which is why the zero value is inert.
+	//
+	// It carries a reason rather than being a bare signal because the ONE
+	// thing the developer must get out of an automatic close is why it
+	// happened (ADR-045 §5): cancelling the context instead would report
+	// `disconnect` and read as a network glitch.
+	Cancel <-chan EndReason
 }
 
 // Defaults (§24.4, ADR-032).
@@ -130,6 +139,8 @@ func Bridge(ctx context.Context, conn Conn, dial Dialer, opts Options) EndReason
 		case <-ctx.Done():
 			return EndDisconnect
 		case reason := <-done:
+			return reason
+		case reason := <-opts.Cancel:
 			return reason
 		case <-m.activity:
 			if !idle.Stop() {

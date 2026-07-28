@@ -7955,6 +7955,91 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /port-forward-sessions:
+    get:
+      tags: [ExternalEndpoints]
+      operationId: listPortForwardSessions
+      summary: List the team's tunnel sessions
+      description: >-
+        The tunnels open right now, and the ones that closed recently — every
+        target kind (application, database, preview, external endpoint), because
+        the operational question is "what is currently forwarded out of this
+        team", not "out of this endpoint". Read-only: the attach token is never
+        readable back, here or anywhere else (§23.2).
+
+
+        Defaults to the live sessions only; pass `active=false` to walk the
+        history, and `external_endpoint_uuid` to narrow to one declared
+        endpoint (ADR-045).
+      x-required-permission: port-forwards:open
+      parameters:
+        - name: external_endpoint_uuid
+          in: query
+          required: false
+          description: Restrict to the sessions targeting this external endpoint.
+          schema:
+            type: string
+        - name: active
+          in: query
+          required: false
+          description: >-
+            `true` (default) lists only the sessions still open — claimed or
+            still redeemable, and not ended. `false` walks the history too.
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page of tunnel sessions, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PortForwardSessionInfo"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /port-forward-sessions/{session_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/PortForwardSessionUuid"
+    delete:
+      tags: [ExternalEndpoints]
+      operationId: closePortForwardSession
+      summary: Close a tunnel session
+      description: >-
+        Cuts a live tunnel. Closing **your own** session needs nothing more than
+        the permission that opened it; closing **someone else's** is an
+        administrative act and requires `external-endpoints:manage` — the same
+        power that revokes a grant, for the same reason.
+
+
+        The client is told why it was cut rather than left with a socket that
+        died in silence (ADR-045 §5): `user_close` when the holder closed it,
+        `revoked` when an administrator did. Ending an already-closed session is
+        a no-op, not an error.
+      x-required-permission: port-forwards:open
+      responses:
+        "204":
+          description: Session closed (or already was).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 
 # =============================================================================
 # Components
@@ -8145,6 +8230,13 @@ components:
       in: path
       required: true
       description: UUID of the access grant.
+      schema:
+        type: string
+    PortForwardSessionUuid:
+      name: session_uuid
+      in: path
+      required: true
+      description: UUID of the tunnel session.
       schema:
         type: string
     ServerUuid:
@@ -9350,6 +9442,70 @@ components:
             on a `sensitive` external endpoint, the ADR-032 maximum duration
             otherwise. The CLI announces it when the listener comes up and warns
             before it lands, so a deadline never arrives unannounced.
+
+    PortForwardSessionInfo:
+      type: object
+      required: [uuid, target_kind, target_name, target_port, active, created_at]
+      description: >-
+        A tunnel session as an operator sees it — who opened it, onto what, from
+        where, and until when. Deliberately NOT the mint response: no token is
+        readable back, so this schema carries none.
+      properties:
+        uuid:
+          type: string
+        target_kind:
+          type: string
+          enum: [application, database, service, preview, external_endpoint, unknown]
+          description: >-
+            What the tunnel points at. `unknown` is a session whose target was
+            deleted after it opened — the row outlives the resource so the audit
+            trail stays complete.
+        target_name:
+          type: string
+          description: Human label frozen at mint time (resource name, or endpoint name).
+        target_component:
+          type: string
+          description: Compose service, when the target is one component of a stack.
+        target_port:
+          type: integer
+        external_endpoint_uuid:
+          type: string
+          description: Set when the target is a declared external endpoint (ADR-045).
+        user_email:
+          type: string
+          description: >-
+            The human who opened it. Absent for a session opened with an API
+            token, which has no user — which is also why it can hold no grant.
+        client_ip:
+          type: string
+          description: Address the mint was requested from.
+        active:
+          type: boolean
+          description: >-
+            Still open: not ended, and either attached or with an attach token
+            that has not expired yet.
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          description: When the WebSocket was attached — absent while the token is unredeemed.
+        ended_at:
+          type: string
+          format: date-time
+        end_reason:
+          type: string
+          enum: [user_close, idle_timeout, max_duration, disconnect, revoked, grant_expired]
+          description: >-
+            Why it closed. `grant_expired` is an ADR-045 session that reached
+            its authorization's deadline, distinct from the ADR-032 ceiling.
+        authorized_until:
+          type: string
+          format: date-time
+          description: >-
+            Instant the session is cut (ADR-045 §5) — the grant's expiry on a
+            `sensitive` endpoint.
 
     ExternalEndpoint:
       type: object
