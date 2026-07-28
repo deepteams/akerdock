@@ -172,10 +172,22 @@ type Querier interface {
 	// Manifest flow step 1: the draft carries the state token (hashed, one-shot)
 	// the callback must present. Credentials arrive at conversion.
 	CreateDraftGithubApp(ctx context.Context, arg CreateDraftGithubAppParams) (GithubApp, error)
+	// The endpoint variant of CreatePortForwardSession: no resource, no preview,
+	// and an explicit `authorized_until` — the instant the session is actually cut,
+	// which the CLI is told at open and reminded of before it lands.
+	CreateEndpointPortForwardSession(ctx context.Context, arg CreateEndpointPortForwardSessionParams) (PortForwardSession, error)
 	// Environment variables (§5.4): the production set (is_preview = false)
 	// for the v1 endpoints; the preview set lands with previews.
 	CreateEnvVar(ctx context.Context, arg CreateEnvVarParams) (EnvironmentVariable, error)
 	CreateEnvironment(ctx context.Context, arg CreateEnvironmentParams) (Environment, error)
+	// External endpoints and their access grants (ADR-045): declared bastion
+	// targets, and the bounded re-authenticated windows during which a user may
+	// mint tunnels to them.
+	CreateExternalEndpoint(ctx context.Context, arg CreateExternalEndpointParams) (ExternalEndpoint, error)
+	// A grant is only ever created behind a fresh second factor; `factor` records
+	// which one was consumed, and `renewed_from` chains a renewal to the grant it
+	// extended so a long chain stays visible in the audit trail.
+	CreateExternalEndpointGrant(ctx context.Context, arg CreateExternalEndpointGrantParams) (ExternalEndpointGrant, error)
 	// Magic variables (compose-spec §4.3): written at first use, is_generated,
 	// never regenerated while the row exists — the conflict target guarantees it.
 	CreateGeneratedEnvVar(ctx context.Context, arg CreateGeneratedEnvVarParams) (int64, error)
@@ -273,6 +285,7 @@ type Querier interface {
 	DeleteEnvVarsNotInKeys(ctx context.Context, arg DeleteEnvVarsNotInKeysParams) error
 	DeleteExpiredMcpOauthCodes(ctx context.Context) error
 	DeleteExpiredPreviewAccessTokens(ctx context.Context) error
+	DeleteExternalEndpoint(ctx context.Context, arg DeleteExternalEndpointParams) (int64, error)
 	// The compose-mirrored rows (§2.4): rewritten wholesale at each deployment —
 	// the FILE is the source of truth, these rows only make it visible.
 	DeleteGeneratedStoragesForResource(ctx context.Context, resourceID int64) error
@@ -306,6 +319,10 @@ type Querier interface {
 	// on the partial index of eligible jobs; lock_key exclusivity is enforced
 	// both here (NOT EXISTS) and by the partial unique index as the net.
 	EnqueueJob(ctx context.Context, arg EnqueueJobParams) (Job, error)
+	// Renewal pushes back an existing window in place. Guarded on the row still
+	// being live: a grant that expired between the ceremony and this statement is
+	// not renewable, it is a new request (ADR-045 §5).
+	ExtendExternalEndpointGrant(ctx context.Context, arg ExtendExternalEndpointGrantParams) (ExternalEndpointGrant, error)
 	FailAdoptionScan(ctx context.Context, arg FailAdoptionScanParams) error
 	FailJob(ctx context.Context, arg FailJobParams) (int64, error)
 	FinishBackupExecution(ctx context.Context, arg FinishBackupExecutionParams) error
@@ -369,6 +386,9 @@ type Querier interface {
 	// Adoption targets an environment across projects: team isolation only
 	// (INV-002).
 	GetEnvironmentByUUIDForTeam(ctx context.Context, arg GetEnvironmentByUUIDForTeamParams) (Environment, error)
+	GetExternalEndpointByID(ctx context.Context, id int64) (ExternalEndpoint, error)
+	GetExternalEndpointByUUID(ctx context.Context, arg GetExternalEndpointByUUIDParams) (ExternalEndpoint, error)
+	GetExternalEndpointGrantByUUID(ctx context.Context, uuid pgtype.UUID) (ExternalEndpointGrant, error)
 	GetGitSourceByID(ctx context.Context, id int64) (GitSource, error)
 	GetGitSourceForGithubApp(ctx context.Context, githubAppID *int64) (GitSource, error)
 	// Webhook routing: X-GitHub-Hook-Installation-Target-ID names the app_id
@@ -391,6 +411,10 @@ type Querier interface {
 	GetJobUUIDByID(ctx context.Context, id int64) (pgtype.UUID, error)
 	GetLastAppliedProxyRevision(ctx context.Context, arg GetLastAppliedProxyRevisionParams) (ProxyConfigRevision, error)
 	GetLatestSuccessfulBackupExecution(ctx context.Context, backupPlanID int64) (BackupExecution, error)
+	// The hot path on every mint: the caller's own live grant on this endpoint.
+	// Revoked and expired rows are invisible here, which is what makes revocation
+	// and expiry take effect without a sweep.
+	GetLiveExternalEndpointGrant(ctx context.Context, arg GetLiveExternalEndpointGrantParams) (ExternalEndpointGrant, error)
 	GetMcpAccessTokenByHash(ctx context.Context, tokenHash string) (McpAccessToken, error)
 	GetMcpOauthClient(ctx context.Context, clientID string) (McpOauthClient, error)
 	// Read without consuming: a mistyped code must not send the user back to the
@@ -583,6 +607,10 @@ type Querier interface {
 	// Same rules, applied to the objects in the bucket. A backup can outlive its
 	// local copy in S3, or the reverse — the two retentions are independent.
 	ListExpiredS3Backups(ctx context.Context, arg ListExpiredS3BackupsParams) ([]ListExpiredS3BackupsRow, error)
+	// Newest first: the audit question is almost always "who has access right
+	// now", so the cursor walks ids downwards.
+	ListExternalEndpointGrantsPage(ctx context.Context, arg ListExternalEndpointGrantsPageParams) ([]ListExternalEndpointGrantsPageRow, error)
+	ListExternalEndpointsPage(ctx context.Context, arg ListExternalEndpointsPageParams) ([]ExternalEndpoint, error)
 	ListGithubAppsPage(ctx context.Context, arg ListGithubAppsPageParams) ([]GithubApp, error)
 	ListIdentitiesForUser(ctx context.Context, userID int64) ([]Identity, error)
 	// Instance-wide audit (reserved to the instance root): every team AND the
@@ -591,6 +619,8 @@ type Querier interface {
 	ListInstanceAuditEventsPage(ctx context.Context, arg ListInstanceAuditEventsPageParams) ([]AuditEvent, error)
 	ListInvitationsPage(ctx context.Context, arg ListInvitationsPageParams) ([]ListInvitationsPageRow, error)
 	ListJobsPage(ctx context.Context, arg ListJobsPageParams) ([]Job, error)
+	// Revoking a grant tears down the sessions it opened; this is that set.
+	ListLivePortForwardSessionsByGrant(ctx context.Context, grantID *int64) ([]PortForwardSession, error)
 	// Scan exclusion (INV-015): "managed" means tracked by a live row, not just
 	// labelled — a disowned resource keeps its labels but is adoptable again.
 	ListLiveResourceUUIDs(ctx context.Context, uuids []pgtype.UUID) ([]pgtype.UUID, error)
@@ -792,6 +822,7 @@ type Querier interface {
 	RevokeApiTokenByUUID(ctx context.Context, arg RevokeApiTokenByUUIDParams) (int64, error)
 	// Deprovision: revoke every API token the user holds in this team.
 	RevokeApiTokensForUserInTeam(ctx context.Context, arg RevokeApiTokensForUserInTeamParams) (int64, error)
+	RevokeExternalEndpointGrant(ctx context.Context, arg RevokeExternalEndpointGrantParams) (ExternalEndpointGrant, error)
 	RevokeInvitation(ctx context.Context, arg RevokeInvitationParams) (int64, error)
 	RevokeMcpAccessToken(ctx context.Context, arg RevokeMcpAccessTokenParams) (int64, error)
 	RevokeScimToken(ctx context.Context, arg RevokeScimTokenParams) (int64, error)
@@ -865,6 +896,9 @@ type Querier interface {
 	SetOtlpConfig(ctx context.Context, otlpConfigEnc []byte) error
 	SetPasswordLoginDisabled(ctx context.Context, passwordLoginDisabled bool) (InstanceSetting, error)
 	SetPlanDrillResult(ctx context.Context, arg SetPlanDrillResultParams) error
+	// A renewed grant pushes back the deadline of the sessions it opened, so a
+	// transfer in flight survives instead of restarting from zero (ADR-045 §5).
+	SetPortForwardAuthorizedUntil(ctx context.Context, arg SetPortForwardAuthorizedUntilParams) error
 	// Back to the running state after a waker-driven wake; clears the expiry warning
 	// so an active preview is never mistaken for one about to be reaped.
 	SetPreviewAwake(ctx context.Context, id int64) error
@@ -906,6 +940,11 @@ type Querier interface {
 	// Passkey step-up (rbac-matrix §5): stamps the browser session; freshness is
 	// judged by the caller against the step-up window.
 	SetSessionMfaVerified(ctx context.Context, id int64) error
+	// TOTP step-up (ADR-045 §5). Deliberately a SEPARATE column from the passkey
+	// marker: `mfa_verified_at` means "recent passkey", the root terminal requires
+	// that ritual, and letting a TOTP set it would hand every TOTP-only user a root
+	// shell.
+	SetSessionTotpVerified(ctx context.Context, id int64) error
 	SetTransactionalEmailConfig(ctx context.Context, transactionalEmailConfigEnc []byte) error
 	// The prober's state write: counters, verdict, and the next window. Never
 	// bumps `version` (not a user edit — it must not conflict with a PATCH).
@@ -967,6 +1006,7 @@ type Querier interface {
 	UpdateDatabaseRow(ctx context.Context, arg UpdateDatabaseRowParams) error
 	UpdateEnvVar(ctx context.Context, arg UpdateEnvVarParams) (EnvironmentVariable, error)
 	UpdateEnvironment(ctx context.Context, arg UpdateEnvironmentParams) (int64, error)
+	UpdateExternalEndpoint(ctx context.Context, arg UpdateExternalEndpointParams) (ExternalEndpoint, error)
 	UpdateJobSteps(ctx context.Context, arg UpdateJobStepsParams) error
 	UpdateNotificationChannel(ctx context.Context, arg UpdateNotificationChannelParams) (int64, error)
 	// Called after every successful assertion: the sign counter moved, and the

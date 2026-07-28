@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,7 +64,7 @@ type portForwardSpec struct {
 
 // CreateApplicationPortForward implements POST /applications/{uuid}/port-forwards.
 func (a *API) CreateApplicationPortForward(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.CreateApplicationPortForwardParams) {
-	id, ok := a.require(w, r, auth.PermTerminalOpen)
+	id, ok := a.require(w, r, auth.PermPortForwardsOpen)
 	if !ok {
 		return
 	}
@@ -88,7 +89,7 @@ func (a *API) CreateApplicationPortForward(w http.ResponseWriter, r *http.Reques
 
 // CreateDatabasePortForward implements POST /databases/{uuid}/port-forwards.
 func (a *API) CreateDatabasePortForward(w http.ResponseWriter, r *http.Request, databaseUuid api.DatabaseUuid) {
-	id, ok := a.require(w, r, auth.PermTerminalOpen)
+	id, ok := a.require(w, r, auth.PermPortForwardsOpen)
 	if !ok {
 		return
 	}
@@ -114,7 +115,7 @@ func (a *API) CreateDatabasePortForward(w http.ResponseWriter, r *http.Request, 
 // POST /applications/{uuid}/previews/{uuid}/port-forwards (ADR-032): a tunnel
 // into a PR preview's container.
 func (a *API) CreatePreviewPortForward(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string, params api.CreatePreviewPortForwardParams) {
-	id, ok := a.require(w, r, auth.PermTerminalOpen)
+	id, ok := a.require(w, r, auth.PermPortForwardsOpen)
 	if !ok {
 		return
 	}
@@ -258,20 +259,44 @@ func (a *API) TunnelWebSocket(w http.ResponseWriter, r *http.Request) {
 	// moment a big frame arrives — the client sets the same unlimited read.
 	conn.SetReadLimit(-1)
 	dial := func(ctx context.Context) (net.Conn, error) { return client.DialTCP(addr) }
-	reason := tunnel.Bridge(r.Context(), tunnelConn{conn}, dial, tunnel.Options{})
+	reason := tunnel.Bridge(r.Context(), tunnelConn{conn}, dial, sessionBounds(row))
+	// A session cut by its grant running out is neither an idle timeout nor a
+	// revocation, and the CLI says exactly that to the developer (ADR-045 §5).
+	if reason == tunnel.EndMaxDuration && row.GrantID != nil {
+		reason = endReasonGrantExpired
+	}
 	a.endPortForwardSession(row, reason)
 	_ = conn.Close(websocket.StatusNormalClosure, string(reason))
 }
 
-// tunnelTarget dials the session's server and resolves the container's IP on
-// its Docker network — the address dialable from the host over SSH.
+// tunnelTarget dials the session's server and resolves the address to connect
+// to: a declared external endpoint's own host:port (ADR-045), or the container's
+// IP on its Docker network — both reachable from the host over SSH.
 func (a *API) tunnelTarget(ctx context.Context, row store.PortForwardSession) (*sshexec.Client, string, string) {
-	if row.ServerID == nil || row.ResourceID == nil {
+	if row.ServerID == nil {
 		return nil, "", "the target no longer exists"
 	}
 	server, err := a.Store.GetServerByID(ctx, *row.ServerID)
 	if err != nil {
 		return nil, "", "the target server no longer exists"
+	}
+
+	// External endpoint (ADR-045): the address was frozen at declaration, so
+	// there is no container to inspect — the egress server dials it directly.
+	if row.ExternalEndpointID != nil {
+		endpoint, err := a.Store.GetExternalEndpointByID(ctx, *row.ExternalEndpointID)
+		if err != nil {
+			return nil, "", "the target endpoint no longer exists"
+		}
+		client, msg := a.dialSessionServer(ctx, server)
+		if msg != "" {
+			return nil, "", msg
+		}
+		return client, net.JoinHostPort(endpoint.Host, strconv.Itoa(int(endpoint.Port))), ""
+	}
+
+	if row.ResourceID == nil {
+		return nil, "", "the target no longer exists"
 	}
 	res, err := a.Store.GetResourceByID(ctx, *row.ResourceID)
 	if err != nil {
@@ -293,18 +318,9 @@ func (a *API) tunnelTarget(ctx context.Context, row store.PortForwardSession) (*
 		container = base + "-" + *row.TargetComponent
 	}
 
-	key, err := a.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
-	if err != nil {
-		return nil, "", "the server's SSH key is not available"
-	}
-	pem, err := a.Keyring.Decrypt("private_keys", "private_key_enc", uuidString(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return nil, "", "the server's SSH key is not available"
-	}
-	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
-		time.Duration(server.SshTimeoutSeconds)*time.Second, jobs.PinnedHostKey(server))
-	if err != nil {
-		return nil, "", "the server is not reachable over SSH right now"
+	client, msg := a.dialSessionServer(ctx, server)
+	if msg != "" {
+		return nil, "", msg
 	}
 	// The container's IP on its Docker network — reachable host→container even
 	// without a published port. First network wins (INV-011 naming).
@@ -314,6 +330,51 @@ func (a *API) tunnelTarget(ctx context.Context, row store.PortForwardSession) (*
 		return nil, "", "the target container is not running"
 	}
 	return client, fmt.Sprintf("%s:%d", ip, row.TargetPort), ""
+}
+
+// endReasonGrantExpired is the ADR-045 close reason: the tunnel outlived
+// nothing — its authorization ran out. It mirrors the enum value added to
+// terminal_end_reason, so the audit row and the message the developer reads
+// come from the same value.
+const endReasonGrantExpired tunnel.EndReason = "grant_expired"
+
+// sessionBounds turns the session's authorized_until into the bridge's maximum
+// duration. On a `sensitive` external endpoint that instant is the grant's
+// expiry (ADR-045 §5: a session never outlives its authorization, and ADR-032's
+// 4 h ceiling does not stack on top of it); elsewhere the column is unset and
+// the package default applies.
+func sessionBounds(row store.PortForwardSession) tunnel.Options {
+	if !row.AuthorizedUntil.Valid {
+		return tunnel.Options{}
+	}
+	remaining := time.Until(row.AuthorizedUntil.Time)
+	if remaining <= 0 {
+		// The grant lapsed between mint and attach; hand the bridge the
+		// smallest positive budget rather than zero, which would read as
+		// "unset" and restore the default ceiling.
+		remaining = time.Millisecond
+	}
+	return tunnel.Options{MaxDuration: remaining}
+}
+
+// dialSessionServer opens the pooled SSH connection a tunnel dials through.
+// Returns a user-facing message (not an error) on failure: it is written
+// straight into the 409 the redeem answers with.
+func (a *API) dialSessionServer(ctx context.Context, server store.Server) (*sshexec.Client, string) {
+	key, err := a.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
+	if err != nil {
+		return nil, "the server's SSH key is not available"
+	}
+	pem, err := a.Keyring.Decrypt("private_keys", "private_key_enc", uuidString(key.Uuid), key.PrivateKeyEnc)
+	if err != nil {
+		return nil, "the server's SSH key is not available"
+	}
+	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
+		time.Duration(server.SshTimeoutSeconds)*time.Second, jobs.PinnedHostKey(server))
+	if err != nil {
+		return nil, "the server is not reachable over SSH right now"
+	}
+	return client, ""
 }
 
 // containerIP resolves a container's first-network IP via docker inspect.

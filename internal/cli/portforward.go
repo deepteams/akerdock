@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/spf13/cobra"
@@ -31,7 +33,8 @@ func portForwardCmd() *cobra.Command {
 		Short: "Tunnel a local port to a container port through the manager",
 		Example: "  akerdock port-forward db/pg 15432:5432\n" +
 			"  akerdock port-forward app/varuna 15432:5432 -c postgres\n" +
-			"  akerdock port-forward app/varuna 15432:5432 -c postgres --pr 8   # a PR preview",
+			"  akerdock port-forward app/varuna 15432:5432 -c postgres --pr 8   # a PR preview\n" +
+			"  akerdock port-forward endpoint/prod-replica 15432                # a declared external endpoint",
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := newClient(flags.context)
@@ -68,6 +71,13 @@ func portForwardCmd() *cobra.Command {
 				}
 				mint := "/applications/" + res.Uuid + "/previews/" + preview.Uuid + "/port-forwards"
 				return c.runPortForward(cmd.Context(), mint, component, localPort, remotePort)
+			}
+			// An external endpoint (ADR-045) froze its own host and port at
+			// declaration: the mint takes no body, and the remote port in the
+			// argument is only there to name the local one.
+			if r.kind == "endpoints" {
+				return c.runPortForward(cmd.Context(),
+					"/external-endpoints/"+res.Uuid+"/port-forwards", "", localPort, remotePort)
 			}
 			basePath, ok := forwardPath[r.kind]
 			if !ok {
@@ -110,11 +120,31 @@ func (c *Client) runPortForward(ctx context.Context, mintPath, component string,
 		q.Set("component", component)
 	}
 	var sess struct {
-		WebsocketPath string `json:"websocket_path"`
-		Token         string `json:"token"`
+		WebsocketPath   string     `json:"websocket_path"`
+		Token           string     `json:"token"`
+		AuthorizedUntil *time.Time `json:"authorized_until"`
 	}
-	if err := c.do(ctx, http.MethodPost, mintPath, q, map[string]int{"port": remotePort}, &sess); err != nil {
-		return err
+	// An external endpoint froze its host and port at declaration, so its mint
+	// takes no body at all (ADR-045 §2) — stricter than the ADR-032 mints,
+	// which still name a port.
+	var body any
+	if !strings.HasPrefix(mintPath, "/external-endpoints/") {
+		body = map[string]int{"port": remotePort}
+	}
+	if err := c.do(ctx, http.MethodPost, mintPath, q, body, &sess); err != nil {
+		var apiErr *apiError
+		if !errors.As(err, &apiErr) || apiErr.Code != "access_request_required" {
+			return err
+		}
+		// No live grant: send the developer to the page that issues one, wait
+		// for it, and replay the mint. Same choreography as `akerdock login`
+		// (ADR-031) — the point is that they never have to go looking.
+		if err := waitForAccessGrant(ctx, apiErr); err != nil {
+			return err
+		}
+		if err := c.do(ctx, http.MethodPost, mintPath, q, body, &sess); err != nil {
+			return err
+		}
 	}
 
 	wsURL := toWS(c.base) + sess.WebsocketPath + "?" + url.Values{"token": {sess.Token}}.Encode()
@@ -135,7 +165,14 @@ func (c *Client) runPortForward(ctx context.Context, mintPath, component string,
 		return fmt.Errorf("cannot listen on 127.0.0.1:%d: %w", localPort, err)
 	}
 	defer func() { _ = ln.Close() }()
-	fmt.Fprintf(os.Stderr, "forwarding 127.0.0.1:%d -> remote :%d (Ctrl-C to stop)\n", localPort, remotePort)
+	// Announced at open, not only when it ends: the developer plans a long
+	// transfer around this instant, and a deadline that arrives unannounced
+	// reads as a bug in the platform (ADR-045 §5).
+	fmt.Fprintf(os.Stderr, "forwarding 127.0.0.1:%d -> remote :%d%s (Ctrl-C to stop)\n",
+		localPort, remotePort, authorizedSuffix(sess.AuthorizedUntil))
+	if sess.AuthorizedUntil != nil {
+		go warnBeforeExpiry(ctx, *sess.AuthorizedUntil)
+	}
 
 	go func() { <-ctx.Done(); _ = ln.Close() }()
 	var nextID uint32
@@ -211,12 +248,23 @@ func (t *tunnel) open(ctx context.Context, id uint32, local net.Conn) {
 	}()
 }
 
-// readLoop dispatches server frames to their streams.
+// readLoop dispatches server frames to their streams. On close it surfaces the
+// server's end reason: the bridge already sends it in the close frame, and
+// dropping it here is what made tunnels appear to die for no reason.
 func (t *tunnel) readLoop(ctx context.Context, cancel context.CancelFunc) {
 	defer cancel()
 	for {
 		typ, data, err := t.conn.Read(ctx)
 		if err != nil {
+			// The reason travels in the close frame's Reason field, not in the
+			// status code: the bridge closes with StatusNormalClosure and the
+			// end reason as text.
+			var ce websocket.CloseError
+			if errors.As(err, &ce) {
+				if msg := closeMessage(ce.Reason); msg != "" {
+					fmt.Fprintln(os.Stderr, msg)
+				}
+			}
 			return
 		}
 		switch typ {
@@ -261,3 +309,103 @@ func (t *tunnel) closeStream(id uint32) {
 }
 
 var _ = io.EOF
+
+// grantPollInterval is how often the CLI re-checks whether the access grant
+// has been issued. The human is filling a form and touching a security key —
+// polling faster would only spend requests on their typing speed.
+const grantPollInterval = 2 * time.Second
+
+// waitForAccessGrant opens the dashboard page that issues an access grant and
+// blocks until the developer has done it. It never decides anything itself:
+// the grant is created by a browser session behind a fresh second factor, and
+// this only spares the developer from hunting for the URL.
+func waitForAccessGrant(ctx context.Context, apiErr *apiError) error {
+	if apiErr.RequestURL == "" {
+		// The instance has no FQDN configured, so there is no page to point
+		// at. Say what is missing rather than spin forever.
+		return fmt.Errorf("%s — request access from the dashboard, then run this again", apiErr.Message)
+	}
+	fmt.Fprintf(os.Stderr, "this endpoint needs an access grant\nopening %s\n", apiErr.RequestURL)
+	_ = openBrowser(apiErr.RequestURL)
+	fmt.Fprintf(os.Stderr, "waiting for the grant (Ctrl-C to give up)...\n")
+
+	ticker := time.NewTicker(grantPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			// The mint itself is the poll: replaying it is exactly the check
+			// we need, and it avoids a second endpoint that could disagree
+			// with the first about what "has access" means.
+			return nil
+		}
+	}
+}
+
+// authorizedSuffix renders the deadline the way someone plans around it:
+// absolute so a long transfer can be scheduled, relative so it registers at a
+// glance. Neither alone is enough — the absolute time needs mental arithmetic,
+// the relative one is forgotten a minute later.
+func authorizedSuffix(until *time.Time) string {
+	if until == nil {
+		return ""
+	}
+	left := time.Until(*until).Round(time.Minute)
+	if left <= 0 {
+		return " — authorization expired"
+	}
+	return fmt.Sprintf(" — authorized until %s (%s)", until.Local().Format("15:04"), humanDuration(left))
+}
+
+func humanDuration(d time.Duration) string {
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh%02d", h, m)
+	}
+	return fmt.Sprintf("%dm", m)
+}
+
+// warnBeforeExpiry gives notice before the deadline lands. This is the moment
+// the developer discovers their transfer will not fit, so it is also the
+// moment to tell them renewal exists.
+func warnBeforeExpiry(ctx context.Context, until time.Time) {
+	for _, lead := range []time.Duration{15 * time.Minute, 2 * time.Minute} {
+		wait := time.Until(until.Add(-lead))
+		if wait <= 0 {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+			fmt.Fprintf(os.Stderr,
+				"\nheads up: this tunnel's authorization ends in %s (at %s) — request access again to extend it\n",
+				humanDuration(lead), until.Local().Format("15:04"))
+		}
+	}
+}
+
+// closeMessage turns the server's end reason into something actionable. A
+// tunnel that dies in silence reads as a bug in AkerDock, and the developer's
+// next move is to look for a way around the platform rather than back into it.
+func closeMessage(reason string) string {
+	switch reason {
+	case "idle_timeout":
+		return "tunnel closed after 30 minutes with no traffic — rerun the command to reopen it"
+	case "grant_expired":
+		return "tunnel closed: your access grant expired — request access again to reopen it"
+	case "revoked":
+		return "tunnel closed: an administrator revoked the access grant"
+	case "max_duration":
+		return "tunnel closed: maximum session duration reached — rerun the command to reopen it"
+	case "disconnect":
+		return "tunnel closed: the connection to the manager dropped"
+	case "user_close", "":
+		return ""
+	default:
+		return "tunnel closed (" + reason + ")"
+	}
+}

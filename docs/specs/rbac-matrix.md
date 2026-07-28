@@ -62,6 +62,8 @@ Domain families:
 | `previews` | PR / fork deployments |
 | `templates` | Team template catalog |
 | `terminal` | Terminal sessions |
+| `port-forwards` | CLI TCP tunnels (ADR-032) |
+| `external-endpoints` | Declared bastion targets outside the server (ADR-045) |
 | `logs` | Runtime logs, drains |
 | `metrics` | Metrics, uptime |
 | `notifications` | Channels and rules |
@@ -69,7 +71,7 @@ Domain families:
 | `config` | Config-as-code (export/apply) |
 | `instance` | Instance settings (root only) |
 
-### 1.2 Complete list of permissions (72)
+### 1.2 Complete list of permissions (74)
 
 > Convention: `read`/`view`/`list` = non-sensitive read; `read:sensitive` = secret
 > revelation (INV-003); `manage`/`create`/`update`/`delete` = mutation; `deploy`/actions
@@ -185,7 +187,9 @@ Domain families:
 | 56 | `templates:manage` | Register/sync template repos (§27.10) | `write` |
 | 57 | `terminal:open` | Open a container/server terminal (non-root) | `write` |
 | 58 | `terminal:root` | Open a **root** terminal (dual control §5) | `write` |
-| 72 | `port-forwards:open` | Open a TCP tunnel to a resource's container (CLI, ADR-032) — boundary at resource granularity | `write` |
+| 72 | `port-forwards:open` | Open a TCP tunnel to a resource's container or to a declared external endpoint (CLI, ADR-032/ADR-045) — boundary at resource granularity; on an external endpoint it is evaluated against that endpoint's scope | `write` |
+| 73 | `external-endpoints:read` | List the team's declared external endpoints (bastion targets, ADR-045) | `read` |
+| 74 | `external-endpoints:manage` | Declare/update/delete an external endpoint — draws a network boundary, admin-level (ADR-045) | `write` |
 | 59 | `logs:read` | Container runtime logs | `read` |
 | 60 | `logs:manage` | Configure log drains | `write` |
 | 61 | `metrics:read` | Server/resource metrics, uptime | `read` |
@@ -279,6 +283,8 @@ Domain families:
 | terminal:open | ● | ● | ● | ○ |
 | terminal:root | ● | ● | ○ | ○ |
 | port-forwards:open | ● | ● | ● | ○ |
+| external-endpoints:read | ● | ● | ● | ○ |
+| external-endpoints:manage | ● | ● | ○ | ○ |
 | logs:read | ● | ● | ● | ● |
 | logs:manage | ● | ● | ● | ○ |
 | metrics:read | ● | ● | ● | ● |

@@ -156,6 +156,10 @@ tags:
     description: Backup plans, runs and restore.
   - name: Jobs
     description: Tracking of asynchronous operations (202 responses), job inventory and dead-letter management (retry/forget).
+  - name: ExternalEndpoints
+    description: >-
+      Declared bastion targets outside the server (ADR-045) and the access
+      grants that gate tunnels to them.
 
 paths:
   # ---------------------------------------------------------------------------
@@ -3922,7 +3926,7 @@ paths:
         `/tunnel/ws` (outside OpenAPI). Scoped to the team, audited, idle/max/
         heartbeat/teardown like the terminal (§24.4). `409` if the team reaches
         `port_forward_limit`.
-      x-required-permission: terminal:open
+      x-required-permission: port-forwards:open
       requestBody:
         required: true
         content:
@@ -3959,7 +3963,7 @@ paths:
         container and returns a **single-use token** to present on
         `/tunnel/ws` (outside OpenAPI). Same guarantees as the terminal (§24.4).
         `409` if the team reaches `port_forward_limit`.
-      x-required-permission: terminal:open
+      x-required-permission: port-forwards:open
       requestBody:
         required: true
         content:
@@ -5807,7 +5811,7 @@ paths:
         Same contract as the application port-forward (ADR-032), but the target
         is a container of the preview INSTANCE (INV-011). `409` if the preview
         is destroyed; `404` if the component is unknown.
-      x-required-permission: terminal:open
+      x-required-permission: port-forwards:open
       parameters:
         - name: component
           in: query
@@ -7669,6 +7673,289 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  # ---------------------------------------------------------------------------
+  # External endpoints (bastion, ADR-045)
+  # ---------------------------------------------------------------------------
+  /external-endpoints:
+    get:
+      tags: [ExternalEndpoints]
+      operationId: listExternalEndpoints
+      summary: List the team's declared external endpoints
+      description: >-
+        Bastion targets declared ahead of time (ADR-045): an exact `host`/`port`
+        pair reached from a given egress server. The address is a property of
+        this resource, never of a tunnel request — which is what keeps the
+        tunnel protocol addressless and stops a `write` holder from scanning the
+        server's private network.
+      x-required-permission: external-endpoints:read
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page of external endpoints.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ExternalEndpoint"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [ExternalEndpoints]
+      operationId: createExternalEndpoint
+      summary: Declare an external endpoint
+      description: >-
+        Declaring an endpoint draws a network boundary, so it is an admin-level
+        act, deliberately separate from opening a tunnel to one. Defaults to
+        `criticality: sensitive` — reaching a real database is the usual reason
+        to declare one, and downgrading should be a conscious choice.
+      x-required-permission: external-endpoints:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExternalEndpointCreate"
+      responses:
+        "201":
+          description: Endpoint declared.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalEndpoint"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /external-endpoints/{external_endpoint_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/ExternalEndpointUuid"
+    get:
+      tags: [ExternalEndpoints]
+      operationId: getExternalEndpoint
+      summary: Read an external endpoint
+      x-required-permission: external-endpoints:read
+      responses:
+        "200":
+          description: The endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalEndpoint"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [ExternalEndpoints]
+      operationId: updateExternalEndpoint
+      summary: Update an external endpoint
+      x-required-permission: external-endpoints:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExternalEndpointCreate"
+      responses:
+        "200":
+          description: Endpoint updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalEndpoint"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    delete:
+      tags: [ExternalEndpoints]
+      operationId: deleteExternalEndpoint
+      summary: Delete an external endpoint
+      description: >-
+        Live sessions targeting it are torn down at their next dial, like a
+        destroyed preview.
+      x-required-permission: external-endpoints:manage
+      responses:
+        "204":
+          description: Endpoint deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /external-endpoints/{external_endpoint_uuid}/port-forwards:
+    parameters:
+      - $ref: "#/components/parameters/ExternalEndpointUuid"
+    post:
+      tags: [ExternalEndpoints]
+      operationId: createExternalEndpointPortForward
+      summary: Open a TCP tunnel to a declared external endpoint
+      description: >-
+        Mints a tunnel session (ADR-032 contract, ADR-045 target) with an
+        **empty body**: neither host nor port is accepted from the client, both
+        were frozen at declaration. On a `sensitive` endpoint the caller must
+        hold a live access grant, otherwise `403` with code
+        `access_request_required` and the URL of the request page in
+        `request_url` — the CLI opens it, polls, and replays this call.
+      x-required-permission: port-forwards:open
+      responses:
+        "201":
+          description: Session created — the token is only visible in this response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortForwardSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: >-
+            Forbidden, or no live grant — code `access_request_required`, with
+            `request_url` pointing at the dashboard page to obtain one.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessRequestRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /external-endpoints/{external_endpoint_uuid}/grants:
+    parameters:
+      - $ref: "#/components/parameters/ExternalEndpointUuid"
+    get:
+      tags: [ExternalEndpoints]
+      operationId: listExternalEndpointGrants
+      summary: List the access grants of an endpoint
+      description: >-
+        The audit surface of the feature: who asked for access, for what
+        reason, for how long, with which factor, and whether it was renewed or
+        revoked.
+      x-required-permission: external-endpoints:read
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page of grants.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ExternalEndpointGrant"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [ExternalEndpoints]
+      operationId: requestExternalEndpointGrant
+      summary: Request (or renew) access to an external endpoint
+      description: >-
+        Opens a bounded window during which the caller may mint tunnels to this
+        endpoint. Always requires a **fresh second factor** (rbac-matrix §5):
+        the passkey ceremony when the user has one enrolled, a dedicated TOTP
+        challenge otherwise — the server picks, the client never chooses. Without
+        one, `403` with code `stepup_required`.
+
+
+        Called while a grant is still live, it **renews** it: the window is
+        pushed back and the sessions it opened keep running, so a transfer in
+        flight survives. Renewal costs a fresh reason and a fresh factor, and is
+        not capped by a total — the bound is the window itself, repeated.
+
+
+        Browser sessions only: an API token cannot re-authenticate.
+      x-required-permission: port-forwards:open
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExternalEndpointGrantCreate"
+      responses:
+        "201":
+          description: Grant created or renewed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExternalEndpointGrant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: >-
+            Forbidden, or no fresh second factor — code `stepup_required`. The
+            dashboard runs the ceremony the server names and replays the call.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /external-endpoint-grants/{grant_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/GrantUuid"
+    delete:
+      tags: [ExternalEndpoints]
+      operationId: revokeExternalEndpointGrant
+      summary: Revoke an access grant
+      description: >-
+        Closes the window and **tears down the sessions the grant opened** —
+        otherwise revoking would mean nothing to someone already connected.
+      x-required-permission: external-endpoints:manage
+      responses:
+        "204":
+          description: Grant revoked and its sessions closed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+
 # =============================================================================
 # Components
 # =============================================================================
@@ -7844,6 +8131,20 @@ components:
       in: path
       required: true
       description: UUID of the S3 storage.
+      schema:
+        type: string
+    ExternalEndpointUuid:
+      name: external_endpoint_uuid
+      in: path
+      required: true
+      description: UUID of the external endpoint.
+      schema:
+        type: string
+    GrantUuid:
+      name: grant_uuid
+      in: path
+      required: true
+      description: UUID of the access grant.
       schema:
         type: string
     ServerUuid:
@@ -9041,6 +9342,174 @@ components:
           type: string
           format: date-time
           description: (Short-lived) expiration of the attach token, not of the session.
+        authorized_until:
+          type: string
+          format: date-time
+          description: >-
+            Instant the session is actually cut (ADR-045 §5): the grant's expiry
+            on a `sensitive` external endpoint, the ADR-032 maximum duration
+            otherwise. The CLI announces it when the listener comes up and warns
+            before it lands, so a deadline never arrives unannounced.
+
+    ExternalEndpoint:
+      type: object
+      required:
+        [uuid, name, host, port, server_uuid, criticality, max_grant_minutes, created_at]
+      description: >-
+        A declared bastion target (ADR-045): one exact destination, reached from
+        one egress server. There is no CIDR, port range or wildcard host — a
+        network is deliberately not addressable as a unit, which is what keeps
+        this from becoming a scanner.
+      properties:
+        uuid:
+          type: string
+        name:
+          type: string
+          maxLength: 63
+        description:
+          type: string
+          nullable: true
+        host:
+          type: string
+          description: Hostname or IP, exact — no scheme, path, space or comma.
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        server_uuid:
+          type: string
+          description: >-
+            Egress server the tunnel is dialed from. An endpoint only means
+            something relative to the vantage point that reaches it.
+        project_uuid:
+          type: string
+          nullable: true
+          description: Optional RBAC scope (ADR-038).
+        environment_uuid:
+          type: string
+          nullable: true
+          description: Optional RBAC scope (ADR-038).
+        criticality:
+          type: string
+          enum: [standard, sensitive]
+          description: >-
+            `standard` behaves exactly like an ADR-032 tunnel. `sensitive` (the
+            default) requires an access grant obtained in the dashboard behind a
+            fresh second factor. A single dimension rather than a set of
+            independent switches: a control that can be turned off individually
+            is one an operator finds was off on the day it mattered.
+        max_grant_minutes:
+          type: integer
+          minimum: 1
+          maximum: 480
+          description: >-
+            Longest window a single request may buy on this endpoint (default
+            240). Renewal is unbounded in total but always costs a fresh factor.
+        active_grant:
+          $ref: "#/components/schemas/ExternalEndpointGrant"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ExternalEndpointCreate:
+      type: object
+      required: [name, host, port, server_uuid]
+      properties:
+        name:
+          type: string
+          maxLength: 63
+        description:
+          type: string
+        host:
+          type: string
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        server_uuid:
+          type: string
+        project_uuid:
+          type: string
+        environment_uuid:
+          type: string
+        criticality:
+          type: string
+          enum: [standard, sensitive]
+          default: sensitive
+        max_grant_minutes:
+          type: integer
+          minimum: 1
+          maximum: 480
+          default: 240
+
+    ExternalEndpointGrant:
+      type: object
+      required: [uuid, reason, factor, requested_at, expires_at]
+      description: >-
+        A bounded, reasoned, re-authenticated window during which its holder may
+        mint tunnels to the endpoint. The grant IS the session deadline: a
+        tunnel never outlives the authorization that opened it.
+      properties:
+        uuid:
+          type: string
+        user_email:
+          type: string
+        reason:
+          type: string
+          description: >-
+            Why access was needed. Mandatory, and the point of the whole record:
+            "who was present" is worth less to an auditor than "who asked, for
+            what, for how long".
+        factor:
+          type: string
+          enum: [passkey, totp]
+          description: Which second factor was actually consumed. Chosen by the server.
+        requested_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+        renewed:
+          type: boolean
+          description: True when this window was extended rather than opened fresh.
+
+    ExternalEndpointGrantCreate:
+      type: object
+      required: [reason, duration_minutes]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+        duration_minutes:
+          type: integer
+          minimum: 1
+          maximum: 480
+          description: Clamped to the endpoint's `max_grant_minutes`.
+
+    AccessRequestRequired:
+      allOf:
+        - $ref: "#/components/schemas/Error"
+        - type: object
+          properties:
+            request_url:
+              type: string
+              description: Dashboard page where the grant is requested.
+      description: >-
+        `403` with code `access_request_required`: the endpoint is `sensitive`
+        and the caller holds no live grant. The house error shape plus the one
+        thing the client needs to act — the CLI opens `request_url`, polls until
+        the grant exists, then replays the mint (same choreography as `akerdock
+        login`, ADR-031). Telling someone "no" without telling them where to go
+        is how a control becomes something people route around.
 
     AdoptionScanAccepted:
       allOf:

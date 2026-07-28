@@ -63,9 +63,15 @@ type Options struct {
 	MaxStreams  int
 }
 
-// Defaults, aligned on the terminal (§24.4, ADR-032).
+// Defaults (§24.4, ADR-032).
+//
+// The idle timeout is 30 min rather than the terminal's 15 (ADR-045 §5): 15 was
+// calibrated on HTTP debugging, where traffic is near-continuous, and it cuts
+// interactive database work — running a query, reading the result and thinking
+// is routinely fifteen minutes of silence. The terminal keeps its own value; a
+// shell left open is a different risk from a forwarded port left open.
 const (
-	DefaultIdleTimeout = 15 * time.Minute
+	DefaultIdleTimeout = 30 * time.Minute
 	DefaultMaxDuration = 4 * time.Hour
 	defaultHeartbeat   = 20 * time.Second
 	defaultMaxStreams  = 32

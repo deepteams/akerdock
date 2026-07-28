@@ -102,6 +102,17 @@ const (
 	PermTerminalOpen Permission = "terminal:open"
 	PermTerminalRoot Permission = "terminal:root"
 
+	// PermPortForwardsOpen gates the CLI tunnel (ADR-032). It is deliberately
+	// distinct from terminal:open: "may tunnel to a port" and "may open a shell"
+	// are different powers, and ADR-045 evaluates this one against an external
+	// endpoint's own RBAC scope.
+	PermPortForwardsOpen Permission = "port-forwards:open"
+
+	// External endpoints (ADR-045): declaring one draws a network boundary, so
+	// it is an admin-level act, separate from opening a tunnel to it.
+	PermExternalEndpointsRead   Permission = "external-endpoints:read"
+	PermExternalEndpointsManage Permission = "external-endpoints:manage"
+
 	PermAuditRead    Permission = "audit:read"
 	PermUptimeRead   Permission = "uptime:read"
 	PermUptimeManage Permission = "uptime:manage"
@@ -157,8 +168,11 @@ var Catalog = map[string]Permission{
 	"previews:read": PermRead, "previews:manage": PermWrite,
 	// Templates
 	"templates:manage": PermWrite,
-	// Terminal
+	// Terminal & tunnels
 	"terminal:open": PermWrite, "terminal:root": PermWrite,
+	"port-forwards:open": PermWrite,
+	// External endpoints (bastion targets, ADR-045)
+	"external-endpoints:read": PermRead, "external-endpoints:manage": PermWrite,
 	// Observability
 	"logs:read": PermRead, "logs:manage": PermWrite,
 	"metrics:read": PermRead, "audit:read": PermRead,

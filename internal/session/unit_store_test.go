@@ -12,6 +12,9 @@ type fakeSessionStore struct {
 	errs map[string]error
 	ints map[string]int64
 
+	// totpVerified are the session ids stamped by a TOTP step-up.
+	totpVerified []int64
+
 	user       store.User
 	userByMail store.User
 	membership store.GetTeamMembershipForUserRow
@@ -164,6 +167,14 @@ func (f *fakeSessionStore) ConsumeMfaRecoveryCode(_ context.Context, arg store.C
 func (f *fakeSessionStore) TouchMfaFactorUsed(_ context.Context, arg store.TouchMfaFactorUsedParams) (int64, error) {
 	f.factorTouches = append(f.factorTouches, arg)
 	return f.number("touchFactor"), f.err("touchFactor")
+}
+
+// SetSessionTotpVerified records which sessions were stamped by a TOTP
+// step-up (ADR-045 §5), so a test can assert the marker landed on the right
+// column — the passkey one must stay untouched.
+func (f *fakeSessionStore) SetSessionTotpVerified(_ context.Context, id int64) error {
+	f.totpVerified = append(f.totpVerified, id)
+	return f.err("setTotpVerified")
 }
 
 func (f *fakeSessionStore) PurgeExpiredMfaChallenges(context.Context) (int64, error) {

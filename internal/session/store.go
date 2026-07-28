@@ -33,6 +33,10 @@ type Store interface {
 	ReplaceMfaRecoveryCodes(context.Context, store.ReplaceMfaRecoveryCodesParams) (int64, error)
 	ConsumeMfaRecoveryCode(context.Context, store.ConsumeMfaRecoveryCodeParams) (int64, error)
 	TouchMfaFactorUsed(context.Context, store.TouchMfaFactorUsedParams) (int64, error)
+	// SetSessionTotpVerified stamps the TOTP step-up marker (ADR-045 §5) —
+	// a different column from the passkey one, so a TOTP can never satisfy
+	// the passkey-only ritual the root terminal requires.
+	SetSessionTotpVerified(context.Context, int64) error
 	PurgeExpiredMfaChallenges(context.Context) (int64, error)
 	CreateMfaChallenge(context.Context, store.CreateMfaChallengeParams) error
 	GetMfaChallenge(context.Context, string) (store.MfaChallenge, error)

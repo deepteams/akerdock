@@ -184,6 +184,22 @@ export const routes: Routes = [
       { path: 'dns-credentials', redirectTo: '/sources?tab=dns' },
       { path: 's3-storages', redirectTo: '/sources?tab=s3' },
 
+      // External endpoints (bastion, ADR-045). The request-access route is
+      // deep-linked by the CLI when a mint comes back access_request_required,
+      // so its shape is part of the contract — the server builds this URL.
+      {
+        path: 'external-endpoints',
+        loadComponent: () =>
+          import('./pages/external-endpoints.component').then((m) => m.ExternalEndpointsComponent),
+      },
+      {
+        path: 'external-endpoints/:uuid/request-access',
+        loadComponent: () =>
+          import('./pages/request-endpoint-access.component').then(
+            (m) => m.RequestEndpointAccessComponent,
+          ),
+      },
+
       // Team
       {
         path: 'team',

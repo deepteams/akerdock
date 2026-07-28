@@ -81,7 +81,7 @@ func (q *Queries) CreatePersonalTeam(ctx context.Context, name string) (Team, er
 const createSession = `-- name: CreateSession :one
 INSERT INTO sessions (user_id, token_hash, csrf_token, current_team_id, ip, user_agent, expires_at, mfa_pending)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, uuid, user_id, token_hash, current_team_id, mfa_verified_at, ip, user_agent, last_seen_at, expires_at, revoked_at, created_at, csrf_token, mfa_pending
+RETURNING id, uuid, user_id, token_hash, current_team_id, mfa_verified_at, ip, user_agent, last_seen_at, expires_at, revoked_at, created_at, csrf_token, mfa_pending, totp_verified_at
 `
 
 type CreateSessionParams struct {
@@ -122,12 +122,13 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.CreatedAt,
 		&i.CsrfToken,
 		&i.MfaPending,
+		&i.TotpVerifiedAt,
 	)
 	return i, err
 }
 
 const getSessionByTokenHash = `-- name: GetSessionByTokenHash :one
-SELECT s.id, s.uuid, s.user_id, s.token_hash, s.current_team_id, s.mfa_verified_at, s.ip, s.user_agent, s.last_seen_at, s.expires_at, s.revoked_at, s.created_at, s.csrf_token, s.mfa_pending, u.email, u.name AS user_name, u.deleted_at AS user_deleted_at
+SELECT s.id, s.uuid, s.user_id, s.token_hash, s.current_team_id, s.mfa_verified_at, s.ip, s.user_agent, s.last_seen_at, s.expires_at, s.revoked_at, s.created_at, s.csrf_token, s.mfa_pending, s.totp_verified_at, u.email, u.name AS user_name, u.deleted_at AS user_deleted_at
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1
@@ -137,23 +138,24 @@ WHERE s.token_hash = $1
 `
 
 type GetSessionByTokenHashRow struct {
-	ID            int64
-	Uuid          pgtype.UUID
-	UserID        int64
-	TokenHash     string
-	CurrentTeamID *int64
-	MfaVerifiedAt pgtype.Timestamptz
-	Ip            *netip.Addr
-	UserAgent     *string
-	LastSeenAt    pgtype.Timestamptz
-	ExpiresAt     pgtype.Timestamptz
-	RevokedAt     pgtype.Timestamptz
-	CreatedAt     pgtype.Timestamptz
-	CsrfToken     *string
-	MfaPending    bool
-	Email         string
-	UserName      string
-	UserDeletedAt pgtype.Timestamptz
+	ID             int64
+	Uuid           pgtype.UUID
+	UserID         int64
+	TokenHash      string
+	CurrentTeamID  *int64
+	MfaVerifiedAt  pgtype.Timestamptz
+	Ip             *netip.Addr
+	UserAgent      *string
+	LastSeenAt     pgtype.Timestamptz
+	ExpiresAt      pgtype.Timestamptz
+	RevokedAt      pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+	CsrfToken      *string
+	MfaPending     bool
+	TotpVerifiedAt pgtype.Timestamptz
+	Email          string
+	UserName       string
+	UserDeletedAt  pgtype.Timestamptz
 }
 
 // A session is only valid while it is unrevoked AND unexpired: both are checked
@@ -176,6 +178,7 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash string) (
 		&i.CreatedAt,
 		&i.CsrfToken,
 		&i.MfaPending,
+		&i.TotpVerifiedAt,
 		&i.Email,
 		&i.UserName,
 		&i.UserDeletedAt,

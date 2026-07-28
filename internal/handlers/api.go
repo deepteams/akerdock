@@ -224,6 +224,9 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 		r.Get("/auth/mfa", a.MFAStatus)
 		r.Post("/auth/mfa/totp/setup", a.SetupMFATOTP)
 		r.Post("/auth/mfa/totp/confirm", a.ConfirmMFATOTP)
+		// Step-up for a session that is already open (ADR-045 §5), next to the
+		// passkey ceremony below and stamping its own marker.
+		r.Post("/auth/mfa/totp/stepup", a.StepUpMFATOTP)
 		r.Delete("/auth/mfa/totp", a.DisableMFATOTP)
 		r.Post("/auth/mfa/recovery-codes", a.RegenerateMFARecoveryCodes)
 

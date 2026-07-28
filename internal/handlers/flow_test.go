@@ -396,6 +396,15 @@ func flowOperations(t *testing.T) []flowOperation {
 				// it must not keep this finite request matrix open.
 				continue
 			}
+			if op.OperationID == "requestExternalEndpointGrant" {
+				// This matrix drives every operation with an API token, and
+				// this one refuses tokens BY DESIGN: rbac-matrix §5 is explicit
+				// that a token cannot re-authenticate, so an access grant is
+				// only ever requested from a browser session (ADR-045 §5). Its
+				// 403 is the contract, not a routing failure — the dedicated
+				// tests in externalendpoints_test.go cover both branches.
+				continue
+			}
 			operations = append(operations, flowOperation{method: strings.ToUpper(method), path: path, item: item, op: op})
 		}
 	}

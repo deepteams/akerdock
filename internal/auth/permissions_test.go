@@ -115,7 +115,8 @@ func TestGranularConstantsInCatalog(t *testing.T) {
 		PermCertificatesRead, PermCertificatesRenew, PermStoragesManage,
 		PermKeysRead, PermKeysManage,
 		PermSourcesRead, PermSourcesManage, PermRegistriesManage,
-		PermTerminalOpen, PermTerminalRoot,
+		PermTerminalOpen, PermTerminalRoot, PermPortForwardsOpen,
+		PermExternalEndpointsRead, PermExternalEndpointsManage,
 		PermAuditRead, PermUptimeRead, PermUptimeManage,
 		PermInstanceManage, PermInstanceAudit, PermInstanceEncryption,
 	} {
@@ -168,6 +169,41 @@ func TestSplitPerm(t *testing.T) {
 	for _, bad := range []string{"noaction", ":read", "domain:", "a:b:c", ""} {
 		if _, _, valid := splitPerm(bad); valid {
 			t.Errorf("%q should be rejected", bad)
+		}
+	}
+}
+
+// TestTunnelPermissionIsItsOwn locks the ADR-045 §3 prerequisite: opening a
+// tunnel must be grantable separately from opening a shell, and declaring an
+// external endpoint must be grantable separately from using one. A regression
+// here would silently re-merge powers the RBAC matrix keeps apart.
+func TestTunnelPermissionIsItsOwn(t *testing.T) {
+	if Catalog[string(PermPortForwardsOpen)] != PermWrite {
+		t.Errorf("port-forwards:open should project onto the write socle")
+	}
+	// Holding the tunnel permission must not confer the shell, nor the reverse.
+	tunnelOnly := Closure([]string{string(PermPortForwardsOpen)})
+	if slices.Contains(tunnelOnly, string(PermTerminalOpen)) {
+		t.Error("port-forwards:open must not imply terminal:open")
+	}
+	shellOnly := Closure([]string{string(PermTerminalOpen)})
+	if slices.Contains(shellOnly, string(PermPortForwardsOpen)) {
+		t.Error("terminal:open must not imply port-forwards:open")
+	}
+	// Declaring an endpoint is an admin act; using one is not. Neither implies
+	// the other, so a member can hold the second without the first.
+	useOnly := Closure([]string{string(PermExternalEndpointsRead)})
+	if slices.Contains(useOnly, string(PermExternalEndpointsManage)) {
+		t.Error("external-endpoints:read must not imply :manage")
+	}
+	// A team admin holds all four; the sets are derived from the catalogue, so
+	// this also proves the new entries reached it.
+	admin := TeamAdminPermissions()
+	for _, p := range []Permission{
+		PermPortForwardsOpen, PermExternalEndpointsRead, PermExternalEndpointsManage,
+	} {
+		if !slices.Contains(admin, string(p)) {
+			t.Errorf("a team admin should hold %q", p)
 		}
 	}
 }

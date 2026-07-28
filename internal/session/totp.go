@@ -396,3 +396,33 @@ func isNoRows(err error) bool { return errors.Is(err, pgx.ErrNoRows) }
 func stepTime(step int64) pgtype.Timestamptz {
 	return pgtype.Timestamptz{Time: time.Unix(step*int64(totp.Period.Seconds()), 0).UTC(), Valid: true}
 }
+
+// StepUp re-verifies an ALREADY authenticated user's TOTP for a sensitive
+// action (ADR-045 §5), and stamps the session's own TOTP marker on success.
+//
+// It deliberately writes `totp_verified_at`, NOT `mfa_verified_at`: the latter
+// means "recent passkey re-authentication", which is the ritual rbac-matrix §5
+// requires for the root terminal. Letting a TOTP set it would hand every
+// TOTP-only user a root shell — a security regression wearing the costume of a
+// refactor. The two markers stay separate columns so the root terminal is
+// untouched by construction.
+//
+// Recovery codes are accepted: someone who lost their phone still has to reach
+// their production database, and a recovery code is single-use and burnt here
+// exactly as it is at login.
+func (t *TOTP) StepUp(ctx context.Context, sessionID int64, userID int64, code, recoveryCode string) error {
+	user, err := t.Store.GetUserByID(ctx, userID)
+	if err != nil {
+		return ErrMFANotConfigured
+	}
+	if user.LockedUntil.Valid && user.LockedUntil.Time.After(time.Now()) {
+		return ErrAccountLocked
+	}
+	if err := t.redeemCode(ctx, user, code, recoveryCode); err != nil {
+		return err
+	}
+	if err := t.Store.ClearFailedLogins(ctx, user.ID); err != nil {
+		return err
+	}
+	return t.Store.SetSessionTotpVerified(ctx, sessionID)
+}

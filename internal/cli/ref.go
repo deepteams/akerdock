@@ -8,7 +8,7 @@ import (
 
 // ref is a parsed resource reference: `type/name-or-uuid` (kubectl-style).
 type ref struct {
-	kind string // apps | databases | services | previews
+	kind string // apps | databases | services | previews | endpoints
 	name string
 }
 
@@ -18,11 +18,14 @@ var refKinds = map[string]string{
 	"db": "databases", "database": "databases",
 	"svc": "services", "service": "services",
 	"preview": "previews", "pr": "previews",
+	// Declared bastion targets outside the server (ADR-045).
+	"endpoint": "endpoints", "ep": "endpoints",
 }
 
 // pathForKind maps a kind to its API collection path.
 var pathForKind = map[string]string{
 	"apps": "/applications", "databases": "/databases", "services": "/services",
+	"endpoints": "/external-endpoints",
 }
 
 // refFromArgs resolves the REF to act on: the positional argument when present,

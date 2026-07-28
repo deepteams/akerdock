@@ -27,7 +27,11 @@ type apiError struct {
 	Code      string `json:"code"`
 	Message   string `json:"message"`
 	RequestID string `json:"request_id"`
-	status    int
+	// RequestURL is set by 403 access_request_required (ADR-045): the page
+	// where the missing access grant is obtained. Being told "no" without
+	// being told where to go is how a control turns into an obstacle.
+	RequestURL string `json:"request_url"`
+	status     int
 }
 
 func (e *apiError) Error() string {

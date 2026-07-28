@@ -274,6 +274,22 @@ export class ApiService {
     });
   }
 
+  /**
+   * TOTP step-up (ADR-045 §5) — the counterpart of the passkey ceremony for
+   * users whose second factor is a TOTP. The server decides WHICH factor a
+   * given user must present, so the UI never offers a choice: it asks for the
+   * one named in the refusal.
+   *
+   * Recovery codes are accepted here for the same reason they are at login:
+   * someone who lost their phone still has to reach their production database.
+   */
+  async stepUpWithTotp(code: string, recoveryCode?: string): Promise<void> {
+    await this.authPost('/auth/mfa/totp/stepup', {
+      code: code || undefined,
+      recovery_code: recoveryCode || undefined,
+    });
+  }
+
   /** Enrols a new passkey for the signed-in user. */
   async registerPasskey(name: string): Promise<Passkey> {
     const begin = await this.authPost<{ ceremony: string; options: never }>(

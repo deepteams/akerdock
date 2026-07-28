@@ -301,3 +301,52 @@ func userUUIDOf(a *API, r *http.Request, userID int64) pgtype.UUID {
 	}
 	return user.Uuid
 }
+
+// StepUpMFATOTP implements POST /auth/mfa/totp/stepup — the TOTP counterpart
+// of the passkey step-up ceremony (ADR-045 §5), for an ALREADY authenticated
+// session about to take a sensitive action.
+//
+// It exists because `mfa_required` is satisfiable with TOTP alone: a
+// passkey-only rule would lock every TOTP-only user out of external endpoints
+// entirely, and the predictable outcome is every endpoint declared `standard`.
+// Success stamps `totp_verified_at`, never `mfa_verified_at` — the root
+// terminal keeps its passkey-only ritual, untouched.
+func (a *API) StepUpMFATOTP(w http.ResponseWriter, r *http.Request) {
+	if a.MFA == nil || a.Sessions == nil {
+		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "not found")
+		return
+	}
+	sess, err := a.Sessions.SessionFromRequest(r.Context(), r)
+	if err != nil {
+		httpapi.WriteError(w, r, http.StatusUnauthorized, httpapi.CodeUnauthorized, "no active session")
+		return
+	}
+	var body mfaCodeBody
+	if !readMFABody(w, r, &body) {
+		return
+	}
+
+	switch err := a.MFA.StepUp(r.Context(), sess.ID, sess.UserID, body.Code, body.RecoveryCode); {
+	case errors.Is(err, session.ErrMFANotConfigured):
+		httpapi.WriteError(w, r, http.StatusBadRequest, "mfa_not_configured",
+			"no confirmed TOTP factor on this account")
+		return
+	case errors.Is(err, session.ErrAccountLocked):
+		a.auditAuth(r, "auth.mfa.stepup", store.AuditResultDenied, sess.UserID, sess.Email, nil)
+		httpapi.WriteError(w, r, http.StatusTooManyRequests, "account_locked",
+			"too many failed attempts — try again later")
+		return
+	case errors.Is(err, session.ErrMFACodeInvalid):
+		// Same single answer as the login path: a wrong code, a replayed one
+		// and a spent recovery code must not be distinguishable.
+		a.auditAuth(r, "auth.mfa.stepup", store.AuditResultFailure, sess.UserID, sess.Email, nil)
+		httpapi.WriteError(w, r, http.StatusUnauthorized, "invalid_code", err.Error())
+		return
+	case err != nil:
+		a.internalError(w, r, "mfa stepup", err)
+		return
+	}
+
+	a.auditAuth(r, "auth.mfa.stepup", store.AuditResultSuccess, sess.UserID, sess.Email, nil)
+	w.WriteHeader(http.StatusNoContent)
+}

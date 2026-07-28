@@ -796,6 +796,60 @@ func (e DesiredStatus) Valid() bool {
 	}
 }
 
+// Defines values for ExternalEndpointCriticality.
+const (
+	ExternalEndpointCriticalitySensitive ExternalEndpointCriticality = "sensitive"
+	ExternalEndpointCriticalityStandard  ExternalEndpointCriticality = "standard"
+)
+
+// Valid indicates whether the value is a known member of the ExternalEndpointCriticality enum.
+func (e ExternalEndpointCriticality) Valid() bool {
+	switch e {
+	case ExternalEndpointCriticalitySensitive:
+		return true
+	case ExternalEndpointCriticalityStandard:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ExternalEndpointCreateCriticality.
+const (
+	ExternalEndpointCreateCriticalitySensitive ExternalEndpointCreateCriticality = "sensitive"
+	ExternalEndpointCreateCriticalityStandard  ExternalEndpointCreateCriticality = "standard"
+)
+
+// Valid indicates whether the value is a known member of the ExternalEndpointCreateCriticality enum.
+func (e ExternalEndpointCreateCriticality) Valid() bool {
+	switch e {
+	case ExternalEndpointCreateCriticalitySensitive:
+		return true
+	case ExternalEndpointCreateCriticalityStandard:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ExternalEndpointGrantFactor.
+const (
+	Passkey ExternalEndpointGrantFactor = "passkey"
+	Totp    ExternalEndpointGrantFactor = "totp"
+)
+
+// Valid indicates whether the value is a known member of the ExternalEndpointGrantFactor enum.
+func (e ExternalEndpointGrantFactor) Valid() bool {
+	switch e {
+	case Passkey:
+		return true
+	case Totp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthStatusStatus.
 const (
 	Ok HealthStatusStatus = "ok"
@@ -2096,6 +2150,24 @@ func (e ListTeamAuditParamsResult) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// AccessRequestRequired defines model for AccessRequestRequired.
+type AccessRequestRequired struct {
+	// Code Stable machine-readable error code. Notable values — bad_request, unauthorized, forbidden, not_found, already_exists, dependency_exists, operation_in_progress, invalid_state, version_conflict, idempotency_conflict, validation_failed, rate_limited, internal.
+	Code string `json:"code"`
+
+	// Details Structured and validated details (field errors, context).
+	Details *[]ErrorDetail `json:"details,omitempty"`
+
+	// Message Generic human-readable message (without sensitive data).
+	Message string `json:"message"`
+
+	// RequestId Correlation identifier of the request (repeated in logs and audit, §23.4).
+	RequestId string `json:"request_id"`
+
+	// RequestUrl Dashboard page where the grant is requested.
+	RequestUrl *string `json:"request_url,omitempty"`
 }
 
 // AdoptRequest Selection of a scan's candidates to adopt (§20.7).
@@ -3443,6 +3515,83 @@ type ErrorDetail struct {
 	Message string `json:"message"`
 }
 
+// ExternalEndpoint A declared bastion target (ADR-045): one exact destination, reached from one egress server. There is no CIDR, port range or wildcard host — a network is deliberately not addressable as a unit, which is what keeps this from becoming a scanner.
+type ExternalEndpoint struct {
+	// ActiveGrant A bounded, reasoned, re-authenticated window during which its holder may mint tunnels to the endpoint. The grant IS the session deadline: a tunnel never outlives the authorization that opened it.
+	ActiveGrant *ExternalEndpointGrant `json:"active_grant,omitempty"`
+	CreatedAt   time.Time              `json:"created_at"`
+
+	// Criticality `standard` behaves exactly like an ADR-032 tunnel. `sensitive` (the default) requires an access grant obtained in the dashboard behind a fresh second factor. A single dimension rather than a set of independent switches: a control that can be turned off individually is one an operator finds was off on the day it mattered.
+	Criticality ExternalEndpointCriticality `json:"criticality"`
+	Description *string                     `json:"description,omitempty"`
+
+	// EnvironmentUuid Optional RBAC scope (ADR-038).
+	EnvironmentUuid *string `json:"environment_uuid,omitempty"`
+
+	// Host Hostname or IP, exact — no scheme, path, space or comma.
+	Host string `json:"host"`
+
+	// MaxGrantMinutes Longest window a single request may buy on this endpoint (default 240). Renewal is unbounded in total but always costs a fresh factor.
+	MaxGrantMinutes int    `json:"max_grant_minutes"`
+	Name            string `json:"name"`
+	Port            int    `json:"port"`
+
+	// ProjectUuid Optional RBAC scope (ADR-038).
+	ProjectUuid *string `json:"project_uuid,omitempty"`
+
+	// ServerUuid Egress server the tunnel is dialed from. An endpoint only means something relative to the vantage point that reaches it.
+	ServerUuid string     `json:"server_uuid"`
+	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
+	Uuid       string     `json:"uuid"`
+}
+
+// ExternalEndpointCriticality `standard` behaves exactly like an ADR-032 tunnel. `sensitive` (the default) requires an access grant obtained in the dashboard behind a fresh second factor. A single dimension rather than a set of independent switches: a control that can be turned off individually is one an operator finds was off on the day it mattered.
+type ExternalEndpointCriticality string
+
+// ExternalEndpointCreate defines model for ExternalEndpointCreate.
+type ExternalEndpointCreate struct {
+	Criticality     *ExternalEndpointCreateCriticality `json:"criticality,omitempty"`
+	Description     *string                            `json:"description,omitempty"`
+	EnvironmentUuid *string                            `json:"environment_uuid,omitempty"`
+	Host            string                             `json:"host"`
+	MaxGrantMinutes *int                               `json:"max_grant_minutes,omitempty"`
+	Name            string                             `json:"name"`
+	Port            int                                `json:"port"`
+	ProjectUuid     *string                            `json:"project_uuid,omitempty"`
+	ServerUuid      string                             `json:"server_uuid"`
+}
+
+// ExternalEndpointCreateCriticality defines model for ExternalEndpointCreate.Criticality.
+type ExternalEndpointCreateCriticality string
+
+// ExternalEndpointGrant A bounded, reasoned, re-authenticated window during which its holder may mint tunnels to the endpoint. The grant IS the session deadline: a tunnel never outlives the authorization that opened it.
+type ExternalEndpointGrant struct {
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// Factor Which second factor was actually consumed. Chosen by the server.
+	Factor ExternalEndpointGrantFactor `json:"factor"`
+
+	// Reason Why access was needed. Mandatory, and the point of the whole record: "who was present" is worth less to an auditor than "who asked, for what, for how long".
+	Reason string `json:"reason"`
+
+	// Renewed True when this window was extended rather than opened fresh.
+	Renewed     *bool      `json:"renewed,omitempty"`
+	RequestedAt time.Time  `json:"requested_at"`
+	RevokedAt   *time.Time `json:"revoked_at,omitempty"`
+	UserEmail   *string    `json:"user_email,omitempty"`
+	Uuid        string     `json:"uuid"`
+}
+
+// ExternalEndpointGrantFactor Which second factor was actually consumed. Chosen by the server.
+type ExternalEndpointGrantFactor string
+
+// ExternalEndpointGrantCreate defines model for ExternalEndpointGrantCreate.
+type ExternalEndpointGrantCreate struct {
+	// DurationMinutes Clamped to the endpoint's `max_grant_minutes`.
+	DurationMinutes int    `json:"duration_minutes"`
+	Reason          string `json:"reason"`
+}
+
 // GitRepository Repository discovered via the installation (data dictionary §7.3).
 type GitRepository struct {
 	DefaultBranch *string `json:"default_branch,omitempty"`
@@ -3915,6 +4064,9 @@ type PortForwardCreate struct {
 
 // PortForwardSession TCP tunnel session (ADR-032). Same token contract as the terminal (§24.4): **single-use** attach token, returned once, only its hash is stored (§23.2). Scoped to the team, audited on open and close, idle timeout / maximum duration / heartbeat / guaranteed teardown. `409` if the team reaches its cap (`port_forward_limit`).
 type PortForwardSession struct {
+	// AuthorizedUntil Instant the session is actually cut (ADR-045 §5): the grant's expiry on a `sensitive` external endpoint, the ADR-032 maximum duration otherwise. The CLI announces it when the listener comes up and warns before it lands, so a deadline never arrives unannounced.
+	AuthorizedUntil *time.Time `json:"authorized_until,omitempty"`
+
 	// Port Internal port of the target container, frozen at creation.
 	Port int `json:"port"`
 
@@ -4927,8 +5079,14 @@ type EnvironmentUuid = string
 // ExecutionUuid defines model for ExecutionUuid.
 type ExecutionUuid = string
 
+// ExternalEndpointUuid defines model for ExternalEndpointUuid.
+type ExternalEndpointUuid = string
+
 // GithubAppUuid defines model for GithubAppUuid.
 type GithubAppUuid = string
+
+// GrantUuid defines model for GrantUuid.
+type GrantUuid = string
 
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
@@ -5384,6 +5542,24 @@ type CreateDnsCredentialParams struct {
 type StreamEventsParams struct {
 	// LastEventID Resume an SSE stream — sequence of the last event received (only with `Accept: text/event-stream`).
 	LastEventID *LastEventId `json:"Last-Event-ID,omitempty"`
+}
+
+// ListExternalEndpointsParams defines parameters for ListExternalEndpoints.
+type ListExternalEndpointsParams struct {
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of items per page (1 to 100).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListExternalEndpointGrantsParams defines parameters for ListExternalEndpointGrants.
+type ListExternalEndpointGrantsParams struct {
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of items per page (1 to 100).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListGithubAppsParams defines parameters for ListGithubApps.
@@ -5987,6 +6163,15 @@ type CreateDatabasePortForwardJSONRequestBody = PortForwardCreate
 // CreateDnsCredentialJSONRequestBody defines body for CreateDnsCredential for application/json ContentType.
 type CreateDnsCredentialJSONRequestBody = DnsCredentialCreate
 
+// CreateExternalEndpointJSONRequestBody defines body for CreateExternalEndpoint for application/json ContentType.
+type CreateExternalEndpointJSONRequestBody = ExternalEndpointCreate
+
+// UpdateExternalEndpointJSONRequestBody defines body for UpdateExternalEndpoint for application/json ContentType.
+type UpdateExternalEndpointJSONRequestBody = ExternalEndpointCreate
+
+// RequestExternalEndpointGrantJSONRequestBody defines body for RequestExternalEndpointGrant for application/json ContentType.
+type RequestExternalEndpointGrantJSONRequestBody = ExternalEndpointGrantCreate
+
 // CreateGithubAppJSONRequestBody defines body for CreateGithubApp for application/json ContentType.
 type CreateGithubAppJSONRequestBody = GithubAppCreateRequest
 
@@ -6459,6 +6644,33 @@ type ServerInterface interface {
 	// SSE stream of team events (statuses, jobs, deployments)
 	// (GET /events)
 	StreamEvents(w http.ResponseWriter, r *http.Request, params StreamEventsParams)
+	// Revoke an access grant
+	// (DELETE /external-endpoint-grants/{grant_uuid})
+	RevokeExternalEndpointGrant(w http.ResponseWriter, r *http.Request, grantUuid GrantUuid)
+	// List the team's declared external endpoints
+	// (GET /external-endpoints)
+	ListExternalEndpoints(w http.ResponseWriter, r *http.Request, params ListExternalEndpointsParams)
+	// Declare an external endpoint
+	// (POST /external-endpoints)
+	CreateExternalEndpoint(w http.ResponseWriter, r *http.Request)
+	// Delete an external endpoint
+	// (DELETE /external-endpoints/{external_endpoint_uuid})
+	DeleteExternalEndpoint(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid)
+	// Read an external endpoint
+	// (GET /external-endpoints/{external_endpoint_uuid})
+	GetExternalEndpoint(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid)
+	// Update an external endpoint
+	// (PUT /external-endpoints/{external_endpoint_uuid})
+	UpdateExternalEndpoint(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid)
+	// List the access grants of an endpoint
+	// (GET /external-endpoints/{external_endpoint_uuid}/grants)
+	ListExternalEndpointGrants(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid, params ListExternalEndpointGrantsParams)
+	// Request (or renew) access to an external endpoint
+	// (POST /external-endpoints/{external_endpoint_uuid}/grants)
+	RequestExternalEndpointGrant(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid)
+	// Open a TCP tunnel to a declared external endpoint
+	// (POST /external-endpoints/{external_endpoint_uuid}/port-forwards)
+	CreateExternalEndpointPortForward(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid)
 	// List the team's GitHub Apps
 	// (GET /github-apps)
 	ListGithubApps(w http.ResponseWriter, r *http.Request, params ListGithubAppsParams)
@@ -7338,6 +7550,60 @@ func (_ Unimplemented) GetDnsCredential(w http.ResponseWriter, r *http.Request, 
 // SSE stream of team events (statuses, jobs, deployments)
 // (GET /events)
 func (_ Unimplemented) StreamEvents(w http.ResponseWriter, r *http.Request, params StreamEventsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Revoke an access grant
+// (DELETE /external-endpoint-grants/{grant_uuid})
+func (_ Unimplemented) RevokeExternalEndpointGrant(w http.ResponseWriter, r *http.Request, grantUuid GrantUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the team's declared external endpoints
+// (GET /external-endpoints)
+func (_ Unimplemented) ListExternalEndpoints(w http.ResponseWriter, r *http.Request, params ListExternalEndpointsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Declare an external endpoint
+// (POST /external-endpoints)
+func (_ Unimplemented) CreateExternalEndpoint(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete an external endpoint
+// (DELETE /external-endpoints/{external_endpoint_uuid})
+func (_ Unimplemented) DeleteExternalEndpoint(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read an external endpoint
+// (GET /external-endpoints/{external_endpoint_uuid})
+func (_ Unimplemented) GetExternalEndpoint(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update an external endpoint
+// (PUT /external-endpoints/{external_endpoint_uuid})
+func (_ Unimplemented) UpdateExternalEndpoint(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the access grants of an endpoint
+// (GET /external-endpoints/{external_endpoint_uuid}/grants)
+func (_ Unimplemented) ListExternalEndpointGrants(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid, params ListExternalEndpointGrantsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Request (or renew) access to an external endpoint
+// (POST /external-endpoints/{external_endpoint_uuid}/grants)
+func (_ Unimplemented) RequestExternalEndpointGrant(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Open a TCP tunnel to a declared external endpoint
+// (POST /external-endpoints/{external_endpoint_uuid}/port-forwards)
+func (_ Unimplemented) CreateExternalEndpointPortForward(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -11916,6 +12182,331 @@ func (siw *ServerInterfaceWrapper) StreamEvents(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.StreamEvents(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeExternalEndpointGrant operation middleware
+func (siw *ServerInterfaceWrapper) RevokeExternalEndpointGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "grant_uuid" -------------
+	var grantUuid GrantUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "grant_uuid", chi.URLParam(r, "grant_uuid"), &grantUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "grant_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeExternalEndpointGrant(w, r, grantUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListExternalEndpoints operation middleware
+func (siw *ServerInterfaceWrapper) ListExternalEndpoints(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListExternalEndpointsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListExternalEndpoints(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateExternalEndpoint operation middleware
+func (siw *ServerInterfaceWrapper) CreateExternalEndpoint(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateExternalEndpoint(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteExternalEndpoint operation middleware
+func (siw *ServerInterfaceWrapper) DeleteExternalEndpoint(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "external_endpoint_uuid" -------------
+	var externalEndpointUuid ExternalEndpointUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "external_endpoint_uuid", chi.URLParam(r, "external_endpoint_uuid"), &externalEndpointUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "external_endpoint_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteExternalEndpoint(w, r, externalEndpointUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetExternalEndpoint operation middleware
+func (siw *ServerInterfaceWrapper) GetExternalEndpoint(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "external_endpoint_uuid" -------------
+	var externalEndpointUuid ExternalEndpointUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "external_endpoint_uuid", chi.URLParam(r, "external_endpoint_uuid"), &externalEndpointUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "external_endpoint_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetExternalEndpoint(w, r, externalEndpointUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateExternalEndpoint operation middleware
+func (siw *ServerInterfaceWrapper) UpdateExternalEndpoint(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "external_endpoint_uuid" -------------
+	var externalEndpointUuid ExternalEndpointUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "external_endpoint_uuid", chi.URLParam(r, "external_endpoint_uuid"), &externalEndpointUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "external_endpoint_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateExternalEndpoint(w, r, externalEndpointUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListExternalEndpointGrants operation middleware
+func (siw *ServerInterfaceWrapper) ListExternalEndpointGrants(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "external_endpoint_uuid" -------------
+	var externalEndpointUuid ExternalEndpointUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "external_endpoint_uuid", chi.URLParam(r, "external_endpoint_uuid"), &externalEndpointUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "external_endpoint_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListExternalEndpointGrantsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListExternalEndpointGrants(w, r, externalEndpointUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RequestExternalEndpointGrant operation middleware
+func (siw *ServerInterfaceWrapper) RequestExternalEndpointGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "external_endpoint_uuid" -------------
+	var externalEndpointUuid ExternalEndpointUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "external_endpoint_uuid", chi.URLParam(r, "external_endpoint_uuid"), &externalEndpointUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "external_endpoint_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RequestExternalEndpointGrant(w, r, externalEndpointUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateExternalEndpointPortForward operation middleware
+func (siw *ServerInterfaceWrapper) CreateExternalEndpointPortForward(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "external_endpoint_uuid" -------------
+	var externalEndpointUuid ExternalEndpointUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "external_endpoint_uuid", chi.URLParam(r, "external_endpoint_uuid"), &externalEndpointUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "external_endpoint_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateExternalEndpointPortForward(w, r, externalEndpointUuid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -18522,6 +19113,33 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/events", wrapper.StreamEvents)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/external-endpoint-grants/{grant_uuid}", wrapper.RevokeExternalEndpointGrant)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/external-endpoints", wrapper.ListExternalEndpoints)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/external-endpoints", wrapper.CreateExternalEndpoint)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/external-endpoints/{external_endpoint_uuid}", wrapper.DeleteExternalEndpoint)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/external-endpoints/{external_endpoint_uuid}", wrapper.GetExternalEndpoint)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/external-endpoints/{external_endpoint_uuid}", wrapper.UpdateExternalEndpoint)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/external-endpoints/{external_endpoint_uuid}/grants", wrapper.ListExternalEndpointGrants)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/external-endpoints/{external_endpoint_uuid}/grants", wrapper.RequestExternalEndpointGrant)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/external-endpoints/{external_endpoint_uuid}/port-forwards", wrapper.CreateExternalEndpointPortForward)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/github-apps", wrapper.ListGithubApps)
@@ -26549,6 +27167,670 @@ func (response StreamEvents403JSONResponse) VisitStreamEventsResponse(w http.Res
 type StreamEvents429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response StreamEvents429JSONResponse) VisitStreamEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeExternalEndpointGrantRequestObject struct {
+	GrantUuid GrantUuid `json:"grant_uuid"`
+}
+
+type RevokeExternalEndpointGrantResponseObject interface {
+	VisitRevokeExternalEndpointGrantResponse(w http.ResponseWriter) error
+}
+
+type RevokeExternalEndpointGrant204Response struct {
+}
+
+func (response RevokeExternalEndpointGrant204Response) VisitRevokeExternalEndpointGrantResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeExternalEndpointGrant401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RevokeExternalEndpointGrant401JSONResponse) VisitRevokeExternalEndpointGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeExternalEndpointGrant403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RevokeExternalEndpointGrant403JSONResponse) VisitRevokeExternalEndpointGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeExternalEndpointGrant404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RevokeExternalEndpointGrant404JSONResponse) VisitRevokeExternalEndpointGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExternalEndpointsRequestObject struct {
+	Params ListExternalEndpointsParams
+}
+
+type ListExternalEndpointsResponseObject interface {
+	VisitListExternalEndpointsResponse(w http.ResponseWriter) error
+}
+
+type ListExternalEndpoints200JSONResponse struct {
+	Data []ExternalEndpoint `json:"data"`
+
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListExternalEndpoints200JSONResponse) VisitListExternalEndpointsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExternalEndpoints401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListExternalEndpoints401JSONResponse) VisitListExternalEndpointsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExternalEndpoints403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListExternalEndpoints403JSONResponse) VisitListExternalEndpointsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalEndpointRequestObject struct {
+	Body *CreateExternalEndpointJSONRequestBody
+}
+
+type CreateExternalEndpointResponseObject interface {
+	VisitCreateExternalEndpointResponse(w http.ResponseWriter) error
+}
+
+type CreateExternalEndpoint201JSONResponse ExternalEndpoint
+
+func (response CreateExternalEndpoint201JSONResponse) VisitCreateExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalEndpoint400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateExternalEndpoint400JSONResponse) VisitCreateExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalEndpoint401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateExternalEndpoint401JSONResponse) VisitCreateExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalEndpoint403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateExternalEndpoint403JSONResponse) VisitCreateExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalEndpoint404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateExternalEndpoint404JSONResponse) VisitCreateExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalEndpoint409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateExternalEndpoint409JSONResponse) VisitCreateExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteExternalEndpointRequestObject struct {
+	ExternalEndpointUuid ExternalEndpointUuid `json:"external_endpoint_uuid"`
+}
+
+type DeleteExternalEndpointResponseObject interface {
+	VisitDeleteExternalEndpointResponse(w http.ResponseWriter) error
+}
+
+type DeleteExternalEndpoint204Response struct {
+}
+
+func (response DeleteExternalEndpoint204Response) VisitDeleteExternalEndpointResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteExternalEndpoint401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteExternalEndpoint401JSONResponse) VisitDeleteExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteExternalEndpoint403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteExternalEndpoint403JSONResponse) VisitDeleteExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteExternalEndpoint404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteExternalEndpoint404JSONResponse) VisitDeleteExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetExternalEndpointRequestObject struct {
+	ExternalEndpointUuid ExternalEndpointUuid `json:"external_endpoint_uuid"`
+}
+
+type GetExternalEndpointResponseObject interface {
+	VisitGetExternalEndpointResponse(w http.ResponseWriter) error
+}
+
+type GetExternalEndpoint200JSONResponse ExternalEndpoint
+
+func (response GetExternalEndpoint200JSONResponse) VisitGetExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetExternalEndpoint401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetExternalEndpoint401JSONResponse) VisitGetExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetExternalEndpoint403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetExternalEndpoint403JSONResponse) VisitGetExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetExternalEndpoint404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetExternalEndpoint404JSONResponse) VisitGetExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateExternalEndpointRequestObject struct {
+	ExternalEndpointUuid ExternalEndpointUuid `json:"external_endpoint_uuid"`
+	Body                 *UpdateExternalEndpointJSONRequestBody
+}
+
+type UpdateExternalEndpointResponseObject interface {
+	VisitUpdateExternalEndpointResponse(w http.ResponseWriter) error
+}
+
+type UpdateExternalEndpoint200JSONResponse ExternalEndpoint
+
+func (response UpdateExternalEndpoint200JSONResponse) VisitUpdateExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateExternalEndpoint400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateExternalEndpoint400JSONResponse) VisitUpdateExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateExternalEndpoint401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateExternalEndpoint401JSONResponse) VisitUpdateExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateExternalEndpoint403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateExternalEndpoint403JSONResponse) VisitUpdateExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateExternalEndpoint404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateExternalEndpoint404JSONResponse) VisitUpdateExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateExternalEndpoint409JSONResponse struct{ ConflictJSONResponse }
+
+func (response UpdateExternalEndpoint409JSONResponse) VisitUpdateExternalEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExternalEndpointGrantsRequestObject struct {
+	ExternalEndpointUuid ExternalEndpointUuid `json:"external_endpoint_uuid"`
+	Params               ListExternalEndpointGrantsParams
+}
+
+type ListExternalEndpointGrantsResponseObject interface {
+	VisitListExternalEndpointGrantsResponse(w http.ResponseWriter) error
+}
+
+type ListExternalEndpointGrants200JSONResponse struct {
+	Data []ExternalEndpointGrant `json:"data"`
+
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListExternalEndpointGrants200JSONResponse) VisitListExternalEndpointGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExternalEndpointGrants401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListExternalEndpointGrants401JSONResponse) VisitListExternalEndpointGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExternalEndpointGrants403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListExternalEndpointGrants403JSONResponse) VisitListExternalEndpointGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListExternalEndpointGrants404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListExternalEndpointGrants404JSONResponse) VisitListExternalEndpointGrantsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestExternalEndpointGrantRequestObject struct {
+	ExternalEndpointUuid ExternalEndpointUuid `json:"external_endpoint_uuid"`
+	Body                 *RequestExternalEndpointGrantJSONRequestBody
+}
+
+type RequestExternalEndpointGrantResponseObject interface {
+	VisitRequestExternalEndpointGrantResponse(w http.ResponseWriter) error
+}
+
+type RequestExternalEndpointGrant201JSONResponse ExternalEndpointGrant
+
+func (response RequestExternalEndpointGrant201JSONResponse) VisitRequestExternalEndpointGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestExternalEndpointGrant400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response RequestExternalEndpointGrant400JSONResponse) VisitRequestExternalEndpointGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestExternalEndpointGrant401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RequestExternalEndpointGrant401JSONResponse) VisitRequestExternalEndpointGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestExternalEndpointGrant403JSONResponse Error
+
+func (response RequestExternalEndpointGrant403JSONResponse) VisitRequestExternalEndpointGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestExternalEndpointGrant404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RequestExternalEndpointGrant404JSONResponse) VisitRequestExternalEndpointGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalEndpointPortForwardRequestObject struct {
+	ExternalEndpointUuid ExternalEndpointUuid `json:"external_endpoint_uuid"`
+}
+
+type CreateExternalEndpointPortForwardResponseObject interface {
+	VisitCreateExternalEndpointPortForwardResponse(w http.ResponseWriter) error
+}
+
+type CreateExternalEndpointPortForward201JSONResponse PortForwardSession
+
+func (response CreateExternalEndpointPortForward201JSONResponse) VisitCreateExternalEndpointPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalEndpointPortForward401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateExternalEndpointPortForward401JSONResponse) VisitCreateExternalEndpointPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalEndpointPortForward403JSONResponse AccessRequestRequired
+
+func (response CreateExternalEndpointPortForward403JSONResponse) VisitCreateExternalEndpointPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalEndpointPortForward404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateExternalEndpointPortForward404JSONResponse) VisitCreateExternalEndpointPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalEndpointPortForward409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateExternalEndpointPortForward409JSONResponse) VisitCreateExternalEndpointPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateExternalEndpointPortForward429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateExternalEndpointPortForward429JSONResponse) VisitCreateExternalEndpointPortForwardResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -39848,6 +41130,33 @@ type StrictServerInterface interface {
 	// SSE stream of team events (statuses, jobs, deployments)
 	// (GET /events)
 	StreamEvents(ctx context.Context, request StreamEventsRequestObject) (StreamEventsResponseObject, error)
+	// Revoke an access grant
+	// (DELETE /external-endpoint-grants/{grant_uuid})
+	RevokeExternalEndpointGrant(ctx context.Context, request RevokeExternalEndpointGrantRequestObject) (RevokeExternalEndpointGrantResponseObject, error)
+	// List the team's declared external endpoints
+	// (GET /external-endpoints)
+	ListExternalEndpoints(ctx context.Context, request ListExternalEndpointsRequestObject) (ListExternalEndpointsResponseObject, error)
+	// Declare an external endpoint
+	// (POST /external-endpoints)
+	CreateExternalEndpoint(ctx context.Context, request CreateExternalEndpointRequestObject) (CreateExternalEndpointResponseObject, error)
+	// Delete an external endpoint
+	// (DELETE /external-endpoints/{external_endpoint_uuid})
+	DeleteExternalEndpoint(ctx context.Context, request DeleteExternalEndpointRequestObject) (DeleteExternalEndpointResponseObject, error)
+	// Read an external endpoint
+	// (GET /external-endpoints/{external_endpoint_uuid})
+	GetExternalEndpoint(ctx context.Context, request GetExternalEndpointRequestObject) (GetExternalEndpointResponseObject, error)
+	// Update an external endpoint
+	// (PUT /external-endpoints/{external_endpoint_uuid})
+	UpdateExternalEndpoint(ctx context.Context, request UpdateExternalEndpointRequestObject) (UpdateExternalEndpointResponseObject, error)
+	// List the access grants of an endpoint
+	// (GET /external-endpoints/{external_endpoint_uuid}/grants)
+	ListExternalEndpointGrants(ctx context.Context, request ListExternalEndpointGrantsRequestObject) (ListExternalEndpointGrantsResponseObject, error)
+	// Request (or renew) access to an external endpoint
+	// (POST /external-endpoints/{external_endpoint_uuid}/grants)
+	RequestExternalEndpointGrant(ctx context.Context, request RequestExternalEndpointGrantRequestObject) (RequestExternalEndpointGrantResponseObject, error)
+	// Open a TCP tunnel to a declared external endpoint
+	// (POST /external-endpoints/{external_endpoint_uuid}/port-forwards)
+	CreateExternalEndpointPortForward(ctx context.Context, request CreateExternalEndpointPortForwardRequestObject) (CreateExternalEndpointPortForwardResponseObject, error)
 	// List the team's GitHub Apps
 	// (GET /github-apps)
 	ListGithubApps(ctx context.Context, request ListGithubAppsRequestObject) (ListGithubAppsResponseObject, error)
@@ -42481,6 +43790,260 @@ func (sh *strictHandler) StreamEvents(w http.ResponseWriter, r *http.Request, pa
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(StreamEventsResponseObject); ok {
 		if err := validResponse.VisitStreamEventsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeExternalEndpointGrant operation middleware
+func (sh *strictHandler) RevokeExternalEndpointGrant(w http.ResponseWriter, r *http.Request, grantUuid GrantUuid) {
+	var request RevokeExternalEndpointGrantRequestObject
+
+	request.GrantUuid = grantUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeExternalEndpointGrant(ctx, request.(RevokeExternalEndpointGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeExternalEndpointGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeExternalEndpointGrantResponseObject); ok {
+		if err := validResponse.VisitRevokeExternalEndpointGrantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListExternalEndpoints operation middleware
+func (sh *strictHandler) ListExternalEndpoints(w http.ResponseWriter, r *http.Request, params ListExternalEndpointsParams) {
+	var request ListExternalEndpointsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListExternalEndpoints(ctx, request.(ListExternalEndpointsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListExternalEndpoints")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListExternalEndpointsResponseObject); ok {
+		if err := validResponse.VisitListExternalEndpointsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateExternalEndpoint operation middleware
+func (sh *strictHandler) CreateExternalEndpoint(w http.ResponseWriter, r *http.Request) {
+	var request CreateExternalEndpointRequestObject
+
+	var body CreateExternalEndpointJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateExternalEndpoint(ctx, request.(CreateExternalEndpointRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateExternalEndpoint")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateExternalEndpointResponseObject); ok {
+		if err := validResponse.VisitCreateExternalEndpointResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteExternalEndpoint operation middleware
+func (sh *strictHandler) DeleteExternalEndpoint(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid) {
+	var request DeleteExternalEndpointRequestObject
+
+	request.ExternalEndpointUuid = externalEndpointUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteExternalEndpoint(ctx, request.(DeleteExternalEndpointRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteExternalEndpoint")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteExternalEndpointResponseObject); ok {
+		if err := validResponse.VisitDeleteExternalEndpointResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetExternalEndpoint operation middleware
+func (sh *strictHandler) GetExternalEndpoint(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid) {
+	var request GetExternalEndpointRequestObject
+
+	request.ExternalEndpointUuid = externalEndpointUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetExternalEndpoint(ctx, request.(GetExternalEndpointRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetExternalEndpoint")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetExternalEndpointResponseObject); ok {
+		if err := validResponse.VisitGetExternalEndpointResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateExternalEndpoint operation middleware
+func (sh *strictHandler) UpdateExternalEndpoint(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid) {
+	var request UpdateExternalEndpointRequestObject
+
+	request.ExternalEndpointUuid = externalEndpointUuid
+
+	var body UpdateExternalEndpointJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateExternalEndpoint(ctx, request.(UpdateExternalEndpointRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateExternalEndpoint")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateExternalEndpointResponseObject); ok {
+		if err := validResponse.VisitUpdateExternalEndpointResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListExternalEndpointGrants operation middleware
+func (sh *strictHandler) ListExternalEndpointGrants(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid, params ListExternalEndpointGrantsParams) {
+	var request ListExternalEndpointGrantsRequestObject
+
+	request.ExternalEndpointUuid = externalEndpointUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListExternalEndpointGrants(ctx, request.(ListExternalEndpointGrantsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListExternalEndpointGrants")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListExternalEndpointGrantsResponseObject); ok {
+		if err := validResponse.VisitListExternalEndpointGrantsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RequestExternalEndpointGrant operation middleware
+func (sh *strictHandler) RequestExternalEndpointGrant(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid) {
+	var request RequestExternalEndpointGrantRequestObject
+
+	request.ExternalEndpointUuid = externalEndpointUuid
+
+	var body RequestExternalEndpointGrantJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RequestExternalEndpointGrant(ctx, request.(RequestExternalEndpointGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RequestExternalEndpointGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RequestExternalEndpointGrantResponseObject); ok {
+		if err := validResponse.VisitRequestExternalEndpointGrantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateExternalEndpointPortForward operation middleware
+func (sh *strictHandler) CreateExternalEndpointPortForward(w http.ResponseWriter, r *http.Request, externalEndpointUuid ExternalEndpointUuid) {
+	var request CreateExternalEndpointPortForwardRequestObject
+
+	request.ExternalEndpointUuid = externalEndpointUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateExternalEndpointPortForward(ctx, request.(CreateExternalEndpointPortForwardRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateExternalEndpointPortForward")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateExternalEndpointPortForwardResponseObject); ok {
+		if err := validResponse.VisitCreateExternalEndpointPortForwardResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

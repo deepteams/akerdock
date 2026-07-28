@@ -559,6 +559,48 @@ func (ns NullDeploymentTrigger) Value() (driver.Value, error) {
 	return string(ns.DeploymentTrigger), nil
 }
 
+type ExternalEndpointCriticality string
+
+const (
+	ExternalEndpointCriticalityStandard  ExternalEndpointCriticality = "standard"
+	ExternalEndpointCriticalitySensitive ExternalEndpointCriticality = "sensitive"
+)
+
+func (e *ExternalEndpointCriticality) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ExternalEndpointCriticality(s)
+	case string:
+		*e = ExternalEndpointCriticality(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ExternalEndpointCriticality: %T", src)
+	}
+	return nil
+}
+
+type NullExternalEndpointCriticality struct {
+	ExternalEndpointCriticality ExternalEndpointCriticality
+	Valid                       bool // Valid is true if ExternalEndpointCriticality is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullExternalEndpointCriticality) Scan(value interface{}) error {
+	if value == nil {
+		ns.ExternalEndpointCriticality, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ExternalEndpointCriticality.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullExternalEndpointCriticality) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ExternalEndpointCriticality), nil
+}
+
 type GitProvider string
 
 const (
@@ -1751,11 +1793,12 @@ func (ns NullTeamRole) Value() (driver.Value, error) {
 type TerminalEndReason string
 
 const (
-	TerminalEndReasonUserClose   TerminalEndReason = "user_close"
-	TerminalEndReasonIdleTimeout TerminalEndReason = "idle_timeout"
-	TerminalEndReasonMaxDuration TerminalEndReason = "max_duration"
-	TerminalEndReasonDisconnect  TerminalEndReason = "disconnect"
-	TerminalEndReasonRevoked     TerminalEndReason = "revoked"
+	TerminalEndReasonUserClose    TerminalEndReason = "user_close"
+	TerminalEndReasonIdleTimeout  TerminalEndReason = "idle_timeout"
+	TerminalEndReasonMaxDuration  TerminalEndReason = "max_duration"
+	TerminalEndReasonDisconnect   TerminalEndReason = "disconnect"
+	TerminalEndReasonRevoked      TerminalEndReason = "revoked"
+	TerminalEndReasonGrantExpired TerminalEndReason = "grant_expired"
 )
 
 func (e *TerminalEndReason) Scan(src interface{}) error {
@@ -2410,6 +2453,42 @@ type EnvironmentVariable struct {
 	PreviewID   *int64
 }
 
+type ExternalEndpoint struct {
+	ID              int64
+	Uuid            pgtype.UUID
+	TeamID          int64
+	Name            string
+	Description     *string
+	Host            string
+	Port            int32
+	ServerID        int64
+	ProjectID       *int64
+	EnvironmentID   *int64
+	Criticality     ExternalEndpointCriticality
+	MaxGrantMinutes int32
+	CreatedBy       *int64
+	UpdatedBy       *int64
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	Version         int32
+}
+
+type ExternalEndpointGrant struct {
+	ID          int64
+	Uuid        pgtype.UUID
+	EndpointID  int64
+	UserID      int64
+	Reason      string
+	Factor      string
+	GrantedBy   *int64
+	RenewedFrom *int64
+	RequestedAt pgtype.Timestamptz
+	ExpiresAt   pgtype.Timestamptz
+	RevokedAt   pgtype.Timestamptz
+	RevokedBy   *int64
+	CreatedAt   pgtype.Timestamptz
+}
+
 type GitSource struct {
 	ID           int64
 	Uuid         pgtype.UUID
@@ -2754,24 +2833,27 @@ type PersistentStorage struct {
 }
 
 type PortForwardSession struct {
-	ID              int64
-	Uuid            pgtype.UUID
-	TeamID          int64
-	UserID          *int64
-	ServerID        *int64
-	ResourceID      *int64
-	PreviewID       *int64
-	TargetName      string
-	TargetComponent *string
-	TargetPort      int32
-	ClientIp        *netip.Addr
-	TokenHash       string
-	TokenExpiresAt  pgtype.Timestamptz
-	ClaimedAt       pgtype.Timestamptz
-	StartedAt       pgtype.Timestamptz
-	EndedAt         pgtype.Timestamptz
-	EndReason       *TerminalEndReason
-	CreatedAt       pgtype.Timestamptz
+	ID                 int64
+	Uuid               pgtype.UUID
+	TeamID             int64
+	UserID             *int64
+	ServerID           *int64
+	ResourceID         *int64
+	PreviewID          *int64
+	TargetName         string
+	TargetComponent    *string
+	TargetPort         int32
+	ClientIp           *netip.Addr
+	TokenHash          string
+	TokenExpiresAt     pgtype.Timestamptz
+	ClaimedAt          pgtype.Timestamptz
+	StartedAt          pgtype.Timestamptz
+	EndedAt            pgtype.Timestamptz
+	EndReason          *TerminalEndReason
+	CreatedAt          pgtype.Timestamptz
+	ExternalEndpointID *int64
+	GrantID            *int64
+	AuthorizedUntil    pgtype.Timestamptz
 }
 
 type Preview struct {
@@ -3091,20 +3173,21 @@ type ServiceComponent struct {
 }
 
 type Session struct {
-	ID            int64
-	Uuid          pgtype.UUID
-	UserID        int64
-	TokenHash     string
-	CurrentTeamID *int64
-	MfaVerifiedAt pgtype.Timestamptz
-	Ip            *netip.Addr
-	UserAgent     *string
-	LastSeenAt    pgtype.Timestamptz
-	ExpiresAt     pgtype.Timestamptz
-	RevokedAt     pgtype.Timestamptz
-	CreatedAt     pgtype.Timestamptz
-	CsrfToken     *string
-	MfaPending    bool
+	ID             int64
+	Uuid           pgtype.UUID
+	UserID         int64
+	TokenHash      string
+	CurrentTeamID  *int64
+	MfaVerifiedAt  pgtype.Timestamptz
+	Ip             *netip.Addr
+	UserAgent      *string
+	LastSeenAt     pgtype.Timestamptz
+	ExpiresAt      pgtype.Timestamptz
+	RevokedAt      pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+	CsrfToken      *string
+	MfaPending     bool
+	TotpVerifiedAt pgtype.Timestamptz
 }
 
 type SharedVariable struct {

@@ -3444,6 +3444,132 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/external-endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the team's declared external endpoints
+         * @description Bastion targets declared ahead of time (ADR-045): an exact `host`/`port` pair reached from a given egress server. The address is a property of this resource, never of a tunnel request — which is what keeps the tunnel protocol addressless and stops a `write` holder from scanning the server's private network.
+         */
+        get: operations["listExternalEndpoints"];
+        put?: never;
+        /**
+         * Declare an external endpoint
+         * @description Declaring an endpoint draws a network boundary, so it is an admin-level act, deliberately separate from opening a tunnel to one. Defaults to `criticality: sensitive` — reaching a real database is the usual reason to declare one, and downgrading should be a conscious choice.
+         */
+        post: operations["createExternalEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/external-endpoints/{external_endpoint_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the external endpoint. */
+                external_endpoint_uuid: components["parameters"]["ExternalEndpointUuid"];
+            };
+            cookie?: never;
+        };
+        /** Read an external endpoint */
+        get: operations["getExternalEndpoint"];
+        /** Update an external endpoint */
+        put: operations["updateExternalEndpoint"];
+        post?: never;
+        /**
+         * Delete an external endpoint
+         * @description Live sessions targeting it are torn down at their next dial, like a destroyed preview.
+         */
+        delete: operations["deleteExternalEndpoint"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/external-endpoints/{external_endpoint_uuid}/port-forwards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the external endpoint. */
+                external_endpoint_uuid: components["parameters"]["ExternalEndpointUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open a TCP tunnel to a declared external endpoint
+         * @description Mints a tunnel session (ADR-032 contract, ADR-045 target) with an **empty body**: neither host nor port is accepted from the client, both were frozen at declaration. On a `sensitive` endpoint the caller must hold a live access grant, otherwise `403` with code `access_request_required` and the URL of the request page in `request_url` — the CLI opens it, polls, and replays this call.
+         */
+        post: operations["createExternalEndpointPortForward"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/external-endpoints/{external_endpoint_uuid}/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the external endpoint. */
+                external_endpoint_uuid: components["parameters"]["ExternalEndpointUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List the access grants of an endpoint
+         * @description The audit surface of the feature: who asked for access, for what reason, for how long, with which factor, and whether it was renewed or revoked.
+         */
+        get: operations["listExternalEndpointGrants"];
+        put?: never;
+        /**
+         * Request (or renew) access to an external endpoint
+         * @description Opens a bounded window during which the caller may mint tunnels to this endpoint. Always requires a **fresh second factor** (rbac-matrix §5): the passkey ceremony when the user has one enrolled, a dedicated TOTP challenge otherwise — the server picks, the client never chooses. Without one, `403` with code `stepup_required`.
+         *
+         *     Called while a grant is still live, it **renews** it: the window is pushed back and the sessions it opened keep running, so a transfer in flight survives. Renewal costs a fresh reason and a fresh factor, and is not capped by a total — the bound is the window itself, repeated.
+         *
+         *     Browser sessions only: an API token cannot re-authenticate.
+         */
+        post: operations["requestExternalEndpointGrant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/external-endpoint-grants/{grant_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the access grant. */
+                grant_uuid: components["parameters"]["GrantUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an access grant
+         * @description Closes the window and **tears down the sessions the grant opened** — otherwise revoking would mean nothing to someone already connected.
+         */
+        delete: operations["revokeExternalEndpointGrant"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3908,6 +4034,84 @@ export interface components {
              * @description (Short-lived) expiration of the attach token, not of the session.
              */
             token_expires_at: string;
+            /**
+             * Format: date-time
+             * @description Instant the session is actually cut (ADR-045 §5): the grant's expiry on a `sensitive` external endpoint, the ADR-032 maximum duration otherwise. The CLI announces it when the listener comes up and warns before it lands, so a deadline never arrives unannounced.
+             */
+            authorized_until?: string;
+        };
+        /** @description A declared bastion target (ADR-045): one exact destination, reached from one egress server. There is no CIDR, port range or wildcard host — a network is deliberately not addressable as a unit, which is what keeps this from becoming a scanner. */
+        ExternalEndpoint: {
+            uuid: string;
+            name: string;
+            description?: string | null;
+            /** @description Hostname or IP, exact — no scheme, path, space or comma. */
+            host: string;
+            port: number;
+            /** @description Egress server the tunnel is dialed from. An endpoint only means something relative to the vantage point that reaches it. */
+            server_uuid: string;
+            /** @description Optional RBAC scope (ADR-038). */
+            project_uuid?: string | null;
+            /** @description Optional RBAC scope (ADR-038). */
+            environment_uuid?: string | null;
+            /**
+             * @description `standard` behaves exactly like an ADR-032 tunnel. `sensitive` (the default) requires an access grant obtained in the dashboard behind a fresh second factor. A single dimension rather than a set of independent switches: a control that can be turned off individually is one an operator finds was off on the day it mattered.
+             * @enum {string}
+             */
+            criticality: "standard" | "sensitive";
+            /** @description Longest window a single request may buy on this endpoint (default 240). Renewal is unbounded in total but always costs a fresh factor. */
+            max_grant_minutes: number;
+            active_grant?: components["schemas"]["ExternalEndpointGrant"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at?: string;
+        };
+        ExternalEndpointCreate: {
+            name: string;
+            description?: string;
+            host: string;
+            port: number;
+            server_uuid: string;
+            project_uuid?: string;
+            environment_uuid?: string;
+            /**
+             * @default sensitive
+             * @enum {string}
+             */
+            criticality: "standard" | "sensitive";
+            /** @default 240 */
+            max_grant_minutes: number;
+        };
+        /** @description A bounded, reasoned, re-authenticated window during which its holder may mint tunnels to the endpoint. The grant IS the session deadline: a tunnel never outlives the authorization that opened it. */
+        ExternalEndpointGrant: {
+            uuid: string;
+            user_email?: string;
+            /** @description Why access was needed. Mandatory, and the point of the whole record: "who was present" is worth less to an auditor than "who asked, for what, for how long". */
+            reason: string;
+            /**
+             * @description Which second factor was actually consumed. Chosen by the server.
+             * @enum {string}
+             */
+            factor: "passkey" | "totp";
+            /** Format: date-time */
+            requested_at: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: date-time */
+            revoked_at?: string | null;
+            /** @description True when this window was extended rather than opened fresh. */
+            renewed?: boolean;
+        };
+        ExternalEndpointGrantCreate: {
+            reason: string;
+            /** @description Clamped to the endpoint's `max_grant_minutes`. */
+            duration_minutes: number;
+        };
+        /** @description `403` with code `access_request_required`: the endpoint is `sensitive` and the caller holds no live grant. The house error shape plus the one thing the client needs to act — the CLI opens `request_url`, polls until the grant exists, then replays the mint (same choreography as `akerdock login`, ADR-031). Telling someone "no" without telling them where to go is how a control becomes something people route around. */
+        AccessRequestRequired: components["schemas"]["Error"] & {
+            /** @description Dashboard page where the grant is requested. */
+            request_url?: string;
         };
         /** @description Response of an adoption scan — tracking job + created scan. */
         AdoptionScanAccepted: components["schemas"]["JobAccepted"] & {
@@ -6020,6 +6224,10 @@ export interface components {
         ChannelUuid: string;
         /** @description UUID of the S3 storage. */
         S3StorageUuid: string;
+        /** @description UUID of the external endpoint. */
+        ExternalEndpointUuid: string;
+        /** @description UUID of the access grant. */
+        GrantUuid: string;
         /** @description UUID of the server. */
         ServerUuid: string;
         /** @description UUID of the adoption scan (§20.7). */
@@ -12883,6 +13091,280 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listExternalEndpoints: {
+        parameters: {
+            query?: {
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Maximum number of items per page (1 to 100). */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of external endpoints. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ExternalEndpoint"][];
+                        next_cursor?: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createExternalEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExternalEndpointCreate"];
+            };
+        };
+        responses: {
+            /** @description Endpoint declared. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalEndpoint"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getExternalEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the external endpoint. */
+                external_endpoint_uuid: components["parameters"]["ExternalEndpointUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The endpoint. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalEndpoint"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateExternalEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the external endpoint. */
+                external_endpoint_uuid: components["parameters"]["ExternalEndpointUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExternalEndpointCreate"];
+            };
+        };
+        responses: {
+            /** @description Endpoint updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalEndpoint"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    deleteExternalEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the external endpoint. */
+                external_endpoint_uuid: components["parameters"]["ExternalEndpointUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Endpoint deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createExternalEndpointPortForward: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the external endpoint. */
+                external_endpoint_uuid: components["parameters"]["ExternalEndpointUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session created — the token is only visible in this response. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortForwardSession"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Forbidden, or no live grant — code `access_request_required`, with `request_url` pointing at the dashboard page to obtain one. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessRequestRequired"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listExternalEndpointGrants: {
+        parameters: {
+            query?: {
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Maximum number of items per page (1 to 100). */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description UUID of the external endpoint. */
+                external_endpoint_uuid: components["parameters"]["ExternalEndpointUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of grants. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ExternalEndpointGrant"][];
+                        next_cursor?: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    requestExternalEndpointGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the external endpoint. */
+                external_endpoint_uuid: components["parameters"]["ExternalEndpointUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExternalEndpointGrantCreate"];
+            };
+        };
+        responses: {
+            /** @description Grant created or renewed. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalEndpointGrant"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description Forbidden, or no fresh second factor — code `stepup_required`. The dashboard runs the ceremony the server names and replays the call. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    revokeExternalEndpointGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the access grant. */
+                grant_uuid: components["parameters"]["GrantUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grant revoked and its sessions closed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
 }

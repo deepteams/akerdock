@@ -19,7 +19,7 @@ WHERE token_hash = $1
   AND claimed_at IS NULL
   AND ended_at IS NULL
   AND token_expires_at > now()
-RETURNING id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at
+RETURNING id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until
 `
 
 // Single-use attach: consumes the token atomically (a replay matches zero rows).
@@ -45,6 +45,9 @@ func (q *Queries) ClaimPortForwardSession(ctx context.Context, tokenHash string)
 		&i.EndedAt,
 		&i.EndReason,
 		&i.CreatedAt,
+		&i.ExternalEndpointID,
+		&i.GrantID,
+		&i.AuthorizedUntil,
 	)
 	return i, err
 }
@@ -73,7 +76,7 @@ INSERT INTO port_forward_sessions (
     $9, $2, $10, $3,
     $11, $4, $5
 )
-RETURNING id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at
+RETURNING id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until
 `
 
 type CreatePortForwardSessionParams struct {
@@ -126,6 +129,9 @@ func (q *Queries) CreatePortForwardSession(ctx context.Context, arg CreatePortFo
 		&i.EndedAt,
 		&i.EndReason,
 		&i.CreatedAt,
+		&i.ExternalEndpointID,
+		&i.GrantID,
+		&i.AuthorizedUntil,
 	)
 	return i, err
 }

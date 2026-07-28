@@ -691,7 +691,10 @@ export class AkerDockClient {
     return this.request<Response>('GET', '/permissions');
   }
 
-  listTeamAudit(uuid: string, query?: paths['/teams/{team_uuid}/audit']['get']['parameters']['query']) {
+  listTeamAudit(
+    uuid: string,
+    query?: paths['/teams/{team_uuid}/audit']['get']['parameters']['query'],
+  ) {
     type Response =
       paths['/teams/{team_uuid}/audit']['get']['responses']['200']['content']['application/json'];
     return this.request<Response>('GET', `/teams/${uuid}/audit`, {
@@ -1651,6 +1654,61 @@ export class AkerDockClient {
     const url = new URL(`${this.baseUrl}/deployments/${uuid}/logs`, globalThis.location.origin);
     if (this.token) url.searchParams.set('access_token', this.token);
     return new EventSource(url, { withCredentials: true });
+  }
+
+  // --- external endpoints (bastion, ADR-045) --------------------------------------------------
+
+  listExternalEndpoints(query?: { cursor?: string; limit?: number }) {
+    type Response =
+      paths['/external-endpoints']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', '/external-endpoints', { query });
+  }
+
+  createExternalEndpoint(body: components['schemas']['ExternalEndpointCreate']) {
+    type Response =
+      paths['/external-endpoints']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', '/external-endpoints', { body });
+  }
+
+  getExternalEndpoint(uuid: string) {
+    type Response =
+      paths['/external-endpoints/{external_endpoint_uuid}']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/external-endpoints/${uuid}`);
+  }
+
+  updateExternalEndpoint(uuid: string, body: components['schemas']['ExternalEndpointCreate']) {
+    type Response =
+      paths['/external-endpoints/{external_endpoint_uuid}']['put']['responses']['200']['content']['application/json'];
+    return this.request<Response>('PUT', `/external-endpoints/${uuid}`, { body });
+  }
+
+  deleteExternalEndpoint(uuid: string) {
+    return this.request<void>('DELETE', `/external-endpoints/${uuid}`);
+  }
+
+  listExternalEndpointGrants(uuid: string, query?: { cursor?: string; limit?: number }) {
+    type Response =
+      paths['/external-endpoints/{external_endpoint_uuid}/grants']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/external-endpoints/${uuid}/grants`, { query });
+  }
+
+  /**
+   * Requests — or renews — access to an external endpoint (ADR-045 §5). Always
+   * behind a fresh second factor: a `403 stepup_required` means the ceremony
+   * must run first, and the call is then replayed. Called while a grant is
+   * still live it extends it, and the tunnels it opened keep running.
+   */
+  requestExternalEndpointGrant(
+    uuid: string,
+    body: components['schemas']['ExternalEndpointGrantCreate'],
+  ) {
+    type Response =
+      paths['/external-endpoints/{external_endpoint_uuid}/grants']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', `/external-endpoints/${uuid}/grants`, { body });
+  }
+
+  revokeExternalEndpointGrant(uuid: string) {
+    return this.request<void>('DELETE', `/external-endpoint-grants/${uuid}`);
   }
 
   /**
