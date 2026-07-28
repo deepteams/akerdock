@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -96,6 +97,29 @@ func (a *API) ListInstanceAudit(w http.ResponseWriter, r *http.Request, params a
 	}{data, cursor})
 }
 
+// auditPrefixCap bounds the prefix filter to what the contract advertises: each
+// prefix is one LIKE, and an unbounded list is an unbounded scan.
+const auditPrefixCap = 10
+
+// auditActionPrefixes cleans the prefix filter — blanks dropped, list capped.
+// An all-blank list must come back empty rather than as a filter matching
+// everything through `LIKE '%'`, which would silently widen the query.
+func auditActionPrefixes(in *[]string) []string {
+	if in == nil {
+		return nil
+	}
+	out := make([]string, 0, len(*in))
+	for _, p := range *in {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+		if len(out) == auditPrefixCap {
+			break
+		}
+	}
+	return out
+}
+
 // ListTeamAudit implements GET /teams/{team_uuid}/audit (§23.4): the append-only
 // audit trail, paginated, filtered and scriptable. Read-only — no mutation of
 // the trail is ever exposed.
@@ -120,6 +144,9 @@ func (a *API) ListTeamAudit(w http.ResponseWriter, r *http.Request, teamUuid api
 	qp := store.ListAuditEventsPageParams{TeamID: &team.ID, AfterID: after, PageLimit: limit + 1}
 	if params.Action != nil && *params.Action != "" {
 		qp.Action = params.Action
+	}
+	if prefixes := auditActionPrefixes(params.ActionPrefix); len(prefixes) > 0 {
+		qp.ActionPrefixes = prefixes
 	}
 	if params.Result != nil {
 		res := store.AuditResult(*params.Result)

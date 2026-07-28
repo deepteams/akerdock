@@ -69,7 +69,7 @@ interface RequestOptions {
    * POST, because a retry without it is a second deployment.
    */
   idempotencyKey?: string;
-  query?: Record<string, string | number | boolean | undefined>;
+  query?: Record<string, string | number | boolean | string[] | undefined>;
   body?: unknown;
   signal?: AbortSignal;
 }
@@ -96,7 +96,15 @@ export class AkerDockClient {
     // outside a browser location is undefined.
     const url = new URL(this.baseUrl + path, globalThis.location?.origin);
     for (const [key, value] of Object.entries(options.query ?? {})) {
-      if (value !== undefined) url.searchParams.set(key, String(value));
+      if (value === undefined) continue;
+      // Array parameters are `style: form, explode: true` in the contract —
+      // one occurrence per value (`?a=1&a=2`). Joining them into a single
+      // comma-separated value would reach the server as one nonsense filter.
+      if (Array.isArray(value)) {
+        for (const item of value) url.searchParams.append(key, item);
+        continue;
+      }
+      url.searchParams.set(key, String(value));
     }
 
     const headers: Record<string, string> = { Accept: 'application/json' };
@@ -698,7 +706,7 @@ export class AkerDockClient {
     type Response =
       paths['/teams/{team_uuid}/audit']['get']['responses']['200']['content']['application/json'];
     return this.request<Response>('GET', `/teams/${uuid}/audit`, {
-      query: query as Record<string, string | number | undefined> | undefined,
+      query: query as Record<string, string | number | string[] | undefined> | undefined,
     });
   }
 

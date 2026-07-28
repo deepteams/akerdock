@@ -147,25 +147,30 @@ SELECT id, uuid, occurred_at, team_id, actor_kind, actor_uuid, actor_display, ac
 WHERE team_id = $1
   AND ($2::bigint = 0 OR id < $2)
   AND ($3::text IS NULL OR action = $3)
-  AND ($4::audit_result IS NULL OR result = $4)
-  AND ($5::uuid IS NULL OR actor_uuid = $5)
-  AND ($6::uuid IS NULL OR target_uuid = $6)
-  AND ($7::timestamptz IS NULL OR occurred_at >= $7)
-  AND ($8::timestamptz IS NULL OR occurred_at <= $8)
+  -- A feature's trail spans several action names (open, close, grant, revoke),
+  -- so the prefix filter is a list: one story rather than four partial lists.
+  AND ($4::text[] IS NULL
+       OR action LIKE ANY (SELECT p || '%' FROM unnest($4::text[]) AS p))
+  AND ($5::audit_result IS NULL OR result = $5)
+  AND ($6::uuid IS NULL OR actor_uuid = $6)
+  AND ($7::uuid IS NULL OR target_uuid = $7)
+  AND ($8::timestamptz IS NULL OR occurred_at >= $8)
+  AND ($9::timestamptz IS NULL OR occurred_at <= $9)
 ORDER BY id DESC
-LIMIT $9
+LIMIT $10
 `
 
 type ListAuditEventsPageParams struct {
-	TeamID     *int64
-	AfterID    int64
-	Action     *string
-	Result     *AuditResult
-	ActorUuid  pgtype.UUID
-	TargetUuid pgtype.UUID
-	FromTime   pgtype.Timestamptz
-	ToTime     pgtype.Timestamptz
-	PageLimit  int32
+	TeamID         *int64
+	AfterID        int64
+	Action         *string
+	ActionPrefixes []string
+	Result         *AuditResult
+	ActorUuid      pgtype.UUID
+	TargetUuid     pgtype.UUID
+	FromTime       pgtype.Timestamptz
+	ToTime         pgtype.Timestamptz
+	PageLimit      int32
 }
 
 // Read side of the audit trail (§23.4: paginé, filtrable, exportable). A SELECT
@@ -176,6 +181,7 @@ func (q *Queries) ListAuditEventsPage(ctx context.Context, arg ListAuditEventsPa
 		arg.TeamID,
 		arg.AfterID,
 		arg.Action,
+		arg.ActionPrefixes,
 		arg.Result,
 		arg.ActorUuid,
 		arg.TargetUuid,

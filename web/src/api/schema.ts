@@ -7191,6 +7191,8 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 /** @description Exact filter on the action (e.g. `auth.login`, `secret.reveal`). */
                 action?: string;
+                /** @description Keep the events whose action starts with any of these prefixes (e.g. `port-forward.`, `external-endpoint.`). A feature's trail is spread over several action names — open, close, grant, revoke — and asking for them one at a time gives an operator four incomplete lists instead of one story. Combined with `action` it narrows further; at most 10 prefixes. */
+                action_prefix?: string[];
                 /** @description Filter on the outcome. */
                 result?: "success" | "failure" | "denied";
                 /** @description Filter on the actor's UUID (user or token). */

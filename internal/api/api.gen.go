@@ -6121,6 +6121,9 @@ type ListTeamAuditParams struct {
 	// Action Exact filter on the action (e.g. `auth.login`, `secret.reveal`).
 	Action *string `form:"action,omitempty" json:"action,omitempty"`
 
+	// ActionPrefix Keep the events whose action starts with any of these prefixes (e.g. `port-forward.`, `external-endpoint.`). A feature's trail is spread over several action names — open, close, grant, revoke — and asking for them one at a time gives an operator four incomplete lists instead of one story. Combined with `action` it narrows further; at most 10 prefixes.
+	ActionPrefix *[]string `form:"action_prefix,omitempty" json:"action_prefix,omitempty"`
+
 	// Result Filter on the outcome.
 	Result *ListTeamAuditParamsResult `form:"result,omitempty" json:"result,omitempty"`
 
@@ -17858,6 +17861,19 @@ func (siw *ServerInterfaceWrapper) ListTeamAudit(w http.ResponseWriter, r *http.
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "action"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "action_prefix" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "action_prefix", r.URL.Query(), &params.ActionPrefix, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "action_prefix"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action_prefix", Err: err})
 		}
 		return
 	}

@@ -41,6 +41,10 @@ SELECT * FROM audit_events
 WHERE team_id = sqlc.arg(team_id)
   AND (sqlc.arg(after_id)::bigint = 0 OR id < sqlc.arg(after_id))
   AND (sqlc.narg(action)::text IS NULL OR action = sqlc.narg(action))
+  -- A feature's trail spans several action names (open, close, grant, revoke),
+  -- so the prefix filter is a list: one story rather than four partial lists.
+  AND (sqlc.narg(action_prefixes)::text[] IS NULL
+       OR action LIKE ANY (SELECT p || '%' FROM unnest(sqlc.narg(action_prefixes)::text[]) AS p))
   AND (sqlc.narg(result)::audit_result IS NULL OR result = sqlc.narg(result))
   AND (sqlc.narg(actor_uuid)::uuid IS NULL OR actor_uuid = sqlc.narg(actor_uuid))
   AND (sqlc.narg(target_uuid)::uuid IS NULL OR target_uuid = sqlc.narg(target_uuid))

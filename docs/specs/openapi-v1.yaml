@@ -1067,6 +1067,23 @@ paths:
           description: Exact filter on the action (e.g. `auth.login`, `secret.reveal`).
           schema:
             type: string
+        - name: action_prefix
+          in: query
+          required: false
+          description: >-
+            Keep the events whose action starts with any of these prefixes
+            (e.g. `port-forward.`, `external-endpoint.`). A feature's trail is
+            spread over several action names — open, close, grant, revoke — and
+            asking for them one at a time gives an operator four incomplete
+            lists instead of one story. Combined with `action` it narrows
+            further; at most 10 prefixes.
+          schema:
+            type: array
+            maxItems: 10
+            items:
+              type: string
+          style: form
+          explode: true
         - name: result
           in: query
           required: false
