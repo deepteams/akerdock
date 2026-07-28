@@ -94,10 +94,10 @@ func (a *API) applyAgentObservation(r *http.Request, serverID int64, o agentObse
 			return
 		}
 		// Else: a slept scale-to-zero application on this server.
-		if n, err := a.Store.WakeSleptApplicationForServer(ctx, store.WakeSleptApplicationForServerParams{
+		if id, err := a.Store.WakeSleptApplicationForServer(ctx, store.WakeSleptApplicationForServerParams{
 			Uuid: u, ServerID: serverID,
-		}); err == nil && n > 0 {
-			a.Logger.Info("application woken (agent observation)", "application", o.ResourceUUID, "server_id", serverID)
+		}); err == nil {
+			a.emitAgentApplicationWoken(r, id, u)
 		}
 	case "container_state":
 		resourceUUID, component, ok := splitComponentContainer(o.Container)
@@ -132,6 +132,23 @@ func (a *API) emitAgentPreviewWoken(r *http.Request, p store.Preview) {
 			"pr_id":        p.PrID,
 		})
 	a.Logger.Info("preview woken (agent observation)", "preview", pguuid.String(p.Uuid), "pr", p.PrID)
+}
+
+// emitAgentApplicationWoken mirrors the scheduler's application.woken.v1, so
+// the application pages refresh within a second of the wake.
+func (a *API) emitAgentApplicationWoken(r *http.Request, resourceID int64, resourceUUID pgtype.UUID) {
+	ctx := r.Context()
+	app, err := a.Store.GetApplicationByID(ctx, resourceID)
+	if err != nil {
+		return
+	}
+	var teamUUID pgtype.UUID
+	if team, err := a.Store.GetTeamByID(ctx, app.Resource.TeamID); err == nil {
+		teamUUID = team.Uuid
+	}
+	a.Audit.Outbox(ctx, a.Store, "application.woken.v1", teamUUID, resourceUUID,
+		"application:"+pguuid.String(resourceUUID), map[string]any{"name": app.Resource.Name})
+	a.Logger.Info("application woken (agent observation)", "application", pguuid.String(resourceUUID))
 }
 
 // splitComponentContainer parses a compose component container name,

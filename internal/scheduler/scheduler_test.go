@@ -224,6 +224,10 @@ func (f *fakeSchedulerStore) GetApplicationByID(context.Context, int64) (store.G
 	return f.application, f.err("application")
 }
 
+func (f *fakeSchedulerStore) GetDefaultDestination(context.Context, int64) (store.Destination, error) {
+	return store.Destination{}, errors.New("no default destination in the fake")
+}
+
 // Agent enrollment stubs (ADR-040): the fake has no instance FQDN, so
 // AgentEnvForServer resolves to a waker-only helper in every scheduler test.
 func (f *fakeSchedulerStore) GetInstanceSettings(context.Context) (store.InstanceSetting, error) {

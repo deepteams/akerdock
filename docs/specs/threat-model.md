@@ -204,6 +204,19 @@ flowchart TB
 | **D** | An unreachable server blocks the workers | Timeout, cancellation, bounded retry with jitter, circuit breaker (§22.1) | — (compliant, to be tested) |
 | **E** | A compromised target server exfiltrates the SSH key and pivots | Keys separable per server, secrets on a strict need basis, one server ≠ access to the others (§23.1) | Outbound pull agent target to reduce the surface (ADR-001) — **future** |
 
+### 3.4bis Server agent: outbound observation push (ADR-040)
+
+The helper (waker mode) POSTs observation batches to `/agent/v1/observations`, authenticated by a per-server token (`agent_tokens`, SHA-256 hash) injected over SSH at container creation. Observations are hints, never actions.
+
+| STRIDE | Concrete scenario | Existing control | Missing control |
+|---|---|---|---|
+| **S** | A stolen agent token impersonates the server's helper | Token scoped to ONE server; every effect query carries the token's `server_id` in SQL — out-of-scope resources are unreachable by construction; rotation by recreation (helper recreate re-mints on row deletion) | Automatic periodic rotation **(proposed default)** |
+| **T** | Forged observations flip another server's states (fake `stz_woken`, fake container states) | Server-scoped queries (`GetSleepingPreviewForServer`, `WakeSleptApplicationForServer`, `SetServiceComponentObservedByName` all JOIN on the token's server); observations refresh observed state only — deploys, sleeps and secrets are untouched; SSH scans remain the authoritative reconciliation | — (compliant) |
+| **R** | Untraceable state changes from agent input | Ingestion logs each effect with server id; `last_seen_at` on the token row | Per-effect audit trail entries **(proposed default)** |
+| **I** | Token disclosure via the run command (`docker inspect` on the server) | The token is server-local by design: whoever can inspect containers on the server already holds its Docker socket — root-equivalent on that server, which the token's scope cannot exceed | — (accepted, documented) |
+| **D** | An agent floods ingestion | 300 req/min per token, 1 MiB body cap, ≤500 observations per batch; the agent itself batches (≤100) with a bounded drop-oldest queue | — (compliant) |
+| **E** | Observations escalate into actions | The endpoint can only refresh observed statuses and emit SSE events; no mutation of desired state, no reads returned (write-only surface); phase 2 (commands) deliberately out of scope (ADR-040) | — (compliant) |
+
 ### 3.5 Builders (BuildKit, untrusted code)
 
 | STRIDE | Concrete scenario | Existing control | Missing control |

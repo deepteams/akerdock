@@ -105,6 +105,22 @@ func (s *Scheduler) emitPreviewEvent(ctx context.Context, eventType string, appl
 		})
 }
 
+// emitApplicationEvent publishes an application lifecycle event (sleep/wake,
+// ADR-037/040) to the outbox — the application pages reload on it, so a
+// scale-to-zero transition shows up without a manual refresh.
+func (s *Scheduler) emitApplicationEvent(ctx context.Context, eventType string, resourceID int64, resourceUUID pgtype.UUID) {
+	app, err := s.Store.GetApplicationByID(ctx, resourceID)
+	if err != nil {
+		return
+	}
+	var teamUUID pgtype.UUID
+	if team, err := s.Store.GetTeamByID(ctx, app.Resource.TeamID); err == nil {
+		teamUUID = team.Uuid
+	}
+	s.Audit.Outbox(ctx, s.Store, eventType, teamUUID, resourceUUID,
+		"application:"+pguuid.String(resourceUUID), map[string]any{"name": app.Resource.Name})
+}
+
 // idlePastWindow reports whether a resource last active at `last` has been idle
 // for at least `windowMin` minutes as of `now` (ADR-036). A non-positive window
 // falls back to the default so a misconfiguration never sleeps instantly.
@@ -260,6 +276,7 @@ func (s *Scheduler) scaleZeroApplications(ctx context.Context) {
 			s.Logger.Warn("app scale-to-zero status update failed", "application", uuid, "error", err)
 			continue
 		}
+		s.emitApplicationEvent(ctx, "application.slept.v1", a.ID, a.Uuid)
 		s.Logger.Info("application scaled to zero (asleep)", "application", uuid, "idle_since", last)
 	}
 
@@ -281,11 +298,47 @@ func (s *Scheduler) scaleZeroApplications(ctx context.Context) {
 				s.Logger.Warn("app scale-to-zero wake update failed", "application", uuid, "error", err)
 				continue
 			}
+			s.emitApplicationEvent(ctx, "application.woken.v1", a.ID, a.Uuid)
 			s.Logger.Info("application woken by waker", "application", uuid)
 		} else {
 			s.Logger.Debug("scale-to-zero: sleeping application not woken",
 				"application", uuid, "activity", last, "slept_at", a.ScaleSleptAt.Time)
 		}
+	}
+}
+
+// ensureAgents provisions the helper on EVERY server with a proxy (ADR-040):
+// servers without a scale-to-zero resource never go through ensureWaker, yet
+// their observations — container states, heartbeat — are just as valuable.
+// Runs at the maintenance cadence; the ensure command is a no-op when the
+// image and spec already match, so a steady state costs one inspect per pass.
+func (s *Scheduler) ensureAgents(ctx context.Context) {
+	if s.WakerImage == "" {
+		return
+	}
+	servers, err := s.Store.ListServersWithProxy(ctx)
+	if err != nil {
+		s.Logger.Warn("agent ensure: cannot list servers", "error", err)
+		return
+	}
+	if len(servers) == 0 {
+		return
+	}
+	scan := s.newWakerScan(ctx)
+	defer scan.close()
+	for _, server := range servers {
+		client := scan.client(server)
+		if client == nil {
+			continue
+		}
+		// The helper joins the server's default destination network when one
+		// exists (so it can also serve wakes there); the plain bridge is
+		// enough for an observation-only server.
+		network := "bridge"
+		if dest, err := s.Store.GetDefaultDestination(ctx, server.ID); err == nil && dest.Network != "" {
+			network = dest.Network
+		}
+		scan.reconcile(server, network, client)
 	}
 }
 

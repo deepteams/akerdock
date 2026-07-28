@@ -254,10 +254,12 @@ UPDATE applications SET scale_slept_at = now() WHERE id = $1;
 -- name: SetApplicationAwake :exec
 UPDATE applications SET scale_slept_at = NULL WHERE id = $1;
 
--- name: WakeSleptApplicationForServer :execrows
+-- name: WakeSleptApplicationForServer :one
 -- Agent ingestion (ADR-040): flip a slept scale-to-zero application back to
--- awake, only when its resource lives on the given server.
+-- awake, only when its resource lives on the given server. Returns the
+-- resource id so the caller can emit the woken event; no row = nothing slept.
 UPDATE applications a SET scale_slept_at = NULL
 FROM resources r
 JOIN destinations d ON d.id = r.destination_id
-WHERE a.id = r.id AND r.uuid = $1 AND d.server_id = $2 AND a.scale_slept_at IS NOT NULL;
+WHERE a.id = r.id AND r.uuid = $1 AND d.server_id = $2 AND a.scale_slept_at IS NOT NULL
+RETURNING a.id;

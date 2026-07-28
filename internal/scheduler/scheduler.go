@@ -92,8 +92,10 @@ type remoteClient interface {
 // concurrency guarantees need PostgreSQL module tests.
 type Store interface {
 	// Agent enrollment (ADR-040): the reconcile re-injects the per-server
-	// token whenever it recreates the helper.
+	// token whenever it recreates the helper, and ensureAgents provisions the
+	// helper on every server.
 	jobs.AgentEnrollmentStore
+	GetDefaultDestination(context.Context, int64) (store.Destination, error)
 	jobs.PreviewPromotionStore
 	audit.OutboxStore
 
@@ -269,6 +271,7 @@ func (s *Scheduler) runTasks(ctx context.Context) {
 	s.reapPreviews(ctx)
 	s.scaleZeroPreviews(ctx)
 	s.scaleZeroApplications(ctx)
+	s.ensureAgents(ctx)
 }
 
 // purgeRetention drops expired history: terminal jobs, published outbox

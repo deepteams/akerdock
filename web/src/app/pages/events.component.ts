@@ -117,6 +117,8 @@ export class EventsComponent implements OnDestroy {
    */
   private static readonly eventTypes = [
     'application.created.v1',
+    'application.slept.v1',
+    'application.woken.v1',
     'application.preview.created.v1',
     'application.preview.updated.v1',
     'application.preview.deleted.v1',

@@ -988,7 +988,8 @@ type Querier interface {
 	// binds the ciphertext to it before the insert.
 	UpsertUnconfirmedMfaFactor(ctx context.Context, arg UpsertUnconfirmedMfaFactorParams) (MfaFactor, error)
 	// Agent ingestion (ADR-040): flip a slept scale-to-zero application back to
-	// awake, only when its resource lives on the given server.
+	// awake, only when its resource lives on the given server. Returns the
+	// resource id so the caller can emit the woken event; no row = nothing slept.
 	WakeSleptApplicationForServer(ctx context.Context, arg WakeSleptApplicationForServerParams) (int64, error)
 }
 

@@ -16,6 +16,7 @@ import {
   type StackComponentAction,
 } from '../../ui/stack-components/stack-components.component';
 import { ApiService } from '../core/api.service';
+import { APPLICATION_EVENTS, DEPLOYMENT_EVENTS, liveRefresh } from '../core/live-refresh';
 import type { components } from '../../api/schema';
 import { ApplicationSettingsTabComponent } from './application/settings-tab.component';
 import { ApplicationEnvsTabComponent } from './application/envs-tab.component';
@@ -387,6 +388,19 @@ export class ApplicationDetailComponent {
     effect(() => {
       const uuid = this.uuid();
       untracked(() => void this.load(uuid));
+    });
+    // Live refresh (ADR-024/040): deployments, sleep/wake and the observed
+    // component states (pushed by the server agent) move on their own.
+    effect((onCleanup) => {
+      const uuid = this.uuid();
+      onCleanup(
+        liveRefresh(
+          this.api,
+          [...APPLICATION_EVENTS, ...DEPLOYMENT_EVENTS],
+          (ev) => ev.resource_uuid === uuid,
+          () => untracked(() => void this.load(uuid)),
+        ),
+      );
     });
     // Live metrics: poll only while the overview shows an instance panel — a
     // compose stack with components, or a single-container app — and stop

@@ -22,6 +22,7 @@ import { ApplicationEnvsTabComponent } from './application/envs-tab.component';
 import { TerminalComponent } from '../../ui/terminal/terminal.component';
 import type { TerminalSessionInfo } from '../../ui/terminal/protocol';
 import { ApiService } from '../core/api.service';
+import { DEPLOYMENT_EVENTS, PREVIEW_EVENTS, liveRefresh } from '../core/live-refresh';
 import type { components } from '../../api/schema';
 
 type Preview = components['schemas']['Preview'];
@@ -646,7 +647,39 @@ export class PreviewDetailComponent {
         clearInterval(timer);
       });
     });
+    // Live refresh (ADR-024/040): preview status and component states move on
+    // their own — deploys, sleep/wake by the scheduler or the agent.
+    effect((onCleanup) => {
+      const app = this.uuid();
+      const preview = this.previewUuid();
+      onCleanup(
+        liveRefresh(
+          this.api,
+          [...PREVIEW_EVENTS, ...DEPLOYMENT_EVENTS],
+          (ev) => ev.resource_uuid === app,
+          () => untracked(() => void this.refreshState(app, preview)),
+        ),
+      );
+    });
     inject(DestroyRef).onDestroy(() => this.stopFollow());
+  }
+
+  /**
+   * Light event-driven refresh: preview + component state only — the logs,
+   * the active tab and the user's component selections stay untouched.
+   */
+  private async refreshState(app: string, previewUuid: string): Promise<void> {
+    try {
+      const [previews, comps] = await Promise.all([
+        this.api.client().listApplicationPreviews(app),
+        this.api.client().listApplicationComponents(app),
+      ]);
+      const preview = previews.data.find((p) => p.uuid === previewUuid);
+      if (preview) this.preview.set(preview);
+      this.components.set(comps.data);
+    } catch {
+      // Transient — keep the last state on screen.
+    }
   }
 
   protected previewVolumeName(s: Storage): string {
