@@ -40,6 +40,17 @@ services:
       AKERDOCK_ROOT_PASSWORD: ${AKERDOCK_ROOT_PASSWORD:-}
       # Pre-registered localhost server (§6.2): read at seeding only.
       AKERDOCK_LOCALHOST_USER: ${AKERDOCK_LOCALHOST_USER:-}
+      # Which peers may speak for someone else. Under this distribution the
+      # instance's own proxy routes the FQDN to the published port above
+      # (00-control-plane, proxy-contract §5.7), so every request reaches this
+      # process through the network gateway: without this, the caller address
+      # recorded everywhere — audit trail, auth rate limiter, a token's CIDR
+      # allowlist — is the proxy's, not the client's. `gateway` resolves that
+      # address at each start, because it does not exist yet at install time
+      # and moves with a custom subnet. Override it in .env for a proxy that is
+      # not the instance's own; the BINARY still defaults to trusting nothing,
+      # since a process exposed directly must not believe a forwarded header.
+      AKERDOCK_TRUSTED_PROXIES: ${AKERDOCK_TRUSTED_PROXIES:-gateway}
     volumes:
       - ./keys/master.key:/run/secrets/master.key:ro
       - akerdock_data:/var/lib/akerdock

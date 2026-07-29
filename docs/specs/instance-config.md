@@ -161,6 +161,10 @@ services:
       AKERDOCK_ROOT_PASSWORD: ${AKERDOCK_ROOT_PASSWORD:-}
       # Pre-registered localhost server (§6.2) — read at bootstrap only
       AKERDOCK_LOCALHOST_USER: ${AKERDOCK_LOCALHOST_USER:-}
+      # The proxy fronting the published port: without this every recorded
+      # caller address is the proxy's (§2.1). `.env` alone is NOT enough —
+      # it interpolates this file, it does not reach the container.
+      AKERDOCK_TRUSTED_PROXIES: ${AKERDOCK_TRUSTED_PROXIES:-gateway}
     volumes:
       - ./keys/master.key:/run/secrets/master.key:ro
       - akerdock_data:/var/lib/akerdock
