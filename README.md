@@ -173,6 +173,7 @@ do not move.
 
 ### Per-directory defaults (`.akerdock`)
 
+
 Drop a committable `.akerdock` file in a repo to set defaults for that directory
 tree — no more repeating `--context` or the target on every command (found by
 walking up, like `.git`; it never holds secrets):
