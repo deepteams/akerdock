@@ -25,11 +25,21 @@ your servers over SSH.
 - **Backups** of databases and volumes with local + S3 retention and restore
   drills.
 - **Auth**: password, passkeys (WebAuthn), OIDC SSO (Google, Entra…), enforced
-  MFA, and SCIM 2.0 provisioning; granular team RBAC.
+  MFA, and SCIM 2.0 provisioning; granular team RBAC, with an invitee able to
+  create their account straight from the invitation link.
+- **Teams as the isolation boundary**: a user can belong to several teams with a
+  different role in each, and switches between them from the sidebar; everything
+  else (servers, resources, tokens, notifications) is scoped per team.
 - **Adopt** containers and compose stacks already running on a server, without
   restarting them (migrate in place).
+- **Scale to zero**: idle apps stop and wake on the first request
+  ([ADR-036](docs/adr/ADR-036-scale-to-zero-waker.md)).
+- **Bastion**: declared external endpoints and audited TCP tunnels to them
+  ([ADR-045](docs/adr/ADR-045-external-endpoint-port-forwards.md)).
 - **Local CLI** for day-to-day debugging: logs, shell, TCP port-forward and typed
   DB consoles — see [Using the CLI](#using-the-cli).
+- **MCP server** (read-only, opt-in) so an assistant can inspect the instance —
+  `akerdock mcp` ([ADR-043](docs/adr/ADR-043-mcp-server-oauth-and-cli.md)).
 
 ## Run your own instance
 
@@ -87,22 +97,32 @@ akerdock login --url https://manager.example.com
 ```
 
 This opens your browser to authorise (SSO / password / passkey), then stores a
-named, revocable token under `~/.akerdock/` (config `0700`, tokens `0600`). No
-port is opened; the browser flow uses a confirmation code you match on screen.
-CI or headless? Paste an existing API token instead:
+named, revocable token under `~/.akerdock/` (directory `0700`, files `0600`; the
+token lives in `credentials.yaml`, apart from the inspectable `config.yaml`). **No
+port is opened** — the browser flow is a poll bound by PKCE, with a confirmation
+code you match on screen. The token defaults to `read,write` — never `root`,
+`deploy` or `read:sensitive` unless you ask for them with `--scopes`, and never
+more than the approving session holds — and expires after 30 days.
+
+CI or headless? Paste an existing API token instead, or print the URL rather than
+opening a browser:
 
 ```sh
 akerdock login --url https://manager.example.com --with-token < token.txt
+akerdock login --url https://manager.example.com --no-browser
 ```
 
 ### Everyday commands
 
-A resource is addressed by a `REF` of the form `type/name`:
-`app/…`, `db/…`, `svc/…`, `preview/…`.
+A resource is addressed by a `REF` of the form `type/name`, where the name is the
+resource's name or its UUID: `app/…`, `db/…`, `svc/…`, `preview/…`, and
+`endpoint/…` for a declared external target.
 
 ```sh
 akerdock ls                              # apps, databases and services in the team
+akerdock ls servers                      # or one kind: apps|databases|services|servers
 akerdock logs app/varuna -f              # follow container logs
+akerdock logs app/varuna -n 500          # snapshot, last N lines (default 200)
 akerdock logs app/varuna --deployment    # logs of the latest build/deploy
 akerdock shell app/varuna                # interactive shell in the container
 akerdock shell app/varuna -c postgres    # a specific compose service
@@ -111,35 +131,59 @@ akerdock shell app/varuna -c postgres    # a specific compose service
 akerdock port-forward db/pg 15432:5432
 akerdock port-forward app/varuna 15432:5432 -c postgres --pr 8   # a PR preview
 
-# Typed console: opens a forward + the right client (psql/redis-cli/…):
+# …or to a declared external endpoint — a managed DB, an internal API (ADR-045).
+# No remote port to give: the endpoint froze its own host and port. Without a
+# local port either, the OS picks a free one and the CLI prints it.
+akerdock port-forward endpoint/prod-replica
+akerdock port-forward endpoint/prod-replica 15432   # …on a chosen local port
+
+# Typed console: opens a forward + the right client
+# (psql / mysql / redis-cli / mongosh, picked from the engine):
 akerdock db db/pg
 ```
 
 Output is human tables by default; add `-o json` for scripting, `--quiet` for
-bare output.
+bare output. Exit codes: `0` success, `1` error, `2` usage.
 
-### Contexts (multiple instances)
+### Give a local assistant read-only access (MCP)
 
-Each `login` creates a **context** (an instance + active team). Switch between
-them without re-typing the URL:
+`akerdock mcp` bridges the instance's MCP server over stdio, using the current
+context's credentials. The tools are read-only, and the server-side surface is
+**off by default** — enable it in the instance settings first
+([ADR-043](docs/adr/ADR-043-mcp-server-oauth-and-cli.md)).
+
+### Contexts (multiple instances, multiple teams)
+
+Each `login` creates a **context**: one instance, and the team its token belongs
+to. Switch between them without re-typing the URL:
 
 ```sh
 akerdock context list
 akerdock context use staging
+akerdock context current
 akerdock logout --context staging --revoke   # also revoke the server-side token
 ```
+
+An API token is **bound to one team** when it is created, so a context acts in
+that team and nothing else — `--team` does not move it (it only tells
+`logout --revoke` where to look for the token to delete). To work in another
+team, log in again into a separate context with a token of that team. The
+dashboard's team switcher moves a *session*; the CLI holds a token, and tokens
+do not move.
 
 ### Per-directory defaults (`.akerdock`)
 
 Drop a committable `.akerdock` file in a repo to set defaults for that directory
-tree — no more repeating `--context`, `--team` or the target on every command
-(found by walking up, like `.git`; it never holds secrets):
+tree — no more repeating `--context` or the target on every command (found by
+walking up, like `.git`; it never holds secrets):
 
 ```yaml
-# .akerdock
-context: prod
-application: varuna
-component: web
+# .akerdock — every field optional
+context: prod          # a context created by `akerdock login`
+application: varuna    # default target for logs / shell
+component: web         # default compose service
+project: platform
+environment: production
 ```
 
 Then, from that repo:
@@ -150,7 +194,24 @@ akerdock shell            # shell into it
 ```
 
 Resolution precedence (most specific wins):
-`flags > AKERDOCK_* env vars > .akerdock > ~/.akerdock (global)`.
+`flags > AKERDOCK_* env vars > .akerdock > ~/.akerdock (global)` — with
+`AKERDOCK_CONTEXT`, `AKERDOCK_APPLICATION`, `AKERDOCK_COMPONENT`,
+`AKERDOCK_PROJECT`, `AKERDOCK_ENVIRONMENT`, `AKERDOCK_TEAM`.
+
+### Server modes
+
+The same binary runs the control plane, which is why `akerdock --help` lists more
+than the client commands:
+
+```sh
+akerdock serve            # all-in-one (default, or $AKERDOCK_MODE)
+akerdock serve api        # HTTP API only …  worker | scheduler for the others
+akerdock healthcheck      # probe used by the compose healthcheck
+akerdock waker            # scale-to-zero helper container (ADR-036)
+akerdock version
+```
+
+The full contract is in [docs/specs/cli.md](docs/specs/cli.md).
 
 ## Documentation
 

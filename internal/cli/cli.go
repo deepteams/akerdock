@@ -40,7 +40,10 @@ var flags globalFlags
 func AddCommands(root *cobra.Command, _ string) {
 	pf := root.PersistentFlags()
 	pf.StringVar(&flags.context, "context", "", "context to use (default: .akerdock or current, or $AKERDOCK_CONTEXT)")
-	pf.StringVar(&flags.team, "team", "", "team uuid or name (default: .akerdock, $AKERDOCK_TEAM, or the context's)")
+	// Not a team switch: a token is bound to its team at creation (rbac-matrix
+	// §4.1), so every command acts in the token's team. This only tells
+	// `logout --revoke` where to look for the token to delete.
+	pf.StringVar(&flags.team, "team", "", "team of the token, used by logout --revoke (a token is bound to its team: this does not switch teams)")
 	pf.StringVar(&flags.project, "project", "", "default project (default: .akerdock or $AKERDOCK_PROJECT)")
 	pf.StringVar(&flags.application, "application", "", "default application/target (default: .akerdock or $AKERDOCK_APPLICATION)")
 	pf.StringVar(&flags.environment, "environment", "", "default environment (default: .akerdock or $AKERDOCK_ENVIRONMENT)")

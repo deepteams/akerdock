@@ -101,6 +101,10 @@ func dbCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Same default as logs/shell/port-forward: a `.akerdock` naming a
+			// component applies here too. Without this, `db` was the one command
+			// that ignored it — an exception nobody could have guessed.
+			component = defaultComponent(component)
 			r, err := parseRef(args[0])
 			if err != nil {
 				return err

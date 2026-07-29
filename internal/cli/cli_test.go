@@ -54,6 +54,30 @@ func TestParsePorts(t *testing.T) {
 	}
 }
 
+// `port-forward` takes two optional positional arguments, so telling them apart
+// by POSITION is wrong: `port-forward endpoint/replica` used to be read as a
+// ports argument and complained about a missing default application. A REF
+// always contains a slash; a ports argument never does.
+func TestSplitForwardArgs(t *testing.T) {
+	cases := []struct {
+		args       []string
+		ref, ports string
+	}{
+		{[]string{"db/pg", "15432:5432"}, "db/pg", "15432:5432"},
+		{[]string{"15432:5432"}, "", "15432:5432"},
+		{[]string{"5432"}, "", "5432"},
+		{[]string{"endpoint/prod-replica"}, "endpoint/prod-replica", ""},
+		{[]string{"app/varuna"}, "app/varuna", ""},
+		{nil, "", ""},
+	}
+	for _, tc := range cases {
+		ref, ports := splitForwardArgs(tc.args)
+		if ref != tc.ref || ports != tc.ports {
+			t.Errorf("splitForwardArgs(%q) = (%q, %q), want (%q, %q)", tc.args, ref, ports, tc.ref, tc.ports)
+		}
+	}
+}
+
 // pkcePair must produce challenge = base64url(sha256(verifier)) — the exact
 // relation the server verifies (ADR-031).
 func TestPKCEPair(t *testing.T) {

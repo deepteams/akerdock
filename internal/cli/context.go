@@ -10,7 +10,7 @@ import (
 func contextCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "context",
-		Short: "Manage instances/teams the CLI talks to",
+		Short: "Manage the instances the CLI talks to (one context = one instance + its token's team)",
 	}
 	cmd.AddCommand(
 		&cobra.Command{

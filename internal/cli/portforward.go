@@ -29,31 +29,41 @@ func portForwardCmd() *cobra.Command {
 	var component string
 	var pr int
 	cmd := &cobra.Command{
-		Use:   "port-forward REF [LOCAL:]REMOTE",
-		Short: "Tunnel a local port to a container port through the manager",
+		Use:   "port-forward [REF] [[LOCAL:]REMOTE]",
+		Short: "Tunnel a local port to a container port, or to a declared external endpoint",
 		Example: "  akerdock port-forward db/pg 15432:5432\n" +
 			"  akerdock port-forward app/varuna 15432:5432 -c postgres\n" +
 			"  akerdock port-forward app/varuna 15432:5432 -c postgres --pr 8   # a PR preview\n" +
-			"  akerdock port-forward endpoint/prod-replica 15432                # a declared external endpoint",
+			"  akerdock port-forward endpoint/prod-replica                      # a declared external endpoint\n" +
+			"  akerdock port-forward endpoint/prod-replica 15432                # …on a chosen local port",
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := newClient(flags.context)
 			if err != nil {
 				return err
 			}
-			// The ports argument is always last; a leading REF is optional when a
-			// default application is configured (.akerdock, spec §4).
+			refArg, portsArg := splitForwardArgs(args)
 			var refArgs []string
-			if len(args) == 2 {
-				refArgs = args[:1]
+			if refArg != "" {
+				refArgs = []string{refArg}
 			}
 			r, err := refFromArgs(refArgs)
 			if err != nil {
 				return err
 			}
-			localPort, remotePort, err := parsePorts(args[len(args)-1])
-			if err != nil {
-				return err
+			// An external endpoint declared its own host and port (ADR-045), so
+			// there is no remote port to name: the ports argument becomes
+			// optional, and without it the OS picks the local port.
+			var localPort, remotePort int
+			switch {
+			case portsArg != "":
+				if localPort, remotePort, err = parsePorts(portsArg); err != nil {
+					return err
+				}
+			case r.kind == "endpoints":
+				localPort, remotePort = 0, 0
+			default:
+				return fmt.Errorf("no port given — pass the container port to forward (e.g. %s 15432:5432)", refArg)
 			}
 			component = defaultComponent(component)
 			res, err := c.resolve(cmd.Context(), r)
@@ -89,6 +99,47 @@ func portForwardCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&component, "component", "c", "", "compose service to target")
 	cmd.Flags().IntVar(&pr, "pr", 0, "target the preview of this PR number instead of production")
 	return cmd
+}
+
+// splitForwardArgs tells the optional REF from the optional ports, because both
+// are positional and either may be omitted:
+//
+//	port-forward db/pg 15432:5432    → ref + ports
+//	port-forward 15432:5432          → ports only (default app from .akerdock)
+//	port-forward endpoint/replica    → ref only (an endpoint names no port)
+//
+// A REF always contains a slash and a ports argument never does, so one
+// argument is never ambiguous — reading it by POSITION alone is what made
+// `port-forward endpoint/x` complain about a missing default application.
+func splitForwardArgs(args []string) (refArg, portsArg string) {
+	if len(args) == 2 {
+		return args[0], args[1]
+	}
+	if len(args) == 1 && strings.Contains(args[0], "/") {
+		return args[0], ""
+	}
+	if len(args) == 1 {
+		return "", args[0]
+	}
+	return "", ""
+}
+
+// handshakeReason extracts the API error message from a refused WebSocket
+// upgrade. The tunnel redeem answers a normal JSON error before switching
+// protocols (a revoked grant, an unreachable server, a session cap), and that
+// sentence is the only actionable part of the failure.
+func handshakeReason(resp *http.Response) string {
+	if resp == nil || resp.Body == nil {
+		return ""
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var body struct {
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<10)).Decode(&body); err != nil {
+		return ""
+	}
+	return body.Message
 }
 
 // parsePorts parses "LOCAL:REMOTE" or "REMOTE" (local defaults to remote).
@@ -148,8 +199,14 @@ func (c *Client) runPortForward(ctx context.Context, mintPath, component string,
 	}
 
 	wsURL := toWS(c.base) + sess.WebsocketPath + "?" + url.Values{"token": {sess.Token}}.Encode()
-	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{Subprotocols: []string{"akerdock-tunnel-v1"}})
+	conn, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{Subprotocols: []string{"akerdock-tunnel-v1"}})
 	if err != nil {
+		// The refusal carries a reason the operator can act on — "the server is
+		// not reachable over SSH right now" beats "expected handshake response
+		// status code 101 but got 409", which describes only our disappointment.
+		if reason := handshakeReason(resp); reason != "" {
+			return fmt.Errorf("cannot open tunnel: %s", reason)
+		}
 		return fmt.Errorf("cannot open tunnel: %w", err)
 	}
 	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
@@ -160,16 +217,26 @@ func (c *Client) runPortForward(ctx context.Context, mintPath, component string,
 	defer cancel()
 	go tun.readLoop(ctx, cancel)
 
+	// Port 0 lets the OS pick a free one — the case of an endpoint forward with
+	// no ports argument. The chosen port is read back from the listener and
+	// announced, because a port nobody told you about is a tunnel you cannot use.
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", localPort))
 	if err != nil {
 		return fmt.Errorf("cannot listen on 127.0.0.1:%d: %w", localPort, err)
 	}
 	defer func() { _ = ln.Close() }()
+	if addr, ok := ln.Addr().(*net.TCPAddr); ok {
+		localPort = addr.Port
+	}
 	// Announced at open, not only when it ends: the developer plans a long
 	// transfer around this instant, and a deadline that arrives unannounced
 	// reads as a bug in the platform (ADR-045 §5).
-	fmt.Fprintf(os.Stderr, "forwarding 127.0.0.1:%d -> remote :%d%s (Ctrl-C to stop)\n",
-		localPort, remotePort, authorizedSuffix(sess.AuthorizedUntil))
+	target := fmt.Sprintf("remote :%d", remotePort)
+	if remotePort == 0 {
+		target = "the endpoint's declared target" // frozen server-side (ADR-045 §2)
+	}
+	fmt.Fprintf(os.Stderr, "forwarding 127.0.0.1:%d -> %s%s (Ctrl-C to stop)\n",
+		localPort, target, authorizedSuffix(sess.AuthorizedUntil))
 	if sess.AuthorizedUntil != nil {
 		go warnBeforeExpiry(ctx, *sess.AuthorizedUntil)
 	}
