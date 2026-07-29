@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
@@ -43,7 +43,7 @@ type Application = components['schemas']['Application'];
         </akd-empty-state>
       } @else {
         <akd-card [padded]="false">
-          <table class="akd-table">
+          <table class="akd-table akd-table--clickable">
             <caption class="sr-only">
               Applications of this team, with their desired and observed state
             </caption>
@@ -58,13 +58,23 @@ type Application = components['schemas']['Application'];
             </thead>
             <tbody>
               @for (app of applications(); track app.uuid) {
-                <tr>
+                <tr
+                  tabindex="0"
+                  role="link"
+                  [attr.aria-label]="'Open application ' + app.name"
+                  (click)="open(app)"
+                  (keydown.enter)="openFromKeyboard($event, app)"
+                  (keydown.space)="openFromKeyboard($event, app)"
+                >
                   <td>
                     <span class="name-cell">
                       <akd-icon name="rocket" [size]="15" />
-                      <a class="akd-mono" [routerLink]="['/applications', app.uuid]">{{
-                        app.name
-                      }}</a>
+                      <a
+                        class="akd-mono"
+                        [routerLink]="['/applications', app.uuid]"
+                        (click)="$event.stopPropagation()"
+                        >{{ app.name }}</a
+                      >
                     </span>
                   </td>
                   <td>
@@ -79,7 +89,7 @@ type Application = components['schemas']['Application'];
                   <td>
                     <akd-status-badge domain="resource" [state]="app.observed_status" />
                   </td>
-                  <td class="right">
+                  <td class="right" (click)="$event.stopPropagation()">
                     <button
                       class="akd-btn akd-btn--secondary akd-btn--sm"
                       type="button"
@@ -111,6 +121,7 @@ type Application = components['schemas']['Application'];
 })
 export class ApplicationsComponent {
   private readonly api = inject(ApiService);
+  private readonly router = inject(Router);
 
   protected readonly applications = signal<Application[]>([]);
   protected readonly loading = signal(true);
@@ -119,6 +130,16 @@ export class ApplicationsComponent {
 
   constructor() {
     void this.load();
+  }
+
+  protected open(app: Application): void {
+    void this.router.navigate(['/applications', app.uuid]);
+  }
+
+  protected openFromKeyboard(event: Event, app: Application): void {
+    if (event.target !== event.currentTarget) return;
+    event.preventDefault();
+    this.open(app);
   }
 
   private async load(): Promise<void> {

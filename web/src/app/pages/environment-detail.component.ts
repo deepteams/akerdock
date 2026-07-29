@@ -180,7 +180,14 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
               </thead>
               <tbody>
                 @for (row of resources(); track row.uuid) {
-                  <tr (click)="open(row)">
+                  <tr
+                    tabindex="0"
+                    role="link"
+                    [attr.aria-label]="'Open ' + row.kind + ' ' + row.name"
+                    (click)="open(row)"
+                    (keydown.enter)="openFromKeyboard($event, row)"
+                    (keydown.space)="openFromKeyboard($event, row)"
+                  >
                     <td>
                       <span class="res">
                         <span class="res__icon"><akd-icon [name]="row.icon" [size]="15" /></span>
@@ -633,6 +640,12 @@ export class EnvironmentDetailComponent {
 
   protected open(row: ResourceRow): void {
     void this.router.navigate(row.link);
+  }
+
+  protected openFromKeyboard(event: Event, row: ResourceRow): void {
+    if (event.target !== event.currentTarget) return;
+    event.preventDefault();
+    this.open(row);
   }
 
   protected create(option: (typeof this.newResourceOptions)[number]): void {

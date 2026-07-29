@@ -8,7 +8,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../../ui/card/card.component';
 import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
@@ -72,7 +72,7 @@ type PullRequestInfo =
       />
     } @else {
       <akd-card title="Pull request previews" [padded]="false">
-        <table class="akd-table">
+        <table class="akd-table akd-table--clickable">
           <caption class="sr-only">
             PR previews of this application
           </caption>
@@ -87,13 +87,21 @@ type PullRequestInfo =
           </thead>
           <tbody>
             @for (p of previews(); track p.uuid) {
-              <tr>
+              <tr
+                tabindex="0"
+                role="link"
+                [attr.aria-label]="'Open preview for pull request ' + p.pr_id"
+                (click)="open(p)"
+                (keydown.enter)="openFromKeyboard($event, p)"
+                (keydown.space)="openFromKeyboard($event, p)"
+              >
                 <td>
                   <!-- The PR badge opens the preview's own page: logs,
                        storages, preview variables and its danger zone. -->
                   <a
                     class="akd-badge akd-badge--mono"
                     [routerLink]="['/applications', uuid(), 'previews', p.uuid]"
+                    (click)="$event.stopPropagation()"
                     >#{{ p.pr_id }}</a
                   >
                 </td>
@@ -115,14 +123,20 @@ type PullRequestInfo =
                 </td>
                 <td>
                   @if (p.fqdn) {
-                    <a class="akd-mono" [href]="'https://' + p.fqdn" target="_blank" rel="noopener">
+                    <a
+                      class="akd-mono"
+                      [href]="'https://' + p.fqdn"
+                      target="_blank"
+                      rel="noopener"
+                      (click)="$event.stopPropagation()"
+                    >
                       {{ p.fqdn }}
                     </a>
                   } @else {
                     <span class="akd-muted">—</span>
                   }
                 </td>
-                <td class="right">
+                <td class="right" (click)="$event.stopPropagation()">
                   @if (awaitingDeploy(p) && !p.is_fork && p.pr_id) {
                     <button
                       class="akd-btn akd-btn--primary akd-btn--sm"
@@ -244,6 +258,7 @@ export class ApplicationPreviewsTabComponent implements OnDestroy {
   readonly uuid = input.required<string>();
 
   private readonly api = inject(ApiService);
+  private readonly router = inject(Router);
 
   /** The application's preview_deploy_on_open — fed by the parent page so a
    * manual-first reservation can be labeled for what it is. */
@@ -293,6 +308,16 @@ export class ApplicationPreviewsTabComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.stopLive();
+  }
+
+  protected open(preview: Preview): void {
+    void this.router.navigate(['/applications', this.uuid(), 'previews', preview.uuid]);
+  }
+
+  protected openFromKeyboard(event: Event, preview: Preview): void {
+    if (event.target !== event.currentTarget) return;
+    event.preventDefault();
+    this.open(preview);
   }
 
   private async load(uuid: string): Promise<void> {

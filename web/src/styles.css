@@ -501,6 +501,10 @@ kbd {
 .akd-table--clickable tbody tr {
   cursor: pointer;
 }
+.akd-table--clickable tbody tr:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
 .akd-table td.right,
 .akd-table th.right {
   text-align: right;

@@ -125,7 +125,14 @@ type Environment = components['schemas']['Environment'];
                 </thead>
                 <tbody>
                   @for (env of environments(); track env.uuid) {
-                    <tr (click)="openEnvironment(env)">
+                    <tr
+                      tabindex="0"
+                      role="link"
+                      [attr.aria-label]="'Open environment ' + env.name"
+                      (click)="openEnvironment(env)"
+                      (keydown.enter)="openEnvironmentFromKeyboard($event, env)"
+                      (keydown.space)="openEnvironmentFromKeyboard($event, env)"
+                    >
                       <td>
                         @if (editing() === env.uuid) {
                           <form
@@ -458,6 +465,12 @@ export class ProjectDetailComponent {
 
   protected openEnvironment(env: Environment): void {
     void this.router.navigate(['/projects', this.uuid(), 'environments', env.uuid]);
+  }
+
+  protected openEnvironmentFromKeyboard(event: Event, env: Environment): void {
+    if (event.target !== event.currentTarget) return;
+    event.preventDefault();
+    this.openEnvironment(env);
   }
 
   protected startRename(env: Environment): void {
