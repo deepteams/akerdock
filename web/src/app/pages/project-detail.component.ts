@@ -200,7 +200,6 @@ type Environment = components['schemas']['Environment'];
               </table>
             }
           </akd-card>
-        }
         } @else {
           <akd-card title="Project" class="cfg">
             <form class="cfgform" (ngSubmit)="save()">
