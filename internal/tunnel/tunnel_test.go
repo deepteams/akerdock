@@ -185,3 +185,58 @@ func TestBridgeWithoutCancelChannelStillEndsNormally(t *testing.T) {
 		t.Fatal("bridge did not return after client close")
 	}
 }
+
+func TestBridgePersistsSuccessfulHeartbeats(t *testing.T) {
+	fc := newFakeConn()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	heartbeat := make(chan struct{}, 1)
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- Bridge(ctx, fc, nil, Options{
+			Heartbeat: 5 * time.Millisecond,
+			OnHeartbeat: func(context.Context) bool {
+				select {
+				case heartbeat <- struct{}{}:
+				default:
+				}
+				return true
+			},
+		})
+	}()
+
+	select {
+	case <-heartbeat:
+	case <-time.After(time.Second):
+		t.Fatal("successful WebSocket ping did not trigger its persistence hook")
+	}
+	cancel()
+	select {
+	case got := <-done:
+		if got != EndDisconnect {
+			t.Fatalf("end reason = %q, want disconnect after context cancellation", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("bridge did not stop after cancellation")
+	}
+}
+
+func TestBridgeStopsWhenTheDurableSessionWasClosed(t *testing.T) {
+	fc := newFakeConn()
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- Bridge(context.Background(), fc, nil, Options{
+			Heartbeat:   5 * time.Millisecond,
+			OnHeartbeat: func(context.Context) bool { return false },
+		})
+	}()
+
+	select {
+	case got := <-done:
+		if got != EndDisconnect {
+			t.Fatalf("end reason = %q, want disconnect for an already-finalized row", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("bridge remained open after its durable session was finalized")
+	}
+}

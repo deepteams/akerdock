@@ -42,6 +42,7 @@ type fakeSchedulerStore struct {
 	proxyServers []store.Server
 	revisions    []store.ProxyConfigRevision
 	uptimeChecks []store.UptimeCheck
+	sweptTunnels []store.SweepPortForwardSessionsRow
 
 	application store.GetApplicationByIDRow
 	destination store.Destination
@@ -293,6 +294,14 @@ func (f *fakeSchedulerStore) SweepTerminalSessions(context.Context, int32) (int6
 
 func (f *fakeSchedulerStore) PurgeTerminalSessions(context.Context, int32) (int64, error) {
 	return f.number("purgeTerminals"), f.err("purgeTerminals")
+}
+
+func (f *fakeSchedulerStore) SweepPortForwardSessions(context.Context) ([]store.SweepPortForwardSessionsRow, error) {
+	return f.sweptTunnels, f.err("sweepTunnels")
+}
+
+func (f *fakeSchedulerStore) PurgePortForwardSessions(context.Context, int32) (int64, error) {
+	return f.number("purgeTunnels"), f.err("purgeTunnels")
 }
 
 func (f *fakeSchedulerStore) ListServersWithProxy(context.Context) ([]store.Server, error) {
@@ -660,7 +669,7 @@ func TestScheduledTasks(t *testing.T) {
 func TestRetentionAndHostKey(t *testing.T) {
 	success := &fakeSchedulerStore{ints: map[string]int64{
 		"purgeJobs": 1, "purgeOutbox": 1, "purgeWebhooks": 1, "purgeUptime": 1,
-		"sweepTerminals": 1, "purgeTerminals": 1,
+		"sweepTerminals": 1, "purgeTerminals": 1, "purgeTunnels": 1,
 	}}
 	scheduler := newScheduler(t, success)
 	scheduler.TerminalMaxDuration = time.Hour
@@ -668,7 +677,8 @@ func TestRetentionAndHostKey(t *testing.T) {
 
 	errorKeys := []string{
 		"purgeJobs", "purgeOutbox", "purgeIdempotency", "purgeWebhooks",
-		"purgeUptime", "sweepTerminals", "purgeTerminals",
+		"purgeUptime", "sweepTerminals", "purgeTerminals", "sweepTunnels",
+		"purgeTunnels",
 	}
 	errs := map[string]error{}
 	for _, key := range errorKeys {

@@ -571,6 +571,9 @@ type Querier interface {
 	GetWebhookEndpointByUUID(ctx context.Context, uuid pgtype.UUID) (GetWebhookEndpointByUUIDRow, error)
 	GetWebhookEndpointForApplication(ctx context.Context, arg GetWebhookEndpointForApplicationParams) (WebhookEndpoint, error)
 	HeartbeatJob(ctx context.Context, arg HeartbeatJobParams) (int64, error)
+	// The WebSocket already pings every 20 s. Persisting one successful beat lets
+	// another replica, or the process that starts after a crash, reject a ghost.
+	HeartbeatPortForwardSession(ctx context.Context, id int64) (int64, error)
 	// Audit log (§23.4): strictly append-only — no UPDATE or single DELETE
 	// query must ever exist against this table.
 	InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) error
@@ -1055,6 +1058,10 @@ type Querier interface {
 	// is superseded by a newer one; an already leased/running deployment is
 	// never coalesced.
 	SupersedeQueuedDeployments(ctx context.Context, arg SupersedeQueuedDeploymentsParams) ([]int64, error)
+	// Finalize rows whose socket cannot still be alive. A non-NULL heartbeat names
+	// a bridge from this release or later; legacy NULL rows are left alone until
+	// the protocol's hard four-hour ceiling so an N-1 replica remains compatible.
+	SweepPortForwardSessions(ctx context.Context) ([]SweepPortForwardSessionsRow, error)
 	// Crash net: sessions live in-process, so a row left open past any possible
 	// lifetime is a control-plane restart, not a session. Unclaimed expired
 	// tokens are closed as revoked.

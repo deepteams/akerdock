@@ -135,6 +135,8 @@ type Store interface {
 	PurgeAuditEvents(context.Context, int32) (int64, error)
 	SweepTerminalSessions(context.Context, int32) (int64, error)
 	PurgeTerminalSessions(context.Context, int32) (int64, error)
+	SweepPortForwardSessions(context.Context) ([]store.SweepPortForwardSessionsRow, error)
+	PurgePortForwardSessions(context.Context, int32) (int64, error)
 	ListServersWithProxy(context.Context) ([]store.Server, error)
 	ListAppliedProxyRevisions(context.Context, int64) ([]store.ProxyConfigRevision, error)
 	GetPrivateKeyByID(context.Context, int64) (store.PrivateKey, error)
@@ -329,6 +331,27 @@ func (s *Scheduler) purgeRetention(ctx context.Context) {
 		s.Logger.Warn("terminal session purge failed", "error", err)
 	} else if n > 0 {
 		s.Logger.Info("purged terminal sessions", "count", n)
+	}
+	// Port-forward bridges are WebSockets and disappear with their serving
+	// process. Persisted pings let the elected scheduler finalize crash-orphaned
+	// rows without waiting for the four-hour hard ceiling.
+	if rows, err := s.Store.SweepPortForwardSessions(ctx); err != nil {
+		s.Logger.Warn("port-forward session sweep failed", "error", err)
+	} else {
+		if len(rows) > 0 {
+			s.Logger.Info("swept orphaned port-forward sessions", "count", len(rows))
+		}
+		if s.Audit != nil && s.Audit.Store != nil {
+			for _, row := range rows {
+				s.Audit.System(ctx, &row.TeamID, "port-forward.close",
+					"port_forward_session", row.Uuid, store.AuditResultSuccess)
+			}
+		}
+	}
+	if n, err := s.Store.PurgePortForwardSessions(ctx, jobRetentionDays); err != nil {
+		s.Logger.Warn("port-forward session purge failed", "error", err)
+	} else if n > 0 {
+		s.Logger.Info("purged port-forward sessions", "count", n)
 	}
 }
 

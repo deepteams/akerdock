@@ -1257,6 +1257,7 @@ a snapshot label. The target (container, port) is **frozen at creation**.
 | `token_expires_at` | `timestamptz` | no | — | — | no | Expiration of the attach token (short). |
 | `claimed_at` | `timestamptz` | yes | — | — | no | Consumption by the WebSocket upgrade — single use. |
 | `started_at` | `timestamptz` | no | `now()` | — | no | — |
+| `last_heartbeat_at` | `timestamptz` | yes | — | partial index while `ended_at IS NULL` | no | Last successful manager-side WebSocket ping. NULL denotes an unclaimed token or a legacy N-1 bridge; a claimed session with a stale value is finalized as disconnected after 90 s. |
 | `ended_at` | `timestamptz` | yes | — | — | no | Teardown guaranteed on disconnect/expiration. |
 | `end_reason` | `terminal_end_reason` | yes | — | — | no | Reuses the enum: user_close / idle_timeout / max_duration / disconnect / revoked. |
 | `created_at` | `timestamptz` | no | `now()` | — | no | — |

@@ -44,8 +44,12 @@ One WS per TCP connection would force either a mint+DB write+audit **per TCP con
 (pathological for dev HTTP traffic that opens dozens of connections), or a reusable
 token (breaking the house's single-use invariant). Therefore **one session = one mint,
 one open audit, one close audit, one WS**; the terminal's invariants (single-use
-`akdp_` token, idle 15 min, max 4 h, heartbeat 20 s, guaranteed teardown, open/close
-audit) apply to the **session**. Full yamux is rejected as a
+`akdp_` token, idle 30 min, max 4 h, heartbeat 20 s, guaranteed teardown, open/close
+audit) apply to the **session**. The manager persists each successful heartbeat:
+after 90 seconds without one, the session is no longer counted or listed as open
+and the scheduler finalizes it as disconnected. A nullable heartbeat preserves
+rolling compatibility with an N-1 manager, whose sessions remain bounded by the
+four-hour ceiling. Full yamux is rejected as a
 dependency: the WS already provides frame boundaries, a minimal multiplexing layer
 is enough.
 

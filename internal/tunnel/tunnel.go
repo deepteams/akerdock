@@ -61,6 +61,11 @@ type Options struct {
 	MaxDuration time.Duration
 	Heartbeat   time.Duration
 	MaxStreams  int
+	// OnHeartbeat persists liveness after a successful WebSocket ping. It is
+	// best-effort on storage errors (the caller returns true), but returning
+	// false means the durable session has already been closed and cuts the
+	// socket too.
+	OnHeartbeat func(context.Context) bool
 	// Cancel ends the session from outside, with the reason to report — a
 	// revoked grant, an operator closing the tunnel from the dashboard. A nil
 	// channel simply never fires, which is why the zero value is inert.
@@ -156,6 +161,9 @@ func Bridge(ctx context.Context, conn Conn, dial Dialer, opts Options) EndReason
 			return EndMaxDuration
 		case <-beat.C:
 			if err := conn.Ping(ctx); err != nil {
+				return EndDisconnect
+			}
+			if opts.OnHeartbeat != nil && !opts.OnHeartbeat(ctx) {
 				return EndDisconnect
 			}
 		}

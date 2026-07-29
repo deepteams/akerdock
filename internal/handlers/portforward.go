@@ -264,6 +264,23 @@ func (a *API) TunnelWebSocket(w http.ResponseWriter, r *http.Request) {
 	// records it (ADR-045 §5).
 	bounds := sessionBounds(row)
 	bounds.Cancel = a.Tunnels.register(row.ID)
+	bounds.OnHeartbeat = func(parent context.Context) bool {
+		// The socket remains the source of truth while this process is alive.
+		// Persistence is only the crash/restart net, so a transient database
+		// failure is logged and retried on the next 20-second heartbeat.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 3*time.Second)
+		defer cancel()
+		n, err := a.Store.HeartbeatPortForwardSession(ctx, row.ID)
+		if err != nil {
+			a.Logger.Warn("port-forward heartbeat failed",
+				"session", uuidString(row.Uuid), "error", err)
+			return true
+		}
+		// Zero means another replica or the scheduler has finalized the row.
+		// Do not leave the actual socket alive after its durable authorization
+		// is gone.
+		return n > 0
+	}
 	defer a.Tunnels.unregister(row.ID)
 	reason := tunnel.Bridge(r.Context(), tunnelConn{conn}, dial, bounds)
 	// A session cut by its grant running out is neither an idle timeout nor a

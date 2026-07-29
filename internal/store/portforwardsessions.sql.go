@@ -14,12 +14,12 @@ import (
 
 const claimPortForwardSession = `-- name: ClaimPortForwardSession :one
 UPDATE port_forward_sessions
-SET claimed_at = now(), started_at = now()
+SET claimed_at = now(), started_at = now(), last_heartbeat_at = now()
 WHERE token_hash = $1
   AND claimed_at IS NULL
   AND ended_at IS NULL
   AND token_expires_at > now()
-RETURNING id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until
+RETURNING id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until, last_heartbeat_at
 `
 
 // Single-use attach: consumes the token atomically (a replay matches zero rows).
@@ -48,6 +48,7 @@ func (q *Queries) ClaimPortForwardSession(ctx context.Context, tokenHash string)
 		&i.ExternalEndpointID,
 		&i.GrantID,
 		&i.AuthorizedUntil,
+		&i.LastHeartbeatAt,
 	)
 	return i, err
 }
@@ -56,7 +57,17 @@ const countOpenPortForwardSessions = `-- name: CountOpenPortForwardSessions :one
 SELECT count(*) FROM port_forward_sessions
 WHERE team_id = $1
   AND ended_at IS NULL
-  AND (claimed_at IS NOT NULL OR token_expires_at > now())
+  AND (
+    (claimed_at IS NULL AND token_expires_at > now())
+    OR (
+      claimed_at IS NOT NULL
+      AND started_at > now() - interval '4 hours'
+      AND (authorized_until IS NULL OR authorized_until > now())
+      -- NULL belongs to an N-1 bridge which cannot heartbeat. Keep it valid
+      -- until the four-hour ceiling during rolling upgrades.
+      AND (last_heartbeat_at IS NULL OR last_heartbeat_at > now() - interval '90 seconds')
+    )
+  )
 `
 
 func (q *Queries) CountOpenPortForwardSessions(ctx context.Context, teamID int64) (int64, error) {
@@ -76,7 +87,7 @@ INSERT INTO port_forward_sessions (
     $9, $2, $10, $3,
     $11, $4, $5
 )
-RETURNING id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until
+RETURNING id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until, last_heartbeat_at
 `
 
 type CreatePortForwardSessionParams struct {
@@ -132,6 +143,7 @@ func (q *Queries) CreatePortForwardSession(ctx context.Context, arg CreatePortFo
 		&i.ExternalEndpointID,
 		&i.GrantID,
 		&i.AuthorizedUntil,
+		&i.LastHeartbeatAt,
 	)
 	return i, err
 }
@@ -156,7 +168,7 @@ func (q *Queries) EndPortForwardSession(ctx context.Context, arg EndPortForwardS
 }
 
 const getPortForwardSessionByUUID = `-- name: GetPortForwardSessionByUUID :one
-SELECT id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until FROM port_forward_sessions WHERE uuid = $1 AND team_id = $2
+SELECT id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until, last_heartbeat_at FROM port_forward_sessions WHERE uuid = $1 AND team_id = $2
 `
 
 type GetPortForwardSessionByUUIDParams struct {
@@ -189,12 +201,31 @@ func (q *Queries) GetPortForwardSessionByUUID(ctx context.Context, arg GetPortFo
 		&i.ExternalEndpointID,
 		&i.GrantID,
 		&i.AuthorizedUntil,
+		&i.LastHeartbeatAt,
 	)
 	return i, err
 }
 
+const heartbeatPortForwardSession = `-- name: HeartbeatPortForwardSession :execrows
+UPDATE port_forward_sessions
+SET last_heartbeat_at = now()
+WHERE id = $1
+  AND claimed_at IS NOT NULL
+  AND ended_at IS NULL
+`
+
+// The WebSocket already pings every 20 s. Persisting one successful beat lets
+// another replica, or the process that starts after a crash, reject a ghost.
+func (q *Queries) HeartbeatPortForwardSession(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, heartbeatPortForwardSession, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const listPortForwardSessionsPage = `-- name: ListPortForwardSessionsPage :many
-SELECT s.id, s.uuid, s.team_id, s.user_id, s.server_id, s.resource_id, s.preview_id, s.target_name, s.target_component, s.target_port, s.client_ip, s.token_hash, s.token_expires_at, s.claimed_at, s.started_at, s.ended_at, s.end_reason, s.created_at, s.external_endpoint_id, s.grant_id, s.authorized_until, u.email AS user_email, e.uuid AS endpoint_uuid
+SELECT s.id, s.uuid, s.team_id, s.user_id, s.server_id, s.resource_id, s.preview_id, s.target_name, s.target_component, s.target_port, s.client_ip, s.token_hash, s.token_expires_at, s.claimed_at, s.started_at, s.ended_at, s.end_reason, s.created_at, s.external_endpoint_id, s.grant_id, s.authorized_until, s.last_heartbeat_at, u.email AS user_email, e.uuid AS endpoint_uuid
 FROM port_forward_sessions s
 LEFT JOIN users u ON u.id = s.user_id
 LEFT JOIN external_endpoints e ON e.id = s.external_endpoint_id
@@ -204,7 +235,18 @@ WHERE s.team_id = $1
   -- Same definition of "open" as the team cap, so the list and the 409 never
   -- disagree about how many sessions exist.
   AND (NOT $4::boolean
-       OR (s.ended_at IS NULL AND (s.claimed_at IS NOT NULL OR s.token_expires_at > now())))
+       OR (
+         s.ended_at IS NULL
+         AND (
+           (s.claimed_at IS NULL AND s.token_expires_at > now())
+           OR (
+             s.claimed_at IS NOT NULL
+             AND s.started_at > now() - interval '4 hours'
+             AND (s.authorized_until IS NULL OR s.authorized_until > now())
+             AND (s.last_heartbeat_at IS NULL OR s.last_heartbeat_at > now() - interval '90 seconds')
+           )
+         )
+       ))
 ORDER BY s.id DESC
 LIMIT $5::int
 `
@@ -239,6 +281,7 @@ type ListPortForwardSessionsPageRow struct {
 	ExternalEndpointID *int64
 	GrantID            *int64
 	AuthorizedUntil    pgtype.Timestamptz
+	LastHeartbeatAt    pgtype.Timestamptz
 	UserEmail          *string
 	EndpointUuid       pgtype.UUID
 }
@@ -285,6 +328,7 @@ func (q *Queries) ListPortForwardSessionsPage(ctx context.Context, arg ListPortF
 			&i.ExternalEndpointID,
 			&i.GrantID,
 			&i.AuthorizedUntil,
+			&i.LastHeartbeatAt,
 			&i.UserEmail,
 			&i.EndpointUuid,
 		); err != nil {
@@ -310,4 +354,59 @@ func (q *Queries) PurgePortForwardSessions(ctx context.Context, retentionDays in
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const sweepPortForwardSessions = `-- name: SweepPortForwardSessions :many
+UPDATE port_forward_sessions
+SET ended_at = now(),
+    end_reason = CASE
+      WHEN claimed_at IS NULL THEN 'revoked'::terminal_end_reason
+      WHEN authorized_until IS NOT NULL AND authorized_until <= now()
+        THEN 'grant_expired'::terminal_end_reason
+      WHEN started_at <= now() - interval '4 hours'
+        THEN 'max_duration'::terminal_end_reason
+      ELSE 'disconnect'::terminal_end_reason
+    END
+WHERE ended_at IS NULL
+  AND (
+    (claimed_at IS NULL AND token_expires_at <= now())
+    OR (
+      claimed_at IS NOT NULL
+      AND (
+        started_at <= now() - interval '4 hours'
+        OR (authorized_until IS NOT NULL AND authorized_until <= now())
+        OR (last_heartbeat_at IS NOT NULL
+            AND last_heartbeat_at <= now() - interval '90 seconds')
+      )
+    )
+  )
+RETURNING team_id, uuid
+`
+
+type SweepPortForwardSessionsRow struct {
+	TeamID int64
+	Uuid   pgtype.UUID
+}
+
+// Finalize rows whose socket cannot still be alive. A non-NULL heartbeat names
+// a bridge from this release or later; legacy NULL rows are left alone until
+// the protocol's hard four-hour ceiling so an N-1 replica remains compatible.
+func (q *Queries) SweepPortForwardSessions(ctx context.Context) ([]SweepPortForwardSessionsRow, error) {
+	rows, err := q.db.Query(ctx, sweepPortForwardSessions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SweepPortForwardSessionsRow
+	for rows.Next() {
+		var i SweepPortForwardSessionsRow
+		if err := rows.Scan(&i.TeamID, &i.Uuid); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

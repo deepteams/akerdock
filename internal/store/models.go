@@ -2857,6 +2857,7 @@ type PortForwardSession struct {
 	ExternalEndpointID *int64
 	GrantID            *int64
 	AuthorizedUntil    pgtype.Timestamptz
+	LastHeartbeatAt    pgtype.Timestamptz
 }
 
 type Preview struct {

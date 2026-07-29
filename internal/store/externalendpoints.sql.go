@@ -20,7 +20,7 @@ INSERT INTO port_forward_sessions (
     $1, $8, $2, $3, $9, $4,
     $5, $10, $6, $7, $11
 )
-RETURNING id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until
+RETURNING id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until, last_heartbeat_at
 `
 
 type CreateEndpointPortForwardSessionParams struct {
@@ -77,6 +77,7 @@ func (q *Queries) CreateEndpointPortForwardSession(ctx context.Context, arg Crea
 		&i.ExternalEndpointID,
 		&i.GrantID,
 		&i.AuthorizedUntil,
+		&i.LastHeartbeatAt,
 	)
 	return i, err
 }
@@ -506,7 +507,7 @@ func (q *Queries) ListExternalEndpointsPage(ctx context.Context, arg ListExterna
 }
 
 const listLivePortForwardSessionsByGrant = `-- name: ListLivePortForwardSessionsByGrant :many
-SELECT id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until FROM port_forward_sessions
+SELECT id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until, last_heartbeat_at FROM port_forward_sessions
 WHERE grant_id = $1 AND ended_at IS NULL
 `
 
@@ -542,6 +543,7 @@ func (q *Queries) ListLivePortForwardSessionsByGrant(ctx context.Context, grantI
 			&i.ExternalEndpointID,
 			&i.GrantID,
 			&i.AuthorizedUntil,
+			&i.LastHeartbeatAt,
 		); err != nil {
 			return nil, err
 		}

@@ -7,6 +7,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"sync"
 	"time"
@@ -32,8 +33,10 @@ import (
 //
 // Zero value ready, like AgentPresence.
 type TunnelPresence struct {
-	mu   sync.Mutex
-	live map[int64]chan tunnel.EndReason
+	mu          sync.Mutex
+	live        map[int64]chan tunnel.EndReason
+	closing     bool
+	closeReason tunnel.EndReason
 }
 
 // register hands the bridge its cancel channel and returns it. Buffered so a
@@ -46,6 +49,13 @@ func (p *TunnelPresence) register(sessionID int64) <-chan tunnel.EndReason {
 	}
 	ch := make(chan tunnel.EndReason, 1)
 	p.live[sessionID] = ch
+	// Shutdown starts before http.Server.Shutdown: a WebSocket that raced with
+	// it may register after CloseAll took its snapshot. Remembering the state
+	// makes that bridge leave immediately and Wait still observes it until its
+	// database row has been finalized.
+	if p.closing {
+		ch <- p.closeReason
+	}
 	return ch
 }
 
@@ -70,6 +80,45 @@ func (p *TunnelPresence) Cut(sessionID int64, reason tunnel.EndReason) bool {
 	default:
 	}
 	return true
+}
+
+// CloseAll asks every bridge owned by this process to stop. It also closes any
+// bridge that races with shutdown and registers afterwards.
+func (p *TunnelPresence) CloseAll(reason tunnel.EndReason) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.closing {
+		p.closing = true
+		p.closeReason = reason
+	}
+	for _, ch := range p.live {
+		select {
+		case ch <- p.closeReason:
+		default:
+		}
+	}
+	return len(p.live)
+}
+
+// Wait blocks until every bridge has returned and unregistered, or ctx expires.
+// The unregister happens only after endPortForwardSession, so a successful wait
+// also means the open rows have been finalized before the process exits.
+func (p *TunnelPresence) Wait(ctx context.Context) bool {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		p.mu.Lock()
+		n := len(p.live)
+		p.mu.Unlock()
+		if n == 0 {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
+		}
+	}
 }
 
 // ListPortForwardSessions implements GET /port-forward-sessions.
@@ -171,13 +220,30 @@ func (a *API) portForwardSessionToAPI(r *http.Request, row store.ListPortForward
 }
 
 // portForwardSessionActive is the same definition of "open" as the team cap:
-// not ended, and either attached or still redeemable.
+// a redeemable token, or an attached bridge whose authorization, hard duration
+// and persisted heartbeat are still valid.
 func portForwardSessionActive(row store.ListPortForwardSessionsPageRow) bool {
 	if row.EndedAt.Valid {
 		return false
 	}
-	return row.ClaimedAt.Valid || row.TokenExpiresAt.Time.After(time.Now())
+	now := time.Now()
+	if !row.ClaimedAt.Valid {
+		return row.TokenExpiresAt.Time.After(now)
+	}
+	if !row.StartedAt.Valid ||
+		!row.StartedAt.Time.After(now.Add(-tunnel.DefaultMaxDuration)) {
+		return false
+	}
+	if row.AuthorizedUntil.Valid && !row.AuthorizedUntil.Time.After(now) {
+		return false
+	}
+	// NULL is a bridge served by the previous release during a rolling
+	// upgrade. It cannot heartbeat, so retain it until the four-hour ceiling.
+	return !row.LastHeartbeatAt.Valid ||
+		row.LastHeartbeatAt.Time.After(now.Add(-portForwardHeartbeatStaleAfter))
 }
+
+const portForwardHeartbeatStaleAfter = 90 * time.Second
 
 // ClosePortForwardSession implements DELETE /port-forward-sessions/{uuid}.
 //

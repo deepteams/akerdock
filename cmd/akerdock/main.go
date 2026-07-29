@@ -46,6 +46,7 @@ import (
 	"github.com/deepteams/akerdock/internal/session"
 	"github.com/deepteams/akerdock/internal/store"
 	"github.com/deepteams/akerdock/internal/telemetry"
+	"github.com/deepteams/akerdock/internal/tunnel"
 	"github.com/deepteams/akerdock/internal/waker"
 	"github.com/deepteams/akerdock/internal/web"
 )
@@ -349,6 +350,7 @@ func serveRun(mode string) int {
 	}
 
 	var apiHandler http.Handler
+	var apiServer *handlers.API
 	switch cfg.Mode {
 	case config.ModeWorker, config.ModeScheduler:
 		// Pure background modes: the port only serves the health endpoint
@@ -393,7 +395,7 @@ func serveRun(mode string) int {
 
 		mcpServer := mcp.New(version)
 		mcp.RegisterTools(mcpServer, q)
-		apiHandler = handlers.NewRouter(&handlers.API{
+		apiServer = &handlers.API{
 			MCP:      mcpServer,
 			Sessions: sessions,
 			Passkeys: passkeys,
@@ -414,7 +416,9 @@ func serveRun(mode string) int {
 			TerminalIdleTimeout: cfg.TerminalIdleTimeout,
 			TerminalMaxDuration: cfg.TerminalMaxDuration,
 			TrustedProxies:      cfg.TrustedProxies,
-		}, &auth.Middleware{Store: q, Settings: settings, Sessions: sessions, Logger: logger})
+		}
+		apiHandler = handlers.NewRouter(apiServer,
+			&auth.Middleware{Store: q, Settings: settings, Sessions: sessions, Logger: logger})
 	}
 	// otelhttp wraps the whole handler: one server span per request, with the
 	// route as the span name — not the raw path, which would explode the
@@ -493,8 +497,19 @@ func serveRun(mode string) int {
 	logger.Info("shutting down", "timeout", cfg.ShutdownTimeout.String())
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
+	// net/http does not manage hijacked WebSockets. Signal them explicitly,
+	// then keep the process alive until their defer path has finalized the
+	// corresponding database rows.
+	if apiServer != nil {
+		if n := apiServer.Tunnels.CloseAll(tunnel.EndDisconnect); n > 0 {
+			logger.Info("closing live port-forward tunnels", "count", n)
+		}
+	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Warn("shutdown incomplete", "error", err)
+	}
+	if apiServer != nil && !apiServer.Tunnels.Wait(shutdownCtx) {
+		logger.Warn("port-forward tunnel drain incomplete")
 	}
 	if worker != nil {
 		// Drain in-flight jobs; heartbeats keep their leases alive (§6.5).

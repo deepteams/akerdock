@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -52,6 +53,47 @@ func TestTunnelPresenceCutsTheRegisteredBridge(t *testing.T) {
 	}
 }
 
+func TestTunnelPresenceClosesAndDrainsEveryBridgeOnShutdown(t *testing.T) {
+	var p TunnelPresence
+	first := p.register(1)
+	second := p.register(2)
+
+	if got := p.CloseAll(tunnel.EndDisconnect); got != 2 {
+		t.Fatalf("closed bridge count = %d, want 2", got)
+	}
+	for i, cancel := range []<-chan tunnel.EndReason{first, second} {
+		select {
+		case got := <-cancel:
+			if got != tunnel.EndDisconnect {
+				t.Fatalf("bridge %d reason = %q, want disconnect", i+1, got)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("bridge %d was not closed", i+1)
+		}
+	}
+
+	// A WebSocket accepted concurrently with shutdown must not escape the
+	// original CloseAll snapshot.
+	racing := p.register(3)
+	select {
+	case got := <-racing:
+		if got != tunnel.EndDisconnect {
+			t.Fatalf("racing bridge reason = %q, want disconnect", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("a bridge registered during shutdown remained open")
+	}
+
+	p.unregister(1)
+	p.unregister(2)
+	p.unregister(3)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if !p.Wait(ctx) {
+		t.Fatal("drain did not observe that all bridges were finalized")
+	}
+}
+
 // The list and the 409 that caps a team's tunnels must never disagree about
 // what "open" means, so this mirrors CountOpenPortForwardSessions exactly.
 func TestPortForwardSessionActiveMatchesTheTeamCapDefinition(t *testing.T) {
@@ -63,7 +105,34 @@ func TestPortForwardSessionActiveMatchesTheTeamCapDefinition(t *testing.T) {
 		want bool
 	}{
 		"attached and running": {
-			store.ListPortForwardSessionsPageRow{ClaimedAt: valid(-time.Minute), TokenExpiresAt: valid(-time.Minute)}, true,
+			store.ListPortForwardSessionsPageRow{
+				ClaimedAt: valid(-time.Minute), StartedAt: valid(-time.Minute),
+				LastHeartbeatAt: valid(-10 * time.Second), TokenExpiresAt: valid(-time.Minute),
+			}, true,
+		},
+		"legacy attached bridge without heartbeat": {
+			store.ListPortForwardSessionsPageRow{
+				ClaimedAt: valid(-time.Minute), StartedAt: valid(-time.Minute),
+				TokenExpiresAt: valid(-time.Minute),
+			}, true,
+		},
+		"stale heartbeat after process crash": {
+			store.ListPortForwardSessionsPageRow{
+				ClaimedAt: valid(-2 * time.Minute), StartedAt: valid(-2 * time.Minute),
+				LastHeartbeatAt: valid(-2 * time.Minute), TokenExpiresAt: valid(-time.Minute),
+			}, false,
+		},
+		"past hard duration": {
+			store.ListPortForwardSessionsPageRow{
+				ClaimedAt: valid(-5 * time.Hour), StartedAt: valid(-5 * time.Hour),
+				LastHeartbeatAt: valid(-10 * time.Second), TokenExpiresAt: valid(-time.Minute),
+			}, false,
+		},
+		"authorization expired": {
+			store.ListPortForwardSessionsPageRow{
+				ClaimedAt: valid(-time.Minute), StartedAt: valid(-time.Minute),
+				LastHeartbeatAt: valid(-10 * time.Second), AuthorizedUntil: valid(-time.Second),
+			}, false,
 		},
 		"minted, token still redeemable": {
 			store.ListPortForwardSessionsPageRow{TokenExpiresAt: valid(time.Minute)}, true,
