@@ -214,16 +214,26 @@ func TestSessionLookupAndAuthentication(t *testing.T) {
 	if err != nil || row.ID != 3 {
 		t.Fatalf("SessionFromRequest = %#v, %v", row, err)
 	}
+	// The session's current_team_id is a PREFERENCE handed to the membership
+	// lookup, never the acting team on its own: id, uuid, role and permissions
+	// all come from the membership row, so they can never describe two different
+	// teams at once (INV-001).
 	identity := manager.Authenticate(context.Background(), request)
-	if identity == nil || identity.TeamID != current || identity.TeamUUID == "" ||
+	if identity == nil || identity.TeamID != database.membership.TeamID || identity.TeamUUID == "" ||
 		!identity.IsRoot() || !identity.Session || len(database.touchedSessions) != 1 {
 		t.Fatalf("Authenticate = %#v", identity)
+	}
+	if len(database.membershipQueries) != 1 || database.membershipQueries[0].PreferredTeamID != current {
+		t.Fatalf("membership lookup ignored the session team: %#v", database.membershipQueries)
 	}
 
 	database.sessionRow.CurrentTeamID = nil
 	identity = manager.Authenticate(context.Background(), request)
 	if identity == nil || identity.TeamID != database.membership.TeamID {
 		t.Fatalf("fallback team identity = %#v", identity)
+	}
+	if got := database.membershipQueries[1].PreferredTeamID; got != 0 {
+		t.Fatalf("a session with no current team asked for team %d", got)
 	}
 	database.errs = map[string]error{"getSession": errors.New("expired")}
 	if _, err := manager.SessionFromRequest(context.Background(), request); err == nil ||

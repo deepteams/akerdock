@@ -15,7 +15,12 @@ type Store interface {
 	GetUserByEmailIncludingDeleted(context.Context, string) (store.User, error)
 	RecordFailedLogin(context.Context, store.RecordFailedLoginParams) (store.RecordFailedLoginRow, error)
 	ClearFailedLogins(context.Context, int64) error
-	GetTeamMembershipForUser(context.Context, int64) (store.GetTeamMembershipForUserRow, error)
+	GetTeamMembershipForUser(context.Context, store.GetTeamMembershipForUserParams) (store.GetTeamMembershipForUserRow, error)
+	// The team switcher (PRD §37): the teams a user may act in, moving a live
+	// session into one of them, and remembering it for the next login.
+	ListTeamMembershipsForUser(context.Context, int64) ([]store.ListTeamMembershipsForUserRow, error)
+	SetSessionCurrentTeam(context.Context, store.SetSessionCurrentTeamParams) (int64, error)
+	SetUserLastTeam(context.Context, store.SetUserLastTeamParams) error
 	CreateSession(context.Context, store.CreateSessionParams) (store.Session, error)
 	GetSessionByTokenHash(context.Context, string) (store.GetSessionByTokenHashRow, error)
 	TouchSession(context.Context, int64) error

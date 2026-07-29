@@ -187,22 +187,28 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash string) (
 }
 
 const getTeamMembershipForUser = `-- name: GetTeamMembershipForUser :one
-SELECT tm.team_id, tm.role, t.uuid AS team_uuid, u.is_root,
+SELECT tm.team_id, tm.role, t.uuid AS team_uuid, t.name AS team_name, u.is_root,
        cr.permissions AS custom_permissions, cr.uuid AS custom_role_uuid,
        cr.name AS custom_role_name
 FROM team_memberships tm
-JOIN teams t ON t.id = tm.team_id
+JOIN teams t ON t.id = tm.team_id AND t.deleted_at IS NULL
 JOIN users u ON u.id = tm.user_id
 LEFT JOIN custom_roles cr ON cr.id = tm.custom_role_id
 WHERE tm.user_id = $1
-ORDER BY tm.team_id
+ORDER BY (tm.team_id = $2::bigint) DESC, tm.team_id
 LIMIT 1
 `
+
+type GetTeamMembershipForUserParams struct {
+	UserID          int64
+	PreferredTeamID int64
+}
 
 type GetTeamMembershipForUserRow struct {
 	TeamID            int64
 	Role              TeamRole
 	TeamUuid          pgtype.UUID
+	TeamName          string
 	IsRoot            bool
 	CustomPermissions []string
 	CustomRoleUuid    pgtype.UUID
@@ -215,13 +221,24 @@ type GetTeamMembershipForUserRow struct {
 // can gate instance-wide settings (rbac-matrix §3.5).
 // A custom role (custom_role_id), when set, OVERRIDES the system role: its
 // granular permissions are carried back for the session identity (ADR-038).
-func (q *Queries) GetTeamMembershipForUser(ctx context.Context, userID int64) (GetTeamMembershipForUserRow, error) {
-	row := q.db.QueryRow(ctx, getTeamMembershipForUser, userID)
+//
+// `preferred_team_id` is the team the session asked to act in (its
+// current_team_id, or the user's remembered last_team_id at login). It is a
+// PREFERENCE, not a filter: the row comes back only if the user really holds a
+// membership in that team, so a session pinned to a team the user was removed
+// from silently falls back to their oldest one instead of keeping an access
+// nobody granted any more (INV-001). Pass 0 for "no preference".
+//
+// Soft-deleted teams are excluded: a deleted team must stop being a place one
+// can act in, whatever a stale session row still points at.
+func (q *Queries) GetTeamMembershipForUser(ctx context.Context, arg GetTeamMembershipForUserParams) (GetTeamMembershipForUserRow, error) {
+	row := q.db.QueryRow(ctx, getTeamMembershipForUser, arg.UserID, arg.PreferredTeamID)
 	var i GetTeamMembershipForUserRow
 	err := row.Scan(
 		&i.TeamID,
 		&i.Role,
 		&i.TeamUuid,
+		&i.TeamName,
 		&i.IsRoot,
 		&i.CustomPermissions,
 		&i.CustomRoleUuid,
@@ -232,7 +249,7 @@ func (q *Queries) GetTeamMembershipForUser(ctx context.Context, userID int64) (G
 
 const getUserByEmail = `-- name: GetUserByEmail :one
 
-SELECT id, uuid, email, name, password_hash, is_root, email_verified_at, failed_login_count, locked_until, created_at, updated_at, deleted_at, version FROM users WHERE email = $1 AND deleted_at IS NULL
+SELECT id, uuid, email, name, password_hash, is_root, email_verified_at, failed_login_count, locked_until, created_at, updated_at, deleted_at, version, last_team_id FROM users WHERE email = $1 AND deleted_at IS NULL
 `
 
 // Browser sessions (PRD §698).
@@ -253,8 +270,55 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Version,
+		&i.LastTeamID,
 	)
 	return i, err
+}
+
+const listTeamMembershipsForUser = `-- name: ListTeamMembershipsForUser :many
+SELECT tm.team_id, tm.role, t.uuid AS team_uuid, t.name AS team_name, t.personal
+FROM team_memberships tm
+JOIN teams t ON t.id = tm.team_id AND t.deleted_at IS NULL
+WHERE tm.user_id = $1
+ORDER BY t.personal DESC, lower(t.name), tm.team_id
+`
+
+type ListTeamMembershipsForUserRow struct {
+	TeamID   int64
+	Role     TeamRole
+	TeamUuid pgtype.UUID
+	TeamName string
+	Personal bool
+}
+
+// Every team the user may act in — the source of the dashboard's team switcher.
+// Deliberately NOT /teams (which lists the instance's teams for the root): the
+// switcher must offer memberships only, or switching would become a way to
+// enter a team nobody added you to.
+func (q *Queries) ListTeamMembershipsForUser(ctx context.Context, userID int64) ([]ListTeamMembershipsForUserRow, error) {
+	rows, err := q.db.Query(ctx, listTeamMembershipsForUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTeamMembershipsForUserRow
+	for rows.Next() {
+		var i ListTeamMembershipsForUserRow
+		if err := rows.Scan(
+			&i.TeamID,
+			&i.Role,
+			&i.TeamUuid,
+			&i.TeamName,
+			&i.Personal,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const purgeExpiredSessions = `-- name: PurgeExpiredSessions :execrows
@@ -322,6 +386,41 @@ UPDATE sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL
 
 func (q *Queries) RevokeSession(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, revokeSession, id)
+	return err
+}
+
+const setSessionCurrentTeam = `-- name: SetSessionCurrentTeam :execrows
+UPDATE sessions SET current_team_id = $2 WHERE id = $1 AND revoked_at IS NULL
+`
+
+type SetSessionCurrentTeamParams struct {
+	ID            int64
+	CurrentTeamID *int64
+}
+
+// Moves a live session into another team (PRD §37). Revoked sessions are not
+// matched: nothing may be done through a session that is already dead.
+func (q *Queries) SetSessionCurrentTeam(ctx context.Context, arg SetSessionCurrentTeamParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setSessionCurrentTeam, arg.ID, arg.CurrentTeamID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setUserLastTeam = `-- name: SetUserLastTeam :exec
+UPDATE users SET last_team_id = $2, updated_at = now() WHERE id = $1
+`
+
+type SetUserLastTeamParams struct {
+	ID         int64
+	LastTeamID *int64
+}
+
+// Remembers the team across sessions, so the next login opens where the user
+// left off rather than on their oldest team.
+func (q *Queries) SetUserLastTeam(ctx context.Context, arg SetUserLastTeamParams) error {
+	_, err := q.db.Exec(ctx, setUserLastTeam, arg.ID, arg.LastTeamID)
 	return err
 }
 

@@ -3,7 +3,7 @@ import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/rou
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
-import { ApiService } from '../core/api.service';
+import { ApiService, MyTeam } from '../core/api.service';
 import { IconComponent } from '../../ui/icon/icon.component';
 
 interface NavItem {
@@ -69,16 +69,26 @@ interface NavSection {
               @if (teams().length > 0) {
                 <div class="akd-sidenav__section">Teams</div>
                 @for (team of teams(); track team.uuid) {
-                  <button class="akd-sidenav__item" role="menuitem" (click)="menu.set(false)">
+                  <button
+                    class="akd-sidenav__item"
+                    role="menuitem"
+                    type="button"
+                    [disabled]="switching()"
+                    [attr.aria-current]="team.uuid === currentTeamUuid() ? 'true' : null"
+                    (click)="switchTeam(team.uuid)"
+                  >
                     <akd-icon
-                      [name]="team.uuid === teams()[0].uuid ? 'check' : 'users'"
+                      [name]="team.uuid === currentTeamUuid() ? 'check' : 'users'"
                       [size]="14"
                     />
                     <span class="team-name">{{ team.name }}</span>
-                    @if (team.uuid === teams()[0].uuid) {
+                    @if (team.uuid === currentTeamUuid()) {
                       <span class="current">current</span>
                     }
                   </button>
+                }
+                @if (switchError()) {
+                  <div class="menu-error">{{ switchError() }}</div>
                 }
                 <div class="menu-sep"></div>
               }
@@ -252,6 +262,11 @@ interface NavSection {
         background: var(--border-1);
         margin: 6px 4px;
       }
+      .menu-error {
+        padding: 4px 10px 6px;
+        font-size: var(--text-2xs);
+        color: var(--danger);
+      }
       .user-btn {
         all: unset;
         cursor: pointer;
@@ -383,8 +398,10 @@ export class ShellComponent {
 
   protected readonly rail = signal(localStorage.getItem('akd.rail') === '1');
   protected readonly menu = signal(false);
-  protected readonly teams = signal<{ uuid: string; name: string }[]>([]);
+  protected readonly teams = signal<MyTeam[]>([]);
   protected readonly version = signal<string | null>(null);
+  protected readonly switching = signal(false);
+  protected readonly switchError = signal<string | null>(null);
 
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -400,7 +417,14 @@ export class ShellComponent {
     return this.sectionLabels[first] ?? first;
   });
 
-  protected readonly teamName = computed(() => this.teams()[0]?.name ?? null);
+  /** The team the SESSION acts in, as the server resolved it — never
+   *  "the first one listed", which is what made the switcher lie. */
+  protected readonly currentTeamUuid = computed(() => this.api.currentUser()?.teamUuid ?? null);
+
+  protected readonly teamName = computed(() => {
+    const current = this.currentTeamUuid();
+    return this.teams().find((t) => t.uuid === current)?.name ?? null;
+  });
 
   protected readonly initials = computed(() => {
     const name = this.api.currentUser()?.name ?? this.api.currentUser()?.email ?? '';
@@ -415,8 +439,10 @@ export class ShellComponent {
   private async load(): Promise<void> {
     // Chrome data is decorative: a failure here must not block the page.
     try {
-      const teams = await this.api.client().listTeams({ limit: 20 });
-      this.teams.set(teams.data.map((t) => ({ uuid: t.uuid, name: t.name })));
+      // The user's MEMBERSHIPS, not the instance's teams: an instance root sees
+      // every team through /teams but may only act in the ones they belong to,
+      // so listing those here would offer switches the server refuses.
+      this.teams.set(await this.api.myTeams());
     } catch {
       /* sidebar simply shows no team */
     }
@@ -436,6 +462,31 @@ export class ShellComponent {
   protected go(path: string): void {
     this.menu.set(false);
     void this.router.navigate([path]);
+  }
+
+  /**
+   * Switches the session to another team (PRD §37).
+   *
+   * A full page load, not a router navigation: every open page holds resources
+   * of the team we are leaving — a project list, a server, a deployment stream.
+   * Reloading is the only way to be sure none of it survives the boundary, and
+   * it lands on /projects because the current URL may name a resource that does
+   * not exist in the team we are entering.
+   */
+  protected async switchTeam(uuid: string): Promise<void> {
+    if (this.switching() || uuid === this.currentTeamUuid()) {
+      this.menu.set(false);
+      return;
+    }
+    this.switching.set(true);
+    this.switchError.set(null);
+    try {
+      await this.api.switchTeam(uuid);
+      window.location.assign('/projects');
+    } catch (error) {
+      this.switchError.set(ApiService.describe(error));
+      this.switching.set(false);
+    }
   }
 
   protected async signOut(): Promise<void> {

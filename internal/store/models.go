@@ -3328,6 +3328,7 @@ type User struct {
 	UpdatedAt        pgtype.Timestamptz
 	DeletedAt        pgtype.Timestamptz
 	Version          int32
+	LastTeamID       *int64
 }
 
 type WebhookDelivery struct {

@@ -180,7 +180,18 @@ func (m *Manager) Login(ctx context.Context, r *http.Request, email, plaintext s
 // the second factor, §10.2) both pass it, as does a login that just cleared the
 // TOTP challenge. Only a bare password sets it false.
 func (m *Manager) Open(ctx context.Context, r *http.Request, user store.User, mfaSatisfied bool) (*Session, string, error) {
-	membership, err := m.Store.GetTeamMembershipForUser(ctx, user.ID)
+	// The session opens on the team the user last acted in (PRD §37): a member of
+	// several teams who switched and signed out expects to come back where they
+	// left off, not on their oldest team. The preference is only that — the query
+	// still requires a live membership, so a team the user was removed from since
+	// falls back to one they really hold.
+	preferred := int64(0)
+	if user.LastTeamID != nil {
+		preferred = *user.LastTeamID
+	}
+	membership, err := m.Store.GetTeamMembershipForUser(ctx, store.GetTeamMembershipForUserParams{
+		UserID: user.ID, PreferredTeamID: preferred,
+	})
 	if err != nil {
 		return nil, "", fmt.Errorf("the account belongs to no team")
 	}
@@ -268,23 +279,24 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) *auth.Ident
 	}
 	_ = m.Store.TouchSession(ctx, row.ID)
 
-	teamID := int64(0)
+	// The team the session asked to act in. It is resolved THROUGH the
+	// membership, never trusted on its own: role, permissions, team id and team
+	// uuid must all come from the same row, or a session could end up carrying
+	// the permissions it holds in one team while addressing another team's data
+	// (INV-001). A session pointing at a team the user is no longer a member of
+	// — removed, or the team soft-deleted — gets their oldest membership back
+	// instead, which is a demotion, never an escalation.
+	preferred := int64(0)
 	if row.CurrentTeamID != nil {
-		teamID = *row.CurrentTeamID
+		preferred = *row.CurrentTeamID
 	}
-
-	membership, err := m.Store.GetTeamMembershipForUser(ctx, row.UserID)
+	membership, err := m.Store.GetTeamMembershipForUser(ctx, store.GetTeamMembershipForUserParams{
+		UserID: row.UserID, PreferredTeamID: preferred,
+	})
 	if err != nil {
 		return nil
 	}
-
-	// The session row may carry no explicit current team (single-team users
-	// never pick one): the membership is then the acting team. Either way the
-	// public UUID must be filled — /auth/me hands it to the dashboard, which
-	// addresses every /teams/{uuid} endpoint with it.
-	if teamID == 0 {
-		teamID = membership.TeamID
-	}
+	teamID := membership.TeamID
 
 	// A custom role (ADR-038) overrides the system role: its stored granular
 	// permissions become the identity's, expanded like any set. The permissions
@@ -313,6 +325,78 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) *auth.Ident
 		MFAPending:   row.MfaPending,
 		UserID:       &row.UserID,
 	}
+}
+
+// TeamMembership is one team the user may act in, as offered by the dashboard's
+// team switcher.
+type TeamMembership struct {
+	TeamID   int64
+	UUID     string
+	Name     string
+	Role     store.TeamRole
+	Personal bool
+}
+
+// Teams lists the teams a user is a member of (PRD §37). Memberships only:
+// the instance root sees every team through GET /teams, but may still only ACT
+// in the teams somebody added them to.
+func (m *Manager) Teams(ctx context.Context, userID int64) ([]TeamMembership, error) {
+	rows, err := m.Store.ListTeamMembershipsForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TeamMembership, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, TeamMembership{
+			TeamID: row.TeamID, UUID: uuidString(row.TeamUuid),
+			Name: row.TeamName, Role: row.Role, Personal: row.Personal,
+		})
+	}
+	return out, nil
+}
+
+// ErrNotAMember is returned when a session asks to act in a team the user does
+// not belong to. It is deliberately the same answer for a team that does not
+// exist and one that exists but is somebody else's: switching must not become
+// an oracle telling which team UUIDs are real (INV-002).
+var ErrNotAMember = errors.New("team not found")
+
+// SwitchTeam moves a session into another of the user's teams and remembers the
+// choice for their next login.
+//
+// The membership is re-read here rather than taken from the caller: this is the
+// one place that widens what a live session can reach, so the check that the
+// user really belongs to the target team has to happen at the moment of the
+// move, against the database — not against anything the browser sent.
+//
+// The identity is NOT re-derived from this call: the next request re-reads the
+// session row and resolves permissions from the new team's membership, so the
+// switch takes effect exactly where every other authorization decision is made.
+func (m *Manager) SwitchTeam(ctx context.Context, userID int64, sessionID int64, teamUUID string) (TeamMembership, error) {
+	teams, err := m.Store.ListTeamMembershipsForUser(ctx, userID)
+	if err != nil {
+		return TeamMembership{}, err
+	}
+	for _, row := range teams {
+		if uuidString(row.TeamUuid) != teamUUID {
+			continue
+		}
+		team := row.TeamID
+		if _, err := m.Store.SetSessionCurrentTeam(ctx, store.SetSessionCurrentTeamParams{
+			ID: sessionID, CurrentTeamID: &team,
+		}); err != nil {
+			return TeamMembership{}, err
+		}
+		// Best-effort: failing to remember the choice must not fail the switch —
+		// the session already moved, and the worst case is the next login opening
+		// on another team.
+		_ = m.Store.SetUserLastTeam(ctx, store.SetUserLastTeamParams{ID: userID, LastTeamID: &team})
+		return TeamMembership{
+			TeamID: row.TeamID, UUID: uuidString(row.TeamUuid),
+			Name: row.TeamName, Role: row.Role, Personal: row.Personal,
+		}, nil
+	}
+	return TeamMembership{}, ErrNotAMember
 }
 
 // PermissionsForRole is auth.PermissionsForRole, kept here because the session

@@ -261,6 +261,7 @@ Ephemeral environment deployed automatically **for each pull request** (GitHub) 
 
 ### 10.1 Teams and roles
 - Multi-team; members invited by email or created by an admin.
+- A user may belong to several teams and holds an **independent role in each**. A session acts in one team at a time and switches explicitly from the dashboard (team switcher); the permissions of the very next request are those of the role held in the team switched into, and the choice is remembered for the next sign-in. Switching into a team one is not a member of is refused — the instance root included (see rbac-matrix §3.6).
 - Roles: **instance root/owner** (first user: global access, updates, settings), then **admin** and **member** per team. Limited granularity (no RBAC per project/resource — recurring community request).
 - **User deletion**: documented procedure (self-service or by the root); teams where they are the sole member and their resources must be handled explicitly before deletion — never a silent cascade.
 

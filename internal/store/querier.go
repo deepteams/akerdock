@@ -502,7 +502,17 @@ type Querier interface {
 	// can gate instance-wide settings (rbac-matrix §3.5).
 	// A custom role (custom_role_id), when set, OVERRIDES the system role: its
 	// granular permissions are carried back for the session identity (ADR-038).
-	GetTeamMembershipForUser(ctx context.Context, userID int64) (GetTeamMembershipForUserRow, error)
+	//
+	// `preferred_team_id` is the team the session asked to act in (its
+	// current_team_id, or the user's remembered last_team_id at login). It is a
+	// PREFERENCE, not a filter: the row comes back only if the user really holds a
+	// membership in that team, so a session pinned to a team the user was removed
+	// from silently falls back to their oldest one instead of keeping an access
+	// nobody granted any more (INV-001). Pass 0 for "no preference".
+	//
+	// Soft-deleted teams are excluded: a deleted team must stop being a place one
+	// can act in, whatever a stale session row still points at.
+	GetTeamMembershipForUser(ctx context.Context, arg GetTeamMembershipForUserParams) (GetTeamMembershipForUserRow, error)
 	// What a token's creator holds in the token's team, re-read on every request
 	// (rbac-matrix §4.2). A token never grants more than its creator, so this is
 	// the ceiling its own scopes are intersected with — and it is why a demoted
@@ -739,6 +749,11 @@ type Querier interface {
 	// or the custom role uuid when set) so groups (=roles) can be assembled in Go.
 	ListTeamMembersForScim(ctx context.Context, teamID int64) ([]ListTeamMembersForScimRow, error)
 	ListTeamMembersPage(ctx context.Context, arg ListTeamMembersPageParams) ([]ListTeamMembersPageRow, error)
+	// Every team the user may act in — the source of the dashboard's team switcher.
+	// Deliberately NOT /teams (which lists the instance's teams for the root): the
+	// switcher must offer memberships only, or switching would become a way to
+	// enter a team nobody added you to.
+	ListTeamMembershipsForUser(ctx context.Context, userID int64) ([]ListTeamMembershipsForUserRow, error)
 	ListTeamsPage(ctx context.Context, arg ListTeamsPageParams) ([]Team, error)
 	// The seeded localhost server, while it has never passed a validation
 	// (instance-config §6.2): the scheduler retries it until the instance key is
@@ -952,6 +967,9 @@ type Querier interface {
 	// pushed Docker event, scoped to the resource's server. No-op when the state
 	// is unchanged, so at-least-once delivery stays idempotent.
 	SetServiceComponentObservedByName(ctx context.Context, arg SetServiceComponentObservedByNameParams) (int64, error)
+	// Moves a live session into another team (PRD §37). Revoked sessions are not
+	// matched: nothing may be done through a session that is already dead.
+	SetSessionCurrentTeam(ctx context.Context, arg SetSessionCurrentTeamParams) (int64, error)
 	// Passkey step-up (rbac-matrix §5): stamps the browser session; freshness is
 	// judged by the caller against the step-up window.
 	SetSessionMfaVerified(ctx context.Context, id int64) error
@@ -964,6 +982,9 @@ type Querier interface {
 	// The prober's state write: counters, verdict, and the next window. Never
 	// bumps `version` (not a user edit — it must not conflict with a PATCH).
 	SetUptimeCheckState(ctx context.Context, arg SetUptimeCheckStateParams) error
+	// Remembers the team across sessions, so the next login opens where the user
+	// left off rather than on their oldest team.
+	SetUserLastTeam(ctx context.Context, arg SetUserLastTeamParams) error
 	SoftDeleteBackupPlan(ctx context.Context, id int64) (int64, error)
 	SoftDeleteDNSCredential(ctx context.Context, id int64) (int64, error)
 	SoftDeleteEnvironment(ctx context.Context, id int64) (int64, error)

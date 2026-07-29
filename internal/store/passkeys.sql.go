@@ -175,7 +175,7 @@ func (q *Queries) GetPasskeyByCredentialID(ctx context.Context, credentialID []b
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, uuid, email, name, password_hash, is_root, email_verified_at, failed_login_count, locked_until, created_at, updated_at, deleted_at, version FROM users WHERE id = $1 AND deleted_at IS NULL
+SELECT id, uuid, email, name, password_hash, is_root, email_verified_at, failed_login_count, locked_until, created_at, updated_at, deleted_at, version, last_team_id FROM users WHERE id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
@@ -195,6 +195,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Version,
+		&i.LastTeamID,
 	)
 	return i, err
 }

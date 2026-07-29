@@ -53,7 +53,7 @@ func (q *Queries) CreateLocalhostServerIfAbsent(ctx context.Context, arg CreateL
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (email, name, password_hash, is_root)
 VALUES ($1, $2, $3, $4)
-RETURNING id, uuid, email, name, password_hash, is_root, email_verified_at, failed_login_count, locked_until, created_at, updated_at, deleted_at, version
+RETURNING id, uuid, email, name, password_hash, is_root, email_verified_at, failed_login_count, locked_until, created_at, updated_at, deleted_at, version, last_team_id
 `
 
 type CreateUserParams struct {
@@ -85,6 +85,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Version,
+		&i.LastTeamID,
 	)
 	return i, err
 }

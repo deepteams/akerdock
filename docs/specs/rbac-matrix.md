@@ -397,6 +397,32 @@ nothing** — anyone holding `port-forwards:open` in the team may mint a tunnel 
 dashboard labels them as descriptive for that reason: a field that looks like a control and
 is not is worse than no field, and the labelling is part of the decision (ADR-047).
 
+### 3.6 The acting team of a session, and switching
+
+A user may belong to several teams (PRD §37) with a **different role in each**. A browser
+session therefore acts in exactly one team at a time — its *acting team* — and the whole
+permission set comes from the membership held **in that team**.
+
+- The acting team is resolved on **every request**, from `sessions.current_team_id`, and it
+  is a **preference, not an authority**: the lookup returns a row only if the user still
+  holds a membership in that team and the team is not soft-deleted. A session pinned to a
+  team the user was removed from silently falls back to their oldest membership — a
+  demotion, never a retained access.
+- Team id, team uuid, role and permissions all come from that **same membership row**. They
+  can never describe two teams at once, which is what makes `INV-001` checkable: every
+  team-scoped query takes the identity's team id, and no other value exists to take.
+- **Switching** (`POST /auth/session/team`, outside the v1 contract like the rest of
+  `/auth`) moves the session and requires session + CSRF. It is refused for any team the user
+  is not a member of, with the same `404` a non-existent team gets (INV-002). The **instance
+  root is no exception**: seeing every team through `GET /teams` (§3.4) is not being a member
+  of every team, and the switcher offers memberships only.
+- The choice is remembered on `users.last_team_id`, so the next login opens where the user
+  left off. It is a preference like the session's: re-checked against memberships at login.
+- Switching is audited as `auth.team.switch`, recorded against the team being **left** —
+  that team's administrators are the ones entitled to see the departure.
+- **API tokens are unaffected**: a token is bound to one team at creation (§4.1) and has no
+  session to move.
+
 ---
 
 ## 4. API tokens — mapping and anti-elevation guard

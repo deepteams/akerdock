@@ -205,6 +205,12 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 		// Session + CSRF like the rest of the mutating /auth endpoints.
 		r.Post("/auth/invitations/accept", a.AcceptInvitation)
 
+		// The team switcher (PRD §37 — multi-team). Listing is the user's own
+		// memberships, never the instance's teams; switching moves the session
+		// and is audited as the boundary crossing it is (§23.1).
+		r.Get("/auth/teams", a.ListMyTeams)
+		r.Post("/auth/session/team", a.SwitchTeam)
+
 		// Passkeys (WebAuthn). Management requires a session (and CSRF); the
 		// login pair is anonymous by nature — a discoverable credential names
 		// its user.

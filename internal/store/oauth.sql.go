@@ -202,7 +202,7 @@ func (q *Queries) GetOauthProviderConfig(ctx context.Context, provider OauthProv
 }
 
 const getUserByEmailIncludingDeleted = `-- name: GetUserByEmailIncludingDeleted :one
-SELECT id, uuid, email, name, password_hash, is_root, email_verified_at, failed_login_count, locked_until, created_at, updated_at, deleted_at, version FROM users WHERE email = $1
+SELECT id, uuid, email, name, password_hash, is_root, email_verified_at, failed_login_count, locked_until, created_at, updated_at, deleted_at, version, last_team_id FROM users WHERE email = $1
 `
 
 // The collision check of §23.3 must also see soft-deleted accounts: a
@@ -225,6 +225,7 @@ func (q *Queries) GetUserByEmailIncludingDeleted(ctx context.Context, email stri
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Version,
+		&i.LastTeamID,
 	)
 	return i, err
 }

@@ -18,11 +18,17 @@ type fakeSessionStore struct {
 	user       store.User
 	userByMail store.User
 	membership store.GetTeamMembershipForUserRow
-	session    store.Session
-	sessionRow store.GetSessionByTokenHashRow
-	settings   store.InstanceSetting
-	factor     store.MfaFactor
-	challenge  store.MfaChallenge
+	// memberships is the multi-team fixture (PRD §37): when set, it drives both
+	// the switcher listing and the preference-aware membership lookup.
+	memberships       []store.ListTeamMembershipsForUserRow
+	membershipQueries []store.GetTeamMembershipForUserParams
+	sessionTeamSets   []store.SetSessionCurrentTeamParams
+	lastTeamSets      []store.SetUserLastTeamParams
+	session           store.Session
+	sessionRow        store.GetSessionByTokenHashRow
+	settings          store.InstanceSetting
+	factor            store.MfaFactor
+	challenge         store.MfaChallenge
 
 	clearedPending []int64
 
@@ -101,8 +107,53 @@ func (f *fakeSessionStore) ClearFailedLogins(_ context.Context, id int64) error 
 	return f.err("clearFailed")
 }
 
-func (f *fakeSessionStore) GetTeamMembershipForUser(context.Context, int64) (store.GetTeamMembershipForUserRow, error) {
-	return f.membership, f.err("membership")
+// GetTeamMembershipForUser mirrors the SQL: the preferred team when the user
+// really holds a membership in it, otherwise the lowest team id. Tests that do
+// not care about multi-team leave `memberships` empty and get `membership`.
+func (f *fakeSessionStore) GetTeamMembershipForUser(_ context.Context, arg store.GetTeamMembershipForUserParams) (store.GetTeamMembershipForUserRow, error) {
+	f.membershipQueries = append(f.membershipQueries, arg)
+	if err := f.err("membership"); err != nil {
+		return store.GetTeamMembershipForUserRow{}, err
+	}
+	if len(f.memberships) == 0 {
+		return f.membership, nil
+	}
+	best := -1
+	for i, m := range f.memberships {
+		switch {
+		case m.TeamID == arg.PreferredTeamID:
+			return membershipRow(m), nil
+		case best < 0 || m.TeamID < f.memberships[best].TeamID:
+			best = i
+		}
+	}
+	return membershipRow(f.memberships[best]), nil
+}
+
+func membershipRow(m store.ListTeamMembershipsForUserRow) store.GetTeamMembershipForUserRow {
+	return store.GetTeamMembershipForUserRow{
+		TeamID: m.TeamID, Role: m.Role, TeamUuid: m.TeamUuid, TeamName: m.TeamName,
+	}
+}
+
+func (f *fakeSessionStore) ListTeamMembershipsForUser(context.Context, int64) ([]store.ListTeamMembershipsForUserRow, error) {
+	return f.memberships, f.err("listMemberships")
+}
+
+func (f *fakeSessionStore) SetSessionCurrentTeam(_ context.Context, arg store.SetSessionCurrentTeamParams) (int64, error) {
+	if err := f.err("setSessionTeam"); err != nil {
+		return 0, err
+	}
+	f.sessionTeamSets = append(f.sessionTeamSets, arg)
+	return 1, nil
+}
+
+func (f *fakeSessionStore) SetUserLastTeam(_ context.Context, arg store.SetUserLastTeamParams) error {
+	if err := f.err("setLastTeam"); err != nil {
+		return err
+	}
+	f.lastTeamSets = append(f.lastTeamSets, arg)
+	return nil
 }
 
 func (f *fakeSessionStore) CreateSession(_ context.Context, arg store.CreateSessionParams) (store.Session, error) {

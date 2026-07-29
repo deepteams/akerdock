@@ -23,6 +23,10 @@ type browserSessionStore struct {
 	sessionRow store.GetSessionByTokenHashRow
 	user       store.User
 	factor     store.MfaFactor
+	// memberships drives the team switcher (PRD §37); nil means the single
+	// team every other test in this file assumes.
+	memberships []store.ListTeamMembershipsForUserRow
+	switched    []store.SetSessionCurrentTeamParams
 }
 
 func newBrowserSessionStore(t *testing.T) *browserSessionStore {
@@ -44,10 +48,40 @@ func (s *browserSessionStore) GetSessionByTokenHash(context.Context, string) (st
 	return s.sessionRow, nil
 }
 
-func (s *browserSessionStore) GetTeamMembershipForUser(context.Context, int64) (store.GetTeamMembershipForUserRow, error) {
+func (s *browserSessionStore) GetTeamMembershipForUser(_ context.Context, arg store.GetTeamMembershipForUserParams) (store.GetTeamMembershipForUserRow, error) {
+	for _, m := range s.teams() {
+		if m.TeamID == arg.PreferredTeamID {
+			return store.GetTeamMembershipForUserRow{
+				TeamID: m.TeamID, Role: m.Role, TeamUuid: m.TeamUuid, TeamName: m.TeamName,
+			}, nil
+		}
+	}
+	first := s.teams()[0]
 	return store.GetTeamMembershipForUserRow{
-		TeamID: 1, Role: store.TeamRoleOwner, TeamUuid: s.sessionRow.Uuid,
+		TeamID: first.TeamID, Role: first.Role, TeamUuid: first.TeamUuid, TeamName: first.TeamName,
 	}, nil
+}
+
+func (s *browserSessionStore) teams() []store.ListTeamMembershipsForUserRow {
+	if len(s.memberships) > 0 {
+		return s.memberships
+	}
+	return []store.ListTeamMembershipsForUserRow{
+		{TeamID: 1, Role: store.TeamRoleOwner, TeamUuid: s.sessionRow.Uuid, TeamName: "Unit"},
+	}
+}
+
+func (s *browserSessionStore) ListTeamMembershipsForUser(context.Context, int64) ([]store.ListTeamMembershipsForUserRow, error) {
+	return s.teams(), nil
+}
+
+func (s *browserSessionStore) SetSessionCurrentTeam(_ context.Context, arg store.SetSessionCurrentTeamParams) (int64, error) {
+	s.switched = append(s.switched, arg)
+	return 1, nil
+}
+
+func (*browserSessionStore) SetUserLastTeam(context.Context, store.SetUserLastTeamParams) error {
+	return nil
 }
 func (*browserSessionStore) TouchSession(context.Context, int64) error  { return nil }
 func (*browserSessionStore) RevokeSession(context.Context, int64) error { return nil }

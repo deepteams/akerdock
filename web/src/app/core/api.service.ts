@@ -65,6 +65,16 @@ export interface OauthProviderButton {
   name: string;
 }
 
+/** One team the signed-in user is a member of — an entry of the switcher. */
+export interface MyTeam {
+  uuid: string;
+  name: string;
+  role: string;
+  personal: boolean;
+  /** True for the team the session is acting in right now. */
+  current: boolean;
+}
+
 /** A federated identity linked to the account (security page). */
 export interface LinkedIdentity {
   uuid: string;
@@ -373,6 +383,29 @@ export class ApiService {
    */
   async acceptInvitation(token: string): Promise<{ team_uuid: string }> {
     return this.authPost<{ team_uuid: string }>('/auth/invitations/accept', { token });
+  }
+
+  /**
+   * The teams the signed-in user may act in (PRD §37). Not GET /teams, which
+   * lists the whole instance for the root: the switcher must only ever offer
+   * memberships.
+   */
+  async myTeams(): Promise<MyTeam[]> {
+    const res = await fetch('/auth/teams', { credentials: 'same-origin' });
+    if (!res.ok) throw await this.authError(res);
+    const body = (await res.json()) as { data: MyTeam[] };
+    return body.data;
+  }
+
+  /**
+   * Moves the session into another team. The server is the one that decides
+   * membership; on success the local user is refreshed, because the team change
+   * also changes the permissions this account holds — a member of one team can
+   * be a reviewer in the next.
+   */
+  async switchTeam(teamUuid: string): Promise<void> {
+    await this.authPost<{ team_uuid: string }>('/auth/session/team', { team_uuid: teamUuid });
+    await this.restore();
   }
 
   /** POST to an /auth endpoint: session cookie rides along, CSRF echoed. */
