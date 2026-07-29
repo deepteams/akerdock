@@ -9,8 +9,13 @@ ORDER BY id DESC
 LIMIT sqlc.arg(page_limit);
 
 -- name: CreateApiToken :one
-INSERT INTO api_tokens (team_id, name, token_prefix, token_hash, permissions, ip_allowlist, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+-- created_by is the human who minted the token, and it is NOT bookkeeping: the
+-- middleware intersects a token's permissions with its creator's on every
+-- request (rbac-matrix §4.2), so a token without one is a token nothing can
+-- narrow when its creator is demoted or leaves. It is also how a CLI token is
+-- tied back to the person an access grant was issued to (ADR-045 §5).
+INSERT INTO api_tokens (team_id, name, token_prefix, token_hash, permissions, ip_allowlist, expires_at, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, sqlc.narg(created_by))
 RETURNING *;
 
 -- name: RevokeApiTokenByUUID :execrows

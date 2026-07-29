@@ -149,6 +149,9 @@ func (a *API) CreateApiToken(w http.ResponseWriter, r *http.Request, teamUuid ap
 		Permissions: perms,
 		IpAllowlist: allowlist,
 		ExpiresAt:   expiresAt,
+		// Who minted it: the token can never outgrow this person's own
+		// permissions (rbac-matrix §4.2).
+		CreatedBy: actingUserID(id),
 	})
 	if err != nil {
 		a.internalError(w, r, "create api token", err)

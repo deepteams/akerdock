@@ -131,6 +131,11 @@ type Querier interface {
 	// token_enc, so a replaced row MUST carry the uuid its ciphertext was bound
 	// to — hence uuid = excluded.uuid on conflict.
 	CreateAgentToken(ctx context.Context, arg CreateAgentTokenParams) (AgentToken, error)
+	// created_by is the human who minted the token, and it is NOT bookkeeping: the
+	// middleware intersects a token's permissions with its creator's on every
+	// request (rbac-matrix §4.2), so a token without one is a token nothing can
+	// narrow when its creator is demoted or leaves. It is also how a CLI token is
+	// tied back to the person an access grant was issued to (ADR-045 §5).
 	CreateApiToken(ctx context.Context, arg CreateApiTokenParams) (ApiToken, error)
 	// ADR-042: application access wall — only the HASH is stored, the cookie
 	// value never touches the base (same rule as previews, ADR-030).

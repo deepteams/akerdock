@@ -172,8 +172,15 @@ server — a managed database, an internal API — that an admin declared as an
   contains a slash) rather than by position.
 - **`sensitive` endpoints require a live access grant**. The mint answers
   `access_request_required`; the CLI then opens the dashboard page that issues the grant
-  (reason + fresh second factor), waits for it and replays the mint on its own — the same
-  choreography as `login`, so the developer never goes hunting for a URL.
+  (reason + fresh second factor) and **keeps replaying the mint** every 2 s until it goes
+  through (10 min ceiling, Ctrl-C to give up) — the same choreography as `login`, so the
+  developer neither hunts for a URL nor runs the command a second time. Only
+  `access_request_required` is retried; any other error ends the wait at once.
+- **The grant belongs to the human, and the CLI token spends it.** The request is made from
+  a browser session (a token cannot re-authenticate, rbac-matrix §5), but the mint that
+  follows comes from the CLI, authenticated by the token whose creator is that same person
+  (`api_tokens.created_by`). Within the window, tunnels reopen after a reboot or a network
+  change without another ceremony (ADR-045 §5).
 - **The grant's expiry is the session deadline**: `authorized_until` is announced at open,
   and an automatic close reports its reason (`grant_expired` among them) instead of a bare
   disconnection.

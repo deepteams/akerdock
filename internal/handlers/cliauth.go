@@ -268,6 +268,10 @@ func (a *API) CliAuthToken(w http.ResponseWriter, r *http.Request) {
 		TokenHash:   hash,
 		Permissions: consumed.Permissions,
 		ExpiresAt:   pgtype.Timestamptz{Time: time.Now().Add(cliTokenTTL), Valid: true},
+		// The user who approved this login in the browser owns the token: it is
+		// capped by their permissions from now on, and an access grant issued to
+		// them is spendable through it (ADR-045 §5).
+		CreatedBy: consumed.UserID,
 	})
 	if err != nil {
 		a.internalError(w, r, "cli token", err)

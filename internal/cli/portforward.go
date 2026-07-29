@@ -182,18 +182,17 @@ func (c *Client) runPortForward(ctx context.Context, mintPath, component string,
 	if !strings.HasPrefix(mintPath, "/external-endpoints/") {
 		body = map[string]int{"port": remotePort}
 	}
-	if err := c.do(ctx, http.MethodPost, mintPath, q, body, &sess); err != nil {
+	mint := func() error { return c.do(ctx, http.MethodPost, mintPath, q, body, &sess) }
+	if err := mint(); err != nil {
 		var apiErr *apiError
 		if !errors.As(err, &apiErr) || apiErr.Code != "access_request_required" {
 			return err
 		}
-		// No live grant: send the developer to the page that issues one, wait
-		// for it, and replay the mint. Same choreography as `akerdock login`
-		// (ADR-031) — the point is that they never have to go looking.
-		if err := waitForAccessGrant(ctx, apiErr); err != nil {
-			return err
-		}
-		if err := c.do(ctx, http.MethodPost, mintPath, q, body, &sess); err != nil {
+		// No live grant: send the developer to the page that issues one, then
+		// poll the mint until it goes through. Same choreography as
+		// `akerdock login` (ADR-031) — the point is that they never have to go
+		// looking, nor to run the command a second time.
+		if err := waitForAccessGrant(ctx, apiErr, mint); err != nil {
 			return err
 		}
 	}
@@ -382,11 +381,17 @@ var _ = io.EOF
 // polling faster would only spend requests on their typing speed.
 const grantPollInterval = 2 * time.Second
 
+// grantWaitTimeout bounds that wait. Long enough to read the page, type a
+// reason and reach for a second factor without being rushed; short enough that
+// a command left running in a forgotten terminal eventually says why nothing
+// happened.
+const grantWaitTimeout = 10 * time.Minute
+
 // waitForAccessGrant opens the dashboard page that issues an access grant and
 // blocks until the developer has done it. It never decides anything itself:
 // the grant is created by a browser session behind a fresh second factor, and
 // this only spares the developer from hunting for the URL.
-func waitForAccessGrant(ctx context.Context, apiErr *apiError) error {
+func waitForAccessGrant(ctx context.Context, apiErr *apiError, mint func() error) error {
 	if apiErr.RequestURL == "" {
 		// The instance has no FQDN configured, so there is no page to point
 		// at. Say what is missing rather than spin forever.
@@ -398,15 +403,33 @@ func waitForAccessGrant(ctx context.Context, apiErr *apiError) error {
 
 	ticker := time.NewTicker(grantPollInterval)
 	defer ticker.Stop()
+	deadline := time.After(grantWaitTimeout)
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-deadline:
+			return fmt.Errorf("no access grant after %s — request one from %s, then run this again",
+				grantWaitTimeout, apiErr.RequestURL)
 		case <-ticker.C:
 			// The mint itself is the poll: replaying it is exactly the check
 			// we need, and it avoids a second endpoint that could disagree
 			// with the first about what "has access" means.
-			return nil
+			//
+			// It keeps polling on `access_request_required` and ONLY on that:
+			// filling in a reason, picking a duration and passing a second
+			// factor takes a minute or two, and a single retry — what this
+			// used to do — was over before the form had loaded. Any other
+			// error is final, so a revoked token or an unreachable server
+			// stops here rather than spinning.
+			err := mint()
+			if err == nil {
+				return nil
+			}
+			var again *apiError
+			if !errors.As(err, &again) || again.Code != "access_request_required" {
+				return err
+			}
 		}
 	}
 }

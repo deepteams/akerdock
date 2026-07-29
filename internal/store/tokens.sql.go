@@ -13,8 +13,8 @@ import (
 )
 
 const createApiToken = `-- name: CreateApiToken :one
-INSERT INTO api_tokens (team_id, name, token_prefix, token_hash, permissions, ip_allowlist, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO api_tokens (team_id, name, token_prefix, token_hash, permissions, ip_allowlist, expires_at, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, uuid, team_id, created_by, name, token_prefix, token_hash, permissions, ip_allowlist, expires_at, last_used_at, revoked_at, created_at, updated_at
 `
 
@@ -26,8 +26,14 @@ type CreateApiTokenParams struct {
 	Permissions []string
 	IpAllowlist []netip.Prefix
 	ExpiresAt   pgtype.Timestamptz
+	CreatedBy   *int64
 }
 
+// created_by is the human who minted the token, and it is NOT bookkeeping: the
+// middleware intersects a token's permissions with its creator's on every
+// request (rbac-matrix §4.2), so a token without one is a token nothing can
+// narrow when its creator is demoted or leaves. It is also how a CLI token is
+// tied back to the person an access grant was issued to (ADR-045 §5).
 func (q *Queries) CreateApiToken(ctx context.Context, arg CreateApiTokenParams) (ApiToken, error) {
 	row := q.db.QueryRow(ctx, createApiToken,
 		arg.TeamID,
@@ -37,6 +43,7 @@ func (q *Queries) CreateApiToken(ctx context.Context, arg CreateApiTokenParams) 
 		arg.Permissions,
 		arg.IpAllowlist,
 		arg.ExpiresAt,
+		arg.CreatedBy,
 	)
 	var i ApiToken
 	err := row.Scan(

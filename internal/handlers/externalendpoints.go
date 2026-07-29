@@ -216,7 +216,7 @@ func (a *API) ListExternalEndpoints(w http.ResponseWriter, r *http.Request, para
 // the UI can show "you have access until 14:30" without a second round-trip.
 // Best effort: a lookup failure simply means no badge.
 func (a *API) liveGrantFor(r *http.Request, row store.ExternalEndpoint, id *auth.Identity) *store.ExternalEndpointGrant {
-	userID := a.sessionUserID(r, id)
+	userID := actingUserID(id)
 	if userID == nil {
 		return nil
 	}
@@ -229,18 +229,16 @@ func (a *API) liveGrantFor(r *http.Request, row store.ExternalEndpoint, id *auth
 	return &grant
 }
 
-// sessionUserID is the acting human behind the request, when there is one. An
-// API token has no user, which is precisely why it cannot hold a grant.
-func (a *API) sessionUserID(r *http.Request, id *auth.Identity) *int64 {
-	if !id.Session || a.Sessions == nil {
-		return nil
-	}
-	sess, err := a.Sessions.SessionFromRequest(r.Context(), r)
-	if err != nil {
-		return nil
-	}
-	return &sess.UserID
-}
+// actingUserID is the human behind the request, whichever door they came
+// through: the session's user, or the creator an API token is capped by
+// (rbac-matrix §4.2). It is already resolved on the identity — authentication
+// did it — so this costs nothing and, unlike asking the session store, has an
+// answer for a token.
+//
+// "Who did this" is a person, not a credential: recording the token's creator
+// on a tunnel they opened is the honest answer, and it is the same person the
+// access grant was issued to.
+func actingUserID(id *auth.Identity) *int64 { return id.UserID }
 
 // GetExternalEndpoint implements GET /external-endpoints/{uuid}.
 func (a *API) GetExternalEndpoint(w http.ResponseWriter, r *http.Request, endpointUUID api.ExternalEndpointUuid) {
@@ -289,7 +287,7 @@ func (a *API) CreateExternalEndpoint(w http.ResponseWriter, r *http.Request) {
 		EnvironmentID:   environmentID,
 		Criticality:     criticalityOrDefault(body.Criticality),
 		MaxGrantMinutes: int32(intOrDefault(body.MaxGrantMinutes, defaultMaxGrantMinutes)),
-		CreatedBy:       a.sessionUserID(r, id),
+		CreatedBy:       actingUserID(id),
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -342,7 +340,7 @@ func (a *API) UpdateExternalEndpoint(w http.ResponseWriter, r *http.Request, end
 		EnvironmentID:   environmentID,
 		Criticality:     criticalityOrDefault(body.Criticality),
 		MaxGrantMinutes: int32(intOrDefault(body.MaxGrantMinutes, int(current.MaxGrantMinutes))),
-		UpdatedBy:       a.sessionUserID(r, id),
+		UpdatedBy:       actingUserID(id),
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -663,7 +661,7 @@ func (a *API) RevokeExternalEndpointGrant(w http.ResponseWriter, r *http.Request
 		return
 	}
 	revoked, err := a.Store.RevokeExternalEndpointGrant(r.Context(), store.RevokeExternalEndpointGrantParams{
-		Uuid: u, RevokedBy: a.sessionUserID(r, id),
+		Uuid: u, RevokedBy: actingUserID(id),
 	})
 	if err != nil {
 		// Already revoked: the window is closed either way, so this is not an
@@ -757,7 +755,19 @@ func (a *API) CreateExternalEndpointPortForward(w http.ResponseWriter, r *http.R
 	var grantID *int64
 	var authorizedUntil pgtype.Timestamptz
 	if endpoint.Criticality == store.ExternalEndpointCriticalitySensitive {
-		userID := a.sessionUserID(r, id)
+		// The acting HUMAN, whichever door they came through: the session's
+		// user, or the creator a token is capped by (§4.2). Not the session
+		// alone — the grant is requested from the dashboard but spent from the
+		// CLI, which authenticates with a token. Requiring a session here made
+		// a `sensitive` endpoint unreachable from the CLI no matter how many
+		// grants were issued, while the mint kept handing back the URL of the
+		// page that issues them (ADR-045 §5: "the CLI opens it and polls until
+		// the grant exists, then replays the mint").
+		//
+		// The grant remains the control: it is obtained with a browser session
+		// and a fresh second factor, which the holder of a stolen CLI token
+		// does not have.
+		userID := id.UserID
 		if userID == nil {
 			a.denyMint(r, id, endpoint)
 			a.writeAccessRequestRequired(w, r, endpoint,
@@ -797,7 +807,7 @@ func (a *API) CreateExternalEndpointPortForward(w http.ResponseWriter, r *http.R
 	}
 	row, err := a.Store.CreateEndpointPortForwardSession(r.Context(), store.CreateEndpointPortForwardSessionParams{
 		TeamID:             id.TeamID,
-		UserID:             a.sessionUserID(r, id),
+		UserID:             actingUserID(id),
 		ServerID:           &endpoint.ServerID,
 		ExternalEndpointID: &endpoint.ID,
 		GrantID:            grantID,

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/api"
+	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/store"
 	"github.com/deepteams/akerdock/internal/tunnel"
 )
@@ -53,14 +54,17 @@ func withHost(b api.ExternalEndpointCreate, h string) api.ExternalEndpointCreate
 	b.Host = h
 	return b
 }
+
 func withPort(b api.ExternalEndpointCreate, p int) api.ExternalEndpointCreate {
 	b.Port = p
 	return b
 }
+
 func withName(b api.ExternalEndpointCreate, n string) api.ExternalEndpointCreate {
 	b.Name = n
 	return b
 }
+
 func withMaxGrant(b api.ExternalEndpointCreate, m int) api.ExternalEndpointCreate {
 	b.MaxGrantMinutes = &m
 	return b
@@ -195,5 +199,34 @@ func TestAccessRequestRequiredCarriesTheRequestURL(t *testing.T) {
 	}
 	if !strings.HasPrefix(body.RequestURL, "https://") {
 		t.Errorf("request_url = %q, want an absolute https URL the CLI can open", body.RequestURL)
+	}
+}
+
+// A `sensitive` endpoint is spent from the CLI, which authenticates with a
+// TOKEN, while the grant is obtained in the dashboard, which authenticates with
+// a SESSION. Resolving the acting human from the session alone therefore made
+// the endpoint unreachable from the CLI whatever grant existed — with the mint
+// still handing back the URL of the page that issues them (ADR-045 §5).
+func TestActingUserIDAnswersForTokensToo(t *testing.T) {
+	user := int64(42)
+
+	cases := map[string]struct {
+		identity *auth.Identity
+		want     *int64
+	}{
+		"a dashboard session":     {&auth.Identity{Session: true, UserID: &user}, &user},
+		"a CLI token":             {&auth.Identity{UserID: &user}, &user},
+		"a token with no creator": {&auth.Identity{}, nil},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := actingUserID(tc.identity)
+			switch {
+			case tc.want == nil && got != nil:
+				t.Fatalf("acting user = %d, want none", *got)
+			case tc.want != nil && (got == nil || *got != *tc.want):
+				t.Fatalf("acting user = %v, want %d", got, *tc.want)
+			}
+		})
 	}
 }

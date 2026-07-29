@@ -230,6 +230,6 @@ func (a *API) ownsPortForwardSession(r *http.Request, id *auth.Identity, row sto
 	if row.UserID == nil {
 		return false
 	}
-	userID := a.sessionUserID(r, id)
+	userID := actingUserID(id)
 	return userID != nil && *userID == *row.UserID
 }
