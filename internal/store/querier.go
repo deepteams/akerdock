@@ -853,6 +853,15 @@ type Querier interface {
 	// Cooperative cancellation (§2.6): the worker checks the flag at each
 	// checkpoint between steps, before the switching barrier (§21.1).
 	RequestDeploymentJobCancel(ctx context.Context, deploymentID int64) (int64, error)
+	// The display name of what an action touched, read at the moment it is audited
+	// so the trail keeps the name the resource had THEN (see 00084).
+	//
+	// One statement rather than fifteen: each branch is gated by the target kind, so
+	// PostgreSQL discards the others on a constant one-time filter and only the
+	// matching table is probed, by its unique index on uuid. Best-effort by
+	// construction — an unknown kind or a row already gone simply yields nothing,
+	// and the trail keeps the uuid it already has.
+	ResolveAuditTargetName(ctx context.Context, arg ResolveAuditTargetNameParams) (string, error)
 	// Which project/environment a resource belongs to, for rule scoping.
 	ResolveProjectEnvironmentOfResource(ctx context.Context, uuid pgtype.UUID) (ResolveProjectEnvironmentOfResourceRow, error)
 	// Used on logout-everywhere and on any credential change: a password reset that

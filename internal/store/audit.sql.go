@@ -73,8 +73,8 @@ func (q *Queries) CountAuditEvents(ctx context.Context) (int64, error) {
 
 const insertAuditEvent = `-- name: InsertAuditEvent :exec
 
-INSERT INTO audit_events (team_id, actor_kind, actor_uuid, actor_display, action, target_kind, target_uuid, result, ip, user_agent, request_id, correlation_id, diff_redacted)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+INSERT INTO audit_events (team_id, actor_kind, actor_uuid, actor_display, action, target_kind, target_uuid, target_name, result, ip, user_agent, request_id, correlation_id, diff_redacted)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $13, $8, $9, $10, $11, $12, $14)
 `
 
 type InsertAuditEventParams struct {
@@ -90,6 +90,7 @@ type InsertAuditEventParams struct {
 	UserAgent     *string
 	RequestID     pgtype.UUID
 	CorrelationID pgtype.UUID
+	TargetName    *string
 	DiffRedacted  []byte
 }
 
@@ -109,6 +110,7 @@ func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventPara
 		arg.UserAgent,
 		arg.RequestID,
 		arg.CorrelationID,
+		arg.TargetName,
 		arg.DiffRedacted,
 	)
 	return err
@@ -143,7 +145,7 @@ func (q *Queries) InsertOutboxEvent(ctx context.Context, arg InsertOutboxEventPa
 }
 
 const listAuditEventsPage = `-- name: ListAuditEventsPage :many
-SELECT id, uuid, occurred_at, team_id, actor_kind, actor_uuid, actor_display, action, target_kind, target_uuid, result, ip, user_agent, request_id, correlation_id, diff_redacted, created_at FROM audit_events
+SELECT id, uuid, occurred_at, team_id, actor_kind, actor_uuid, actor_display, action, target_kind, target_uuid, result, ip, user_agent, request_id, correlation_id, diff_redacted, created_at, target_name FROM audit_events
 WHERE team_id = $1
   AND ($2::bigint = 0 OR id < $2)
   AND ($3::text IS NULL OR action = $3)
@@ -214,6 +216,7 @@ func (q *Queries) ListAuditEventsPage(ctx context.Context, arg ListAuditEventsPa
 			&i.CorrelationID,
 			&i.DiffRedacted,
 			&i.CreatedAt,
+			&i.TargetName,
 		); err != nil {
 			return nil, err
 		}
@@ -226,7 +229,7 @@ func (q *Queries) ListAuditEventsPage(ctx context.Context, arg ListAuditEventsPa
 }
 
 const listInstanceAuditEventsPage = `-- name: ListInstanceAuditEventsPage :many
-SELECT id, uuid, occurred_at, team_id, actor_kind, actor_uuid, actor_display, action, target_kind, target_uuid, result, ip, user_agent, request_id, correlation_id, diff_redacted, created_at FROM audit_events
+SELECT id, uuid, occurred_at, team_id, actor_kind, actor_uuid, actor_display, action, target_kind, target_uuid, result, ip, user_agent, request_id, correlation_id, diff_redacted, created_at, target_name FROM audit_events
 WHERE ($1::bigint = 0 OR id < $1)
   AND ($2::text IS NULL OR action = $2)
   AND ($3::audit_result IS NULL OR result = $3)
@@ -285,6 +288,7 @@ func (q *Queries) ListInstanceAuditEventsPage(ctx context.Context, arg ListInsta
 			&i.CorrelationID,
 			&i.DiffRedacted,
 			&i.CreatedAt,
+			&i.TargetName,
 		); err != nil {
 			return nil, err
 		}
@@ -373,4 +377,73 @@ func (q *Queries) PurgePublishedOutboxEvents(ctx context.Context) (int64, error)
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const resolveAuditTargetName = `-- name: ResolveAuditTargetName :one
+SELECT name FROM (
+    SELECT resources.name FROM resources
+        WHERE resources.uuid = $1 AND $2::text IN ('application', 'database', 'service', 'resource', 'preview')
+    UNION ALL SELECT servers.name FROM servers
+        WHERE servers.uuid = $1 AND $2::text = 'server'
+    UNION ALL SELECT projects.name FROM projects
+        WHERE projects.uuid = $1 AND $2::text = 'project'
+    UNION ALL SELECT environments.name FROM environments
+        WHERE environments.uuid = $1 AND $2::text = 'environment'
+    UNION ALL SELECT teams.name FROM teams
+        WHERE teams.uuid = $1 AND $2::text = 'team'
+    UNION ALL SELECT users.name FROM users
+        WHERE users.uuid = $1 AND $2::text = 'user'
+    UNION ALL SELECT notification_channels.name FROM notification_channels
+        WHERE notification_channels.uuid = $1 AND $2::text = 'notification_channel'
+    UNION ALL SELECT scheduled_tasks.name FROM scheduled_tasks
+        WHERE scheduled_tasks.uuid = $1 AND $2::text = 'scheduled_task'
+    UNION ALL SELECT custom_roles.name FROM custom_roles
+        WHERE custom_roles.uuid = $1 AND $2::text = 'role'
+    UNION ALL SELECT registry_credentials.name FROM registry_credentials
+        WHERE registry_credentials.uuid = $1 AND $2::text = 'registry_credential'
+    UNION ALL SELECT cloud_credentials.name FROM cloud_credentials
+        WHERE cloud_credentials.uuid = $1 AND $2::text = 'dns_credential'
+    UNION ALL SELECT github_apps.name FROM github_apps
+        WHERE github_apps.uuid = $1 AND $2::text = 'github_app'
+    UNION ALL SELECT uptime_checks.name FROM uptime_checks
+        WHERE uptime_checks.uuid = $1 AND $2::text = 'uptime_check'
+    UNION ALL SELECT api_tokens.name FROM api_tokens
+        WHERE api_tokens.uuid = $1 AND $2::text = 'api_token'
+    UNION ALL SELECT scim_tokens.name FROM scim_tokens
+        WHERE scim_tokens.uuid = $1 AND $2::text = 'scim_token'
+    UNION ALL SELECT external_endpoints.name FROM external_endpoints
+        WHERE external_endpoints.uuid = $1 AND $2::text = 'external_endpoint'
+    UNION ALL SELECT service_components.name FROM service_components
+        WHERE service_components.uuid = $1 AND $2::text = 'service_component'
+    UNION ALL SELECT private_keys.name FROM private_keys
+        WHERE private_keys.uuid = $1 AND $2::text = 'private_key'
+    UNION ALL SELECT git_sources.name FROM git_sources
+        WHERE git_sources.uuid = $1 AND $2::text IN ('git_source', 'source')
+    UNION ALL SELECT s3_storages.name FROM s3_storages
+        WHERE s3_storages.uuid = $1 AND $2::text IN ('s3_storage', 'storage')
+    -- An invitation has no name; the invited address is what a reader needs.
+    UNION ALL SELECT invitations.email::text AS name FROM invitations
+        WHERE invitations.uuid = $1 AND $2::text = 'invitation'
+) AS candidates
+LIMIT 1
+`
+
+type ResolveAuditTargetNameParams struct {
+	TargetUuid pgtype.UUID
+	TargetKind string
+}
+
+// The display name of what an action touched, read at the moment it is audited
+// so the trail keeps the name the resource had THEN (see 00084).
+//
+// One statement rather than fifteen: each branch is gated by the target kind, so
+// PostgreSQL discards the others on a constant one-time filter and only the
+// matching table is probed, by its unique index on uuid. Best-effort by
+// construction — an unknown kind or a row already gone simply yields nothing,
+// and the trail keeps the uuid it already has.
+func (q *Queries) ResolveAuditTargetName(ctx context.Context, arg ResolveAuditTargetNameParams) (string, error) {
+	row := q.db.QueryRow(ctx, resolveAuditTargetName, arg.TargetUuid, arg.TargetKind)
+	var name string
+	err := row.Scan(&name)
+	return name, err
 }

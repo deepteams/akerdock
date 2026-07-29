@@ -2151,6 +2151,7 @@ type AuditEvent struct {
 	CorrelationID pgtype.UUID
 	DiffRedacted  []byte
 	CreatedAt     pgtype.Timestamptz
+	TargetName    *string
 }
 
 type BackupExecution struct {

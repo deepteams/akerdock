@@ -252,6 +252,14 @@ func (a *API) DeleteTeamRole(w http.ResponseWriter, r *http.Request, teamUuid ap
 	if !ok {
 		return
 	}
+	// Read the name BEFORE the delete: the row is gone afterwards, and an RBAC
+	// change recorded as "role <uuid> deleted" is the one audit line a reviewer
+	// cannot interpret months later.
+	name := ""
+	if role, err := a.Store.GetCustomRoleByUUID(r.Context(),
+		store.GetCustomRoleByUUIDParams{Uuid: u, TeamID: team.ID}); err == nil {
+		name = role.Name
+	}
 	n, err := a.Store.DeleteCustomRole(r.Context(), store.DeleteCustomRoleParams{Uuid: u, TeamID: team.ID})
 	if err != nil {
 		a.internalError(w, r, "delete role", err)
@@ -261,7 +269,7 @@ func (a *API) DeleteTeamRole(w http.ResponseWriter, r *http.Request, teamUuid ap
 		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "role not found")
 		return
 	}
-	a.recordAudit(r, id, "role.delete", "role", u)
+	a.recordAuditNamed(r, id, "role.delete", "role", u, name)
 	w.WriteHeader(http.StatusNoContent)
 }
 

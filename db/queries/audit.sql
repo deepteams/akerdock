@@ -2,8 +2,64 @@
 -- query must ever exist against this table.
 
 -- name: InsertAuditEvent :exec
-INSERT INTO audit_events (team_id, actor_kind, actor_uuid, actor_display, action, target_kind, target_uuid, result, ip, user_agent, request_id, correlation_id, diff_redacted)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, sqlc.narg(diff_redacted));
+INSERT INTO audit_events (team_id, actor_kind, actor_uuid, actor_display, action, target_kind, target_uuid, target_name, result, ip, user_agent, request_id, correlation_id, diff_redacted)
+VALUES ($1, $2, $3, $4, $5, $6, $7, sqlc.narg(target_name), $8, $9, $10, $11, $12, sqlc.narg(diff_redacted));
+
+-- name: ResolveAuditTargetName :one
+-- The display name of what an action touched, read at the moment it is audited
+-- so the trail keeps the name the resource had THEN (see 00084).
+--
+-- One statement rather than fifteen: each branch is gated by the target kind, so
+-- PostgreSQL discards the others on a constant one-time filter and only the
+-- matching table is probed, by its unique index on uuid. Best-effort by
+-- construction — an unknown kind or a row already gone simply yields nothing,
+-- and the trail keeps the uuid it already has.
+SELECT name FROM (
+    SELECT resources.name FROM resources
+        WHERE resources.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text IN ('application', 'database', 'service', 'resource', 'preview')
+    UNION ALL SELECT servers.name FROM servers
+        WHERE servers.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'server'
+    UNION ALL SELECT projects.name FROM projects
+        WHERE projects.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'project'
+    UNION ALL SELECT environments.name FROM environments
+        WHERE environments.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'environment'
+    UNION ALL SELECT teams.name FROM teams
+        WHERE teams.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'team'
+    UNION ALL SELECT users.name FROM users
+        WHERE users.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'user'
+    UNION ALL SELECT notification_channels.name FROM notification_channels
+        WHERE notification_channels.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'notification_channel'
+    UNION ALL SELECT scheduled_tasks.name FROM scheduled_tasks
+        WHERE scheduled_tasks.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'scheduled_task'
+    UNION ALL SELECT custom_roles.name FROM custom_roles
+        WHERE custom_roles.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'role'
+    UNION ALL SELECT registry_credentials.name FROM registry_credentials
+        WHERE registry_credentials.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'registry_credential'
+    UNION ALL SELECT cloud_credentials.name FROM cloud_credentials
+        WHERE cloud_credentials.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'dns_credential'
+    UNION ALL SELECT github_apps.name FROM github_apps
+        WHERE github_apps.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'github_app'
+    UNION ALL SELECT uptime_checks.name FROM uptime_checks
+        WHERE uptime_checks.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'uptime_check'
+    UNION ALL SELECT api_tokens.name FROM api_tokens
+        WHERE api_tokens.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'api_token'
+    UNION ALL SELECT scim_tokens.name FROM scim_tokens
+        WHERE scim_tokens.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'scim_token'
+    UNION ALL SELECT external_endpoints.name FROM external_endpoints
+        WHERE external_endpoints.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'external_endpoint'
+    UNION ALL SELECT service_components.name FROM service_components
+        WHERE service_components.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'service_component'
+    UNION ALL SELECT private_keys.name FROM private_keys
+        WHERE private_keys.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'private_key'
+    UNION ALL SELECT git_sources.name FROM git_sources
+        WHERE git_sources.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text IN ('git_source', 'source')
+    UNION ALL SELECT s3_storages.name FROM s3_storages
+        WHERE s3_storages.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text IN ('s3_storage', 'storage')
+    -- An invitation has no name; the invited address is what a reader needs.
+    UNION ALL SELECT invitations.email::text AS name FROM invitations
+        WHERE invitations.uuid = sqlc.arg(target_uuid) AND sqlc.arg(target_kind)::text = 'invitation'
+) AS candidates
+LIMIT 1;
 
 -- name: InsertOutboxEvent :exec
 INSERT INTO outbox_events (uuid, event_type, team_uuid, resource_uuid, actor, aggregate_key, payload)

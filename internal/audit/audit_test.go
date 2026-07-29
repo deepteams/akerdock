@@ -23,6 +23,16 @@ type fakeStore struct {
 	auditErr     error
 	outboxParams []store.InsertOutboxEventParams
 	outboxErr    error
+	// Name resolution: what the database would answer for the audited target,
+	// and the lookups it was asked for.
+	targetName  string
+	targetErr   error
+	nameLookups []store.ResolveAuditTargetNameParams
+}
+
+func (f *fakeStore) ResolveAuditTargetName(_ context.Context, arg store.ResolveAuditTargetNameParams) (string, error) {
+	f.nameLookups = append(f.nameLookups, arg)
+	return f.targetName, f.targetErr
 }
 
 func (f *fakeStore) InsertAuditEvent(_ context.Context, params store.InsertAuditEventParams) error {
@@ -262,5 +272,86 @@ func TestStrPtr(t *testing.T) {
 	}
 	if got := strPtr("value"); got == nil || *got != "value" {
 		t.Fatalf("strPtr(value) = %v", got)
+	}
+}
+
+// The trail records WHAT was touched, not only which row: `application varuna`
+// where it used to say `application` and a uuid. The name is read when the
+// entry is written, because an append-only log is never rewritten and the
+// resource may be renamed — or deleted — the day after.
+func TestRecordCapturesTheTargetName(t *testing.T) {
+	storeFake := &fakeStore{targetName: "varuna"}
+	recorder := testRecorder(storeFake)
+	target := pguuid.MustParse("44444444-4444-4444-8444-444444444444")
+
+	recorder.Record(httptest.NewRequest(http.MethodPost, "/applications", nil),
+		&auth.Identity{TeamID: 1, TokenUUID: "11111111-1111-4111-8111-111111111111"},
+		Event{Action: "application.update", TargetKind: "application", TargetUUID: target})
+
+	if len(storeFake.nameLookups) != 1 ||
+		storeFake.nameLookups[0].TargetKind != "application" ||
+		storeFake.nameLookups[0].TargetUuid != target {
+		t.Fatalf("target lookup = %#v", storeFake.nameLookups)
+	}
+	got := storeFake.auditParams[0]
+	if got.TargetName == nil || *got.TargetName != "varuna" {
+		t.Fatalf("target name = %v, want varuna", got.TargetName)
+	}
+}
+
+// A caller that already knows the name — a hard delete, whose row is gone by
+// the time it is audited — is believed, and costs no lookup.
+func TestRecordPrefersTheCallerSuppliedName(t *testing.T) {
+	storeFake := &fakeStore{targetName: "resolved-from-db"}
+	recorder := testRecorder(storeFake)
+
+	recorder.Record(httptest.NewRequest(http.MethodDelete, "/notification-channels/x", nil),
+		&auth.Identity{TeamID: 1},
+		Event{
+			Action: "notification_channel.delete", TargetKind: "notification_channel",
+			TargetUUID: pguuid.MustParse("55555555-5555-4555-8555-555555555555"),
+			TargetName: "ops-slack",
+		})
+
+	if len(storeFake.nameLookups) != 0 {
+		t.Errorf("a supplied name still queried the database: %#v", storeFake.nameLookups)
+	}
+	if got := storeFake.auditParams[0].TargetName; got == nil || *got != "ops-slack" {
+		t.Fatalf("target name = %v, want ops-slack", got)
+	}
+}
+
+// Naming is a nicety; the audit row is not. A failed lookup, a target with no
+// name, or no target at all must all still write the entry.
+func TestRecordSurvivesAnUnresolvableTarget(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		fake  *fakeStore
+		event Event
+	}{
+		{
+			"lookup fails", &fakeStore{targetErr: errors.New("gone")},
+			Event{Action: "a", TargetKind: "application", TargetUUID: pguuid.MustParse("66666666-6666-4666-8666-666666666666")},
+		},
+		{"no target at all", &fakeStore{}, Event{Action: "instance.settings_updated"}},
+		{"kind without a uuid", &fakeStore{}, Event{Action: "a", TargetKind: "instance"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := testRecorder(tc.fake)
+			recorder.Record(httptest.NewRequest(http.MethodPost, "/x", nil), &auth.Identity{TeamID: 1}, tc.event)
+			if len(tc.fake.auditParams) != 1 {
+				t.Fatalf("audit rows = %d, want 1", len(tc.fake.auditParams))
+			}
+			if got := tc.fake.auditParams[0].TargetName; got != nil {
+				t.Errorf("target name = %v, want none", *got)
+			}
+		})
+	}
+	// A target with no uuid must not even be looked up.
+	quiet := &fakeStore{}
+	testRecorder(quiet).Record(httptest.NewRequest(http.MethodPost, "/x", nil),
+		&auth.Identity{TeamID: 1}, Event{Action: "a", TargetKind: "instance"})
+	if len(quiet.nameLookups) != 0 {
+		t.Errorf("looked up a target that has no uuid: %#v", quiet.nameLookups)
 	}
 }

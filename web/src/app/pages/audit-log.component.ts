@@ -53,12 +53,22 @@ export type AuditFetch = (query: AuditQuery) => Promise<AuditPage>;
       </div>
       <input class="akd-input" type="date" [(ngModel)]="fFrom" aria-label="From date" />
       <input class="akd-input" type="date" [(ngModel)]="fTo" aria-label="To date" />
-      <button class="akd-btn akd-btn--ghost akd-btn--sm" type="button" [disabled]="loading()" (click)="apply()">
+      <button
+        class="akd-btn akd-btn--ghost akd-btn--sm"
+        type="button"
+        [disabled]="loading()"
+        (click)="apply()"
+      >
         <akd-icon name="search" [size]="14" />
         Apply
       </button>
       @if (filtered()) {
-        <button class="akd-btn akd-btn--ghost akd-btn--sm" type="button" [disabled]="loading()" (click)="clear()">
+        <button
+          class="akd-btn akd-btn--ghost akd-btn--sm"
+          type="button"
+          [disabled]="loading()"
+          (click)="clear()"
+        >
           Clear
         </button>
       }
@@ -103,10 +113,25 @@ export type AuditFetch = (query: AuditQuery) => Promise<AuditPage>;
               <tr>
                 <td class="akd-muted sub-mono">{{ ev.occurred_at | slice: 0 : 19 }}</td>
                 <td class="sub-mono">{{ ev.actor_display ?? ev.actor_uuid ?? ev.actor_kind }}</td>
-                <td><span class="akd-badge akd-badge--mono">{{ ev.action }}</span></td>
-                <td class="akd-muted sub-mono">{{ ev.target_kind ?? '—' }}</td>
                 <td>
-                  <span class="akd-badge akd-badge--mono" [class.akd-badge--accent]="ev.result !== 'success'">
+                  <span class="akd-badge akd-badge--mono">{{ ev.action }}</span>
+                </td>
+                <td class="sub-mono target" [title]="ev.target_uuid ?? ''">
+                  @if (ev.target_kind) {
+                    <span class="akd-muted">{{ ev.target_kind }}</span>
+                    <!-- The name as it was WHEN the action happened; older
+                         entries have none, and the uuid still identifies the
+                         row. -->
+                    <span class="target-name">{{ targetLabel(ev) }}</span>
+                  } @else {
+                    <span class="akd-muted">—</span>
+                  }
+                </td>
+                <td>
+                  <span
+                    class="akd-badge akd-badge--mono"
+                    [class.akd-badge--accent]="ev.result !== 'success'"
+                  >
                     {{ ev.result }}
                   </span>
                 </td>
@@ -141,6 +166,18 @@ export type AuditFetch = (query: AuditQuery) => Promise<AuditPage>;
       .sub-mono {
         font-family: var(--font-mono);
         font-size: var(--text-xs);
+      }
+      .target {
+        display: flex;
+        gap: 6px;
+        align-items: baseline;
+      }
+      .target-name {
+        color: var(--text-1);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 22ch;
       }
       .footnote {
         margin: var(--space-3) 0 0;
@@ -182,6 +219,13 @@ export class AuditLogComponent {
 
   protected filtered(): boolean {
     return !!(this.fAction || this.fResult || this.fFrom || this.fTo);
+  }
+
+  /** What to call the target: the name captured with the entry, or the head of
+   *  the uuid for the rows written before names were recorded. */
+  protected targetLabel(ev: AuditEvent): string {
+    if (ev.target_name) return ev.target_name;
+    return ev.target_uuid ? ev.target_uuid.slice(0, 8) : '';
   }
 
   protected hint(): string {
@@ -254,6 +298,7 @@ export class AuditLogComponent {
       'actor_uuid',
       'action',
       'target_kind',
+      'target_name',
       'target_uuid',
       'result',
       'ip',
@@ -270,6 +315,7 @@ export class AuditLogComponent {
         e.actor_uuid,
         e.action,
         e.target_kind,
+        e.target_name,
         e.target_uuid,
         e.result,
         e.ip,

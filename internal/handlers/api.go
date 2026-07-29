@@ -84,6 +84,16 @@ func (a *API) recordAudit(r *http.Request, id *auth.Identity, action, targetKind
 	a.Audit.Record(r, id, audit.Event{Action: action, TargetKind: targetKind, TargetUUID: target})
 }
 
+// recordAuditNamed is recordAudit for a target whose row is GONE by the time it
+// is audited — a hard delete. The recorder resolves names from the database, so
+// a deletion audited after the fact would resolve to nothing and leave the one
+// entry that most needs a name ("who deleted what") with only a uuid.
+func (a *API) recordAuditNamed(r *http.Request, id *auth.Identity, action, targetKind string, target pgtype.UUID, name string) {
+	a.Audit.Record(r, id, audit.Event{
+		Action: action, TargetKind: targetKind, TargetUUID: target, TargetName: name,
+	})
+}
+
 // recordAuditDiff audits a modification with what actually changed (§23.4).
 // The diff is redacted by audit.Diff: a sensitive field is reported as changed,
 // never with its value — the audit table is kept forever and exported, so a

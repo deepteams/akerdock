@@ -2923,9 +2923,12 @@ type AuditEvent struct {
 	OccurredAt time.Time               `json:"occurred_at"`
 	Result     AuditEventResult        `json:"result"`
 	TargetKind *string                 `json:"target_kind,omitempty"`
-	TargetUuid *string                 `json:"target_uuid,omitempty"`
-	UserAgent  *string                 `json:"user_agent,omitempty"`
-	Uuid       string                  `json:"uuid"`
+
+	// TargetName Display name of the target AT THE TIME OF THE ACTION, captured when the entry was written and never refreshed — a renamed resource keeps the name it had, and a deleted one keeps a name at all. Absent for entries written before this field existed, and for targets that have no name.
+	TargetName *string `json:"target_name,omitempty"`
+	TargetUuid *string `json:"target_uuid,omitempty"`
+	UserAgent  *string `json:"user_agent,omitempty"`
+	Uuid       string  `json:"uuid"`
 }
 
 // AuditEventActorKind defines model for AuditEvent.ActorKind.

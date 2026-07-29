@@ -53,6 +53,11 @@ func (a *Recorder) telemetry(ctx context.Context, action, actor, result string) 
 // database module suite.
 type Store interface {
 	InsertAuditEvent(context.Context, store.InsertAuditEventParams) error
+	// ResolveAuditTargetName turns the target's kind + uuid into its display
+	// name, read HERE so the trail keeps the name the resource had at the time
+	// of the action (00084). Best-effort: an unknown kind or a row already gone
+	// leaves the name empty and the uuid speaks for itself.
+	ResolveAuditTargetName(context.Context, store.ResolveAuditTargetNameParams) (string, error)
 }
 
 // OutboxStore persists domain events to the transactional outbox (§24.2).
@@ -99,6 +104,11 @@ type Event struct {
 	Action     string
 	TargetKind string
 	TargetUUID pgtype.UUID
+	// TargetName is the display name of the target. Left empty, it is resolved
+	// from the kind and uuid; set it when the caller already knows the name, or
+	// when the row is about to disappear (a deletion audited after the fact
+	// would otherwise resolve to nothing).
+	TargetName string
 	Result     store.AuditResult // defaults to success
 	// Diff is what changed, already redacted by the caller (§23.4). It answers
 	// "who changed what" — an audit log that only says "someone updated
@@ -127,6 +137,7 @@ func (a *Recorder) Record(r *http.Request, id *auth.Identity, ev Event) {
 		Action:        ev.Action,
 		TargetKind:    strPtr(ev.TargetKind),
 		TargetUuid:    ev.TargetUUID,
+		TargetName:    strPtr(a.targetName(r.Context(), ev)),
 		Result:        ev.Result,
 		Ip:            ip,
 		UserAgent:     strPtr(r.UserAgent()),
@@ -143,6 +154,29 @@ func (a *Recorder) Record(r *http.Request, id *auth.Identity, ev Event) {
 		a.Logger.Error("audit event lost", "action", ev.Action, "error", err)
 	}
 	a.securityAlert(r.Context(), id.TeamUUID, ev)
+}
+
+// targetName resolves what the trail should call the target: the caller's own
+// label when it gave one, otherwise the resource's current name — read now,
+// because "now" is when the action happened and the trail is never rewritten.
+//
+// A failure is not an error: `application 3f2a…` is a poorer line than
+// `application varuna`, but a lost audit row would be far worse, so nothing
+// here can fail the recording.
+func (a *Recorder) targetName(ctx context.Context, ev Event) string {
+	if ev.TargetName != "" {
+		return ev.TargetName
+	}
+	if ev.TargetKind == "" || !ev.TargetUUID.Valid {
+		return ""
+	}
+	name, err := a.Store.ResolveAuditTargetName(ctx, store.ResolveAuditTargetNameParams{
+		TargetUuid: ev.TargetUUID, TargetKind: ev.TargetKind,
+	})
+	if err != nil {
+		return ""
+	}
+	return name
 }
 
 // sensitiveActions maps a high-signal audited action to the security event type
@@ -266,11 +300,14 @@ func (a *Recorder) System(ctx context.Context, teamID *int64, action, targetKind
 	}
 	a.telemetry(ctx, action, "system", string(result))
 	if err := a.Store.InsertAuditEvent(ctx, store.InsertAuditEventParams{
-		TeamID:        teamID,
-		ActorKind:     store.ActorKindSystem,
-		Action:        action,
-		TargetKind:    strPtr(targetKind),
-		TargetUuid:    targetUUID,
+		TeamID:     teamID,
+		ActorKind:  store.ActorKindSystem,
+		Action:     action,
+		TargetKind: strPtr(targetKind),
+		TargetUuid: targetUUID,
+		TargetName: strPtr(a.targetName(ctx, Event{
+			TargetKind: targetKind, TargetUUID: targetUUID,
+		})),
 		Result:        result,
 		RequestID:     requestID(ctx),
 		CorrelationID: correlationID(ctx),

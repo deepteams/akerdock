@@ -1362,6 +1362,7 @@ Event enabled per channel (§11), enriched with the routing/aggregation of decis
 | `action` | `text` | no | — | index | no | E.g. `secret.reveal`, `terminal.open`, `deployment.rollback`, `server.delete` (list §23.4). |
 | `target_kind` | `text` | yes | — | — | no | Type of the target (e.g. `application`). |
 | `target_uuid` | `uuid` | yes | — | index | no | UUID of the target. |
+| `target_name` | `text` | yes | — | — | no | Display name of the target **at the time of the action** (snapshot, like `actor_display`): resolved when the entry is written and never refreshed, so a renamed resource keeps the name it had and a deleted one keeps a name at all. NULL for entries written before 00084, and for targets that have none. |
 | `result` | `audit_result` | no | — | — | no | success / failure / denied. |
 | `ip` | `inet` | yes | — | — | no | — |
 | `user_agent` | `text` | yes | — | — | no | — |

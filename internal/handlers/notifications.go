@@ -329,7 +329,7 @@ func (a *API) DeleteNotificationChannel(w http.ResponseWriter, r *http.Request, 
 		a.internalError(w, r, "delete notification channel", err)
 		return
 	}
-	a.recordAudit(r, id, "notification_channel.delete", "notification_channel", channel.Uuid)
+	a.recordAuditNamed(r, id, "notification_channel.delete", "notification_channel", channel.Uuid, channel.Name)
 	w.WriteHeader(http.StatusNoContent)
 }
 

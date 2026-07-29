@@ -8996,6 +8996,15 @@ components:
         target_uuid:
           type: string
           nullable: true
+        target_name:
+          type: string
+          nullable: true
+          description: >-
+            Display name of the target AT THE TIME OF THE ACTION, captured when
+            the entry was written and never refreshed — a renamed resource keeps
+            the name it had, and a deleted one keeps a name at all. Absent for
+            entries written before this field existed, and for targets that have
+            no name.
         result:
           type: string
           enum: [success, failure, denied]

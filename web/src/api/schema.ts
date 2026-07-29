@@ -3878,6 +3878,8 @@ export interface components {
             action: string;
             target_kind?: string | null;
             target_uuid?: string | null;
+            /** @description Display name of the target AT THE TIME OF THE ACTION, captured when the entry was written and never refreshed — a renamed resource keeps the name it had, and a deleted one keeps a name at all. Absent for entries written before this field existed, and for targets that have no name. */
+            target_name?: string | null;
             /** @enum {string} */
             result: "success" | "failure" | "denied";
             ip?: string | null;

@@ -243,7 +243,7 @@ func (a *API) DeleteGithubApp(w http.ResponseWriter, r *http.Request, githubAppU
 		a.internalError(w, r, "delete github app", err)
 		return
 	}
-	a.recordAudit(r, id, "github_app.delete", "github_app", row.Uuid)
+	a.recordAuditNamed(r, id, "github_app.delete", "github_app", row.Uuid, row.Name)
 	w.WriteHeader(http.StatusNoContent)
 }
 

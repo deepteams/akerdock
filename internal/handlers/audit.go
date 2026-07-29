@@ -23,6 +23,7 @@ func auditEventToAPI(e store.AuditEvent) api.AuditEvent {
 		ActorDisplay: e.ActorDisplay,
 		Action:       e.Action,
 		TargetKind:   e.TargetKind,
+		TargetName:   e.TargetName,
 		Result:       api.AuditEventResult(e.Result),
 		UserAgent:    e.UserAgent,
 	}
