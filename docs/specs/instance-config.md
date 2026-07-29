@@ -58,6 +58,7 @@ Everything else has a safe, documented default. Corollaries: no default may be s
 | `AKERDOCK_SHUTDOWN_TIMEOUT` | no | `30s` | Drain delay on graceful shutdown (§6.5): Go duration (`30s`, `2m`). MUST remain below the compose `stop_grace_period` (40 s, §4) and the jobs' lease expiration (90 s, deployment-engine §2.5). | no |
 | `AKERDOCK_TERMINAL_IDLE_TIMEOUT` | no | `15m` | Inactivity (no keystroke) beyond which a web terminal session is closed (PRD §24.4, ADR-024): Go duration. Terminal output does not count as activity — a spinner does not keep a forgotten root shell alive. | no |
 | `AKERDOCK_TERMINAL_MAX_DURATION` | no | `4h` | Maximum duration of a web terminal session, regardless of activity (PRD §24.4): Go duration. Closure is guaranteed (kill of the remote PTY) and logged with its reason. | no |
+| `AKERDOCK_TRUSTED_PROXIES` | no | — | Peers whose `X-Forwarded-For` / `X-Real-IP` may be believed: comma-separated IPs and CIDRs (`172.18.0.1`, `10.0.0.0/8`), or the shorthand `private` (RFC 1918 + loopback + link-local + ULA). **Required as soon as a reverse proxy fronts the instance**, otherwise every caller address recorded is the proxy's: the audit trail attributes everything to one address, the `/auth` rate limiter gives the whole internet one shared bucket, a token's CIDR allowlist admits everyone the proxy admits, and tunnel/terminal sessions record the wrong client. Empty (the default) reads no such header at all — the only safe posture for a process exposed directly, since the header is written by whoever speaks last. Unparsable entry = fatal error. | no |
 | `AKERDOCK_CONFIG_FILE` | no | — | Path of an optional YAML configuration file (§1.1). Unreadable or invalid file = fatal error. | no |
 
 ¹ Exactly one of the two master key sources must be provided. Both at once = fatal error (ambiguous); neither = fatal error (§6.4).
@@ -227,6 +228,13 @@ services:
       AKERDOCK_LOG_LEVEL: debug
       AKERDOCK_WORKER_CONCURRENCY: "20"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.interne:4317
+      # A reverse proxy in front of the published port (the `00-control-plane`
+      # route, or an nginx of your own): without this, every recorded caller
+      # address is the proxy's — audit trail, rate limiter, token CIDR
+      # allowlist alike (§2.1). Name the proxy as precisely as you can; the
+      # `private` shorthand is right only if nothing untrusted can reach the
+      # published port from a private address.
+      AKERDOCK_TRUSTED_PROXIES: 172.18.0.1
     deploy:
       resources:
         limits:

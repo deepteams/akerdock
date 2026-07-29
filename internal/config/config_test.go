@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"net/netip"
 	"os"
 	"strings"
 	"testing"
@@ -311,5 +312,62 @@ func TestInstancePort(t *testing.T) {
 	vars["AKERDOCK_INSTANCE_PORT"] = "not-a-port"
 	if _, _, err := Load(vars, noFile); err == nil || !strings.Contains(err.Error(), "AKERDOCK_INSTANCE_PORT") {
 		t.Fatalf("an invalid AKERDOCK_INSTANCE_PORT must be a named fatal error, got %v", err)
+	}
+}
+
+// The list an operator actually writes: a bare proxy address, a CIDR, and the
+// `private` shorthand for "the bridge network this thing sits on", whose exact
+// prefix nobody should have to look up.
+func TestTrustedProxies(t *testing.T) {
+	cases := map[string]struct {
+		value   string
+		want    []string // addresses that must be recognised as a proxy
+		reject  []string // and those that must not
+		invalid bool
+	}{
+		"a bare address":    {value: "172.18.0.1", want: []string{"172.18.0.1"}, reject: []string{"172.18.0.2"}},
+		"a CIDR":            {value: "172.18.0.0/16", want: []string{"172.18.9.9"}, reject: []string{"203.0.113.7"}},
+		"a mixed list":      {value: "10.0.0.0/8, 192.168.1.5", want: []string{"10.1.2.3", "192.168.1.5"}, reject: []string{"192.168.1.6"}},
+		"private":           {value: "private", want: []string{"172.18.0.1", "10.0.0.5", "127.0.0.1", "::1"}, reject: []string{"203.0.113.7"}},
+		"nonsense":          {value: "not-an-ip", invalid: true},
+		"one bad entry":     {value: "10.0.0.0/8,nope", invalid: true},
+		"absent by default": {value: "", reject: []string{"172.18.0.1", "127.0.0.1"}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			vars := base()
+			if tc.value != "" {
+				vars["AKERDOCK_TRUSTED_PROXIES"] = tc.value
+			}
+			cfg, _, err := Load(vars, noFile)
+			if tc.invalid {
+				if err == nil || !strings.Contains(err.Error(), "AKERDOCK_TRUSTED_PROXIES") {
+					t.Fatalf("expected a trusted-proxies error, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			contains := func(s string) bool {
+				addr := netip.MustParseAddr(s)
+				for _, p := range cfg.TrustedProxies {
+					if p.Contains(addr) {
+						return true
+					}
+				}
+				return false
+			}
+			for _, s := range tc.want {
+				if !contains(s) {
+					t.Errorf("%s should be recognised as a trusted proxy", s)
+				}
+			}
+			for _, s := range tc.reject {
+				if contains(s) {
+					t.Errorf("%s must NOT be trusted to speak for someone else", s)
+				}
+			}
+		})
 	}
 }

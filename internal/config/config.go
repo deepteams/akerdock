@@ -8,6 +8,7 @@ package config
 import (
 	"fmt"
 	"net/mail"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -104,6 +105,13 @@ type Config struct {
 	// Terminal session bounds (§24.4, ADR-024).
 	TerminalIdleTimeout time.Duration
 	TerminalMaxDuration time.Duration
+	// TrustedProxies are the peers whose forwarded-for chain may be believed
+	// (AKERDOCK_TRUSTED_PROXIES). Empty — the default — means the process
+	// answers its clients directly and every such header is a client's claim,
+	// so none is read. Set it and the recorded caller address stops being the
+	// proxy's for the audit trail, the auth rate limiter and a token's CIDR
+	// allowlist alike.
+	TrustedProxies []netip.Prefix
 	// Image is this AkerDock release's own container image (ADR-036): the
 	// scale-to-zero waker is deployed as a helper container from it (same binary,
 	// `akerdock waker` mode). AKERDOCK_IMAGE sets it explicitly; on a release
@@ -161,6 +169,7 @@ var envKeys = []string{
 	"AKERDOCK_DATA_DIR",
 	"AKERDOCK_WORKER_CONCURRENCY",
 	"AKERDOCK_AUDIT_RETENTION_DAYS",
+	"AKERDOCK_TRUSTED_PROXIES",
 	"AKERDOCK_SHUTDOWN_TIMEOUT",
 	"AKERDOCK_TERMINAL_IDLE_TIMEOUT",
 	"AKERDOCK_TERMINAL_MAX_DURATION",
@@ -338,6 +347,21 @@ func Load(vars map[string]string, readFile func(string) ([]byte, error)) (*Confi
 		}
 	}
 
+	// Which peers may speak for someone else. Nothing by default: believing a
+	// forwarded address from an unknown peer is believing whatever a client
+	// typed.
+	if v := get("AKERDOCK_TRUSTED_PROXIES"); v != "" {
+		prefixes, bad := parsePrefixList(v)
+		if bad != "" {
+			errs = append(errs, FieldError{
+				"AKERDOCK_TRUSTED_PROXIES",
+				fmt.Sprintf("invalid value %q (expected `private`, or a comma-separated list of IPs and CIDRs such as 10.0.0.0/8,172.17.0.1)", bad),
+			})
+		} else {
+			cfg.TrustedProxies = prefixes
+		}
+	}
+
 	cfg.ShutdownTimeout = DefaultShutdownTimeout
 	if v := get("AKERDOCK_SHUTDOWN_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err != nil || d <= 0 {
@@ -393,6 +417,55 @@ func Load(vars map[string]string, readFile func(string) ([]byte, error)) (*Confi
 		return nil, warnings, errs
 	}
 	return cfg, warnings, nil
+}
+
+// privateRanges is what `private` expands to: the address space a reverse
+// proxy sitting beside this process lives in — RFC 1918, the loopback, the
+// carrier and link-local ranges, and their v6 counterparts. It is the answer
+// for the ordinary deployment (a proxy on the host, a container on a bridge
+// network) without asking the operator to know that a Docker bridge is
+// 172.17/16 today and something else after a `docker network create`.
+//
+// It is NOT a default: trusting every private address is right only when
+// nothing untrusted can reach the port from that space.
+var privateRanges = []netip.Prefix{
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.168.0.0/16"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("169.254.0.0/16"),
+	netip.MustParsePrefix("127.0.0.0/8"),
+	netip.MustParsePrefix("fc00::/7"),
+	netip.MustParsePrefix("fe80::/10"),
+	netip.MustParsePrefix("::1/128"),
+}
+
+// parsePrefixList reads a comma-separated list of IPs and CIDRs, plus the
+// `private` shorthand. A bare IP is its own /32 or /128 — an operator naming
+// one proxy should not have to write the mask. It returns the first entry it
+// could not read, so the error names the typo rather than the whole list.
+func parsePrefixList(v string) ([]netip.Prefix, string) {
+	var out []netip.Prefix
+	for _, raw := range strings.Split(v, ",") {
+		entry := strings.TrimSpace(raw)
+		if entry == "" {
+			continue
+		}
+		if strings.EqualFold(entry, "private") {
+			out = append(out, privateRanges...)
+			continue
+		}
+		if p, err := netip.ParsePrefix(entry); err == nil {
+			out = append(out, p)
+			continue
+		}
+		addr, err := netip.ParseAddr(entry)
+		if err != nil {
+			return nil, entry
+		}
+		out = append(out, netip.PrefixFrom(addr.Unmap(), addr.Unmap().BitLen()))
+	}
+	return out, ""
 }
 
 // unknownVarWarnings flags AKERDOCK_* variables the binary does not read,

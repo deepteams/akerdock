@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -17,7 +18,7 @@ func listApiTokensAs(t *testing.T, id *auth.Identity, scope *api.ListApiTokensPa
 	db.truthy = true
 
 	rec := httptest.NewRecorder()
-	r := httptest.NewRequest("GET", "/teams/"+fixtureUUID+"/tokens", nil)
+	r := httptest.NewRequest(http.MethodGet, "/teams/"+fixtureUUID+"/tokens", nil)
 	r = r.WithContext(auth.WithIdentity(r.Context(), id))
 	a.ListApiTokens(rec, r, fixtureUUID, api.ListApiTokensParams{Scope: scope})
 

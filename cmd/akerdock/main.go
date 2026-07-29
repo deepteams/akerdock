@@ -413,6 +413,7 @@ func serveRun(mode string) int {
 
 			TerminalIdleTimeout: cfg.TerminalIdleTimeout,
 			TerminalMaxDuration: cfg.TerminalMaxDuration,
+			TrustedProxies:      cfg.TrustedProxies,
 		}, &auth.Middleware{Store: q, Settings: settings, Sessions: sessions, Logger: logger})
 	}
 	// otelhttp wraps the whole handler: one server span per request, with the

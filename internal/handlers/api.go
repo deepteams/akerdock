@@ -7,6 +7,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -68,6 +69,11 @@ type API struct {
 	// AKERDOCK_TERMINAL_MAX_DURATION; zero falls back to the defaults.
 	TerminalIdleTimeout time.Duration
 	TerminalMaxDuration time.Duration
+
+	// TrustedProxies are the peers whose forwarded-for chain is believed
+	// (AKERDOCK_TRUSTED_PROXIES). Empty leaves every caller address exactly as
+	// the socket reports it.
+	TrustedProxies []netip.Prefix
 }
 
 // handlerPool is the small transaction/health boundary used by the HTTP
@@ -127,6 +133,12 @@ func (a *API) auditAuth(r *http.Request, action string, result store.AuditResult
 func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
+	// Before anything reads a caller address — the request context that logs
+	// it, the rate limiters, the bearer middleware's CIDR allowlist, the audit
+	// recorder. Behind a reverse proxy the socket only ever shows the proxy;
+	// this is the one place that unwraps it, and it does nothing unless the
+	// operator declared which peers may speak for someone else.
+	r.Use(httpapi.RealIP(a.TrustedProxies))
 	r.Use(a.requestContext)
 	r.Use(recoverJSON(a.Logger))
 
