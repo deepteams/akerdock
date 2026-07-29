@@ -1370,10 +1370,27 @@ paths:
         Lists the metadata of the team's API tokens. The token value is
         NEVER returned (only the identification prefix is) — it
         is visible only once, at creation (§10.3).
+
+
+        Two readings, told apart by `scope`. `mine` (the default) returns only
+        the caller's own tokens: a personal credential page must not show a
+        colleague's. `team` returns every token of the team, each with its
+        `owner_email` — the administrative reading, which is the one that makes
+        "revoke what this person still holds" possible.
       x-required-permission: tokens:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [mine, team]
+            default: mine
+          description: >-
+            `mine` (default): the caller's own tokens. `team`: every token of
+            the team, with its owner.
       responses:
         "200":
           description: Page of tokens (metadata only).
@@ -7922,7 +7939,10 @@ paths:
         were frozen at declaration. On a `sensitive` endpoint the caller must
         hold a live access grant, otherwise `403` with code
         `access_request_required` and the URL of the request page in
-        `request_url` — the CLI opens it, polls, and replays this call.
+        `request_url` — the CLI opens it, polls, and replays this call. A token
+        that records no creator names no human for a grant to be issued to: it
+        is refused with code `token_without_creator`, which the CLI does NOT
+        poll on, since only re-issuing the token can lift it.
       x-required-permission: port-forwards:open
       responses:
         "201":
@@ -7936,7 +7956,8 @@ paths:
         "403":
           description: >-
             Forbidden, or no live grant — code `access_request_required`, with
-            `request_url` pointing at the dashboard page to obtain one.
+            `request_url` pointing at the dashboard page to obtain one. Or code
+            `token_without_creator`, the refusal no grant can lift.
           content:
             application/json:
               schema:
@@ -9284,6 +9305,14 @@ components:
           type: string
           format: date-time
           readOnly: true
+        owner_email:
+          type: string
+          nullable: true
+          readOnly: true
+          description: >-
+            The human who minted the token (`api_tokens.created_by`), returned
+            on the `team` scope so an administrator can see whose a token is.
+            Absent on the `mine` scope, where the answer is "yours".
 
     ApiTokenCreated:
       allOf:

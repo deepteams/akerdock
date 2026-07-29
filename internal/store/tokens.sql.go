@@ -100,30 +100,62 @@ func (q *Queries) GetTokenCreatorAuthority(ctx context.Context, arg GetTokenCrea
 
 const listApiTokensPage = `-- name: ListApiTokensPage :many
 
-SELECT id, uuid, team_id, created_by, name, token_prefix, token_hash, permissions, ip_allowlist, expires_at, last_used_at, revoked_at, created_at, updated_at FROM api_tokens
-WHERE team_id = $1 AND revoked_at IS NULL
-  AND ($2::bigint = 0 OR id < $2)
-ORDER BY id DESC
-LIMIT $3
+SELECT t.id, t.uuid, t.team_id, t.created_by, t.name, t.token_prefix, t.token_hash, t.permissions, t.ip_allowlist, t.expires_at, t.last_used_at, t.revoked_at, t.created_at, t.updated_at, u.email AS owner_email
+FROM api_tokens t
+LEFT JOIN users u ON u.id = t.created_by
+WHERE t.team_id = $1 AND t.revoked_at IS NULL
+  AND ($2::bigint IS NULL OR t.created_by = $2)
+  AND ($3::bigint = 0 OR t.id < $3)
+ORDER BY t.id DESC
+LIMIT $4
 `
 
 type ListApiTokensPageParams struct {
 	TeamID    int64
+	CreatedBy *int64
 	AfterID   int64
 	PageLimit int32
 }
 
+type ListApiTokensPageRow struct {
+	ID          int64
+	Uuid        pgtype.UUID
+	TeamID      int64
+	CreatedBy   *int64
+	Name        string
+	TokenPrefix string
+	TokenHash   string
+	Permissions []string
+	IpAllowlist []netip.Prefix
+	ExpiresAt   pgtype.Timestamptz
+	LastUsedAt  pgtype.Timestamptz
+	RevokedAt   pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+	OwnerEmail  *string
+}
+
 // API token management (§10.3). Token values are never stored nor
 // returned: only the SHA-256 hash and the identification prefix.
-func (q *Queries) ListApiTokensPage(ctx context.Context, arg ListApiTokensPageParams) ([]ApiToken, error) {
-	rows, err := q.db.Query(ctx, listApiTokensPage, arg.TeamID, arg.AfterID, arg.PageLimit)
+// Two readings of the same list, told apart by created_by: the personal one
+// ("my tokens", the caller's own) and the team-wide one an admin needs to see
+// what exists. NULL means no filter — the team reading; a value means only
+// that person's. The owner's email rides along so the team reading can say
+// WHOSE a token is, which is the only thing that makes it actionable.
+func (q *Queries) ListApiTokensPage(ctx context.Context, arg ListApiTokensPageParams) ([]ListApiTokensPageRow, error) {
+	rows, err := q.db.Query(ctx, listApiTokensPage,
+		arg.TeamID,
+		arg.CreatedBy,
+		arg.AfterID,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ApiToken
+	var items []ListApiTokensPageRow
 	for rows.Next() {
-		var i ApiToken
+		var i ListApiTokensPageRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Uuid,
@@ -139,6 +171,7 @@ func (q *Queries) ListApiTokensPage(ctx context.Context, arg ListApiTokensPagePa
 			&i.RevokedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.OwnerEmail,
 		); err != nil {
 			return nil, err
 		}

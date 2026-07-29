@@ -12,7 +12,8 @@ type Scope = SharedVariable['scope'];
 type Team = components['schemas']['Team'];
 type ScimToken = components['schemas']['ScimToken'];
 type ScimTokenCreated = components['schemas']['ScimTokenCreated'];
-type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning';
+type ApiToken = components['schemas']['ApiToken'];
+type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning' | 'tokens';
 
 /**
  * Team-level settings. Two tabs: Variables — the team-scoped shared variables
@@ -82,6 +83,21 @@ type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning';
             Provisioning
           </button>
         }
+        @if (canReadTokens()) {
+          <button
+            type="button"
+            class="akd-tab"
+            role="tab"
+            [class.akd-tab--active]="active() === 'tokens'"
+            [attr.aria-selected]="active() === 'tokens'"
+            (click)="openTokens()"
+          >
+            Tokens
+            @if (apiTokens().length > 0) {
+              <span class="akd-tab__count">{{ apiTokens().length }}</span>
+            }
+          </button>
+        }
       </nav>
 
       @if (error(); as message) {
@@ -112,7 +128,9 @@ type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning';
                     <span class="akd-mono">{{ variable.key }}</span>
                     <div class="ref akd-mono akd-muted">{{ reference(variable) }}</div>
                   </td>
-                  <td><span class="akd-badge akd-badge--mono">{{ variable.scope }}</span></td>
+                  <td>
+                    <span class="akd-badge akd-badge--mono">{{ variable.scope }}</span>
+                  </td>
                   <td class="akd-mono akd-muted">
                     {{ variable.is_redacted ? '••••••••' : (variable.value ?? '—') }}
                   </td>
@@ -162,7 +180,12 @@ type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning';
                 </td>
                 <td>
                   <label class="akd-check" title="Value redacted without read:sensitive (INV-003)">
-                    <input type="checkbox" name="newSecret" [(ngModel)]="secret" [disabled]="busy()" />
+                    <input
+                      type="checkbox"
+                      name="newSecret"
+                      [(ngModel)]="secret"
+                      [disabled]="busy()"
+                    />
                     secret
                   </label>
                 </td>
@@ -185,9 +208,10 @@ type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning';
         <p class="footnote">
           Reference these anywhere in a resource's env as
           <code class="akd-mono">{{ '{{' }}team.KEY{{ '}}' }}</code> — for example
-          <code class="akd-mono">SENTRY_ORG={{ '{{' }}team.SENTRY_ORG{{ '}}' }}</code> (the scope prefix
-          matches the Scope column). Interpolated at deploy time; an unknown reference stays verbatim
-          in the container — visible, therefore diagnosable. Previews never receive shared secrets.
+          <code class="akd-mono">SENTRY_ORG={{ '{{' }}team.SENTRY_ORG{{ '}}' }}</code> (the scope
+          prefix matches the Scope column). Interpolated at deploy time; an unknown reference stays
+          verbatim in the container — visible, therefore diagnosable. Previews never receive shared
+          secrets.
         </p>
       } @else if (active() === 'audit') {
         <akd-audit-log [fetch]="fetchAudit" exportName="team-audit" />
@@ -200,11 +224,13 @@ type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning';
             </p>
             @if (createdToken(); as created) {
               <div class="secret">
-                <p class="sm">
-                  Token created — copied once. Configure your IdP with:
-                </p>
-                <div class="kv"><span class="k">SCIM base URL</span><code>{{ created.scim_base_url }}</code></div>
-                <div class="kv"><span class="k">Token</span><code>{{ created.token }}</code></div>
+                <p class="sm">Token created — copied once. Configure your IdP with:</p>
+                <div class="kv">
+                  <span class="k">SCIM base URL</span><code>{{ created.scim_base_url }}</code>
+                </div>
+                <div class="kv">
+                  <span class="k">Token</span><code>{{ created.token }}</code>
+                </div>
               </div>
             }
             <form class="inline" (ngSubmit)="createScim()">
@@ -215,7 +241,11 @@ type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning';
                 [(ngModel)]="scimName"
                 [disabled]="busy()"
               />
-              <button class="akd-btn akd-btn--primary akd-btn--sm" type="submit" [disabled]="busy() || !scimName.trim()">
+              <button
+                class="akd-btn akd-btn--primary akd-btn--sm"
+                type="submit"
+                [disabled]="busy() || !scimName.trim()"
+              >
                 Create token
               </button>
             </form>
@@ -224,7 +254,9 @@ type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning';
               <p class="akd-muted sm">No SCIM tokens.</p>
             } @else {
               <table class="akd-table">
-                <caption class="sr-only">SCIM tokens</caption>
+                <caption class="sr-only">
+                  SCIM tokens
+                </caption>
                 <thead>
                   <tr>
                     <th scope="col">Name</th>
@@ -236,7 +268,9 @@ type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning';
                   @for (tok of scimTokens(); track tok.uuid) {
                     <tr>
                       <td>{{ tok.name }}</td>
-                      <td class="akd-muted">{{ tok.last_used_at ? (tok.last_used_at | slice: 0 : 10) : 'never' }}</td>
+                      <td class="akd-muted">
+                        {{ tok.last_used_at ? (tok.last_used_at | slice: 0 : 10) : 'never' }}
+                      </td>
                       <td class="right">
                         <button
                           class="akd-btn akd-btn--danger akd-btn--sm"
@@ -253,6 +287,70 @@ type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning';
               </table>
             }
           </div>
+        </akd-card>
+      } @else if (active() === 'tokens') {
+        <akd-card title="Team API tokens" [padded]="false">
+          <p class="intro akd-muted sm">
+            Every API token of this team, and whose it is. Personal tokens are managed by their
+            owner under Security — this is the administrative reading: what still exists, and what
+            to revoke when someone leaves.
+          </p>
+          @if (apiTokens().length === 0) {
+            <p class="akd-muted sm empty">No API token in this team.</p>
+          } @else {
+            <table class="akd-table">
+              <caption class="sr-only">
+                API tokens of this team
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Owner</th>
+                  <th scope="col">Permissions</th>
+                  <th scope="col">Last used</th>
+                  <th scope="col" class="right"><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (tok of apiTokens(); track tok.uuid) {
+                  <tr>
+                    <td>
+                      <span class="akd-mono">{{ tok.name }}</span>
+                      <div class="ref akd-mono akd-muted">{{ tok.token_prefix }}…</div>
+                    </td>
+                    <td>
+                      @if (tok.owner_email) {
+                        {{ tok.owner_email }}
+                      } @else {
+                        <span class="akd-badge akd-badge--warn">no owner</span>
+                      }
+                    </td>
+                    <td>
+                      <span
+                        class="akd-badge akd-badge--mono"
+                        [class.akd-badge--danger]="tok.permissions.includes('root')"
+                      >
+                        {{ tok.permissions.join(' · ') }}
+                      </span>
+                    </td>
+                    <td class="akd-muted">
+                      {{ tok.last_used_at ? (tok.last_used_at | slice: 0 : 10) : 'never' }}
+                    </td>
+                    <td class="right">
+                      <button
+                        class="akd-btn akd-btn--danger akd-btn--sm"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="revokeApiToken(tok)"
+                      >
+                        Revoke
+                      </button>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
         </akd-card>
       } @else {
         <akd-card title="Team" class="cfg">
@@ -297,6 +395,11 @@ type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning';
       .ref {
         font-size: var(--text-xs);
         margin-top: 2px;
+      }
+      .intro,
+      .empty {
+        padding: var(--space-3) var(--space-4);
+        margin: 0;
       }
       .add-row td {
         vertical-align: middle;
@@ -399,6 +502,14 @@ export class TeamSettingsComponent {
   private scimLoaded = false;
   protected scimName = '';
 
+  // Tokens tab (gated by tokens:read). The team-wide reading of what Security
+  // shows each person of their own: same endpoint, `scope: 'team'`.
+  protected readonly canReadTokens = computed(() =>
+    (this.api.currentUser()?.permissions ?? []).some((p) => p === 'tokens:read' || p === 'root'),
+  );
+  protected readonly apiTokens = signal<ApiToken[]>([]);
+  private tokensLoaded = false;
+
   protected key = '';
   protected value = '';
   protected secret = false;
@@ -408,6 +519,43 @@ export class TeamSettingsComponent {
 
   constructor() {
     void this.load();
+  }
+
+  protected openTokens(): void {
+    this.active.set('tokens');
+    if (this.tokensLoaded) return;
+    this.tokensLoaded = true;
+    void this.loadApiTokens();
+  }
+
+  private async loadApiTokens(): Promise<void> {
+    const teamUuid = this.api.currentUser()?.teamUuid;
+    if (!teamUuid) return;
+    try {
+      const page = await this.api.client().listApiTokens(teamUuid, { limit: 100, scope: 'team' });
+      this.apiTokens.set(page.data);
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    }
+  }
+
+  protected async revokeApiToken(token: ApiToken): Promise<void> {
+    const teamUuid = this.api.currentUser()?.teamUuid;
+    const owner = token.owner_email ? ` (${token.owner_email})` : '';
+    if (!teamUuid || this.busy()) return;
+    if (!confirm(`Revoke the API token "${token.name}"${owner}? Anything using it stops now.`)) {
+      return;
+    }
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.client().revokeApiToken(teamUuid, token.uuid);
+      await this.loadApiTokens();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
   }
 
   protected openProvisioning(): void {
@@ -434,7 +582,9 @@ export class TeamSettingsComponent {
     this.busy.set(true);
     this.error.set(null);
     try {
-      const created = await this.api.client().createScimToken(teamUuid, { name: this.scimName.trim() });
+      const created = await this.api
+        .client()
+        .createScimToken(teamUuid, { name: this.scimName.trim() });
       this.createdToken.set(created);
       this.scimName = '';
       await this.loadScim();
@@ -447,7 +597,11 @@ export class TeamSettingsComponent {
 
   protected async revokeScim(token: ScimToken): Promise<void> {
     const teamUuid = this.api.currentUser()?.teamUuid;
-    if (!teamUuid || !confirm(`Revoke the SCIM token "${token.name}"? Provisioning with it stops immediately.`)) return;
+    if (
+      !teamUuid ||
+      !confirm(`Revoke the SCIM token "${token.name}"? Provisioning with it stops immediately.`)
+    )
+      return;
     this.busy.set(true);
     this.error.set(null);
     try {

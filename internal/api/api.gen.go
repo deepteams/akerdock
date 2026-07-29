@@ -2212,6 +2212,24 @@ func (e ListTeamAuditParamsResult) Valid() bool {
 	}
 }
 
+// Defines values for ListApiTokensParamsScope.
+const (
+	ListApiTokensParamsScopeMine ListApiTokensParamsScope = "mine"
+	ListApiTokensParamsScopeTeam ListApiTokensParamsScope = "team"
+)
+
+// Valid indicates whether the value is a known member of the ListApiTokensParamsScope enum.
+func (e ListApiTokensParamsScope) Valid() bool {
+	switch e {
+	case ListApiTokensParamsScopeMine:
+		return true
+	case ListApiTokensParamsScopeTeam:
+		return true
+	default:
+		return false
+	}
+}
+
 // AccessRequestRequired defines model for AccessRequestRequired.
 type AccessRequestRequired struct {
 	// Code Stable machine-readable error code. Notable values — bad_request, unauthorized, forbidden, not_found, already_exists, dependency_exists, operation_in_progress, invalid_state, version_conflict, idempotency_conflict, validation_failed, rate_limited, internal.
@@ -2349,11 +2367,14 @@ type ApiState struct {
 
 // ApiToken Metadata of an API token. The token value is hashed (SHA-256) server-side and never appears here — only `token_prefix` allows identification.
 type ApiToken struct {
-	CreatedAt   *time.Time           `json:"created_at,omitempty"`
-	ExpiresAt   *time.Time           `json:"expires_at,omitempty"`
-	IpAllowlist *[]string            `json:"ip_allowlist,omitempty"`
-	LastUsedAt  *time.Time           `json:"last_used_at,omitempty"`
-	Name        string               `json:"name"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	IpAllowlist *[]string  `json:"ip_allowlist,omitempty"`
+	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
+	Name        string     `json:"name"`
+
+	// OwnerEmail The human who minted the token (`api_tokens.created_by`), returned on the `team` scope so an administrator can see whose a token is. Absent on the `mine` scope, where the answer is "yours".
+	OwnerEmail  *string              `json:"owner_email,omitempty"`
 	Permissions []ApiTokenPermission `json:"permissions"`
 
 	// TokenPrefix Identification prefix of the token (first characters).
@@ -2378,11 +2399,14 @@ type ApiTokenCreate struct {
 
 // ApiTokenCreated defines model for ApiTokenCreated.
 type ApiTokenCreated struct {
-	CreatedAt   *time.Time           `json:"created_at,omitempty"`
-	ExpiresAt   *time.Time           `json:"expires_at,omitempty"`
-	IpAllowlist *[]string            `json:"ip_allowlist,omitempty"`
-	LastUsedAt  *time.Time           `json:"last_used_at,omitempty"`
-	Name        string               `json:"name"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	IpAllowlist *[]string  `json:"ip_allowlist,omitempty"`
+	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
+	Name        string     `json:"name"`
+
+	// OwnerEmail The human who minted the token (`api_tokens.created_by`), returned on the `team` scope so an administrator can see whose a token is. Absent on the `mine` scope, where the answer is "yours".
+	OwnerEmail  *string              `json:"owner_email,omitempty"`
 	Permissions []ApiTokenPermission `json:"permissions"`
 
 	// Token Clear token value — present ONLY in this creation response, never retrievable afterwards (§10.3).
@@ -6207,7 +6231,13 @@ type ListApiTokensParams struct {
 
 	// Limit Maximum number of items per page (1 to 100).
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Scope `mine` (default): the caller's own tokens. `team`: every token of the team, with its owner.
+	Scope *ListApiTokensParamsScope `form:"scope,omitempty" json:"scope,omitempty"`
 }
+
+// ListApiTokensParamsScope defines parameters for ListApiTokens.
+type ListApiTokensParamsScope string
 
 // CreateApiTokenParams defines parameters for CreateApiToken.
 type CreateApiTokenParams struct {
@@ -18723,6 +18753,19 @@ func (siw *ServerInterfaceWrapper) ListApiTokens(w http.ResponseWriter, r *http.
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
 		}
 		return
 	}

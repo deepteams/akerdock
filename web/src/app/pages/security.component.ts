@@ -365,8 +365,9 @@ const PERMISSIONS: ApiTokenPermission[] = ['read', 'read:sensitive', 'write', 'd
             New token
           </button>
           <p class="akd-muted sm pad">
-            Personal access tokens for the CLI and the API, scoped to your current team. The value
-            is shown once at creation — only its hash is stored.
+            Your own access tokens for the CLI and the API, scoped to your current team — a
+            colleague's are theirs to manage, and an administrator sees the whole team's under Team
+            settings. The value is shown once at creation — only its hash is stored.
           </p>
           @if (tokens().length > 0) {
             <table class="akd-table">
@@ -673,7 +674,11 @@ export class SecurityComponent {
 
   private async loadTokens(): Promise<void> {
     if (!this.teamUuid) return;
-    const page = await this.api.client().listApiTokens(this.teamUuid, { limit: 100 });
+    // `mine` is the server default, said out loud here: this page is the
+    // personal one, and it must never enumerate a colleague's credentials.
+    const page = await this.api
+      .client()
+      .listApiTokens(this.teamUuid, { limit: 100, scope: 'mine' });
     this.tokens.set(page.data);
   }
 

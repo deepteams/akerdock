@@ -437,6 +437,18 @@ permission set comes from the membership held **in that team**.
 An API token carries a subset of `{read, read:sensitive, write, deploy, root}`, is scoped
 to **one team**, hashed SHA-256, with IP allowlist and expiration (`api_tokens`, §10.3).
 
+**A live token names its owner** (`api_tokens.created_by`, enforced by the
+`api_tokens_live_have_an_owner` constraint). It is not bookkeeping: §4.2 intersects with that
+person's permissions on every request, deprovisioning revokes what they still hold, and an
+ADR-045 access grant is spendable only through a token that names the human it was issued to.
+A token that names nobody is refused rather than half-working — minting one, and spending one
+on a `sensitive` endpoint, both answer `403 token_without_creator`, which says to re-issue it.
+
+**Two readings of the list** (`listApiTokens`, `scope`): `mine` — the default — returns the
+caller's own tokens, because a personal credential page must not enumerate a colleague's;
+`team` returns every token with its owner, the administrative reading that makes "revoke what
+this person still holds" possible. Both are gated by `tokens:read`.
+
 ### 4.2 A token's effective permissions = intersection
 
 > **Decision (resolution of the OpenAPI point)**: a token never grants more than its creator.

@@ -13,6 +13,23 @@ import (
 	"github.com/deepteams/akerdock/internal/store"
 )
 
+// codeTokenWithoutCreator refuses a caller that names no human: a token whose
+// creator was never recorded. It is NOT `access_request_required` — the CLI
+// polls on that one, and would wait ten minutes on a call no grant can unblock.
+const codeTokenWithoutCreator = "token_without_creator"
+
+// writeTokenWithoutCreator says what is wrong and, above all, what to do. Such
+// a token still authenticates and still carries its permissions — deliberately,
+// so instances that did nothing wrong keep working (auth.boundToCreator) — but
+// it acts for nobody: nothing narrows it when its holder is demoted, nothing
+// revokes it when they leave, and no access grant is spendable through it. The
+// way out is one command, so the refusal names the command.
+func (a *API) writeTokenWithoutCreator(w http.ResponseWriter, r *http.Request) {
+	httpapi.WriteError(w, r, http.StatusForbidden, codeTokenWithoutCreator,
+		"this token records no creator, so it acts for nobody — "+
+			"run `akerdock login` again to re-issue it")
+}
+
 func tokenToAPI(t store.ApiToken) api.ApiToken {
 	perms := make([]api.ApiTokenPermission, 0, len(t.Permissions))
 	for _, p := range t.Permissions {
@@ -36,6 +53,11 @@ func tokenToAPI(t store.ApiToken) api.ApiToken {
 
 // ListApiTokens implements GET /teams/{team_uuid}/tokens (permission:
 // read). Metadata only — the token value is never returned (§10.3).
+//
+// The default scope is `mine`, not `team`: the page a person opens to manage
+// their own credentials must not enumerate their colleagues', and a default
+// that shows less is the one to be wrong about. The team-wide reading is asked
+// for explicitly, and carries each token's owner so it can be acted on.
 func (a *API) ListApiTokens(w http.ResponseWriter, r *http.Request, teamUuid api.TeamUuid, params api.ListApiTokensParams) {
 	id, ok := a.require(w, r, auth.PermTokensRead)
 	if !ok {
@@ -53,19 +75,45 @@ func (a *API) ListApiTokens(w http.ResponseWriter, r *http.Request, teamUuid api
 	if !ok {
 		return
 	}
+	teamScope := params.Scope != nil && *params.Scope == api.ListApiTokensParamsScopeTeam
+
+	// The personal reading needs to know WHO is asking. A token whose creator
+	// was never recorded answers for nobody, so it gets an empty personal list
+	// rather than the team's — the same fail-closed reading as everywhere else.
+	var creator *int64
+	if !teamScope {
+		if id.UserID == nil {
+			httpapi.WriteJSON(w, http.StatusOK, struct {
+				Data       []api.ApiToken `json:"data"`
+				NextCursor *string        `json:"next_cursor"`
+			}{[]api.ApiToken{}, nil})
+			return
+		}
+		creator = id.UserID
+	}
 
 	rows, err := a.Store.ListApiTokensPage(r.Context(), store.ListApiTokensPageParams{
-		TeamID: team.ID, AfterID: after, PageLimit: limit + 1,
+		TeamID: team.ID, CreatedBy: creator, AfterID: after, PageLimit: limit + 1,
 	})
 	if err != nil {
 		a.internalError(w, r, "list api tokens", err)
 		return
 	}
-	rows, cursor := nextCursor(rows, limit, func(t store.ApiToken) int64 { return t.ID })
+	rows, cursor := nextCursor(rows, limit, func(t store.ListApiTokensPageRow) int64 { return t.ID })
 
 	data := make([]api.ApiToken, 0, len(rows))
 	for _, t := range rows {
-		data = append(data, tokenToAPI(t))
+		out := tokenToAPI(store.ApiToken{
+			Uuid: t.Uuid, Name: t.Name, Permissions: t.Permissions,
+			TokenPrefix: t.TokenPrefix, IpAllowlist: t.IpAllowlist,
+			ExpiresAt: t.ExpiresAt, LastUsedAt: t.LastUsedAt, CreatedAt: t.CreatedAt,
+		})
+		// Only on the team reading: on the personal one the owner is the
+		// caller, and repeating their own address on every row says nothing.
+		if teamScope {
+			out.OwnerEmail = t.OwnerEmail
+		}
+		data = append(data, out)
 	}
 	httpapi.WriteJSON(w, http.StatusOK, struct {
 		Data       []api.ApiToken `json:"data"`
@@ -83,6 +131,14 @@ func (a *API) CreateApiToken(w http.ResponseWriter, r *http.Request, teamUuid ap
 	}
 	team, ok := a.resolveTeam(w, r, id, teamUuid)
 	if !ok {
+		return
+	}
+	// A token is held by a person: it is capped by its creator's permissions on
+	// every request (rbac-matrix §4.2) and revoked with them when they leave. A
+	// caller who names nobody cannot mint one — the database says the same
+	// thing (api_tokens_live_have_an_owner), this just says it in words.
+	if actingUserID(id) == nil {
+		a.writeTokenWithoutCreator(w, r)
 		return
 	}
 

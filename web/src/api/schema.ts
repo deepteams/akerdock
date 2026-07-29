@@ -606,6 +606,8 @@ export interface paths {
         /**
          * List API tokens
          * @description Lists the metadata of the team's API tokens. The token value is NEVER returned (only the identification prefix is) — it is visible only once, at creation (§10.3).
+         *
+         *     Two readings, told apart by `scope`. `mine` (the default) returns only the caller's own tokens: a personal credential page must not show a colleague's. `team` returns every token of the team, each with its `owner_email` — the administrative reading, which is the one that makes "revoke what this person still holds" possible.
          */
         get: operations["listApiTokens"];
         put?: never;
@@ -3533,7 +3535,7 @@ export interface paths {
         put?: never;
         /**
          * Open a TCP tunnel to a declared external endpoint
-         * @description Mints a tunnel session (ADR-032 contract, ADR-045 target) with an **empty body**: neither host nor port is accepted from the client, both were frozen at declaration. On a `sensitive` endpoint the caller must hold a live access grant, otherwise `403` with code `access_request_required` and the URL of the request page in `request_url` — the CLI opens it, polls, and replays this call.
+         * @description Mints a tunnel session (ADR-032 contract, ADR-045 target) with an **empty body**: neither host nor port is accepted from the client, both were frozen at declaration. On a `sensitive` endpoint the caller must hold a live access grant, otherwise `403` with code `access_request_required` and the URL of the request page in `request_url` — the CLI opens it, polls, and replays this call. A token that records no creator names no human for a grant to be issued to: it is refused with code `token_without_creator`, which the CLI does NOT poll on, since only re-issuing the token can lift it.
          */
         post: operations["createExternalEndpointPortForward"];
         delete?: never;
@@ -3999,6 +4001,8 @@ export interface components {
             readonly last_used_at?: string | null;
             /** Format: date-time */
             readonly created_at: string;
+            /** @description The human who minted the token (`api_tokens.created_by`), returned on the `team` scope so an administrator can see whose a token is. Absent on the `mine` scope, where the answer is "yours". */
+            readonly owner_email?: string | null;
         };
         /** @description API token at creation — includes the clear value, once only. */
         ApiTokenCreated: components["schemas"]["ApiToken"] & {
@@ -7489,6 +7493,8 @@ export interface operations {
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Maximum number of items per page (1 to 100). */
                 limit?: components["parameters"]["Limit"];
+                /** @description `mine` (default): the caller's own tokens. `team`: every token of the team, with its owner. */
+                scope?: "mine" | "team";
             };
             header?: never;
             path: {
@@ -13435,7 +13441,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description Forbidden, or no live grant — code `access_request_required`, with `request_url` pointing at the dashboard page to obtain one. */
+            /** @description Forbidden, or no live grant — code `access_request_required`, with `request_url` pointing at the dashboard page to obtain one. Or code `token_without_creator`, the refusal no grant can lift. */
             403: {
                 headers: {
                     [name: string]: unknown;

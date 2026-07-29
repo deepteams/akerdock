@@ -665,7 +665,12 @@ export class AkerDockClient {
     );
   }
 
-  listApiTokens(uuid: string, query?: { cursor?: string; limit?: number }) {
+  // `scope` defaults to `mine` server-side: the personal page lists only the
+  // caller's own tokens, the team-wide reading is asked for explicitly.
+  listApiTokens(
+    uuid: string,
+    query?: { cursor?: string; limit?: number; scope?: 'mine' | 'team' },
+  ) {
     type Response =
       paths['/teams/{team_uuid}/tokens']['get']['responses']['200']['content']['application/json'];
     return this.request<Response>('GET', `/teams/${uuid}/tokens`, { query });

@@ -770,8 +770,15 @@ func (a *API) CreateExternalEndpointPortForward(w http.ResponseWriter, r *http.R
 		userID := id.UserID
 		if userID == nil {
 			a.denyMint(r, id, endpoint)
-			a.writeAccessRequestRequired(w, r, endpoint,
-				"this endpoint requires an access grant, which is requested from the dashboard")
+			// A token that records no creator (minted before the column was
+			// populated, or by the bootstrap) names no human — and a grant is
+			// issued to a human. No number of grants will ever make this call
+			// succeed, so it must NOT answer `access_request_required`: the CLI
+			// polls on that code, so it would send the developer through the
+			// ceremony and then wait ten minutes for something that cannot
+			// happen. Re-issuing the token is the only fix, so the refusal says
+			// exactly that.
+			a.writeTokenWithoutCreator(w, r)
 			return
 		}
 		grant, err := a.Store.GetLiveExternalEndpointGrant(r.Context(), store.GetLiveExternalEndpointGrantParams{
@@ -849,6 +856,12 @@ func (a *API) denyMint(r *http.Request, id *auth.Identity, endpoint store.Extern
 	})
 }
 
+// codeAccessRequestRequired is the refusal the CLI POLLS on: it opens the
+// request page and replays the mint until the grant exists. Anything else ends
+// the wait at once (spec cli.md §port-forward), which is why a refusal no grant
+// can lift must never borrow this code.
+const codeAccessRequestRequired = "access_request_required"
+
 // writeAccessRequestRequired answers the mint with the code and the URL the
 // CLI needs: it opens that page, polls until the grant exists, then replays
 // the call — the same choreography as `akerdock login` (ADR-031). Without the
@@ -865,7 +878,7 @@ func (a *API) writeAccessRequestRequired(w http.ResponseWriter, r *http.Request,
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"code":        "access_request_required",
+		"code":        codeAccessRequestRequired,
 		"message":     message,
 		"request_url": requestURL,
 	})

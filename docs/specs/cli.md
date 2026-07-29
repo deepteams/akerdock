@@ -186,7 +186,11 @@ server — a managed database, an internal API — that an admin declared as an
   a browser session (a token cannot re-authenticate, rbac-matrix §5), but the mint that
   follows comes from the CLI, authenticated by the token whose creator is that same person
   (`api_tokens.created_by`). Within the window, tunnels reopen after a reboot or a network
-  change without another ceremony (ADR-045 §5).
+  change without another ceremony (ADR-045 §5). A token minted before that creator was
+  recorded names nobody, so no grant is ever spendable through it: the mint refuses it with
+  `token_without_creator` — **not** `access_request_required`, which would send the
+  developer through the ceremony and then poll for ten minutes on a call that cannot
+  succeed — and the message names the fix, `akerdock login` again.
 - **The grant's expiry is the session deadline**: `authorized_until` is announced at open,
   and an automatic close reports its reason (`grant_expired` among them) instead of a bare
   disconnection.

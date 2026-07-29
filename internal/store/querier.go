@@ -579,7 +579,12 @@ type Querier interface {
 	ListAdoptionScansForServer(ctx context.Context, arg ListAdoptionScansForServerParams) ([]AdoptionScan, error)
 	// API token management (§10.3). Token values are never stored nor
 	// returned: only the SHA-256 hash and the identification prefix.
-	ListApiTokensPage(ctx context.Context, arg ListApiTokensPageParams) ([]ApiToken, error)
+	// Two readings of the same list, told apart by created_by: the personal one
+	// ("my tokens", the caller's own) and the team-wide one an admin needs to see
+	// what exists. NULL means no filter — the team reading; a value means only
+	// that person's. The owner's email rides along so the team reading can say
+	// WHOSE a token is, which is the only thing that makes it actionable.
+	ListApiTokensPage(ctx context.Context, arg ListApiTokensPageParams) ([]ListApiTokensPageRow, error)
 	// Every local rollback image of the application (non-preview deployments) on
 	// one server, newest first — the caller keeps the N most recent and reclaims
 	// the rest (ADR-006 retention, §29.4). The live image is the newest here, so a

@@ -43,6 +43,10 @@ type flowDB struct {
 	truthy   bool
 	countOne bool
 	noRows   bool
+	// Arguments of the last Query, so a test can assert on the FILTER a handler
+	// asked for — the part that decides whose rows come back, and which no
+	// amount of reading the response can prove.
+	lastArgs []any
 }
 
 func (db *flowDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
@@ -52,7 +56,8 @@ func (db *flowDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, erro
 	return pgconn.NewCommandTag("UPDATE 1"), nil
 }
 
-func (db *flowDB) Query(context.Context, string, ...any) (pgx.Rows, error) {
+func (db *flowDB) Query(_ context.Context, _ string, args ...any) (pgx.Rows, error) {
+	db.lastArgs = args
 	if db.err != nil {
 		return nil, db.err
 	}
@@ -621,6 +626,10 @@ func flowRouter(a *API) http.Handler {
 		// /system/* instance-root gate. Left as a token (Session:false) so the
 		// server-terminal step-up path stays on its token branch.
 		InstanceRoot: true,
+		// …and it names a human, like every live token does: a token whose
+		// creator was never recorded acts for nobody and is refused before it
+		// reaches a handler (rbac-matrix §4.2).
+		UserID: ptr(int64(1)),
 	}
 	inject := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

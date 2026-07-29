@@ -2,10 +2,18 @@
 -- returned: only the SHA-256 hash and the identification prefix.
 
 -- name: ListApiTokensPage :many
-SELECT * FROM api_tokens
-WHERE team_id = sqlc.arg(team_id) AND revoked_at IS NULL
-  AND (sqlc.arg(after_id)::bigint = 0 OR id < sqlc.arg(after_id))
-ORDER BY id DESC
+-- Two readings of the same list, told apart by created_by: the personal one
+-- ("my tokens", the caller's own) and the team-wide one an admin needs to see
+-- what exists. NULL means no filter — the team reading; a value means only
+-- that person's. The owner's email rides along so the team reading can say
+-- WHOSE a token is, which is the only thing that makes it actionable.
+SELECT t.*, u.email AS owner_email
+FROM api_tokens t
+LEFT JOIN users u ON u.id = t.created_by
+WHERE t.team_id = sqlc.arg(team_id) AND t.revoked_at IS NULL
+  AND (sqlc.narg(created_by)::bigint IS NULL OR t.created_by = sqlc.narg(created_by))
+  AND (sqlc.arg(after_id)::bigint = 0 OR t.id < sqlc.arg(after_id))
+ORDER BY t.id DESC
 LIMIT sqlc.arg(page_limit);
 
 -- name: CreateApiToken :one

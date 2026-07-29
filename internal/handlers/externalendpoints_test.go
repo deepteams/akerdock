@@ -202,6 +202,42 @@ func TestAccessRequestRequiredCarriesTheRequestURL(t *testing.T) {
 	}
 }
 
+// A token with no recorded creator names no human, and a grant is issued to a
+// human: the ceremony cannot rescue this call, however many times it is
+// performed. Answering `access_request_required` here sent the developer to the
+// request page, let them pass a second factor, and then polled for ten minutes
+// on a mint that could never go through — the grant was real, the CLI simply
+// could not spend it. The refusal must be final, and must name the way out.
+func TestATokenWithNoCreatorIsRefusedFinally(t *testing.T) {
+	a, _ := flowAPI(t)
+
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/external-endpoints/x/port-forwards", nil)
+	a.writeTokenWithoutCreator(rec, r)
+
+	if rec.Code != 403 {
+		t.Fatalf("status = %d, want 403", rec.Code)
+	}
+	var body struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not the flat house error shape: %v (%s)", err, rec.Body)
+	}
+	// The CLI polls on this one code and gives up on every other: borrowing it
+	// for a refusal no grant can lift is the whole bug.
+	if body.Code == codeAccessRequestRequired {
+		t.Fatalf("code = %q, want a code the CLI stops on", body.Code)
+	}
+	if body.Code != codeTokenWithoutCreator {
+		t.Errorf("code = %q, want %q", body.Code, codeTokenWithoutCreator)
+	}
+	if !strings.Contains(body.Message, "akerdock login") {
+		t.Errorf("message = %q, want the command that fixes it", body.Message)
+	}
+}
+
 // A `sensitive` endpoint is spent from the CLI, which authenticates with a
 // TOKEN, while the grant is obtained in the dashboard, which authenticates with
 // a SESSION. Resolving the acting human from the session alone therefore made
