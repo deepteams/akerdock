@@ -74,8 +74,9 @@ func clientFromForwarded(r *http.Request, trusted []netip.Prefix) (netip.Addr, b
 		return addr, true
 	}
 
-	// No usable chain. X-Real-IP is what an nginx sets when it does not
-	// maintain the chain; same trust condition, so it is read the same way.
+	// No usable chain. X-Real-IP is the single-value convention Traefik and
+	// most proxies set alongside it; same trust condition, so it is read the
+	// same way — and it is the answer when a hop kept only that one.
 	if addr, ok := addrOf(strings.TrimSpace(r.Header.Get("X-Real-IP"))); ok {
 		return addr, true
 	}

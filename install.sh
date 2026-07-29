@@ -116,6 +116,14 @@ AKERDOCK_ROOT_PASSWORD=${ROOT_PASSWORD}
 # the user running this install — install.sh authorizes the instance key
 # for it below. Read at first bootstrap only.
 AKERDOCK_LOCALHOST_USER=$(id -un)
+# The instance's own proxy routes its FQDN to the published port
+# (00-control-plane, proxy-contract §5.7), so every request arrives through
+# the compose network's gateway. Without this, the address recorded for a
+# caller is that gateway — audit trail, auth rate limiter and a token's CIDR
+# allowlist all lose the real client. \`gateway\` is resolved at each start
+# rather than written down here: the network does not exist yet at install
+# time, and a custom subnet in the override would move the address.
+AKERDOCK_TRUSTED_PROXIES=gateway
 EOF
   chmod 600 .env
 else
@@ -130,6 +138,15 @@ else
   # would. A variable already present — even empty — is the operator's choice.
   if ! grep -q '^AKERDOCK_LOCALHOST_USER=' .env; then
     printf 'AKERDOCK_LOCALHOST_USER=%s\n' "$(id -un)" >> .env
+  fi
+  # Instances installed before this variable existed record the proxy's address
+  # for every caller — one address in the whole audit trail, one rate-limit
+  # bucket for the internet, a token CIDR allowlist that admits whoever the
+  # proxy admits. Seed it like a fresh install would; a variable already
+  # present — even empty — is the operator's choice.
+  if ! grep -q '^AKERDOCK_TRUSTED_PROXIES=' .env; then
+    note "recording AKERDOCK_TRUSTED_PROXIES=gateway in .env — caller addresses were the proxy's until now"
+    printf 'AKERDOCK_TRUSTED_PROXIES=gateway\n' >> .env
   fi
   # The bootstrap variables are read only while no user exists (§6.3). Once a
   # previous boot went healthy the root user exists, so stop keeping the

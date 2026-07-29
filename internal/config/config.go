@@ -178,8 +178,9 @@ var envKeys = []string{
 }
 
 // Load resolves the configuration from vars (the full process environment as
-// a map) and readFile (used for AKERDOCK_CONFIG_FILE). It returns the config,
-// startup warnings (§7.2), and the exhaustive list of fatal errors, if any.
+// a map) and readFile (AKERDOCK_CONFIG_FILE, and the routing table behind
+// AKERDOCK_TRUSTED_PROXIES=gateway). It returns the config, startup warnings
+// (§7.2), and the exhaustive list of fatal errors, if any.
 func Load(vars map[string]string, readFile func(string) ([]byte, error)) (*Config, []string, error) {
 	var errs Errors
 	var warnings []string
@@ -351,13 +352,22 @@ func Load(vars map[string]string, readFile func(string) ([]byte, error)) (*Confi
 	// forwarded address from an unknown peer is believing whatever a client
 	// typed.
 	if v := get("AKERDOCK_TRUSTED_PROXIES"); v != "" {
-		prefixes, bad := parsePrefixList(v)
-		if bad != "" {
+		prefixes, bad := parsePrefixList(v, readFile)
+		switch {
+		case bad != "":
 			errs = append(errs, FieldError{
 				"AKERDOCK_TRUSTED_PROXIES",
-				fmt.Sprintf("invalid value %q (expected `private`, or a comma-separated list of IPs and CIDRs such as 10.0.0.0/8,172.17.0.1)", bad),
+				fmt.Sprintf("invalid value %q (expected `gateway`, `private`, or a comma-separated list of IPs and CIDRs such as 10.0.0.0/8,172.17.0.1)", bad),
 			})
-		} else {
+		case len(prefixes) == 0:
+			// `gateway` alone that resolved to nothing: not fatal — the process
+			// still serves, it just records the proxy's address instead of the
+			// client's. Refusing to boot over it would trade a wrong log line
+			// for an outage. Saying nothing would leave it to be discovered in
+			// the audit trail weeks later.
+			warnings = append(warnings, "AKERDOCK_TRUSTED_PROXIES=gateway: no default gateway found "+
+				"(host network, or not Linux) — caller addresses will be the proxy's; set the address explicitly")
+		default:
 			cfg.TrustedProxies = prefixes
 		}
 	}
@@ -440,15 +450,27 @@ var privateRanges = []netip.Prefix{
 	netip.MustParsePrefix("::1/128"),
 }
 
-// parsePrefixList reads a comma-separated list of IPs and CIDRs, plus the
-// `private` shorthand. A bare IP is its own /32 or /128 — an operator naming
-// one proxy should not have to write the mask. It returns the first entry it
-// could not read, so the error names the typo rather than the whole list.
-func parsePrefixList(v string) ([]netip.Prefix, string) {
+// parsePrefixList reads a comma-separated list of IPs and CIDRs, plus the two
+// shorthands. A bare IP is its own /32 or /128 — an operator naming one proxy
+// should not have to write the mask. It returns the first entry it could not
+// read, so the error names the typo rather than the whole list.
+func parsePrefixList(v string, readFile func(string) ([]byte, error)) ([]netip.Prefix, string) {
 	var out []netip.Prefix
 	for _, raw := range strings.Split(v, ",") {
 		entry := strings.TrimSpace(raw)
 		if entry == "" {
+			continue
+		}
+		if strings.EqualFold(entry, "gateway") {
+			// Resolved at startup rather than written down: under compose the
+			// proxy reaches this process through the network's gateway, and
+			// that address is not knowable at install time (the network does
+			// not exist yet) nor stable afterwards (a custom subnet in the
+			// override moves it). An address the operator would have to look
+			// up, and that goes silently stale, is not an answer.
+			if gw, ok := defaultGateway(readFile); ok {
+				out = append(out, netip.PrefixFrom(gw, gw.BitLen()))
+			}
 			continue
 		}
 		if strings.EqualFold(entry, "private") {
@@ -466,6 +488,44 @@ func parsePrefixList(v string) ([]netip.Prefix, string) {
 		out = append(out, netip.PrefixFrom(addr.Unmap(), addr.Unmap().BitLen()))
 	}
 	return out, ""
+}
+
+// procNetRoute is where Linux publishes the kernel routing table. Read as a
+// file rather than through a netlink dependency: one format, no cgo, and it is
+// present in the distroless image this ships as.
+const procNetRoute = "/proc/net/route"
+
+// defaultGateway resolves the address this process reaches the outside world
+// through — under Docker, the bridge gateway, which is also the address a
+// proxy on the host appears as once its connection has been NATed.
+//
+// The table is columns separated by tabs, one route per line:
+//
+//	Iface Destination Gateway  Flags RefCnt Use Metric Mask ...
+//	eth0  00000000    010012AC 0003  0      0   0      00000000
+//
+// The default route is the one whose destination is 0.0.0.0, and every address
+// is little-endian hex — 010012AC is 172.18.0.1. Absent (host networking, or
+// not Linux) is a normal answer, reported as such rather than guessed.
+func defaultGateway(readFile func(string) ([]byte, error)) (netip.Addr, bool) {
+	data, err := readFile(procNetRoute)
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	for line := range strings.Lines(string(data)) {
+		fields := strings.Fields(line)
+		if len(fields) < 3 || fields[1] != "00000000" || fields[2] == "00000000" {
+			continue
+		}
+		raw, err := strconv.ParseUint(fields[2], 16, 32)
+		if err != nil {
+			continue
+		}
+		return netip.AddrFrom4([4]byte{
+			byte(raw), byte(raw >> 8), byte(raw >> 16), byte(raw >> 24),
+		}), true
+	}
+	return netip.Addr{}, false
 }
 
 // unknownVarWarnings flags AKERDOCK_* variables the binary does not read,

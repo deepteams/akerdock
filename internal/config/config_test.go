@@ -371,3 +371,88 @@ func TestTrustedProxies(t *testing.T) {
 		})
 	}
 }
+
+// routeTable is what Linux publishes under /proc/net/route inside a container
+// on a Docker bridge: a header line, then the default route whose gateway is
+// little-endian hex — 010012AC is 172.18.0.1.
+// Captured verbatim from a container on a Docker bridge network, padding and
+// all — including the trailing spaces the kernel writes to keep the lines a
+// fixed width, which a naive parser trips on.
+const routeTable = "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT       \n" +
+	"eth0\t00000000\t010012AC\t0003\t0\t0\t0\t00000000\t0\t0\t0          \n" +
+	"eth0\t000012AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0          \n"
+
+// The whole point of the keyword: nobody should have to look up an address
+// that does not exist yet at install time and moves the day a custom subnet is
+// set in the compose override.
+func TestTrustedProxiesGatewayKeyword(t *testing.T) {
+	readRoute := func(path string) ([]byte, error) {
+		if path != procNetRoute {
+			return nil, os.ErrNotExist
+		}
+		return []byte(routeTable), nil
+	}
+
+	vars := base()
+	vars["AKERDOCK_TRUSTED_PROXIES"] = "gateway"
+	cfg, warnings, err := Load(vars, readRoute)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("a resolved gateway must warn about nothing: %v", warnings)
+	}
+	want := netip.MustParsePrefix("172.18.0.1/32")
+	if len(cfg.TrustedProxies) != 1 || cfg.TrustedProxies[0] != want {
+		t.Fatalf("trusted proxies = %v, want [%v]", cfg.TrustedProxies, want)
+	}
+
+	// Only that one address: the keyword names the proxy, it does not open the
+	// subnet it lives on.
+	if cfg.TrustedProxies[0].Contains(netip.MustParseAddr("172.18.0.2")) {
+		t.Error("`gateway` must trust the gateway alone, not its whole network")
+	}
+
+	// Combined with an explicit entry, both survive.
+	vars["AKERDOCK_TRUSTED_PROXIES"] = "gateway,10.0.0.0/8"
+	cfg, _, err = Load(vars, readRoute)
+	if err != nil || len(cfg.TrustedProxies) != 2 {
+		t.Fatalf("mixed list = %v (err %v), want the gateway and the CIDR", cfg.TrustedProxies, err)
+	}
+}
+
+// Host networking, or simply not Linux: the process must still boot — trading
+// a wrong log line for an outage would be a poor bargain — but it must say so,
+// or the wrongness is discovered weeks later in the audit trail.
+func TestTrustedProxiesGatewayUnresolvedWarnsAndBoots(t *testing.T) {
+	vars := base()
+	vars["AKERDOCK_TRUSTED_PROXIES"] = "gateway"
+	cfg, warnings, err := Load(vars, noFile)
+	if err != nil {
+		t.Fatalf("an unresolvable gateway must not be fatal, got %v", err)
+	}
+	if len(cfg.TrustedProxies) != 0 {
+		t.Fatalf("nothing may be trusted when nothing resolved: %v", cfg.TrustedProxies)
+	}
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(w, "AKERDOCK_TRUSTED_PROXIES") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a warning that caller addresses stay the proxy's, got %v", warnings)
+	}
+}
+
+// A table with no default route (destination 0.0.0.0) yields nothing rather
+// than the first gateway-looking number in it.
+func TestDefaultGatewayNeedsADefaultRoute(t *testing.T) {
+	onlyLocal := func(string) ([]byte, error) {
+		return []byte("Iface\tDestination\tGateway\tFlags\n" +
+			"eth0\t000012AC\t00000000\t0001\n"), nil
+	}
+	if gw, ok := defaultGateway(onlyLocal); ok {
+		t.Fatalf("gateway = %v, want none", gw)
+	}
+}
