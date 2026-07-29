@@ -138,6 +138,48 @@ func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) (Team, e
 	return i, err
 }
 
+const getPendingInvitationByTokenHash = `-- name: GetPendingInvitationByTokenHash :one
+SELECT i.id, i.team_id, i.email, i.role, i.custom_role_id, i.expires_at,
+       t.name AS team_name
+FROM invitations i
+JOIN teams t ON t.id = i.team_id AND t.deleted_at IS NULL
+WHERE i.token_hash = $1
+  AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > now()
+`
+
+type GetPendingInvitationByTokenHashRow struct {
+	ID           int64
+	TeamID       int64
+	Email        string
+	Role         TeamRole
+	CustomRoleID *int64
+	ExpiresAt    pgtype.Timestamptz
+	TeamName     string
+}
+
+// Reads a still-pending invitation WITHOUT claiming it, so the landing page of
+// an invitation link can say which team and which address it is for before
+// asking the invitee to create their account. Same pending guard as the claim:
+// an accepted, revoked or expired link resolves to nothing at all.
+//
+// Returning the email is not an enumeration risk: the link token is a secret
+// issued to that address, so holding it already proves possession of the
+// invitation. Nothing here is reachable without it.
+func (q *Queries) GetPendingInvitationByTokenHash(ctx context.Context, tokenHash string) (GetPendingInvitationByTokenHashRow, error) {
+	row := q.db.QueryRow(ctx, getPendingInvitationByTokenHash, tokenHash)
+	var i GetPendingInvitationByTokenHashRow
+	err := row.Scan(
+		&i.ID,
+		&i.TeamID,
+		&i.Email,
+		&i.Role,
+		&i.CustomRoleID,
+		&i.ExpiresAt,
+		&i.TeamName,
+	)
+	return i, err
+}
+
 const getTeamByID = `-- name: GetTeamByID :one
 
 SELECT id, uuid, name, description, created_by, updated_by, created_at, updated_at, deleted_at, version, personal FROM teams WHERE id = $1 AND deleted_at IS NULL

@@ -65,6 +65,19 @@ export interface OauthProviderButton {
   name: string;
 }
 
+/** What an invitation link says about itself, before anyone signs in. */
+export interface InvitationInfo {
+  email: string;
+  team_name: string;
+  role: string;
+  expires_at: string;
+  /** True when this address already has an account: joining is then a sign-in,
+   *  not a sign-up. */
+  account_exists: boolean;
+  /** SSO-only instance: no password account can be created here. */
+  password_login_disabled: boolean;
+}
+
 /** One team the signed-in user is a member of — an entry of the switcher. */
 export interface MyTeam {
   uuid: string;
@@ -383,6 +396,29 @@ export class ApiService {
    */
   async acceptInvitation(token: string): Promise<{ team_uuid: string }> {
     return this.authPost<{ team_uuid: string }>('/auth/invitations/accept', { token });
+  }
+
+  /**
+   * What an invitation link is for, before anyone signs in. A POST for a read:
+   * the token is a credential and has no business in a URL that proxies log.
+   */
+  async invitationInfo(token: string): Promise<InvitationInfo> {
+    return this.authPost<InvitationInfo>('/auth/invitations/lookup', { token });
+  }
+
+  /**
+   * Creates the invitee's account from the link and opens their session. The
+   * email is NOT sent: it comes from the invitation, server-side — an invitee
+   * does not get to choose which address they register.
+   */
+  async signUpFromInvitation(token: string, name: string, password: string): Promise<void> {
+    const body = await this.authPost<{ csrf_token: string }>('/auth/invitations/signup', {
+      token,
+      name,
+      password,
+    });
+    this.csrf.set(body.csrf_token ?? null);
+    await this.restore();
   }
 
   /**

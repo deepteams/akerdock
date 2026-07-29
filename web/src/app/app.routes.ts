@@ -1,4 +1,4 @@
-import { CanActivateChildFn, CanActivateFn, Routes } from '@angular/router';
+import { CanActivateChildFn, Routes } from '@angular/router';
 import { inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { ApiService } from './core/api.service';
@@ -14,19 +14,6 @@ const authenticated = async () => {
   if (api.isAuthenticated()) return true;
   if (await api.restore()) return true;
   return router.createUrlTree(['/sign-in']);
-};
-
-/**
- * Like `authenticated`, but preserves where the user was headed as `returnUrl`
- * so sign-in can send them back — the invitation link (token in the query) must
- * survive a detour through the login page.
- */
-const authenticatedWithReturn: CanActivateFn = async (_route, state) => {
-  const api = inject(ApiService);
-  const router = inject(Router);
-  if (api.isAuthenticated()) return true;
-  if (await api.restore()) return true;
-  return router.createUrlTree(['/sign-in'], { queryParams: { returnUrl: state.url } });
 };
 
 /**
@@ -58,10 +45,13 @@ export const routes: Routes = [
       import('./pages/cli-authorize.component').then((m) => m.CliAuthorizeComponent),
   },
   {
-    // Invitation acceptance (ADR-038): full-screen, guarded so the invitee is
-    // signed in before redeeming the link — the token survives via returnUrl.
+    // Invitation acceptance (ADR-038): full-screen and deliberately NOT guarded.
+    // An invitee usually has no account yet — that is what the invitation is
+    // for — so a guard here would bounce them to a sign-in form for an account
+    // nobody has created, which is a dead end on an instance without SSO. The
+    // page itself decides: redeem when signed in, otherwise offer to sign up
+    // (the server authenticates the link token, not the visitor).
     path: 'invitations/accept',
-    canActivate: [authenticatedWithReturn],
     loadComponent: () =>
       import('./pages/accept-invitation.component').then((m) => m.AcceptInvitationComponent),
   },

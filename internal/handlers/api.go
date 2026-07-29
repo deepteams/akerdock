@@ -205,6 +205,13 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 		// Session + CSRF like the rest of the mutating /auth endpoints.
 		r.Post("/auth/invitations/accept", a.AcceptInvitation)
 
+		// The other half of an invitation: an invitee who has NO account yet.
+		// Both are anonymous by necessity — the whole point is that no account
+		// exists — and authenticated by the link token instead, behind the same
+		// per-IP limiter as /auth/login.
+		r.Post("/auth/invitations/lookup", a.InvitationInfo)
+		r.Post("/auth/invitations/signup", a.SignUpFromInvitation)
+
 		// The team switcher (PRD §37 — multi-team). Listing is the user's own
 		// memberships, never the instance's teams; switching moves the session
 		// and is audited as the boundary crossing it is (§23.1).

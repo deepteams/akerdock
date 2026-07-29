@@ -267,6 +267,7 @@ Ephemeral environment deployed automatically **for each pull request** (GitHub) 
 
 ### 10.2 Authentication
 - Email/password, public registration can be disabled, **TOTP 2FA**.
+- **Account creation from an invitation**: an invitee who has no account yet creates one from the invitation link itself — the address comes from the invitation (never chosen by the invitee), the link is claimed single-use, and the instance password policy applies. This is what makes invitations work on an instance with no SSO provider configured; on an SSO-only instance (`password_login_disabled`) the link asks the invitee to sign in with SSO instead. Self-service signup outside an invitation stays governed by `registration_enabled`.
 - **Password reset** by email ("forgot password"): requires the instance's transactional email to be configured (see §14.2); otherwise manual reset by the root.
 - **Dashboard OAuth**: Azure, Bitbucket, GitHub, GitLab and Google.
 - **OpenID Connect SSO**: configuration of a generic OIDC IdP (Okta documented; compatible IdPs possible depending on their conformance). Native SAML not documented.

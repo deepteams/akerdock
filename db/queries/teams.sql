@@ -51,6 +51,22 @@ UPDATE invitations SET accepted_at = now()
 WHERE token_hash = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()
 RETURNING team_id, email, role, custom_role_id;
 
+-- name: GetPendingInvitationByTokenHash :one
+-- Reads a still-pending invitation WITHOUT claiming it, so the landing page of
+-- an invitation link can say which team and which address it is for before
+-- asking the invitee to create their account. Same pending guard as the claim:
+-- an accepted, revoked or expired link resolves to nothing at all.
+--
+-- Returning the email is not an enumeration risk: the link token is a secret
+-- issued to that address, so holding it already proves possession of the
+-- invitation. Nothing here is reachable without it.
+SELECT i.id, i.team_id, i.email, i.role, i.custom_role_id, i.expires_at,
+       t.name AS team_name
+FROM invitations i
+JOIN teams t ON t.id = i.team_id AND t.deleted_at IS NULL
+WHERE i.token_hash = $1
+  AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > now();
+
 -- name: ListPendingInvitationsByEmail :many
 -- Every still-pending invitation issued to an email. Used by the OAuth/SSO
 -- signup path: an invitation authorizes account creation even when open

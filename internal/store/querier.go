@@ -437,6 +437,15 @@ type Querier interface {
 	// credential id, and the user is whoever enrolled it. A deleted user's
 	// passkeys must not open sessions, hence the join.
 	GetPasskeyByCredentialID(ctx context.Context, credentialID []byte) (GetPasskeyByCredentialIDRow, error)
+	// Reads a still-pending invitation WITHOUT claiming it, so the landing page of
+	// an invitation link can say which team and which address it is for before
+	// asking the invitee to create their account. Same pending guard as the claim:
+	// an accepted, revoked or expired link resolves to nothing at all.
+	//
+	// Returning the email is not an enumeration risk: the link token is a secret
+	// issued to that address, so holding it already proves possession of the
+	// invitation. Nothing here is reachable without it.
+	GetPendingInvitationByTokenHash(ctx context.Context, tokenHash string) (GetPendingInvitationByTokenHashRow, error)
 	GetPortForwardSessionByUUID(ctx context.Context, arg GetPortForwardSessionByUUIDParams) (PortForwardSession, error)
 	GetPreviewAccessTokenByHash(ctx context.Context, tokenHash string) (PreviewAccessToken, error)
 	// Resolves the browser's Host to a preview (ADR-030): the preview's own fqdn,
