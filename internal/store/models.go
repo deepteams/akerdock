@@ -3011,20 +3011,6 @@ type RestoreDrill struct {
 	DurationMs     *int32
 }
 
-type RoleAssignment struct {
-	ID            int64
-	Uuid          pgtype.UUID
-	TeamID        int64
-	UserID        int64
-	Role          *TeamRole
-	CustomRoleID  *int64
-	ProjectID     *int64
-	EnvironmentID *int64
-	CreatedBy     *int64
-	CreatedAt     pgtype.Timestamptz
-	UpdatedAt     pgtype.Timestamptz
-}
-
 type RuntimeConfig struct {
 	ID                     int64
 	ApplicationID          int64

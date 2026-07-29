@@ -149,12 +149,7 @@ func (a *API) resolveApplication(w http.ResponseWriter, r *http.Request, id *aut
 	var u pgtype.UUID
 	if err := u.Scan(appUUID); err == nil {
 		row, err := a.Store.GetApplicationByUUID(r.Context(), store.GetApplicationByUUIDParams{Uuid: u, TeamID: id.TeamID})
-		// Scoped enforcement (ADR-046 §6): the operation's own permission is
-		// re-evaluated at THIS resource's scope. Out of scope answers "not
-		// found" rather than "forbidden" — the point of scoping somebody out of
-		// a project is that the project is not part of their world, and a 403
-		// would answer the question the boundary exists to refuse.
-		if err == nil && a.allowedAtScope(r, id, &row.Resource.EnvironmentID, "") {
+		if err == nil {
 			return row, true
 		}
 	}
@@ -183,11 +178,6 @@ func (a *API) ListApplications(w http.ResponseWriter, r *http.Request, params ap
 		a.internalError(w, r, "list applications", err)
 		return
 	}
-	// Collections filter, they do not merely guard (ADR-046 §5): a list that
-	// names a resource the caller cannot open has already leaked it.
-	rows = keepInScope(a, r, id, rows, func(row store.ListApplicationsPageRow) *int64 {
-		return &row.Resource.EnvironmentID
-	})
 	rows, cursor := nextCursor(rows, limit, func(row store.ListApplicationsPageRow) int64 { return row.Resource.ID })
 
 	data := make([]api.Application, 0, len(rows))

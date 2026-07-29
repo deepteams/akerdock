@@ -16,10 +16,6 @@ type Store interface {
 	RecordFailedLogin(context.Context, store.RecordFailedLoginParams) (store.RecordFailedLoginRow, error)
 	ClearFailedLogins(context.Context, int64) error
 	GetTeamMembershipForUser(context.Context, int64) (store.GetTeamMembershipForUserRow, error)
-	// ListRoleAssignmentsForUser loads the caller's scoped exceptions to their
-	// base role (ADR-046 §1). Empty for everyone until a team partitions
-	// something, which is what keeps the feature inert.
-	ListRoleAssignmentsForUser(context.Context, store.ListRoleAssignmentsForUserParams) ([]store.ListRoleAssignmentsForUserRow, error)
 	CreateSession(context.Context, store.CreateSessionParams) (store.Session, error)
 	GetSessionByTokenHash(context.Context, string) (store.GetSessionByTokenHashRow, error)
 	TouchSession(context.Context, int64) error

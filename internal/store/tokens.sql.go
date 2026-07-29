@@ -58,6 +58,39 @@ func (q *Queries) CreateApiToken(ctx context.Context, arg CreateApiTokenParams) 
 	return i, err
 }
 
+const getTokenCreatorAuthority = `-- name: GetTokenCreatorAuthority :one
+SELECT tm.role, tm.user_id, cr.permissions AS custom_permissions
+FROM team_memberships tm
+LEFT JOIN custom_roles cr ON cr.id = tm.custom_role_id
+JOIN users u ON u.id = tm.user_id AND u.deleted_at IS NULL
+WHERE tm.user_id = $1 AND tm.team_id = $2
+`
+
+type GetTokenCreatorAuthorityParams struct {
+	UserID int64
+	TeamID int64
+}
+
+type GetTokenCreatorAuthorityRow struct {
+	Role              TeamRole
+	UserID            int64
+	CustomPermissions []string
+}
+
+// What a token's creator holds in the token's team, re-read on every request
+// (rbac-matrix §4.2). A token never grants more than its creator, so this is
+// the ceiling its own scopes are intersected with — and it is why a demoted
+// creator narrows their tokens without anyone revoking anything.
+//
+// No row means the creator is no longer a member of that team: the token then
+// holds nothing, which is the convergence the rule exists for.
+func (q *Queries) GetTokenCreatorAuthority(ctx context.Context, arg GetTokenCreatorAuthorityParams) (GetTokenCreatorAuthorityRow, error) {
+	row := q.db.QueryRow(ctx, getTokenCreatorAuthority, arg.UserID, arg.TeamID)
+	var i GetTokenCreatorAuthorityRow
+	err := row.Scan(&i.Role, &i.UserID, &i.CustomPermissions)
+	return i, err
+}
+
 const listApiTokensPage = `-- name: ListApiTokensPage :many
 
 SELECT id, uuid, team_id, created_by, name, token_prefix, token_hash, permissions, ip_allowlist, expires_at, last_used_at, revoked_at, created_at, updated_at FROM api_tokens

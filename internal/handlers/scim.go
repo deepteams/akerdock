@@ -148,12 +148,8 @@ func (a *API) ScimCreateUser(w http.ResponseWriter, r *http.Request) {
 		scimError(w, http.StatusConflict, "user already provisioned in this team")
 		return
 	}
-	// Provisioned with NO team-wide role (ADR-046 §2): the access lifecycle
-	// SCIM implements grants precisely and revokes precisely. Granting broadly
-	// on arrival and trimming afterwards is not a lifecycle, it is a window.
-	// Group membership (Groups→roles) is what raises them afterwards.
 	if err := a.Store.AddTeamMember(r.Context(), store.AddTeamMemberParams{
-		TeamID: team.TeamID, UserID: user.ID, Role: store.TeamRoleNone,
+		TeamID: team.TeamID, UserID: user.ID, Role: store.TeamRoleMember,
 	}); err != nil {
 		scimError(w, http.StatusInternalServerError, "could not add the member")
 		return

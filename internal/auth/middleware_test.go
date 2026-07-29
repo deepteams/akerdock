@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"github.com/jackc/pgx/v5"
 	"io"
 	"log/slog"
 	"net/http"
@@ -39,6 +40,9 @@ func (f *fakeSettings) Get(context.Context) (store.InstanceSetting, error) {
 type fakeTokenStore struct {
 	get   func(string) ([]store.GetActiveApiTokensByPrefixRow, error)
 	touch func(int64) error
+	// authority is what the token's creator holds; zero value means "no such
+	// member", which caps the token at nothing (rbac-matrix §4.2).
+	authority *store.GetTokenCreatorAuthorityRow
 }
 
 func (f *fakeTokenStore) GetActiveApiTokensByPrefix(_ context.Context, prefix string) ([]store.GetActiveApiTokensByPrefixRow, error) {
@@ -50,6 +54,13 @@ func (f *fakeTokenStore) TouchApiTokenLastUsed(_ context.Context, id int64) erro
 		return nil
 	}
 	return f.touch(id)
+}
+
+func (f *fakeTokenStore) GetTokenCreatorAuthority(context.Context, store.GetTokenCreatorAuthorityParams) (store.GetTokenCreatorAuthorityRow, error) {
+	if f.authority == nil {
+		return store.GetTokenCreatorAuthorityRow{}, pgx.ErrNoRows
+	}
+	return *f.authority, nil
 }
 
 func authLogger() *slog.Logger {
@@ -346,4 +357,61 @@ func TestAuthUtilities(t *testing.T) {
 	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) <= 0 || time.Until(deadline) > 5*time.Second {
 		t.Fatalf("unexpected timeout: %v, %v", deadline, ok)
 	}
+}
+
+// A token never grants more than its creator holds, re-evaluated on every
+// request (rbac-matrix §4.2, ADR-046 §7). Before this, a token was an access
+// that outlived the authority that produced it: demote its creator, remove them
+// from the team, scope them down — the token kept everything it was minted
+// with. It was also the side door out of scoped assignments.
+func TestTokenIsCappedByItsCreator(t *testing.T) {
+	creator := int64(5)
+	tokenRow := func() store.GetActiveApiTokensByPrefixRow {
+		row := store.GetActiveApiTokensByPrefixRow{}
+		row.ID, row.TeamID, row.CreatedBy = 1, 10, &creator
+		// deploy included on purpose: without it the token never held
+		// applications:deploy in the first place (its socle is `deploy`, not
+		// `write`), and the assertions below would pass while proving nothing.
+		row.Permissions = []string{string(PermRead), string(PermWrite), string(PermDeploy)}
+		return row
+	}
+
+	t.Run("a demoted creator narrows the token", func(t *testing.T) {
+		row := tokenRow()
+		id := &Identity{TeamID: row.TeamID, Permissions: EffectivePermissions(row.Permissions)}
+		m := &Middleware{Store: &fakeTokenStore{
+			authority: &store.GetTokenCreatorAuthorityRow{Role: store.TeamRoleReviewer, UserID: creator},
+		}}
+		m.boundToCreator(httptest.NewRequest("GET", "/", nil), id, &row, id.Permissions)
+
+		if Has(id.Permissions, PermApplicationsDeploy) {
+			t.Error("a reviewer's token must not keep deploy")
+		}
+		if Has(id.Permissions, PermApplicationsUpdate) {
+			t.Error("nor any write the creator no longer holds")
+		}
+	})
+
+	t.Run("a creator who left the team empties the token", func(t *testing.T) {
+		row := tokenRow()
+		id := &Identity{TeamID: row.TeamID, Permissions: EffectivePermissions(row.Permissions)}
+		m := &Middleware{Store: &fakeTokenStore{}} // no membership row
+		m.boundToCreator(httptest.NewRequest("GET", "/", nil), id, &row, id.Permissions)
+
+		if len(id.Permissions) != 0 {
+			t.Errorf("a token whose creator left holds nothing, got %v", id.Permissions)
+		}
+	})
+
+	t.Run("a token keeps its own permissions when no creator is recorded", func(t *testing.T) {
+		row := tokenRow()
+		row.CreatedBy = nil
+		id := &Identity{TeamID: row.TeamID, Permissions: EffectivePermissions(row.Permissions)}
+		m := &Middleware{Store: &fakeTokenStore{}}
+		m.boundToCreator(httptest.NewRequest("GET", "/", nil), id, &row, id.Permissions)
+
+		if !Has(id.Permissions, PermApplicationsDeploy) {
+			t.Error("a token minted before the column existed must not be broken by this rule")
+		}
+	})
 }

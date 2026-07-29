@@ -1056,7 +1056,6 @@ const (
 	MemberRoleUpdateRoleAdmin    MemberRoleUpdateRole = "admin"
 	MemberRoleUpdateRoleCustom   MemberRoleUpdateRole = "custom"
 	MemberRoleUpdateRoleMember   MemberRoleUpdateRole = "member"
-	MemberRoleUpdateRoleNone     MemberRoleUpdateRole = "none"
 	MemberRoleUpdateRoleReviewer MemberRoleUpdateRole = "reviewer"
 )
 
@@ -1068,8 +1067,6 @@ func (e MemberRoleUpdateRole) Valid() bool {
 	case MemberRoleUpdateRoleCustom:
 		return true
 	case MemberRoleUpdateRoleMember:
-		return true
-	case MemberRoleUpdateRoleNone:
 		return true
 	case MemberRoleUpdateRoleReviewer:
 		return true
@@ -1441,30 +1438,6 @@ func (e RestoreRequestSource) Valid() bool {
 	case Local:
 		return true
 	case S3:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for RoleAssignmentCreateRole.
-const (
-	RoleAssignmentCreateRoleAdmin    RoleAssignmentCreateRole = "admin"
-	RoleAssignmentCreateRoleMember   RoleAssignmentCreateRole = "member"
-	RoleAssignmentCreateRoleNone     RoleAssignmentCreateRole = "none"
-	RoleAssignmentCreateRoleReviewer RoleAssignmentCreateRole = "reviewer"
-)
-
-// Valid indicates whether the value is a known member of the RoleAssignmentCreateRole enum.
-func (e RoleAssignmentCreateRole) Valid() bool {
-	switch e {
-	case RoleAssignmentCreateRoleAdmin:
-		return true
-	case RoleAssignmentCreateRoleMember:
-		return true
-	case RoleAssignmentCreateRoleNone:
-		return true
-	case RoleAssignmentCreateRoleReviewer:
 		return true
 	default:
 		return false
@@ -1845,25 +1818,22 @@ func (e TaskOverlapPolicy) Valid() bool {
 
 // Defines values for TeamMemberRole.
 const (
-	TeamMemberRoleAdmin    TeamMemberRole = "admin"
-	TeamMemberRoleCustom   TeamMemberRole = "custom"
-	TeamMemberRoleMember   TeamMemberRole = "member"
-	TeamMemberRoleNone     TeamMemberRole = "none"
-	TeamMemberRoleReviewer TeamMemberRole = "reviewer"
+	Admin    TeamMemberRole = "admin"
+	Custom   TeamMemberRole = "custom"
+	Member   TeamMemberRole = "member"
+	Reviewer TeamMemberRole = "reviewer"
 )
 
 // Valid indicates whether the value is a known member of the TeamMemberRole enum.
 func (e TeamMemberRole) Valid() bool {
 	switch e {
-	case TeamMemberRoleAdmin:
+	case Admin:
 		return true
-	case TeamMemberRoleCustom:
+	case Custom:
 		return true
-	case TeamMemberRoleMember:
+	case Member:
 		return true
-	case TeamMemberRoleNone:
-		return true
-	case TeamMemberRoleReviewer:
+	case Reviewer:
 		return true
 	default:
 		return false
@@ -2242,7 +2212,7 @@ func (e ListTeamAuditParamsResult) Valid() bool {
 	}
 }
 
-// AccessEntry One subject's access to a resource, with the reason it has it. Computed, never stored (ADR-046 §9).
+// AccessEntry One subject's access to a resource, with the reason it has it. Computed, never stored.
 type AccessEntry struct {
 	// Capabilities One of `view`, `deploy`, `manage`, `delete`, `secrets`, `terminal`.
 	// What the subject can actually do here, summarized for review. The granular permissions remain the unit of evaluation; this is the reading an operator can act on.
@@ -2254,7 +2224,7 @@ type AccessEntry struct {
 	// Role The role this access comes from — a system role, a custom role's name, or the token's coarse scopes.
 	Role string `json:"role"`
 
-	// Scope Canonical scope that granted it: `team`, `project:<uuid>` or `project:<uuid>/environment:<uuid>` (ADR-046 §10). Everything reads `team` until scoped assignments exist.
+	// Scope How far the access reaches. Always `team`: a role is held over a whole team (ADR-047), and `instance` for the instance root.
 	Scope string `json:"scope"`
 
 	// SubjectKind `user`, `token` or `instance_root`. Left as a plain string on purpose: a generated enum constant collides across the contract and renames unrelated ones, and this field is a display facet, never a branch in the authorization path.
@@ -2266,7 +2236,7 @@ type AccessEntry struct {
 	// SubjectUuid User UUID, or token UUID for a `token` row.
 	SubjectUuid *string `json:"subject_uuid,omitempty"`
 
-	// TokenCreatorEmail Creator of the token — a token's reach is its creator's, so this is the person to talk to (ADR-046 §7).
+	// TokenCreatorEmail Creator of the token — a token's reach is its creator's, so this is the person to talk to (rbac-matrix §4.2).
 	TokenCreatorEmail *string    `json:"token_creator_email,omitempty"`
 	TokenExpiresAt    *time.Time `json:"token_expires_at,omitempty"`
 }
@@ -3984,15 +3954,15 @@ type LogLine struct {
 // LogLineChannel Origin of the line (`system` = deployment engine steps).
 type LogLineChannel string
 
-// MemberAccessEntry One scope a member holds, and what it covers (ADR-046 §9).
+// MemberAccessEntry What a member reaches, and through which role.
 type MemberAccessEntry struct {
 	Capabilities []string `json:"capabilities"`
 
-	// ResourceCount How many deployable resources the scope covers, so "member on billing" carries its weight when read.
+	// ResourceCount How many deployable resources this reaches, so a role carries its weight when read.
 	ResourceCount *int   `json:"resource_count,omitempty"`
 	Role          string `json:"role"`
 
-	// Scope `team`, `project:<uuid>` or `project:<uuid>/environment:<uuid>`.
+	// Scope Always `team`: a role is held over a whole team.
 	Scope string `json:"scope"`
 
 	// ScopeLabel Human name of the scope — the project or environment name, or "team".
@@ -4002,13 +3972,11 @@ type MemberAccessEntry struct {
 // MemberRoleUpdate Changes a member's role (ADR-038). Either a system role (`role`), or a custom role (`role: custom` + `custom_role_uuid`).
 type MemberRoleUpdate struct {
 	// CustomRoleUuid Required (and only read) when `role` is `custom`.
-	CustomRoleUuid *string `json:"custom_role_uuid,omitempty"`
-
-	// Role `none` grants nothing team-wide: it is how a member is restricted TO their scoped assignments (ADR-046 §2). Without it an assignment is only ever an exception on top of a role that still reaches everything, and nothing is partitioned.
-	Role MemberRoleUpdateRole `json:"role"`
+	CustomRoleUuid *string              `json:"custom_role_uuid,omitempty"`
+	Role           MemberRoleUpdateRole `json:"role"`
 }
 
-// MemberRoleUpdateRole `none` grants nothing team-wide: it is how a member is restricted TO their scoped assignments (ADR-046 §2). Without it an assignment is only ever an exception on top of a role that still reaches everything, and nothing is partitioned.
+// MemberRoleUpdateRole defines model for MemberRoleUpdate.Role.
 type MemberRoleUpdateRole string
 
 // NextCursor Opaque cursor of the next page — `null` on the last page.
@@ -4472,41 +4440,6 @@ type RetentionPolicy struct {
 	// MaxSizeGb Maximum total size in GB.
 	MaxSizeGb *float32 `json:"max_size_gb,omitempty"`
 }
-
-// RoleAssignment A role held on one project or one environment — an exception to the member's team-wide base role (ADR-046 §1).
-type RoleAssignment struct {
-	CreatedAt      *time.Time `json:"created_at,omitempty"`
-	CustomRoleUuid *string    `json:"custom_role_uuid,omitempty"`
-
-	// NotConferred Permissions of the role that a scoped assignment cannot grant (team-only, rbac-matrix §3.3). Reported so an admin does not believe they delegated something they did not.
-	NotConferred *[]string `json:"not_conferred,omitempty"`
-
-	// Role System role name, or the custom role's name.
-	Role string `json:"role"`
-
-	// Scope `project:<uuid>` or `project:<uuid>/environment:<uuid>` (ADR-046 §10).
-	Scope string `json:"scope"`
-
-	// ScopeLabel Human name of the project or environment.
-	ScopeLabel *string `json:"scope_label,omitempty"`
-	UserEmail  string  `json:"user_email"`
-	UserUuid   string  `json:"user_uuid"`
-	Uuid       string  `json:"uuid"`
-}
-
-// RoleAssignmentCreate Exactly one role source (`role` or `custom_role_uuid`) and exactly one scope (`project_uuid` or `environment_uuid`). The team scope is the member's base role, changed through the member endpoint, never here.
-type RoleAssignmentCreate struct {
-	CustomRoleUuid  *string `json:"custom_role_uuid,omitempty"`
-	EnvironmentUuid *string `json:"environment_uuid,omitempty"`
-	ProjectUuid     *string `json:"project_uuid,omitempty"`
-
-	// Role System role to grant at this scope. `none` is accepted and means "explicitly nothing here" — the way to carve a hole in a broader assignment.
-	Role     *RoleAssignmentCreateRole `json:"role,omitempty"`
-	UserUuid string                    `json:"user_uuid"`
-}
-
-// RoleAssignmentCreateRole System role to grant at this scope. `none` is accepted and means "explicitly nothing here" — the way to carve a hole in a broader assignment.
-type RoleAssignmentCreateRole string
 
 // S3Storage defines model for S3Storage.
 type S3Storage struct {
@@ -5033,12 +4966,12 @@ type TeamMember struct {
 	JoinedAt       time.Time           `json:"joined_at"`
 	Name           *string             `json:"name,omitempty"`
 
-	// Role Role in the team (ADR-038, §10.1): `admin` (full control of the team, ex-`owner` merged), `member` (manages resources), `reviewer` (only sees PR previews), `none` (nothing team-wide — the base role of somebody who only holds scoped assignments, ADR-046 §2), or `custom` (composed role, see `custom_role_uuid`).
+	// Role Role in the team (ADR-038, §10.1): `admin` (full control of the team, ex-`owner` merged), `member` (manages resources), `reviewer` (only sees PR previews), or `custom` (composed role, see `custom_role_uuid`).
 	Role     TeamMemberRole `json:"role"`
 	UserUuid string         `json:"user_uuid"`
 }
 
-// TeamMemberRole Role in the team (ADR-038, §10.1): `admin` (full control of the team, ex-`owner` merged), `member` (manages resources), `reviewer` (only sees PR previews), `none` (nothing team-wide — the base role of somebody who only holds scoped assignments, ADR-046 §2), or `custom` (composed role, see `custom_role_uuid`).
+// TeamMemberRole Role in the team (ADR-038, §10.1): `admin` (full control of the team, ex-`owner` merged), `member` (manages resources), `reviewer` (only sees PR previews), or `custom` (composed role, see `custom_role_uuid`).
 type TeamMemberRole string
 
 // TeamUpdate Partial update of a team.
@@ -6520,9 +6453,6 @@ type CreateTeamInvitationJSONRequestBody = InvitationCreate
 // UpdateTeamMemberJSONRequestBody defines body for UpdateTeamMember for application/json ContentType.
 type UpdateTeamMemberJSONRequestBody = MemberRoleUpdate
 
-// CreateRoleAssignmentJSONRequestBody defines body for CreateRoleAssignment for application/json ContentType.
-type CreateRoleAssignmentJSONRequestBody = RoleAssignmentCreate
-
 // CreateTeamRoleJSONRequestBody defines body for CreateTeamRole for application/json ContentType.
 type CreateTeamRoleJSONRequestBody = CustomRoleCreate
 
@@ -7307,15 +7237,6 @@ type ServerInterface interface {
 	// What this member reaches
 	// (GET /teams/{team_uuid}/members/{user_uuid}/access)
 	GetMemberAccess(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, userUuid UserUuid)
-	// List the team's scoped role assignments
-	// (GET /teams/{team_uuid}/role-assignments)
-	ListRoleAssignments(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid)
-	// Assign a role on a project or an environment
-	// (POST /teams/{team_uuid}/role-assignments)
-	CreateRoleAssignment(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid)
-	// Remove a scoped role assignment
-	// (DELETE /teams/{team_uuid}/role-assignments/{assignment_uuid})
-	DeleteRoleAssignment(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, assignmentUuid string)
 	// List a team's custom roles
 	// (GET /teams/{team_uuid}/roles)
 	ListTeamRoles(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamRolesParams)
@@ -8663,24 +8584,6 @@ func (_ Unimplemented) UpdateTeamMember(w http.ResponseWriter, r *http.Request, 
 // What this member reaches
 // (GET /teams/{team_uuid}/members/{user_uuid}/access)
 func (_ Unimplemented) GetMemberAccess(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, userUuid UserUuid) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// List the team's scoped role assignments
-// (GET /teams/{team_uuid}/role-assignments)
-func (_ Unimplemented) ListRoleAssignments(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Assign a role on a project or an environment
-// (POST /teams/{team_uuid}/role-assignments)
-func (_ Unimplemented) CreateRoleAssignment(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Remove a scoped role assignment
-// (DELETE /teams/{team_uuid}/role-assignments/{assignment_uuid})
-func (_ Unimplemented) DeleteRoleAssignment(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, assignmentUuid string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -18668,111 +18571,6 @@ func (siw *ServerInterfaceWrapper) GetMemberAccess(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
-// ListRoleAssignments operation middleware
-func (siw *ServerInterfaceWrapper) ListRoleAssignments(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "team_uuid" -------------
-	var teamUuid TeamUuid
-
-	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListRoleAssignments(w, r, teamUuid)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateRoleAssignment operation middleware
-func (siw *ServerInterfaceWrapper) CreateRoleAssignment(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "team_uuid" -------------
-	var teamUuid TeamUuid
-
-	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateRoleAssignment(w, r, teamUuid)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteRoleAssignment operation middleware
-func (siw *ServerInterfaceWrapper) DeleteRoleAssignment(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "team_uuid" -------------
-	var teamUuid TeamUuid
-
-	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "assignment_uuid" -------------
-	var assignmentUuid string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "assignment_uuid", chi.URLParam(r, "assignment_uuid"), &assignmentUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "assignment_uuid", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteRoleAssignment(w, r, teamUuid, assignmentUuid)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // ListTeamRoles operation middleware
 func (siw *ServerInterfaceWrapper) ListTeamRoles(w http.ResponseWriter, r *http.Request) {
 
@@ -20313,15 +20111,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{team_uuid}/members/{user_uuid}/access", wrapper.GetMemberAccess)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/teams/{team_uuid}/role-assignments", wrapper.ListRoleAssignments)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/teams/{team_uuid}/role-assignments", wrapper.CreateRoleAssignment)
-	})
-	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/teams/{team_uuid}/role-assignments/{assignment_uuid}", wrapper.DeleteRoleAssignment)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{team_uuid}/roles", wrapper.ListTeamRoles)
@@ -40545,224 +40334,6 @@ func (response GetMemberAccess404JSONResponse) VisitGetMemberAccessResponse(w ht
 	return err
 }
 
-type ListRoleAssignmentsRequestObject struct {
-	TeamUuid TeamUuid `json:"team_uuid"`
-}
-
-type ListRoleAssignmentsResponseObject interface {
-	VisitListRoleAssignmentsResponse(w http.ResponseWriter) error
-}
-
-type ListRoleAssignments200JSONResponse struct {
-	Data []RoleAssignment `json:"data"`
-}
-
-func (response ListRoleAssignments200JSONResponse) VisitListRoleAssignmentsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListRoleAssignments401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response ListRoleAssignments401JSONResponse) VisitListRoleAssignmentsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListRoleAssignments403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response ListRoleAssignments403JSONResponse) VisitListRoleAssignmentsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListRoleAssignments404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response ListRoleAssignments404JSONResponse) VisitListRoleAssignmentsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateRoleAssignmentRequestObject struct {
-	TeamUuid TeamUuid `json:"team_uuid"`
-	Body     *CreateRoleAssignmentJSONRequestBody
-}
-
-type CreateRoleAssignmentResponseObject interface {
-	VisitCreateRoleAssignmentResponse(w http.ResponseWriter) error
-}
-
-type CreateRoleAssignment201JSONResponse RoleAssignment
-
-func (response CreateRoleAssignment201JSONResponse) VisitCreateRoleAssignmentResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateRoleAssignment400JSONResponse struct{ BadRequestJSONResponse }
-
-func (response CreateRoleAssignment400JSONResponse) VisitCreateRoleAssignmentResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateRoleAssignment401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response CreateRoleAssignment401JSONResponse) VisitCreateRoleAssignmentResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateRoleAssignment403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response CreateRoleAssignment403JSONResponse) VisitCreateRoleAssignmentResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateRoleAssignment404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response CreateRoleAssignment404JSONResponse) VisitCreateRoleAssignmentResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CreateRoleAssignment409JSONResponse struct{ ConflictJSONResponse }
-
-func (response CreateRoleAssignment409JSONResponse) VisitCreateRoleAssignmentResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DeleteRoleAssignmentRequestObject struct {
-	TeamUuid       TeamUuid `json:"team_uuid"`
-	AssignmentUuid string   `json:"assignment_uuid"`
-}
-
-type DeleteRoleAssignmentResponseObject interface {
-	VisitDeleteRoleAssignmentResponse(w http.ResponseWriter) error
-}
-
-type DeleteRoleAssignment204Response struct {
-}
-
-func (response DeleteRoleAssignment204Response) VisitDeleteRoleAssignmentResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type DeleteRoleAssignment401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response DeleteRoleAssignment401JSONResponse) VisitDeleteRoleAssignmentResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DeleteRoleAssignment403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response DeleteRoleAssignment403JSONResponse) VisitDeleteRoleAssignmentResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type DeleteRoleAssignment404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response DeleteRoleAssignment404JSONResponse) VisitDeleteRoleAssignmentResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type ListTeamRolesRequestObject struct {
 	TeamUuid TeamUuid `json:"team_uuid"`
 	Params   ListTeamRolesParams
@@ -43103,15 +42674,6 @@ type StrictServerInterface interface {
 	// What this member reaches
 	// (GET /teams/{team_uuid}/members/{user_uuid}/access)
 	GetMemberAccess(ctx context.Context, request GetMemberAccessRequestObject) (GetMemberAccessResponseObject, error)
-	// List the team's scoped role assignments
-	// (GET /teams/{team_uuid}/role-assignments)
-	ListRoleAssignments(ctx context.Context, request ListRoleAssignmentsRequestObject) (ListRoleAssignmentsResponseObject, error)
-	// Assign a role on a project or an environment
-	// (POST /teams/{team_uuid}/role-assignments)
-	CreateRoleAssignment(ctx context.Context, request CreateRoleAssignmentRequestObject) (CreateRoleAssignmentResponseObject, error)
-	// Remove a scoped role assignment
-	// (DELETE /teams/{team_uuid}/role-assignments/{assignment_uuid})
-	DeleteRoleAssignment(ctx context.Context, request DeleteRoleAssignmentRequestObject) (DeleteRoleAssignmentResponseObject, error)
 	// List a team's custom roles
 	// (GET /teams/{team_uuid}/roles)
 	ListTeamRoles(ctx context.Context, request ListTeamRolesRequestObject) (ListTeamRolesResponseObject, error)
@@ -49292,92 +48854,6 @@ func (sh *strictHandler) GetMemberAccess(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMemberAccessResponseObject); ok {
 		if err := validResponse.VisitGetMemberAccessResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListRoleAssignments operation middleware
-func (sh *strictHandler) ListRoleAssignments(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
-	var request ListRoleAssignmentsRequestObject
-
-	request.TeamUuid = teamUuid
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListRoleAssignments(ctx, request.(ListRoleAssignmentsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListRoleAssignments")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListRoleAssignmentsResponseObject); ok {
-		if err := validResponse.VisitListRoleAssignmentsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// CreateRoleAssignment operation middleware
-func (sh *strictHandler) CreateRoleAssignment(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid) {
-	var request CreateRoleAssignmentRequestObject
-
-	request.TeamUuid = teamUuid
-
-	var body CreateRoleAssignmentJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CreateRoleAssignment(ctx, request.(CreateRoleAssignmentRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CreateRoleAssignment")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CreateRoleAssignmentResponseObject); ok {
-		if err := validResponse.VisitCreateRoleAssignmentResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// DeleteRoleAssignment operation middleware
-func (sh *strictHandler) DeleteRoleAssignment(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, assignmentUuid string) {
-	var request DeleteRoleAssignmentRequestObject
-
-	request.TeamUuid = teamUuid
-	request.AssignmentUuid = assignmentUuid
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteRoleAssignment(ctx, request.(DeleteRoleAssignmentRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteRoleAssignment")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteRoleAssignmentResponseObject); ok {
-		if err := validResponse.VisitDeleteRoleAssignmentResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

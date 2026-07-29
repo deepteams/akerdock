@@ -240,15 +240,15 @@ type Environment = components['schemas']['Environment'];
               (ngModelChange)="onProjectChange($event)"
               [disabled]="busy()"
             >
-              <option value="">Anyone on the team who may tunnel</option>
+              <option value="">Not related to a project</option>
               @for (project of projects(); track project.uuid) {
                 <option [value]="project.uuid">{{ project.name }}</option>
               }
             </select>
           </div>
           <span class="akd-field__hint">
-            Scopes the endpoint (ADR-038): a production replica is then reachable only by the people
-            who already hold rights there.
+            Descriptive only: it records what this destination is for. It is <em>not</em> an access
+            boundary — anyone on the team who may tunnel can reach it (ADR-047).
           </span>
         </div>
         @if (projectUuid) {

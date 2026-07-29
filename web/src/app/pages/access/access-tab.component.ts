@@ -14,15 +14,14 @@ export interface AccessPage {
 export type AccessFetch = () => Promise<AccessPage>;
 
 /**
- * Who can reach this resource (ADR-046 §9) — the access review, reusable on
- * every screen that has one. The parent passes a `fetch`, so applications,
- * databases, services, projects and environments share one widget and one
- * reading.
+ * Who can reach this resource — the access review, reusable on every screen
+ * that has one. The parent passes a `fetch`, so applications, databases,
+ * services, projects and environments share one widget and one reading.
  *
- * Each row states the **path**, not just the name: "Bob" is not actionable,
- * "Bob — member on project:billing" tells the reviewer what to change. Until
- * scoped assignments exist, every scope reads `team`, which is the truth of the
- * current model and the reason this screen ships first.
+ * Each row states the role the access comes from, not just the name: "Bob" is
+ * not actionable, "Bob — member" tells the reviewer what to change. The scope
+ * is always the team (ADR-047): a role is held over a whole team, and the
+ * column says so rather than suggesting a granularity that does not exist.
  */
 @Component({
   selector: 'akd-access-tab',
@@ -39,8 +38,10 @@ export type AccessFetch = () => Promise<AccessPage>;
     } @else {
       <akd-card title="Who can reach this">
         <p class="intro">
-          Everyone holding platform permissions here, and the role they hold them through. Computed
-          live — there is no stored copy to go stale.
+          Everyone holding platform permissions here, and the role they hold them through. API
+          tokens appear under the person who created them: a token can never reach further than its
+          creator, and it narrows on its own when they do. Computed live — there is no stored copy
+          to go stale.
         </p>
         <table class="akd-table">
           <thead>
@@ -53,21 +54,30 @@ export type AccessFetch = () => Promise<AccessPage>;
           </thead>
           <tbody>
             @for (entry of entries(); track entry.subject_uuid ?? entry.subject_name) {
-              <tr>
+              <tr [class.token-row]="entry.subject_kind === 'token'">
                 <td>
-                  <strong>{{ entry.subject_name }}</strong>
                   @if (entry.subject_kind === 'token') {
+                    <!-- Indented under the person it borrows its reach from: a
+                         token can never exceed its creator, so it is an
+                         extension of them, not a second access. -->
+                    <span class="token-mark" aria-hidden="true">↳</span>
+                    <span class="akd-mono">{{ entry.subject_name }}</span>
                     <span class="akd-badge">token</span>
-                    @if (entry.token_creator_email) {
-                      <span class="akd-muted"> · created by {{ entry.token_creator_email }}</span>
-                    }
                     @if (entry.token_expires_at) {
-                      <span class="akd-muted">
-                        · expires {{ entry.token_expires_at | date: 'shortDate' }}</span
+                      <span class="akd-muted"
+                        >expires {{ entry.token_expires_at | date: 'shortDate' }}</span
                       >
+                    } @else {
+                      <span class="akd-muted">no expiry</span>
                     }
-                  } @else if (entry.subject_kind === 'instance_root') {
-                    <span class="akd-badge akd-badge--warn">instance root</span>
+                    @if (!entry.token_creator_email) {
+                      <span class="akd-badge akd-badge--warn">no creator on record</span>
+                    }
+                  } @else {
+                    <strong>{{ entry.subject_name }}</strong>
+                    @if (entry.subject_kind === 'instance_root') {
+                      <span class="akd-badge akd-badge--warn">instance root</span>
+                    }
                   }
                 </td>
                 <td>{{ entry.role }}</td>
@@ -115,6 +125,13 @@ export type AccessFetch = () => Promise<AccessPage>;
       .caps {
         font-size: var(--text-xs);
         color: var(--text-2);
+      }
+      .token-row td {
+        color: var(--text-2);
+      }
+      .token-mark {
+        margin-right: var(--space-2);
+        color: var(--text-3);
       }
       /* Reading secrets or opening a shell is not the same kind of access as
          viewing: the eye should stop on those two without the row shouting. */

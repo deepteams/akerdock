@@ -101,8 +101,7 @@ func (a *API) resolveDatabase(w http.ResponseWriter, r *http.Request, id *auth.I
 	var u pgtype.UUID
 	if err := u.Scan(dbUUID); err == nil {
 		row, err := a.Store.GetDatabaseByUUID(r.Context(), store.GetDatabaseByUUIDParams{Uuid: u, TeamID: id.TeamID})
-		// Scoped enforcement (ADR-046 §6), out of scope reading as not found.
-		if err == nil && a.allowedAtScope(r, id, &row.Resource.EnvironmentID, "") {
+		if err == nil {
 			return row, true
 		}
 	}
@@ -131,9 +130,6 @@ func (a *API) ListDatabases(w http.ResponseWriter, r *http.Request, params api.L
 		a.internalError(w, r, "list databases", err)
 		return
 	}
-	rows = keepInScope(a, r, id, rows, func(row store.ListDatabasesPageRow) *int64 {
-		return &row.Resource.EnvironmentID
-	})
 	rows, cursor := nextCursor(rows, limit, func(row store.ListDatabasesPageRow) int64 { return row.Resource.ID })
 
 	data := make([]api.Database, 0, len(rows))

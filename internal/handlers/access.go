@@ -1,5 +1,5 @@
-// Access review (ADR-046 §9): who holds platform permissions on a resource, and
-// what a given member reaches.
+// Access review: who holds platform permissions on a resource, and what a given
+// member reaches.
 //
 // The two readings come from ONE place — the same permission resolution that
 // authorizes a request, evaluated with the subject unbound instead of the
@@ -7,10 +7,10 @@
 // from the rules it claims to summarize, and a stale access review is worse
 // than none, because it asserts a safety nobody checked.
 //
-// Until scoped assignments exist (ADR-046 §1), every row's scope reads `team` —
-// which is the truth of the current model, and the point of shipping this view
-// first: it makes the absence of partitioning visible to people who assumed
-// otherwise.
+// Every row's scope reads `team`: a role is held over a whole team (ADR-047,
+// which withdrew per-project assignments). The column is kept because it is the
+// honest answer to "how far does this reach", and because an operator reading
+// the screen should not have to remember which granularity the product has.
 package handlers
 
 import (
@@ -26,8 +26,7 @@ import (
 	"github.com/deepteams/akerdock/internal/store"
 )
 
-// scopeTeam is the canonical rendering of the team scope (ADR-046 §10). Project
-// and environment scopes join it once assignments carry them.
+// scopeTeam is how far any role reaches: the team (§23.1).
 const scopeTeam = "team"
 
 // capability is the review-time summary of a set of granular permissions: the
@@ -115,9 +114,13 @@ func (a *API) accessView(w http.ResponseWriter, r *http.Request, id *auth.Identi
 		a.internalError(w, r, "access review", err)
 		return
 	}
+	// Keyed by email because that is what the token rows carry back; the
+	// members are already in hand, so capping a token costs no extra query.
+	creatorPermissions := make(map[string][]string, len(members))
 	for _, row := range members {
 		m := memberFromList(row)
 		perms := memberPermissions(m)
+		creatorPermissions[m.email] = perms
 		caps := capabilitiesOf(perms, kind)
 		if len(caps) == 0 {
 			// No capability on this kind of resource — a reviewer on an
@@ -161,9 +164,15 @@ func (a *API) accessView(w http.ResponseWriter, r *http.Request, id *auth.Identi
 			return
 		}
 		for _, t := range tokens {
-			// A token never reaches more than its creator (ADR-046 §7); with
-			// the creator gone, only the token's own scopes remain.
+			// A token never reaches more than its creator, re-evaluated on
+			// every request (rbac-matrix §4.2): the row shows the
+			// INTERSECTION, or the review would report an access the API
+			// refuses — and an operator would revoke a token that was already
+			// harmless while missing the one that is not.
 			perms := auth.EffectivePermissions(t.Permissions)
+			if t.CreatorEmail != nil {
+				perms = intersectPermissions(perms, creatorPermissions[*t.CreatorEmail])
+			}
 			caps := capabilitiesOf(perms, kind)
 			if len(caps) == 0 {
 				continue
@@ -187,11 +196,19 @@ func (a *API) accessView(w http.ResponseWriter, r *http.Request, id *auth.Identi
 		}
 	}
 
-	// Most privileged first: the rows an operator must justify are the ones
-	// they should read before their attention runs out.
+	// Most privileged first — the rows an operator must justify are the ones to
+	// read before their attention runs out — and each token immediately after
+	// the person whose authority it borrows.
+	//
+	// A token is not an independent subject: it can never exceed its creator
+	// (§4.2), so listing it as a peer of the humans doubles the list and
+	// suggests a second, separate access. What IS worth its own line is a token
+	// with no creator on record: nobody's authority stands behind it, and it
+	// sorts to the end where it reads as the exception it is.
 	sort.SliceStable(entries, func(i, j int) bool {
 		return len(entries[i].Capabilities) > len(entries[j].Capabilities)
 	})
+	entries = groupTokensUnderTheirCreator(entries)
 
 	httpapi.WriteJSON(w, http.StatusOK, struct {
 		Data           []api.AccessEntry `json:"data"`
@@ -217,6 +234,52 @@ func memberFromList(m store.ListTeamMembersForAccessRow) accessMember {
 
 func memberFromGet(m store.GetTeamMemberForAccessRow) accessMember {
 	return accessMember{m.Role, m.UserUuid, m.Email, m.IsRoot, m.CustomRoleName, m.CustomPermissions}
+}
+
+// groupTokensUnderTheirCreator reorders the rows so a token follows the member
+// it borrows its reach from. Orphan tokens (no creator recorded) go last.
+func groupTokensUnderTheirCreator(entries []api.AccessEntry) []api.AccessEntry {
+	tokens := map[string][]api.AccessEntry{}
+	var people, orphans []api.AccessEntry
+	for _, e := range entries {
+		switch {
+		case e.SubjectKind != "token":
+			people = append(people, e)
+		case e.TokenCreatorEmail != nil && *e.TokenCreatorEmail != "":
+			tokens[*e.TokenCreatorEmail] = append(tokens[*e.TokenCreatorEmail], e)
+		default:
+			orphans = append(orphans, e)
+		}
+	}
+	out := make([]api.AccessEntry, 0, len(entries))
+	for _, person := range people {
+		out = append(out, person)
+		out = append(out, tokens[person.SubjectName]...)
+		delete(tokens, person.SubjectName)
+	}
+	// A creator who is no longer a member holds nothing, so their tokens hold
+	// nothing either — but they exist, and a review that hid them would hide
+	// exactly the rows somebody should revoke.
+	for _, left := range tokens {
+		orphans = append(orphans, left...)
+	}
+	return append(out, orphans...)
+}
+
+// intersectPermissions keeps what both sets hold — a token's reach is its own
+// scopes capped by its creator's authority.
+func intersectPermissions(tokenPerms, creatorPerms []string) []string {
+	held := make(map[string]bool, len(creatorPerms))
+	for _, p := range creatorPerms {
+		held[p] = true
+	}
+	out := make([]string, 0, len(tokenPerms))
+	for _, p := range tokenPerms {
+		if held[p] {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // memberPermissions resolves what a member holds, custom role overriding the

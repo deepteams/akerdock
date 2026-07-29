@@ -115,9 +115,6 @@ type Querier interface {
 	CountResourcesInEnvironment(ctx context.Context, environmentID int64) (int64, error)
 	CountResourcesInProject(ctx context.Context, projectID int64) (int64, error)
 	CountResourcesOnServer(ctx context.Context, serverID int64) (int64, error)
-	// Scoping is inert until someone uses it: with no assignment in a team, the
-	// resolution short-circuits to the base role and behaves exactly as before.
-	CountRoleAssignmentsForTeam(ctx context.Context, teamID int64) (int64, error)
 	CountRunningRestoreDrills(ctx context.Context, planID int64) (int64, error)
 	CountRunningTaskExecutions(ctx context.Context, scheduledTaskID int64) (int64, error)
 	CountServersUsingPrivateKey(ctx context.Context, privateKeyID int64) (int64, error)
@@ -247,7 +244,6 @@ type Querier interface {
 	// Applications: union base resources + 1-1 extensions (§19.1).
 	CreateResource(ctx context.Context, arg CreateResourceParams) (Resource, error)
 	CreateRestoreDrill(ctx context.Context, arg CreateRestoreDrillParams) (RestoreDrill, error)
-	CreateRoleAssignment(ctx context.Context, arg CreateRoleAssignmentParams) (RoleAssignment, error)
 	CreateRollbackDeployment(ctx context.Context, arg CreateRollbackDeploymentParams) (Deployment, error)
 	CreateRuntimeConfig(ctx context.Context, arg CreateRuntimeConfigParams) error
 	CreateS3Storage(ctx context.Context, arg CreateS3StorageParams) (S3Storage, error)
@@ -308,7 +304,6 @@ type Querier interface {
 	// Scoped by user: a session must never be able to delete someone else's key.
 	DeletePasskeyForUser(ctx context.Context, arg DeletePasskeyForUserParams) (int64, error)
 	DeletePrivateKey(ctx context.Context, id int64) (int64, error)
-	DeleteRoleAssignment(ctx context.Context, arg DeleteRoleAssignmentParams) (int64, error)
 	DeleteS3Storage(ctx context.Context, id int64) (int64, error)
 	DeleteSharedVariable(ctx context.Context, id int64) (int64, error)
 	DeleteStorage(ctx context.Context, id int64) (int64, error)
@@ -473,7 +468,6 @@ type Querier interface {
 	// The optional resource link of a check (INV-002 isolation).
 	GetResourceByUUIDForTeam(ctx context.Context, arg GetResourceByUUIDForTeamParams) (Resource, error)
 	GetResourceRemnants(ctx context.Context, id int64) ([]byte, error)
-	GetRoleAssignmentByUUID(ctx context.Context, arg GetRoleAssignmentByUUIDParams) (RoleAssignment, error)
 	GetS3StorageByID(ctx context.Context, id int64) (S3Storage, error)
 	GetS3StorageByUUID(ctx context.Context, arg GetS3StorageByUUIDParams) (S3Storage, error)
 	GetScheduledTaskByID(ctx context.Context, id int64) (GetScheduledTaskByIDRow, error)
@@ -508,10 +502,6 @@ type Querier interface {
 	// Member role management (ADR-038).
 	GetTeamMemberByUUID(ctx context.Context, arg GetTeamMemberByUUIDParams) (GetTeamMemberByUUIDRow, error)
 	GetTeamMemberForAccess(ctx context.Context, arg GetTeamMemberForAccessParams) (GetTeamMemberForAccessRow, error)
-	// The member behind a user uuid. An assignment to somebody who is not a member
-	// of the team is a grant to somebody who is not in the room, so this returning
-	// no row is a 404 rather than a silent insert.
-	GetTeamMemberIDByUserUUID(ctx context.Context, arg GetTeamMemberIDByUserUUIDParams) (int64, error)
 	// The team a session acts in, with its role and public UUID (the dashboard
 	// addresses team endpoints by UUID). Falls back to the personal team.
 	// Carries the user's instance-root flag (users.is_root) so the session identity
@@ -519,6 +509,14 @@ type Querier interface {
 	// A custom role (custom_role_id), when set, OVERRIDES the system role: its
 	// granular permissions are carried back for the session identity (ADR-038).
 	GetTeamMembershipForUser(ctx context.Context, userID int64) (GetTeamMembershipForUserRow, error)
+	// What a token's creator holds in the token's team, re-read on every request
+	// (rbac-matrix §4.2). A token never grants more than its creator, so this is
+	// the ceiling its own scopes are intersected with — and it is why a demoted
+	// creator narrows their tokens without anyone revoking anything.
+	//
+	// No row means the creator is no longer a member of that team: the token then
+	// holds nothing, which is the convergence the rule exists for.
+	GetTokenCreatorAuthority(ctx context.Context, arg GetTokenCreatorAuthorityParams) (GetTokenCreatorAuthorityRow, error)
 	GetUptimeCheckByUUID(ctx context.Context, arg GetUptimeCheckByUUIDParams) (UptimeCheck, error)
 	// Browser sessions (PRD §698).
 	GetUserByEmail(ctx context.Context, email string) (User, error)
@@ -705,17 +703,6 @@ type Querier interface {
 	ListRegistryCredentialsPage(ctx context.Context, arg ListRegistryCredentialsPageParams) ([]RegistryCredential, error)
 	ListRepositoriesForSource(ctx context.Context, gitSourceID int64) ([]Repository, error)
 	ListRestoreDrillsPage(ctx context.Context, arg ListRestoreDrillsPageParams) ([]ListRestoreDrillsPageRow, error)
-	// The team's assignments, for the management screen and the access review.
-	ListRoleAssignmentsForTeam(ctx context.Context, teamID int64) ([]ListRoleAssignmentsForTeamRow, error)
-	// Every assignment of the team, keyed by user id — what the reverse resolution
-	// (the access review) walks once instead of querying per member.
-	ListRoleAssignmentsForTeamMembers(ctx context.Context, teamID int64) ([]ListRoleAssignmentsForTeamMembersRow, error)
-	// Scoped role assignments (ADR-046 §1): exceptions to a member's team-wide base
-	// role, held on one project or one environment.
-	// The resolution's hot path: everything one caller holds in one team, loaded
-	// once per request. Project and environment UUIDs come along so the scope can
-	// be rendered (`project:<uuid>`) without a second round trip.
-	ListRoleAssignmentsForUser(ctx context.Context, arg ListRoleAssignmentsForUserParams) ([]ListRoleAssignmentsForUserRow, error)
 	// S3 storages (§7.2, data-dictionary §6.6). Credentials are envelope-encrypted
 	// and never leave the instance (INV-003).
 	ListS3StoragesPage(ctx context.Context, arg ListS3StoragesPageParams) ([]S3Storage, error)

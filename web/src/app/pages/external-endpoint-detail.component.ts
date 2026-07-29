@@ -145,7 +145,7 @@ type Environment = components['schemas']['Environment'];
             </div>
             <div class="row">
               <div class="akd-field">
-                <label class="akd-field__label" for="ep-project">Restricted to project</label>
+                <label class="akd-field__label" for="ep-project">Related project</label>
                 <select
                   id="ep-project"
                   name="project"
@@ -154,13 +154,14 @@ type Environment = components['schemas']['Environment'];
                   (ngModelChange)="onProjectChange($event)"
                   [disabled]="busy()"
                 >
-                  <option value="">Anyone on the team who may tunnel</option>
+                  <option value="">Not related to a project</option>
                   @for (project of projects(); track project.uuid) {
                     <option [value]="project.uuid">{{ project.name }}</option>
                   }
                 </select>
                 <span class="akd-field__hint">
-                  The endpoint is then reachable only by people who already hold rights there.
+                  Descriptive only: it records what this destination is for, and is not an access
+                  boundary (ADR-047).
                 </span>
               </div>
               <div class="akd-field">

@@ -30,6 +30,9 @@ type Middleware struct {
 type TokenStore interface {
 	GetActiveApiTokensByPrefix(context.Context, string) ([]store.GetActiveApiTokensByPrefixRow, error)
 	TouchApiTokenLastUsed(context.Context, int64) error
+	// GetTokenCreatorAuthority is the token's ceiling: a token never grants
+	// more than its creator holds, re-read on every request (rbac-matrix §4.2).
+	GetTokenCreatorAuthority(context.Context, store.GetTokenCreatorAuthorityParams) (store.GetTokenCreatorAuthorityRow, error)
 }
 
 // SettingsSource is what the middleware needs from the instance settings
@@ -152,17 +155,73 @@ func (m *Middleware) authenticate(w http.ResponseWriter, r *http.Request) *Ident
 		}(match.ID)
 	}
 
-	return &Identity{
-		TokenID:   match.ID,
-		TokenUUID: uuidString(match.Uuid),
-		TeamID:    match.TeamID,
-		TeamUUID:  uuidString(match.TeamUuid),
-		Display:   match.Name,
-		// The token's coarse scopes are expanded to the granular set it holds,
-		// keeping the coarse strings too (ADR-038 migration): converted endpoints
-		// check a granular permission, the rest still check the coarse one.
-		Permissions: EffectivePermissions(match.Permissions),
+	// The token's coarse scopes expanded to the granular set it holds, keeping
+	// the coarse strings too (ADR-038 migration): converted endpoints check a
+	// granular permission, the rest still check the coarse one.
+	granted := EffectivePermissions(match.Permissions)
+
+	id := &Identity{
+		TokenID:     match.ID,
+		TokenUUID:   uuidString(match.Uuid),
+		TeamID:      match.TeamID,
+		TeamUUID:    uuidString(match.TeamUuid),
+		Display:     match.Name,
+		Permissions: granted,
 	}
+	m.boundToCreator(r, id, match, granted)
+	return id
+}
+
+// boundToCreator caps a token at what its creator holds, re-evaluated now
+// rather than frozen at creation (rbac-matrix §4.2, ADR-046 §7).
+//
+// Without this a token is an access that outlives the authority that produced
+// it: a creator demoted, scoped down or removed from the team keeps handing out
+// everything their token was minted with, and scoped assignments have a trivial
+// side door — mint a token, get the whole team back. The intersection closes
+// both, and it costs the creator's role and assignments per request, paid only
+// by tokens.
+//
+// A token with no recorded creator (created before the column existed, or
+// minted by the bootstrap) keeps its own permissions: there is no authority to
+// intersect with, and refusing it would break instances that did nothing wrong.
+func (m *Middleware) boundToCreator(r *http.Request, id *Identity, match *store.GetActiveApiTokensByPrefixRow, granted []string) {
+	if match.CreatedBy == nil {
+		return
+	}
+	authority, err := m.Store.GetTokenCreatorAuthority(r.Context(), store.GetTokenCreatorAuthorityParams{
+		UserID: *match.CreatedBy, TeamID: match.TeamID,
+	})
+	if err != nil {
+		// The creator is no longer a member of this team: the token holds
+		// nothing. That is the automatic convergence the model exists for —
+		// somebody who leaves takes their tokens' reach with them, without
+		// anyone remembering to revoke.
+		id.Permissions = nil
+		return
+	}
+
+	base := PermissionsForRole(authority.Role)
+	if len(authority.CustomPermissions) > 0 {
+		base = authority.CustomPermissions
+	}
+	id.Permissions = intersect(granted, ExpandGranular(base))
+	id.UserID = &authority.UserID
+}
+
+// intersect keeps the permissions present in both sets.
+func intersect(a, b []string) []string {
+	held := make(map[string]bool, len(b))
+	for _, p := range b {
+		held[p] = true
+	}
+	out := make([]string, 0, len(a))
+	for _, p := range a {
+		if held[p] {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func ipAllowed(r *http.Request, allowlist []netip.Prefix) bool {

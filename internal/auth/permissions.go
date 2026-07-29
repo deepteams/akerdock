@@ -50,12 +50,6 @@ const (
 
 	PermProjectsRead   Permission = "projects:read"
 	PermProjectsManage Permission = "projects:manage"
-	// PermProjectsCreate is split from projects:manage (ADR-046 §4): creating a
-	// project is the one mutation with no scope to be evaluated against — the
-	// project does not exist yet — so the capability is team-only by
-	// construction, while projects:manage stays scoped and means "rename or
-	// delete THIS project".
-	PermProjectsCreate Permission = "projects:create"
 
 	PermEnvironmentsRead   Permission = "environments:read"
 	PermEnvironmentsManage Permission = "environments:manage"
@@ -140,7 +134,7 @@ var Catalog = map[string]Permission{
 	"roles:read":         PermRead, "roles:manage": PermWrite,
 	"tokens:read": PermRead, "tokens:create": PermWrite, "tokens:revoke": PermWrite,
 	// Projects & environments
-	"projects:read": PermRead, "projects:manage": PermWrite, "projects:create": PermWrite,
+	"projects:read": PermRead, "projects:manage": PermWrite,
 	"environments:read": PermRead, "environments:manage": PermWrite, "environments:deploy": PermDeploy,
 	"resources:read": PermRead, "resources:adopt": PermWrite,
 	// Applications

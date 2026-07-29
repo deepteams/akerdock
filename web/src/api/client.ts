@@ -1719,30 +1719,7 @@ export class AkerDockClient {
     return this.request<void>('DELETE', `/external-endpoint-grants/${uuid}`);
   }
 
-  // --- scoped role assignments (ADR-046 §1) ---------------------------------------------------
-
-  listRoleAssignments(teamUuid: string) {
-    type Response =
-      paths['/teams/{team_uuid}/role-assignments']['get']['responses']['200']['content']['application/json'];
-    return this.request<Response>('GET', `/teams/${teamUuid}/role-assignments`);
-  }
-
-  /**
-   * Grants a role on one scope. The narrowest scope **replaces** the broader
-   * one, so this can REDUCE what somebody reaches there — the caller is
-   * expected to say so before submitting.
-   */
-  createRoleAssignment(teamUuid: string, body: components['schemas']['RoleAssignmentCreate']) {
-    type Response =
-      paths['/teams/{team_uuid}/role-assignments']['post']['responses']['201']['content']['application/json'];
-    return this.request<Response>('POST', `/teams/${teamUuid}/role-assignments`, { body });
-  }
-
-  deleteRoleAssignment(teamUuid: string, assignmentUuid: string) {
-    return this.request<void>('DELETE', `/teams/${teamUuid}/role-assignments/${assignmentUuid}`);
-  }
-
-  // --- access review (ADR-046 §9) -------------------------------------------------------------
+  // --- access review (ADR-047) -------------------------------------------------------------
 
   /**
    * Who holds platform permissions on a resource, with the scope that granted

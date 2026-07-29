@@ -312,113 +312,14 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) *auth.Ident
 		InstanceRoot: membership.IsRoot,
 		MFAPending:   row.MfaPending,
 		UserID:       &row.UserID,
-		// The exceptions to the base role, loaded once per request (ADR-046
-		// §6). Almost always empty — a team that never partitioned anything —
-		// and the resolution then short-circuits to the flat set above.
-		ScopedAssignments: m.scopedAssignments(ctx, row.UserID, teamID),
 	}
 }
 
-// scopedAssignments loads the caller's project/environment assignments and
-// turns each into the resolution's own shape. Best effort by design: a failure
-// here must not hand somebody MORE than they hold, and an empty list is the
-// narrowest possible answer for a scoped member — it leaves them with their
-// base role, which is what they had before this feature existed.
-func (m *Manager) scopedAssignments(ctx context.Context, userID, teamID int64) []auth.Assignment {
-	rows, err := m.Store.ListRoleAssignmentsForUser(ctx, store.ListRoleAssignmentsForUserParams{
-		UserID: userID, TeamID: teamID,
-	})
-	if err != nil || len(rows) == 0 {
-		return nil
-	}
-	out := make([]auth.Assignment, 0, len(rows))
-	for _, row := range rows {
-		granular := row.CustomPermissions
-		name := "custom"
-		if row.CustomRoleName != nil {
-			name = *row.CustomRoleName
-		}
-		if row.Role != nil {
-			granular = PermissionsForRole(*row.Role)
-			name = string(*row.Role)
-		}
-		scope := auth.Scope{ProjectID: row.ProjectID}
-		if row.EnvironmentID != nil {
-			// An environment assignment carries its project too: without it,
-			// "does project X cover environment Y" cannot be answered from the
-			// assignment alone.
-			scope = auth.Scope{ProjectID: row.EnvironmentProjectID, EnvironmentID: row.EnvironmentID}
-		}
-		out = append(out, auth.Assignment{
-			Scope:       scope,
-			Permissions: auth.ExpandGranular(granular),
-			RoleName:    name,
-		})
-	}
-	return out
-}
-
-// memberPermissions is the granular set of the team `member` role — the old
-// "developer" column of the RBAC matrix (rbac-matrix §2): full management of the
-// team's resources (apps, databases, services, deploys, backups, previews,
-// secrets), but NOT team administration (members/roles/tokens/invitations),
-// infrastructure (servers/keys/cloud), instance settings, or root-shell access.
-// Closure adds the `:read` prerequisites, so only the acting permissions are
-// listed here.
-var memberPermissions = []string{
-	string(auth.PermTeamRead), string(auth.PermMembersRead),
-	string(auth.PermProjectsRead), string(auth.PermProjectsManage), string(auth.PermProjectsCreate),
-	string(auth.PermEnvironmentsRead), string(auth.PermEnvironmentsManage),
-	string(auth.PermResourcesRead), string(auth.PermResourcesAdopt),
-	string(auth.PermApplicationsRead), string(auth.PermApplicationsCreate),
-	string(auth.PermApplicationsUpdate), string(auth.PermApplicationsDelete),
-	string(auth.PermApplicationsDeploy), string(auth.PermApplicationsLifecycle),
-	string(auth.PermApplicationsExec),
-	string(auth.PermDatabasesRead), string(auth.PermDatabasesCreate),
-	string(auth.PermDatabasesUpdate), string(auth.PermDatabasesDelete),
-	string(auth.PermDatabasesLifecycle),
-	string(auth.PermServicesRead), string(auth.PermServicesManage), string(auth.PermServicesDeploy),
-	string(auth.PermSecretsRead), string(auth.PermSecretsWrite),
-	string(auth.PermServersRead), string(auth.PermCertificatesRead), string(auth.PermKeysRead),
-	string(auth.PermSourcesRead), string(auth.PermSourcesManage), string(auth.PermRegistriesManage),
-	string(auth.PermStoragesManage),
-	string(auth.PermBackupsRead), string(auth.PermBackupsManage), string(auth.PermBackupsRestore),
-	string(auth.PermDeploymentsRead), string(auth.PermDeploymentsCancel),
-	string(auth.PermPreviewsRead), string(auth.PermPreviewsManage),
-	string(auth.PermTerminalOpen), string(auth.PermPortForwardsOpen),
-	string(auth.PermExternalEndpointsRead),
-	string(auth.PermLogsRead), string(auth.PermMetricsRead),
-	string(auth.PermNotificationsRead), string(auth.PermNotificationsManage),
-	string(auth.PermUptimeRead), string(auth.PermUptimeManage),
-	string(auth.PermAuditRead),
-}
-
-// PermissionsForRole maps a team role onto its granular permission set (ADR-038,
-// rbac-matrix §2). A role is a NAME for a set of permissions; the sets are
-// explicit so the matrix and the code cannot silently disagree. The caller runs
-// the result through auth.ExpandGranular, which adds the `:read` prerequisites
-// and the coarse socle each permission projects onto.
-func PermissionsForRole(role store.TeamRole) []string {
-	switch role {
-	case store.TeamRoleAdmin, store.TeamRoleOwner:
-		// admin is the merged owner+admin role (ADR-038): full control of the team
-		// and its resources, never instance settings. `owner` is legacy — rows are
-		// migrated to `admin`, but map it here too so a stray one is not left
-		// powerless.
-		return auth.TeamAdminPermissions()
-	case store.TeamRoleReviewer:
-		// reviewer sees only PR previews — nothing else (ADR-038).
-		return []string{string(auth.PermPreviewsRead)}
-	case store.TeamRoleNone:
-		// `none` holds nothing team-wide (ADR-046 §2): the base role of a member
-		// who only reaches what their scoped assignments grant. Without it
-		// nothing partitions, because every other base role keeps granting
-		// something everywhere.
-		return nil
-	default: // member
-		return memberPermissions
-	}
-}
+// PermissionsForRole is auth.PermissionsForRole, kept here because the session
+// package is where callers historically found it. The table itself lives in
+// internal/auth: bearer authentication needs it too, and internal/auth cannot
+// import this package (it is the other way round).
+func PermissionsForRole(role store.TeamRole) []string { return auth.PermissionsForRole(role) }
 
 // VerifyCSRF checks the double-submit token on a state-changing request.
 //

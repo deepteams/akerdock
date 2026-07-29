@@ -226,6 +226,15 @@ A token created by a member scoped to `project=billing` reaches billing and retu
 elsewhere, and it narrows on its own the day the creator's assignment narrows, because the
 creator's permissions are re-evaluated on every request rather than frozen at creation.
 
+This had been specified since rbac-matrix §4.2 and was **never built**: a token carried its
+own scopes and nothing else, so it outlived the authority that produced it — and would have
+been the side door out of every boundary this ADR draws (mint a token, get the whole team
+back). It is implemented here (`Middleware.boundToCreator`). Two consequences worth stating:
+a creator who leaves the team empties their tokens rather than leaving them running, and a
+token with **no creator on record** — minted before the column existed, or by the bootstrap —
+keeps its own permissions, because there is no authority to intersect with and breaking those
+instances would punish them for our history. The access view marks those rows.
+
 ### 8. Assigning is an admin act
 
 - Creating, changing or deleting an assignment requires **`members:manage`**, which is

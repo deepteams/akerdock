@@ -3582,7 +3582,7 @@ export interface paths {
         };
         /**
          * Who can reach this application
-         * @description The access review of ADR-046 §9: every subject holding platform permissions on this resource, with **the scope that granted them** — a name alone is not actionable, "member on project:billing" is. Computed on demand from the same resolution that authorizes a request, never from a stored copy: a denormalized access table drifts from the rules it claims to summarize, and a stale review asserts a safety nobody checked.
+         * @description Every subject holding platform permissions on this resource, with the role that grants them — a name alone is not actionable, "Bob, member" is. Computed on demand from the same resolution that authorizes a request, never from a stored copy: a denormalized access table drifts from the rules it claims to summarize, and a stale review asserts a safety nobody checked.
          *
          *     Human rows need `members:read`; **API token rows additionally need `tokens:read`** and are omitted otherwise — a token's owner and expiry is administrative information. The instance root is listed apart, since omitting it would make the view lie by the account that matters most in an audit.
          *
@@ -3609,7 +3609,7 @@ export interface paths {
         };
         /**
          * Who can reach this database
-         * @description Access review of the database (ADR-046 §9). Same rules as `getApplicationAccess`, including that it says nothing about who knows the database's own credentials — the tunnel carries the path, not the secret.
+         * @description Access review of the database. Same rules as `getApplicationAccess`, including that it says nothing about who knows the database's own credentials — the tunnel carries the path, not the secret.
          */
         get: operations["getDatabaseAccess"];
         put?: never;
@@ -3632,7 +3632,7 @@ export interface paths {
         };
         /**
          * Who can reach this compose stack
-         * @description Access review of the service (ADR-046 §9).
+         * @description Access review of the compose stack.
          */
         get: operations["getServiceAccess"];
         put?: never;
@@ -3655,7 +3655,7 @@ export interface paths {
         };
         /**
          * Who can reach this project
-         * @description Access review at the project level (ADR-046 §9) — the scope at which partitioning is decided, and therefore the screen an admin reviews.
+         * @description Access review at the project level — every member of the team reaches it, and this is the screen that says so plainly.
          */
         get: operations["getProjectAccess"];
         put?: never;
@@ -3680,7 +3680,7 @@ export interface paths {
         };
         /**
          * Who can reach this environment
-         * @description Access review at the environment level (ADR-046 §9) — "who can deploy to production" asked directly.
+         * @description Access review at the environment level — "who can deploy to production" asked directly.
          */
         get: operations["getEnvironmentAccess"];
         put?: never;
@@ -3705,68 +3705,12 @@ export interface paths {
         };
         /**
          * What this member reaches
-         * @description The mirror of the per-resource view (ADR-046 §9): the scopes this member holds and what each one covers. This is the offboarding screen — "what does Alice reach" is the question asked the day Alice leaves, and answering it by opening resources one by one is how something gets missed.
+         * @description The mirror of the per-resource view: what this member reaches, and through which role. This is the offboarding screen — "what does Alice reach" is the question asked the day Alice leaves, and answering it by opening resources one by one is how something gets missed.
          */
         get: operations["getMemberAccess"];
         put?: never;
         post?: never;
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/teams/{team_uuid}/role-assignments": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description UUID of the team. */
-                team_uuid: components["parameters"]["TeamUuid"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List the team's scoped role assignments
-         * @description The exceptions to members' base roles (ADR-046 §1): a role held on one project or one environment. An empty list is the normal state of a team that never partitioned anything, and scoping stays inert until the first row exists.
-         */
-        get: operations["listRoleAssignments"];
-        put?: never;
-        /**
-         * Assign a role on a project or an environment
-         * @description Grants a member a role on one scope. **The narrowest scope wins and it REPLACES the broader one** (ADR-046 §3): assigning `reviewer` on a project to somebody who is `member` on the team REMOVES their ability to deploy there. That is what makes "everything except production" expressible, and it is why the response states the effective result rather than leaving the semantics to be discovered.
-         *
-         *     Team-only permissions (team/member/role/token administration, infrastructure, `audit:read`, `secrets:reveal`, `terminal:root`) are **never conferred by a scoped assignment**: assigning a role that contains them is not an error, they are simply not granted, and `not_conferred` says which.
-         *
-         *     Anti-elevation: an assigner may not grant a role whose permissions exceed their own at the target scope.
-         */
-        post: operations["createRoleAssignment"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/teams/{team_uuid}/role-assignments/{assignment_uuid}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description UUID of the team. */
-                team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID of the role assignment. */
-                assignment_uuid: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Remove a scoped role assignment
-         * @description The member falls back to their base role on that scope. If their base role is `none`, removing their last assignment leaves them reaching nothing — which is a legitimate state, not an error.
-         */
-        delete: operations["deleteRoleAssignment"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3990,10 +3934,10 @@ export interface components {
             email: string;
             name?: string | null;
             /**
-             * @description Role in the team (ADR-038, §10.1): `admin` (full control of the team, ex-`owner` merged), `member` (manages resources), `reviewer` (only sees PR previews), `none` (nothing team-wide — the base role of somebody who only holds scoped assignments, ADR-046 §2), or `custom` (composed role, see `custom_role_uuid`).
+             * @description Role in the team (ADR-038, §10.1): `admin` (full control of the team, ex-`owner` merged), `member` (manages resources), `reviewer` (only sees PR previews), or `custom` (composed role, see `custom_role_uuid`).
              * @enum {string}
              */
-            role: "admin" | "member" | "reviewer" | "none" | "custom";
+            role: "admin" | "member" | "reviewer" | "custom";
             /** @description UUID of the custom role when `role` is `custom`, otherwise absent. */
             custom_role_uuid?: string | null;
             /** @description Name of the custom role when `role` is `custom`, otherwise absent. */
@@ -4118,11 +4062,8 @@ export interface components {
         };
         /** @description Changes a member's role (ADR-038). Either a system role (`role`), or a custom role (`role: custom` + `custom_role_uuid`). */
         MemberRoleUpdate: {
-            /**
-             * @description `none` grants nothing team-wide: it is how a member is restricted TO their scoped assignments (ADR-046 §2). Without it an assignment is only ever an exception on top of a role that still reaches everything, and nothing is partitioned.
-             * @enum {string}
-             */
-            role: "admin" | "member" | "reviewer" | "none" | "custom";
+            /** @enum {string} */
+            role: "admin" | "member" | "reviewer" | "custom";
             /** @description Required (and only read) when `role` is `custom`. */
             custom_role_uuid?: string | null;
         };
@@ -4292,36 +4233,7 @@ export interface components {
              */
             authorized_until?: string;
         };
-        /** @description A role held on one project or one environment — an exception to the member's team-wide base role (ADR-046 §1). */
-        RoleAssignment: {
-            uuid: string;
-            user_uuid: string;
-            user_email: string;
-            /** @description System role name, or the custom role's name. */
-            role: string;
-            custom_role_uuid?: string;
-            /** @description `project:<uuid>` or `project:<uuid>/environment:<uuid>` (ADR-046 §10). */
-            scope: string;
-            /** @description Human name of the project or environment. */
-            scope_label?: string;
-            /** @description Permissions of the role that a scoped assignment cannot grant (team-only, rbac-matrix §3.3). Reported so an admin does not believe they delegated something they did not. */
-            not_conferred?: string[];
-            /** Format: date-time */
-            created_at?: string;
-        };
-        /** @description Exactly one role source (`role` or `custom_role_uuid`) and exactly one scope (`project_uuid` or `environment_uuid`). The team scope is the member's base role, changed through the member endpoint, never here. */
-        RoleAssignmentCreate: {
-            user_uuid: string;
-            /**
-             * @description System role to grant at this scope. `none` is accepted and means "explicitly nothing here" — the way to carve a hole in a broader assignment.
-             * @enum {string}
-             */
-            role?: "admin" | "member" | "reviewer" | "none";
-            custom_role_uuid?: string;
-            project_uuid?: string;
-            environment_uuid?: string;
-        };
-        /** @description One subject's access to a resource, with the reason it has it. Computed, never stored (ADR-046 §9). */
+        /** @description One subject's access to a resource, with the reason it has it. Computed, never stored. */
         AccessEntry: {
             /** @description `user`, `token` or `instance_root`. Left as a plain string on purpose: a generated enum constant collides across the contract and renames unrelated ones, and this field is a display facet, never a branch in the authorization path. */
             subject_kind: string;
@@ -4331,14 +4243,14 @@ export interface components {
             subject_name: string;
             /** @description The role this access comes from — a system role, a custom role's name, or the token's coarse scopes. */
             role: string;
-            /** @description Canonical scope that granted it: `team`, `project:<uuid>` or `project:<uuid>/environment:<uuid>` (ADR-046 §10). Everything reads `team` until scoped assignments exist. */
+            /** @description How far the access reaches. Always `team`: a role is held over a whole team (ADR-047), and `instance` for the instance root. */
             scope: string;
             /**
              * @description One of `view`, `deploy`, `manage`, `delete`, `secrets`, `terminal`.
              *     What the subject can actually do here, summarized for review. The granular permissions remain the unit of evaluation; this is the reading an operator can act on.
              */
             capabilities: string[];
-            /** @description Creator of the token — a token's reach is its creator's, so this is the person to talk to (ADR-046 §7). */
+            /** @description Creator of the token — a token's reach is its creator's, so this is the person to talk to (rbac-matrix §4.2). */
             token_creator_email?: string;
             /** Format: date-time */
             token_expires_at?: string;
@@ -4348,15 +4260,15 @@ export interface components {
              */
             last_used_at?: string;
         };
-        /** @description One scope a member holds, and what it covers (ADR-046 §9). */
+        /** @description What a member reaches, and through which role. */
         MemberAccessEntry: {
-            /** @description `team`, `project:<uuid>` or `project:<uuid>/environment:<uuid>`. */
+            /** @description Always `team`: a role is held over a whole team. */
             scope: string;
             /** @description Human name of the scope — the project or environment name, or "team". */
             scope_label?: string;
             role: string;
             capabilities: string[];
-            /** @description How many deployable resources the scope covers, so "member on billing" carries its weight when read. */
+            /** @description How many deployable resources this reaches, so a role carries its weight when read. */
             resource_count?: number;
         };
         /** @description A tunnel session as an operator sees it — who opened it, onto what, from where, and until when. Deliberately NOT the mint response: no token is readable back, so this schema carries none. */
@@ -13860,92 +13772,6 @@ export interface operations {
                         data: components["schemas"]["MemberAccessEntry"][];
                     };
                 };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    listRoleAssignments: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description UUID of the team. */
-                team_uuid: components["parameters"]["TeamUuid"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The team's assignments. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["RoleAssignment"][];
-                    };
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    createRoleAssignment: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description UUID of the team. */
-                team_uuid: components["parameters"]["TeamUuid"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RoleAssignmentCreate"];
-            };
-        };
-        responses: {
-            /** @description Assignment created. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RoleAssignment"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-        };
-    };
-    deleteRoleAssignment: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description UUID of the team. */
-                team_uuid: components["parameters"]["TeamUuid"];
-                /** @description UUID of the role assignment. */
-                assignment_uuid: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Assignment removed. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];

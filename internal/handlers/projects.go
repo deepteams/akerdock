@@ -39,10 +39,7 @@ func (a *API) resolveProject(w http.ResponseWriter, r *http.Request, id *auth.Id
 	var u pgtype.UUID
 	if err := u.Scan(projectUUID); err == nil {
 		project, err := a.Store.GetProjectByUUID(r.Context(), store.GetProjectByUUIDParams{Uuid: u, TeamID: id.TeamID})
-		// Scoped enforcement (ADR-046 §6): a project the caller holds no scope
-		// over does not exist as far as they are concerned.
-		if err == nil && (id == nil || !id.Scoped() ||
-			id.CanOnScope(auth.Scope{ProjectID: &project.ID}, id.Required)) {
+		if err == nil {
 			return project, true
 		}
 	}
@@ -71,18 +68,6 @@ func (a *API) ListProjects(w http.ResponseWriter, r *http.Request, params api.Li
 		a.internalError(w, r, "list projects", err)
 		return
 	}
-	// A project the caller holds no scope over is not listed (ADR-046 §5) —
-	// the same rule the resolver applies, so the list and the detail can never
-	// disagree about what exists.
-	if id.Scoped() {
-		kept := make([]store.Project, 0, len(rows))
-		for _, project := range rows {
-			if id.CanOnScope(auth.Scope{ProjectID: &project.ID}, id.Required) {
-				kept = append(kept, project)
-			}
-		}
-		rows = kept
-	}
 	rows, cursor := nextCursor(rows, limit, func(p store.Project) int64 { return p.ID })
 
 	data := make([]api.Project, 0, len(rows))
@@ -98,11 +83,7 @@ func (a *API) ListProjects(w http.ResponseWriter, r *http.Request, params api.Li
 // CreateProject implements POST /projects (permission: write): creates the
 // project plus its default production environment in one transaction (§2).
 func (a *API) CreateProject(w http.ResponseWriter, r *http.Request, params api.CreateProjectParams) {
-	// projects:create, not projects:manage: creation has no parent scope to be
-	// evaluated against, so it is team-only by construction (ADR-046 §4). A
-	// project lead scoped to their own project can rename it and cannot mint
-	// new ones.
-	id, ok := a.require(w, r, auth.PermProjectsCreate)
+	id, ok := a.require(w, r, auth.PermProjectsManage)
 	if !ok {
 		return
 	}

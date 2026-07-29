@@ -10,14 +10,11 @@ import type { components } from '../../api/schema';
 type Team = components['schemas']['Team'];
 type TeamMember = components['schemas']['TeamMember'];
 type MemberAccessEntry = components['schemas']['MemberAccessEntry'];
-type RoleAssignment = components['schemas']['RoleAssignment'];
-type Project = components['schemas']['Project'];
-type Environment = components['schemas']['Environment'];
 type Invitation = components['schemas']['Invitation'];
 type CustomRole = components['schemas']['CustomRole'];
 type PermissionEntry = components['schemas']['PermissionCatalogEntry'];
 
-type TeamTab = 'members' | 'roles' | 'scopes' | 'pending' | 'canceled';
+type TeamTab = 'members' | 'roles' | 'pending' | 'canceled';
 
 /** A group of permissions sharing a domain (the part before the colon), for the
  * custom-role composer. */
@@ -92,19 +89,6 @@ interface PermissionGroup {
             Roles
             @if (customRoles().length > 0) {
               <span class="akd-tab__count">{{ customRoles().length }}</span>
-            }
-          </button>
-          <button
-            type="button"
-            class="akd-tab"
-            role="tab"
-            [class.akd-tab--active]="tab() === 'scopes'"
-            [attr.aria-selected]="tab() === 'scopes'"
-            (click)="tab.set('scopes')"
-          >
-            Scoped access
-            @if (assignments().length > 0) {
-              <span class="akd-tab__count">{{ assignments().length }}</span>
             }
           </button>
           <button
@@ -200,9 +184,8 @@ interface PermissionGroup {
                             @if (access().length === 0) {
                               <span class="akd-muted">Loading…</span>
                             } @else {
-                              <!-- One row per scope this member holds. Today there is one
-                                   (the team); scoped assignments add rows rather than
-                                   changing the screen (ADR-046 §9). -->
+                              <!-- What this member reaches, and through which role. One
+                                   row: the team is the scope of a role (ADR-047). -->
                               @for (scope of access(); track scope.scope) {
                                 <div class="access-scope">
                                   <span class="akd-badge akd-badge--mono">{{ scope.scope }}</span>
@@ -312,79 +295,6 @@ interface PermissionGroup {
                               </div>
                             }
                           </div>
-                        </td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              }
-            </akd-card>
-          }
-
-          @case ('scopes') {
-            <akd-card [padded]="false">
-              <div class="card-head">
-                <span>Scoped access</span>
-                <button
-                  class="akd-btn akd-btn--primary akd-btn--sm"
-                  type="button"
-                  (click)="openAssignment()"
-                >
-                  <akd-icon name="plus" [size]="14" />
-                  Assign a scope
-                </button>
-              </div>
-              @if (assignments().length === 0) {
-                <p class="akd-muted pad">
-                  Nobody holds a scoped role yet, so every member's team role applies everywhere. A
-                  scoped assignment is an <em>exception</em> to that role on one project or
-                  environment — and the narrowest scope wins, so it can reduce what someone reaches
-                  there as easily as extend it. To restrict somebody <em>to</em> a project, set
-                  their team role to <code>none</code> and assign them the project.
-                </p>
-              } @else {
-                <table class="akd-table">
-                  <caption class="sr-only">
-                    Scoped role assignments
-                  </caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Member</th>
-                      <th scope="col">Role</th>
-                      <th scope="col">Scope</th>
-                      <th scope="col">Not conferred</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (assignment of assignments(); track assignment.uuid) {
-                      <tr>
-                        <td>{{ assignment.user_email }}</td>
-                        <td>
-                          <span class="akd-badge akd-badge--mono">{{ assignment.role }}</span>
-                        </td>
-                        <td>
-                          <strong>{{ assignment.scope_label ?? assignment.scope }}</strong>
-                          <span class="sub-mono">{{ assignment.scope }}</span>
-                        </td>
-                        <td class="akd-muted sub-mono">
-                          <!-- What a scoped assignment cannot grant, stated so an admin
-                               does not believe they delegated more than they did. -->
-                          @if (assignment.not_conferred?.length) {
-                            {{ assignment.not_conferred!.length }} team-only permissions
-                          } @else {
-                            —
-                          }
-                        </td>
-                        <td class="right">
-                          <button
-                            class="akd-btn akd-btn--ghost akd-btn--sm"
-                            type="button"
-                            [disabled]="busy()"
-                            (click)="removeAssignment(assignment)"
-                          >
-                            Remove
-                          </button>
                         </td>
                       </tr>
                     }
@@ -619,7 +529,6 @@ interface PermissionGroup {
                 <option value="admin">admin</option>
                 <option value="member">member</option>
                 <option value="reviewer">reviewer</option>
-                <option value="none">none — only their scoped assignments</option>
                 @for (role of customRoles(); track role.uuid) {
                   <option [value]="'custom:' + role.uuid">{{ role.name }} (custom)</option>
                 }
@@ -648,119 +557,6 @@ interface PermissionGroup {
             [disabled]="busy()"
           >
             {{ busy() ? 'Saving…' : 'Save' }}
-          </button>
-        </div>
-      </akd-modal>
-
-      <akd-modal
-        [open]="assignmentOpen()"
-        title="Assign a role on a scope"
-        (closed)="assignmentOpen.set(false)"
-      >
-        @if (error(); as message) {
-          <p class="akd-error" role="alert">{{ message }}</p>
-        }
-        <form id="assignment-form" class="modal-stack" (ngSubmit)="submitAssignment()">
-          <div class="akd-field">
-            <label class="akd-field__label" for="as-user">Member</label>
-            <div class="akd-select">
-              <select id="as-user" name="user" class="akd-input" [(ngModel)]="assignUser">
-                @for (member of members(); track member.user_uuid) {
-                  <option [value]="member.user_uuid">{{ member.email }}</option>
-                }
-              </select>
-            </div>
-          </div>
-          <div class="akd-field">
-            <label class="akd-field__label" for="as-project">Project</label>
-            <div class="akd-select">
-              <select
-                id="as-project"
-                name="project"
-                class="akd-input"
-                [ngModel]="assignProject"
-                (ngModelChange)="onAssignProjectChange($event)"
-                required
-              >
-                <option value="">Select a project…</option>
-                @for (project of projects(); track project.uuid) {
-                  <option [value]="project.uuid">{{ project.name }}</option>
-                }
-              </select>
-            </div>
-          </div>
-          @if (assignProject) {
-            <div class="akd-field">
-              <label class="akd-field__label" for="as-env">Environment (optional)</label>
-              <div class="akd-select">
-                <select id="as-env" name="env" class="akd-input" [(ngModel)]="assignEnvironment">
-                  <option value="">The whole project</option>
-                  @for (environment of environments(); track environment.uuid) {
-                    <option [value]="environment.uuid">{{ environment.name }}</option>
-                  }
-                </select>
-              </div>
-              <span class="akd-field__hint"> Narrower than the project, and it wins over it. </span>
-            </div>
-          }
-          <div class="akd-field">
-            <label class="akd-field__label" for="as-role">Role at this scope</label>
-            <div class="akd-select">
-              <select id="as-role" name="role" class="akd-input" [(ngModel)]="assignRole">
-                <option value="admin">admin</option>
-                <option value="member">member</option>
-                <option value="reviewer">reviewer</option>
-                <option value="none">none — explicitly nothing here</option>
-                @if (customRoles().length > 0) {
-                  <option value="custom">a custom role…</option>
-                }
-              </select>
-            </div>
-          </div>
-          @if (assignRole === 'custom') {
-            <div class="akd-field">
-              <label class="akd-field__label" for="as-custom">Custom role</label>
-              <div class="akd-select">
-                <select
-                  id="as-custom"
-                  name="custom"
-                  class="akd-input"
-                  [(ngModel)]="assignCustomRole"
-                >
-                  <option value="">Select a role…</option>
-                  @for (role of customRoles(); track role.uuid) {
-                    <option [value]="role.uuid">{{ role.name }}</option>
-                  }
-                </select>
-              </div>
-            </div>
-          }
-          @if (assignmentEffect(); as effect) {
-            <!-- The semantics stated before the click: a narrower scope REPLACES
-                 the broader role, so this can take rights away. -->
-            <p class="akd-muted effect">{{ effect }}</p>
-          }
-          <p class="akd-muted sm">
-            Team administration, infrastructure, the audit trail and secret revelation are never
-            granted by a scoped assignment, whatever the role says.
-          </p>
-        </form>
-        <div modal-footer>
-          <button
-            class="akd-btn akd-btn--ghost"
-            type="button"
-            (click)="assignmentOpen.set(false)"
-            [disabled]="busy()"
-          >
-            Cancel
-          </button>
-          <button
-            class="akd-btn akd-btn--primary"
-            type="submit"
-            form="assignment-form"
-            [disabled]="busy() || !assignUser || !assignProject"
-          >
-            Assign
           </button>
         </div>
       </akd-modal>
@@ -1071,16 +867,6 @@ export class TeamComponent {
   protected readonly accessFor = signal<string | null>(null);
   protected readonly access = signal<MemberAccessEntry[]>([]);
 
-  // --- scoped assignments (ADR-046) --------------------------------------------
-  protected readonly assignments = signal<RoleAssignment[]>([]);
-  protected readonly projects = signal<Project[]>([]);
-  protected readonly environments = signal<Environment[]>([]);
-  protected readonly assignmentOpen = signal(false);
-  protected assignUser = '';
-  protected assignRole = 'member';
-  protected assignCustomRole = '';
-  protected assignProject = '';
-  protected assignEnvironment = '';
   protected readonly invitations = signal<Invitation[]>([]);
   protected readonly loading = signal(true);
   protected readonly busy = signal(false);
@@ -1238,9 +1024,6 @@ export class TeamComponent {
       this.invitations.set(invitations.data);
       this.customRoles.set(roles.data);
       this.permissions.set(permissions.data);
-      // Scoped assignments (ADR-046): almost always empty, and the tab says so
-      // rather than pretending the team is partitioned.
-      void this.loadAssignments();
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -1328,107 +1111,6 @@ export class TeamComponent {
       await this.api.client().updateTeamMember(this.teamUuid, member.user_uuid, body);
       this.memberRoleOpen.set(false);
       await this.load(this.teamUuid);
-    } catch (err) {
-      this.error.set(ApiService.describe(err));
-    } finally {
-      this.busy.set(false);
-    }
-  }
-
-  // --- scoped assignments (ADR-046 §1) ------------------------------------------
-
-  /** Loads the team's assignments and what a new one can target. */
-  protected async loadAssignments(): Promise<void> {
-    const teamUuid = this.api.currentUser()?.teamUuid ?? '';
-    try {
-      const [rows, projects] = await Promise.all([
-        this.api.client().listRoleAssignments(teamUuid),
-        this.api.client().listProjects({ limit: 100 }),
-      ]);
-      this.assignments.set(rows.data);
-      this.projects.set(projects.data);
-    } catch (err) {
-      this.error.set(ApiService.describe(err));
-    }
-  }
-
-  protected openAssignment(): void {
-    this.error.set(null);
-    this.assignUser = this.members()[0]?.user_uuid ?? '';
-    this.assignRole = 'member';
-    this.assignCustomRole = '';
-    this.assignProject = '';
-    this.assignEnvironment = '';
-    this.environments.set([]);
-    this.assignmentOpen.set(true);
-  }
-
-  protected async onAssignProjectChange(uuid: string): Promise<void> {
-    this.assignProject = uuid;
-    this.assignEnvironment = '';
-    this.environments.set([]);
-    if (!uuid) return;
-    try {
-      const page = await this.api.client().listEnvironments(uuid, { limit: 100 });
-      this.environments.set(page.data);
-    } catch (err) {
-      this.error.set(ApiService.describe(err));
-    }
-  }
-
-  /**
-   * What this assignment will actually do, shown before it is submitted: the
-   * narrowest scope REPLACES the broader one, so an assignment can reduce what
-   * somebody reaches. An admin who is not told that reads it as a promotion.
-   */
-  protected assignmentEffect(): string {
-    const member = this.members().find((m) => m.user_uuid === this.assignUser);
-    if (!member || !this.assignProject) return '';
-    const scope =
-      this.environments().find((e) => e.uuid === this.assignEnvironment)?.name ??
-      this.projects().find((p) => p.uuid === this.assignProject)?.name ??
-      'this scope';
-    const baseRole = member.role === 'custom' ? member.custom_role_name : member.role;
-    const target = this.assignRole === 'custom' ? 'a custom role' : this.assignRole;
-    return `On ${scope}, ${member.email} will hold ${target} instead of ${baseRole}.`;
-  }
-
-  protected async submitAssignment(): Promise<void> {
-    if (!this.assignUser || !this.assignProject) return;
-    this.busy.set(true);
-    this.error.set(null);
-    try {
-      await this.api.client().createRoleAssignment(this.api.currentUser()?.teamUuid ?? '', {
-        user_uuid: this.assignUser,
-        role: this.assignRole === 'custom' ? undefined : (this.assignRole as 'admin'),
-        custom_role_uuid: this.assignRole === 'custom' ? this.assignCustomRole : undefined,
-        project_uuid: this.assignProject,
-        environment_uuid: this.assignEnvironment || undefined,
-      });
-      this.assignmentOpen.set(false);
-      await this.loadAssignments();
-    } catch (err) {
-      this.error.set(ApiService.describe(err));
-    } finally {
-      this.busy.set(false);
-    }
-  }
-
-  protected async removeAssignment(assignment: RoleAssignment): Promise<void> {
-    if (
-      !confirm(
-        `Remove ${assignment.user_email}'s ${assignment.role} on ${assignment.scope_label ?? assignment.scope}?`,
-      )
-    ) {
-      return;
-    }
-    this.busy.set(true);
-    this.error.set(null);
-    try {
-      await this.api
-        .client()
-        .deleteRoleAssignment(this.api.currentUser()?.teamUuid ?? '', assignment.uuid);
-      await this.loadAssignments();
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
