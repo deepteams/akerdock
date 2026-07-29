@@ -62,7 +62,7 @@ token's**, not a per-command choice — see the note under the global flags.
 | `akerdock logout [--context NAME] [--revoke]` | Clears the local credential; `--revoke` also deletes the token server-side (needs a resolvable team — see below). |
 | `akerdock context list \| current \| use NAME \| remove NAME` | Multi-instances. |
 | `akerdock ls [apps\|databases\|services\|servers]` | Listing; default: applications + databases + services. `previews` is **not** a transversal listing in v1 (previews are read per application). |
-| `akerdock logs [REF] [--component C] [-n LINES] [-f] [--deployment [UUID]]` | Container logs (snapshot or `-f` streaming) or logs of a deployment. `REF` is optional when `.akerdock` names a default application. |
+| `akerdock logs [REF] [--component C] [-n LINES] [-f] [--deployment [UUID]] [--pr N]` | Container logs (snapshot or `-f` streaming) or logs of a deployment. `REF` is optional when `.akerdock` names a default application. `--pr N` reads the preview instance of PR N instead of production — its containers with `-f`, its latest build with `--deployment`. |
 | `akerdock shell [REF] [--component C]` | Interactive shell in the container (§6). `REF` optional, as for `logs`. |
 | `akerdock port-forward [REF] [[LOCAL:]REMOTE] [--component C] [--pr N]` | TCP tunnel (§7); `--pr N` targets the preview instance of PR N instead of production. `REF` may be omitted when `.akerdock` names a default application; the remote port is omitted for an `endpoint/…`, which froze its own host and port at declaration (§7.1). |
 | `akerdock db REF [--component C] [--pr N]` | Convenience: opens a forward and launches the local client of the detected engine (§8); accepts a standalone database (`db/…`) or a **database service of a compose stack** (`app/… -c C`), with `--pr N` targeting the preview. |
@@ -71,6 +71,12 @@ token's**, not a per-command choice — see the note under the global flags.
 **Global (persistent) flags.** `--context NAME`, `--team`, `--project`, `--application`,
 `--environment`, `-o table|json` (`json` = raw API objects, for scripting), `--quiet`.
 `NO_COLOR` honored. **Exit codes**: `0` success, `1` error, `2` usage.
+
+> **`logs --pr N -f` polls, it does not stream.** The API exposes a live stream for an
+> application's containers (`/logs/stream`) but only a snapshot for a preview's
+> (`docker logs --tail`, read on demand). With `--pr`, the CLI therefore repolls every
+> 3 s and prints only the lines the previous window did not already end with. A line may
+> be reprinted when the window jumps by more than one page; none is dropped.
 
 > **`--team` does not switch teams.** An API token is bound to one team at creation
 > (rbac-matrix §4.1), so every command acts in the token's team whatever this flag
@@ -224,6 +230,7 @@ Shell keystrokes and tunnel bytes are **never** logged (§24.4).
 In accordance with the test pyramid (ADR-026/028, test plan §2): deterministic logic
 is proven with **unit/module tests** — `REF` parsing, context resolution, login state
 machine (start/poll/approve/exchange, PKCE verification), tunnel multiplexing
-(`open`/`eof`/`close` framing, stream cap, buffer). End-to-end shell and port-forward
+(`open`/`eof`/`close` framing, stream cap, buffer), overlap detection between two
+preview log snapshots (`logs --pr -f`). End-to-end shell and port-forward
 are validated **manually** on an ad-hoc basis; the single E2E product journey
 (Docker-in-Docker) is **not** extended for the CLI (ADR-028).
