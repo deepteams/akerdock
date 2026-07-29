@@ -47,10 +47,12 @@ services:
       # recorded everywhere — audit trail, auth rate limiter, a token's CIDR
       # allowlist — is the proxy's, not the client's. `gateway` resolves that
       # address at each start, because it does not exist yet at install time
-      # and moves with a custom subnet. Override it in .env for a proxy that is
-      # not the instance's own; the BINARY still defaults to trusting nothing,
-      # since a process exposed directly must not believe a forwarded header.
-      AKERDOCK_TRUSTED_PROXIES: ${AKERDOCK_TRUSTED_PROXIES:-gateway}
+      # and moves with a custom subnet. Set the variable in .env for a proxy
+      # that is not the instance's own, or to the empty string to trust nobody
+      # (hence `-` and not `:-`: an explicitly empty value must survive). The
+      # BINARY still defaults to trusting nothing — a process exposed directly
+      # must never believe a forwarded header.
+      AKERDOCK_TRUSTED_PROXIES: ${AKERDOCK_TRUSTED_PROXIES-gateway}
     volumes:
       - ./keys/master.key:/run/secrets/master.key:ro
       - akerdock_data:/var/lib/akerdock
