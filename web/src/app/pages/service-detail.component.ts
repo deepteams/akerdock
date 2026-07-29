@@ -14,7 +14,6 @@ import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import { ApiService } from '../core/api.service';
 import { ApiError } from '../../api/client';
-import { AccessTabComponent, type AccessFetch } from './access/access-tab.component';
 import type { components } from '../../api/schema';
 
 type Service = components['schemas']['Service'];
@@ -28,14 +27,7 @@ type Deployment = components['schemas']['Deployment'];
 @Component({
   selector: 'app-service-detail',
   standalone: true,
-  imports: [
-    FormsModule,
-    RouterLink,
-    CardComponent,
-    IconComponent,
-    StatusBadgeComponent,
-    AccessTabComponent,
-  ],
+  imports: [FormsModule, RouterLink, CardComponent, IconComponent, StatusBadgeComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
@@ -189,8 +181,6 @@ type Deployment = components['schemas']['Deployment'];
             }
           </akd-card>
 
-          <akd-access-tab [fetch]="fetchAccess" />
-
           <div class="akd-card danger">
             <div class="akd-card__header">
               <h2 class="akd-card__title">Danger</h2>
@@ -299,10 +289,6 @@ type Deployment = components['schemas']['Deployment'];
 })
 export class ServiceDetailComponent {
   readonly uuid = input.required<string>();
-
-  /** Who can reach this compose stack (ADR-046 §9). */
-  protected readonly fetchAccess: AccessFetch = () =>
-    this.api.client().getServiceAccess(this.uuid());
 
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);

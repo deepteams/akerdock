@@ -19,7 +19,6 @@ import { TerminalComponent } from '../../ui/terminal/terminal.component';
 import type { TerminalSessionInfo } from '../../ui/terminal/protocol';
 import { ApiService } from '../core/api.service';
 import { ApiError } from '../../api/client';
-import { AccessTabComponent, type AccessFetch } from './access/access-tab.component';
 import type { components } from '../../api/schema';
 
 type Database = components['schemas']['Database'];
@@ -39,7 +38,6 @@ type S3Storage = components['schemas']['S3Storage'];
     IconComponent,
     StatusBadgeComponent,
     TerminalComponent,
-    AccessTabComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -570,10 +568,6 @@ type S3Storage = components['schemas']['S3Storage'];
           />
         </section>
 
-        <section class="section">
-          <akd-access-tab [fetch]="fetchAccess" />
-        </section>
-
         <section class="akd-card section danger-zone">
           <header class="akd-bar danger-zone__bar">
             <h2>Delete this database</h2>
@@ -693,10 +687,6 @@ type S3Storage = components['schemas']['S3Storage'];
 export class DatabaseDetailComponent {
   /** Bound from the route (`databases/:uuid`) by withComponentInputBinding. */
   readonly uuid = input.required<string>();
-
-  /** Who can reach this database (ADR-046 §9). */
-  protected readonly fetchAccess: AccessFetch = () =>
-    this.api.client().getDatabaseAccess(this.uuid());
 
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);

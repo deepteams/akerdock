@@ -49,24 +49,26 @@ team, one role per API token, evaluated with `require(permission)` and nothing e
 4. **Invitations and SCIM go back to provisioning `member`.** The `none` default was there
    so an arrival held nothing until assigned; without assignments it would mean an arrival
    holds nothing at all, forever, which is not a default, it is a bug.
-5. **What ADR-046 built that is NOT scoping stays**, because it stands on its own:
-   - **The access view** (`/access` on applications, databases, services, projects,
-     environments, and per member). It answers "who can reach this" and "what does this
-     person reach" — the questions that motivated the work in the first place. It gets
-     *simpler* without scopes, not harder: every row reads `team`, which is the truth.
-   - **A token capped by its creator** (`Middleware.boundToCreator`). rbac-matrix §4.2 has
-     specified this from the start and it was never built: a token carried its own
-     permissions and outlived the authority that produced it — a demoted, scoped-down or
-     departed creator kept handing out everything the token was minted with. That is a real
-     hole, it has nothing to do with per-project scoping, and it stays closed.
+5. **The access view goes too.** It was built to answer "who can reach this resource"; with
+   one role per member per team, the answer on an application, a database, a project and an
+   environment is the same list every time — the team's members and their roles, which is
+   what **Team → Members** already shows. Five screens repeating one table is not a review,
+   it is duplication that has to be kept in step. The question it existed for is answered by
+   the members list; if a richer review comes back, it comes back as *one* screen.
+6. **A token capped by its creator stays** (`Middleware.boundToCreator`). rbac-matrix §4.2
+   has specified it from the start and it was never built: a token carried its own
+   permissions and outlived the authority that produced it — a demoted or departed creator
+   kept handing out everything the token was minted with. That is a real hole, it has
+   nothing to do with per-project scoping, and it stays closed. It is the one thing this
+   whole episode leaves behind.
 
 ## Consequences
 
 - **Positive**: authorization is one question again — does this identity hold this
   permission — and the whole model fits in the RBAC matrix's §2 table; no filter to remember
   in the next list endpoint; no second evaluation per read; `Identity` is an answer again.
-  The product loses a feature it could not explain and keeps the two things that came out of
-  the same work and *are* explainable.
+  The product loses a feature it could not explain, and keeps the one thing from that work
+  that stands on its own: a token that cannot outlive its creator's authority.
 - **Negative**: "deploy to staging but not production" and "restrict Alice to billing" are
   **not expressible**, and the answer to both is "use a separate team" — which duplicates
   servers, keys, sources and registries, and gives no cross-perimeter view. Teams that
@@ -99,6 +101,5 @@ team, one role per API token, evaluated with `require(permission)` and nothing e
 The suite that proved the scoped behavior is deleted with it. What must be checked is that
 **removal changed nothing else**: the existing authorization tests pass unchanged (they do —
 they were written against the un-scoped model and never adapted), a member reaches every
-project of their team, `require` is the only gate, and the two survivors keep their own
-tests — the access view's agreement with the resolution, and a token narrowing with its
-creator (demoted, departed, and the no-creator-recorded case).
+project of their team, and `require` is the only gate. The survivor keeps its own tests: a
+token narrowing with its creator — demoted, departed, and the no-creator-recorded case.

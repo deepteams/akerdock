@@ -16,7 +16,6 @@ import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
-import { AccessTabComponent, type AccessFetch } from './access/access-tab.component';
 import type { components } from '../../api/schema';
 
 type Project = components['schemas']['Project'];
@@ -59,7 +58,6 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
     EmptyStateComponent,
     IconComponent,
     StatusBadgeComponent,
-    AccessTabComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -147,16 +145,6 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
         >
           Config
         </button>
-        <button
-          type="button"
-          class="akd-tab"
-          role="tab"
-          [class.akd-tab--active]="active() === 'access'"
-          [attr.aria-selected]="active() === 'access'"
-          (click)="active.set('access')"
-        >
-          Access
-        </button>
       </nav>
 
       @if (error(); as message) {
@@ -217,8 +205,6 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
             </table>
           }
         </akd-card>
-      } @else if (active() === 'access') {
-        <akd-access-tab [fetch]="fetchAccess" />
       } @else if (active() === 'variables') {
         <akd-card title="Environment variables" [padded]="false">
           <table class="akd-table">
@@ -522,11 +508,7 @@ export class EnvironmentDetailComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly menu = signal(false);
 
-  protected readonly active = signal<'resources' | 'variables' | 'config' | 'access'>('resources');
-
-  /** Who can reach this environment (ADR-046 §9) — "who can deploy to production". */
-  protected readonly fetchAccess: AccessFetch = () =>
-    this.api.client().getEnvironmentAccess(this.uuid(), this.envUuid());
+  protected readonly active = signal<'resources' | 'variables' | 'config'>('resources');
   protected readonly variables = signal<SharedVariable[]>([]);
   protected readonly busy = signal(false);
   protected varKey = '';

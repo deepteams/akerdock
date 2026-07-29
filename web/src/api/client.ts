@@ -1719,56 +1719,6 @@ export class AkerDockClient {
     return this.request<void>('DELETE', `/external-endpoint-grants/${uuid}`);
   }
 
-  // --- access review (ADR-047) -------------------------------------------------------------
-
-  /**
-   * Who holds platform permissions on a resource, with the scope that granted
-   * them. Computed on demand — there is no stored copy to go stale.
-   *
-   * `tokens_included` is false when the caller lacks `tokens:read`: the view
-   * says when it is showing only half of the access rather than letting an
-   * incomplete list read as complete.
-   */
-  getApplicationAccess(uuid: string) {
-    type Response =
-      paths['/applications/{application_uuid}/access']['get']['responses']['200']['content']['application/json'];
-    return this.request<Response>('GET', `/applications/${uuid}/access`);
-  }
-
-  getDatabaseAccess(uuid: string) {
-    type Response =
-      paths['/databases/{database_uuid}/access']['get']['responses']['200']['content']['application/json'];
-    return this.request<Response>('GET', `/databases/${uuid}/access`);
-  }
-
-  getServiceAccess(uuid: string) {
-    type Response =
-      paths['/services/{service_uuid}/access']['get']['responses']['200']['content']['application/json'];
-    return this.request<Response>('GET', `/services/${uuid}/access`);
-  }
-
-  getProjectAccess(uuid: string) {
-    type Response =
-      paths['/projects/{project_uuid}/access']['get']['responses']['200']['content']['application/json'];
-    return this.request<Response>('GET', `/projects/${uuid}/access`);
-  }
-
-  getEnvironmentAccess(projectUuid: string, environmentUuid: string) {
-    type Response =
-      paths['/projects/{project_uuid}/environments/{environment_uuid}/access']['get']['responses']['200']['content']['application/json'];
-    return this.request<Response>(
-      'GET',
-      `/projects/${projectUuid}/environments/${environmentUuid}/access`,
-    );
-  }
-
-  /** What a member reaches — the offboarding question, asked once. */
-  getMemberAccess(teamUuid: string, userUuid: string) {
-    type Response =
-      paths['/teams/{team_uuid}/members/{user_uuid}/access']['get']['responses']['200']['content']['application/json'];
-    return this.request<Response>('GET', `/teams/${teamUuid}/members/${userUuid}/access`);
-  }
-
   /**
    * The tunnels open right now (ADR-032/ADR-045), every target kind. Defaults
    * to the live ones; `active: false` walks the history too.

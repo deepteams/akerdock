@@ -2212,35 +2212,6 @@ func (e ListTeamAuditParamsResult) Valid() bool {
 	}
 }
 
-// AccessEntry One subject's access to a resource, with the reason it has it. Computed, never stored.
-type AccessEntry struct {
-	// Capabilities One of `view`, `deploy`, `manage`, `delete`, `secrets`, `terminal`.
-	// What the subject can actually do here, summarized for review. The granular permissions remain the unit of evaluation; this is the reading an operator can act on.
-	Capabilities []string `json:"capabilities"`
-
-	// LastUsedAt Last use of the token, when known — an unused token is a candidate for revocation.
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-
-	// Role The role this access comes from — a system role, a custom role's name, or the token's coarse scopes.
-	Role string `json:"role"`
-
-	// Scope How far the access reaches. Always `team`: a role is held over a whole team (ADR-047), and `instance` for the instance root.
-	Scope string `json:"scope"`
-
-	// SubjectKind `user`, `token` or `instance_root`. Left as a plain string on purpose: a generated enum constant collides across the contract and renames unrelated ones, and this field is a display facet, never a branch in the authorization path.
-	SubjectKind string `json:"subject_kind"`
-
-	// SubjectName The member's email, or the token's name.
-	SubjectName string `json:"subject_name"`
-
-	// SubjectUuid User UUID, or token UUID for a `token` row.
-	SubjectUuid *string `json:"subject_uuid,omitempty"`
-
-	// TokenCreatorEmail Creator of the token — a token's reach is its creator's, so this is the person to talk to (rbac-matrix §4.2).
-	TokenCreatorEmail *string    `json:"token_creator_email,omitempty"`
-	TokenExpiresAt    *time.Time `json:"token_expires_at,omitempty"`
-}
-
 // AccessRequestRequired defines model for AccessRequestRequired.
 type AccessRequestRequired struct {
 	// Code Stable machine-readable error code. Notable values — bad_request, unauthorized, forbidden, not_found, already_exists, dependency_exists, operation_in_progress, invalid_state, version_conflict, idempotency_conflict, validation_failed, rate_limited, internal.
@@ -3954,21 +3925,6 @@ type LogLine struct {
 // LogLineChannel Origin of the line (`system` = deployment engine steps).
 type LogLineChannel string
 
-// MemberAccessEntry What a member reaches, and through which role.
-type MemberAccessEntry struct {
-	Capabilities []string `json:"capabilities"`
-
-	// ResourceCount How many deployable resources this reaches, so a role carries its weight when read.
-	ResourceCount *int   `json:"resource_count,omitempty"`
-	Role          string `json:"role"`
-
-	// Scope Always `team`: a role is held over a whole team.
-	Scope string `json:"scope"`
-
-	// ScopeLabel Human name of the scope — the project or environment name, or "team".
-	ScopeLabel *string `json:"scope_label,omitempty"`
-}
-
 // MemberRoleUpdate Changes a member's role (ADR-038). Either a system role (`role`), or a custom role (`role: custom` + `custom_role_uuid`).
 type MemberRoleUpdate struct {
 	// CustomRoleUuid Required (and only read) when `role` is `custom`.
@@ -5313,14 +5269,6 @@ type WebhookTag = string
 // WebhookUuid defines model for WebhookUuid.
 type WebhookUuid = string
 
-// AccessView defines model for AccessView.
-type AccessView struct {
-	Data []AccessEntry `json:"data"`
-
-	// TokensIncluded False when the caller lacks `tokens:read`: API tokens hold access too, so the view says when it is showing only half of it rather than letting an incomplete list read as complete.
-	TokensIncluded *bool `json:"tokens_included,omitempty"`
-}
-
 // BadRequest Single error schema of the API (§24.1). Never contains a secret or a stack trace.
 type BadRequest = Error
 
@@ -6613,9 +6561,6 @@ type ServerInterface interface {
 	// Update an application's configuration
 	// (PATCH /applications/{application_uuid})
 	UpdateApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params UpdateApplicationParams)
-	// Who can reach this application
-	// (GET /applications/{application_uuid}/access)
-	GetApplicationAccess(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
 	// Components of an application using the compose build pack
 	// (GET /applications/{application_uuid}/components)
 	ListApplicationComponents(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid)
@@ -6748,9 +6693,6 @@ type ServerInterface interface {
 	// Update a database
 	// (PATCH /databases/{database_uuid})
 	UpdateDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, params UpdateDatabaseParams)
-	// Who can reach this database
-	// (GET /databases/{database_uuid}/access)
-	GetDatabaseAccess(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid)
 	// List a database's backup plans
 	// (GET /databases/{database_uuid}/backups)
 	ListBackupPlans(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, params ListBackupPlansParams)
@@ -6949,9 +6891,6 @@ type ServerInterface interface {
 	// Update a project
 	// (PATCH /projects/{project_uuid})
 	UpdateProject(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid)
-	// Who can reach this project
-	// (GET /projects/{project_uuid}/access)
-	GetProjectAccess(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid)
 	// List a project's environments
 	// (GET /projects/{project_uuid}/environments)
 	ListEnvironments(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, params ListEnvironmentsParams)
@@ -6967,9 +6906,6 @@ type ServerInterface interface {
 	// Update an environment
 	// (PATCH /projects/{project_uuid}/environments/{environment_uuid})
 	UpdateEnvironment(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, environmentUuid EnvironmentUuid)
-	// Who can reach this environment
-	// (GET /projects/{project_uuid}/environments/{environment_uuid}/access)
-	GetEnvironmentAccess(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, environmentUuid EnvironmentUuid)
 	// List registry credentials
 	// (GET /registry-credentials)
 	ListRegistryCredentials(w http.ResponseWriter, r *http.Request, params ListRegistryCredentialsParams)
@@ -7111,9 +7047,6 @@ type ServerInterface interface {
 	// Update a compose stack
 	// (PATCH /services/{service_uuid})
 	UpdateService(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid, params UpdateServiceParams)
-	// Who can reach this compose stack
-	// (GET /services/{service_uuid}/access)
-	GetServiceAccess(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid)
 	// Components of a stack
 	// (GET /services/{service_uuid}/components)
 	ListServiceComponents(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid)
@@ -7234,9 +7167,6 @@ type ServerInterface interface {
 	// Change a member's role
 	// (PATCH /teams/{team_uuid}/members/{user_uuid})
 	UpdateTeamMember(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, userUuid UserUuid)
-	// What this member reaches
-	// (GET /teams/{team_uuid}/members/{user_uuid}/access)
-	GetMemberAccess(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, userUuid UserUuid)
 	// List a team's custom roles
 	// (GET /teams/{team_uuid}/roles)
 	ListTeamRoles(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, params ListTeamRolesParams)
@@ -7336,12 +7266,6 @@ func (_ Unimplemented) GetApplication(w http.ResponseWriter, r *http.Request, ap
 // Update an application's configuration
 // (PATCH /applications/{application_uuid})
 func (_ Unimplemented) UpdateApplication(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, params UpdateApplicationParams) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Who can reach this application
-// (GET /applications/{application_uuid}/access)
-func (_ Unimplemented) GetApplicationAccess(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -7606,12 +7530,6 @@ func (_ Unimplemented) GetDatabase(w http.ResponseWriter, r *http.Request, datab
 // Update a database
 // (PATCH /databases/{database_uuid})
 func (_ Unimplemented) UpdateDatabase(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid, params UpdateDatabaseParams) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Who can reach this database
-// (GET /databases/{database_uuid}/access)
-func (_ Unimplemented) GetDatabaseAccess(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8011,12 +7929,6 @@ func (_ Unimplemented) UpdateProject(w http.ResponseWriter, r *http.Request, pro
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Who can reach this project
-// (GET /projects/{project_uuid}/access)
-func (_ Unimplemented) GetProjectAccess(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
 // List a project's environments
 // (GET /projects/{project_uuid}/environments)
 func (_ Unimplemented) ListEnvironments(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, params ListEnvironmentsParams) {
@@ -8044,12 +7956,6 @@ func (_ Unimplemented) GetEnvironment(w http.ResponseWriter, r *http.Request, pr
 // Update an environment
 // (PATCH /projects/{project_uuid}/environments/{environment_uuid})
 func (_ Unimplemented) UpdateEnvironment(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, environmentUuid EnvironmentUuid) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Who can reach this environment
-// (GET /projects/{project_uuid}/environments/{environment_uuid}/access)
-func (_ Unimplemented) GetEnvironmentAccess(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, environmentUuid EnvironmentUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8335,12 +8241,6 @@ func (_ Unimplemented) UpdateService(w http.ResponseWriter, r *http.Request, ser
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Who can reach this compose stack
-// (GET /services/{service_uuid}/access)
-func (_ Unimplemented) GetServiceAccess(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
 // Components of a stack
 // (GET /services/{service_uuid}/components)
 func (_ Unimplemented) ListServiceComponents(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid) {
@@ -8578,12 +8478,6 @@ func (_ Unimplemented) ListTeamMembers(w http.ResponseWriter, r *http.Request, t
 // Change a member's role
 // (PATCH /teams/{team_uuid}/members/{user_uuid})
 func (_ Unimplemented) UpdateTeamMember(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, userUuid UserUuid) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// What this member reaches
-// (GET /teams/{team_uuid}/members/{user_uuid}/access)
-func (_ Unimplemented) GetMemberAccess(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, userUuid UserUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -9061,38 +8955,6 @@ func (siw *ServerInterfaceWrapper) UpdateApplication(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateApplication(w, r, applicationUuid, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetApplicationAccess operation middleware
-func (siw *ServerInterfaceWrapper) GetApplicationAccess(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "application_uuid" -------------
-	var applicationUuid ApplicationUuid
-
-	err = runtime.BindStyledParameterWithOptions("simple", "application_uuid", chi.URLParam(r, "application_uuid"), &applicationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_uuid", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetApplicationAccess(w, r, applicationUuid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11183,38 +11045,6 @@ func (siw *ServerInterfaceWrapper) UpdateDatabase(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateDatabase(w, r, databaseUuid, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetDatabaseAccess operation middleware
-func (siw *ServerInterfaceWrapper) GetDatabaseAccess(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "database_uuid" -------------
-	var databaseUuid DatabaseUuid
-
-	err = runtime.BindStyledParameterWithOptions("simple", "database_uuid", chi.URLParam(r, "database_uuid"), &databaseUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "database_uuid", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetDatabaseAccess(w, r, databaseUuid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -14161,38 +13991,6 @@ func (siw *ServerInterfaceWrapper) UpdateProject(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
-// GetProjectAccess operation middleware
-func (siw *ServerInterfaceWrapper) GetProjectAccess(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project_uuid" -------------
-	var projectUuid ProjectUuid
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project_uuid", chi.URLParam(r, "project_uuid"), &projectUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_uuid", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetProjectAccess(w, r, projectUuid)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // ListEnvironments operation middleware
 func (siw *ServerInterfaceWrapper) ListEnvironments(w http.ResponseWriter, r *http.Request) {
 
@@ -14424,47 +14222,6 @@ func (siw *ServerInterfaceWrapper) UpdateEnvironment(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateEnvironment(w, r, projectUuid, environmentUuid)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetEnvironmentAccess operation middleware
-func (siw *ServerInterfaceWrapper) GetEnvironmentAccess(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "project_uuid" -------------
-	var projectUuid ProjectUuid
-
-	err = runtime.BindStyledParameterWithOptions("simple", "project_uuid", chi.URLParam(r, "project_uuid"), &projectUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_uuid", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "environment_uuid" -------------
-	var environmentUuid EnvironmentUuid
-
-	err = runtime.BindStyledParameterWithOptions("simple", "environment_uuid", chi.URLParam(r, "environment_uuid"), &environmentUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "environment_uuid", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetEnvironmentAccess(w, r, projectUuid, environmentUuid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -16829,38 +16586,6 @@ func (siw *ServerInterfaceWrapper) UpdateService(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
-// GetServiceAccess operation middleware
-func (siw *ServerInterfaceWrapper) GetServiceAccess(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "service_uuid" -------------
-	var serviceUuid ServiceUuid
-
-	err = runtime.BindStyledParameterWithOptions("simple", "service_uuid", chi.URLParam(r, "service_uuid"), &serviceUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "service_uuid", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetServiceAccess(w, r, serviceUuid)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // ListServiceComponents operation middleware
 func (siw *ServerInterfaceWrapper) ListServiceComponents(w http.ResponseWriter, r *http.Request) {
 
@@ -18530,47 +18255,6 @@ func (siw *ServerInterfaceWrapper) UpdateTeamMember(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
-// GetMemberAccess operation middleware
-func (siw *ServerInterfaceWrapper) GetMemberAccess(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "team_uuid" -------------
-	var teamUuid TeamUuid
-
-	err = runtime.BindStyledParameterWithOptions("simple", "team_uuid", chi.URLParam(r, "team_uuid"), &teamUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "team_uuid", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "user_uuid" -------------
-	var userUuid UserUuid
-
-	err = runtime.BindStyledParameterWithOptions("simple", "user_uuid", chi.URLParam(r, "user_uuid"), &userUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_uuid", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetMemberAccess(w, r, teamUuid, userUuid)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // ListTeamRoles operation middleware
 func (siw *ServerInterfaceWrapper) ListTeamRoles(w http.ResponseWriter, r *http.Request) {
 
@@ -19489,9 +19173,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/applications/{application_uuid}", wrapper.UpdateApplication)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/applications/{application_uuid}/access", wrapper.GetApplicationAccess)
-	})
-	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/applications/{application_uuid}/components", wrapper.ListApplicationComponents)
 	})
 	r.Group(func(r chi.Router) {
@@ -19622,9 +19303,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/databases/{database_uuid}", wrapper.UpdateDatabase)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/databases/{database_uuid}/access", wrapper.GetDatabaseAccess)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/databases/{database_uuid}/backups", wrapper.ListBackupPlans)
@@ -19825,9 +19503,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/projects/{project_uuid}", wrapper.UpdateProject)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/projects/{project_uuid}/access", wrapper.GetProjectAccess)
-	})
-	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/projects/{project_uuid}/environments", wrapper.ListEnvironments)
 	})
 	r.Group(func(r chi.Router) {
@@ -19841,9 +19516,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/projects/{project_uuid}/environments/{environment_uuid}", wrapper.UpdateEnvironment)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/projects/{project_uuid}/environments/{environment_uuid}/access", wrapper.GetEnvironmentAccess)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/registry-credentials", wrapper.ListRegistryCredentials)
@@ -19987,9 +19659,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/services/{service_uuid}", wrapper.UpdateService)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/services/{service_uuid}/access", wrapper.GetServiceAccess)
-	})
-	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/services/{service_uuid}/components", wrapper.ListServiceComponents)
 	})
 	r.Group(func(r chi.Router) {
@@ -20110,9 +19779,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/teams/{team_uuid}/members/{user_uuid}", wrapper.UpdateTeamMember)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/teams/{team_uuid}/members/{user_uuid}/access", wrapper.GetMemberAccess)
-	})
-	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{team_uuid}/roles", wrapper.ListTeamRoles)
 	})
 	r.Group(func(r chi.Router) {
@@ -20168,13 +19834,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 
 	return r
-}
-
-type AccessViewJSONResponse struct {
-	Data []AccessEntry `json:"data"`
-
-	// TokensIncluded False when the caller lacks `tokens:read`: API tokens hold access too, so the view says when it is showing only half of it rather than letting an incomplete list read as complete.
-	TokensIncluded *bool `json:"tokens_included,omitempty"`
 }
 
 type BadRequestJSONResponse Error
@@ -20922,70 +20581,6 @@ func (response UpdateApplication429JSONResponse) VisitUpdateApplicationResponse(
 		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
 	}
 	w.WriteHeader(429)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetApplicationAccessRequestObject struct {
-	ApplicationUuid ApplicationUuid `json:"application_uuid"`
-}
-
-type GetApplicationAccessResponseObject interface {
-	VisitGetApplicationAccessResponse(w http.ResponseWriter) error
-}
-
-type GetApplicationAccess200JSONResponse struct{ AccessViewJSONResponse }
-
-func (response GetApplicationAccess200JSONResponse) VisitGetApplicationAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetApplicationAccess401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response GetApplicationAccess401JSONResponse) VisitGetApplicationAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetApplicationAccess403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response GetApplicationAccess403JSONResponse) VisitGetApplicationAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetApplicationAccess404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response GetApplicationAccess404JSONResponse) VisitGetApplicationAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -25388,70 +24983,6 @@ func (response UpdateDatabase429JSONResponse) VisitUpdateDatabaseResponse(w http
 		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
 	}
 	w.WriteHeader(429)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetDatabaseAccessRequestObject struct {
-	DatabaseUuid DatabaseUuid `json:"database_uuid"`
-}
-
-type GetDatabaseAccessResponseObject interface {
-	VisitGetDatabaseAccessResponse(w http.ResponseWriter) error
-}
-
-type GetDatabaseAccess200JSONResponse struct{ AccessViewJSONResponse }
-
-func (response GetDatabaseAccess200JSONResponse) VisitGetDatabaseAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetDatabaseAccess401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response GetDatabaseAccess401JSONResponse) VisitGetDatabaseAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetDatabaseAccess403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response GetDatabaseAccess403JSONResponse) VisitGetDatabaseAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetDatabaseAccess404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response GetDatabaseAccess404JSONResponse) VisitGetDatabaseAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -31431,70 +30962,6 @@ func (response UpdateProject429JSONResponse) VisitUpdateProjectResponse(w http.R
 	return err
 }
 
-type GetProjectAccessRequestObject struct {
-	ProjectUuid ProjectUuid `json:"project_uuid"`
-}
-
-type GetProjectAccessResponseObject interface {
-	VisitGetProjectAccessResponse(w http.ResponseWriter) error
-}
-
-type GetProjectAccess200JSONResponse struct{ AccessViewJSONResponse }
-
-func (response GetProjectAccess200JSONResponse) VisitGetProjectAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetProjectAccess401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response GetProjectAccess401JSONResponse) VisitGetProjectAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetProjectAccess403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response GetProjectAccess403JSONResponse) VisitGetProjectAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetProjectAccess404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response GetProjectAccess404JSONResponse) VisitGetProjectAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type ListEnvironmentsRequestObject struct {
 	ProjectUuid ProjectUuid `json:"project_uuid"`
 	Params      ListEnvironmentsParams
@@ -32034,71 +31501,6 @@ func (response UpdateEnvironment429JSONResponse) VisitUpdateEnvironmentResponse(
 		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
 	}
 	w.WriteHeader(429)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetEnvironmentAccessRequestObject struct {
-	ProjectUuid     ProjectUuid     `json:"project_uuid"`
-	EnvironmentUuid EnvironmentUuid `json:"environment_uuid"`
-}
-
-type GetEnvironmentAccessResponseObject interface {
-	VisitGetEnvironmentAccessResponse(w http.ResponseWriter) error
-}
-
-type GetEnvironmentAccess200JSONResponse struct{ AccessViewJSONResponse }
-
-func (response GetEnvironmentAccess200JSONResponse) VisitGetEnvironmentAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetEnvironmentAccess401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response GetEnvironmentAccess401JSONResponse) VisitGetEnvironmentAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetEnvironmentAccess403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response GetEnvironmentAccess403JSONResponse) VisitGetEnvironmentAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetEnvironmentAccess404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response GetEnvironmentAccess404JSONResponse) VisitGetEnvironmentAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -36685,70 +36087,6 @@ func (response UpdateService429JSONResponse) VisitUpdateServiceResponse(w http.R
 	return err
 }
 
-type GetServiceAccessRequestObject struct {
-	ServiceUuid ServiceUuid `json:"service_uuid"`
-}
-
-type GetServiceAccessResponseObject interface {
-	VisitGetServiceAccessResponse(w http.ResponseWriter) error
-}
-
-type GetServiceAccess200JSONResponse struct{ AccessViewJSONResponse }
-
-func (response GetServiceAccess200JSONResponse) VisitGetServiceAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetServiceAccess401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response GetServiceAccess401JSONResponse) VisitGetServiceAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetServiceAccess403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response GetServiceAccess403JSONResponse) VisitGetServiceAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetServiceAccess404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response GetServiceAccess404JSONResponse) VisitGetServiceAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type ListServiceComponentsRequestObject struct {
 	ServiceUuid ServiceUuid `json:"service_uuid"`
 }
@@ -40267,73 +39605,6 @@ func (response UpdateTeamMember429JSONResponse) VisitUpdateTeamMemberResponse(w 
 	return err
 }
 
-type GetMemberAccessRequestObject struct {
-	TeamUuid TeamUuid `json:"team_uuid"`
-	UserUuid UserUuid `json:"user_uuid"`
-}
-
-type GetMemberAccessResponseObject interface {
-	VisitGetMemberAccessResponse(w http.ResponseWriter) error
-}
-
-type GetMemberAccess200JSONResponse struct {
-	Data []MemberAccessEntry `json:"data"`
-}
-
-func (response GetMemberAccess200JSONResponse) VisitGetMemberAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetMemberAccess401JSONResponse struct{ UnauthorizedJSONResponse }
-
-func (response GetMemberAccess401JSONResponse) VisitGetMemberAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetMemberAccess403JSONResponse struct{ ForbiddenJSONResponse }
-
-func (response GetMemberAccess403JSONResponse) VisitGetMemberAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(403)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetMemberAccess404JSONResponse struct{ NotFoundJSONResponse }
-
-func (response GetMemberAccess404JSONResponse) VisitGetMemberAccessResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type ListTeamRolesRequestObject struct {
 	TeamUuid TeamUuid `json:"team_uuid"`
 	Params   ListTeamRolesParams
@@ -42050,9 +41321,6 @@ type StrictServerInterface interface {
 	// Update an application's configuration
 	// (PATCH /applications/{application_uuid})
 	UpdateApplication(ctx context.Context, request UpdateApplicationRequestObject) (UpdateApplicationResponseObject, error)
-	// Who can reach this application
-	// (GET /applications/{application_uuid}/access)
-	GetApplicationAccess(ctx context.Context, request GetApplicationAccessRequestObject) (GetApplicationAccessResponseObject, error)
 	// Components of an application using the compose build pack
 	// (GET /applications/{application_uuid}/components)
 	ListApplicationComponents(ctx context.Context, request ListApplicationComponentsRequestObject) (ListApplicationComponentsResponseObject, error)
@@ -42185,9 +41453,6 @@ type StrictServerInterface interface {
 	// Update a database
 	// (PATCH /databases/{database_uuid})
 	UpdateDatabase(ctx context.Context, request UpdateDatabaseRequestObject) (UpdateDatabaseResponseObject, error)
-	// Who can reach this database
-	// (GET /databases/{database_uuid}/access)
-	GetDatabaseAccess(ctx context.Context, request GetDatabaseAccessRequestObject) (GetDatabaseAccessResponseObject, error)
 	// List a database's backup plans
 	// (GET /databases/{database_uuid}/backups)
 	ListBackupPlans(ctx context.Context, request ListBackupPlansRequestObject) (ListBackupPlansResponseObject, error)
@@ -42386,9 +41651,6 @@ type StrictServerInterface interface {
 	// Update a project
 	// (PATCH /projects/{project_uuid})
 	UpdateProject(ctx context.Context, request UpdateProjectRequestObject) (UpdateProjectResponseObject, error)
-	// Who can reach this project
-	// (GET /projects/{project_uuid}/access)
-	GetProjectAccess(ctx context.Context, request GetProjectAccessRequestObject) (GetProjectAccessResponseObject, error)
 	// List a project's environments
 	// (GET /projects/{project_uuid}/environments)
 	ListEnvironments(ctx context.Context, request ListEnvironmentsRequestObject) (ListEnvironmentsResponseObject, error)
@@ -42404,9 +41666,6 @@ type StrictServerInterface interface {
 	// Update an environment
 	// (PATCH /projects/{project_uuid}/environments/{environment_uuid})
 	UpdateEnvironment(ctx context.Context, request UpdateEnvironmentRequestObject) (UpdateEnvironmentResponseObject, error)
-	// Who can reach this environment
-	// (GET /projects/{project_uuid}/environments/{environment_uuid}/access)
-	GetEnvironmentAccess(ctx context.Context, request GetEnvironmentAccessRequestObject) (GetEnvironmentAccessResponseObject, error)
 	// List registry credentials
 	// (GET /registry-credentials)
 	ListRegistryCredentials(ctx context.Context, request ListRegistryCredentialsRequestObject) (ListRegistryCredentialsResponseObject, error)
@@ -42548,9 +41807,6 @@ type StrictServerInterface interface {
 	// Update a compose stack
 	// (PATCH /services/{service_uuid})
 	UpdateService(ctx context.Context, request UpdateServiceRequestObject) (UpdateServiceResponseObject, error)
-	// Who can reach this compose stack
-	// (GET /services/{service_uuid}/access)
-	GetServiceAccess(ctx context.Context, request GetServiceAccessRequestObject) (GetServiceAccessResponseObject, error)
 	// Components of a stack
 	// (GET /services/{service_uuid}/components)
 	ListServiceComponents(ctx context.Context, request ListServiceComponentsRequestObject) (ListServiceComponentsResponseObject, error)
@@ -42671,9 +41927,6 @@ type StrictServerInterface interface {
 	// Change a member's role
 	// (PATCH /teams/{team_uuid}/members/{user_uuid})
 	UpdateTeamMember(ctx context.Context, request UpdateTeamMemberRequestObject) (UpdateTeamMemberResponseObject, error)
-	// What this member reaches
-	// (GET /teams/{team_uuid}/members/{user_uuid}/access)
-	GetMemberAccess(ctx context.Context, request GetMemberAccessRequestObject) (GetMemberAccessResponseObject, error)
 	// List a team's custom roles
 	// (GET /teams/{team_uuid}/roles)
 	ListTeamRoles(ctx context.Context, request ListTeamRolesRequestObject) (ListTeamRolesResponseObject, error)
@@ -42958,32 +42211,6 @@ func (sh *strictHandler) UpdateApplication(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateApplicationResponseObject); ok {
 		if err := validResponse.VisitUpdateApplicationResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetApplicationAccess operation middleware
-func (sh *strictHandler) GetApplicationAccess(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid) {
-	var request GetApplicationAccessRequestObject
-
-	request.ApplicationUuid = applicationUuid
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetApplicationAccess(ctx, request.(GetApplicationAccessRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetApplicationAccess")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetApplicationAccessResponseObject); ok {
-		if err := validResponse.VisitGetApplicationAccessResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -44264,32 +43491,6 @@ func (sh *strictHandler) UpdateDatabase(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateDatabaseResponseObject); ok {
 		if err := validResponse.VisitUpdateDatabaseResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetDatabaseAccess operation middleware
-func (sh *strictHandler) GetDatabaseAccess(w http.ResponseWriter, r *http.Request, databaseUuid DatabaseUuid) {
-	var request GetDatabaseAccessRequestObject
-
-	request.DatabaseUuid = databaseUuid
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetDatabaseAccess(ctx, request.(GetDatabaseAccessRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetDatabaseAccess")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetDatabaseAccessResponseObject); ok {
-		if err := validResponse.VisitGetDatabaseAccessResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -46152,32 +45353,6 @@ func (sh *strictHandler) UpdateProject(w http.ResponseWriter, r *http.Request, p
 	}
 }
 
-// GetProjectAccess operation middleware
-func (sh *strictHandler) GetProjectAccess(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid) {
-	var request GetProjectAccessRequestObject
-
-	request.ProjectUuid = projectUuid
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetProjectAccess(ctx, request.(GetProjectAccessRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetProjectAccess")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetProjectAccessResponseObject); ok {
-		if err := validResponse.VisitGetProjectAccessResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // ListEnvironments operation middleware
 func (sh *strictHandler) ListEnvironments(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, params ListEnvironmentsParams) {
 	var request ListEnvironmentsRequestObject
@@ -46320,33 +45495,6 @@ func (sh *strictHandler) UpdateEnvironment(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateEnvironmentResponseObject); ok {
 		if err := validResponse.VisitUpdateEnvironmentResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetEnvironmentAccess operation middleware
-func (sh *strictHandler) GetEnvironmentAccess(w http.ResponseWriter, r *http.Request, projectUuid ProjectUuid, environmentUuid EnvironmentUuid) {
-	var request GetEnvironmentAccessRequestObject
-
-	request.ProjectUuid = projectUuid
-	request.EnvironmentUuid = environmentUuid
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetEnvironmentAccess(ctx, request.(GetEnvironmentAccessRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetEnvironmentAccess")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetEnvironmentAccessResponseObject); ok {
-		if err := validResponse.VisitGetEnvironmentAccessResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -47693,32 +46841,6 @@ func (sh *strictHandler) UpdateService(w http.ResponseWriter, r *http.Request, s
 	}
 }
 
-// GetServiceAccess operation middleware
-func (sh *strictHandler) GetServiceAccess(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid) {
-	var request GetServiceAccessRequestObject
-
-	request.ServiceUuid = serviceUuid
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetServiceAccess(ctx, request.(GetServiceAccessRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetServiceAccess")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetServiceAccessResponseObject); ok {
-		if err := validResponse.VisitGetServiceAccessResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // ListServiceComponents operation middleware
 func (sh *strictHandler) ListServiceComponents(w http.ResponseWriter, r *http.Request, serviceUuid ServiceUuid) {
 	var request ListServiceComponentsRequestObject
@@ -48827,33 +47949,6 @@ func (sh *strictHandler) UpdateTeamMember(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateTeamMemberResponseObject); ok {
 		if err := validResponse.VisitUpdateTeamMemberResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetMemberAccess operation middleware
-func (sh *strictHandler) GetMemberAccess(w http.ResponseWriter, r *http.Request, teamUuid TeamUuid, userUuid UserUuid) {
-	var request GetMemberAccessRequestObject
-
-	request.TeamUuid = teamUuid
-	request.UserUuid = userUuid
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetMemberAccess(ctx, request.(GetMemberAccessRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetMemberAccess")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetMemberAccessResponseObject); ok {
-		if err := validResponse.VisitGetMemberAccessResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

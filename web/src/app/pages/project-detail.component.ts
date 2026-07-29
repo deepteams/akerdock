@@ -15,7 +15,6 @@ import { BreadcrumbComponent, type Crumb } from '../../ui/breadcrumb/breadcrumb.
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
-import { AccessTabComponent, type AccessFetch } from './access/access-tab.component';
 import type { components } from '../../api/schema';
 
 type Project = components['schemas']['Project'];
@@ -31,7 +30,6 @@ type Environment = components['schemas']['Environment'];
     CardComponent,
     EmptyStateComponent,
     IconComponent,
-    AccessTabComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -75,16 +73,6 @@ type Environment = components['schemas']['Environment'];
           (click)="active.set('config')"
         >
           Config
-        </button>
-        <button
-          type="button"
-          class="akd-tab"
-          role="tab"
-          [class.akd-tab--active]="active() === 'access'"
-          [attr.aria-selected]="active() === 'access'"
-          (click)="active.set('access')"
-        >
-          Access
         </button>
       </nav>
 
@@ -212,8 +200,7 @@ type Environment = components['schemas']['Environment'];
               </table>
             }
           </akd-card>
-        } @else if (active() === 'access') {
-          <akd-access-tab [fetch]="fetchAccess" />
+        }
         } @else {
           <akd-card title="Project" class="cfg">
             <form class="cfgform" (ngSubmit)="save()">
@@ -374,11 +361,8 @@ export class ProjectDetailComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
   protected readonly editing = signal<string | null>(null);
-  protected readonly active = signal<'environments' | 'config' | 'access'>('environments');
+  protected readonly active = signal<'environments' | 'config'>('environments');
 
-  /** Who can reach this project (ADR-046 §9). */
-  protected readonly fetchAccess: AccessFetch = () =>
-    this.api.client().getProjectAccess(this.uuid());
   protected readonly crumbs = computed<Crumb[]>(() => [
     { label: 'Projects', link: '/projects' },
     { label: this.project()?.name ?? '…' },

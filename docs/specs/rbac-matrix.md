@@ -28,7 +28,6 @@ is how an operator ends up believing in a boundary that is not there.
 | System roles `admin` / `member` / `reviewer` (§2) | **Implemented** — `session.PermissionsForRole`; §2 below is generated from that code |
 | Custom roles, composed from the catalogue, with prerequisite closure and anti-elevation | **Implemented** — `custom_roles`, `auth.ValidateCustomPermissions` |
 | Instance root outside the team model (§3.9) | **Implemented** — `users.is_root` |
-| The access view — who reaches a resource, what a member reaches (§3.11) | **Implemented** — computed on demand, no stored copy |
 | Token permissions = intersection with the creator's, re-evaluated per request (§4.2) | **Implemented** — `Middleware.boundToCreator`; a demoted, scoped or departed creator narrows their tokens without any revocation |
 | Automatic token revocation on loss of rights (§4.4) | **Not implemented** (proposed default) — the intersection above makes it a tidiness measure rather than a control |
 
@@ -398,24 +397,6 @@ nothing** — anyone holding `port-forwards:open` in the team may mint a tunnel 
 dashboard labels them as descriptive for that reason: a field that looks like a control and
 is not is worse than no field, and the labelling is part of the decision (ADR-047).
 
-### 3.6 The access view
-
-Two readings of the same resolution, computed on demand and never stored:
-
-- **per resource** — who holds platform permissions on an application, database, service,
-  project or environment, with the role each one holds them through;
-- **per member** — what this member reaches, the offboarding question asked once instead of
-  resource by resource.
-
-A denormalized copy would drift from the rules it summarizes, and a review reading a stale
-copy asserts a safety nobody verified. **API tokens appear under the member who created
-them** (§4.2 caps a token at its creator, so it is an extension of them, not a second
-access); a token with no creator on record is listed on its own, because nobody's authority
-stands behind it. Human rows need `members:read`, token rows need `tokens:read`, and the
-response says when it is showing only half of the picture. It answers who holds *platform*
-permissions — not who can reach a deployed application over the network (ADR-042), who holds
-a live tunnel or grant (ADR-045), or who knows a database's own credentials.
-
 ---
 
 ## 4. API tokens — mapping and anti-elevation guard
@@ -504,9 +485,9 @@ diff (§23.4).
   partition the product has, and the one every cross-team test above already covers.
 - No per-project expectation is tested any more: ADR-047 withdrew scoping, and a test
   asserting a boundary the code does not draw is a false comfort.
-- The **access view** agrees with the resolution for every listed subject: for each row,
-  what it claims the subject can do is what `require` would allow. The two readings share one
-  implementation precisely so this cannot drift.
+- **Who can reach a resource** is answered by the members list: every member of the team
+  reaches every project of it, at the level their role grants. There is no per-resource view
+  to keep in step with the rules (ADR-047).
 
 ### 6.3 Elevation via token (§4)
 - A `member` creator cannot create a token carrying `write`/`deploy` exceeding their rights

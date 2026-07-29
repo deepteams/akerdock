@@ -9,7 +9,6 @@ import type { components } from '../../api/schema';
 
 type Team = components['schemas']['Team'];
 type TeamMember = components['schemas']['TeamMember'];
-type MemberAccessEntry = components['schemas']['MemberAccessEntry'];
 type Invitation = components['schemas']['Invitation'];
 type CustomRole = components['schemas']['CustomRole'];
 type PermissionEntry = components['schemas']['PermissionCatalogEntry'];
@@ -164,13 +163,6 @@ interface PermissionGroup {
                           <button
                             class="akd-btn akd-btn--ghost akd-btn--sm"
                             type="button"
-                            (click)="toggleAccess(member)"
-                          >
-                            {{ accessFor() === member.user_uuid ? 'Hide access' : 'Access' }}
-                          </button>
-                          <button
-                            class="akd-btn akd-btn--ghost akd-btn--sm"
-                            type="button"
                             [disabled]="busy()"
                             (click)="openMemberRole(member)"
                           >
@@ -178,37 +170,6 @@ interface PermissionGroup {
                           </button>
                         </td>
                       </tr>
-                      @if (accessFor() === member.user_uuid) {
-                        <tr>
-                          <td colspan="4" class="access-row">
-                            @if (access().length === 0) {
-                              <span class="akd-muted">Loading…</span>
-                            } @else {
-                              <!-- What this member reaches, and through which role. One
-                                   row: the team is the scope of a role (ADR-047). -->
-                              @for (scope of access(); track scope.scope) {
-                                <div class="access-scope">
-                                  <span class="akd-badge akd-badge--mono">{{ scope.scope }}</span>
-                                  <strong>{{ scope.role }}</strong>
-                                  @if (scope.resource_count !== undefined) {
-                                    <span class="akd-muted"
-                                      >{{ scope.resource_count }} resources</span
-                                    >
-                                  }
-                                  <span class="caps">
-                                    @for (cap of scope.capabilities; track cap; let last = $last) {
-                                      {{ cap }}
-                                      @if (!last) {
-                                        <span class="sep" aria-hidden="true">·</span>
-                                      }
-                                    }
-                                  </span>
-                                </div>
-                              }
-                            }
-                          </td>
-                        </tr>
-                      }
                     }
                   </tbody>
                 </table>
@@ -740,25 +701,6 @@ interface PermissionGroup {
       .member-name {
         font-weight: var(--weight-medium);
       }
-      .access-row {
-        background: var(--bg-inset);
-      }
-      .access-scope {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: var(--space-2);
-      }
-      /* Same reading as the resource-side review: one dense line, not a row of
-         pills — the two views must not drift apart visually either. */
-      .access-scope .caps {
-        font-size: var(--text-xs);
-        color: var(--text-2);
-      }
-      .access-scope .sep {
-        margin: 0 2px;
-        color: var(--text-3);
-      }
       .sub-mono {
         font-family: var(--font-mono);
         font-size: var(--text-xs);
@@ -839,33 +781,9 @@ interface PermissionGroup {
 export class TeamComponent {
   private readonly api = inject(ApiService);
 
-  /**
-   * What this member reaches (ADR-046 §9) — the offboarding question, answered
-   * where the person is, rather than by opening resources one by one.
-   */
-  protected async toggleAccess(member: TeamMember): Promise<void> {
-    if (this.accessFor() === member.user_uuid) {
-      this.accessFor.set(null);
-      return;
-    }
-    this.accessFor.set(member.user_uuid);
-    this.access.set([]);
-    const teamUuid = this.api.currentUser()?.teamUuid ?? '';
-    try {
-      const page = await this.api.client().getMemberAccess(teamUuid, member.user_uuid);
-      this.access.set(page.data);
-    } catch (err) {
-      this.error.set(ApiService.describe(err));
-      this.accessFor.set(null);
-    }
-  }
-
   protected readonly tab = signal<TeamTab>('members');
   protected readonly team = signal<Team | null>(null);
   protected readonly members = signal<TeamMember[]>([]);
-  /** The member whose access rows are unfolded, and those rows. */
-  protected readonly accessFor = signal<string | null>(null);
-  protected readonly access = signal<MemberAccessEntry[]>([]);
 
   protected readonly invitations = signal<Invitation[]>([]);
   protected readonly loading = signal(true);

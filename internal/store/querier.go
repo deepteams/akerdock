@@ -91,9 +91,6 @@ type Querier interface {
 	CountCredentialsForUser(ctx context.Context, id int64) (int32, error)
 	CountCustomRoleMembers(ctx context.Context, customRoleID *int64) (int64, error)
 	CountDNSCredentialUsage(ctx context.Context, dnsCredentialID *int64) (int64, error)
-	// How many deployable resources an environment covers — the weight behind
-	// "member on billing" in the per-member view.
-	CountEnvironmentResources(ctx context.Context, environmentID int64) (int64, error)
 	// The concurrency cap (§20.4.3) counts everything that consumes the server.
 	CountLivePreviewsForApplication(ctx context.Context, applicationID int64) (int64, error)
 	CountOpenPortForwardSessions(ctx context.Context, teamID int64) (int64, error)
@@ -104,7 +101,6 @@ type Querier interface {
 	// an MFA-grade factor in its own right: forced MFA enrolment (§10.2) is
 	// satisfied by one, not only by a TOTP secret.
 	CountPasskeysForUser(ctx context.Context, userID int64) (int64, error)
-	CountProjectResources(ctx context.Context, projectID int64) (int64, error)
 	// A credential still referenced by a build config or by a rollback artifact
 	// cannot be deleted: the deployment that depends on it would stop being able
 	// to pull its own image (§19.2).
@@ -124,7 +120,6 @@ type Querier interface {
 	// Effective admins: a member carrying a custom role is NOT an admin, whatever the
 	// fallback role column says. Guards against removing the last admin.
 	CountTeamAdmins(ctx context.Context, teamID int64) (int64, error)
-	CountTeamResources(ctx context.Context, teamID int64) (int64, error)
 	// Queries used by the startup sequence (instance-config §6).
 	CountUsers(ctx context.Context) (int64, error)
 	// Adoption (§20.7): external_name keeps the original Docker volume name so
@@ -501,7 +496,6 @@ type Querier interface {
 	GetTeamMemberByExternalID(ctx context.Context, arg GetTeamMemberByExternalIDParams) (GetTeamMemberByExternalIDRow, error)
 	// Member role management (ADR-038).
 	GetTeamMemberByUUID(ctx context.Context, arg GetTeamMemberByUUIDParams) (GetTeamMemberByUUIDRow, error)
-	GetTeamMemberForAccess(ctx context.Context, arg GetTeamMemberForAccessParams) (GetTeamMemberForAccessRow, error)
 	// The team a session acts in, with its role and public UUID (the dashboard
 	// addresses team endpoints by UUID). Falls back to the personal team.
 	// Carries the user's instance-root flag (users.is_root) so the session identity
@@ -542,11 +536,6 @@ type Querier interface {
 	KeepPreviewAlive(ctx context.Context, id int64) error
 	LastSentDelivery(ctx context.Context, ruleID int64) (pgtype.Timestamptz, error)
 	ListAdoptionScansForServer(ctx context.Context, arg ListAdoptionScansForServerParams) ([]AdoptionScan, error)
-	// Live tokens with their creator: a token's reach is its creator's (ADR-046
-	// §7), so the creator is who an operator talks to about it. Revoked and expired
-	// tokens are excluded — they grant nothing, and a review crowded with dead rows
-	// is a review nobody finishes.
-	ListApiTokensForAccess(ctx context.Context, teamID int64) ([]ListApiTokensForAccessRow, error)
 	// API token management (§10.3). Token values are never stored nor
 	// returned: only the SHA-256 hash and the identification prefix.
 	ListApiTokensPage(ctx context.Context, arg ListApiTokensPageParams) ([]ApiToken, error)
@@ -637,10 +626,6 @@ type Querier interface {
 	// system/instance actions that have no team_id (encryption rotation, instance
 	// settings…), which no team-scoped view can show. Same optional filters.
 	ListInstanceAuditEventsPage(ctx context.Context, arg ListInstanceAuditEventsPageParams) ([]AuditEvent, error)
-	// Instance roots that are NOT members of this team: they reach it all the same
-	// (rbac-matrix §3.9), and a view that omits them lies by exactly the account an
-	// auditor asks about first.
-	ListInstanceRootsForAccess(ctx context.Context, teamID int64) ([]ListInstanceRootsForAccessRow, error)
 	ListInvitationsPage(ctx context.Context, arg ListInvitationsPageParams) ([]ListInvitationsPageRow, error)
 	ListJobsPage(ctx context.Context, arg ListJobsPageParams) ([]Job, error)
 	// Revoking a grant tears down the sessions it opened; this is that set.
@@ -750,14 +735,6 @@ type Querier interface {
 	ListTCPProxyPorts(ctx context.Context, serverID int64) ([]*int32, error)
 	ListTagsForResource(ctx context.Context, resourceID int64) ([]string, error)
 	ListTaskExecutionsPage(ctx context.Context, arg ListTaskExecutionsPageParams) ([]TaskExecution, error)
-	// Access review (ADR-046 §9): the subjects holding platform permissions on a
-	// resource. Read-only and deliberately un-cached — a denormalized copy of
-	// who-can-see-what drifts from the rules it summarizes, and a review reading a
-	// stale copy asserts a safety nobody verified.
-	// Every member with the material needed to resolve what they hold: the system
-	// role, the custom role's permissions when one overrides it, and the instance
-	// root flag (a root reaches everything and must not be silently absent).
-	ListTeamMembersForAccess(ctx context.Context, teamID int64) ([]ListTeamMembersForAccessRow, error)
 	// SCIM Users/Groups source: every member with its effective role (system role,
 	// or the custom role uuid when set) so groups (=roles) can be assembled in Go.
 	ListTeamMembersForScim(ctx context.Context, teamID int64) ([]ListTeamMembersForScimRow, error)
