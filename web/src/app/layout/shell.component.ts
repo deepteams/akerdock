@@ -68,24 +68,40 @@ interface NavSection {
             <div class="user-menu" role="menu">
               @if (teams().length > 0) {
                 <div class="akd-sidenav__section">Teams</div>
-                @for (team of teams(); track team.uuid) {
+                <div class="akd-sidenav__item current-team" aria-current="true">
+                  <akd-icon name="check" [size]="14" />
+                  <span class="team-name">{{ teamName() }}</span>
+                  <span class="current">current</span>
+                </div>
+
+                <!-- One team is not a choice: the sub-menu only exists when
+                     there is somewhere else to go. -->
+                @if (otherTeams().length > 0) {
                   <button
                     class="akd-sidenav__item"
                     role="menuitem"
                     type="button"
-                    [disabled]="switching()"
-                    [attr.aria-current]="team.uuid === currentTeamUuid() ? 'true' : null"
-                    (click)="switchTeam(team.uuid)"
+                    [attr.aria-expanded]="teamMenu()"
+                    (click)="teamMenu.set(!teamMenu())"
                   >
-                    <akd-icon
-                      [name]="team.uuid === currentTeamUuid() ? 'check' : 'users'"
-                      [size]="14"
-                    />
-                    <span class="team-name">{{ team.name }}</span>
-                    @if (team.uuid === currentTeamUuid()) {
-                      <span class="current">current</span>
-                    }
+                    <akd-icon name="users" [size]="14" />
+                    <span class="team-name">Switch team</span>
+                    <akd-icon [name]="teamMenu() ? 'chevron-down' : 'chevron-right'" [size]="13" />
                   </button>
+                  @if (teamMenu()) {
+                    @for (team of otherTeams(); track team.uuid) {
+                      <button
+                        class="akd-sidenav__item team-option"
+                        role="menuitem"
+                        type="button"
+                        [disabled]="switching()"
+                        (click)="switchTeam(team.uuid)"
+                      >
+                        <akd-icon name="users" [size]="14" />
+                        <span class="team-name">{{ team.name }}</span>
+                      </button>
+                    }
+                  }
                 }
                 @if (switchError()) {
                   <div class="menu-error">{{ switchError() }}</div>
@@ -109,7 +125,7 @@ interface NavSection {
             class="user-btn"
             type="button"
             [class.open]="menu()"
-            (click)="menu.set(!menu())"
+            (click)="toggleMenu()"
             [attr.aria-expanded]="menu()"
           >
             <span class="avatar" aria-hidden="true">{{ initials() }}</span>
@@ -267,6 +283,16 @@ interface NavSection {
         font-size: var(--text-2xs);
         color: var(--danger);
       }
+      /* Where we already are: a label, not a destination. */
+      .current-team,
+      .current-team:hover {
+        cursor: default;
+        background: none;
+        color: var(--text-2);
+      }
+      .team-option {
+        padding-left: 30px;
+      }
       .user-btn {
         all: unset;
         cursor: pointer;
@@ -402,6 +428,8 @@ export class ShellComponent {
   protected readonly version = signal<string | null>(null);
   protected readonly switching = signal(false);
   protected readonly switchError = signal<string | null>(null);
+  /** The "Switch team" sub-menu, collapsed until asked for. */
+  protected readonly teamMenu = signal(false);
 
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -425,6 +453,11 @@ export class ShellComponent {
     const current = this.currentTeamUuid();
     return this.teams().find((t) => t.uuid === current)?.name ?? null;
   });
+
+  /** The teams one can switch TO — the current one is where we already are. */
+  protected readonly otherTeams = computed(() =>
+    this.teams().filter((t) => t.uuid !== this.currentTeamUuid()),
+  );
 
   protected readonly initials = computed(() => {
     const name = this.api.currentUser()?.name ?? this.api.currentUser()?.email ?? '';
@@ -451,6 +484,16 @@ export class ShellComponent {
       this.version.set(version.version ?? null);
     } catch {
       /* no badge */
+    }
+  }
+
+  /** Closing the user menu collapses the team sub-menu with it: reopening
+   *  should show the menu as it was first met, not as it was left. */
+  protected toggleMenu(): void {
+    this.menu.update((open) => !open);
+    if (!this.menu()) {
+      this.teamMenu.set(false);
+      this.switchError.set(null);
     }
   }
 
