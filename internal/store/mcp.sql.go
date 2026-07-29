@@ -91,13 +91,47 @@ func (q *Queries) DeleteExpiredMcpOauthCodes(ctx context.Context) error {
 }
 
 const getMcpAccessTokenByHash = `-- name: GetMcpAccessTokenByHash :one
-SELECT id, uuid, token_hash, client_id, client_name, user_id, team_id, expires_at, last_used_at, revoked_at, created_at FROM mcp_access_tokens
-WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()
+SELECT token.id, token.uuid, token.token_hash, token.client_id, token.client_name, token.user_id, token.team_id, token.expires_at, token.last_used_at, token.revoked_at, token.created_at, membership.role, membership.custom_role_id,
+       custom_role.permissions AS custom_permissions
+FROM mcp_access_tokens token
+JOIN users user_account
+  ON user_account.id = token.user_id AND user_account.deleted_at IS NULL
+JOIN team_memberships membership
+  ON membership.user_id = token.user_id AND membership.team_id = token.team_id
+JOIN teams team
+  ON team.id = token.team_id AND team.deleted_at IS NULL
+LEFT JOIN custom_roles custom_role
+  ON custom_role.id = membership.custom_role_id
+WHERE token.token_hash = $1
+  AND token.revoked_at IS NULL
+  AND token.expires_at > now()
 `
 
-func (q *Queries) GetMcpAccessTokenByHash(ctx context.Context, tokenHash string) (McpAccessToken, error) {
+type GetMcpAccessTokenByHashRow struct {
+	ID                int64
+	Uuid              pgtype.UUID
+	TokenHash         string
+	ClientID          string
+	ClientName        string
+	UserID            int64
+	TeamID            int64
+	ExpiresAt         pgtype.Timestamptz
+	LastUsedAt        pgtype.Timestamptz
+	RevokedAt         pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+	Role              TeamRole
+	CustomRoleID      *int64
+	CustomPermissions []string
+}
+
+// A grant is valid only while its human still exists, still belongs to the
+// granted team and that team still exists. Role/custom-role permissions ride
+// with the row so every MCP request is authorized against CURRENT authority:
+// removing or demoting a member converges immediately without a separate token
+// revocation pass.
+func (q *Queries) GetMcpAccessTokenByHash(ctx context.Context, tokenHash string) (GetMcpAccessTokenByHashRow, error) {
 	row := q.db.QueryRow(ctx, getMcpAccessTokenByHash, tokenHash)
-	var i McpAccessToken
+	var i GetMcpAccessTokenByHashRow
 	err := row.Scan(
 		&i.ID,
 		&i.Uuid,
@@ -110,6 +144,9 @@ func (q *Queries) GetMcpAccessTokenByHash(ctx context.Context, tokenHash string)
 		&i.LastUsedAt,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.Role,
+		&i.CustomRoleID,
+		&i.CustomPermissions,
 	)
 	return i, err
 }

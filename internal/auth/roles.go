@@ -67,3 +67,14 @@ func PermissionsForRole(role store.TeamRole) []string {
 		return memberPermissions
 	}
 }
+
+// PermissionsForMembership selects the one authority source carried by a team
+// membership. Presence, not permission count, identifies a custom role: an
+// intentionally empty custom role must grant nothing instead of falling back
+// to the membership's system-role column.
+func PermissionsForMembership(role store.TeamRole, hasCustomRole bool, customPermissions []string) []string {
+	if hasCustomRole {
+		return customPermissions
+	}
+	return PermissionsForRole(role)
+}

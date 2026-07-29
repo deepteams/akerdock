@@ -54,6 +54,10 @@ type API struct {
 	// MCP is the built-in Model Context Protocol server (ADR-043). Nil
 	// disables the surface entirely, whatever the instance setting.
 	MCP *mcp.Server
+	// TokenAuth is the single API-token resolver shared with MCP. NewRouter
+	// wires it from its middleware argument so secondary bearer surfaces cannot
+	// omit expiry, IP allowlists or the creator-authority ceiling.
+	TokenAuth *auth.Middleware
 	api.Unimplemented
 
 	Store    *store.Queries
@@ -131,6 +135,7 @@ func (a *API) auditAuth(r *http.Request, action string, result store.AuditResult
 // limiting (200 req/min per token) and Idempotency-Key handling — and the
 // generated operation routes under /api/v1.
 func NewRouter(a *API, mw *auth.Middleware) http.Handler {
+	a.TokenAuth = mw
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	// Before anything reads a caller address — the request context that logs

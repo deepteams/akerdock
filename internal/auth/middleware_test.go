@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"errors"
-	"github.com/jackc/pgx/v5"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/pguuid"
@@ -382,7 +382,7 @@ func TestTokenIsCappedByItsCreator(t *testing.T) {
 		m := &Middleware{Store: &fakeTokenStore{
 			authority: &store.GetTokenCreatorAuthorityRow{Role: store.TeamRoleReviewer, UserID: creator},
 		}}
-		m.boundToCreator(httptest.NewRequest("GET", "/", nil), id, &row, id.Permissions)
+		m.boundToCreator(httptest.NewRequest(http.MethodGet, "/", nil), id, &row, id.Permissions)
 
 		if Has(id.Permissions, PermApplicationsDeploy) {
 			t.Error("a reviewer's token must not keep deploy")
@@ -396,10 +396,26 @@ func TestTokenIsCappedByItsCreator(t *testing.T) {
 		row := tokenRow()
 		id := &Identity{TeamID: row.TeamID, Permissions: EffectivePermissions(row.Permissions)}
 		m := &Middleware{Store: &fakeTokenStore{}} // no membership row
-		m.boundToCreator(httptest.NewRequest("GET", "/", nil), id, &row, id.Permissions)
+		m.boundToCreator(httptest.NewRequest(http.MethodGet, "/", nil), id, &row, id.Permissions)
 
 		if len(id.Permissions) != 0 {
 			t.Errorf("a token whose creator left holds nothing, got %v", id.Permissions)
+		}
+	})
+
+	t.Run("an empty custom role grants nothing", func(t *testing.T) {
+		row := tokenRow()
+		id := &Identity{TeamID: row.TeamID, Permissions: EffectivePermissions(row.Permissions)}
+		customRoleID := int64(99)
+		m := &Middleware{Store: &fakeTokenStore{
+			authority: &store.GetTokenCreatorAuthorityRow{
+				Role: store.TeamRoleMember, UserID: creator, CustomRoleID: &customRoleID,
+			},
+		}}
+		m.boundToCreator(httptest.NewRequest(http.MethodGet, "/", nil), id, &row, id.Permissions)
+
+		if len(id.Permissions) != 0 {
+			t.Errorf("empty custom role fell back to member permissions: %v", id.Permissions)
 		}
 	})
 

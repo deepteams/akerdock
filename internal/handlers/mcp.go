@@ -44,7 +44,7 @@ func hashMcpToken(token string) string {
 // mcpEnabled reports whether the instance exposes the MCP surface at all.
 func (a *API) mcpEnabled(r *http.Request) bool {
 	st, err := a.Settings.Get(r.Context())
-	return err == nil && st.McpEnabled
+	return a.MCP != nil && err == nil && st.McpEnabled
 }
 
 // mcpDcrEnabled reports whether the instance accepts dynamic client
@@ -67,7 +67,7 @@ func (a *API) McpEndpoint(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "this MCP server only accepts POST", http.StatusMethodNotAllowed)
 		return
 	}
-	teamID, ok := a.mcpAuthenticate(w, r)
+	identity, ok := a.mcpAuthenticate(w, r)
 	if !ok {
 		return
 	}
@@ -76,7 +76,7 @@ func (a *API) McpEndpoint(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot read the request body", http.StatusBadRequest)
 		return
 	}
-	resp := a.MCP.Handle(r.Context(), teamID, raw)
+	resp := a.MCP.Handle(r.Context(), identity.TeamID, identity.Permissions, raw)
 	if resp == nil {
 		w.WriteHeader(http.StatusAccepted) // a notification expects no answer
 		return
@@ -85,33 +85,51 @@ func (a *API) McpEndpoint(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// mcpAuthenticate resolves the caller's team from either credential. On
-// failure it emits the WWW-Authenticate challenge pointing at the protected
-// resource metadata — how an MCP client discovers where to authenticate.
-func (a *API) mcpAuthenticate(w http.ResponseWriter, r *http.Request) (int64, bool) {
+// mcpAuthenticate resolves the caller's current team identity from either
+// credential. On failure it emits the WWW-Authenticate challenge pointing at
+// the protected resource metadata — how an MCP client discovers where to
+// authenticate.
+func (a *API) mcpAuthenticate(w http.ResponseWriter, r *http.Request) (*auth.Identity, bool) {
 	raw := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if raw == "" {
 		a.mcpChallenge(w, r, "a bearer token is required")
-		return 0, false
+		return nil, false
 	}
 	// An MCP access token (remote client, OAuth).
 	if strings.HasPrefix(raw, mcpTokenScheme) {
 		token, err := a.Store.GetMcpAccessTokenByHash(r.Context(), hashMcpToken(raw))
 		if err != nil {
 			a.mcpChallenge(w, r, "invalid or expired token")
-			return 0, false
+			return nil, false
 		}
 		_ = a.Store.TouchMcpAccessToken(r.Context(), token.ID)
-		return token.TeamID, true
+		return mcpOAuthIdentity(token), true
 	}
 	// An API token (local client, CI): it must carry `read` — the MCP
-	// surface never exposes more than a viewer sees.
-	teamID, ok := a.mcpAPIToken(r, raw)
+	// surface then narrows every tool to its granular read permission.
+	identity, ok := a.mcpAPIToken(r, raw)
 	if !ok {
 		a.mcpChallenge(w, r, "invalid token")
-		return 0, false
+		return nil, false
 	}
-	return teamID, true
+	return identity, true
+}
+
+// mcpOAuthIdentity projects the CURRENT membership carried by the token query
+// into an authorization identity. The query joins live users, teams and
+// memberships, so removal invalidates the credential and demotion changes this
+// permission set on the very next request.
+func mcpOAuthIdentity(token store.GetMcpAccessTokenByHashRow) *auth.Identity {
+	granular := auth.PermissionsForMembership(
+		token.Role, token.CustomRoleID != nil, token.CustomPermissions,
+	)
+	userID := token.UserID
+	return &auth.Identity{
+		TeamID:      token.TeamID,
+		UserID:      &userID,
+		Display:     token.ClientName,
+		Permissions: auth.ExpandGranular(granular),
+	}
 }
 
 func (a *API) mcpChallenge(w http.ResponseWriter, r *http.Request, reason string) {
@@ -493,32 +511,16 @@ func redirectOAuthError(w http.ResponseWriter, r *http.Request, redirectURI, sta
 	http.Redirect(w, r, target.String(), http.StatusFound)
 }
 
-// mcpAPIToken resolves an API token (`akd_`) to its team for the MCP surface:
-// the same prefix pre-filter and constant-time comparison as the bearer
-// middleware, plus the read requirement — MCP never exposes more than a
-// viewer sees.
-func (a *API) mcpAPIToken(r *http.Request, token string) (int64, bool) {
-	if len(token) < auth.PrefixLen {
-		return 0, false
+// mcpAPIToken delegates to the public API's resolver, then applies MCP's read
+// floor. This preserves IP allowlists and the live creator-authority ceiling
+// instead of maintaining a weaker second token implementation.
+func (a *API) mcpAPIToken(r *http.Request, token string) (*auth.Identity, bool) {
+	if a.TokenAuth == nil {
+		return nil, false
 	}
-	candidates, err := a.Store.GetActiveApiTokensByPrefix(r.Context(), token[:auth.PrefixLen])
-	if err != nil {
-		return 0, false
+	identity, err := a.TokenAuth.ResolveAPIToken(r, token)
+	if err != nil || !auth.Has(identity.Permissions, auth.PermRead) {
+		return nil, false
 	}
-	hash := auth.HashToken(token)
-	for i := range candidates {
-		if !auth.HashEqual(hash, candidates[i].TokenHash) {
-			continue
-		}
-		match := candidates[i]
-		if match.ExpiresAt.Valid && time.Now().After(match.ExpiresAt.Time) {
-			return 0, false
-		}
-		perms := auth.EffectivePermissions(match.Permissions)
-		if !auth.Has(perms, auth.PermRead) && !auth.Has(perms, auth.PermRoot) {
-			return 0, false
-		}
-		return match.TeamID, true
-	}
-	return 0, false
+	return identity, true
 }

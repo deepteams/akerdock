@@ -437,7 +437,12 @@ type Querier interface {
 	// Revoked and expired rows are invisible here, which is what makes revocation
 	// and expiry take effect without a sweep.
 	GetLiveExternalEndpointGrant(ctx context.Context, arg GetLiveExternalEndpointGrantParams) (ExternalEndpointGrant, error)
-	GetMcpAccessTokenByHash(ctx context.Context, tokenHash string) (McpAccessToken, error)
+	// A grant is valid only while its human still exists, still belongs to the
+	// granted team and that team still exists. Role/custom-role permissions ride
+	// with the row so every MCP request is authorized against CURRENT authority:
+	// removing or demoting a member converges immediately without a separate token
+	// revocation pass.
+	GetMcpAccessTokenByHash(ctx context.Context, tokenHash string) (GetMcpAccessTokenByHashRow, error)
 	GetMcpOauthClient(ctx context.Context, clientID string) (McpOauthClient, error)
 	// Read without consuming: a mistyped code must not send the user back to the
 	// password form — the account lockout is what bounds the guesses.

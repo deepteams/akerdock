@@ -38,7 +38,8 @@ WHERE uuid = $1 AND team_id = $2 AND revoked_at IS NULL;
 --
 -- No row means the creator is no longer a member of that team: the token then
 -- holds nothing, which is the convergence the rule exists for.
-SELECT tm.role, tm.user_id, cr.permissions AS custom_permissions
+SELECT tm.role, tm.user_id, tm.custom_role_id,
+       cr.permissions AS custom_permissions
 FROM team_memberships tm
 LEFT JOIN custom_roles cr ON cr.id = tm.custom_role_id
 JOIN users u ON u.id = tm.user_id AND u.deleted_at IS NULL

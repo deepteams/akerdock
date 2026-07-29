@@ -3,6 +3,8 @@ package auth
 import (
 	"slices"
 	"testing"
+
+	"github.com/deepteams/akerdock/internal/store"
 )
 
 func TestCatalogSoclesAreValid(t *testing.T) {
@@ -16,6 +18,15 @@ func TestCatalogSoclesAreValid(t *testing.T) {
 		if _, _, ok := splitPerm(name); !ok {
 			t.Errorf("permission %q is not a valid domaine:action", name)
 		}
+	}
+}
+
+func TestPermissionsForMembershipDistinguishesEmptyCustomRole(t *testing.T) {
+	if got := PermissionsForMembership(store.TeamRoleMember, true, []string{}); len(got) != 0 {
+		t.Fatalf("empty custom role fell back to member permissions: %v", got)
+	}
+	if got := PermissionsForMembership(store.TeamRoleMember, false, nil); len(got) == 0 {
+		t.Fatal("membership without a custom role lost its system-role permissions")
 	}
 }
 

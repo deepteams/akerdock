@@ -9,6 +9,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/deepteams/akerdock/internal/auth"
 )
 
 // ProtocolVersion is the MCP revision this server implements.
@@ -59,9 +61,10 @@ type RPCError struct {
 // Tool is one exposed capability: a name, a human description and the JSON
 // Schema of its arguments — what an assistant reads to decide what to call.
 type Tool struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"inputSchema"`
+	Name                string            `json:"name"`
+	Description         string            `json:"description"`
+	InputSchema         map[string]any    `json:"inputSchema"`
+	RequiredPermissions []auth.Permission `json:"-"`
 }
 
 // Handler runs a tool for an authenticated caller. args is the raw arguments
@@ -92,9 +95,31 @@ func (s *Server) Register(tool Tool, h Handler) {
 // Tools returns the registered tools, in registration order.
 func (s *Server) Tools() []Tool { return s.tools }
 
+// availableTools returns only tools the current identity may call. Filtering
+// discovery as well as execution prevents a narrow role from being presented
+// capabilities it cannot use.
+func (s *Server) availableTools(permissions []string) []Tool {
+	out := make([]Tool, 0, len(s.tools))
+	for _, tool := range s.tools {
+		if toolAllowed(tool, permissions) {
+			out = append(out, tool)
+		}
+	}
+	return out
+}
+
+func toolAllowed(tool Tool, permissions []string) bool {
+	for _, required := range tool.RequiredPermissions {
+		if !auth.Has(permissions, required) {
+			return false
+		}
+	}
+	return true
+}
+
 // Handle answers one JSON-RPC request. A nil response means the message was a
 // notification: nothing to send back.
-func (s *Server) Handle(ctx context.Context, teamID int64, raw []byte) *Response {
+func (s *Server) Handle(ctx context.Context, teamID int64, permissions []string, raw []byte) *Response {
 	var req Request
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return errorResponse(nil, codeParseError, "invalid JSON")
@@ -128,12 +153,12 @@ func (s *Server) Handle(ctx context.Context, teamID int64, raw []byte) *Response
 		if notification {
 			return nil
 		}
-		return &Response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"tools": s.tools}}
+		return &Response{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"tools": s.availableTools(permissions)}}
 	case "tools/call":
 		if notification {
 			return nil
 		}
-		return s.call(ctx, teamID, req)
+		return s.call(ctx, teamID, permissions, req)
 	default:
 		if notification {
 			return nil // unknown notifications are ignored, per the protocol
@@ -142,7 +167,7 @@ func (s *Server) Handle(ctx context.Context, teamID int64, raw []byte) *Response
 	}
 }
 
-func (s *Server) call(ctx context.Context, teamID int64, req Request) *Response {
+func (s *Server) call(ctx context.Context, teamID int64, permissions []string, req Request) *Response {
 	var params struct {
 		Name      string         `json:"name"`
 		Arguments map[string]any `json:"arguments"`
@@ -152,6 +177,18 @@ func (s *Server) call(ctx context.Context, teamID int64, req Request) *Response 
 	}
 	h, ok := s.handler[params.Name]
 	if !ok {
+		return errorResponse(req.ID, codeInvalidParams, "unknown tool "+params.Name)
+	}
+	var allowed bool
+	for _, tool := range s.tools {
+		if tool.Name == params.Name {
+			allowed = toolAllowed(tool, permissions)
+			break
+		}
+	}
+	if !allowed {
+		// Use the same shape as an unknown tool so a caller cannot enumerate
+		// capabilities their role is not permitted to discover.
 		return errorResponse(req.ID, codeInvalidParams, "unknown tool "+params.Name)
 	}
 	out, err := h(ctx, teamID, params.Arguments)

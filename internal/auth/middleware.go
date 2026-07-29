@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -15,6 +16,11 @@ import (
 // lastUsedGranularity bounds the lazy last_used_at updates (data-dictionary
 // §4.8: never on every request).
 const lastUsedGranularity = 5 * time.Minute
+
+// ErrInvalidAPIToken is returned by ResolveAPIToken when the credential is
+// unknown, expired or outside its IP allowlist. Callers deliberately collapse
+// all of those cases into one unauthenticated response.
+var ErrInvalidAPIToken = errors.New("invalid API token")
 
 // Middleware authenticates bearer tokens and enforces the api_enabled gate.
 type Middleware struct {
@@ -121,11 +127,31 @@ func (m *Middleware) authenticate(w http.ResponseWriter, r *http.Request) *Ident
 		return unauthorized()
 	}
 
-	// Prefix pre-filter then constant-time hash comparison (ERD §12).
-	candidates, err := m.Store.GetActiveApiTokensByPrefix(r.Context(), token[:PrefixLen])
+	identity, err := m.ResolveAPIToken(r, token)
+	if errors.Is(err, ErrInvalidAPIToken) {
+		return unauthorized()
+	}
 	if err != nil {
 		httpapi.WriteError(w, r, http.StatusInternalServerError, httpapi.CodeInternal, "internal error")
 		return nil
+	}
+	return identity
+}
+
+// ResolveAPIToken authenticates one already-parsed akd_ credential and returns
+// the same bounded identity used by the public API. Non-API surfaces such as
+// MCP call this method instead of reimplementing token lookup: IP allowlists,
+// expiry and the creator's current authority therefore cannot drift between
+// entry points.
+func (m *Middleware) ResolveAPIToken(r *http.Request, token string) (*Identity, error) {
+	if len(token) < PrefixLen {
+		return nil, ErrInvalidAPIToken
+	}
+
+	// Prefix pre-filter then constant-time hash comparison (ERD §12).
+	candidates, err := m.Store.GetActiveApiTokensByPrefix(r.Context(), token[:PrefixLen])
+	if err != nil {
+		return nil, err
 	}
 	hash := HashToken(token)
 	var match *store.GetActiveApiTokensByPrefixRow
@@ -136,20 +162,20 @@ func (m *Middleware) authenticate(w http.ResponseWriter, r *http.Request) *Ident
 		}
 	}
 	if match == nil {
-		return unauthorized()
+		return nil, ErrInvalidAPIToken
 	}
 	if match.ExpiresAt.Valid && time.Now().After(match.ExpiresAt.Time) {
-		return unauthorized()
+		return nil, ErrInvalidAPIToken
 	}
 	if len(match.IpAllowlist) > 0 && !ipAllowed(r, match.IpAllowlist) {
-		return unauthorized()
+		return nil, ErrInvalidAPIToken
 	}
 
 	if !match.LastUsedAt.Valid || time.Since(match.LastUsedAt.Time) > lastUsedGranularity {
 		go func(id int64) {
 			ctx, cancel := contextWithTimeout()
 			defer cancel()
-			if err := m.Store.TouchApiTokenLastUsed(ctx, id); err != nil {
+			if err := m.Store.TouchApiTokenLastUsed(ctx, id); err != nil && m.Logger != nil {
 				m.Logger.Warn("failed to touch token last_used_at", "error", err)
 			}
 		}(match.ID)
@@ -169,7 +195,7 @@ func (m *Middleware) authenticate(w http.ResponseWriter, r *http.Request) *Ident
 		Permissions: granted,
 	}
 	m.boundToCreator(r, id, match, granted)
-	return id
+	return id, nil
 }
 
 // boundToCreator caps a token at what its creator holds, re-evaluated now
@@ -201,10 +227,7 @@ func (m *Middleware) boundToCreator(r *http.Request, id *Identity, match *store.
 		return
 	}
 
-	base := PermissionsForRole(authority.Role)
-	if len(authority.CustomPermissions) > 0 {
-		base = authority.CustomPermissions
-	}
+	base := PermissionsForMembership(authority.Role, authority.CustomRoleID != nil, authority.CustomPermissions)
 	id.Permissions = intersect(granted, ExpandGranular(base))
 	id.UserID = &authority.UserID
 }

@@ -66,7 +66,8 @@ func (q *Queries) CreateApiToken(ctx context.Context, arg CreateApiTokenParams) 
 }
 
 const getTokenCreatorAuthority = `-- name: GetTokenCreatorAuthority :one
-SELECT tm.role, tm.user_id, cr.permissions AS custom_permissions
+SELECT tm.role, tm.user_id, tm.custom_role_id,
+       cr.permissions AS custom_permissions
 FROM team_memberships tm
 LEFT JOIN custom_roles cr ON cr.id = tm.custom_role_id
 JOIN users u ON u.id = tm.user_id AND u.deleted_at IS NULL
@@ -81,6 +82,7 @@ type GetTokenCreatorAuthorityParams struct {
 type GetTokenCreatorAuthorityRow struct {
 	Role              TeamRole
 	UserID            int64
+	CustomRoleID      *int64
 	CustomPermissions []string
 }
 
@@ -94,7 +96,12 @@ type GetTokenCreatorAuthorityRow struct {
 func (q *Queries) GetTokenCreatorAuthority(ctx context.Context, arg GetTokenCreatorAuthorityParams) (GetTokenCreatorAuthorityRow, error) {
 	row := q.db.QueryRow(ctx, getTokenCreatorAuthority, arg.UserID, arg.TeamID)
 	var i GetTokenCreatorAuthorityRow
-	err := row.Scan(&i.Role, &i.UserID, &i.CustomPermissions)
+	err := row.Scan(
+		&i.Role,
+		&i.UserID,
+		&i.CustomRoleID,
+		&i.CustomPermissions,
+	)
 	return i, err
 }
 

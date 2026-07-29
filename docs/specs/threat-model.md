@@ -25,7 +25,7 @@ flowchart TB
         BROWSER["Browser<br/>(SPA Angular, session cookie)"]
         CLI["CLI AkerDock<br/>(token API Bearer)"]
         CI["Pipeline CI<br/>(token deploy)"]
-        MCP["MCP integration / read-only<br/>(token read)"]
+        MCP["MCP integration / read-only<br/>(token + granular RBAC)"]
     end
 
     subgraph ext_git["External providers (semi-trusted)"]
@@ -65,7 +65,7 @@ flowchart TB
     BROWSER -->|"HTTPS + cookie CSRF"| API
     CLI -->|"Bearer token"| API
     CI -->|"Bearer deploy"| API
-    MCP -->|"Bearer read"| API
+    MCP -->|"Bearer read + domain RBAC"| API
     BROWSER -.->|"SSE"| RT
     BROWSER -.->|"WSS terminal"| WSTERM
 

@@ -28,8 +28,25 @@ VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
 -- name: GetMcpAccessTokenByHash :one
-SELECT * FROM mcp_access_tokens
-WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now();
+-- A grant is valid only while its human still exists, still belongs to the
+-- granted team and that team still exists. Role/custom-role permissions ride
+-- with the row so every MCP request is authorized against CURRENT authority:
+-- removing or demoting a member converges immediately without a separate token
+-- revocation pass.
+SELECT token.*, membership.role, membership.custom_role_id,
+       custom_role.permissions AS custom_permissions
+FROM mcp_access_tokens token
+JOIN users user_account
+  ON user_account.id = token.user_id AND user_account.deleted_at IS NULL
+JOIN team_memberships membership
+  ON membership.user_id = token.user_id AND membership.team_id = token.team_id
+JOIN teams team
+  ON team.id = token.team_id AND team.deleted_at IS NULL
+LEFT JOIN custom_roles custom_role
+  ON custom_role.id = membership.custom_role_id
+WHERE token.token_hash = $1
+  AND token.revoked_at IS NULL
+  AND token.expires_at > now();
 
 -- name: TouchMcpAccessToken :exec
 UPDATE mcp_access_tokens SET last_used_at = now() WHERE id = $1;

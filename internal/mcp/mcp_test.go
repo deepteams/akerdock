@@ -5,12 +5,20 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/deepteams/akerdock/internal/auth"
+	"github.com/deepteams/akerdock/internal/store"
 )
 
 // handle is the test shorthand: one request in, the decoded response out.
 func handle(t *testing.T, s *Server, body string) *Response {
 	t.Helper()
-	return s.Handle(context.Background(), 1, []byte(body))
+	return handleAs(t, s, []string{string(auth.PermRoot)}, body)
+}
+
+func handleAs(t *testing.T, s *Server, permissions []string, body string) *Response {
+	t.Helper()
+	return s.Handle(context.Background(), 1, permissions, []byte(body))
 }
 
 func TestInitializeAdvertisesToolsAndVersion(t *testing.T) {
@@ -69,6 +77,46 @@ func TestToolsListAndCall(t *testing.T) {
 	text := result["content"].([]map[string]any)[0]["text"].(string)
 	if !strings.Contains(text, `"hello": "world"`) || !strings.Contains(text, `"team": 1`) {
 		t.Fatalf("tool result = %s", text)
+	}
+}
+
+func TestToolsAreFilteredAndEnforcedByPermission(t *testing.T) {
+	s := New("test")
+	called := false
+	s.Register(Tool{
+		Name: "servers", InputSchema: ObjectSchema(nil),
+		RequiredPermissions: []auth.Permission{auth.PermServersRead},
+	}, func(context.Context, int64, map[string]any) (any, error) {
+		called = true
+		return map[string]any{"kind": "server"}, nil
+	})
+	s.Register(Tool{
+		Name: "applications", InputSchema: ObjectSchema(nil),
+		RequiredPermissions: []auth.Permission{auth.PermApplicationsRead},
+	}, func(context.Context, int64, map[string]any) (any, error) {
+		return map[string]any{"kind": "application"}, nil
+	})
+
+	appOnly := []string{string(auth.PermApplicationsRead)}
+	list := handleAs(t, s, appOnly, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	tools := list.Result.(map[string]any)["tools"].([]Tool)
+	if len(tools) != 1 || tools[0].Name != "applications" {
+		t.Fatalf("application-only tools/list = %+v", tools)
+	}
+
+	denied := handleAs(t, s, appOnly,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"servers"}}`)
+	if denied.Error == nil || denied.Error.Code != codeInvalidParams {
+		t.Fatalf("forbidden tool call = %+v, want unavailable-tool error", denied)
+	}
+	if called {
+		t.Fatal("forbidden server handler was executed")
+	}
+
+	allowed := handleAs(t, s, appOnly,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"applications"}}`)
+	if allowed.Error != nil || allowed.Result.(map[string]any)["isError"] != false {
+		t.Fatalf("allowed application call failed: %+v", allowed)
 	}
 }
 
@@ -144,5 +192,34 @@ func TestNoMutatingToolNames(t *testing.T) {
 		if tool.Description == "" || tool.InputSchema == nil {
 			t.Fatalf("tool %q must document itself: an assistant reads this to decide", tool.Name)
 		}
+		if len(tool.RequiredPermissions) == 0 {
+			t.Fatalf("tool %q has no RBAC permission", tool.Name)
+		}
+	}
+}
+
+func TestRegisteredToolsFollowTeamRoles(t *testing.T) {
+	s := New("test")
+	RegisterTools(s, nil)
+	list := func(permissions []string) []Tool {
+		t.Helper()
+		resp := handleAs(t, s, permissions, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+		return resp.Result.(map[string]any)["tools"].([]Tool)
+	}
+
+	reviewer := auth.ExpandGranular(auth.PermissionsForRole(store.TeamRoleReviewer))
+	if tools := list(reviewer); len(tools) != 0 {
+		t.Fatalf("reviewer discovered unrelated inventory tools: %+v", tools)
+	}
+
+	appOnly := auth.ExpandGranular([]string{string(auth.PermApplicationsRead)})
+	tools := list(appOnly)
+	if len(tools) != 2 || tools[0].Name != "list_applications" || tools[1].Name != "get_application" {
+		t.Fatalf("application-only role tools = %+v", tools)
+	}
+
+	member := auth.ExpandGranular(auth.PermissionsForRole(store.TeamRoleMember))
+	if tools := list(member); len(tools) != 10 {
+		t.Fatalf("member discovered %d tools, want all 10", len(tools))
 	}
 }

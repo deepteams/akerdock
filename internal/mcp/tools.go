@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/store"
 )
@@ -40,14 +41,19 @@ func RegisterTools(s *Server, q Store) {
 		Description: "Inventory summary of the team: how many servers, projects, applications, " +
 			"databases and compose stacks, and how many of them are not healthy. Start here.",
 		InputSchema: ObjectSchema(map[string]any{}),
+		RequiredPermissions: []auth.Permission{
+			auth.PermServersRead, auth.PermProjectsRead, auth.PermApplicationsRead,
+			auth.PermDatabasesRead, auth.PermServicesRead,
+		},
 	}, func(ctx context.Context, teamID int64, _ map[string]any) (any, error) {
 		return overview(ctx, q, teamID)
 	})
 
 	s.Register(Tool{
-		Name:        "list_servers",
-		Description: "Servers of the team: host, status, proxy state, architecture, docker version.",
-		InputSchema: ObjectSchema(pageProps),
+		Name:                "list_servers",
+		Description:         "Servers of the team: host, status, proxy state, architecture, docker version.",
+		InputSchema:         ObjectSchema(pageProps),
+		RequiredPermissions: []auth.Permission{auth.PermServersRead},
 	}, func(ctx context.Context, teamID int64, args map[string]any) (any, error) {
 		rows, err := q.ListServersPage(ctx, store.ListServersPageParams{TeamID: teamID, PageLimit: PageSize(args)})
 		if err != nil {
@@ -61,9 +67,10 @@ func RegisterTools(s *Server, q Store) {
 	})
 
 	s.Register(Tool{
-		Name:        "get_server",
-		Description: "One server by uuid, with how many resources it hosts.",
-		InputSchema: ObjectSchema(map[string]any{"uuid": StringProp("Server uuid.")}, "uuid"),
+		Name:                "get_server",
+		Description:         "One server by uuid, with how many resources it hosts.",
+		InputSchema:         ObjectSchema(map[string]any{"uuid": StringProp("Server uuid.")}, "uuid"),
+		RequiredPermissions: []auth.Permission{auth.PermServersRead},
 	}, func(ctx context.Context, teamID int64, args map[string]any) (any, error) {
 		id, err := uuidArg(args, "uuid")
 		if err != nil {
@@ -81,9 +88,10 @@ func RegisterTools(s *Server, q Store) {
 	})
 
 	s.Register(Tool{
-		Name:        "list_projects",
-		Description: "Projects of the team and their environments count.",
-		InputSchema: ObjectSchema(pageProps),
+		Name:                "list_projects",
+		Description:         "Projects of the team and their environments count.",
+		InputSchema:         ObjectSchema(pageProps),
+		RequiredPermissions: []auth.Permission{auth.PermProjectsRead},
 	}, func(ctx context.Context, teamID int64, args map[string]any) (any, error) {
 		rows, err := q.ListProjectsPage(ctx, store.ListProjectsPageParams{TeamID: teamID, PageLimit: PageSize(args)})
 		if err != nil {
@@ -104,7 +112,8 @@ func RegisterTools(s *Server, q Store) {
 		Name: "list_applications",
 		Description: "Applications of the team: desired and observed status, source, server, " +
 			"and whether scale-to-zero or an access wall is enabled.",
-		InputSchema: ObjectSchema(pageProps),
+		InputSchema:         ObjectSchema(pageProps),
+		RequiredPermissions: []auth.Permission{auth.PermApplicationsRead},
 	}, func(ctx context.Context, teamID int64, args map[string]any) (any, error) {
 		rows, err := q.ListApplicationsPage(ctx, store.ListApplicationsPageParams{TeamID: teamID, PageLimit: PageSize(args)})
 		if err != nil {
@@ -130,7 +139,8 @@ func RegisterTools(s *Server, q Store) {
 		Description: "One application by uuid: status, source, routing domains, compose components " +
 			"with their observed state, previews and scale-to-zero settings. Never returns " +
 			"environment variable values.",
-		InputSchema: ObjectSchema(map[string]any{"uuid": StringProp("Application uuid.")}, "uuid"),
+		InputSchema:         ObjectSchema(map[string]any{"uuid": StringProp("Application uuid.")}, "uuid"),
+		RequiredPermissions: []auth.Permission{auth.PermApplicationsRead},
 	}, func(ctx context.Context, teamID int64, args map[string]any) (any, error) {
 		id, err := uuidArg(args, "uuid")
 		if err != nil {
@@ -172,9 +182,10 @@ func RegisterTools(s *Server, q Store) {
 	})
 
 	s.Register(Tool{
-		Name:        "list_databases",
-		Description: "Managed databases of the team: engine, version, status, server. No credentials.",
-		InputSchema: ObjectSchema(pageProps),
+		Name:                "list_databases",
+		Description:         "Managed databases of the team: engine, version, status, server. No credentials.",
+		InputSchema:         ObjectSchema(pageProps),
+		RequiredPermissions: []auth.Permission{auth.PermDatabasesRead},
 	}, func(ctx context.Context, teamID int64, args map[string]any) (any, error) {
 		rows, err := q.ListDatabasesPage(ctx, store.ListDatabasesPageParams{TeamID: teamID, PageLimit: PageSize(args)})
 		if err != nil {
@@ -196,9 +207,10 @@ func RegisterTools(s *Server, q Store) {
 	})
 
 	s.Register(Tool{
-		Name:        "get_database",
-		Description: "One managed database by uuid. Credentials are never returned.",
-		InputSchema: ObjectSchema(map[string]any{"uuid": StringProp("Database uuid.")}, "uuid"),
+		Name:                "get_database",
+		Description:         "One managed database by uuid. Credentials are never returned.",
+		InputSchema:         ObjectSchema(map[string]any{"uuid": StringProp("Database uuid.")}, "uuid"),
+		RequiredPermissions: []auth.Permission{auth.PermDatabasesRead},
 	}, func(ctx context.Context, teamID int64, args map[string]any) (any, error) {
 		id, err := uuidArg(args, "uuid")
 		if err != nil {
@@ -222,9 +234,10 @@ func RegisterTools(s *Server, q Store) {
 	})
 
 	s.Register(Tool{
-		Name:        "list_services",
-		Description: "Compose stacks of the team: status and server.",
-		InputSchema: ObjectSchema(pageProps),
+		Name:                "list_services",
+		Description:         "Compose stacks of the team: status and server.",
+		InputSchema:         ObjectSchema(pageProps),
+		RequiredPermissions: []auth.Permission{auth.PermServicesRead},
 	}, func(ctx context.Context, teamID int64, args map[string]any) (any, error) {
 		rows, err := q.ListServiceStacksPage(ctx, store.ListServiceStacksPageParams{TeamID: teamID, PageLimit: PageSize(args)})
 		if err != nil {
@@ -244,9 +257,10 @@ func RegisterTools(s *Server, q Store) {
 	})
 
 	s.Register(Tool{
-		Name:        "get_service",
-		Description: "One compose stack by uuid, with its components and their observed state.",
-		InputSchema: ObjectSchema(map[string]any{"uuid": StringProp("Service (compose stack) uuid.")}, "uuid"),
+		Name:                "get_service",
+		Description:         "One compose stack by uuid, with its components and their observed state.",
+		InputSchema:         ObjectSchema(map[string]any{"uuid": StringProp("Service (compose stack) uuid.")}, "uuid"),
+		RequiredPermissions: []auth.Permission{auth.PermServicesRead},
 	}, func(ctx context.Context, teamID int64, args map[string]any) (any, error) {
 		id, err := uuidArg(args, "uuid")
 		if err != nil {

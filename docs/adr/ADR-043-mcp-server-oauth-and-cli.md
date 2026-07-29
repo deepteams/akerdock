@@ -3,14 +3,15 @@
 - **Status**: Accepted
 - **Date**: 2026-07-28
 - **Related PRD sections**: §12, §10.3, §16.1, §21, §27.7
-- **Builds on**: [ADR-021](ADR-021-compose-distribution-two-services.md) (single binary, single port), [ADR-031](ADR-031-cli-login-poll-code-pkce.md) (browser login, PKCE), [ADR-038](ADR-038-roles-model.md) (`viewer` role)
+- **Builds on**: [ADR-021](ADR-021-compose-distribution-two-services.md) (single binary, single port), [ADR-031](ADR-031-cli-login-poll-code-pkce.md) (browser login, PKCE), [ADR-038](ADR-038-roles-model.md) (granular team permissions)
 
 ## Context
 
 PRD §12 specifies a built-in MCP server: Streamable HTTP on `/mcp`, API-token
 authentication, per-team scoping, ten read-only tools, bounded pagination. The
 threat model already lists the MCP integration as an actor holding a `read`
-token, and ADR-038 designed the `viewer` role for exactly this consumer.
+token; ADR-038 supplies the domain-level read permissions each tool must still
+enforce.
 
 What the PRD does not settle is **how an MCP client authenticates**. Two client
 families exist in practice and they are not interchangeable:
@@ -45,8 +46,10 @@ One MCP surface, two authenticated paths, no write operations.
    tokens (`akdm_`, stored hashed like every other credential). The consent
    screen runs on the panel origin and is authorized by the AkerDock session —
    the same trust anchor as preview SSO (ADR-030) and CLI login (ADR-031). A
-   grant is bound to ONE team and carries read permissions only, whatever the
-   granting user's role.
+   grant is bound to ONE team and carries read permissions only. Its human's
+   current membership and role/custom-role permissions are re-evaluated on
+   every request; removal invalidates it, demotion narrows it, and each tool
+   requires its own domain permission.
 4. **Local clients — `akerdock mcp`**: a CLI mode that speaks MCP over stdio
    and forwards to the instance's `/mcp`, using the current CLI context and
    its token (`~/.akerdock/`, ADR-033), or `--token`/`AKERDOCK_TOKEN`. No
@@ -86,5 +89,6 @@ One MCP surface, two authenticated paths, no write operations.
 - **Accepted risks**: dynamic client registration is open by design (any
   client may register) — mitigated by the fact that registration grants
   nothing: only a user's explicit consent, under their session, mints a token
-  bound to their team and to `read`; a token leak exposes read-only inventory
-  of one team, masked of every secret, and is revocable from the panel.
+  bound to their team and to `read`; a token leak exposes only the team
+  inventory domains its current owner may read, masked of every secret, and is
+  revocable from the panel.
