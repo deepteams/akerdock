@@ -8,11 +8,12 @@ import {
   untracked,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { Router, RouterLink, UrlTree } from '@angular/router';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import { ApiService } from '../core/api.service';
+import { NavigationHistory } from '../core/navigation-history.service';
 import { ApiError } from '../../api/client';
 import type { components } from '../../api/schema';
 
@@ -33,11 +34,7 @@ type Deployment = components['schemas']['Deployment'];
     <div class="akd-page">
       <header class="akd-bar">
         <div class="title">
-          <a
-            class="akd-iconbtn akd-iconbtn--bordered"
-            routerLink="/services"
-            aria-label="Back to services"
-          >
+          <a class="akd-iconbtn akd-iconbtn--bordered" [routerLink]="backLink()" aria-label="Back">
             <akd-icon name="arrow-left" [size]="15" />
           </a>
           <span class="title__icon"><akd-icon name="boxes" [size]="17" /></span>
@@ -292,6 +289,13 @@ export class ServiceDetailComponent {
 
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly history = inject(NavigationHistory);
+
+  /** Back where the user came from: a service is opened from the flat list as
+   *  well as from its environment's resource table. */
+  protected backLink(): UrlTree {
+    return this.history.backTo('/services');
+  }
 
   protected readonly service = signal<Service | null>(null);
   protected readonly components = signal<ServiceComponent[]>([]);

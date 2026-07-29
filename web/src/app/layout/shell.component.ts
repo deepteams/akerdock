@@ -4,6 +4,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { ApiService, MyTeam } from '../core/api.service';
+import { NavigationHistory } from '../core/navigation-history.service';
 import { IconComponent } from '../../ui/icon/icon.component';
 
 interface NavItem {
@@ -373,6 +374,10 @@ interface NavSection {
 export class ShellComponent {
   protected readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  // Injected here and nowhere else on purpose: the service must start watching
+  // navigations from the first one, not from the moment a detail page asks it
+  // where the user came from — by then it has missed the answer.
+  private readonly history = inject(NavigationHistory);
 
   protected readonly sections: NavSection[] = [
     {
@@ -384,12 +389,16 @@ export class ShellComponent {
       ],
     },
     {
+      // Bastion targets and the tunnels open onto them (ADR-045) get their own
+      // section rather than sitting under Operations: everything else there
+      // answers "what is happening", this one answers "how do I reach it" —
+      // the question an operator actually scans the menu for.
+      title: 'Remote access',
+      items: [{ path: '/external-endpoints', label: 'Tunnels', icon: 'cable' }],
+    },
+    {
       title: 'Operations',
       items: [
-        // Bastion targets and the tunnels open onto them (ADR-045). Under
-        // Operations rather than Platform: declaring one is rare, watching who
-        // is connected to production is not.
-        { path: '/external-endpoints', label: 'Tunnels', icon: 'cable' },
         { path: '/notifications', label: 'Notifications', icon: 'bell' },
         { path: '/jobs', label: 'Jobs', icon: 'list-checks' },
         { path: '/events', label: 'Events', icon: 'activity' },

@@ -8,7 +8,7 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink, UrlTree } from '@angular/router';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import {
@@ -16,6 +16,7 @@ import {
   type StackComponentAction,
 } from '../../ui/stack-components/stack-components.component';
 import { ApiService } from '../core/api.service';
+import { NavigationHistory } from '../core/navigation-history.service';
 import { APPLICATION_EVENTS, DEPLOYMENT_EVENTS, LiveEventsService } from '../core/live-refresh';
 import type { components } from '../../api/schema';
 import { ApplicationSettingsTabComponent } from './application/settings-tab.component';
@@ -70,11 +71,7 @@ type TabId =
   host: { class: 'akd-page' },
   template: `
     <header class="akd-bar head">
-      <a
-        routerLink="/applications"
-        class="akd-iconbtn akd-iconbtn--bordered"
-        aria-label="Back to applications"
-      >
+      <a [routerLink]="backLink()" class="akd-iconbtn akd-iconbtn--bordered" aria-label="Back">
         <akd-icon name="arrow-left" [size]="15" />
       </a>
       <h1 class="name">{{ application()?.name ?? '…' }}</h1>
@@ -325,6 +322,13 @@ export class ApplicationDetailComponent {
 
   private readonly router = inject(Router);
   private readonly activatedRoute = inject(ActivatedRoute);
+  private readonly history = inject(NavigationHistory);
+
+  /** Back where the user came from — the environment's resource table as often
+   *  as the flat list, which is why this is not a fixed link. */
+  protected backLink(): UrlTree {
+    return this.history.backTo('/applications');
+  }
 
   protected selectTab(id: TabId): void {
     if (this.tab() === id) return;

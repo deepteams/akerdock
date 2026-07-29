@@ -369,7 +369,12 @@ export class ApplicationNewComponent {
       const created = await this.api.client().createApplication(createRequestFromForm(this.form));
       // Land on the application just created: configuring and deploying it is
       // the natural next step, and the detail page is where both live.
-      await this.router.navigate(['/applications', created.uuid]);
+      //
+      // replaceUrl: the submitted form is not a place to go back to — neither
+      // for the browser's back button nor for the detail page's back arrow,
+      // which would otherwise offer to return to a creation form for an
+      // application that now exists.
+      await this.router.navigate(['/applications', created.uuid], { replaceUrl: true });
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
