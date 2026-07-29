@@ -1,5 +1,13 @@
 import { DatePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, inject, input, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  effect,
+  inject,
+  input,
+  signal,
+  untracked,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
@@ -156,12 +164,19 @@ export class RequestEndpointAccessComponent {
   protected code = '';
 
   constructor() {
-    void this.load();
+    // A required input is NOT readable from the constructor — reading it there
+    // throws NG0950 and the page renders nothing but the error code, which is
+    // exactly what the CLI's "request access" link used to open. The effect
+    // runs once the route parameter is bound, and again if it changes.
+    effect(() => {
+      const uuid = this.uuid();
+      untracked(() => void this.load(uuid));
+    });
   }
 
-  private async load(): Promise<void> {
+  private async load(uuid: string): Promise<void> {
     try {
-      const endpoint = await this.api.client().getExternalEndpoint(this.uuid());
+      const endpoint = await this.api.client().getExternalEndpoint(uuid);
       this.endpoint.set(endpoint);
       this.durationMinutes = Math.min(240, endpoint.max_grant_minutes);
     } catch (err) {

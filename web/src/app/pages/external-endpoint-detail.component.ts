@@ -1,5 +1,14 @@
 import { DatePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  untracked,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { CardComponent } from '../../ui/card/card.component';
@@ -366,17 +375,20 @@ export class ExternalEndpointDetailComponent {
   );
 
   constructor() {
-    void this.load();
+    // Required inputs are not readable from the constructor (NG0950): the
+    // effect runs once the route parameter is bound.
+    effect(() => {
+      const uuid = this.uuid();
+      untracked(() => void this.load(uuid));
+    });
   }
 
-  private async load(): Promise<void> {
+  private async load(uuid: string): Promise<void> {
     try {
       const [endpoint, grants, sessions, servers, projects] = await Promise.all([
-        this.api.client().getExternalEndpoint(this.uuid()),
-        this.api.client().listExternalEndpointGrants(this.uuid(), { limit: 100 }),
-        this.api
-          .client()
-          .listPortForwardSessions({ external_endpoint_uuid: this.uuid(), limit: 100 }),
+        this.api.client().getExternalEndpoint(uuid),
+        this.api.client().listExternalEndpointGrants(uuid, { limit: 100 }),
+        this.api.client().listPortForwardSessions({ external_endpoint_uuid: uuid, limit: 100 }),
         this.api.client().listServers({ limit: 100 }),
         this.api.client().listProjects({ limit: 100 }),
       ]);
@@ -477,7 +489,9 @@ export class ExternalEndpointDetailComponent {
     this.error.set(null);
     try {
       await action();
-      await this.load();
+      // Safe here: a mutation only ever runs after the view exists, so the
+      // route input is bound.
+      await this.load(this.uuid());
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
