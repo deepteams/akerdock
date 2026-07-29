@@ -12,6 +12,10 @@ import { ActivatedRoute, Router, RouterLink, UrlTree } from '@angular/router';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import {
+  ActionsMenuComponent,
+  type ActionItem,
+} from '../../ui/actions-menu/actions-menu.component';
+import {
   StackComponentsComponent,
   type StackComponentAction,
 } from '../../ui/stack-components/stack-components.component';
@@ -35,6 +39,13 @@ type Deployment = components['schemas']['Deployment'];
 type ServiceComponent = components['schemas']['ServiceComponent'];
 type ComponentMetric = components['schemas']['ComponentMetric'];
 
+/**
+ * `recreate` is the one an operator reaches for after editing a variable: a
+ * container freezes its environment when it is created, so `restart` hands
+ * the process back the values it already had (ADR-048).
+ */
+type AppAction = 'deploy' | 'rebuild' | 'recreate' | 'start' | 'stop' | 'restart';
+
 type TabId =
   | 'overview'
   | 'settings'
@@ -54,6 +65,7 @@ type TabId =
   imports: [
     StatusBadgeComponent,
     IconComponent,
+    ActionsMenuComponent,
     StackComponentsComponent,
     RouterLink,
     ApplicationSettingsTabComponent,
@@ -102,36 +114,14 @@ type TabId =
           <span class="akd-badge akd-badge--mono">{{ server }}</span>
         }
         <div class="actions">
-          <button
-            class="akd-btn akd-btn--secondary"
-            type="button"
+          <!-- The routine verb stays a button; everything that rebuilds,
+               reapplies or stops the application lives one click away, each
+               entry saying what it does. -->
+          <akd-actions-menu
+            [items]="actions()"
             [disabled]="busy()"
-            (click)="run('restart')"
-          >
-            <akd-icon name="refresh-cw" [size]="15" />
-            Restart
-          </button>
-          @if (app.desired_status === 'stopped') {
-            <button
-              class="akd-btn akd-btn--secondary"
-              type="button"
-              [disabled]="busy()"
-              (click)="run('start')"
-            >
-              <akd-icon name="play" [size]="15" />
-              Start
-            </button>
-          } @else {
-            <button
-              class="akd-btn akd-btn--secondary"
-              type="button"
-              [disabled]="busy()"
-              (click)="run('stop')"
-            >
-              <akd-icon name="square" [size]="13" />
-              Stop
-            </button>
-          }
+            (selected)="run($any($event))"
+          />
           <button
             class="akd-btn akd-btn--primary"
             type="button"
@@ -366,6 +356,53 @@ export class ApplicationDetailComponent {
   /** Whether the app is a single-container build pack (no compose services). */
   private readonly single = computed(() => this.application()?.build_pack !== 'compose');
 
+  /**
+   * The overflow menu. Each hint names the consequence, because the entries
+   * differ by one word and by a great deal of effect: `restart` reuses the
+   * container as it stands, `recreate` builds it again from the current
+   * configuration — the only one of the two that picks up an edited variable
+   * (ADR-048).
+   */
+  protected readonly actions = computed<ActionItem[]>(() => {
+    const app = this.application();
+    const items: ActionItem[] = [];
+    // Nothing to force a cache past when nothing is built: the contract only
+    // names a build pack for the sources that build one (a ready image pulled
+    // from a registry reports none).
+    if (app?.build_pack) {
+      items.push({
+        id: 'rebuild',
+        label: 'Rebuild (no cache)',
+        icon: 'hammer',
+        hint: 'Build the image again, ignoring every cached layer',
+      });
+    }
+    items.push({
+      id: 'recreate',
+      label: 'Recreate (apply config)',
+      icon: 'settings-2',
+      hint: 'Redeploy the running image with the current variables — no build',
+    });
+    items.push({
+      id: 'restart',
+      label: 'Restart',
+      icon: 'refresh-cw',
+      hint: 'Restart the container as it stands — keeps its current variables',
+    });
+    if (app?.desired_status === 'stopped') {
+      items.push({ id: 'start', label: 'Start', icon: 'play', hint: 'Start the container again' });
+    } else {
+      items.push({
+        id: 'stop',
+        label: 'Stop',
+        icon: 'square',
+        danger: true,
+        hint: 'Stop the container — the application goes offline',
+      });
+    }
+    return items;
+  });
+
   /** The synthesized one-entry list that drives the single-container panel. */
   protected readonly singleComponent = computed<ServiceComponent[]>(() => {
     const app = this.application();
@@ -498,14 +535,19 @@ export class ApplicationDetailComponent {
    * and then observes. It never blocks on the outcome, and closing the page
    * never cancels the work.
    */
-  protected async run(action: 'deploy' | 'start' | 'stop' | 'restart'): Promise<void> {
+  protected async run(action: AppAction): Promise<void> {
     const client = this.api.client();
     this.busy.set(true);
     this.error.set(null);
     try {
       switch (action) {
-        case 'deploy': {
-          const { deployment_uuid } = await client.deployApplication(this.uuid());
+        case 'deploy':
+        case 'rebuild':
+        case 'recreate': {
+          const { deployment_uuid } = await client.deployApplication(this.uuid(), {
+            forceRebuild: action === 'rebuild',
+            skipBuild: action === 'recreate',
+          });
           await this.refreshDeployments();
           // Follow the deployment that was just queued: open its page, where the
           // build log streams live (SSE) — watching it is the whole point of
@@ -518,7 +560,7 @@ export class ApplicationDetailComponent {
               deployment_uuid,
             ]);
           }
-          break;
+          return;
         }
         case 'start':
           await client.startApplication(this.uuid());
@@ -530,7 +572,7 @@ export class ApplicationDetailComponent {
           await client.restartApplication(this.uuid());
           break;
       }
-      if (action !== 'deploy') await this.refreshDeployments();
+      await this.refreshDeployments();
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {

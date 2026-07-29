@@ -255,13 +255,44 @@ export class AkerDockClient {
     return this.request<Response>('GET', `/applications/${uuid}/logs`, { query });
   }
 
-  deployApplication(uuid: string, options: { force?: boolean; idempotencyKey?: string } = {}) {
+  /**
+   * Deploys an application. `forceRebuild` rebuilds without cache;
+   * `skipBuild` rebuilds nothing and reapplies the current configuration over
+   * the running artifact (ADR-048) — the two are mutually exclusive, and the
+   * server answers 422 when both are set.
+   */
+  deployApplication(
+    uuid: string,
+    options: { forceRebuild?: boolean; skipBuild?: boolean; idempotencyKey?: string } = {},
+  ) {
     type Response =
       paths['/applications/{application_uuid}/deploy']['post']['responses']['202']['content']['application/json'];
     return this.request<Response>('POST', `/applications/${uuid}/deploy`, {
-      query: { force: options.force },
+      body: { force_rebuild: options.forceRebuild, skip_build: options.skipBuild },
       idempotencyKey: options.idempotencyKey,
     });
+  }
+
+  /**
+   * Redeploys an existing PR instance at the head SHA it already runs — the
+   * pull request is not re-read. `skipBuild` applies the preview's own
+   * variables without a rebuild (ADR-048, INV-010).
+   */
+  redeployPreview(
+    applicationUuid: string,
+    previewUuid: string,
+    options: { forceRebuild?: boolean; skipBuild?: boolean; idempotencyKey?: string } = {},
+  ) {
+    type Response =
+      paths['/applications/{application_uuid}/previews/{preview_uuid}/redeploy']['post']['responses']['202']['content']['application/json'];
+    return this.request<Response>(
+      'POST',
+      `/applications/${applicationUuid}/previews/${previewUuid}/redeploy`,
+      {
+        body: { force_rebuild: options.forceRebuild, skip_build: options.skipBuild },
+        idempotencyKey: options.idempotencyKey,
+      },
+    );
   }
 
   /**

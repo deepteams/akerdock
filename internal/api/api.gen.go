@@ -3378,8 +3378,11 @@ type Deployment struct {
 	QueuedAt *time.Time          `json:"queued_at,omitempty"`
 
 	// RepositoryUrl Browsable URL of the repository (normalized to https, without `.git`) for a git source; `null` otherwise. Combined with `provider`, it allows building the links to the branch, commit and PR.
-	RepositoryUrl *string    `json:"repository_url,omitempty"`
-	StartedAt     *time.Time `json:"started_at,omitempty"`
+	RepositoryUrl *string `json:"repository_url,omitempty"`
+
+	// SkipBuild This deployment rebuilt nothing: it reapplied the current configuration over the artifact already running (ADR-048).
+	SkipBuild *bool      `json:"skip_build,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty"`
 
 	// Status State machine of a deployment (§21.1). `succeeded`, `failed`, `cancelled` and `superseded` are terminal; `superseded` = replaced in the queue by a more recent deployment (coalescing).
 	Status DeploymentStatus `json:"status"`
@@ -5345,6 +5348,9 @@ type UpdateApplicationParams struct {
 type DeployApplicationJSONBody struct {
 	// ForceRebuild Build without cache.
 	ForceRebuild *bool `json:"force_rebuild,omitempty"`
+
+	// SkipBuild Redeploy the current artifact with the current configuration; no clone, no build. `409` when the application has no successful deployment to reuse.
+	SkipBuild *bool `json:"skip_build,omitempty"`
 }
 
 // DeployApplicationParams defines parameters for DeployApplication.
@@ -5439,6 +5445,21 @@ type GetPreviewLogsParams struct {
 type CreatePreviewPortForwardParams struct {
 	// Component (compose build pack) Service whose container is targeted.
 	Component *string `form:"component,omitempty" json:"component,omitempty"`
+}
+
+// RedeployPreviewJSONBody defines parameters for RedeployPreview.
+type RedeployPreviewJSONBody struct {
+	// ForceRebuild Build without cache.
+	ForceRebuild *bool `json:"force_rebuild,omitempty"`
+
+	// SkipBuild Redeploy the current artifact with the preview's current configuration; no clone, no build.
+	SkipBuild *bool `json:"skip_build,omitempty"`
+}
+
+// RedeployPreviewParams defines parameters for RedeployPreview.
+type RedeployPreviewParams struct {
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // CreatePreviewTerminalSessionParams defines parameters for CreatePreviewTerminalSession.
@@ -6257,6 +6278,9 @@ type CreatePreviewEnvJSONRequestBody = EnvironmentVariableCreate
 // CreatePreviewPortForwardJSONRequestBody defines body for CreatePreviewPortForward for application/json ContentType.
 type CreatePreviewPortForwardJSONRequestBody = PortForwardCreate
 
+// RedeployPreviewJSONRequestBody defines body for RedeployPreview for application/json ContentType.
+type RedeployPreviewJSONRequestBody RedeployPreviewJSONBody
+
 // RollbackApplicationJSONRequestBody defines body for RollbackApplication for application/json ContentType.
 type RollbackApplicationJSONRequestBody RollbackApplicationJSONBody
 
@@ -6633,6 +6657,9 @@ type ServerInterface interface {
 	// Open a TCP tunnel to a container of the preview
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/port-forwards)
 	CreatePreviewPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params CreatePreviewPortForwardParams)
+	// Redeploy an existing PR instance
+	// (POST /applications/{application_uuid}/previews/{preview_uuid}/redeploy)
+	RedeployPreview(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params RedeployPreviewParams)
 	// Open a terminal session in a container of the preview
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions)
 	CreatePreviewTerminalSession(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params CreatePreviewTerminalSessionParams)
@@ -7407,6 +7434,12 @@ func (_ Unimplemented) GetPreviewMetrics(w http.ResponseWriter, r *http.Request,
 // Open a TCP tunnel to a container of the preview
 // (POST /applications/{application_uuid}/previews/{preview_uuid}/port-forwards)
 func (_ Unimplemented) CreatePreviewPortForward(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params CreatePreviewPortForwardParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Redeploy an existing PR instance
+// (POST /applications/{application_uuid}/previews/{preview_uuid}/redeploy)
+func (_ Unimplemented) RedeployPreview(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params RedeployPreviewParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -10080,6 +10113,71 @@ func (siw *ServerInterfaceWrapper) CreatePreviewPortForward(w http.ResponseWrite
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreatePreviewPortForward(w, r, applicationUuid, previewUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RedeployPreview operation middleware
+func (siw *ServerInterfaceWrapper) RedeployPreview(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "application_uuid" -------------
+	var applicationUuid ApplicationUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "application_uuid", chi.URLParam(r, "application_uuid"), &applicationUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "application_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "preview_uuid" -------------
+	var previewUuid string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "preview_uuid", chi.URLParam(r, "preview_uuid"), &previewUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "preview_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RedeployPreviewParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RedeployPreview(w, r, applicationUuid, previewUuid, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -19245,6 +19343,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/port-forwards", wrapper.CreatePreviewPortForward)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/redeploy", wrapper.RedeployPreview)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions", wrapper.CreatePreviewTerminalSession)
 	})
 	r.Group(func(r chi.Router) {
@@ -20747,6 +20848,22 @@ func (response DeployApplication409JSONResponse) VisitDeployApplicationResponse(
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeployApplication422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response DeployApplication422JSONResponse) VisitDeployApplicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -22846,6 +22963,120 @@ func (response CreatePreviewPortForward409JSONResponse) VisitCreatePreviewPortFo
 type CreatePreviewPortForward429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response CreatePreviewPortForward429JSONResponse) VisitCreatePreviewPortForwardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RedeployPreviewRequestObject struct {
+	ApplicationUuid ApplicationUuid `json:"application_uuid"`
+	PreviewUuid     string          `json:"preview_uuid"`
+	Params          RedeployPreviewParams
+	Body            *RedeployPreviewJSONRequestBody
+}
+
+type RedeployPreviewResponseObject interface {
+	VisitRedeployPreviewResponse(w http.ResponseWriter) error
+}
+
+type RedeployPreview202JSONResponse DeploymentAccepted
+
+func (response RedeployPreview202JSONResponse) VisitRedeployPreviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RedeployPreview401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RedeployPreview401JSONResponse) VisitRedeployPreviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RedeployPreview403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RedeployPreview403JSONResponse) VisitRedeployPreviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RedeployPreview404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RedeployPreview404JSONResponse) VisitRedeployPreviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RedeployPreview409JSONResponse struct{ ConflictJSONResponse }
+
+func (response RedeployPreview409JSONResponse) VisitRedeployPreviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RedeployPreview422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response RedeployPreview422JSONResponse) VisitRedeployPreviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RedeployPreview429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response RedeployPreview429JSONResponse) VisitRedeployPreviewResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -41393,6 +41624,9 @@ type StrictServerInterface interface {
 	// Open a TCP tunnel to a container of the preview
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/port-forwards)
 	CreatePreviewPortForward(ctx context.Context, request CreatePreviewPortForwardRequestObject) (CreatePreviewPortForwardResponseObject, error)
+	// Redeploy an existing PR instance
+	// (POST /applications/{application_uuid}/previews/{preview_uuid}/redeploy)
+	RedeployPreview(ctx context.Context, request RedeployPreviewRequestObject) (RedeployPreviewResponseObject, error)
 	// Open a terminal session in a container of the preview
 	// (POST /applications/{application_uuid}/previews/{preview_uuid}/terminal-sessions)
 	CreatePreviewTerminalSession(ctx context.Context, request CreatePreviewTerminalSessionRequestObject) (CreatePreviewTerminalSessionResponseObject, error)
@@ -42891,6 +43125,44 @@ func (sh *strictHandler) CreatePreviewPortForward(w http.ResponseWriter, r *http
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreatePreviewPortForwardResponseObject); ok {
 		if err := validResponse.VisitCreatePreviewPortForwardResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RedeployPreview operation middleware
+func (sh *strictHandler) RedeployPreview(w http.ResponseWriter, r *http.Request, applicationUuid ApplicationUuid, previewUuid string, params RedeployPreviewParams) {
+	var request RedeployPreviewRequestObject
+
+	request.ApplicationUuid = applicationUuid
+	request.PreviewUuid = previewUuid
+	request.Params = params
+
+	var body RedeployPreviewJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RedeployPreview(ctx, request.(RedeployPreviewRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RedeployPreview")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RedeployPreviewResponseObject); ok {
+		if err := validResponse.VisitRedeployPreviewResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

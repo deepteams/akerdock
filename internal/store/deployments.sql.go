@@ -51,7 +51,7 @@ const createDeployment = `-- name: CreateDeployment :one
 
 INSERT INTO deployments (uuid, resource_id, trigger, api_token_id, force_rebuild, image_name, image_tag, server_id, config_snapshot, preview_id, commit_sha)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id, commit_author, commit_message
+RETURNING id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id, commit_author, commit_message, skip_build
 `
 
 type CreateDeploymentParams struct {
@@ -118,6 +118,7 @@ func (q *Queries) CreateDeployment(ctx context.Context, arg CreateDeploymentPara
 		&i.PreviewID,
 		&i.CommitAuthor,
 		&i.CommitMessage,
+		&i.SkipBuild,
 	)
 	return i, err
 }
@@ -169,10 +170,87 @@ func (q *Queries) CreateDeploymentStep(ctx context.Context, arg CreateDeployment
 	return id, err
 }
 
+const createNoBuildDeployment = `-- name: CreateNoBuildDeployment :one
+INSERT INTO deployments (uuid, resource_id, trigger, api_token_id, skip_build, image_name, image_tag, image_digest, server_id, config_snapshot, preview_id, commit_sha)
+VALUES ($1, $2, $3, $4, true, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id, commit_author, commit_message, skip_build
+`
+
+type CreateNoBuildDeploymentParams struct {
+	Uuid           pgtype.UUID
+	ResourceID     int64
+	Trigger        DeploymentTrigger
+	ApiTokenID     *int64
+	ImageName      *string
+	ImageTag       *string
+	ImageDigest    *string
+	ServerID       int64
+	ConfigSnapshot []byte
+	PreviewID      *int64
+	CommitSha      *string
+}
+
+// A deployment that rebuilds nothing (ADR-048): the artifact is the one
+// already running, the pipeline reruns to apply the current configuration.
+// `image_digest` pins it when the artifact carries one, so what comes back up
+// is provably the image that was running.
+func (q *Queries) CreateNoBuildDeployment(ctx context.Context, arg CreateNoBuildDeploymentParams) (Deployment, error) {
+	row := q.db.QueryRow(ctx, createNoBuildDeployment,
+		arg.Uuid,
+		arg.ResourceID,
+		arg.Trigger,
+		arg.ApiTokenID,
+		arg.ImageName,
+		arg.ImageTag,
+		arg.ImageDigest,
+		arg.ServerID,
+		arg.ConfigSnapshot,
+		arg.PreviewID,
+		arg.CommitSha,
+	)
+	var i Deployment
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.ResourceID,
+		&i.Status,
+		&i.Attempt,
+		&i.RetryOfID,
+		&i.SupersededByID,
+		&i.IsRollback,
+		&i.Trigger,
+		&i.TriggeredBy,
+		&i.ApiTokenID,
+		&i.GitBranch,
+		&i.CommitSha,
+		&i.IsLocalSource,
+		&i.ContextDigest,
+		&i.ForceRebuild,
+		&i.ImageName,
+		&i.ImageTag,
+		&i.ImageDigest,
+		&i.ConfigSnapshot,
+		&i.ConfigDiff,
+		&i.ErrorMessage,
+		&i.ServerID,
+		&i.BuildServerID,
+		&i.QueuedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PreviewID,
+		&i.CommitAuthor,
+		&i.CommitMessage,
+		&i.SkipBuild,
+	)
+	return i, err
+}
+
 const createRollbackDeployment = `-- name: CreateRollbackDeployment :one
 INSERT INTO deployments (uuid, resource_id, trigger, api_token_id, is_rollback, image_name, image_tag, image_digest, server_id, config_snapshot)
 VALUES ($1, $2, $3, $4, true, $5, $6, $7, $8, $9)
-RETURNING id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id, commit_author, commit_message
+RETURNING id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id, commit_author, commit_message, skip_build
 `
 
 type CreateRollbackDeploymentParams struct {
@@ -233,6 +311,7 @@ func (q *Queries) CreateRollbackDeployment(ctx context.Context, arg CreateRollba
 		&i.PreviewID,
 		&i.CommitAuthor,
 		&i.CommitMessage,
+		&i.SkipBuild,
 	)
 	return i, err
 }
@@ -332,8 +411,67 @@ func (q *Queries) GetArtifactForDeployment(ctx context.Context, arg GetArtifactF
 	return i, err
 }
 
+const getCurrentArtifact = `-- name: GetCurrentArtifact :one
+SELECT a.id, a.uuid, a.deployment_id, a.kind, a.image_name, a.image_tag, a.image_digest, a.server_id, a.registry_credential_id, a.protected_from_cleanup, a.created_at FROM deployment_artifacts a
+JOIN deployments d ON d.id = a.deployment_id
+WHERE d.resource_id = $1 AND d.preview_id IS NULL AND d.status = 'succeeded'
+ORDER BY a.id DESC
+LIMIT 1
+`
+
+// The artifact currently serving traffic: the one of the last succeeded
+// deployment. This is what a skip_build deployment redeploys (ADR-048) —
+// same image, fresh configuration.
+func (q *Queries) GetCurrentArtifact(ctx context.Context, resourceID int64) (DeploymentArtifact, error) {
+	row := q.db.QueryRow(ctx, getCurrentArtifact, resourceID)
+	var i DeploymentArtifact
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.DeploymentID,
+		&i.Kind,
+		&i.ImageName,
+		&i.ImageTag,
+		&i.ImageDigest,
+		&i.ServerID,
+		&i.RegistryCredentialID,
+		&i.ProtectedFromCleanup,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getCurrentPreviewArtifact = `-- name: GetCurrentPreviewArtifact :one
+SELECT a.id, a.uuid, a.deployment_id, a.kind, a.image_name, a.image_tag, a.image_digest, a.server_id, a.registry_credential_id, a.protected_from_cleanup, a.created_at FROM deployment_artifacts a
+JOIN deployments d ON d.id = a.deployment_id
+WHERE d.preview_id = $1 AND d.status = 'succeeded'
+ORDER BY a.id DESC
+LIMIT 1
+`
+
+// Same, scoped to one PR instance: a preview never redeploys the production
+// image (INV-010/INV-011).
+func (q *Queries) GetCurrentPreviewArtifact(ctx context.Context, previewID *int64) (DeploymentArtifact, error) {
+	row := q.db.QueryRow(ctx, getCurrentPreviewArtifact, previewID)
+	var i DeploymentArtifact
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.DeploymentID,
+		&i.Kind,
+		&i.ImageName,
+		&i.ImageTag,
+		&i.ImageDigest,
+		&i.ServerID,
+		&i.RegistryCredentialID,
+		&i.ProtectedFromCleanup,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getDeploymentByID = `-- name: GetDeploymentByID :one
-SELECT id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id, commit_author, commit_message FROM deployments WHERE id = $1
+SELECT id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id, commit_author, commit_message, skip_build FROM deployments WHERE id = $1
 `
 
 func (q *Queries) GetDeploymentByID(ctx context.Context, id int64) (Deployment, error) {
@@ -372,12 +510,13 @@ func (q *Queries) GetDeploymentByID(ctx context.Context, id int64) (Deployment, 
 		&i.PreviewID,
 		&i.CommitAuthor,
 		&i.CommitMessage,
+		&i.SkipBuild,
 	)
 	return i, err
 }
 
 const getDeploymentByUUIDForTeam = `-- name: GetDeploymentByUUIDForTeam :one
-SELECT d.id, d.uuid, d.resource_id, d.status, d.attempt, d.retry_of_id, d.superseded_by_id, d.is_rollback, d.trigger, d.triggered_by, d.api_token_id, d.git_branch, d.commit_sha, d.is_local_source, d.context_digest, d.force_rebuild, d.image_name, d.image_tag, d.image_digest, d.config_snapshot, d.config_diff, d.error_message, d.server_id, d.build_server_id, d.queued_at, d.started_at, d.finished_at, d.created_at, d.updated_at, d.preview_id, d.commit_author, d.commit_message, r.uuid AS resource_uuid, p.pr_id,
+SELECT d.id, d.uuid, d.resource_id, d.status, d.attempt, d.retry_of_id, d.superseded_by_id, d.is_rollback, d.trigger, d.triggered_by, d.api_token_id, d.git_branch, d.commit_sha, d.is_local_source, d.context_digest, d.force_rebuild, d.image_name, d.image_tag, d.image_digest, d.config_snapshot, d.config_diff, d.error_message, d.server_id, d.build_server_id, d.queued_at, d.started_at, d.finished_at, d.created_at, d.updated_at, d.preview_id, d.commit_author, d.commit_message, d.skip_build, r.uuid AS resource_uuid, p.pr_id,
     a.git_repository_url, gs.provider AS git_provider
 FROM deployments d
 JOIN resources r ON r.id = d.resource_id
@@ -438,10 +577,110 @@ func (q *Queries) GetDeploymentByUUIDForTeam(ctx context.Context, arg GetDeploym
 		&i.Deployment.PreviewID,
 		&i.Deployment.CommitAuthor,
 		&i.Deployment.CommitMessage,
+		&i.Deployment.SkipBuild,
 		&i.ResourceUuid,
 		&i.PrID,
 		&i.GitRepositoryUrl,
 		&i.GitProvider,
+	)
+	return i, err
+}
+
+const getLastSucceededDeployment = `-- name: GetLastSucceededDeployment :one
+SELECT id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id, commit_author, commit_message, skip_build FROM deployments
+WHERE resource_id = $1 AND preview_id IS NULL AND status = 'succeeded'
+ORDER BY id DESC
+LIMIT 1
+`
+
+// What the application currently runs. A skip_build deployment (ADR-048)
+// inherits its commit: it applies a configuration, never a new commit.
+func (q *Queries) GetLastSucceededDeployment(ctx context.Context, resourceID int64) (Deployment, error) {
+	row := q.db.QueryRow(ctx, getLastSucceededDeployment, resourceID)
+	var i Deployment
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.ResourceID,
+		&i.Status,
+		&i.Attempt,
+		&i.RetryOfID,
+		&i.SupersededByID,
+		&i.IsRollback,
+		&i.Trigger,
+		&i.TriggeredBy,
+		&i.ApiTokenID,
+		&i.GitBranch,
+		&i.CommitSha,
+		&i.IsLocalSource,
+		&i.ContextDigest,
+		&i.ForceRebuild,
+		&i.ImageName,
+		&i.ImageTag,
+		&i.ImageDigest,
+		&i.ConfigSnapshot,
+		&i.ConfigDiff,
+		&i.ErrorMessage,
+		&i.ServerID,
+		&i.BuildServerID,
+		&i.QueuedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PreviewID,
+		&i.CommitAuthor,
+		&i.CommitMessage,
+		&i.SkipBuild,
+	)
+	return i, err
+}
+
+const getLastSucceededPreviewDeployment = `-- name: GetLastSucceededPreviewDeployment :one
+SELECT id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id, commit_author, commit_message, skip_build FROM deployments
+WHERE preview_id = $1 AND status = 'succeeded'
+ORDER BY id DESC
+LIMIT 1
+`
+
+// Same, for one PR instance — pinned to the head SHA that instance runs.
+func (q *Queries) GetLastSucceededPreviewDeployment(ctx context.Context, previewID *int64) (Deployment, error) {
+	row := q.db.QueryRow(ctx, getLastSucceededPreviewDeployment, previewID)
+	var i Deployment
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.ResourceID,
+		&i.Status,
+		&i.Attempt,
+		&i.RetryOfID,
+		&i.SupersededByID,
+		&i.IsRollback,
+		&i.Trigger,
+		&i.TriggeredBy,
+		&i.ApiTokenID,
+		&i.GitBranch,
+		&i.CommitSha,
+		&i.IsLocalSource,
+		&i.ContextDigest,
+		&i.ForceRebuild,
+		&i.ImageName,
+		&i.ImageTag,
+		&i.ImageDigest,
+		&i.ConfigSnapshot,
+		&i.ConfigDiff,
+		&i.ErrorMessage,
+		&i.ServerID,
+		&i.BuildServerID,
+		&i.QueuedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PreviewID,
+		&i.CommitAuthor,
+		&i.CommitMessage,
+		&i.SkipBuild,
 	)
 	return i, err
 }
@@ -556,7 +795,7 @@ func (q *Queries) ListDeploymentSteps(ctx context.Context, deploymentID int64) (
 }
 
 const listDeploymentsForResource = `-- name: ListDeploymentsForResource :many
-SELECT d.id, d.uuid, d.resource_id, d.status, d.attempt, d.retry_of_id, d.superseded_by_id, d.is_rollback, d.trigger, d.triggered_by, d.api_token_id, d.git_branch, d.commit_sha, d.is_local_source, d.context_digest, d.force_rebuild, d.image_name, d.image_tag, d.image_digest, d.config_snapshot, d.config_diff, d.error_message, d.server_id, d.build_server_id, d.queued_at, d.started_at, d.finished_at, d.created_at, d.updated_at, d.preview_id, d.commit_author, d.commit_message, p.pr_id FROM deployments d
+SELECT d.id, d.uuid, d.resource_id, d.status, d.attempt, d.retry_of_id, d.superseded_by_id, d.is_rollback, d.trigger, d.triggered_by, d.api_token_id, d.git_branch, d.commit_sha, d.is_local_source, d.context_digest, d.force_rebuild, d.image_name, d.image_tag, d.image_digest, d.config_snapshot, d.config_diff, d.error_message, d.server_id, d.build_server_id, d.queued_at, d.started_at, d.finished_at, d.created_at, d.updated_at, d.preview_id, d.commit_author, d.commit_message, d.skip_build, p.pr_id FROM deployments d
 LEFT JOIN previews p ON p.id = d.preview_id
 WHERE d.resource_id = $1
   AND ($2::bigint = 0 OR d.id < $2)
@@ -619,6 +858,7 @@ func (q *Queries) ListDeploymentsForResource(ctx context.Context, arg ListDeploy
 			&i.Deployment.PreviewID,
 			&i.Deployment.CommitAuthor,
 			&i.Deployment.CommitMessage,
+			&i.Deployment.SkipBuild,
 			&i.PrID,
 		); err != nil {
 			return nil, err

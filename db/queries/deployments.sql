@@ -6,6 +6,15 @@ INSERT INTO deployments (uuid, resource_id, trigger, api_token_id, force_rebuild
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, sqlc.narg(preview_id), sqlc.narg(commit_sha))
 RETURNING *;
 
+-- name: CreateNoBuildDeployment :one
+-- A deployment that rebuilds nothing (ADR-048): the artifact is the one
+-- already running, the pipeline reruns to apply the current configuration.
+-- `image_digest` pins it when the artifact carries one, so what comes back up
+-- is provably the image that was running.
+INSERT INTO deployments (uuid, resource_id, trigger, api_token_id, skip_build, image_name, image_tag, image_digest, server_id, config_snapshot, preview_id, commit_sha)
+VALUES ($1, $2, $3, $4, true, $5, $6, $7, $8, $9, sqlc.narg(preview_id), sqlc.narg(commit_sha))
+RETURNING *;
+
 -- name: GetDeploymentByID :one
 SELECT * FROM deployments WHERE id = $1;
 
@@ -111,6 +120,40 @@ SELECT a.* FROM deployment_artifacts a
 JOIN deployments d ON d.id = a.deployment_id
 WHERE d.resource_id = $1 AND d.status = 'succeeded'
   AND d.id < (SELECT max(id) FROM deployments WHERE resource_id = $1 AND status = 'succeeded')
+ORDER BY a.id DESC
+LIMIT 1;
+
+-- name: GetLastSucceededDeployment :one
+-- What the application currently runs. A skip_build deployment (ADR-048)
+-- inherits its commit: it applies a configuration, never a new commit.
+SELECT * FROM deployments
+WHERE resource_id = $1 AND preview_id IS NULL AND status = 'succeeded'
+ORDER BY id DESC
+LIMIT 1;
+
+-- name: GetLastSucceededPreviewDeployment :one
+-- Same, for one PR instance — pinned to the head SHA that instance runs.
+SELECT * FROM deployments
+WHERE preview_id = $1 AND status = 'succeeded'
+ORDER BY id DESC
+LIMIT 1;
+
+-- name: GetCurrentArtifact :one
+-- The artifact currently serving traffic: the one of the last succeeded
+-- deployment. This is what a skip_build deployment redeploys (ADR-048) —
+-- same image, fresh configuration.
+SELECT a.* FROM deployment_artifacts a
+JOIN deployments d ON d.id = a.deployment_id
+WHERE d.resource_id = $1 AND d.preview_id IS NULL AND d.status = 'succeeded'
+ORDER BY a.id DESC
+LIMIT 1;
+
+-- name: GetCurrentPreviewArtifact :one
+-- Same, scoped to one PR instance: a preview never redeploys the production
+-- image (INV-010/INV-011).
+SELECT a.* FROM deployment_artifacts a
+JOIN deployments d ON d.id = a.deployment_id
+WHERE d.preview_id = $1 AND d.status = 'succeeded'
 ORDER BY a.id DESC
 LIMIT 1;
 

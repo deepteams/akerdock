@@ -158,6 +158,84 @@ func (a *API) DestroyPreview(w http.ResponseWriter, r *http.Request, application
 	w.WriteHeader(http.StatusAccepted)
 }
 
+// RedeployPreview implements POST /applications/{uuid}/previews/{uuid}/redeploy
+// (permission: previews:manage): redeploys THIS instance at the head SHA it is
+// already pinned to. The pull request is not re-read — that is what
+// `POST /previews` does; here the target is the instance as it stands.
+//
+// With `skip_build`, nothing is rebuilt (ADR-048): the pipeline reruns over
+// the artifact already running, which is how a change to the preview's own
+// variables (INV-010) reaches the container. Restarting it cannot — the
+// values were frozen into the container when it was created.
+func (a *API) RedeployPreview(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, previewUuid string, params api.RedeployPreviewParams) {
+	id, ok := a.require(w, r, auth.PermPreviewsManage)
+	if !ok {
+		return
+	}
+	row, ok := a.resolveApplication(w, r, id, applicationUuid)
+	if !ok {
+		return
+	}
+	preview, ok := a.resolvePreview(w, r, id, row.Resource.ID, previewUuid)
+	if !ok {
+		return
+	}
+	body, ok := decodeDeployBody(w, r)
+	if !ok {
+		return
+	}
+	if preview.Status == store.PreviewStatusDestroyed || preview.Status == store.PreviewStatusDestroying {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict,
+			"this preview is destroyed — deploy the pull request again to recreate it")
+		return
+	}
+	// A fork's code runs only after an explicit yes (§20.4.8, INV-010): a
+	// redeploy is not the door around it.
+	if preview.IsFork && !preview.ForkApprovedAt.Valid {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict,
+			"this preview comes from a fork and is awaiting approval")
+		return
+	}
+
+	if body.SkipBuild {
+		deployment, err := a.enqueueNoBuildDeployment(r, id, appRow(row), &preview, params.IdempotencyKey)
+		if err != nil {
+			a.writeDeployError(w, r, "redeploy preview", err)
+			return
+		}
+		a.recordAudit(r, id, "deployment.apply_config", "deployment", deployment.Uuid)
+		httpapi.WriteJSON(w, http.StatusAccepted, api.DeploymentAccepted{
+			DeploymentUuid: uuidString(deployment.Uuid),
+			StatusUrl:      "/deployments/" + uuidString(deployment.Uuid),
+		})
+		return
+	}
+
+	appByID, err := a.Store.GetApplicationByID(r.Context(), row.Resource.ID)
+	if err != nil {
+		a.internalError(w, r, "redeploy preview", err)
+		return
+	}
+	// Asking for this instance to be deployed IS the deploy order the
+	// manual-first policy waits for (§20.4.7).
+	_ = a.Store.MarkPreviewDeployRequested(r.Context(), preview.ID)
+	deployment, promoted, reason, err := jobs.PromotePreviewDeployment(r.Context(), a.Store, a.Logger, appByID, preview, body.ForceRebuild)
+	if err != nil {
+		a.internalError(w, r, "redeploy preview", err)
+		return
+	}
+	if !promoted {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict,
+			"this preview cannot be deployed right now: "+reason)
+		return
+	}
+	a.recordAudit(r, id, "preview.deploy", "application", row.Resource.Uuid)
+	httpapi.WriteJSON(w, http.StatusAccepted, api.DeploymentAccepted{
+		DeploymentUuid: uuidString(deployment.Uuid),
+		StatusUrl:      "/deployments/" + uuidString(deployment.Uuid),
+	})
+}
+
 // GetPreviewLogs implements GET /applications/{uuid}/previews/{uuid}/logs
 // (permission: read): the runtime console of one preview container — the
 // missing half of debugging a PR instance, exactly like the application's

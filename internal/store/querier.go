@@ -214,6 +214,11 @@ type Querier interface {
 	// Single-use authorization code, PKCE challenge attached (ADR-043 §3).
 	CreateMcpOauthCode(ctx context.Context, arg CreateMcpOauthCodeParams) error
 	CreateMfaChallenge(ctx context.Context, arg CreateMfaChallengeParams) error
+	// A deployment that rebuilds nothing (ADR-048): the artifact is the one
+	// already running, the pipeline reruns to apply the current configuration.
+	// `image_digest` pins it when the artifact carries one, so what comes back up
+	// is provably the image that was running.
+	CreateNoBuildDeployment(ctx context.Context, arg CreateNoBuildDeploymentParams) (Deployment, error)
 	CreateNotificationChannel(ctx context.Context, arg CreateNotificationChannelParams) (NotificationChannel, error)
 	// ON CONFLICT DO NOTHING: re-reading an outbox event must never notify twice.
 	CreateNotificationDelivery(ctx context.Context, arg CreateNotificationDeliveryParams) (NotificationDelivery, error)
@@ -369,6 +374,13 @@ type Querier interface {
 	// component, its stack resource (container names derive from its uuid) and
 	// the server behind the stack's destination.
 	GetComponentBackupTarget(ctx context.Context, id int64) (GetComponentBackupTargetRow, error)
+	// The artifact currently serving traffic: the one of the last succeeded
+	// deployment. This is what a skip_build deployment redeploys (ADR-048) —
+	// same image, fresh configuration.
+	GetCurrentArtifact(ctx context.Context, resourceID int64) (DeploymentArtifact, error)
+	// Same, scoped to one PR instance: a preview never redeploys the production
+	// image (INV-010/INV-011).
+	GetCurrentPreviewArtifact(ctx context.Context, previewID *int64) (DeploymentArtifact, error)
 	GetCustomRoleByUUID(ctx context.Context, arg GetCustomRoleByUUIDParams) (CustomRole, error)
 	GetDNSCredentialByID(ctx context.Context, id int64) (CloudCredential, error)
 	GetDNSCredentialByUUID(ctx context.Context, arg GetDNSCredentialByUUIDParams) (CloudCredential, error)
@@ -415,6 +427,11 @@ type Querier interface {
 	GetJobByUUIDForTeam(ctx context.Context, arg GetJobByUUIDForTeamParams) (Job, error)
 	GetJobUUIDByID(ctx context.Context, id int64) (pgtype.UUID, error)
 	GetLastAppliedProxyRevision(ctx context.Context, arg GetLastAppliedProxyRevisionParams) (ProxyConfigRevision, error)
+	// What the application currently runs. A skip_build deployment (ADR-048)
+	// inherits its commit: it applies a configuration, never a new commit.
+	GetLastSucceededDeployment(ctx context.Context, resourceID int64) (Deployment, error)
+	// Same, for one PR instance — pinned to the head SHA that instance runs.
+	GetLastSucceededPreviewDeployment(ctx context.Context, previewID *int64) (Deployment, error)
 	GetLatestSuccessfulBackupExecution(ctx context.Context, backupPlanID int64) (BackupExecution, error)
 	// The hot path on every mint: the caller's own live grant on this endpoint.
 	// Revoked and expired rows are invisible here, which is what makes revocation

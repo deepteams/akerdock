@@ -7,7 +7,7 @@ Self-hosted PaaS in Go: deployment of applications, databases and compose stacks
 ## Sources of truth
 
 - `docs/PRD.md` — product specification. Sections 1–14 describe the functional scope; sections 16+ are the verifiable requirements (normative keywords MUST / MUST NOT / SHOULD / MAY).
-- `docs/adr/` — 47 accepted ADRs (index: `docs/adr/README.md`). **An accepted ADR is immutable**: any revision of the DECISION goes through a new ADR that supersedes the old one. (The wording itself may be fixed in place — rephrasing is not deciding.) Any structural decision requires an ADR + an entry in the tracking grid (PRD §26).
+- `docs/adr/` — 48 accepted ADRs (index: `docs/adr/README.md`). **An accepted ADR is immutable**: any revision of the DECISION goes through a new ADR that supersedes the old one. (The wording itself may be fixed in place — rephrasing is not deciding.) Any structural decision requires an ADR + an entry in the tracking grid (PRD §26).
 - `docs/specs/openapi-v1.yaml` — API contract. **Spec-first**: Go handlers and the TypeScript client are generated from this file (oapi-codegen), never written by hand and documented after the fact. The spec stays on **OpenAPI 3.0.3** (oapi-codegen does not support 3.1). After any change: `make generate` and commit the generated code (CI checks the synchronization).
 
 ## Mandated stack (ADR-025, ADR-021)

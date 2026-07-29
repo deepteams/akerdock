@@ -737,22 +737,27 @@ func (a *API) DeployApplication(w http.ResponseWriter, r *http.Request, applicat
 	if !ok {
 		return
 	}
-	var body struct {
-		ForceRebuild bool `json:"force_rebuild"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-
-	deployment, err := a.enqueueDeployment(r, id, appRow(row), body.ForceRebuild, params.IdempotencyKey)
-	if err != nil {
-		if err == errQueueFull {
-			w.Header().Set("Retry-After", "30")
-			httpapi.WriteError(w, r, http.StatusTooManyRequests, "rate_limited", "the server deployment queue is full — retry later (§5.5)")
-			return
-		}
-		a.internalError(w, r, "enqueue deployment", err)
+	body, ok := decodeDeployBody(w, r)
+	if !ok {
 		return
 	}
-	a.recordAudit(r, id, "deployment.trigger", "deployment", deployment.Uuid)
+
+	// skip_build reruns the pipeline over the running artifact to apply the
+	// current configuration (ADR-048) — no clone, no build.
+	var deployment store.Deployment
+	var err error
+	action := "deployment.trigger"
+	if body.SkipBuild {
+		deployment, err = a.enqueueNoBuildDeployment(r, id, appRow(row), nil, params.IdempotencyKey)
+		action = "deployment.apply_config"
+	} else {
+		deployment, err = a.enqueueDeployment(r, id, appRow(row), body.ForceRebuild, params.IdempotencyKey)
+	}
+	if err != nil {
+		a.writeDeployError(w, r, "enqueue deployment", err)
+		return
+	}
+	a.recordAudit(r, id, action, "deployment", deployment.Uuid)
 	httpapi.WriteJSON(w, http.StatusAccepted, api.DeploymentAccepted{
 		DeploymentUuid: uuidString(deployment.Uuid),
 		StatusUrl:      "/deployments/" + uuidString(deployment.Uuid),

@@ -397,23 +397,30 @@ func randomToken(bytes int) (string, error) {
 // TryPromotePreview enqueues the preview deployment when the application has
 // capacity (§20.4.3) — shared by the PR job and the scheduler's queue drain.
 func TryPromotePreview(ctx context.Context, q PreviewPromotionStore, logger *slog.Logger, app store.GetApplicationByIDRow, preview store.Preview, forceRebuild bool) (bool, string, error) {
+	_, promoted, reason, err := PromotePreviewDeployment(ctx, q, logger, app, preview, forceRebuild)
+	return promoted, reason, err
+}
+
+// PromotePreviewDeployment is TryPromotePreview, returning the deployment it
+// created — the API answers with its uuid, the background callers ignore it.
+func PromotePreviewDeployment(ctx context.Context, q PreviewPromotionStore, logger *slog.Logger, app store.GetApplicationByIDRow, preview store.Preview, forceRebuild bool) (store.Deployment, bool, string, error) {
 	if app.Application.PreviewMaxConcurrent != nil {
 		live, err := q.CountLivePreviewsForApplication(ctx, app.Resource.ID)
 		if err != nil {
-			return false, "", err
+			return store.Deployment{}, false, "", err
 		}
 		if live >= int64(*app.Application.PreviewMaxConcurrent) {
-			return false, fmt.Sprintf("concurrency cap reached (%d live)", live), nil
+			return store.Deployment{}, false, fmt.Sprintf("concurrency cap reached (%d live)", live), nil
 		}
 	}
 
 	u, err := pguuid.New()
 	if err != nil {
-		return false, "", err
+		return store.Deployment{}, false, "", err
 	}
 	dest, err := q.GetDestinationByID(ctx, app.Resource.DestinationID)
 	if err != nil {
-		return false, "", err
+		return store.Deployment{}, false, "", err
 	}
 	snapshot, _ := json.Marshal(map[string]any{"config_version": app.Resource.Version, "preview_pr": preview.PrID})
 	deployment, err := q.CreateDeployment(ctx, store.CreateDeploymentParams{
@@ -422,7 +429,7 @@ func TryPromotePreview(ctx context.Context, q PreviewPromotionStore, logger *slo
 		PreviewID: &preview.ID, CommitSha: preview.HeadSha, ForceRebuild: forceRebuild,
 	})
 	if err != nil {
-		return false, "", err
+		return store.Deployment{}, false, "", err
 	}
 	// Cancel-obsolete (§20.4.7, opt-in): the deployment that was building the
 	// previous commit of this PR is now building history. Queued ones are
@@ -433,22 +440,22 @@ func TryPromotePreview(ctx context.Context, q PreviewPromotionStore, logger *slo
 			PreviewID: &preview.ID, SupersededByID: &deployment.ID,
 		})
 		if err != nil {
-			return false, "", err
+			return store.Deployment{}, false, "", err
 		}
 		if len(superseded) > 0 {
 			if err := q.CancelJobsForDeployments(ctx, superseded); err != nil {
-				return false, "", err
+				return store.Deployment{}, false, "", err
 			}
 		}
 		running, err := q.ListCancellablePreviewDeploymentIDs(ctx, store.ListCancellablePreviewDeploymentIDsParams{
 			PreviewID: &preview.ID, ID: deployment.ID,
 		})
 		if err != nil {
-			return false, "", err
+			return store.Deployment{}, false, "", err
 		}
 		for _, id := range running {
 			if _, err := q.RequestDeploymentJobCancel(ctx, id); err != nil {
-				return false, "", err
+				return store.Deployment{}, false, "", err
 			}
 		}
 		if len(superseded) > 0 || len(running) > 0 {
@@ -467,11 +474,11 @@ func TryPromotePreview(ctx context.Context, q PreviewPromotionStore, logger *slo
 		TeamID:     &app.Resource.TeamID,
 		ResourceID: &app.Resource.ID,
 	}); err != nil {
-		return false, "", err
+		return store.Deployment{}, false, "", err
 	}
 	_ = q.SetPreviewStatus(ctx, store.SetPreviewStatusParams{ID: preview.ID, Status: store.PreviewStatusDeploying})
 	logger.Info("preview deployment queued", "preview", pguuid.String(preview.Uuid), "pr", preview.PrID)
-	return true, "", nil
+	return deployment, true, "", nil
 }
 
 // EnqueuePreviewDestroy queues the teardown of one preview.

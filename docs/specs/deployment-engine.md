@@ -72,7 +72,7 @@ Two tables (names are indicative, the semantic contract is normative):
 | `last_error` | jsonb | Classification of the last error (code, step, redacted) |
 | `created_at`, `started_at`, `finished_at` | timestamptz | UTC timestamps (§22.3) |
 
-**`deployments`** — business history (§19.1): `uuid`, `application_uuid`, `server_uuid`, `destination_uuid`, `state` (state machine §4), `commit_sha`, `config_snapshot_id`, `image_ref`, `image_digest`, `trigger` (`manual|api|webhook|preview|schedule|config_apply|cli_local` — canonical vocabulary of the data dictionary, rollback being carried by `is_rollback`), `webhook_delivery_id`, `forced` (build without cache), `superseded_by` (coalescing §3.4), `attempt`, per-step timestamps, `finished_at`.
+**`deployments`** — business history (§19.1): `uuid`, `application_uuid`, `server_uuid`, `destination_uuid`, `state` (state machine §4), `commit_sha`, `config_snapshot_id`, `image_ref`, `image_digest`, `trigger` (`manual|api|webhook|preview|schedule|config_apply|cli_local` — canonical vocabulary of the data dictionary, rollback being carried by `is_rollback`), `webhook_delivery_id`, `forced` (build without cache), `skip_build` (build nothing — §5.8), `superseded_by` (coalescing §3.4), `attempt`, per-step timestamps, `finished_at`.
 
 ### 2.2 Transactional enqueue
 
@@ -400,6 +400,25 @@ COPY <publish_directory>/ /usr/share/nginx/html/
 ### 5.7 `docker compose` build pack
 
 Out of scope: see the Compose specification (§29.5, forthcoming). Contracts shared with the engine: same queue/locks/slots (§2–3), same state machine (the `starting/healthchecking/switching` states operate per service), zero-downtime per service behind the proxy required by decision §27.15, isolated network named by UUID, `is_directory`/`content`/`exclude_from_hc` extensions.
+
+### 5.8 `skip_build`: applying a configuration (ADR-048)
+
+A deployment carrying `skip_build` runs the plan of its build pack **minus the source and
+the build**. It exists because a container freezes its environment when it is created: a
+variable edited after the last deployment reaches the process only when the container is
+created again, which `restart` (§21.2) does not do.
+
+| Stage | Behavior |
+|---|---|
+| `clone` | Skipped — the step is recorded as skipped with its reason, never silently absent. |
+| Image | The current artifact (`deployment_artifacts` of the last succeeded deployment, scoped to the preview for a PR instance), pinned by digest when it has one. Absent from the server → the deployment fails naming the image, as a rollback does (ADR-006). |
+| `commit_sha` | Inherited from the last succeeded deployment. The branch is **not** re-resolved: applying a configuration must not deploy code nobody asked for. |
+| Build (compose) | The compose file is still cloned — it is what plans the stack — but each service reuses the image tagged for that commit, build or pull alike; pulling a mobile tag would swap the artifact. Missing image → built or pulled as usual. |
+| Everything after | Unchanged: environment file, `docker create`, health check, switchover, routing, post-deployment hook. |
+| Artifacts | None recorded, none reclaimed (§10.3, §29.4) — no image was added. |
+
+`skip_build` and `force_rebuild` are mutually exclusive (`422`), and the trigger of such a
+deployment is `config_apply`.
 
 ---
 

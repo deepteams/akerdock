@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   inject,
   input,
@@ -12,6 +13,10 @@ import { Router, RouterLink, UrlTree } from '@angular/router';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
+import {
+  ActionsMenuComponent,
+  type ActionItem,
+} from '../../ui/actions-menu/actions-menu.component';
 import { ApiService } from '../core/api.service';
 import { NavigationHistory } from '../core/navigation-history.service';
 import { ApiError } from '../../api/client';
@@ -28,7 +33,14 @@ type Deployment = components['schemas']['Deployment'];
 @Component({
   selector: 'app-service-detail',
   standalone: true,
-  imports: [FormsModule, RouterLink, CardComponent, IconComponent, StatusBadgeComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    CardComponent,
+    IconComponent,
+    StatusBadgeComponent,
+    ActionsMenuComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
@@ -42,6 +54,11 @@ type Deployment = components['schemas']['Deployment'];
         </div>
         @if (service(); as svc) {
           <div class="actions">
+            <akd-actions-menu
+              [items]="actions()"
+              [disabled]="busy()"
+              (selected)="run($any($event))"
+            />
             <button
               class="akd-btn akd-btn--primary"
               type="button"
@@ -51,36 +68,6 @@ type Deployment = components['schemas']['Deployment'];
               <akd-icon name="rocket" [size]="15" />
               Deploy
             </button>
-            <button
-              class="akd-btn akd-btn--secondary"
-              type="button"
-              [disabled]="busy()"
-              (click)="run('restart')"
-            >
-              <akd-icon name="rotate-cw" [size]="15" />
-              Restart
-            </button>
-            @if (svc.desired_status === 'stopped') {
-              <button
-                class="akd-btn akd-btn--secondary"
-                type="button"
-                [disabled]="busy()"
-                (click)="run('start')"
-              >
-                <akd-icon name="play" [size]="15" />
-                Start
-              </button>
-            } @else {
-              <button
-                class="akd-btn akd-btn--secondary"
-                type="button"
-                [disabled]="busy()"
-                (click)="run('stop')"
-              >
-                <akd-icon name="square" [size]="15" />
-                Stop
-              </button>
-            }
           </div>
         }
       </header>
@@ -305,6 +292,36 @@ export class ServiceDetailComponent {
   protected readonly busy = signal(false);
 
   protected composeContent = '';
+
+  /**
+   * An inline stack builds nothing — its file IS the source (§9.1) — so
+   * "Deploy" already reapplies the current file and variables, recreating
+   * only the services whose configuration changed (compose-spec §8.2).
+   * "Restart" is listed for what it is: the containers as they stand, with
+   * the variables they were created with.
+   */
+  protected readonly actions = computed<ActionItem[]>(() => {
+    const items: ActionItem[] = [
+      {
+        id: 'restart',
+        label: 'Restart',
+        icon: 'rotate-cw',
+        hint: 'Restart the containers as they stand — keeps their current variables',
+      },
+    ];
+    if (this.service()?.desired_status === 'stopped') {
+      items.push({ id: 'start', label: 'Start', icon: 'play', hint: 'Start the stack again' });
+    } else {
+      items.push({
+        id: 'stop',
+        label: 'Stop',
+        icon: 'square',
+        danger: true,
+        hint: 'Stop every container of the stack — the services go offline',
+      });
+    }
+    return items;
+  });
 
   constructor() {
     effect(() => {

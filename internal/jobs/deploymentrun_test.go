@@ -1,6 +1,35 @@
 package jobs
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/deepteams/akerdock/internal/store"
+)
+
+// A deployment that reuses an existing artifact clones nothing, builds
+// nothing, records no artifact and prunes nothing — whether it looks
+// backwards (rollback) or at the image already running (skip_build,
+// ADR-048). Getting this wrong on skip_build would have it rebuild from a
+// branch that moved, which is the opposite of applying a configuration.
+func TestReusesArtifact(t *testing.T) {
+	tests := map[string]struct {
+		deployment store.Deployment
+		want       bool
+	}{
+		"plain deployment": {store.Deployment{}, false},
+		"rollback":         {store.Deployment{IsRollback: true}, true},
+		"skip build":       {store.Deployment{SkipBuild: true}, true},
+		"forced rebuild":   {store.Deployment{ForceRebuild: true}, false},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := &deploymentRun{d: tc.deployment}
+			if got := r.reusesArtifact(); got != tc.want {
+				t.Fatalf("reusesArtifact() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
 
 func TestInspectField(t *testing.T) {
 	tests := []struct {

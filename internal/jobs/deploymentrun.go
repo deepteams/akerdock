@@ -616,7 +616,7 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	}
 	// The build server (§3.4): a separate machine, dialled only when the
 	// application asked for one and only for a build pack that builds something.
-	if r.app.BuildConfig.UseBuildServer && r.app.BuildConfig.BuildPack != store.BuildPackImage && !r.d.IsRollback {
+	if r.app.BuildConfig.UseBuildServer && r.app.BuildConfig.BuildPack != store.BuildPackImage && !r.reusesArtifact() {
 		if err := r.dialBuildServer(ctx); err != nil {
 			return err
 		}
@@ -671,10 +671,16 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	}
 	var runRef string
 	switch {
-	// Rollback: the artifact is already built and verified — no rebuild
-	// (ADR-006). The image reference was resolved at trigger time.
-	case r.d.IsRollback:
-		r.skipStep(ctx, "clone", "rollback (no source)")
+	// The artifact is already built and verified — no rebuild. Either an
+	// earlier image (rollback, ADR-006) or the one already running
+	// (skip_build, ADR-048). Both were resolved at trigger time.
+	case r.reusesArtifact():
+		reason, missing := "rollback (no source)", "the rollback image %s is no longer present on the server"
+		if r.d.SkipBuild {
+			reason = "no build requested (the running artifact is redeployed)"
+			missing = "the image %s this application runs is no longer present on the server — deploy it again to rebuild it"
+		}
+		r.skipStep(ctx, "clone", reason)
 		runRef = *r.d.ImageName
 		if r.d.ImageDigest != nil && strings.Contains(*r.d.ImageDigest, "@") {
 			runRef = *r.d.ImageDigest // registry digest, reproducible
@@ -685,7 +691,7 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 		if err := r.step(ctx, "verify_artifact", func() (*sshexec.Result, error) {
 			res, err := r.client.Run(ctx, "docker image inspect --format '{{.Id}}' "+ref)
 			if err == nil && res.ExitCode != 0 {
-				return res, fmt.Errorf("the rollback image %s is no longer present on the server", ref)
+				return res, fmt.Errorf(missing, ref)
 			}
 			return res, err
 		}); err != nil {
@@ -762,7 +768,7 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	// The image is built: reclaim the source checkouts beyond the current +
 	// previous (deployment-engine §5.1). Nothing else removes them, so a busy
 	// app would otherwise fill the disk with hundreds of full clones.
-	if !r.d.IsRollback {
+	if !r.reusesArtifact() {
 		r.pruneOldSources(ctx, appDir)
 	}
 
@@ -1738,11 +1744,19 @@ func envFlags(keys []string) string {
 	return b.String()
 }
 
+// reusesArtifact reports whether this deployment runs an image that already
+// exists on the server: an earlier one (rollback, ADR-006) or the one already
+// running (skip_build, ADR-048). Neither clones, builds, produces a new
+// artifact, nor reclaims anything — there is no new image to account for.
+func (r *deploymentRun) reusesArtifact() bool {
+	return r.d.IsRollback || r.d.SkipBuild
+}
+
 // recordArtifact registers the deployed image as a rollback candidate,
-// protected from the automated cleanup (ADR-006, INV-015). Rollback
-// deployments do not create a new artifact: they redeploy an existing one.
+// protected from the automated cleanup (ADR-006, INV-015). A deployment that
+// reuses an existing artifact creates none: it redeploys one already recorded.
 func (r *deploymentRun) recordArtifact(ctx context.Context) {
-	if r.d.IsRollback || r.d.ImageName == nil {
+	if r.reusesArtifact() || r.d.ImageName == nil {
 		return
 	}
 	kind := store.ArtifactKindLocalImage
@@ -1789,9 +1803,10 @@ type prunableImage struct {
 // ones (`docker rmi`). N is the instance setting image_retention_count (min 1,
 // so the live image, which is the newest artifact, is always kept). Best-effort:
 // a rebuild reproduces any pruned image, so a failure here never fails the
-// deployment. Rollbacks reclaim nothing — they redeploy an existing artifact.
+// deployment. A deployment that reuses an existing artifact (rollback,
+// skip_build) reclaims nothing — it added no image.
 func (r *deploymentRun) pruneOldImages(ctx context.Context) {
-	if r.d.IsRollback || r.client == nil {
+	if r.reusesArtifact() || r.client == nil {
 		return
 	}
 	keep := 5

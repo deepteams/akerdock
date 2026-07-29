@@ -4125,6 +4125,13 @@ paths:
         the `deployment_uuid` to track on `GET /deployments/{uuid}`. Subject
         to the per-server queue (`concurrent_builds`, `deployment_queue_limit`,
         §5.5); full queue → `429`.
+
+
+        `skip_build` reruns the pipeline over the artifact already running
+        (ADR-048): the environment variables and the runtime configuration are
+        applied as they stand now, without a clone or a build. This is what a
+        variable change needs — `restart` hands the process back the values
+        frozen into the container at creation time.
       x-required-permission: applications:deploy
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -4134,11 +4141,21 @@ paths:
           application/json:
             schema:
               type: object
+              description: >-
+                `force_rebuild` and `skip_build` are mutually exclusive — one
+                rebuilds everything, the other builds nothing.
               properties:
                 force_rebuild:
                   type: boolean
                   default: false
                   description: Build without cache.
+                skip_build:
+                  type: boolean
+                  default: false
+                  description: >-
+                    Redeploy the current artifact with the current
+                    configuration; no clone, no build. `409` when the
+                    application has no successful deployment to reuse.
       responses:
         "202":
           description: Deployment queued.
@@ -4154,6 +4171,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -5889,6 +5908,68 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /applications/{application_uuid}/previews/{preview_uuid}/redeploy:
+    parameters:
+      - $ref: "#/components/parameters/ApplicationUuid"
+      - name: preview_uuid
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Applications]
+      operationId: redeployPreview
+      summary: Redeploy an existing PR instance
+      description: >-
+        Redeploys THIS instance at the head SHA it is already pinned to
+        (§20.4) — the pull request is not re-read, and a fork preview stays
+        subject to its approval. `skip_build` reruns the pipeline over the
+        artifact already running (ADR-048), which is how a change to the
+        preview's own variables (INV-010) is applied without a rebuild.
+        `409` if the preview is destroyed, awaiting approval, or — for
+        `skip_build` — has no successful deployment to reuse.
+      x-required-permission: previews:manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              description: >-
+                `force_rebuild` and `skip_build` are mutually exclusive.
+              properties:
+                force_rebuild:
+                  type: boolean
+                  default: false
+                  description: Build without cache.
+                skip_build:
+                  type: boolean
+                  default: false
+                  description: >-
+                    Redeploy the current artifact with the preview's current
+                    configuration; no clone, no build.
+      responses:
+        "202":
+          description: Deployment queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -12572,6 +12653,13 @@ components:
           type: boolean
           default: false
           readOnly: true
+        skip_build:
+          type: boolean
+          default: false
+          readOnly: true
+          description: >-
+            This deployment rebuilt nothing: it reapplied the current
+            configuration over the artifact already running (ADR-048).
         commit_sha:
           type: string
           nullable: true

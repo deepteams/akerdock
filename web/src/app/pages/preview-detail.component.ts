@@ -15,6 +15,10 @@ import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import {
+  ActionsMenuComponent,
+  type ActionItem,
+} from '../../ui/actions-menu/actions-menu.component';
+import {
   StackComponentsComponent,
   type StackComponentAction,
 } from '../../ui/stack-components/stack-components.component';
@@ -74,6 +78,7 @@ function browsableRepo(raw: string | null | undefined): string {
     CardComponent,
     IconComponent,
     StatusBadgeComponent,
+    ActionsMenuComponent,
     StackComponentsComponent,
     ApplicationEnvsTabComponent,
     TerminalComponent,
@@ -141,6 +146,13 @@ function browsableRepo(raw: string | null | undefined): string {
             <akd-icon name="rotate-ccw" [size]="14" />
             Keep alive
           </button>
+          <!-- Redeploying this instance never re-reads the pull request: the
+               head SHA it runs is the one it was pinned to. -->
+          <akd-actions-menu
+            [items]="actions()"
+            [disabled]="busy()"
+            (selected)="run($any($event))"
+          />
         }
       }
     </header>
@@ -763,6 +775,64 @@ export class PreviewDetailComponent {
       this.error.set(ApiService.describe(err));
       this.follow = false;
       this.stopFollow();
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /**
+   * What can be done to this instance. A PR preview has its own variable set
+   * (INV-010), and editing one only reaches the container when the container
+   * is created again — which is what "Recreate" does, without rebuilding
+   * anything (ADR-048).
+   */
+  protected readonly actions = computed<ActionItem[]>(() => {
+    // A fork's code runs only after a maintainer's explicit yes (§20.4.8):
+    // until then there is nothing to redeploy.
+    const forkPending = this.preview()?.is_fork && !this.preview()?.fork_approved;
+    return [
+      {
+        id: 'redeploy',
+        label: 'Redeploy',
+        icon: 'rocket',
+        disabled: !!forkPending,
+        hint: 'Build and deploy this PR again at the commit it already runs',
+      },
+      {
+        id: 'rebuild',
+        label: 'Rebuild (no cache)',
+        icon: 'hammer',
+        disabled: !!forkPending,
+        hint: 'Same, ignoring every cached layer',
+      },
+      {
+        id: 'recreate',
+        label: 'Recreate (apply config)',
+        icon: 'settings-2',
+        disabled: !!forkPending,
+        hint: "Redeploy the running image with this preview's current variables — no build",
+      },
+    ];
+  });
+
+  /** Queues one of the menu's deployments and follows it — the log streams
+   *  on the deployment page, which is what one asked for it to watch. */
+  protected async run(action: 'redeploy' | 'rebuild' | 'recreate'): Promise<void> {
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      const { deployment_uuid } = await this.api
+        .client()
+        .redeployPreview(this.uuid(), this.previewUuid(), {
+          forceRebuild: action === 'rebuild',
+          skipBuild: action === 'recreate',
+        });
+      if (deployment_uuid) {
+        void this.router.navigate(['/applications', this.uuid(), 'deployments', deployment_uuid]);
+      }
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
     } finally {
       this.busy.set(false);
     }

@@ -375,6 +375,13 @@ func (r *deploymentRun) cloneForCompose(ctx context.Context, _, appDir string) (
 		sha = *r.preview.HeadSha
 		r.skipStep(ctx, "resolve_sha", "preview head "+sha[:min(12, len(sha))])
 		_ = r.h.Store.SetDeploymentCommit(ctx, store.SetDeploymentCommitParams{ID: r.d.ID, CommitSha: &sha, GitBranch: r.preview.SourceBranch})
+	} else if r.d.SkipBuild && r.d.CommitSha != nil && *r.d.CommitSha != "" {
+		// skip_build applies a configuration, not a commit (ADR-048): the SHA
+		// is the one already deployed, pinned at trigger time. Resolving the
+		// branch again would deploy code nobody asked to deploy — and would
+		// miss the images built for the commit actually running.
+		sha = *r.d.CommitSha
+		r.skipStep(ctx, "resolve_sha", "deployed commit "+sha[:min(12, len(sha))])
 	} else if err := r.step(ctx, "resolve_sha", func() (*sshexec.Result, error) {
 		res, err := r.client.Run(ctx, fmt.Sprintf("%sgit ls-remote %s refs/heads/%s",
 			gitEnv, shellQuote(repoURL), shellQuote(branch)))
@@ -1022,6 +1029,28 @@ func (r *deploymentRun) ensureComposeImage(ctx context.Context, sp compose.Servi
 	svc := sp.Service
 	ref := sp.Image
 
+	// skip_build (ADR-048): the stack is redeployed to apply its configuration,
+	// not to move its images. The one it already runs is on the server — reuse
+	// it, build or pull alike; pulling a mobile tag here would silently swap
+	// the artifact under an action that promised not to. Absent (pruned, or a
+	// first deployment that never completed), it is built or pulled as usual:
+	// refusing would fail the action whose whole point is to be the cheap one.
+	if r.d.SkipBuild {
+		reused := ref
+		if sp.Build {
+			reused = sp.BuildImage + ":" + sha[:12]
+		}
+		res, err := r.client.Run(ctx, "docker image inspect --format '{{.Id}}' "+reused)
+		if err == nil && res.ExitCode == 0 {
+			verb := "pull_"
+			if sp.Build {
+				verb = "build_"
+			}
+			r.skipStep(ctx, verb+sp.Name, "no build requested (image "+reused+" already on the server)")
+			return r.resolveComposeImage(ctx, sp, reused)
+		}
+	}
+
 	if sp.Build {
 		buildCtx := "."
 		if svc.Build.Context != "" {
@@ -1055,8 +1084,14 @@ func (r *deploymentRun) ensureComposeImage(ctx context.Context, sp compose.Servi
 		return composeImage{}, err
 	}
 
-	// Digest resolution (§18.3): what the stack runs is provably what was
-	// pulled — a moved tag between two services cannot split the stack.
+	return r.resolveComposeImage(ctx, sp, ref)
+}
+
+// resolveComposeImage pins what the service will run (§18.3): what the stack
+// runs is provably what was pulled — a moved tag between two services cannot
+// split the stack — and whether the image carries its own healthcheck, which
+// decides zero-downtime eligibility (§8.4).
+func (r *deploymentRun) resolveComposeImage(ctx context.Context, sp compose.ServicePlan, ref string) (composeImage, error) {
 	img := composeImage{Ref: ref}
 	if err := r.step(ctx, "resolve_"+sp.Name, func() (*sshexec.Result, error) {
 		res, err := r.client.Run(ctx, fmt.Sprintf(

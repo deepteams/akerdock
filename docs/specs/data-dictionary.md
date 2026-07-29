@@ -1120,6 +1120,7 @@ Execution of a resource's deployment pipeline — state machine §21.1. Every de
 | `is_local_source` | `boolean` | no | `false` | — | no | `akerdock up`: source pushed from the workstation (§27.18); never enables auto-deploy. |
 | `context_digest` | `text` | yes | — | — | no | Digest of the local context in place of the SHA (§27.18). |
 | `force_rebuild` | `boolean` | no | `false` | — | no | Build without cache (§5.5). |
+| `skip_build` | `boolean` | no | `false` | — | no | Rebuilds nothing: reapplies the current configuration over the artifact already running (§5.3, ADR-048). Mutually exclusive with `force_rebuild`; distinct from `is_rollback`, which targets an earlier image. Records no artifact and prunes nothing. |
 | `image_name` | `text` | yes | — | — | no | Image produced/deployed. |
 | `image_tag` | `text` | yes | — | — | no | — |
 | `image_digest` | `text` | yes | — | — | no | OCI digest resolved before switchover (§18.3, §27.6). |

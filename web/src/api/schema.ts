@@ -1777,6 +1777,8 @@ export interface paths {
         /**
          * Trigger a deployment
          * @description Queues a full deployment (§20.2, §21.1) — clone/pull depending on the source, build, health checks then switchover. Responds `202` with the `deployment_uuid` to track on `GET /deployments/{uuid}`. Subject to the per-server queue (`concurrent_builds`, `deployment_queue_limit`, §5.5); full queue → `429`.
+         *
+         *     `skip_build` reruns the pipeline over the artifact already running (ADR-048): the environment variables and the runtime configuration are applied as they stand now, without a clone or a build. This is what a variable change needs — `restart` hands the process back the values frozen into the container at creation time.
          */
         post: operations["deployApplication"];
         delete?: never;
@@ -2597,6 +2599,30 @@ export interface paths {
          * @description Resets the inactivity clock (§20.4.3) and clears the expiration warning — UI equivalent of the `/keep` command. The preview stays alive until the next TTL. `409` if it is already destroyed.
          */
         post: operations["keepPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/applications/{application_uuid}/previews/{preview_uuid}/redeploy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redeploy an existing PR instance
+         * @description Redeploys THIS instance at the head SHA it is already pinned to (§20.4) — the pull request is not re-read, and a fork preview stays subject to its approval. `skip_build` reruns the pipeline over the artifact already running (ADR-048), which is how a change to the preview's own variables (INV-010) is applied without a rebuild. `409` if the preview is destroyed, awaiting approval, or — for `skip_build` — has no successful deployment to reuse.
+         */
+        post: operations["redeployPreview"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5567,6 +5593,11 @@ export interface components {
             readonly is_rollback: boolean;
             /** @default false */
             readonly force_rebuild: boolean;
+            /**
+             * @description This deployment rebuilt nothing: it reapplied the current configuration over the artifact already running (ADR-048).
+             * @default false
+             */
+            readonly skip_build: boolean;
             /** @description Immutable Git SHA resolved at trigger time (git source only, §18.3). */
             readonly commit_sha?: string | null;
             readonly commit_message?: string | null;
@@ -9921,6 +9952,11 @@ export interface operations {
                      * @default false
                      */
                     force_rebuild?: boolean;
+                    /**
+                     * @description Redeploy the current artifact with the current configuration; no clone, no build. `409` when the application has no successful deployment to reuse.
+                     * @default false
+                     */
+                    skip_build?: boolean;
                 };
             };
         };
@@ -9938,6 +9974,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
             429: components["responses"]["TooManyRequests"];
         };
     };
@@ -11501,6 +11538,54 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    redeployPreview: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description UUID of the application. */
+                application_uuid: components["parameters"]["ApplicationUuid"];
+                preview_uuid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description Build without cache.
+                     * @default false
+                     */
+                    force_rebuild?: boolean;
+                    /**
+                     * @description Redeploy the current artifact with the preview's current configuration; no clone, no build.
+                     * @default false
+                     */
+                    skip_build?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Deployment queued. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
             429: components["responses"]["TooManyRequests"];
         };
     };

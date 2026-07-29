@@ -2365,6 +2365,7 @@ type Deployment struct {
 	PreviewID      *int64
 	CommitAuthor   *string
 	CommitMessage  *string
+	SkipBuild      bool
 }
 
 type DeploymentArtifact struct {
