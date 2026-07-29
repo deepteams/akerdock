@@ -114,23 +114,11 @@ type TabId =
           <span class="akd-badge akd-badge--mono">{{ server }}</span>
         }
         <div class="actions">
-          <!-- The routine verb stays a button; everything that rebuilds,
-               reapplies or stops the application lives one click away, each
-               entry saying what it does. -->
           <akd-actions-menu
             [items]="actions()"
             [disabled]="busy()"
             (selected)="run($any($event))"
           />
-          <button
-            class="akd-btn akd-btn--primary"
-            type="button"
-            [disabled]="busy()"
-            (click)="run('deploy')"
-          >
-            <akd-icon name="rocket" [size]="15" />
-            Deploy
-          </button>
         </div>
       }
     </header>
@@ -365,7 +353,14 @@ export class ApplicationDetailComponent {
    */
   protected readonly actions = computed<ActionItem[]>(() => {
     const app = this.application();
-    const items: ActionItem[] = [];
+    const items: ActionItem[] = [
+      {
+        id: 'deploy',
+        label: 'Deploy',
+        icon: 'rocket',
+        hint: 'Build and deploy the application with the current configuration',
+      },
+    ];
     // Nothing to force a cache past when nothing is built: the contract only
     // names a build pack for the sources that build one (a ready image pulled
     // from a registry reports none).
