@@ -418,6 +418,11 @@ permission set comes from the membership held **in that team**.
   of every team, and the switcher offers memberships only.
 - The choice is remembered on `users.last_team_id`, so the next login opens where the user
   left off. It is a preference like the session's: re-checked against memberships at login.
+- **Accepting an invitation switches too**: redeeming a link joins the team AND moves the
+  session into it. A user who already belongs to another team would otherwise land back in
+  it, in front of the wrong team's data, one click after asking to join. The acceptance is
+  audited in the team being **joined** (its administrator issued the invitation and reads
+  that trail), while the implied switch is audited in the team being left.
 - Switching is audited as `auth.team.switch`, recorded against the team being **left** —
   that team's administrators are the ones entitled to see the departure.
 - **API tokens are unaffected**: a token is bound to one team at creation (§4.1) and has no

@@ -140,3 +140,34 @@ func TestInvitationEndpointsNeedSessions(t *testing.T) {
 		}
 	}
 }
+
+// Accepting an invitation moves the session INTO the team just joined. Somebody
+// who already belongs to another team would otherwise be left in it, looking at
+// the old team's data one click after saying "join this team".
+func TestAcceptInvitationEntersTheJoinedTeam(t *testing.T) {
+	a, _ := invitationAPI(t)
+	st := a.Sessions.Store.(*browserSessionStore)
+	// The link must belong to the signed-in account: line up the session email
+	// with the one the fake invitation carries.
+	st.sessionRow.Email = "unit"
+
+	rec := httptest.NewRecorder()
+	a.AcceptInvitation(rec, authenticatedBrowserRequest(t, http.MethodPost,
+		"/auth/invitations/accept", `{"token":"t"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("AcceptInvitation = %d, want 200: %s", rec.Code, rec.Body)
+	}
+	var body struct {
+		TeamUUID string `json:"team_uuid"`
+		Switched bool   `json:"switched"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Switched || body.TeamUUID == "" {
+		t.Fatalf("response = %#v, want a switch into the joined team", body)
+	}
+	if len(st.switched) != 1 {
+		t.Fatalf("the session was not moved: %#v", st.switched)
+	}
+}

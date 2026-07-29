@@ -272,6 +272,35 @@ func (a *API) AcceptInvitation(w http.ResponseWriter, r *http.Request) {
 		a.internalError(w, r, "load team", err)
 		return
 	}
-	a.recordAudit(r, sessionIdentity(sess), "invitation.accept", "team", team.Uuid)
-	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"team_uuid": uuidString(team.Uuid)})
+	// Recorded in the team being JOINED, not the one the session happens to be
+	// in: the administrator who sent the invitation is the one entitled to see
+	// it accepted, and they read their own team's trail. (The mirror image of
+	// `auth.team.switch`, which belongs to the team being left.)
+	joining := sessionIdentity(sess)
+	joining.TeamID = inv.TeamID
+	a.recordAudit(r, joining, "invitation.accept", "team", team.Uuid)
+
+	// Enter the team that was just joined (PRD §37). Somebody who already
+	// belongs to another team would otherwise land back in it, in front of the
+	// old team's projects, with a note suggesting they go and switch — after
+	// clicking a link that says "join this team". Accepting IS the request to
+	// act there; the switcher stays for later.
+	//
+	// The join itself is the fact that matters, so a failed switch is reported,
+	// not fatal: the membership exists either way and the session can move on
+	// its own.
+	switched := true
+	if _, err := a.Sessions.SwitchTeam(r.Context(), sess.UserID, sess.ID, uuidString(team.Uuid)); err != nil {
+		a.Logger.Warn("joined a team but could not switch the session into it",
+			"team_uuid", uuidString(team.Uuid), "error", err)
+		switched = false
+	}
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
+		"team_uuid": uuidString(team.Uuid),
+		"name":      team.Name,
+		// False means the caller is still acting in its previous team and must
+		// switch by hand — the dashboard says so rather than showing the wrong
+		// team's data under the new team's name.
+		"switched": switched,
+	})
 }

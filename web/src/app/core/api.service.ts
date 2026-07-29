@@ -78,6 +78,15 @@ export interface InvitationInfo {
   password_login_disabled: boolean;
 }
 
+/** Outcome of redeeming an invitation link. */
+export interface JoinedTeam {
+  team_uuid: string;
+  name: string;
+  /** True when the session now acts in that team (the normal case): the caller
+   *  must reload, because everything on screen belongs to the previous one. */
+  switched: boolean;
+}
+
 /** One team the signed-in user is a member of — an entry of the switcher. */
 export interface MyTeam {
   uuid: string;
@@ -394,8 +403,12 @@ export class ApiService {
    * the invitation names. Requires an active session — the invitation email must
    * match the current account, enforced server-side.
    */
-  async acceptInvitation(token: string): Promise<{ team_uuid: string }> {
-    return this.authPost<{ team_uuid: string }>('/auth/invitations/accept', { token });
+  async acceptInvitation(token: string): Promise<JoinedTeam> {
+    const joined = await this.authPost<JoinedTeam>('/auth/invitations/accept', { token });
+    // Accepting moves the session into the team just joined, so the permissions
+    // this account holds have changed with it.
+    if (joined.switched) await this.restore();
+    return joined;
   }
 
   /**

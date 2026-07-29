@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CardComponent } from '../../ui/card/card.component';
-import { ApiService, type InvitationInfo } from '../core/api.service';
+import { ApiService, type InvitationInfo, type JoinedTeam } from '../core/api.service';
 
 /**
  * Invitation landing page (ADR-038), reached as /invitations/accept?token=….
@@ -109,9 +109,18 @@ import { ApiService, type InvitationInfo } from '../core/api.service';
           }
 
           @case ('done') {
-            <p class="akd-muted">
-              You've joined the team. You can now switch to it from the team switcher.
-            </p>
+            @if (joined(); as team) {
+              <p class="akd-muted">
+                You've joined <strong>{{ team.name }}</strong
+                >@if (team.switched) {
+                  and you're now working in it.
+                } @else {
+                  . Switch to it from the team switcher when you're ready.
+                }
+              </p>
+            } @else {
+              <p class="akd-muted">You've joined the team.</p>
+            }
             <div class="actions">
               <button class="akd-btn akd-btn--primary" type="button" (click)="goToApp()">
                 Continue
@@ -163,6 +172,7 @@ export class AcceptInvitationComponent {
     'loading' | 'signup' | 'sign-in' | 'working' | 'done' | 'error'
   >('loading');
   protected readonly invitation = signal<InvitationInfo | null>(null);
+  protected readonly joined = signal<JoinedTeam | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
   protected name = '';
@@ -207,7 +217,7 @@ export class AcceptInvitationComponent {
 
   private async accept(): Promise<void> {
     try {
-      await this.api.acceptInvitation(this.token);
+      this.joined.set(await this.api.acceptInvitation(this.token));
       this.state.set('done');
     } catch (err) {
       this.error.set(ApiService.describe(err));
@@ -237,7 +247,17 @@ export class AcceptInvitationComponent {
     });
   }
 
+  /**
+   * A full page load, like the team switcher: the session has just moved into
+   * another team, and every cached page belongs to the previous one. Landing on
+   * /projects rather than /applications because that is where a newcomer to a
+   * team gets their bearings.
+   */
   protected goToApp(): void {
+    if (this.joined()?.switched) {
+      window.location.assign('/projects');
+      return;
+    }
     void this.router.navigate(['/applications']);
   }
 }
