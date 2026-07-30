@@ -303,7 +303,9 @@ func serveRun(mode string) int {
 		worker.Register(jobs.TypeServerValidate, (&jobs.ServerValidate{Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort}).Execute)
 		worker.Register(jobs.TypeDeploymentRun, (&jobs.DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger, ControlPlanePort: cfg.InstancePort, WakerImage: cfg.Image}).Execute)
 		worker.Register(jobs.TypeApplicationDelete, (&jobs.ApplicationDelete{Store: q, Keyring: keyring, Logger: logger}).Execute)
-		worker.Register(jobs.TypeApplyRouting, (&jobs.ApplyRouting{Store: q, Keyring: keyring, Logger: logger}).Execute)
+		worker.Register(jobs.TypeApplyRouting, (&jobs.ApplyRouting{
+			Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort,
+		}).Execute)
 		db := &jobs.DatabaseRun{Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort}
 		for _, t := range []string{jobs.TypeDatabaseProvision, jobs.TypeDatabaseStart, jobs.TypeDatabaseStop, jobs.TypeDatabaseRestart, jobs.TypeDatabaseDelete} {
 			worker.Register(t, db.Execute)

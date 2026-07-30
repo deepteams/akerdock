@@ -537,6 +537,7 @@ func (h *Adoption) adoptStackRows(ctx context.Context, qtx *store.Queries, resou
 		image := cc.Image
 		component, err := qtx.UpsertServiceComponent(ctx, store.UpsertServiceComponentParams{
 			ResourceID: resource.ID, Name: cc.ComposeService, Image: &image,
+			AccessPublicRoutes: []byte("[]"),
 		})
 		if err != nil {
 			return nil, err

@@ -33,6 +33,8 @@ func serviceToAPI(row store.GetServiceStackByUUIDRow) api.Service {
 		ServerUuid:                 ptr(uuidString(row.ServerUuid)),
 		ComposeContent:             row.Service.ComposeContent,
 		ConnectToPredefinedNetwork: ptr(row.Service.ConnectToPredefinedNetwork),
+		AccessProtection:           ptr(api.ServiceAccessProtection(row.Service.AccessProtection)),
+		AccessBasicAuthSet:         ptr(len(row.Service.AccessBasicAuthEnc) > 0),
 		DesiredStatus:              api.DesiredStatus(row.Resource.DesiredStatus),
 		ObservedStatus:             api.ObservedStatus(row.Resource.ObservedStatus),
 		ObservedAt:                 timePtr(row.Resource.ObservedAt),
@@ -134,6 +136,19 @@ func (a *API) CreateService(w http.ResponseWriter, r *http.Request, params api.C
 	if strings.TrimSpace(body.ComposeContent) == "" {
 		details = append(details, api.ErrorDetail{Field: ptr("compose_content"), Code: ptr("required"), Message: "compose_content is required"})
 	}
+	if body.AccessProtection != nil && !body.AccessProtection.Valid() {
+		details = append(details, api.ErrorDetail{
+			Field: ptr("access_protection"), Code: ptr("invalid"),
+			Message: "access_protection must be none, basic_auth or sso",
+		})
+	}
+	if body.AccessBasicAuth != nil && *body.AccessBasicAuth != "" &&
+		!validBasicAuthCredentials(*body.AccessBasicAuth) {
+		details = append(details, api.ErrorDetail{
+			Field: ptr("access_basic_auth"), Code: ptr("invalid_format"),
+			Message: "access_basic_auth must contain a non-empty user and password as \"user:password\"",
+		})
+	}
 	if len(details) > 0 {
 		httpapi.WriteValidationError(w, r, details)
 		return
@@ -199,6 +214,40 @@ func (a *API) CreateService(w http.ResponseWriter, r *http.Request, params api.C
 	}); err != nil {
 		a.internalError(w, r, "create service", err)
 		return
+	}
+	protection := store.PreviewProtectionNone
+	if body.AccessProtection != nil {
+		protection = store.PreviewProtection(*body.AccessProtection)
+	}
+	if err := qtx.SetServiceAccessProtection(r.Context(), store.SetServiceAccessProtectionParams{
+		ID: resource.ID, AccessProtection: protection,
+	}); err != nil {
+		a.internalError(w, r, "create service access protection", err)
+		return
+	}
+	credentials := ""
+	if body.AccessBasicAuth != nil && *body.AccessBasicAuth != "" {
+		credentials = *body.AccessBasicAuth
+	} else if protection == store.PreviewProtectionBasicAuth {
+		credentials, err = generateBasicAuthCredentials()
+		if err != nil {
+			a.internalError(w, r, "create service access credentials", err)
+			return
+		}
+	}
+	if credentials != "" {
+		encrypted, err := a.Keyring.Encrypt("services", "access_basic_auth_enc",
+			uuidString(resource.Uuid), []byte(credentials))
+		if err != nil {
+			a.internalError(w, r, "create service access credentials", err)
+			return
+		}
+		if err := qtx.SetServiceAccessBasicAuth(r.Context(), store.SetServiceAccessBasicAuthParams{
+			ID: resource.ID, AccessBasicAuthEnc: encrypted,
+		}); err != nil {
+			a.internalError(w, r, "create service access credentials", err)
+			return
+		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		a.internalError(w, r, "create service", err)
@@ -288,6 +337,21 @@ func (a *API) UpdateService(w http.ResponseWriter, r *http.Request, serviceUuid 
 	if body.ConnectToPredefinedNetwork != nil {
 		connect = *body.ConnectToPredefinedNetwork
 	}
+	if body.AccessProtection != nil && !body.AccessProtection.Valid() {
+		httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+			Field: ptr("access_protection"), Code: ptr("invalid"),
+			Message: "access_protection must be none, basic_auth or sso",
+		}})
+		return
+	}
+	if body.AccessBasicAuth != nil && *body.AccessBasicAuth != "" &&
+		!validBasicAuthCredentials(*body.AccessBasicAuth) {
+		httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+			Field: ptr("access_basic_auth"), Code: ptr("invalid_format"),
+			Message: "access_basic_auth must contain a non-empty user and password as \"user:password\"",
+		}})
+		return
+	}
 
 	tx, err := a.Pool.Begin(r.Context())
 	if err != nil {
@@ -318,6 +382,41 @@ func (a *API) UpdateService(w http.ResponseWriter, r *http.Request, serviceUuid 
 		a.internalError(w, r, "update service", err)
 		return
 	}
+	if body.AccessProtection != nil {
+		if err := qtx.SetServiceAccessProtection(r.Context(), store.SetServiceAccessProtectionParams{
+			ID: row.Resource.ID, AccessProtection: store.PreviewProtection(*body.AccessProtection),
+		}); err != nil {
+			a.internalError(w, r, "update service access protection", err)
+			return
+		}
+	}
+	credentials := ""
+	switch {
+	case body.AccessBasicAuth != nil && *body.AccessBasicAuth != "":
+		credentials = *body.AccessBasicAuth
+	case body.AccessProtection != nil &&
+		*body.AccessProtection == api.ServiceUpdateAccessProtectionBasicAuth &&
+		len(row.Service.AccessBasicAuthEnc) == 0:
+		credentials, err = generateBasicAuthCredentials()
+		if err != nil {
+			a.internalError(w, r, "update service access credentials", err)
+			return
+		}
+	}
+	if credentials != "" {
+		encrypted, err := a.Keyring.Encrypt("services", "access_basic_auth_enc",
+			uuidString(row.Resource.Uuid), []byte(credentials))
+		if err != nil {
+			a.internalError(w, r, "update service access credentials", err)
+			return
+		}
+		if err := qtx.SetServiceAccessBasicAuth(r.Context(), store.SetServiceAccessBasicAuthParams{
+			ID: row.Resource.ID, AccessBasicAuthEnc: encrypted,
+		}); err != nil {
+			a.internalError(w, r, "update service access credentials", err)
+			return
+		}
+	}
 	if err := tx.Commit(r.Context()); err != nil {
 		a.internalError(w, r, "update service", err)
 		return
@@ -328,6 +427,22 @@ func (a *API) UpdateService(w http.ResponseWriter, r *http.Request, serviceUuid 
 	if err != nil {
 		a.internalError(w, r, "update service", err)
 		return
+	}
+	if body.AccessProtection != nil || body.AccessBasicAuth != nil {
+		server, serverErr := a.Store.GetServerByID(r.Context(), updated.ServerRowID)
+		if serverErr == nil && server.ProxyType == store.ProxyTypeTraefik &&
+			server.Status == store.ServerStatusReady {
+			lockKey := "deploy:app:" + uuidString(updated.Resource.Uuid)
+			if _, enqueueErr := queue.Enqueue(r.Context(), a.Store, queue.EnqueueOptions{
+				Queue: "deploy", Type: jobs.TypeApplyRouting,
+				Payload: jobs.ApplyRoutingPayload{
+					ResourceID: updated.Resource.ID, Revision: int64(updated.Resource.Version),
+				},
+				LockKey: &lockKey, TeamID: ptr(id.TeamID), ResourceID: ptr(updated.Resource.ID),
+			}); enqueueErr != nil {
+				a.Logger.Warn("failed to enqueue service routing regeneration", "error", enqueueErr)
+			}
+		}
 	}
 	w.Header().Set("ETag", etagFor(updated.Resource.Version))
 	httpapi.WriteJSON(w, http.StatusOK, serviceToAPI(updated))

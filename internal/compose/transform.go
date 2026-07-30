@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/compose-spec/compose-go/v2/types"
+
+	"github.com/deepteams/akerdock/internal/accessroute"
 )
 
 // Plan is the deterministic execution plan of a stack (compose-spec §2):
@@ -106,6 +108,7 @@ type ServicePlan struct {
 	// candidate before its switch.
 	PreCommand         string
 	PostCommand        string
+	AccessPublicRoutes []accessroute.Route
 	ExcludeFromHC      bool
 	ZeroDowntimeOptOut bool
 	// HasHostPorts makes the service ineligible to zero-downtime (§8.4):
@@ -211,15 +214,16 @@ func buildServicePlan(name string, svc types.ServiceConfig, _ *types.Project, in
 	ext := serviceExtensions(name, p+".x-akerdock", svc, &findings{}) // findings already reported by validate
 
 	sp := ServicePlan{
-		Name:          name,
-		ContainerName: in.StackUUID + "-" + name,
-		CandidateName: in.StackUUID + "-" + name + "-next",
-		Aliases:       []string{name, in.StackUUID + "-" + name},
-		Image:         svc.Image,
-		ExcludeFromHC: ext.ExcludeFromHC,
-		PreCommand:    ext.PreDeploymentCommand,
-		PostCommand:   ext.PostDeploymentCommand,
-		Service:       svc,
+		Name:               name,
+		ContainerName:      in.StackUUID + "-" + name,
+		CandidateName:      in.StackUUID + "-" + name + "-next",
+		Aliases:            []string{name, in.StackUUID + "-" + name},
+		Image:              svc.Image,
+		ExcludeFromHC:      ext.ExcludeFromHC,
+		PreCommand:         ext.PreDeploymentCommand,
+		PostCommand:        ext.PostDeploymentCommand,
+		AccessPublicRoutes: ext.AccessPublicRoutes,
+		Service:            svc,
 	}
 	if ext.ZeroDowntime != nil && !*ext.ZeroDowntime {
 		sp.ZeroDowntimeOptOut = true

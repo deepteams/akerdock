@@ -13,6 +13,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/deepteams/akerdock/internal/safedial"
 )
 
 // Status is the check verdict. It only flips after enough CONSECUTIVE
@@ -37,14 +39,23 @@ type Result struct {
 
 // Probe runs one check. kind is http or tcp; target is a URL or host:port.
 func Probe(ctx context.Context, kind, target string, timeout time.Duration) Result {
+	dialer := safedial.Dialer(timeout)
+	return probe(ctx, kind, target, timeout, dialer.DialContext, safedial.HTTPClient(timeout))
+}
+
+type dialContext func(context.Context, string, string) (net.Conn, error)
+
+// probe contains the result semantics separately from the production network
+// boundary. Tests can provide a loopback client/dialer; Probe always supplies
+// the SSRF-guarded versions above.
+func probe(ctx context.Context, kind, target string, timeout time.Duration, dial dialContext, client *http.Client) Result {
 	start := time.Now()
 	done := func(ok bool, code int32, errMsg string) Result {
 		return Result{OK: ok, LatencyMs: int32(time.Since(start).Milliseconds()), StatusCode: code, Error: errMsg}
 	}
 	switch kind {
 	case "tcp":
-		d := net.Dialer{Timeout: timeout}
-		conn, err := d.DialContext(ctx, "tcp", target)
+		conn, err := dial(ctx, "tcp", target)
 		if err != nil {
 			return done(false, 0, err.Error())
 		}
@@ -62,7 +73,6 @@ func Probe(ctx context.Context, kind, target string, timeout time.Duration) Resu
 		// it as activity, otherwise monitoring would keep it awake forever. The
 		// waker recognises this header and skips the activity record.
 		req.Header.Set("X-AkerDock-Uptime", "1")
-		client := &http.Client{Timeout: timeout}
 		resp, err := client.Do(req)
 		if err != nil {
 			return done(false, 0, err.Error())

@@ -575,7 +575,7 @@ An uptime check (ADR-017): HTTP/TCP probe executed **from the control plane** �
 | `resource_id` | `bigint` | yes | — | FK `resources(id)` ON DELETE CASCADE | no | Optional link: the "per resource" history of ADR-017. |
 | `name` | `text` | no | — | UNIQUE `(team_id, name)` | no | — |
 | `kind` | `uptime_check_kind` | no | — | — | no | `http` (URL, up = response < 400) or `tcp` (host:port, up = connection). |
-| `target` | `text` | no | — | — | no | URL or `host:port`, validated on input. |
+| `target` | `text` | no | — | — | no | Public HTTP(S) URL or public `host:port`, validated on input and again on every resolved connection. Loopback, private, link-local, CGNAT, reserved and cloud-metadata destinations are blocked for IPv4/IPv6; the connection-time check also covers DNS rebinding and every HTTP redirect. |
 | `interval_seconds` | `integer` | no | `60` | CHECK `>= 10` | no | — |
 | `timeout_seconds` | `integer` | no | `10` | CHECK `1..60` | no | — |
 | `failure_threshold` | `integer` | no | `3` | CHECK `> 0` | no | Consecutive failures before `down`. |
@@ -746,6 +746,9 @@ Inbound webhook delivery, persisted before the `2xx` response then processed asy
 | `preview_max_concurrent` | `integer` | yes | — | CHECK `> 0` | no | Cap on simultaneous previews; NULL = instance default (§20.4.3). |
 | `preview_ttl_minutes` | `integer` | yes | — | CHECK `> 0` | no | Inactivity TTL before automatic destruction (§20.4.3). |
 | `preview_protection` | `preview_protection` | no | `'basic_auth'` | — | no | Protected by default + `X-Robots-Tag: noindex`; `none` = explicit choice (§20.4.4). |
+| `access_protection` | `preview_protection` | no | `'none'` | — | no | Production access wall: `none`, `basic_auth` or `sso` (ADR-042/049). |
+| `access_basic_auth_enc` | `bytea` | yes | — | — | **yes** | Generated or operator-supplied `user:password`, envelope-encrypted; the proxy receives only a bcrypt hash (ADR-042). |
+| `access_public_routes` | `jsonb` | no | `'[]'` | — | no | Narrow unauthenticated production routes `[{path, match, methods, parameters?}]`; `:name` templates and segment-bounded prefixes only, never arbitrary regex/globs (ADR-049). Compose applications instead persist this per component. |
 | `preview_require_label` | `text` | yes | — | — | no | Opt-in via PR label (§20.4.7); NULL = disabled. |
 | `preview_comment_commands_enabled` | `boolean` | no | `false` | — | no | `/deploy`, `/destroy` commands in comments (§20.4.7). |
 | `preview_exclude_drafts` | `boolean` | no | `false` | — | no | §20.4.7. |
@@ -955,6 +958,21 @@ Ephemeral PR/MR environment (§5.6, §20.4). Deterministic identity `(applicatio
 
 > The variables of the preview set live in `environment_variables.is_preview` (shared by all previews of an application, parity §5.6); the Git comments/checks (§20.4.6: single comment updated in place) are external identifiers kept in the `payload` of jobs/events, not dedicated columns.
 
+### 8.10 `preview_access_tokens`
+
+Hash-only browser grants for preview SSO and production resource access walls (ADR-030/042/049). Despite the historical table name, production grants may target either an application or an inline Compose service. Expired rows are deleted opportunistically.
+
+| Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
+|---|---|---|---|---|---|---|
+| `id` | `bigint` | no | identity | PK | no | — |
+| `token_hash` | `text` | no | — | UNIQUE | **yes** | Hash of the opaque cookie value; the raw token is never persisted. |
+| `preview_id` | `bigint` | yes | — | FK `previews(id)` ON DELETE CASCADE, index | no | Preview grant target; mutually exclusive with a production resource target. |
+| `application_id` | `bigint` | yes | — | FK `applications(id)` ON DELETE CASCADE, index | no | Rolling-upgrade compatibility for production application grants; populated alongside `resource_id` for applications. |
+| `resource_id` | `bigint` | yes | — | FK `resources(id)` ON DELETE CASCADE, index | no | Production application or service target (ADR-049). |
+| `user_id` | `bigint` | yes | — | FK `users(id)` ON DELETE CASCADE | no | User whose team membership authorized the grant. |
+| `expires_at` | `timestamptz` | no | — | — | no | Absolute cookie/grant expiry. |
+| `created_at` | `timestamptz` | no | `now()` | — | no | — |
+
 ---
 
 ## 9. Service / Database aggregate
@@ -971,6 +989,8 @@ Ephemeral PR/MR environment (§5.6, §20.4). Deterministic identity `(applicatio
 | `template_version` | `text` | yes | — | — | no | Catalog version at instantiation (versioned/signed catalog, §27.10). |
 | `template_repository` | `text` | yes | — | — | no | Original template repository (official or team repository, §27.10). |
 | `connect_to_predefined_network` | `boolean` | no | `false` | — | no | Inter-stack communication (§9). |
+| `access_protection` | `preview_protection` | no | `'none'` | — | no | Production access wall for the whole inline stack resource: `none`, `basic_auth` or `sso` (ADR-049). |
+| `access_basic_auth_enc` | `bytea` | yes | — | — | **yes** | Stack `user:password`, envelope-encrypted; the proxy receives only a bcrypt hash. |
 | `created_at` | `timestamptz` | no | `now()` | — | no | — |
 | `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
@@ -991,6 +1011,7 @@ Sub-container of a stack (one service of the compose file): individual status, i
 | `database_engine` | `db_engine` | yes | — | — | no | Detected engine if `is_database`. |
 | `exclude_from_hc` | `boolean` | no | `false` | — | no | One-shot jobs excluded from the stack health check (§9). |
 | `default_route_port` | `integer` | yes | — | CHECK 1–65535 | no | Default routing port (compose-spec §6): first `expose`, resolved at validation. |
+| `access_public_routes` | `jsonb` | no | `'[]'` | — | no | Per-component exceptions compiled from `services.<name>.x-akerdock.access_public_routes`; they apply only to domains routed to this component (ADR-049). |
 | `observed_status` | `resource_observed_status` | no | `'unknown'` | — | no | Per-sub-container status (§5.7, §9). |
 | `observed_at` | `timestamptz` | yes | — | — | no | — |
 | `created_at` | `timestamptz` | no | `now()` | — | no | — |

@@ -17,6 +17,8 @@ import (
 // cannot exhaust the leader.
 const uptimeProbeConcurrency = 16
 
+type uptimeProbe func(context.Context, string, string, time.Duration) uptime.Result
+
 // runDueUptimeChecks probes the checks whose window has passed (ADR-017).
 // The pass runs in the background guarded by an in-flight flag: a wall of
 // slow targets must delay the NEXT uptime pass, never the scheduler loop.
@@ -58,7 +60,11 @@ func (s *Scheduler) runDueUptimeChecks(ctx context.Context) {
 // flip — and only a flip — publishes an event: the thresholds are the
 // anti-flapping, the notifier never sees the individual probes.
 func (s *Scheduler) probeUptimeCheck(ctx context.Context, check store.UptimeCheck) {
-	res := uptime.Probe(ctx, string(check.Kind), check.Target,
+	probe := s.probeUptime
+	if probe == nil {
+		probe = uptime.Probe
+	}
+	res := probe(ctx, string(check.Kind), check.Target,
 		time.Duration(check.TimeoutSeconds)*time.Second)
 
 	var latency, code *int32

@@ -44,6 +44,7 @@ const (
 	CodeMagicVariableInvalidType   = "compose_magic_variable_invalid_type"
 	CodeMagicVariableUnknownComp   = "compose_magic_variable_unknown_component"
 	CodeStorageExtensionConflict   = "compose_storage_extension_conflict"
+	CodeAccessPublicRouteInvalid   = "compose_access_public_route_invalid"
 	CodeRoutablePortUnresolved     = "compose_routable_port_unresolved"
 	CodeDomainConflict             = "compose_domain_conflict"
 	CodeOneshotWithoutExclude      = "compose_oneshot_without_exclude"

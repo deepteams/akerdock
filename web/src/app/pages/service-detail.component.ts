@@ -114,6 +114,43 @@ type Deployment = components['schemas']['Deployment'];
             </akd-card>
           }
 
+          <akd-card title="Access protection">
+            <div class="access-fields">
+              <label class="akd-field">
+                <span class="akd-field__label">Who can reach this stack</span>
+                <select
+                  class="akd-input"
+                  name="serviceAccessProtection"
+                  [(ngModel)]="accessProtection"
+                  [disabled]="busy()"
+                >
+                  <option value="none">Public (default)</option>
+                  <option value="sso">AkerDock login (team members only)</option>
+                  <option value="basic_auth">Basic auth (shared credentials)</option>
+                </select>
+              </label>
+              @if (accessProtection === 'basic_auth') {
+                <label class="akd-field">
+                  <span class="akd-field__label">
+                    Shared credentials, user:password (empty = keep / generate)
+                  </span>
+                  <input
+                    class="akd-input akd-input--mono"
+                    name="serviceAccessBasicAuth"
+                    autocomplete="off"
+                    [(ngModel)]="accessBasicAuth"
+                    [disabled]="busy()"
+                  />
+                </label>
+              }
+              <p class="akd-muted">
+                The wall covers every routed component. Put
+                <code>x-akerdock.access_public_routes</code> on a Compose service to expose only
+                its webhook or callback paths.
+              </p>
+            </div>
+          </akd-card>
+
           <akd-card title="Compose file">
             <form class="compose-form" (ngSubmit)="save()">
               <textarea
@@ -248,6 +285,10 @@ type Deployment = components['schemas']['Deployment'];
         display: grid;
         gap: var(--space-3);
       }
+      .access-fields {
+        display: grid;
+        gap: var(--space-4);
+      }
       .save-row {
         display: flex;
         align-items: center;
@@ -292,6 +333,8 @@ export class ServiceDetailComponent {
   protected readonly busy = signal(false);
 
   protected composeContent = '';
+  protected accessProtection: 'none' | 'basic_auth' | 'sso' = 'none';
+  protected accessBasicAuth = '';
 
   /**
    * An inline stack builds nothing — its file IS the source (§9.1) — so
@@ -340,6 +383,8 @@ export class ServiceDetailComponent {
       ]);
       this.service.set(svc);
       this.composeContent = svc.compose_content;
+      this.accessProtection = svc.access_protection ?? 'none';
+      this.accessBasicAuth = '';
       this.components.set(comps.data);
       this.deployments.set(deps.data);
     } catch (err) {
@@ -356,10 +401,16 @@ export class ServiceDetailComponent {
     try {
       const updated = await this.api.client().updateService(this.uuid(), svc.version!, {
         compose_content: this.composeContent,
+        access_protection: this.accessProtection,
+        ...(this.accessBasicAuth.trim()
+          ? { access_basic_auth: this.accessBasicAuth.trim() }
+          : {}),
       });
       this.service.set(updated);
       this.composeContent = updated.compose_content;
-      this.notice.set('File saved — applied at the next deployment.');
+      this.notice.set(
+        'Saved. The access wall is updated immediately; Compose file changes apply at the next deployment.',
+      );
     } catch (err) {
       if (err instanceof ApiError && err.isVersionConflict) {
         await this.load(this.uuid());

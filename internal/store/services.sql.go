@@ -60,7 +60,7 @@ func (q *Queries) DeleteVanishedServiceComponents(ctx context.Context, arg Delet
 }
 
 const getServiceByID = `-- name: GetServiceByID :one
-SELECT id, compose_content, template_slug, template_version, template_repository, connect_to_predefined_network, created_at, updated_at FROM services WHERE id = $1
+SELECT id, compose_content, template_slug, template_version, template_repository, connect_to_predefined_network, created_at, updated_at, access_protection, access_basic_auth_enc FROM services WHERE id = $1
 `
 
 func (q *Queries) GetServiceByID(ctx context.Context, id int64) (Service, error) {
@@ -75,12 +75,14 @@ func (q *Queries) GetServiceByID(ctx context.Context, id int64) (Service, error)
 		&i.ConnectToPredefinedNetwork,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AccessProtection,
+		&i.AccessBasicAuthEnc,
 	)
 	return i, err
 }
 
 const getServiceComponentByUUID = `-- name: GetServiceComponentByUUID :one
-SELECT sc.id, sc.uuid, sc.resource_id, sc.name, sc.image, sc.is_database, sc.database_engine, sc.exclude_from_hc, sc.default_route_port, sc.observed_status, sc.observed_at, sc.created_at, sc.updated_at FROM service_components sc
+SELECT sc.id, sc.uuid, sc.resource_id, sc.name, sc.image, sc.is_database, sc.database_engine, sc.exclude_from_hc, sc.default_route_port, sc.observed_status, sc.observed_at, sc.created_at, sc.updated_at, sc.access_public_routes FROM service_components sc
 JOIN resources r ON r.id = sc.resource_id
 WHERE sc.uuid = $1 AND r.team_id = $2 AND r.deleted_at IS NULL
 `
@@ -107,12 +109,13 @@ func (q *Queries) GetServiceComponentByUUID(ctx context.Context, arg GetServiceC
 		&i.ObservedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AccessPublicRoutes,
 	)
 	return i, err
 }
 
 const getServiceStackByUUID = `-- name: GetServiceStackByUUID :one
-SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, s.id, s.compose_content, s.template_slug, s.template_version, s.template_repository, s.connect_to_predefined_network, s.created_at, s.updated_at,
+SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, s.id, s.compose_content, s.template_slug, s.template_version, s.template_repository, s.connect_to_predefined_network, s.created_at, s.updated_at, s.access_protection, s.access_basic_auth_enc,
        e.uuid AS environment_uuid, p.uuid AS project_uuid,
        dst.uuid AS destination_uuid, srv.uuid AS server_uuid, srv.id AS server_row_id
 FROM resources r
@@ -174,6 +177,8 @@ func (q *Queries) GetServiceStackByUUID(ctx context.Context, arg GetServiceStack
 		&i.Service.ConnectToPredefinedNetwork,
 		&i.Service.CreatedAt,
 		&i.Service.UpdatedAt,
+		&i.Service.AccessProtection,
+		&i.Service.AccessBasicAuthEnc,
 		&i.EnvironmentUuid,
 		&i.ProjectUuid,
 		&i.DestinationUuid,
@@ -222,7 +227,7 @@ func (q *Queries) ListServiceComponentDomains(ctx context.Context, serviceCompon
 }
 
 const listServiceComponents = `-- name: ListServiceComponents :many
-SELECT id, uuid, resource_id, name, image, is_database, database_engine, exclude_from_hc, default_route_port, observed_status, observed_at, created_at, updated_at FROM service_components WHERE resource_id = $1 ORDER BY name
+SELECT id, uuid, resource_id, name, image, is_database, database_engine, exclude_from_hc, default_route_port, observed_status, observed_at, created_at, updated_at, access_public_routes FROM service_components WHERE resource_id = $1 ORDER BY name
 `
 
 func (q *Queries) ListServiceComponents(ctx context.Context, resourceID int64) ([]ServiceComponent, error) {
@@ -248,6 +253,7 @@ func (q *Queries) ListServiceComponents(ctx context.Context, resourceID int64) (
 			&i.ObservedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AccessPublicRoutes,
 		); err != nil {
 			return nil, err
 		}
@@ -260,7 +266,7 @@ func (q *Queries) ListServiceComponents(ctx context.Context, resourceID int64) (
 }
 
 const listServiceStacksPage = `-- name: ListServiceStacksPage :many
-SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, s.id, s.compose_content, s.template_slug, s.template_version, s.template_repository, s.connect_to_predefined_network, s.created_at, s.updated_at,
+SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, s.id, s.compose_content, s.template_slug, s.template_version, s.template_repository, s.connect_to_predefined_network, s.created_at, s.updated_at, s.access_protection, s.access_basic_auth_enc,
        e.uuid AS environment_uuid, p.uuid AS project_uuid,
        dst.uuid AS destination_uuid, srv.uuid AS server_uuid
 FROM resources r
@@ -329,6 +335,8 @@ func (q *Queries) ListServiceStacksPage(ctx context.Context, arg ListServiceStac
 			&i.Service.ConnectToPredefinedNetwork,
 			&i.Service.CreatedAt,
 			&i.Service.UpdatedAt,
+			&i.Service.AccessProtection,
+			&i.Service.AccessBasicAuthEnc,
 			&i.EnvironmentUuid,
 			&i.ProjectUuid,
 			&i.DestinationUuid,
@@ -342,6 +350,34 @@ func (q *Queries) ListServiceStacksPage(ctx context.Context, arg ListServiceStac
 		return nil, err
 	}
 	return items, nil
+}
+
+const setServiceAccessBasicAuth = `-- name: SetServiceAccessBasicAuth :exec
+UPDATE services SET access_basic_auth_enc = $2, updated_at = now() WHERE id = $1
+`
+
+type SetServiceAccessBasicAuthParams struct {
+	ID                 int64
+	AccessBasicAuthEnc []byte
+}
+
+func (q *Queries) SetServiceAccessBasicAuth(ctx context.Context, arg SetServiceAccessBasicAuthParams) error {
+	_, err := q.db.Exec(ctx, setServiceAccessBasicAuth, arg.ID, arg.AccessBasicAuthEnc)
+	return err
+}
+
+const setServiceAccessProtection = `-- name: SetServiceAccessProtection :exec
+UPDATE services SET access_protection = $2, updated_at = now() WHERE id = $1
+`
+
+type SetServiceAccessProtectionParams struct {
+	ID               int64
+	AccessProtection PreviewProtection
+}
+
+func (q *Queries) SetServiceAccessProtection(ctx context.Context, arg SetServiceAccessProtectionParams) error {
+	_, err := q.db.Exec(ctx, setServiceAccessProtection, arg.ID, arg.AccessProtection)
+	return err
 }
 
 const setServiceComponentObserved = `-- name: SetServiceComponentObserved :exec
@@ -410,26 +446,32 @@ func (q *Queries) UpdateServiceCompose(ctx context.Context, arg UpdateServiceCom
 }
 
 const upsertServiceComponent = `-- name: UpsertServiceComponent :one
-INSERT INTO service_components (resource_id, name, image, is_database, database_engine, exclude_from_hc, default_route_port)
-VALUES ($1, $2, $5, $3, $6, $4, $7)
+INSERT INTO service_components
+    (resource_id, name, image, is_database, database_engine, exclude_from_hc,
+     default_route_port, access_public_routes)
+VALUES
+    ($1, $2, $6, $3, $7, $4,
+     $8, $5)
 ON CONFLICT (resource_id, name) DO UPDATE SET
     image = excluded.image,
     is_database = excluded.is_database,
     database_engine = excluded.database_engine,
     exclude_from_hc = excluded.exclude_from_hc,
     default_route_port = excluded.default_route_port,
+    access_public_routes = excluded.access_public_routes,
     updated_at = now()
-RETURNING id, uuid, resource_id, name, image, is_database, database_engine, exclude_from_hc, default_route_port, observed_status, observed_at, created_at, updated_at
+RETURNING id, uuid, resource_id, name, image, is_database, database_engine, exclude_from_hc, default_route_port, observed_status, observed_at, created_at, updated_at, access_public_routes
 `
 
 type UpsertServiceComponentParams struct {
-	ResourceID       int64
-	Name             string
-	IsDatabase       bool
-	ExcludeFromHc    bool
-	Image            *string
-	DatabaseEngine   *DbEngine
-	DefaultRoutePort *int32
+	ResourceID         int64
+	Name               string
+	IsDatabase         bool
+	ExcludeFromHc      bool
+	AccessPublicRoutes []byte
+	Image              *string
+	DatabaseEngine     *DbEngine
+	DefaultRoutePort   *int32
 }
 
 // Component sync (data-dictionary §9.2): recreated/updated at every edit of
@@ -441,6 +483,7 @@ func (q *Queries) UpsertServiceComponent(ctx context.Context, arg UpsertServiceC
 		arg.Name,
 		arg.IsDatabase,
 		arg.ExcludeFromHc,
+		arg.AccessPublicRoutes,
 		arg.Image,
 		arg.DatabaseEngine,
 		arg.DefaultRoutePort,
@@ -460,6 +503,7 @@ func (q *Queries) UpsertServiceComponent(ctx context.Context, arg UpsertServiceC
 		&i.ObservedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AccessPublicRoutes,
 	)
 	return i, err
 }

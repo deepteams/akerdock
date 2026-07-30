@@ -118,6 +118,7 @@ func applicationToAPI(row appRow) api.Application {
 		PreviewProtection:              ptr(api.ApplicationPreviewProtection(row.Application.PreviewProtection)),
 		AccessProtection:               ptr(api.ApplicationAccessProtection(row.Application.AccessProtection)),
 		AccessBasicAuthSet:             ptr(len(row.Application.AccessBasicAuthEnc) > 0),
+		AccessPublicRoutes:             publicRoutesToAPI(row.Application.AccessPublicRoutes),
 		PreviewForkApprovalEnabled:     ptr(row.Application.PreviewForkApprovalEnabled),
 		PreviewExcludeDrafts:           ptr(row.Application.PreviewExcludeDrafts),
 		PreviewDeployOnOpen:            ptr(row.Application.PreviewDeployOnOpen),
@@ -873,16 +874,18 @@ func (a *API) defaultDestination(r *http.Request, serverID int64) (store.Destina
 // audit leak just because someone added it to the table.
 func auditFieldsOf(row appRow) map[string]any {
 	fields := map[string]any{
-		"name":             row.Resource.Name,
-		"description":      deref(row.Resource.Description),
-		"desired_status":   string(row.Resource.DesiredStatus),
-		"ports_exposes":    row.RuntimeConfig.PortsExposes,
-		"base_directory":   row.Application.BaseDirectory,
-		"git_branch":       deref(row.Application.GitBranch),
-		"git_repository":   deref(row.Application.GitRepositoryUrl),
-		"build_pack":       string(row.BuildConfig.BuildPack),
-		"docker_image":     deref(row.BuildConfig.ImageName),
-		"docker_image_tag": deref(row.BuildConfig.ImageTag),
+		"name":                 row.Resource.Name,
+		"description":          deref(row.Resource.Description),
+		"desired_status":       string(row.Resource.DesiredStatus),
+		"ports_exposes":        row.RuntimeConfig.PortsExposes,
+		"base_directory":       row.Application.BaseDirectory,
+		"git_branch":           deref(row.Application.GitBranch),
+		"git_repository":       deref(row.Application.GitRepositoryUrl),
+		"build_pack":           string(row.BuildConfig.BuildPack),
+		"docker_image":         deref(row.BuildConfig.ImageName),
+		"docker_image_tag":     deref(row.BuildConfig.ImageTag),
+		"access_protection":    string(row.Application.AccessProtection),
+		"access_public_routes": string(row.Application.AccessPublicRoutes),
 	}
 	if row.RuntimeConfig.MemoryLimit != nil {
 		fields["memory_limit"] = *row.RuntimeConfig.MemoryLimit

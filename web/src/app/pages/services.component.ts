@@ -319,6 +319,7 @@ export class ServicesComponent {
         server_uuid: this.serverUuid,
         compose_content: this.composeContent,
         connect_to_predefined_network: false,
+        access_protection: 'none',
         instant_deploy: this.instantDeploy,
       });
       this.name = '';

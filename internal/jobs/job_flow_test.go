@@ -145,6 +145,13 @@ func (r jobFlowRow) Scan(dest ...any) error {
 			*(d.(**string)) = &value
 			continue
 		}
+		if strings.Contains(r.sql, "-- name: GetApplicationByID ") && index == 56 {
+			// applications.access_public_routes is a non-null JSON array. The
+			// generic byte-slice fixture is encrypted key material, which is
+			// appropriate for *_enc columns but deliberately invalid JSON.
+			*(d.(*[]byte)) = []byte("[]")
+			continue
+		}
 		if strings.Contains(r.sql, "-- name: GetServerByID ") {
 			switch index {
 			case 5:

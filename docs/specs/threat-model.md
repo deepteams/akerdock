@@ -240,6 +240,7 @@ The helper (waker mode) POSTs observation batches to `/agent/v1/observations`, a
 | **I** | Leak of labels containing secrets | Secrets never in labels (INV-003), fixed system labels (§5.3) | Anti-secret validation in custom labels **(proposed default)** |
 | **D** | Proxy shutdown cutting all inbound traffic | Explicit warning before shutdown (§4.1), INV-007 (control plane independence) | — (documented behavior) |
 | **E** | Custom docker options/labels mounting capabilities (`--cap-add`, `--privileged`) | Centralized validation of custom Docker options (§23.3, INV-012) | Strict allowlist of options authorized per role **to be implemented** |
+| **E** | An over-broad auth-wall exception unintentionally publishes protected endpoints | ADR-049: absolute paths, explicit methods, only exact/whole-segment template/segment-bounded prefix modes, no regex/globs; per-component ownership for Compose; proxy priority cannot shadow a more specific resource route; invalid stored policy fails closed; audited configuration diff | The application remains responsible for authenticating/verifying the webhook payload itself (for example HMAC) — documented boundary |
 
 ### 3.7 Inbound webhooks (Git, CI)
 
@@ -339,9 +340,9 @@ The helper (waker mode) POSTs observation batches to `/agent/v1/observations`, a
 **Kill chain**: a deployment fails → the full command with a secret is returned in the error or the build log.
 **Mitigation**: INV-003 — never a secret in logs/events/errors; error format without the sensitive command (§24.1); ANSI/HTML neutralization (§23.3); Docker Build Secrets (§5.4). **Missing**: on-the-fly redaction in the stream + CI scanner.
 
-### AB-10 — SSRF via Git/registry/webhook URL to cloud metadata
-**Kill chain**: a user configures a Git source/registry pointing to `http://169.254.169.254/` → the worker fetches and leaks cloud credentials.
-**Mitigation**: §23.3 — allow/deny policy on Git/registry/S3/webhook/proxy URLs, **cloud metadata/link-local blocked by default**; centralized URL validation. SSRF tests **to be added** (§23.5).
+### AB-10 — SSRF via Git/registry/webhook/uptime URL to cloud metadata
+**Kill chain**: a user configures a Git source, registry or uptime check pointing to `http://169.254.169.254/` → the worker fetches and leaks cloud credentials or scans the control plane's network.
+**Mitigation**: §23.3 — allow/deny policy on Git/registry/S3/webhook/proxy and uptime targets, **cloud metadata/link-local blocked by default**; centralized URL validation. Uptime HTTP/TCP probes and user-controlled HTTP fetches enforce the policy on the resolved address at connection time, including redirects and DNS rebinding.
 
 ---
 
@@ -373,6 +374,6 @@ The helper (waker mode) POSTs observation batches to `/agent/v1/observations`, a
 | Concurrency | Double deploy, delete during deploy, key rotation during job, double restore | (§21, §22.3) |
 | Supply chain | SAST, dependency/container scanning, SBOM, signed images | AB-05, AB-09 |
 | Elevation via token | (to be added §23.5) dedicated token creation anti-elevation test | AB-08 |
-| SSRF | (to be added §23.5) cloud metadata/link-local blocked test | AB-10 |
+| SSRF | Cloud metadata/link-local/private IPv4+IPv6 blocked at connection time; proxy/custom-dial and NAT64/6to4 bypass tests | AB-10 |
 
-> Recommendation: explicitly add to the §23.5 list two missing families — **elevation via token creation** (AB-08) and **metadata SSRF** (AB-10) — currently handled by a control but not listed as mandatory tests.
+> Recommendation: explicitly add to the §23.5 list the remaining missing family — **elevation via token creation** (AB-08). Metadata SSRF (AB-10) is now a mandatory tested family above.

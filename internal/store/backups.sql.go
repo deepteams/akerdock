@@ -448,7 +448,7 @@ func (q *Queries) GetBackupPlanByUUIDForComponent(ctx context.Context, arg GetBa
 }
 
 const getComponentBackupTarget = `-- name: GetComponentBackupTarget :one
-SELECT sc.id, sc.uuid, sc.resource_id, sc.name, sc.image, sc.is_database, sc.database_engine, sc.exclude_from_hc, sc.default_route_port, sc.observed_status, sc.observed_at, sc.created_at, sc.updated_at, r.uuid AS stack_uuid, r.id AS stack_resource_id,
+SELECT sc.id, sc.uuid, sc.resource_id, sc.name, sc.image, sc.is_database, sc.database_engine, sc.exclude_from_hc, sc.default_route_port, sc.observed_status, sc.observed_at, sc.created_at, sc.updated_at, sc.access_public_routes, r.uuid AS stack_uuid, r.id AS stack_resource_id,
        r.team_id, d.server_id
 FROM service_components sc
 JOIN resources r ON r.id = sc.resource_id
@@ -484,6 +484,7 @@ func (q *Queries) GetComponentBackupTarget(ctx context.Context, id int64) (GetCo
 		&i.ServiceComponent.ObservedAt,
 		&i.ServiceComponent.CreatedAt,
 		&i.ServiceComponent.UpdatedAt,
+		&i.ServiceComponent.AccessPublicRoutes,
 		&i.StackUuid,
 		&i.StackResourceID,
 		&i.TeamID,

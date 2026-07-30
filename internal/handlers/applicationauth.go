@@ -1,7 +1,6 @@
-// Application access wall (ADR-042): the preview mechanism of ADR-030 applied
-// to a production application — Traefik forwardAuth delegates each request to
-// the control plane, which trusts the AkerDock session and the team
-// membership, then hands the browser an application-scoped cookie.
+// Resource access wall (ADR-042/049): Traefik forwardAuth delegates each
+// request to the control plane, which trusts the AkerDock session and team
+// membership, then hands the browser a resource-scoped cookie.
 package handlers
 
 import (
@@ -33,37 +32,53 @@ func generateBasicAuthCredentials() (string, error) {
 	return "akerdock:" + hex.EncodeToString(raw), nil
 }
 
+func validBasicAuthCredentials(value string) bool {
+	user, password, ok := strings.Cut(value, ":")
+	return ok && user != "" && password != ""
+}
+
 // ApplicationForwardAuth answers Traefik's forwardAuth for sso-protected
 // applications: 200 with a valid cookie, redirect to the panel's authorize
 // endpoint otherwise. Never bearer-authenticated: Traefik is the caller.
 func (a *API) ApplicationForwardAuth(w http.ResponseWriter, r *http.Request) {
 	host, original := forwardedURL(r)
-	// The identity travels in the middleware ADDRESS (?application=…): the
+	// The identity travels in the middleware ADDRESS (?resource=…): the
 	// auth call may transit other proxies that rewrite X-Forwarded-Host, but
 	// a query parameter survives every hop (ADR-030's lesson).
-	var app store.GetApplicationAccessByUUIDRow
-	if raw := r.URL.Query().Get("application"); raw != "" {
+	rawReference := r.URL.Query().Get("resource")
+	if rawReference == "" {
+		// Rolling-upgrade compatibility with ADR-042 routing files.
+		rawReference = r.URL.Query().Get("application")
+	}
+	var resource store.GetResourceAccessByUUIDRow
+	if rawReference != "" {
 		var id pgtype.UUID
-		if err := id.Scan(raw); err != nil {
-			http.Error(w, "invalid application reference", http.StatusForbidden)
+		if err := id.Scan(rawReference); err != nil {
+			http.Error(w, "invalid resource reference", http.StatusForbidden)
 			return
 		}
-		row, err := a.Store.GetApplicationAccessByUUID(r.Context(), id)
+		row, err := a.Store.GetResourceAccessByUUID(r.Context(), id)
 		if err != nil {
 			// Fail CLOSED: this endpoint exists only behind protected routers.
-			http.Error(w, "unknown application", http.StatusForbidden)
+			http.Error(w, "unknown resource", http.StatusForbidden)
 			return
 		}
-		app = row
+		resource = row
 	} else {
-		http.Error(w, "missing application reference", http.StatusBadRequest)
+		http.Error(w, "missing resource reference", http.StatusBadRequest)
+		return
+	}
+	if resource.AccessProtection != store.PreviewProtectionSso {
+		http.Error(w, "resource is not sso protected", http.StatusForbidden)
 		return
 	}
 
 	// A valid cookie is the fast path — one indexed lookup per request.
 	if cookie, err := r.Cookie(applicationCookieName); err == nil && cookie.Value != "" {
 		token, err := a.Store.GetPreviewAccessTokenByHash(r.Context(), hashPreviewToken(cookie.Value))
-		if err == nil && token.ApplicationID != nil && *token.ApplicationID == app.ID {
+		if err == nil &&
+			((token.ResourceID != nil && *token.ResourceID == resource.ID) ||
+				(token.ApplicationID != nil && *token.ApplicationID == resource.ID)) {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -101,11 +116,21 @@ func (a *API) ApplicationAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid redirect", http.StatusBadRequest)
 		return
 	}
-	// The redirect host must BE a routed host of a known application — the
+	// The redirect host must BE a routed host of a known protected resource —
 	// sole anti open-redirect rule that matters here.
-	app, err := a.Store.GetApplicationByRoutedHost(r.Context(), target.Host)
+	targetPath := target.Path
+	if targetPath == "" {
+		targetPath = "/"
+	}
+	resource, err := a.Store.GetResourceByRoutedHost(r.Context(), store.GetResourceByRoutedHostParams{
+		Host: target.Hostname(), RequestPath: targetPath,
+	})
 	if err != nil {
-		http.Error(w, "unknown application host", http.StatusNotFound)
+		http.Error(w, "unknown resource host", http.StatusNotFound)
+		return
+	}
+	if resource.AccessProtection != store.PreviewProtectionSso {
+		http.Error(w, "resource is not sso protected", http.StatusForbidden)
 		return
 	}
 	if a.Sessions == nil {
@@ -119,8 +144,8 @@ func (a *API) ApplicationAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
-	if !id.CanAccessTeam(app.TeamID) {
-		http.Error(w, "this application belongs to another team", http.StatusForbidden)
+	if !id.CanAccessTeam(resource.TeamID) {
+		http.Error(w, "this resource belongs to another team", http.StatusForbidden)
 		return
 	}
 
@@ -131,15 +156,20 @@ func (a *API) ApplicationAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 	token := hex.EncodeToString(raw)
 	_ = a.Store.DeleteExpiredPreviewAccessTokens(r.Context())
-	if err := a.Store.CreateApplicationAccessToken(r.Context(), store.CreateApplicationAccessTokenParams{
-		TokenHash: hashPreviewToken(token), ApplicationID: &app.ID,
-		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(previewAccessTTL), Valid: true},
+	legacyApplicationID := (*int64)(nil)
+	if resource.ResourceType == store.ResourceTypeApplication {
+		legacyApplicationID = &resource.ID
+	}
+	if err := a.Store.CreateResourceAccessToken(r.Context(), store.CreateResourceAccessTokenParams{
+		TokenHash: hashPreviewToken(token), ResourceID: &resource.ID,
+		ApplicationID: legacyApplicationID,
+		ExpiresAt:     pgtype.Timestamptz{Time: time.Now().Add(previewAccessTTL), Valid: true},
 	}); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	a.recordAudit(r, id, "application.access", "application", app.Uuid)
-	a.Logger.Info("application access granted", "host", target.Host)
+	a.recordAudit(r, id, "resource.access", string(resource.ResourceType), resource.Uuid)
+	a.Logger.Info("resource access granted", "host", target.Host)
 
 	// The cookie bootstrap happens on the APPLICATION's own host, through its
 	// dedicated callback router: the token rides the request URL — query
@@ -168,7 +198,7 @@ func (a *API) ApplicationCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token, err := a.Store.GetPreviewAccessTokenByHash(r.Context(), hashPreviewToken(raw))
-	if err != nil || token.ApplicationID == nil {
+	if err != nil || (token.ResourceID == nil && token.ApplicationID == nil) {
 		http.Error(w, "invalid or expired access token — reopen the application URL", http.StatusForbidden)
 		return
 	}

@@ -7325,8 +7325,10 @@ paths:
       operationId: createUptimeCheck
       summary: Create an uptime check
       description: >-
-        HTTP check (URL, up = response < 400) or TCP check (host:port, up =
-        connection). Probed from the control plane every
+        HTTP check (public URL, up = response < 400) or TCP check (public
+        host:port, up = connection). Private, loopback, link-local, metadata
+        and reserved destinations are rejected after DNS resolution on every
+        connection. Probed from the control plane every
         `interval_seconds`; the verdict only flips after
         `failure_threshold` consecutive failures (and recovers after
         `success_threshold` successes) — anti-flapping lives in the
@@ -10062,7 +10064,9 @@ components:
           enum: [http, tcp]
         target:
           type: string
-          description: URL (http) or `host:port` (tcp).
+          description: >-
+            Public HTTP(S) URL or public `host:port`; non-public destinations
+            are blocked on the resolved IP for every connection and redirect.
         interval_seconds:
           type: integer
           minimum: 10
@@ -10120,7 +10124,9 @@ components:
           enum: [http, tcp]
         target:
           type: string
-          description: http(s) URL or `host:port`.
+          description: >-
+            Public HTTP(S) URL or public `host:port`; non-public destinations
+            are blocked on the resolved IP for every connection and redirect.
         resource_uuid:
           type: string
           nullable: true
@@ -10154,6 +10160,9 @@ components:
           maxLength: 255
         target:
           type: string
+          description: >-
+            Public HTTP(S) URL or public `host:port`; non-public destinations
+            are blocked on the resolved IP for every connection and redirect.
         interval_seconds:
           type: integer
           minimum: 10
@@ -11748,6 +11757,50 @@ components:
           nullable: true
           readOnly: true
 
+    AccessPublicRoute:
+      type: object
+      description: >-
+        A narrow unauthenticated exception through a resource access wall
+        (ADR-049). `template` accepts only whole `:name` path segments; it
+        never accepts a user-supplied regular expression.
+      required: [path, methods]
+      properties:
+        path:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          pattern: ^/
+          description: >-
+            Absolute external request path. Query strings and fragments are
+            not part of matching.
+        match:
+          type: string
+          enum: [exact, template, prefix]
+          default: exact
+          description: >-
+            `exact` matches one path; `template` lets `:name` match exactly
+            one segment made of unreserved URL characters; `prefix` matches
+            the path segment and descendants.
+        methods:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+          description: Explicit HTTP methods allowed without authentication.
+        parameters:
+          type: object
+          additionalProperties:
+            type: array
+            minItems: 1
+            uniqueItems: true
+            items:
+              type: string
+              minLength: 1
+          description: >-
+            Optional allow-list per `:name` segment in template mode.
+
     Service:
       type: object
       description: >-
@@ -11788,6 +11841,16 @@ components:
         connect_to_predefined_network:
           type: boolean
           description: Attaches each component to the destination's network (§2.1).
+        access_protection:
+          type: string
+          enum: [none, basic_auth, sso]
+          description: >-
+            Access wall shared by every routed component of this inline
+            Compose stack (ADR-049).
+        access_basic_auth_set:
+          type: boolean
+          readOnly: true
+          description: Whether shared basic-auth credentials are configured.
         desired_status:
           $ref: "#/components/schemas/DesiredStatus"
         observed_status:
@@ -11844,6 +11907,16 @@ components:
         connect_to_predefined_network:
           type: boolean
           default: false
+        access_protection:
+          type: string
+          enum: [none, basic_auth, sso]
+          default: none
+        access_basic_auth:
+          type: string
+          nullable: true
+          writeOnly: true
+          description: >-
+            Shared `user:password`; null with basic_auth generates one.
         instant_deploy:
           type: boolean
           default: false
@@ -11862,6 +11935,16 @@ components:
           description: New file — validated, applied at the next deployment.
         connect_to_predefined_network:
           type: boolean
+        access_protection:
+          type: string
+          enum: [none, basic_auth, sso]
+        access_basic_auth:
+          type: string
+          nullable: true
+          writeOnly: true
+          description: >-
+            Shared `user:password`; null while enabling basic_auth generates
+            one.
 
     ServiceComponent:
       type: object
@@ -12117,10 +12200,19 @@ components:
         access_basic_auth:
           type: string
           nullable: true
+          writeOnly: true
           description: >-
             Shared credentials `user:password` for `basic_auth` protection
             (ADR-042). Write-only; stored encrypted, never returned. Sending
             null with `access_protection: basic_auth` generates one.
+        access_public_routes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessPublicRoute"
+          description: >-
+            Production paths allowed through the wall without authentication
+            (ADR-049). For a Compose build pack, declare them per service with
+            `x-akerdock.access_public_routes` instead.
         preview_protection:
           type: string
           enum: [none, basic_auth, sso]
@@ -12346,6 +12438,13 @@ components:
           type: boolean
           readOnly: true
           description: Whether shared basic-auth credentials are configured (ADR-042).
+        access_public_routes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessPublicRoute"
+          description: >-
+            Production paths allowed through the wall without authentication
+            (ADR-049). Empty by default.
         preview_protection:
           type: string
           enum: [none, basic_auth, sso]

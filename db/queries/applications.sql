@@ -270,13 +270,22 @@ RETURNING a.id;
 INSERT INTO preview_access_tokens (token_hash, application_id, user_id, expires_at)
 VALUES ($1, $2, sqlc.narg(user_id), $3);
 
+-- name: CreateResourceAccessToken :exec
+-- ADR-049: the same hash-only grant for either an application or an inline
+-- Compose resource. application_id is also populated for applications during
+-- the rolling-upgrade window so an older API replica can validate the grant.
+INSERT INTO preview_access_tokens
+    (token_hash, resource_id, application_id, user_id, expires_at)
+VALUES
+    ($1, $2, sqlc.narg(application_id), sqlc.narg(user_id), $3);
+
 -- name: GetApplicationByRoutedHost :one
 -- Resolves a browser Host to the application that serves it (ADR-042): an
 -- application-level domain or a compose component's own domain.
 SELECT a.id, r.uuid, r.team_id, a.access_protection
 FROM applications a
 JOIN resources r ON r.id = a.id
-LEFT JOIN domains d ON d.resource_id = r.id
+LEFT JOIN domains d ON d.application_id = r.id
 LEFT JOIN service_components sc ON sc.resource_id = r.id
 LEFT JOIN domains cd ON cd.service_component_id = sc.id
 WHERE r.deleted_at IS NULL
@@ -291,8 +300,52 @@ FROM applications a
 JOIN resources r ON r.id = a.id
 WHERE r.uuid = $1 AND r.deleted_at IS NULL;
 
+-- name: GetResourceAccessByUUID :one
+-- ADR-049: access protection is shared by application and inline Compose
+-- resources. The identity is carried in the forwardAuth address.
+SELECT r.id, r.uuid, r.team_id, r.resource_type,
+       COALESCE(a.access_protection, s.access_protection, 'none'::preview_protection) AS access_protection
+FROM resources r
+LEFT JOIN applications a ON a.id = r.id
+LEFT JOIN services s ON s.id = r.id
+WHERE r.uuid = $1 AND r.deleted_at IS NULL
+  AND r.resource_type IN ('application', 'service');
+
+-- name: GetResourceByRoutedHost :one
+-- Resolves the most specific application-level or per-component domain for
+-- the SSO callback's anti-open-redirect check. Host alone is insufficient:
+-- separate resources may legitimately own different paths of the same FQDN.
+WITH routed (resource_id, fqdn, route_path) AS (
+    SELECT d.application_id AS resource_id, d.fqdn, d.path
+    FROM domains d
+    WHERE d.application_id IS NOT NULL
+    UNION ALL
+    SELECT sc.resource_id, d.fqdn, d.path
+    FROM domains d
+    JOIN service_components sc ON sc.id = d.service_component_id
+)
+SELECT r.id, r.uuid, r.team_id, r.resource_type,
+       COALESCE(a.access_protection, s.access_protection, 'none'::preview_protection) AS access_protection
+FROM routed rt
+JOIN resources r ON r.id = rt.resource_id
+LEFT JOIN applications a ON a.id = r.id
+LEFT JOIN services s ON s.id = r.id
+WHERE r.deleted_at IS NULL
+  AND r.resource_type IN ('application', 'service')
+  AND rt.fqdn = sqlc.arg(host)::citext
+  AND (
+      rt.route_path = '/'
+      OR rt.route_path = sqlc.arg(request_path)::text
+      OR left(sqlc.arg(request_path)::text, length(rt.route_path) + 1) = rt.route_path || '/'
+  )
+ORDER BY length(rt.route_path) DESC
+LIMIT 1;
+
 -- name: SetApplicationAccessProtection :exec
 UPDATE applications SET access_protection = $2 WHERE id = $1;
 
 -- name: SetApplicationAccessBasicAuth :exec
 UPDATE applications SET access_basic_auth_enc = $2 WHERE id = $1;
+
+-- name: SetApplicationAccessPublicRoutes :exec
+UPDATE applications SET access_public_routes = $2, updated_at = now() WHERE id = $1;

@@ -1,9 +1,12 @@
 package compose
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/compose-spec/compose-go/v2/types"
+
+	"github.com/deepteams/akerdock/internal/accessroute"
 )
 
 // maxFileContentBytes bounds x-akerdock.content (§23.3 PRD): a "config file"
@@ -13,6 +16,9 @@ const maxFileContentBytes = 5 << 20
 // ServiceExtensions are the x-akerdock keys of a service (compose-spec §5.1).
 type ServiceExtensions struct {
 	ExcludeFromHC bool
+	// AccessPublicRoutes are narrow unauthenticated paths owned by this
+	// routed service (ADR-049).
+	AccessPublicRoutes []accessroute.Route
 	// ZeroDowntime is nil when unset (default: eligible), false when the
 	// stack cannot tolerate two simultaneous instances (ADR-015).
 	ZeroDowntime *bool
@@ -54,6 +60,29 @@ func serviceExtensions(name, p string, svc types.ServiceConfig, fs *findings) Se
 	}
 	if v, ok := raw["post_deployment_command"].(string); ok {
 		out.PostDeploymentCommand = v
+	}
+	if value, ok := raw["access_public_routes"]; ok {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			fs.errf(CodeAccessPublicRouteInvalid, name, p+".access_public_routes",
+				"access_public_routes must be a list of route objects")
+		} else {
+			var routes []accessroute.Route
+			if err := json.Unmarshal(encoded, &routes); err != nil {
+				fs.errf(CodeAccessPublicRouteInvalid, name, p+".access_public_routes",
+					"access_public_routes must be a list of {path, match, methods, parameters} objects")
+			} else {
+				for i, route := range routes {
+					normalized, err := accessroute.Validate(route)
+					if err != nil {
+						fs.errf(CodeAccessPublicRouteInvalid, name,
+							fmt.Sprintf("%s.access_public_routes[%d]", p, i), "%s", err)
+						continue
+					}
+					out.AccessPublicRoutes = append(out.AccessPublicRoutes, normalized)
+				}
+			}
+		}
 	}
 
 	// The §10 guarantees need somewhere to stand. A post hook on a one-shot

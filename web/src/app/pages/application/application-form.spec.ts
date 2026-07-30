@@ -173,6 +173,32 @@ describe('settingsFromApplication / settingsToUpdate round trip', () => {
     expect(update.preview_cancel_obsolete_builds).toBeTrue();
   });
 
+  it('round-trips a parameterized public webhook route', () => {
+    const app = anApplication({
+      access_protection: 'sso',
+      access_public_routes: [
+        {
+          path: '/webhook/:provider/handler',
+          match: 'template',
+          methods: ['POST'],
+          parameters: { provider: ['stripe', 'github'] },
+        },
+      ],
+    });
+
+    const update = settingsToUpdate(settingsFromApplication(app), 'docker_image');
+
+    expect(update.access_protection).toBe('sso');
+    expect(update.access_public_routes).toEqual([
+      {
+        path: '/webhook/:provider/handler',
+        match: 'template',
+        methods: ['POST'],
+        parameters: { provider: ['stripe', 'github'] },
+      },
+    ]);
+  });
+
   it('seeds the preview route table from the legacy template and round-trips it', () => {
     // No table on the app → the single template becomes one editable row.
     const legacy = settingsFromApplication(

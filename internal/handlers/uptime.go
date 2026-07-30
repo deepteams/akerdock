@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/pguuid"
+	"github.com/deepteams/akerdock/internal/safedial"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -51,15 +53,22 @@ func validateUptimeTarget(kind, target string) *api.ErrorDetail {
 	switch kind {
 	case "http":
 		u, err := url.Parse(target)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") ||
+			u.Host == "" || u.Hostname() == "" || u.User != nil {
 			return &api.ErrorDetail{
 				Field: ptr("target"), Code: ptr("invalid"),
-				Message: "an http check needs an absolute http(s) URL",
+				Message: "an http check needs an absolute public http(s) URL without credentials",
+			}
+		}
+		if blockedLiteralHost(u.Hostname()) {
+			return &api.ErrorDetail{
+				Field: ptr("target"), Code: ptr("blocked"),
+				Message: "uptime checks cannot target loopback, private, link-local or reserved addresses",
 			}
 		}
 	case "tcp":
-		host, port, ok := strings.Cut(target, ":")
-		if !ok || host == "" {
+		host, port, err := net.SplitHostPort(target)
+		if err != nil || host == "" {
 			return &api.ErrorDetail{
 				Field: ptr("target"), Code: ptr("invalid"),
 				Message: "a tcp check needs a host:port target",
@@ -71,10 +80,24 @@ func validateUptimeTarget(kind, target string) *api.ErrorDetail {
 				Message: "a tcp check needs a valid port (1-65535)",
 			}
 		}
+		if blockedLiteralHost(host) {
+			return &api.ErrorDetail{
+				Field: ptr("target"), Code: ptr("blocked"),
+				Message: "uptime checks cannot target loopback, private, link-local or reserved addresses",
+			}
+		}
 	default:
 		return &api.ErrorDetail{Field: ptr("kind"), Code: ptr("invalid"), Message: "kind must be http or tcp"}
 	}
 	return nil
+}
+
+func blockedLiteralHost(host string) bool {
+	if i := strings.LastIndexByte(host, '%'); i >= 0 {
+		host = host[:i]
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && safedial.Blocked(ip)
 }
 
 func (a *API) resolveUptimeCheck(w http.ResponseWriter, r *http.Request, id *auth.Identity, checkUUID string) (store.UptimeCheck, bool) {

@@ -72,6 +72,7 @@ type Scheduler struct {
 
 	acquireLeader func(context.Context) (leaderConnection, error)
 	dialSSH       func(context.Context, store.Server, string) (remoteClient, error)
+	probeUptime   uptimeProbe
 }
 
 // NotificationDispatcher drains the outbox and flushes pending digests on the

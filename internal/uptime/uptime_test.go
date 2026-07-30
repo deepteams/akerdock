@@ -2,11 +2,15 @@ package uptime
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/deepteams/akerdock/internal/safedial"
 )
 
 func TestTransitionThresholds(t *testing.T) {
@@ -55,16 +59,17 @@ func TestProbeHTTP(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	res := Probe(context.Background(), "http", srv.URL+"/", 2*time.Second)
+	res := probe(context.Background(), "http", srv.URL+"/", 2*time.Second, nil, srv.Client())
 	if !res.OK || res.StatusCode != http.StatusOK {
 		t.Fatalf("healthy endpoint must be up: %+v", res)
 	}
 	// A 500 is reachable but NOT up — the outage this feature catches.
-	res = Probe(context.Background(), "http", srv.URL+"/broken", 2*time.Second)
+	res = probe(context.Background(), "http", srv.URL+"/broken", 2*time.Second, nil, srv.Client())
 	if res.OK || res.StatusCode != http.StatusInternalServerError || !strings.Contains(res.Error, "500") {
 		t.Fatalf("a 500 must be down: %+v", res)
 	}
-	res = Probe(context.Background(), "http", "http://127.0.0.1:1/", 500*time.Millisecond)
+	res = probe(context.Background(), "http", "http://127.0.0.1:1/", 500*time.Millisecond,
+		nil, &http.Client{Timeout: 500 * time.Millisecond})
 	if res.OK || res.Error == "" {
 		t.Fatalf("a refused connection must be down with a reason: %+v", res)
 	}
@@ -74,13 +79,42 @@ func TestProbeTCP(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	defer srv.Close()
 	addr := strings.TrimPrefix(srv.URL, "http://")
+	dialer := &net.Dialer{Timeout: 2 * time.Second}
 
-	res := Probe(context.Background(), "tcp", addr, 2*time.Second)
+	res := probe(context.Background(), "tcp", addr, 2*time.Second, dialer.DialContext, nil)
 	if !res.OK {
 		t.Fatalf("open port must be up: %+v", res)
 	}
-	res = Probe(context.Background(), "tcp", "127.0.0.1:1", 500*time.Millisecond)
+	res = probe(context.Background(), "tcp", "127.0.0.1:1", 500*time.Millisecond, dialer.DialContext, nil)
 	if res.OK {
 		t.Fatalf("closed port must be down: %+v", res)
+	}
+}
+
+func TestProbeBlocksInternalNetworkBeforeConnecting(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests.Add(1)
+	}))
+	defer srv.Close()
+
+	httpResult := Probe(context.Background(), "http", srv.URL, time.Second)
+	if httpResult.OK || !strings.Contains(httpResult.Error, safedial.ErrBlockedAddress.Error()) {
+		t.Fatalf("loopback HTTP target was not blocked by the SSRF guard: %+v", httpResult)
+	}
+	if requests.Load() != 0 {
+		t.Fatal("the blocked HTTP probe reached the internal server")
+	}
+
+	tcpResult := Probe(context.Background(), "tcp",
+		strings.TrimPrefix(srv.URL, "http://"), time.Second)
+	if tcpResult.OK || !strings.Contains(tcpResult.Error, safedial.ErrBlockedAddress.Error()) {
+		t.Fatalf("loopback TCP target was not blocked by the SSRF guard: %+v", tcpResult)
+	}
+
+	metadata := Probe(context.Background(), "http",
+		"http://169.254.169.254/latest/meta-data/", time.Second)
+	if metadata.OK || !strings.Contains(metadata.Error, safedial.ErrBlockedAddress.Error()) {
+		t.Fatalf("cloud metadata target was not blocked: %+v", metadata)
 	}
 }

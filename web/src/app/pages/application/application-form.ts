@@ -81,6 +81,15 @@ export interface PreviewRouteRow {
   port: string;
 }
 
+export interface AccessPublicRouteRow {
+  path: string;
+  match: 'exact' | 'template' | 'prefix';
+  methods: string;
+  /** JSON object such as {"provider":["stripe","github"]}; blank = any
+   * syntactically valid value for each :name segment. */
+  parameters: string;
+}
+
 export interface SettingsForm extends ConfigForm {
   autoDeploy: boolean;
   previewsEnabled: boolean;
@@ -96,6 +105,9 @@ export interface SettingsForm extends ConfigForm {
   /** Shared credentials for accessProtection=basic_auth; empty keeps the
    * stored ones (generated on first switch). Write-only, never read back. */
   accessBasicAuth: string;
+  /** Narrow unauthenticated production routes (ADR-049). Compose owns these
+   * per service in x-akerdock instead. */
+  accessPublicRoutes: AccessPublicRouteRow[];
   previewForkApprovalEnabled: boolean;
   previewExcludeDrafts: boolean;
   /** Auto-deploy the preview when a PR opens (default); false = first deploy
@@ -230,6 +242,12 @@ export function settingsFromApplication(app: Application): SettingsForm {
     previewProtection: (app.preview_protection as 'none' | 'basic_auth' | 'sso') ?? 'basic_auth',
     accessProtection: (app.access_protection as 'none' | 'basic_auth' | 'sso') ?? 'none',
     accessBasicAuth: '',
+    accessPublicRoutes: (app.access_public_routes ?? []).map((route) => ({
+      path: route.path,
+      match: route.match ?? 'exact',
+      methods: route.methods.join(', '),
+      parameters: route.parameters ? JSON.stringify(route.parameters) : '',
+    })),
     previewForkApprovalEnabled: app.preview_fork_approval_enabled ?? false,
     previewExcludeDrafts: app.preview_exclude_drafts ?? false,
     previewDeployOnOpen: app.preview_deploy_on_open ?? true,
@@ -410,6 +428,18 @@ export function settingsToUpdate(form: SettingsForm, sourceType: SourceType): Ap
   update.access_protection = form.accessProtection;
   if (form.accessBasicAuth.trim()) {
     update.access_basic_auth = form.accessBasicAuth.trim();
+  }
+  if (form.buildPack !== 'compose') {
+    update.access_public_routes = form.accessPublicRoutes
+      .filter((route) => route.path.trim())
+      .map((route) => ({
+        path: route.path.trim(),
+        match: route.match,
+        methods: parseCommaList(route.methods).map((method) => method.toUpperCase()),
+        ...(route.parameters.trim()
+          ? { parameters: JSON.parse(route.parameters) as Record<string, string[]> }
+          : {}),
+      }));
   }
 
   return update;

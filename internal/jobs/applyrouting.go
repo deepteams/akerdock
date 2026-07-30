@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deepteams/akerdock/internal/accessroute"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/proxy"
@@ -31,9 +32,10 @@ type ApplyRoutingPayload struct {
 // ApplyRouting uploads (or removes) the application's Traefik dynamic file
 // outside of any deployment.
 type ApplyRouting struct {
-	Store   *store.Queries
-	Keyring *envelope.Keyring
-	Logger  *slog.Logger
+	Store            *store.Queries
+	Keyring          *envelope.Keyring
+	Logger           *slog.Logger
+	ControlPlanePort int
 }
 
 // Execute converges the routing file with the current domains set.
@@ -42,9 +44,24 @@ func (h *ApplyRouting) Execute(ctx context.Context, job store.Job, rec *queue.St
 	if err := json.Unmarshal(job.Payload, &payload); err != nil {
 		return nil, fmt.Errorf("invalid payload: %w", err)
 	}
+	var service *store.Service
 	app, err := h.Store.GetApplicationByID(ctx, payload.ResourceID)
 	if err != nil {
-		return map[string]any{"status": "resource deleted, nothing to do"}, nil
+		resource, resourceErr := h.Store.GetResourceByID(ctx, payload.ResourceID)
+		if resourceErr != nil {
+			return map[string]any{"status": "resource deleted, nothing to do"}, nil
+		}
+		if resource.ResourceType != store.ResourceTypeService {
+			return map[string]any{"status": "resource is not routable"}, nil
+		}
+		stack, stackErr := h.Store.GetServiceByID(ctx, payload.ResourceID)
+		if stackErr != nil {
+			return nil, stackErr
+		}
+		service = &stack
+		app = store.GetApplicationByIDRow{Resource: resource}
+		app.BuildConfig.BuildPack = store.BuildPackCompose
+		app.RuntimeConfig.ForceHttps = true
 	}
 	dest, err := h.Store.GetDestinationByID(ctx, app.Resource.DestinationID)
 	if err != nil {
@@ -75,7 +92,12 @@ func (h *ApplyRouting) Execute(ctx context.Context, job store.Job, rec *queue.St
 	defer func() { _ = client.Close() }()
 
 	appUUID := pguuid.String(app.Resource.Uuid)
-	content, err := RenderRoutingFile(ctx, h.Store, app, payload.Revision)
+	access, err := resourceAccessPolicy(ctx, h.Store, h.Keyring, app, service, server, h.ControlPlanePort)
+	if err != nil {
+		rec.Fail(ctx, err.Error())
+		return nil, err
+	}
+	content, err := RenderRoutingFile(ctx, h.Store, app, payload.Revision, access)
 	if err != nil {
 		rec.Fail(ctx, err.Error())
 		return nil, err
@@ -92,24 +114,25 @@ func (h *ApplyRouting) Execute(ctx context.Context, job store.Job, rec *queue.St
 // RenderRoutingFile builds the Traefik dynamic file content for the
 // application's current domains, targeting the container by name; "" means
 // no routing (file removal).
-func RenderRoutingFile(ctx context.Context, q *store.Queries, app store.GetApplicationByIDRow, revision int64) (string, error) {
-	return RenderRoutingFileTo(ctx, q, app, revision, "")
+func RenderRoutingFile(ctx context.Context, q *store.Queries, app store.GetApplicationByIDRow, revision int64, access *proxy.AccessPolicy) (string, error) {
+	return RenderRoutingFileTo(ctx, q, app, revision, "", access)
 }
 
 // RenderRoutingFileTo targets an explicit endpoint — the candidate IP during
 // a rolling switch (§7.2 step 2), the container name once stable (step 7).
-func RenderRoutingFileTo(ctx context.Context, q *store.Queries, app store.GetApplicationByIDRow, revision int64, endpoint string) (string, error) {
-	return RenderRoutingFileWithComponentEndpoints(ctx, q, app, revision, endpoint, nil)
+func RenderRoutingFileTo(ctx context.Context, q *store.Queries, app store.GetApplicationByIDRow, revision int64, endpoint string, access *proxy.AccessPolicy) (string, error) {
+	return RenderRoutingFileWithComponentEndpoints(ctx, q, app, revision, endpoint, nil, access)
 }
 
 // RenderRoutingFileWithComponentEndpoints additionally points named compose
 // components at explicit endpoints — the candidate IP during a per-service
 // zero-downtime switch (compose-spec §8.2 step 4).
-func RenderRoutingFileWithComponentEndpoints(ctx context.Context, q *store.Queries, app store.GetApplicationByIDRow, revision int64, endpoint string, componentEndpoints map[string]string) (string, error) {
+func RenderRoutingFileWithComponentEndpoints(ctx context.Context, q *store.Queries, app store.GetApplicationByIDRow, revision int64, endpoint string, componentEndpoints map[string]string, access *proxy.AccessPolicy) (string, error) {
 	rg, ok, err := applicationRouteGroup(ctx, q, app, endpoint, componentEndpoints)
 	if err != nil || !ok {
 		return "", err
 	}
+	rg.Access = access
 	return proxy.GenerateDynamic(rg, revision), nil
 }
 
@@ -134,6 +157,10 @@ func applicationRouteGroup(ctx context.Context, q *store.Queries, app store.GetA
 		endpoint = appUUID // Docker DNS by container name
 	}
 	rg := proxy.RouteGroup{AppUUID: appUUID, Endpoint: endpoint, ForceHTTPS: app.RuntimeConfig.ForceHttps}
+	applicationPublicRoutes, err := decodeStoredPublicRoutes(app.Application.AccessPublicRoutes)
+	if err != nil {
+		return proxy.RouteGroup{}, false, fmt.Errorf("decode application public routes: %w", err)
+	}
 	// A route under the server's wildcard is issued over DNS-01 (§7.2): a
 	// wildcard cannot be validated over HTTP-01, and asking anyway would leave
 	// the route serving the self-signed fallback forever, without a word.
@@ -159,7 +186,10 @@ func applicationRouteGroup(ctx context.Context, q *store.Queries, app store.GetA
 		if d.TargetPort != nil {
 			port = int(*d.TargetPort)
 		}
-		route := proxy.Route{FQDN: d.Fqdn, Path: d.Path, TargetPort: port}
+		route := proxy.Route{
+			FQDN: d.Fqdn, Path: d.Path, TargetPort: port,
+			PublicRoutes: applicationPublicRoutes,
+		}
 		if len(components) > 0 {
 			c, err := resolveWebComponent(components, d.TargetPort)
 			if err != nil {
@@ -169,6 +199,10 @@ func applicationRouteGroup(ctx context.Context, q *store.Queries, app store.GetA
 				route.TargetPort = int(*c.DefaultRoutePort)
 			}
 			route.Endpoint = appUUID + "-" + c.Name
+			route.PublicRoutes, err = decodeStoredPublicRoutes(c.AccessPublicRoutes)
+			if err != nil {
+				return proxy.RouteGroup{}, false, fmt.Errorf("decode public routes for component %s: %w", c.Name, err)
+			}
 			if override, ok := componentEndpoints[c.Name]; ok && override != "" {
 				route.Endpoint = override
 			}
@@ -234,13 +268,35 @@ func appendComponentRoutes(ctx context.Context, q *store.Queries, components []s
 			if override, ok := endpointOverrides[c.Name]; ok && override != "" {
 				endpoint = override
 			}
+			publicRoutes, err := decodeStoredPublicRoutes(c.AccessPublicRoutes)
+			if err != nil {
+				return fmt.Errorf("decode public routes for component %s: %w", c.Name, err)
+			}
 			rg.Routes = append(rg.Routes, proxy.Route{
 				FQDN: d.Fqdn, Path: d.Path, TargetPort: port,
-				Endpoint: endpoint,
+				Endpoint: endpoint, PublicRoutes: publicRoutes,
 			})
 		}
 	}
 	return nil
+}
+
+func decodeStoredPublicRoutes(raw []byte) ([]accessroute.Route, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var routes []accessroute.Route
+	if err := json.Unmarshal(raw, &routes); err != nil {
+		return nil, err
+	}
+	for i, route := range routes {
+		normalized, err := accessroute.Validate(route)
+		if err != nil {
+			return nil, fmt.Errorf("route %d: %w", i, err)
+		}
+		routes[i] = normalized
+	}
+	return routes, nil
 }
 
 // RenderPreviewRoutingFile builds the Traefik dynamic file of ONE preview
@@ -337,29 +393,6 @@ func injectPreviewSSOCallback(content, previewUUID string, hosts []string, insta
 		}
 	}
 	return strings.Join(out, "\n")
-}
-
-// injectApplicationMiddlewares puts a protected application behind the same
-// wall as a preview (ADR-042), minus the noindex header: a production app
-// decides its own indexing policy. Nothing is injected when the protection is
-// `none` or its credential is missing — the content is returned untouched.
-func injectApplicationMiddlewares(content, appUUID string, protection store.PreviewProtection, basicAuthHash, ssoAuthURL string) string {
-	var name, definition string
-	switch {
-	case protection == store.PreviewProtectionBasicAuth && basicAuthHash != "":
-		// The clear text never enters a routing file — Traefik gets bcrypt.
-		name = appUUID + "-access"
-		definition = fmt.Sprintf("    %s-access:\n      basicAuth:\n        users:\n          - %q\n", appUUID, basicAuthHash)
-	case protection == store.PreviewProtectionSso && ssoAuthURL != "":
-		// The application identity travels IN THE ADDRESS: intermediate
-		// proxies rewrite X-Forwarded-Host, a query parameter survives.
-		name = appUUID + "-access"
-		definition = fmt.Sprintf("    %s-access:\n      forwardAuth:\n        address: %q\n",
-			appUUID, ssoAuthURL+"?application="+appUUID)
-	default:
-		return content
-	}
-	return injectMiddlewares(content, []string{name}, definition)
 }
 
 func injectPreviewMiddlewares(content, previewUUID string, protection store.PreviewProtection, basicAuthHash, ssoAuthURL string) string {

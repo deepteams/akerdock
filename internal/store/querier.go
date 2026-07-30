@@ -248,6 +248,10 @@ type Querier interface {
 	CreateRegistryCredential(ctx context.Context, arg CreateRegistryCredentialParams) (RegistryCredential, error)
 	// Applications: union base resources + 1-1 extensions (§19.1).
 	CreateResource(ctx context.Context, arg CreateResourceParams) (Resource, error)
+	// ADR-049: the same hash-only grant for either an application or an inline
+	// Compose resource. application_id is also populated for applications during
+	// the rolling-upgrade window so an older API replica can validate the grant.
+	CreateResourceAccessToken(ctx context.Context, arg CreateResourceAccessTokenParams) error
 	CreateRestoreDrill(ctx context.Context, arg CreateRestoreDrillParams) (RestoreDrill, error)
 	CreateRollbackDeployment(ctx context.Context, arg CreateRollbackDeploymentParams) (Deployment, error)
 	CreateRuntimeConfig(ctx context.Context, arg CreateRuntimeConfigParams) error
@@ -495,7 +499,14 @@ type Querier interface {
 	// Exact match, never a prefix comparison (§23.5): webhook → resource.
 	GetRepositoryByFullName(ctx context.Context, arg GetRepositoryByFullNameParams) (Repository, error)
 	GetRepositoryByID(ctx context.Context, id int64) (Repository, error)
+	// ADR-049: access protection is shared by application and inline Compose
+	// resources. The identity is carried in the forwardAuth address.
+	GetResourceAccessByUUID(ctx context.Context, uuid pgtype.UUID) (GetResourceAccessByUUIDRow, error)
 	GetResourceByID(ctx context.Context, id int64) (Resource, error)
+	// Resolves the most specific application-level or per-component domain for
+	// the SSO callback's anti-open-redirect check. Host alone is insufficient:
+	// separate resources may legitimately own different paths of the same FQDN.
+	GetResourceByRoutedHost(ctx context.Context, arg GetResourceByRoutedHostParams) (GetResourceByRoutedHostRow, error)
 	// The optional resource link of a check (INV-002 isolation).
 	GetResourceByUUIDForTeam(ctx context.Context, arg GetResourceByUUIDForTeamParams) (Resource, error)
 	GetResourceRemnants(ctx context.Context, id int64) ([]byte, error)
@@ -927,6 +938,7 @@ type Querier interface {
 	SetApiEnabled(ctx context.Context, apiEnabled bool) (InstanceSetting, error)
 	SetApplicationAccessBasicAuth(ctx context.Context, arg SetApplicationAccessBasicAuthParams) error
 	SetApplicationAccessProtection(ctx context.Context, arg SetApplicationAccessProtectionParams) error
+	SetApplicationAccessPublicRoutes(ctx context.Context, arg SetApplicationAccessPublicRoutesParams) error
 	SetApplicationAwake(ctx context.Context, id int64) error
 	// Links an application to a git source after creation — used when a provider
 	// API token arrives on an application whose public repository needed no source
@@ -1015,6 +1027,8 @@ type Querier interface {
 	// Scheduler-owned: never bumps `version` (not a user edit).
 	SetServerCleanupSchedule(ctx context.Context, arg SetServerCleanupScheduleParams) error
 	SetServerStatus(ctx context.Context, arg SetServerStatusParams) error
+	SetServiceAccessBasicAuth(ctx context.Context, arg SetServiceAccessBasicAuthParams) error
+	SetServiceAccessProtection(ctx context.Context, arg SetServiceAccessProtectionParams) error
 	SetServiceComponentObserved(ctx context.Context, arg SetServiceComponentObservedParams) error
 	// Agent ingestion (ADR-040): refresh a component's observed state from a
 	// pushed Docker event, scoped to the resource's server. No-op when the state

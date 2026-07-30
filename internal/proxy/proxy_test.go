@@ -3,6 +3,9 @@ package proxy
 import (
 	"strings"
 	"testing"
+
+	"github.com/deepteams/akerdock/internal/accessroute"
+	"gopkg.in/yaml.v3"
 )
 
 func TestPriorityFormula(t *testing.T) {
@@ -41,6 +44,122 @@ func TestGenerateDynamic(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("generated file missing %q\n%s", want, out)
 		}
+	}
+}
+
+func TestGenerateDynamicProtectedRouteWithTemplateException(t *testing.T) {
+	out := GenerateDynamic(RouteGroup{
+		AppUUID: "app-1",
+		Routes: []Route{{
+			FQDN: "app.example.com", Path: "/", TargetPort: 8080,
+			PublicRoutes: []accessroute.Route{{
+				Path: "/webhook/:provider/handler", Match: accessroute.MatchTemplate,
+				Methods:    []string{"POST"},
+				Parameters: map[string][]string{"provider": {"github", "stripe"}},
+			}},
+		}},
+		Access: &AccessPolicy{
+			Mode: "basic_auth", BasicAuthHash: "akerdock:$2y$10$hash",
+		},
+	}, 4)
+
+	for _, want := range []string{
+		"middlewares: [app-1-access]",
+		"app-1-r0-public-0:",
+		"PathRegexp(`^/webhook/(github|stripe)/handler$`)",
+		"Method(`POST`)",
+		"basicAuth:",
+		"middlewares: [app-1-https-redirect]",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("protected routing missing %q\n%s", want, out)
+		}
+	}
+	publicBlock := between(out, "    app-1-r0-public-0:\n", "  middlewares:\n")
+	if strings.Contains(publicBlock, "app-1-access") {
+		t.Fatalf("public router kept the access middleware:\n%s", publicBlock)
+	}
+	assertValidYAML(t, out)
+}
+
+func TestGenerateDynamicSSOCallbackIsUnprotected(t *testing.T) {
+	out := GenerateDynamic(RouteGroup{
+		AppUUID: "app-2",
+		Routes:  []Route{{FQDN: "app.example.com", Path: "/", TargetPort: 80}},
+		Access: &AccessPolicy{
+			Mode:           "sso",
+			ForwardAuthURL: "https://panel.example.com/webhooks/applications/forward-auth?resource=app-2",
+			CallbackURL:    "https://panel.example.com",
+		},
+	}, 1)
+	for _, want := range []string{
+		"forwardAuth:",
+		"?resource=app-2",
+		"app-2-access-callback-0:",
+		"Path(`/.akerdock/app-callback`)",
+		"priority: 2000000",
+		"passHostHeader: false",
+		`url: "https://panel.example.com"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("SSO routing missing %q\n%s", want, out)
+		}
+	}
+	callbackBlock := between(out, "    app-2-access-callback-0:\n", "  middlewares:\n")
+	if strings.Contains(callbackBlock, "middlewares:") {
+		t.Fatalf("callback router must be unprotected:\n%s", callbackBlock)
+	}
+	assertValidYAML(t, out)
+}
+
+func TestGenerateWakerPublicRouteKeepsWakeMiddleware(t *testing.T) {
+	out := GenerateWaker(RouteGroup{
+		AppUUID: "sleeping",
+		Routes: []Route{{
+			FQDN: "sleep.example.com", Path: "/", TargetPort: 80,
+			PublicRoutes: []accessroute.Route{{
+				Path: "/hooks", Match: accessroute.MatchPrefix, Methods: []string{"POST"},
+			}},
+		}},
+		Access: &AccessPolicy{Mode: "basic_auth", BasicAuthHash: "u:hash"},
+	}, "resource-1", 1)
+	if !strings.Contains(out, "middlewares: [sleeping-wake, sleeping-access]") {
+		t.Fatalf("protected waker route did not compose wake + access:\n%s", out)
+	}
+	publicBlock := between(out, "    sleeping-r0-public-0:\n", "  middlewares:\n")
+	if !strings.Contains(publicBlock, "middlewares: [sleeping-wake]") ||
+		strings.Contains(publicBlock, "sleeping-access") {
+		t.Fatalf("public waker route must wake without authenticating:\n%s", publicBlock)
+	}
+	assertValidYAML(t, out)
+}
+
+func TestPublicPriorityCannotShadowDescendantDomainRoute(t *testing.T) {
+	if got, protected := publicPriority("/api"), Priority("/api"); got <= protected {
+		t.Fatalf("public priority %d must beat its own protected router %d", got, protected)
+	}
+	if got, descendant := publicPriority("/api"), Priority("/api/admin"); got >= descendant {
+		t.Fatalf("public priority %d must stay below descendant domain route %d", got, descendant)
+	}
+}
+
+func between(value, start, end string) string {
+	from := strings.Index(value, start)
+	if from < 0 {
+		return ""
+	}
+	value = value[from+len(start):]
+	if to := strings.Index(value, end); to >= 0 {
+		return value[:to]
+	}
+	return value
+}
+
+func assertValidYAML(t *testing.T, value string) {
+	t.Helper()
+	var document map[string]any
+	if err := yaml.Unmarshal([]byte(value), &document); err != nil {
+		t.Fatalf("generated routing is not valid YAML: %v\n%s", err, value)
 	}
 }
 

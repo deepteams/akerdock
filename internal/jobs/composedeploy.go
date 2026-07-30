@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -472,10 +473,14 @@ func (r *deploymentRun) syncComponents(ctx context.Context, plan *compose.Plan) 
 			p := int32(sp.DefaultRoutePort)
 			routePort = &p
 		}
+		publicRoutes, err := json.Marshal(sp.AccessPublicRoutes)
+		if err != nil {
+			return nil, fmt.Errorf("encode public routes for component %s: %w", sp.Name, err)
+		}
 		component, err := r.h.Store.UpsertServiceComponent(ctx, store.UpsertServiceComponentParams{
 			ResourceID: r.app.Resource.ID, Name: sp.Name, Image: image,
 			IsDatabase: sp.IsDatabase, DatabaseEngine: engine, ExcludeFromHc: sp.ExcludeFromHC,
-			DefaultRoutePort: routePort,
+			DefaultRoutePort: routePort, AccessPublicRoutes: publicRoutes,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("sync component %s: %w", sp.Name, err)
@@ -1562,7 +1567,14 @@ func (r *deploymentRun) switchComponentRouting(ctx context.Context, appUUID, com
 	} else {
 		name = "stabilize_routing_" + component
 	}
-	content, err := RenderRoutingFileWithComponentEndpoints(ctx, r.h.Store, r.app, r.d.ID, "", overrides)
+	access, err := resourceAccessPolicy(ctx, r.h.Store, r.h.Keyring, r.app, r.service,
+		r.server, r.h.ControlPlanePort)
+	if err != nil {
+		return err
+	}
+	content, err := RenderRoutingFileWithComponentEndpoints(
+		ctx, r.h.Store, r.app, r.d.ID, "", overrides, access,
+	)
 	if err != nil {
 		return err
 	}

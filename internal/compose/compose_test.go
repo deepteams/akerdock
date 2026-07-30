@@ -364,6 +364,58 @@ services:
 	}
 }
 
+func TestAccessPublicRoutesExtension(t *testing.T) {
+	res := load(t, `
+services:
+  app:
+    image: acme/app
+    x-akerdock:
+      access_public_routes:
+        - path: /webhook/:provider/handler
+          match: template
+          methods: [post]
+          parameters:
+            provider: [stripe, github]
+`)
+	plan := mustPlan(t, res)
+	routes := servicePlan(t, plan, "app").AccessPublicRoutes
+	if len(routes) != 1 {
+		t.Fatalf("access public routes = %+v", routes)
+	}
+	route := routes[0]
+	if route.Path != "/webhook/:provider/handler" || route.Match != "template" {
+		t.Fatalf("route not carried into plan: %+v", route)
+	}
+	if len(route.Methods) != 1 || route.Methods[0] != "POST" {
+		t.Fatalf("methods not normalized: %v", route.Methods)
+	}
+	if got := route.Parameters["provider"]; len(got) != 2 || got[0] != "github" || got[1] != "stripe" {
+		t.Fatalf("provider allow-list not normalized: %v", got)
+	}
+}
+
+func TestAccessPublicRoutesExtensionRejectsUnsafePatterns(t *testing.T) {
+	for _, route := range []string{
+		`{path: "/webhook/*", match: prefix, methods: [POST]}`,
+		`{path: "/webhook/:provider", match: template, methods: [POST], parameters: {other: [stripe]}}`,
+	} {
+		res := load(t, `
+services:
+  app:
+    image: acme/app
+    x-akerdock:
+      access_public_routes:
+        - `+route+`
+`)
+		if !hasFinding(res, CodeAccessPublicRouteInvalid, Error) {
+			t.Fatalf("unsafe public route %s must be rejected: %v", route, res.Findings)
+		}
+		if res.Plan != nil {
+			t.Fatalf("no plan expected for unsafe public route %s", route)
+		}
+	}
+}
+
 func TestOneShotWithoutExcludeWarns(t *testing.T) {
 	res := load(t, `
 services:

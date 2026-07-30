@@ -6,8 +6,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"reflect"
 	"strings"
 	"sync"
@@ -23,6 +21,7 @@ import (
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
+	"github.com/deepteams/akerdock/internal/uptime"
 )
 
 type fakeSchedulerStore struct {
@@ -840,20 +839,20 @@ func TestUptimeChecks(t *testing.T) {
 		scheduler.runDueUptimeChecks(context.Background())
 	})
 	t.Run("failure transition and recovery", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		}))
-		defer server.Close()
 		database := &fakeSchedulerStore{
 			team: store.Team{Uuid: testUUID()},
 		}
 		check := store.UptimeCheck{
 			ID: 1, Uuid: testUUID(), TeamID: 2, Name: "site",
-			Kind: store.UptimeCheckKindHttp, Target: server.URL,
+			Kind: store.UptimeCheckKindHttp, Target: "https://site.example/health",
 			TimeoutSeconds: 1, IntervalSeconds: 60,
 			Status: store.UptimeStatusUnknown, FailureThreshold: 1, SuccessThreshold: 1,
 		}
 		scheduler := newScheduler(t, database)
+		nextResult := uptime.Result{StatusCode: 503, Error: "HTTP 503"}
+		scheduler.probeUptime = func(context.Context, string, string, time.Duration) uptime.Result {
+			return nextResult
+		}
 		scheduler.probeUptimeCheck(context.Background(), check)
 		if len(database.uptimeResults) != 1 || len(database.uptimeStates) != 1 ||
 			len(database.outbox) != 1 ||
@@ -861,10 +860,8 @@ func TestUptimeChecks(t *testing.T) {
 			t.Fatalf("results=%#v states=%#v outbox=%#v", database.uptimeResults, database.uptimeStates, database.outbox)
 		}
 
-		okServer := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-		defer okServer.Close()
 		check.Status = store.UptimeStatusDown
-		check.Target = okServer.URL
+		nextResult = uptime.Result{OK: true, StatusCode: 200}
 		scheduler.probeUptimeCheck(context.Background(), check)
 		if len(database.outbox) != 2 ||
 			database.outbox[1].EventType != "uptime.check.recovered.v1" {
@@ -872,10 +869,8 @@ func TestUptimeChecks(t *testing.T) {
 		}
 	})
 	t.Run("background pass and persistence failures", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-		defer server.Close()
 		check := store.UptimeCheck{
-			ID: 1, Kind: store.UptimeCheckKindHttp, Target: server.URL,
+			ID: 1, Kind: store.UptimeCheckKindHttp, Target: "https://site.example/health",
 			TimeoutSeconds: 1, IntervalSeconds: 1, FailureThreshold: 2, SuccessThreshold: 2,
 		}
 		database := &fakeSchedulerStore{
@@ -885,6 +880,9 @@ func TestUptimeChecks(t *testing.T) {
 			},
 		}
 		scheduler := newScheduler(t, database)
+		scheduler.probeUptime = func(context.Context, string, string, time.Duration) uptime.Result {
+			return uptime.Result{OK: true, StatusCode: 200}
+		}
 		scheduler.runDueUptimeChecks(context.Background())
 		deadline := time.Now().Add(time.Second)
 		for scheduler.uptimeInflight.Load() && time.Now().Before(deadline) {

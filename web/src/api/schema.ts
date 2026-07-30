@@ -3275,7 +3275,7 @@ export interface paths {
         put?: never;
         /**
          * Create an uptime check
-         * @description HTTP check (URL, up = response < 400) or TCP check (host:port, up = connection). Probed from the control plane every `interval_seconds`; the verdict only flips after `failure_threshold` consecutive failures (and recovers after `success_threshold` successes) — anti-flapping lives in the thresholds, not in the notifier. The effective granularity is bounded by the scheduler tick.
+         * @description HTTP check (public URL, up = response < 400) or TCP check (public host:port, up = connection). Private, loopback, link-local, metadata and reserved destinations are rejected after DNS resolution on every connection. Probed from the control plane every `interval_seconds`; the verdict only flips after `failure_threshold` consecutive failures (and recovers after `success_threshold` successes) — anti-flapping lives in the thresholds, not in the notifier. The effective granularity is bounded by the scheduler tick.
          */
         post: operations["createUptimeCheck"];
         delete?: never;
@@ -4351,7 +4351,7 @@ export interface components {
             name: string;
             /** @enum {string} */
             kind: "http" | "tcp";
-            /** @description URL (http) or `host:port` (tcp). */
+            /** @description Public HTTP(S) URL or public `host:port`; non-public destinations are blocked on the resolved IP for every connection and redirect. */
             target: string;
             interval_seconds: number;
             timeout_seconds: number;
@@ -4374,7 +4374,7 @@ export interface components {
             name: string;
             /** @enum {string} */
             kind: "http" | "tcp";
-            /** @description http(s) URL or `host:port`. */
+            /** @description Public HTTP(S) URL or public `host:port`; non-public destinations are blocked on the resolved IP for every connection and redirect. */
             target: string;
             resource_uuid?: string | null;
             /** @default 60 */
@@ -4391,6 +4391,7 @@ export interface components {
         /** @description Partial update — the current verdict is never editable. */
         UptimeCheckUpdate: {
             name?: string;
+            /** @description Public HTTP(S) URL or public `host:port`; non-public destinations are blocked on the resolved IP for every connection and redirect. */
             target?: string;
             interval_seconds?: number;
             timeout_seconds?: number;
@@ -5181,6 +5182,23 @@ export interface components {
             readonly default_branch?: string | null;
             readonly html_url?: string | null;
         };
+        /** @description A narrow unauthenticated exception through a resource access wall (ADR-049). `template` accepts only whole `:name` path segments; it never accepts a user-supplied regular expression. */
+        AccessPublicRoute: {
+            /** @description Absolute external request path. Query strings and fragments are not part of matching. */
+            path: string;
+            /**
+             * @description `exact` matches one path; `template` lets `:name` match exactly one segment made of unreserved URL characters; `prefix` matches the path segment and descendants.
+             * @default exact
+             * @enum {string}
+             */
+            match: "exact" | "template" | "prefix";
+            /** @description Explicit HTTP methods allowed without authentication. */
+            methods: string[];
+            /** @description Optional allow-list per `:name` segment in template mode. */
+            parameters?: {
+                [key: string]: string[];
+            };
+        };
         /** @description Inline Docker Compose stack (compose-spec.md, data dictionary §9.1) — the file is the source of truth, editable via PATCH. */
         Service: {
             readonly uuid: string;
@@ -5193,6 +5211,13 @@ export interface components {
             compose_content: string;
             /** @description Attaches each component to the destination's network (§2.1). */
             connect_to_predefined_network?: boolean;
+            /**
+             * @description Access wall shared by every routed component of this inline Compose stack (ADR-049).
+             * @enum {string}
+             */
+            access_protection?: "none" | "basic_auth" | "sso";
+            /** @description Whether shared basic-auth credentials are configured. */
+            readonly access_basic_auth_set?: boolean;
             desired_status: components["schemas"]["DesiredStatus"];
             observed_status: components["schemas"]["ObservedStatus"];
             /** Format: date-time */
@@ -5216,6 +5241,13 @@ export interface components {
             compose_content: string;
             /** @default false */
             connect_to_predefined_network: boolean;
+            /**
+             * @default none
+             * @enum {string}
+             */
+            access_protection: "none" | "basic_auth" | "sso";
+            /** @description Shared `user:password`; null with basic_auth generates one. */
+            access_basic_auth?: string | null;
             /** @default false */
             instant_deploy: boolean;
         };
@@ -5225,6 +5257,10 @@ export interface components {
             /** @description New file — validated, applied at the next deployment. */
             compose_content?: string;
             connect_to_predefined_network?: boolean;
+            /** @enum {string} */
+            access_protection?: "none" | "basic_auth" | "sso";
+            /** @description Shared `user:password`; null while enabling basic_auth generates one. */
+            access_basic_auth?: string | null;
         };
         /** @description Sub-container of a compose stack (data dictionary §9.2) — one per service of the file, individual observed status (§5.7). */
         ServiceComponent: {
@@ -5346,6 +5382,8 @@ export interface components {
             access_protection?: "none" | "basic_auth" | "sso";
             /** @description Shared credentials `user:password` for `basic_auth` protection (ADR-042). Write-only; stored encrypted, never returned. Sending null with `access_protection: basic_auth` generates one. */
             access_basic_auth?: string | null;
+            /** @description Production paths allowed through the wall without authentication (ADR-049). For a Compose build pack, declare them per service with `x-akerdock.access_public_routes` instead. */
+            access_public_routes?: components["schemas"]["AccessPublicRoute"][];
             /**
              * @description Access protection of preview URLs (§20.4.4) — basic_auth by default.
              * @enum {string}
@@ -5428,6 +5466,8 @@ export interface components {
             access_protection?: "none" | "basic_auth" | "sso";
             /** @description Whether shared basic-auth credentials are configured (ADR-042). */
             readonly access_basic_auth_set?: boolean;
+            /** @description Production paths allowed through the wall without authentication (ADR-049). Empty by default. */
+            access_public_routes?: components["schemas"]["AccessPublicRoute"][];
             /** @enum {string} */
             preview_protection?: "none" | "basic_auth" | "sso";
             preview_fork_approval_enabled?: boolean;

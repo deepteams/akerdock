@@ -173,8 +173,8 @@ type SettingsSection = ConfigSection | 'deploys' | 'previews';
                     </div>
                     <p class="akd-field__hint">
                       Applies to every domain of the application, and to every routed service of a
-                      compose stack. Machine clients (webhooks, APIs) receive a 401 — leave it public
-                      if the application answers them.
+                      compose stack. Add narrowly scoped public routes below for webhooks and HTTP
+                      callbacks that cannot authenticate.
                     </p>
                   </div>
                   @if (form.accessProtection === 'basic_auth') {
@@ -190,6 +190,101 @@ type SettingsSection = ConfigSection | 'deploys' | 'previews';
                         [(ngModel)]="form.accessBasicAuth"
                         [disabled]="busy()"
                       />
+                    </div>
+                  }
+                  @if (form.buildPack === 'compose') {
+                    <p class="akd-field__hint">
+                      Public routes are owned by each Compose service. Declare
+                      <code>x-akerdock.access_public_routes</code> in that service.
+                    </p>
+                  } @else {
+                    <div class="akd-field">
+                      <span class="akd-field__label">Public routes through the wall</span>
+                      <table class="akd-table routes">
+                        <thead>
+                          <tr>
+                            <th scope="col">Path</th>
+                            <th scope="col">Match</th>
+                            <th scope="col">Methods</th>
+                            <th scope="col">Parameter allow-lists (JSON)</th>
+                            <th scope="col" class="right"><span class="sr-only">Actions</span></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          @for (route of form.accessPublicRoutes; track $index) {
+                            <tr>
+                              <td>
+                                <input
+                                  class="akd-input akd-input--mono"
+                                  [name]="'access-public-path-' + $index"
+                                  [(ngModel)]="route.path"
+                                  [disabled]="busy()"
+                                  placeholder="/webhook/:provider/handler"
+                                  aria-label="Public route path"
+                                />
+                              </td>
+                              <td>
+                                <select
+                                  class="akd-input"
+                                  [name]="'access-public-match-' + $index"
+                                  [(ngModel)]="route.match"
+                                  [disabled]="busy()"
+                                  aria-label="Public route match"
+                                >
+                                  <option value="exact">Exact</option>
+                                  <option value="template">Template (:name)</option>
+                                  <option value="prefix">Prefix</option>
+                                </select>
+                              </td>
+                              <td>
+                                <input
+                                  class="akd-input akd-input--mono"
+                                  [name]="'access-public-methods-' + $index"
+                                  [(ngModel)]="route.methods"
+                                  [disabled]="busy()"
+                                  placeholder="POST"
+                                  aria-label="Public route methods"
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  class="akd-input akd-input--mono"
+                                  [name]="'access-public-params-' + $index"
+                                  [(ngModel)]="route.parameters"
+                                  [disabled]="busy() || route.match !== 'template'"
+                                  placeholder='{"provider":["stripe","github"]}'
+                                  aria-label="Public route parameter allow-lists"
+                                />
+                              </td>
+                              <td class="right">
+                                <button
+                                  class="akd-iconbtn"
+                                  type="button"
+                                  [disabled]="busy()"
+                                  (click)="removeAccessPublicRoute($index)"
+                                  aria-label="Remove public route"
+                                >
+                                  <akd-icon name="trash-2" [size]="15" />
+                                </button>
+                              </td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                      <button
+                        class="akd-btn akd-btn--secondary akd-btn--sm add-route"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="addAccessPublicRoute()"
+                      >
+                        <akd-icon name="plus" [size]="13" />
+                        Add public route
+                      </button>
+                      <span class="akd-field__hint">
+                        Active when the wall is enabled. Methods are mandatory. Template parameters
+                        match one path segment only; optional JSON allow-lists restrict their
+                        values. Prefix matching is segment-bound.
+                      </span>
                     </div>
                   }
                 </div>
@@ -635,6 +730,19 @@ export class ApplicationSettingsTabComponent {
     this.form.previewUrlTemplates.splice(index, 1);
   }
 
+  protected addAccessPublicRoute(): void {
+    this.form.accessPublicRoutes.push({
+      path: '',
+      match: 'exact',
+      methods: 'POST',
+      parameters: '',
+    });
+  }
+
+  protected removeAccessPublicRoute(index: number): void {
+    this.form.accessPublicRoutes.splice(index, 1);
+  }
+
   /** The open section (left menu); defaults to the always-present General. */
   protected readonly active = signal<SettingsSection>('general');
 
@@ -679,6 +787,7 @@ export class ApplicationSettingsTabComponent {
     previewProtection: 'basic_auth',
     accessProtection: 'none',
     accessBasicAuth: '',
+    accessPublicRoutes: [],
     previewForkApprovalEnabled: false,
     previewExcludeDrafts: false,
     previewDeployOnOpen: true,

@@ -147,7 +147,7 @@ routes:                          # one entry per `domains` row (fqdn, path) — 
       force: true                # force_https per application (PRD §4.3, default true)
       cert: { resolver: http01 } # { resolver: <name> } XOR { ref: <certificates §2.5> }
     redirect_direction: both     # both | www | non_www — "Direction" (PRD §4.2, §3.5)
-    middlewares: [auth, noindex] # refs to §2.4, application order defined in §4.7
+    middlewares: [auth, noindex] # refs to §2.4, application order defined in §4.8
 service:                         # single target — the switchover replaces this block (deployment-engine §7.2)
   endpoint_type: container_name  # container_name (stable form) | container_ip (transient form)
   endpoint: "9f3c2a1e-7b44-4c1d-9e2a-1f0b8c6d5a01"   # or "172.18.0.7" during switching
@@ -265,7 +265,7 @@ The `domain:port` syntax (PRD §4.2) targets an **internal port** of the contain
 | `www` | The apex counterpart redirects `308` to `www.<fqdn>` (scheme and path preserved) |
 | `non_www` | `www.<fqdn>` redirects `308` to the apex |
 
-The counterpart is only generated if it does not collide with an existing `domains` row (the §3.3 uniqueness prevails; on conflict, the redirect is omitted and a validation warning is raised) **(proposed default)**. The HTTPS and www redirects are composed in the §4.7 order (HTTPS first: at most one visible redirect per request, to the final URL).
+The counterpart is only generated if it does not collide with an existing `domains` row (the §3.3 uniqueness prevails; on conflict, the redirect is omitted and a validation warning is raised) **(proposed default)**. The HTTPS and www redirects are composed in the §4.8 order (HTTPS first: at most one visible redirect per request, to the final URL).
 
 ---
 
@@ -298,12 +298,26 @@ For `kind: preview`, the control plane injects by default (according to `preview
 
 `preview_protection = none` is an explicit per-application choice (§20.4.4).
 
-### 4.6 Extensibility
+### 4.6 Production resource access walls and narrow public routes
+
+ADR-042/049 attach one production access policy (`none`, `basic_auth` or `sso`) to an application or inline Compose service resource. `basic_auth` maps to a bcrypt-only `basicAuth` middleware. `sso` maps to `forwardAuth`; the middleware address carries the resource UUID, and the reserved exact path `/.akerdock/app-callback` has a higher-priority router to the control plane so it can establish the resource-scoped cookie. Missing or undecryptable policy material is a generation error: the resource is never rendered without the requested wall.
+
+A protected resource may declare narrow unauthenticated routes. The provider-independent IR carries these on the routed component:
+
+- `exact`: one absolute path;
+- `template`: whole `:name` segments, each matching one non-empty RFC 3986 unreserved path segment, optionally restricted by a finite `parameters` allow-list;
+- `prefix`: the declared segment and its descendants (`/hooks` and `/hooks/...`, never `/hooks-admin`).
+
+Every exception has an explicit non-empty HTTP method allow-list. Query strings and fragments do not participate. User regular expressions, `*`, `**`, percent escapes and ambiguous path traversal are rejected before IR generation. A Compose exception is declared at `services.<name>.x-akerdock.access_public_routes` and is attached only to domains of that component.
+
+For each covered host/base route, the generator emits an HTTPS public router at `priority(base path) + 1` and omits only the access middleware. The `+1` wins over that route's protected router but remains below any descendant domain route, so an exception cannot shadow a more specific path owned by another resource on the same host. HTTPS redirect, scale-to-zero wake-up and every other applicable middleware remain active. The reserved SSO callback router uses priority `2,000,000`. When the policy is `none`, exception entries have no effect because the ordinary route is already public.
+
+### 4.7 Extensibility
 
 - Adding a middleware type = extending the IR (new `type`, possible `ir_version` bump) **and** providing its mapping for every provider **and** its fixtures (§9). A type without a complete mapping is refused.
 - `type: provider_raw` escape hatch (ADR-009, "explicit extensions"): payload passed as-is to the named provider, **excluded from the conformance fixtures**, flagged in the UI as non-portable — a proxy switch reports it and ignores it.
 
-### 4.7 Application order (deterministic, proposed default)
+### 4.8 Application order (deterministic, proposed default)
 
 ```text
 force-https → www/non-www redirect → ip_whitelist → rate_limit → basic_auth → custom_headers → compression → provider_raw
@@ -479,7 +493,7 @@ http:
       rule: Host(`123.preview.example.com`) && PathPrefix(`/`)
       priority: 1
       middlewares:
-        - b2d15c78-90ab-4cde-8123-456789abcdef-pr-123-auth      # ip_whitelist → rate_limit → auth → headers (§4.7)
+        - b2d15c78-90ab-4cde-8123-456789abcdef-pr-123-auth      # ip_whitelist → rate_limit → auth → headers (§4.8)
         - b2d15c78-90ab-4cde-8123-456789abcdef-pr-123-noindex
       service: b2d15c78-90ab-4cde-8123-456789abcdef-pr-123
       tls:
@@ -722,7 +736,7 @@ Two test levels, both mandatory for a provider to be conformant:
 
 ### 9.3 Minimal case set (P0)
 
-simple HTTP app; forced-HTTPS app; multi-domain + paths + `domain:port`; www/non-www redirects (3 directions); protected preview (auth + noindex); materialized `<uuid>.domain` wildcard; middlewares (rate limit 429, ip_whitelist 403 before auth — §4.7 order); custom certificate; self-signed fallback; TCP database; proxy ports 8080/8443; switchover (two sequential `ir.json`: transient IP then stable name — verifies that no request fails during the swap); routing removal (404 after `RemoveApp`).
+simple HTTP app; forced-HTTPS app; multi-domain + paths + `domain:port`; www/non-www redirects (3 directions); protected preview (auth + noindex); production access wall with exact/template/prefix public exceptions and SSO callback; materialized `<uuid>.domain` wildcard; middlewares (rate limit 429, ip_whitelist 403 before auth — §4.8 order); custom certificate; self-signed fallback; TCP database; proxy ports 8080/8443; switchover (two sequential `ir.json`: transient IP then stable name — verifies that no request fails during the swap); routing removal (404 after `RemoveApp`).
 
 ---
 

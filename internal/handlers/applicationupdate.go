@@ -109,6 +109,42 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 			details = append(details, api.ErrorDetail{Field: ptr("dockerfile"), Code: ptr("required"), Message: "dockerfile content cannot be empty"})
 		}
 	}
+	var publicRoutesJSON []byte
+	if body.AccessPublicRoutes != nil {
+		effectivePack := row.BuildConfig.BuildPack
+		if newBuildPack != nil {
+			effectivePack = *newBuildPack
+		}
+		if effectivePack == store.BuildPackCompose && len(*body.AccessPublicRoutes) > 0 {
+			details = append(details, api.ErrorDetail{
+				Field: ptr("access_public_routes"), Code: ptr("invalid"),
+				Message: "Compose applications declare public routes per service under x-akerdock.access_public_routes",
+			})
+		} else {
+			normalized, routeDetails := normalizeAPIPublicRoutes(*body.AccessPublicRoutes, "access_public_routes")
+			details = append(details, routeDetails...)
+			if len(routeDetails) == 0 {
+				publicRoutesJSON, err = marshalPublicRoutes(normalized)
+				if err != nil {
+					a.internalError(w, r, "encode access public routes", err)
+					return
+				}
+			}
+		}
+	}
+	if body.AccessProtection != nil && !body.AccessProtection.Valid() {
+		details = append(details, api.ErrorDetail{
+			Field: ptr("access_protection"), Code: ptr("invalid"),
+			Message: "access_protection must be none, basic_auth or sso",
+		})
+	}
+	if body.AccessBasicAuth != nil && *body.AccessBasicAuth != "" &&
+		!validBasicAuthCredentials(*body.AccessBasicAuth) {
+		details = append(details, api.ErrorDetail{
+			Field: ptr("access_basic_auth"), Code: ptr("invalid_format"),
+			Message: "access_basic_auth must contain a non-empty user and password as \"user:password\"",
+		})
+	}
 	name := row.Resource.Name
 	if body.Name != nil {
 		if *body.Name == "" || len(*body.Name) > 255 {
@@ -313,13 +349,6 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 			credentials = generated
 		}
 		if credentials != "" {
-			if !strings.Contains(credentials, ":") {
-				httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
-					Field: ptr("access_basic_auth"), Code: ptr("invalid_format"),
-					Message: "access_basic_auth must be \"user:password\"",
-				}})
-				return
-			}
 			enc, err := a.Keyring.Encrypt("applications", "access_basic_auth_enc",
 				uuidString(row.Resource.Uuid), []byte(credentials))
 			if err != nil {
@@ -332,6 +361,14 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 				a.internalError(w, r, "update application", err)
 				return
 			}
+		}
+	}
+	if body.AccessPublicRoutes != nil {
+		if err := qtx.SetApplicationAccessPublicRoutes(r.Context(), store.SetApplicationAccessPublicRoutesParams{
+			ID: row.Resource.ID, AccessPublicRoutes: publicRoutesJSON,
+		}); err != nil {
+			a.internalError(w, r, "update application public routes", err)
+			return
 		}
 	}
 	// Scale-to-zero of the application itself (ADR-037): a separate opt-in from
@@ -435,7 +472,9 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 
 	// Domains regenerate the routing immediately (OpenAPI updateApplication)
 	// — via a job, on servers with a managed proxy.
-	if domainsChanged {
+	routingChanged := domainsChanged || body.AccessProtection != nil ||
+		body.AccessBasicAuth != nil || body.AccessPublicRoutes != nil
+	if routingChanged {
 		server, err := a.Store.GetServerByID(r.Context(), updated.ServerRowID)
 		if err == nil && server.ProxyType == store.ProxyTypeTraefik && server.Status == store.ServerStatusReady {
 			lockKey := "deploy:app:" + uuidString(updated.Resource.Uuid)

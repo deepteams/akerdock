@@ -15,14 +15,19 @@ WHERE id = $1;
 -- Component sync (data-dictionary §9.2): recreated/updated at every edit of
 -- the compose file. The upsert keeps the row identity (uuid, backup plans,
 -- domains) stable for components that survive the edit.
-INSERT INTO service_components (resource_id, name, image, is_database, database_engine, exclude_from_hc, default_route_port)
-VALUES ($1, $2, sqlc.narg(image), $3, sqlc.narg(database_engine), $4, sqlc.narg(default_route_port))
+INSERT INTO service_components
+    (resource_id, name, image, is_database, database_engine, exclude_from_hc,
+     default_route_port, access_public_routes)
+VALUES
+    ($1, $2, sqlc.narg(image), $3, sqlc.narg(database_engine), $4,
+     sqlc.narg(default_route_port), $5)
 ON CONFLICT (resource_id, name) DO UPDATE SET
     image = excluded.image,
     is_database = excluded.is_database,
     database_engine = excluded.database_engine,
     exclude_from_hc = excluded.exclude_from_hc,
     default_route_port = excluded.default_route_port,
+    access_public_routes = excluded.access_public_routes,
     updated_at = now()
 RETURNING *;
 
@@ -87,3 +92,9 @@ FROM resources r
 JOIN destinations d ON d.id = r.destination_id
 WHERE sc.resource_id = r.id AND r.uuid = $1 AND sc.name = $2
   AND d.server_id = $4 AND sc.observed_status <> $3;
+
+-- name: SetServiceAccessProtection :exec
+UPDATE services SET access_protection = $2, updated_at = now() WHERE id = $1;
+
+-- name: SetServiceAccessBasicAuth :exec
+UPDATE services SET access_basic_auth_enc = $2, updated_at = now() WHERE id = $1;

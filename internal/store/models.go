@@ -2131,6 +2131,7 @@ type Application struct {
 	ScaleSleptAt                   pgtype.Timestamptz
 	AccessProtection               PreviewProtection
 	AccessBasicAuthEnc             []byte
+	AccessPublicRoutes             []byte
 }
 
 type AuditEvent struct {
@@ -2893,6 +2894,7 @@ type PreviewAccessToken struct {
 	ExpiresAt     pgtype.Timestamptz
 	CreatedAt     pgtype.Timestamptz
 	ApplicationID *int64
+	ResourceID    *int64
 }
 
 type PrivateKey struct {
@@ -3158,22 +3160,25 @@ type Service struct {
 	ConnectToPredefinedNetwork bool
 	CreatedAt                  pgtype.Timestamptz
 	UpdatedAt                  pgtype.Timestamptz
+	AccessProtection           PreviewProtection
+	AccessBasicAuthEnc         []byte
 }
 
 type ServiceComponent struct {
-	ID               int64
-	Uuid             pgtype.UUID
-	ResourceID       int64
-	Name             string
-	Image            *string
-	IsDatabase       bool
-	DatabaseEngine   *DbEngine
-	ExcludeFromHc    bool
-	DefaultRoutePort *int32
-	ObservedStatus   ResourceObservedStatus
-	ObservedAt       pgtype.Timestamptz
-	CreatedAt        pgtype.Timestamptz
-	UpdatedAt        pgtype.Timestamptz
+	ID                 int64
+	Uuid               pgtype.UUID
+	ResourceID         int64
+	Name               string
+	Image              *string
+	IsDatabase         bool
+	DatabaseEngine     *DbEngine
+	ExcludeFromHc      bool
+	DefaultRoutePort   *int32
+	ObservedStatus     ResourceObservedStatus
+	ObservedAt         pgtype.Timestamptz
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+	AccessPublicRoutes []byte
 }
 
 type Session struct {

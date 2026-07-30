@@ -22,6 +22,27 @@ const (
 	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
 )
 
+// Defines values for AccessPublicRouteMatch.
+const (
+	Exact    AccessPublicRouteMatch = "exact"
+	Prefix   AccessPublicRouteMatch = "prefix"
+	Template AccessPublicRouteMatch = "template"
+)
+
+// Valid indicates whether the value is a known member of the AccessPublicRouteMatch enum.
+func (e AccessPublicRouteMatch) Valid() bool {
+	switch e {
+	case Exact:
+		return true
+	case Prefix:
+		return true
+	case Template:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AdoptionCandidateKind.
 const (
 	AdoptionCandidateKindComposeStack AdoptionCandidateKind = "compose_stack"
@@ -1648,6 +1669,27 @@ func (e ServerUpdateProxyType) Valid() bool {
 	}
 }
 
+// Defines values for ServiceAccessProtection.
+const (
+	ServiceAccessProtectionBasicAuth ServiceAccessProtection = "basic_auth"
+	ServiceAccessProtectionNone      ServiceAccessProtection = "none"
+	ServiceAccessProtectionSso       ServiceAccessProtection = "sso"
+)
+
+// Valid indicates whether the value is a known member of the ServiceAccessProtection enum.
+func (e ServiceAccessProtection) Valid() bool {
+	switch e {
+	case ServiceAccessProtectionBasicAuth:
+		return true
+	case ServiceAccessProtectionNone:
+		return true
+	case ServiceAccessProtectionSso:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ServiceComponentDatabaseEngine.
 const (
 	ServiceComponentDatabaseEngineClickhouse  ServiceComponentDatabaseEngine = "clickhouse"
@@ -1681,6 +1723,48 @@ func (e ServiceComponentDatabaseEngine) Valid() bool {
 	case ServiceComponentDatabaseEnginePostgresql:
 		return true
 	case ServiceComponentDatabaseEngineRedis:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ServiceCreateRequestAccessProtection.
+const (
+	ServiceCreateRequestAccessProtectionBasicAuth ServiceCreateRequestAccessProtection = "basic_auth"
+	ServiceCreateRequestAccessProtectionNone      ServiceCreateRequestAccessProtection = "none"
+	ServiceCreateRequestAccessProtectionSso       ServiceCreateRequestAccessProtection = "sso"
+)
+
+// Valid indicates whether the value is a known member of the ServiceCreateRequestAccessProtection enum.
+func (e ServiceCreateRequestAccessProtection) Valid() bool {
+	switch e {
+	case ServiceCreateRequestAccessProtectionBasicAuth:
+		return true
+	case ServiceCreateRequestAccessProtectionNone:
+		return true
+	case ServiceCreateRequestAccessProtectionSso:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ServiceUpdateAccessProtection.
+const (
+	ServiceUpdateAccessProtectionBasicAuth ServiceUpdateAccessProtection = "basic_auth"
+	ServiceUpdateAccessProtectionNone      ServiceUpdateAccessProtection = "none"
+	ServiceUpdateAccessProtectionSso       ServiceUpdateAccessProtection = "sso"
+)
+
+// Valid indicates whether the value is a known member of the ServiceUpdateAccessProtection enum.
+func (e ServiceUpdateAccessProtection) Valid() bool {
+	switch e {
+	case ServiceUpdateAccessProtectionBasicAuth:
+		return true
+	case ServiceUpdateAccessProtectionNone:
+		return true
+	case ServiceUpdateAccessProtectionSso:
 		return true
 	default:
 		return false
@@ -1737,19 +1821,19 @@ func (e SharedVariableCreateScope) Valid() bool {
 
 // Defines values for SmtpConfigEncryption.
 const (
-	SmtpConfigEncryptionNone     SmtpConfigEncryption = "none"
-	SmtpConfigEncryptionStarttls SmtpConfigEncryption = "starttls"
-	SmtpConfigEncryptionTls      SmtpConfigEncryption = "tls"
+	None     SmtpConfigEncryption = "none"
+	Starttls SmtpConfigEncryption = "starttls"
+	Tls      SmtpConfigEncryption = "tls"
 )
 
 // Valid indicates whether the value is a known member of the SmtpConfigEncryption enum.
 func (e SmtpConfigEncryption) Valid() bool {
 	switch e {
-	case SmtpConfigEncryptionNone:
+	case None:
 		return true
-	case SmtpConfigEncryptionStarttls:
+	case Starttls:
 		return true
-	case SmtpConfigEncryptionTls:
+	case Tls:
 		return true
 	default:
 		return false
@@ -2230,6 +2314,24 @@ func (e ListApiTokensParamsScope) Valid() bool {
 	}
 }
 
+// AccessPublicRoute A narrow unauthenticated exception through a resource access wall (ADR-049). `template` accepts only whole `:name` path segments; it never accepts a user-supplied regular expression.
+type AccessPublicRoute struct {
+	// Match `exact` matches one path; `template` lets `:name` match exactly one segment made of unreserved URL characters; `prefix` matches the path segment and descendants.
+	Match *AccessPublicRouteMatch `json:"match,omitempty"`
+
+	// Methods Explicit HTTP methods allowed without authentication.
+	Methods []string `json:"methods"`
+
+	// Parameters Optional allow-list per `:name` segment in template mode.
+	Parameters *map[string][]string `json:"parameters,omitempty"`
+
+	// Path Absolute external request path. Query strings and fragments are not part of matching.
+	Path string `json:"path"`
+}
+
+// AccessPublicRouteMatch `exact` matches one path; `template` lets `:name` match exactly one segment made of unreserved URL characters; `prefix` matches the path segment and descendants.
+type AccessPublicRouteMatch string
+
 // AccessRequestRequired defines model for AccessRequestRequired.
 type AccessRequestRequired struct {
 	// Code Stable machine-readable error code. Notable values — bad_request, unauthorized, forbidden, not_found, already_exists, dependency_exists, operation_in_progress, invalid_state, version_conflict, idempotency_conflict, validation_failed, rate_limited, internal.
@@ -2427,6 +2529,9 @@ type Application struct {
 
 	// AccessProtection Access wall of the application's own URLs (ADR-042) — `none` by default (public), `sso` = AkerDock session + team membership, `basic_auth` = shared credentials.
 	AccessProtection *ApplicationAccessProtection `json:"access_protection,omitempty"`
+
+	// AccessPublicRoutes Production paths allowed through the wall without authentication (ADR-049). Empty by default.
+	AccessPublicRoutes *[]AccessPublicRoute `json:"access_public_routes,omitempty"`
 
 	// AutoDeploy (git source) Auto-deploy on push enabled.
 	AutoDeploy    *bool                 `json:"auto_deploy,omitempty"`
@@ -2800,6 +2905,9 @@ type ApplicationUpdate struct {
 
 	// AccessProtection Access wall of the application's own URLs (ADR-042): `sso` requires an AkerDock session with access to the team, `basic_auth` shared credentials, `none` (default) is public. Applies to EVERY domain of the application and every routed service of a compose stack.
 	AccessProtection *ApplicationUpdateAccessProtection `json:"access_protection,omitempty"`
+
+	// AccessPublicRoutes Production paths allowed through the wall without authentication (ADR-049). For a Compose build pack, declare them per service with `x-akerdock.access_public_routes` instead.
+	AccessPublicRoutes *[]AccessPublicRoute `json:"access_public_routes,omitempty"`
 
 	// AutoDeploy (git source) Enables/disables auto-deploy on push (§5.5).
 	AutoDeploy *bool `json:"auto_deploy,omitempty"`
@@ -4760,6 +4868,12 @@ type ServerUpdateProxyType string
 
 // Service Inline Docker Compose stack (compose-spec.md, data dictionary §9.1) — the file is the source of truth, editable via PATCH.
 type Service struct {
+	// AccessBasicAuthSet Whether shared basic-auth credentials are configured.
+	AccessBasicAuthSet *bool `json:"access_basic_auth_set,omitempty"`
+
+	// AccessProtection Access wall shared by every routed component of this inline Compose stack (ADR-049).
+	AccessProtection *ServiceAccessProtection `json:"access_protection,omitempty"`
+
 	// ComposeContent The compose file (compose-spec subset §1).
 	ComposeContent string `json:"compose_content"`
 
@@ -4784,6 +4898,9 @@ type Service struct {
 	Uuid           *string        `json:"uuid,omitempty"`
 	Version        *int           `json:"version,omitempty"`
 }
+
+// ServiceAccessProtection Access wall shared by every routed component of this inline Compose stack (ADR-049).
+type ServiceAccessProtection string
 
 // ServiceComponent Sub-container of a compose stack (data dictionary §9.2) — one per service of the file, individual observed status (§5.7).
 type ServiceComponent struct {
@@ -4813,6 +4930,10 @@ type ServiceComponentDatabaseEngine string
 
 // ServiceCreateRequest defines model for ServiceCreateRequest.
 type ServiceCreateRequest struct {
+	// AccessBasicAuth Shared `user:password`; null with basic_auth generates one.
+	AccessBasicAuth  *string                               `json:"access_basic_auth,omitempty"`
+	AccessProtection *ServiceCreateRequestAccessProtection `json:"access_protection,omitempty"`
+
 	// ComposeContent Inline compose file, validated on save (422 + compose-spec §11 findings in details[]). `build:` rejected — an inline stack has no source to build.
 	ComposeContent             string  `json:"compose_content"`
 	ConnectToPredefinedNetwork *bool   `json:"connect_to_predefined_network,omitempty"`
@@ -4824,14 +4945,24 @@ type ServiceCreateRequest struct {
 	ServerUuid                 string  `json:"server_uuid"`
 }
 
+// ServiceCreateRequestAccessProtection defines model for ServiceCreateRequest.AccessProtection.
+type ServiceCreateRequestAccessProtection string
+
 // ServiceUpdate defines model for ServiceUpdate.
 type ServiceUpdate struct {
+	// AccessBasicAuth Shared `user:password`; null while enabling basic_auth generates one.
+	AccessBasicAuth  *string                        `json:"access_basic_auth,omitempty"`
+	AccessProtection *ServiceUpdateAccessProtection `json:"access_protection,omitempty"`
+
 	// ComposeContent New file — validated, applied at the next deployment.
 	ComposeContent             *string `json:"compose_content,omitempty"`
 	ConnectToPredefinedNetwork *bool   `json:"connect_to_predefined_network,omitempty"`
 	Description                *string `json:"description,omitempty"`
 	Name                       *string `json:"name,omitempty"`
 }
+
+// ServiceUpdateAccessProtection defines model for ServiceUpdate.AccessProtection.
+type ServiceUpdateAccessProtection string
 
 // SharedVariable Hierarchical shared variable (§5.4, §3.1). The value is only rendered with `read:sensitive` (INV-003).
 type SharedVariable struct {
@@ -5075,7 +5206,7 @@ type UptimeCheck struct {
 	StatusSince      *time.Time         `json:"status_since,omitempty"`
 	SuccessThreshold int                `json:"success_threshold"`
 
-	// Target URL (http) or `host:port` (tcp).
+	// Target Public HTTP(S) URL or public `host:port`; non-public destinations are blocked on the resolved IP for every connection and redirect.
 	Target         string  `json:"target"`
 	TimeoutSeconds int     `json:"timeout_seconds"`
 	Uuid           *string `json:"uuid,omitempty"`
@@ -5098,7 +5229,7 @@ type UptimeCheckCreate struct {
 	ResourceUuid     *string               `json:"resource_uuid,omitempty"`
 	SuccessThreshold *int                  `json:"success_threshold,omitempty"`
 
-	// Target http(s) URL or `host:port`.
+	// Target Public HTTP(S) URL or public `host:port`; non-public destinations are blocked on the resolved IP for every connection and redirect.
 	Target         string `json:"target"`
 	TimeoutSeconds *int   `json:"timeout_seconds,omitempty"`
 }
@@ -5113,8 +5244,10 @@ type UptimeCheckUpdate struct {
 	IntervalSeconds  *int    `json:"interval_seconds,omitempty"`
 	Name             *string `json:"name,omitempty"`
 	SuccessThreshold *int    `json:"success_threshold,omitempty"`
-	Target           *string `json:"target,omitempty"`
-	TimeoutSeconds   *int    `json:"timeout_seconds,omitempty"`
+
+	// Target Public HTTP(S) URL or public `host:port`; non-public destinations are blocked on the resolved IP for every connection and redirect.
+	Target         *string `json:"target,omitempty"`
+	TimeoutSeconds *int    `json:"timeout_seconds,omitempty"`
 }
 
 // UptimeResult A raw probe result (bounded retention).
