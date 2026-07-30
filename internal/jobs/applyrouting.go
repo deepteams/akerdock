@@ -304,7 +304,10 @@ func decodeStoredPublicRoutes(raw []byte) ([]accessroute.Route, error) {
 // the application's protection policy — basic auth by default, and always
 // `X-Robots-Tag: noindex`: a preview is not content to index.
 func RenderPreviewRoutingFile(app store.GetApplicationByIDRow, preview store.Preview, revision int64, endpoint, basicAuthHash, ssoAuthURL string) (string, error) {
-	rg, ok := previewSingleRouteGroup(app, preview, endpoint)
+	rg, ok, err := previewSingleRouteGroup(app, preview, endpoint)
+	if err != nil {
+		return "", err
+	}
 	if !ok {
 		return "", nil // no fqdn resolved: the preview runs unrouted
 	}
@@ -316,13 +319,17 @@ func RenderPreviewRoutingFile(app store.GetApplicationByIDRow, preview store.Pre
 // one route (preview.Fqdn) to the preview's own container, on the port from
 // PortsExposes or the route table's first row (ADR-035). ok is false when no
 // fqdn is resolved (the preview runs unrouted).
-func previewSingleRouteGroup(app store.GetApplicationByIDRow, preview store.Preview, endpoint string) (proxy.RouteGroup, bool) {
+func previewSingleRouteGroup(app store.GetApplicationByIDRow, preview store.Preview, endpoint string) (proxy.RouteGroup, bool, error) {
 	if preview.Fqdn == nil || *preview.Fqdn == "" {
-		return proxy.RouteGroup{}, false
+		return proxy.RouteGroup{}, false, nil
 	}
 	previewUUID := pguuid.String(preview.Uuid)
 	if endpoint == "" {
 		endpoint = previewUUID
+	}
+	publicRoutes, err := decodeStoredPublicRoutes(app.Application.AccessPublicRoutes)
+	if err != nil {
+		return proxy.RouteGroup{}, false, fmt.Errorf("decode preview public routes: %w", err)
 	}
 	port := 80
 	if p := app.RuntimeConfig.PortsExposes; p != nil {
@@ -336,8 +343,10 @@ func previewSingleRouteGroup(app store.GetApplicationByIDRow, preview store.Prev
 	}
 	return proxy.RouteGroup{
 		AppUUID: previewUUID, Endpoint: endpoint, ForceHTTPS: true,
-		Routes: []proxy.Route{{FQDN: *preview.Fqdn, Path: "/", TargetPort: port}},
-	}, true
+		Routes: []proxy.Route{{
+			FQDN: *preview.Fqdn, Path: "/", TargetPort: port, PublicRoutes: publicRoutes,
+		}},
+	}, true, nil
 }
 
 // renderPreviewContent renders a preview's dynamic file from its RouteGroup and
@@ -346,8 +355,9 @@ func previewSingleRouteGroup(app store.GetApplicationByIDRow, preview store.Prev
 // scale-to-zero (waker-pointed) routing, whose RouteGroups differ only in the
 // service target.
 func renderPreviewContent(rg proxy.RouteGroup, previewUUID string, revision int64, protection store.PreviewProtection, basicAuthHash, ssoAuthURL string, fqdns []string) string {
+	rg.Access = previewAccessPolicy(previewUUID, protection, basicAuthHash, ssoAuthURL)
 	content := proxy.GenerateDynamic(rg, revision)
-	content = injectPreviewMiddlewares(content, previewUUID, protection, basicAuthHash, ssoAuthURL)
+	content = injectPreviewNoindex(content, previewUUID)
 	if protection == store.PreviewProtectionSso && ssoAuthURL != "" {
 		content = injectPreviewSSOCallback(content, previewUUID, fqdns,
 			strings.TrimSuffix(ssoAuthURL, "/webhooks/previews/forward-auth"))
@@ -355,10 +365,23 @@ func renderPreviewContent(rg proxy.RouteGroup, previewUUID string, revision int6
 	return content
 }
 
-// injectPreviewMiddlewares attaches the preview protection to every https
-// router of a generated routing file (§20.4.4): X-Robots-Tag noindex always,
-// basic auth when the application asks for it — shared by the
-// single-container previews and the compose preview stacks.
+// previewAccessPolicy maps the preview-specific protection onto the same proxy
+// IR used by production access walls. PublicRoutes can therefore omit only the
+// access middleware while retaining every other preview behavior.
+func previewAccessPolicy(previewUUID string, protection store.PreviewProtection, basicAuthHash, ssoAuthURL string) *proxy.AccessPolicy {
+	switch {
+	case protection == store.PreviewProtectionBasicAuth && basicAuthHash != "":
+		return &proxy.AccessPolicy{Mode: "basic_auth", BasicAuthHash: basicAuthHash}
+	case protection == store.PreviewProtectionSso && ssoAuthURL != "":
+		return &proxy.AccessPolicy{
+			Mode:           "sso",
+			ForwardAuthURL: ssoAuthURL + "?preview=" + previewUUID,
+		}
+	default:
+		return nil
+	}
+}
+
 // injectPreviewSSOCallback adds the cookie-bootstrap router of the sso mode
 // (ADR-030): `/.akerdock/preview-callback` on the PREVIEW's own hosts, routed
 // server-side to the control plane (passHostHeader off — the instance's own
@@ -395,40 +418,46 @@ func injectPreviewSSOCallback(content, previewUUID string, hosts []string, insta
 	return strings.Join(out, "\n")
 }
 
-func injectPreviewMiddlewares(content, previewUUID string, protection store.PreviewProtection, basicAuthHash, ssoAuthURL string) string {
-	middlewares := []string{previewUUID + "-noindex"}
-	extra := fmt.Sprintf("    %s-noindex:\n      headers:\n        customResponseHeaders:\n          X-Robots-Tag: noindex\n", previewUUID)
-	if protection == store.PreviewProtectionBasicAuth && basicAuthHash != "" {
-		// The credentials are the application's generated preview secret
-		// (AKERDOCK_PREVIEW_BASIC_AUTH in the preview variable set): stable
-		// across previews of the application, readable by the team, never in
-		// this file in clear text — Traefik gets the bcrypt hash.
-		middlewares = append(middlewares, previewUUID+"-auth")
-		extra += fmt.Sprintf("    %s-auth:\n      basicAuth:\n        users:\n          - %q\n", previewUUID, basicAuthHash)
-	}
-	if protection == store.PreviewProtectionSso && ssoAuthURL != "" {
-		// forwardAuth to the control plane (ADR-030): the AkerDock session
-		// decides — whatever login method produced it. No WWW-Authenticate
-		// ever reaches the browser, so the app's own 401s stay its own.
-		// The preview identity travels IN THE ADDRESS: the auth call may
-		// transit other proxies (the panel's own router, typically), which
-		// rewrite X-Forwarded-Host — a query parameter survives every hop.
-		middlewares = append(middlewares, previewUUID+"-auth")
-		extra += fmt.Sprintf("    %s-auth:\n      forwardAuth:\n        address: %q\n",
-			previewUUID, ssoAuthURL+"?preview="+previewUUID)
-	}
-
-	return injectMiddlewares(content, middlewares, extra)
+// injectPreviewNoindex attaches noindex to every generated https router,
+// including public exceptions. It appends to an existing access/wake list
+// instead of emitting a duplicate YAML key.
+func injectPreviewNoindex(content, previewUUID string) string {
+	name := previewUUID + "-noindex"
+	definition := fmt.Sprintf("    %s:\n      headers:\n        customResponseHeaders:\n          X-Robots-Tag: noindex\n", name)
+	return injectMiddlewares(content, []string{name}, definition)
 }
 
-// injectMiddlewares attaches names to every https router of the file and
-// defines them in the middlewares section — which must exist BEFORE the
-// services section: a definition appended at the end of the file would be
-// parsed as a service and Traefik would reject the whole routing file.
+// injectMiddlewares appends names to every https router of the file and defines
+// them before the services section. Existing middleware lists are preserved:
+// protected preview routers retain access, public routers retain wake, and all
+// of them gain noindex.
 func injectMiddlewares(content string, names []string, definitions string) string {
+	lines := strings.Split(content, "\n")
+	insertAfter := map[int]bool{}
+	for i, line := range lines {
+		if strings.TrimSpace(line) != "entryPoints: [websecure]" {
+			continue
+		}
+		middlewareLine := -1
+		for j := i + 1; j < len(lines); j++ {
+			if strings.HasPrefix(lines[j], "    ") && !strings.HasPrefix(lines[j], "      ") {
+				break
+			}
+			if strings.HasPrefix(lines[j], "      middlewares: [") {
+				middlewareLine = j
+				break
+			}
+		}
+		if middlewareLine < 0 {
+			insertAfter[i] = true
+			continue
+		}
+		lines[middlewareLine] = appendInlineMiddlewares(lines[middlewareLine], names)
+	}
+
 	var out []string
 	inserted := false
-	for _, line := range strings.Split(content, "\n") {
+	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		switch {
 		case trimmed == "middlewares:" && strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "   "):
@@ -443,9 +472,34 @@ func injectMiddlewares(content string, names []string, definitions string) strin
 			inserted = true
 		}
 		out = append(out, line)
-		if strings.HasPrefix(trimmed, "entryPoints: [websecure]") {
+		if insertAfter[i] {
 			out = append(out, "      middlewares: ["+strings.Join(names, ", ")+"]")
 		}
 	}
 	return strings.Join(out, "\n")
+}
+
+func appendInlineMiddlewares(line string, names []string) string {
+	open := strings.Index(line, "[")
+	endBracket := strings.LastIndex(line, "]")
+	if open < 0 || endBracket < open {
+		return line
+	}
+	existing := strings.TrimSpace(line[open+1 : endBracket])
+	seen := map[string]bool{}
+	values := make([]string, 0, len(names)+1)
+	for _, value := range strings.Split(existing, ",") {
+		value = strings.TrimSpace(value)
+		if value != "" && !seen[value] {
+			seen[value] = true
+			values = append(values, value)
+		}
+	}
+	for _, name := range names {
+		if name != "" && !seen[name] {
+			seen[name] = true
+			values = append(values, name)
+		}
+	}
+	return line[:open+1] + strings.Join(values, ", ") + line[endBracket:]
 }

@@ -5182,7 +5182,7 @@ export interface components {
             readonly default_branch?: string | null;
             readonly html_url?: string | null;
         };
-        /** @description A narrow unauthenticated exception through a resource access wall (ADR-049). `template` accepts only whole `:name` path segments; it never accepts a user-supplied regular expression. */
+        /** @description A narrow unauthenticated exception through a resource access wall (ADR-049/050), inherited by protected previews. `template` accepts only whole `:name` path segments; it never accepts a user-supplied regular expression. */
         AccessPublicRoute: {
             /** @description Absolute external request path. Query strings and fragments are not part of matching. */
             path: string;
@@ -5382,7 +5382,7 @@ export interface components {
             access_protection?: "none" | "basic_auth" | "sso";
             /** @description Shared credentials `user:password` for `basic_auth` protection (ADR-042). Write-only; stored encrypted, never returned. Sending null with `access_protection: basic_auth` generates one. */
             access_basic_auth?: string | null;
-            /** @description Production paths allowed through the wall without authentication (ADR-049). For a Compose build pack, declare them per service with `x-akerdock.access_public_routes` instead. */
+            /** @description Paths allowed through production and preview walls without authentication (ADR-049/050). For a Compose build pack, declare them per service with `x-akerdock.access_public_routes` instead. */
             access_public_routes?: components["schemas"]["AccessPublicRoute"][];
             /**
              * @description Access protection of preview URLs (§20.4.4) — basic_auth by default.
@@ -5466,7 +5466,7 @@ export interface components {
             access_protection?: "none" | "basic_auth" | "sso";
             /** @description Whether shared basic-auth credentials are configured (ADR-042). */
             readonly access_basic_auth_set?: boolean;
-            /** @description Production paths allowed through the wall without authentication (ADR-049). Empty by default. */
+            /** @description Paths allowed through production and preview walls without authentication (ADR-049/050). Empty by default. */
             access_public_routes?: components["schemas"]["AccessPublicRoute"][];
             /** @enum {string} */
             preview_protection?: "none" | "basic_auth" | "sso";

@@ -2314,7 +2314,7 @@ func (e ListApiTokensParamsScope) Valid() bool {
 	}
 }
 
-// AccessPublicRoute A narrow unauthenticated exception through a resource access wall (ADR-049). `template` accepts only whole `:name` path segments; it never accepts a user-supplied regular expression.
+// AccessPublicRoute A narrow unauthenticated exception through a resource access wall (ADR-049/050), inherited by protected previews. `template` accepts only whole `:name` path segments; it never accepts a user-supplied regular expression.
 type AccessPublicRoute struct {
 	// Match `exact` matches one path; `template` lets `:name` match exactly one segment made of unreserved URL characters; `prefix` matches the path segment and descendants.
 	Match *AccessPublicRouteMatch `json:"match,omitempty"`
@@ -2530,7 +2530,7 @@ type Application struct {
 	// AccessProtection Access wall of the application's own URLs (ADR-042) — `none` by default (public), `sso` = AkerDock session + team membership, `basic_auth` = shared credentials.
 	AccessProtection *ApplicationAccessProtection `json:"access_protection,omitempty"`
 
-	// AccessPublicRoutes Production paths allowed through the wall without authentication (ADR-049). Empty by default.
+	// AccessPublicRoutes Paths allowed through production and preview walls without authentication (ADR-049/050). Empty by default.
 	AccessPublicRoutes *[]AccessPublicRoute `json:"access_public_routes,omitempty"`
 
 	// AutoDeploy (git source) Auto-deploy on push enabled.
@@ -2906,7 +2906,7 @@ type ApplicationUpdate struct {
 	// AccessProtection Access wall of the application's own URLs (ADR-042): `sso` requires an AkerDock session with access to the team, `basic_auth` shared credentials, `none` (default) is public. Applies to EVERY domain of the application and every routed service of a compose stack.
 	AccessProtection *ApplicationUpdateAccessProtection `json:"access_protection,omitempty"`
 
-	// AccessPublicRoutes Production paths allowed through the wall without authentication (ADR-049). For a Compose build pack, declare them per service with `x-akerdock.access_public_routes` instead.
+	// AccessPublicRoutes Paths allowed through production and preview walls without authentication (ADR-049/050). For a Compose build pack, declare them per service with `x-akerdock.access_public_routes` instead.
 	AccessPublicRoutes *[]AccessPublicRoute `json:"access_public_routes,omitempty"`
 
 	// AutoDeploy (git source) Enables/disables auto-deploy on push (§5.5).

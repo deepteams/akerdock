@@ -856,25 +856,11 @@ func (r *deploymentRun) applyComposePreviewRouting(ctx context.Context, content 
 		return nil
 	}
 	routes := r.composePreviewRoutes(ctx, content, plan)
-	names := make([]string, 0, len(routes))
-	for name := range routes {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	rg := proxy.RouteGroup{AppUUID: appUUID, ForceHTTPS: true}
-	for _, name := range names {
-		route := routes[name]
-		rg.Routes = append(rg.Routes, proxy.Route{
-			FQDN: route.FQDN, Path: "/", TargetPort: route.Port,
-			// The component's own container: StackUUID is the preview uuid,
-			// so the name is already preview-scoped (INV-011).
-			Endpoint: plans(plan)[name].ContainerName,
-		})
-	}
+	rg := composePreviewRouteGroup(appUUID, routes, plan)
 	// Scale-to-zero (ADR-036): route the stack's traffic through the waker,
 	// which forwards to each component and wakes the stack on demand. The waker
-	// routes by Host, so only the service target changes — the protection
-	// middlewares injected below are untouched.
+	// routes by Host, so only the service target changes — access exceptions
+	// and noindex remain attached to their corresponding routers.
 	if r.app.Application.PreviewScaleToZero && len(rg.Routes) > 0 {
 		wcfg := wakerConfigFromRouteGroup(appUUID, rg, stackWakeSet(plan))
 		if err := ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, appUUID, wcfg,
@@ -889,21 +875,38 @@ func (r *deploymentRun) applyComposePreviewRouting(ctx context.Context, content 
 		if err != nil {
 			return err
 		}
-		routingContent = injectPreviewMiddlewares(proxy.GenerateDynamic(rg, r.d.ID), appUUID,
-			r.app.Application.PreviewProtection, r.previewAuthHash(ctx), ssoURL)
-		if r.app.Application.PreviewProtection == store.PreviewProtectionSso && ssoURL != "" {
-			hosts := make([]string, 0, len(rg.Routes))
-			for _, route := range rg.Routes {
-				hosts = append(hosts, route.FQDN)
-			}
-			routingContent = injectPreviewSSOCallback(routingContent, appUUID, hosts,
-				strings.TrimSuffix(ssoURL, "/webhooks/previews/forward-auth"))
+		hosts := make([]string, 0, len(rg.Routes))
+		for _, route := range rg.Routes {
+			hosts = append(hosts, route.FQDN)
 		}
+		routingContent = renderPreviewContent(rg, appUUID, r.d.ID,
+			r.app.Application.PreviewProtection, r.previewAuthHash(ctx), ssoURL, hosts)
 	}
 	applier := &ProxyApplier{Store: r.h.Store, Client: r.client, Server: r.server, Network: r.dest.Network}
 	return r.step(ctx, "apply_routing", func() (*sshexec.Result, error) {
 		return nil, applier.Apply(ctx, appUUID, routingContent, "")
 	})
+}
+
+func composePreviewRouteGroup(appUUID string, routes map[string]previewComposeRoute, plan *compose.Plan) proxy.RouteGroup {
+	names := make([]string, 0, len(routes))
+	for name := range routes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	rg := proxy.RouteGroup{AppUUID: appUUID, ForceHTTPS: true}
+	planByName := plans(plan)
+	for _, name := range names {
+		route := routes[name]
+		servicePlan := planByName[name]
+		rg.Routes = append(rg.Routes, proxy.Route{
+			FQDN: route.FQDN, Path: "/", TargetPort: route.Port,
+			// The component's own container: StackUUID is the preview uuid,
+			// so the name is already preview-scoped (INV-011).
+			Endpoint: servicePlan.ContainerName, PublicRoutes: servicePlan.AccessPublicRoutes,
+		})
+	}
+	return rg
 }
 
 // plans indexes a compose plan's services by name.

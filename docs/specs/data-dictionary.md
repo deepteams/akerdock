@@ -748,7 +748,7 @@ Inbound webhook delivery, persisted before the `2xx` response then processed asy
 | `preview_protection` | `preview_protection` | no | `'basic_auth'` | — | no | Protected by default + `X-Robots-Tag: noindex`; `none` = explicit choice (§20.4.4). |
 | `access_protection` | `preview_protection` | no | `'none'` | — | no | Production access wall: `none`, `basic_auth` or `sso` (ADR-042/049). |
 | `access_basic_auth_enc` | `bytea` | yes | — | — | **yes** | Generated or operator-supplied `user:password`, envelope-encrypted; the proxy receives only a bcrypt hash (ADR-042). |
-| `access_public_routes` | `jsonb` | no | `'[]'` | — | no | Narrow unauthenticated production routes `[{path, match, methods, parameters?}]`; `:name` templates and segment-bounded prefixes only, never arbitrary regex/globs (ADR-049). Compose applications instead persist this per component. |
+| `access_public_routes` | `jsonb` | no | `'[]'` | — | no | Narrow unauthenticated routes inherited by production and previews `[{path, match, methods, parameters?}]`; `:name` templates and segment-bounded prefixes only, never arbitrary regex/globs (ADR-049/050). Compose applications instead persist this per component. |
 | `preview_require_label` | `text` | yes | — | — | no | Opt-in via PR label (§20.4.7); NULL = disabled. |
 | `preview_comment_commands_enabled` | `boolean` | no | `false` | — | no | `/deploy`, `/destroy` commands in comments (§20.4.7). |
 | `preview_exclude_drafts` | `boolean` | no | `false` | — | no | §20.4.7. |
@@ -1011,7 +1011,7 @@ Sub-container of a stack (one service of the compose file): individual status, i
 | `database_engine` | `db_engine` | yes | — | — | no | Detected engine if `is_database`. |
 | `exclude_from_hc` | `boolean` | no | `false` | — | no | One-shot jobs excluded from the stack health check (§9). |
 | `default_route_port` | `integer` | yes | — | CHECK 1–65535 | no | Default routing port (compose-spec §6): first `expose`, resolved at validation. |
-| `access_public_routes` | `jsonb` | no | `'[]'` | — | no | Per-component exceptions compiled from `services.<name>.x-akerdock.access_public_routes`; they apply only to domains routed to this component (ADR-049). |
+| `access_public_routes` | `jsonb` | no | `'[]'` | — | no | Per-component exceptions compiled from `services.<name>.x-akerdock.access_public_routes`; they apply only to production and preview domains routed to this component (ADR-049/050). |
 | `observed_status` | `resource_observed_status` | no | `'unknown'` | — | no | Per-sub-container status (§5.7, §9). |
 | `observed_at` | `timestamptz` | yes | — | — | no | — |
 | `created_at` | `timestamptz` | no | `now()` | — | no | — |

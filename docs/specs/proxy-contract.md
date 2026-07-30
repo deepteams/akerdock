@@ -298,9 +298,15 @@ For `kind: preview`, the control plane injects by default (according to `preview
 
 `preview_protection = none` is an explicit per-application choice (§20.4.4).
 
-### 4.6 Production resource access walls and narrow public routes
+Per ADR-050, a protected preview inherits the application's
+`access_public_routes`, or each Compose service's own list. The public router
+omits only preview access protection: `X-Robots-Tag: noindex`, HTTPS and
+scale-to-zero wake-up remain active. There is no preview-specific exception
+list.
 
-ADR-042/049 attach one production access policy (`none`, `basic_auth` or `sso`) to an application or inline Compose service resource. `basic_auth` maps to a bcrypt-only `basicAuth` middleware. `sso` maps to `forwardAuth`; the middleware address carries the resource UUID, and the reserved exact path `/.akerdock/app-callback` has a higher-priority router to the control plane so it can establish the resource-scoped cookie. Missing or undecryptable policy material is a generation error: the resource is never rendered without the requested wall.
+### 4.6 Resource access walls and narrow public routes
+
+ADR-042/049/050 attach one production access policy (`none`, `basic_auth` or `sso`) to an application or inline Compose service resource, and reuse its narrow route exceptions in previews. `basic_auth` maps to a bcrypt-only `basicAuth` middleware. `sso` maps to `forwardAuth`; the middleware address carries the resource UUID, and the reserved exact path `/.akerdock/app-callback` has a higher-priority router to the control plane so it can establish the resource-scoped cookie. Missing or undecryptable production policy material is a generation error: the resource is never rendered without the requested wall.
 
 A protected resource may declare narrow unauthenticated routes. The provider-independent IR carries these on the routed component:
 
@@ -308,7 +314,7 @@ A protected resource may declare narrow unauthenticated routes. The provider-ind
 - `template`: whole `:name` segments, each matching one non-empty RFC 3986 unreserved path segment, optionally restricted by a finite `parameters` allow-list;
 - `prefix`: the declared segment and its descendants (`/hooks` and `/hooks/...`, never `/hooks-admin`).
 
-Every exception has an explicit non-empty HTTP method allow-list. Query strings and fragments do not participate. User regular expressions, `*`, `**`, percent escapes and ambiguous path traversal are rejected before IR generation. A Compose exception is declared at `services.<name>.x-akerdock.access_public_routes` and is attached only to domains of that component.
+Every exception has an explicit non-empty HTTP method allow-list. Query strings and fragments do not participate. User regular expressions, `*`, `**`, percent escapes and ambiguous path traversal are rejected before IR generation. A Compose exception is declared at `services.<name>.x-akerdock.access_public_routes` and is attached only to production and preview domains of that component.
 
 For each covered host/base route, the generator emits an HTTPS public router at `priority(base path) + 1` and omits only the access middleware. The `+1` wins over that route's protected router but remains below any descendant domain route, so an exception cannot shadow a more specific path owned by another resource on the same host. HTTPS redirect, scale-to-zero wake-up and every other applicable middleware remain active. The reserved SSO callback router uses priority `2,000,000`. When the policy is `none`, exception entries have no effect because the ordinary route is already public.
 
@@ -736,7 +742,7 @@ Two test levels, both mandatory for a provider to be conformant:
 
 ### 9.3 Minimal case set (P0)
 
-simple HTTP app; forced-HTTPS app; multi-domain + paths + `domain:port`; www/non-www redirects (3 directions); protected preview (auth + noindex); production access wall with exact/template/prefix public exceptions and SSO callback; materialized `<uuid>.domain` wildcard; middlewares (rate limit 429, ip_whitelist 403 before auth — §4.8 order); custom certificate; self-signed fallback; TCP database; proxy ports 8080/8443; switchover (two sequential `ir.json`: transient IP then stable name — verifies that no request fails during the swap); routing removal (404 after `RemoveApp`).
+simple HTTP app; forced-HTTPS app; multi-domain + paths + `domain:port`; protected preview (auth + noindex) with inherited exact/template/prefix public exceptions; production access wall with the same exceptions and SSO callback; materialized `<uuid>.domain` wildcard; middlewares (rate limit 429, ip_whitelist 403 before auth — §4.8 order); custom certificate; self-signed fallback; TCP database; proxy ports 8080/8443; switchover (two sequential `ir.json`: transient IP then stable name — verifies that no request fails during the swap); routing removal (404 after `RemoveApp`).
 
 ---
 

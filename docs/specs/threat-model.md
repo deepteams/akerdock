@@ -240,7 +240,7 @@ The helper (waker mode) POSTs observation batches to `/agent/v1/observations`, a
 | **I** | Leak of labels containing secrets | Secrets never in labels (INV-003), fixed system labels (§5.3) | Anti-secret validation in custom labels **(proposed default)** |
 | **D** | Proxy shutdown cutting all inbound traffic | Explicit warning before shutdown (§4.1), INV-007 (control plane independence) | — (documented behavior) |
 | **E** | Custom docker options/labels mounting capabilities (`--cap-add`, `--privileged`) | Centralized validation of custom Docker options (§23.3, INV-012) | Strict allowlist of options authorized per role **to be implemented** |
-| **E** | An over-broad auth-wall exception unintentionally publishes protected endpoints | ADR-049: absolute paths, explicit methods, only exact/whole-segment template/segment-bounded prefix modes, no regex/globs; per-component ownership for Compose; proxy priority cannot shadow a more specific resource route; invalid stored policy fails closed; audited configuration diff | The application remains responsible for authenticating/verifying the webhook payload itself (for example HMAC) — documented boundary |
+| **E** | An over-broad auth-wall exception unintentionally publishes protected endpoints | ADR-049/050: absolute paths, explicit methods, only exact/whole-segment template/segment-bounded prefix modes, no regex/globs; per-component ownership for Compose; the same narrow rule is inherited by previews; proxy priority cannot shadow a more specific resource route; invalid stored policy fails closed; audited configuration diff | The application remains responsible for authenticating/verifying the webhook payload itself (for example HMAC) — documented boundary |
 
 ### 3.7 Inbound webhooks (Git, CI)
 

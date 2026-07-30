@@ -1341,7 +1341,9 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 		if r.app.Application.PreviewScaleToZero {
 			// The waker forwards to the stable container name and wakes it by
 			// `docker start` — never the candidate IP of a rolling switch.
-			if rg, ok := previewSingleRouteGroup(r.app, *r.preview, ""); ok {
+			if rg, ok, rgErr := previewSingleRouteGroup(r.app, *r.preview, ""); rgErr != nil {
+				return rgErr
+			} else if ok {
 				previewUUID := pguuid.String(r.preview.Uuid)
 				if err = ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, previewUUID,
 					wakerConfigFromRouteGroup(previewUUID, rg, r.stzWakeSet),
