@@ -31,6 +31,30 @@ func TestReusesArtifact(t *testing.T) {
 	}
 }
 
+func TestPreviewLifecyclePayloadIncludesSlackContext(t *testing.T) {
+	fqdn := "varuna-pr8.ad.example.com"
+	branch := "feat/analytical-engine"
+	author := "Ada Lovelace"
+	payload := previewLifecyclePayload("varuna", store.Preview{
+		Uuid:         mustUUID(t, "22222222-2222-4222-8222-222222222222"),
+		PrID:         8,
+		Fqdn:         &fqdn,
+		SourceBranch: &branch,
+	}, store.Deployment{CommitAuthor: &author})
+
+	for key, want := range map[string]any{
+		"name":          "varuna",
+		"pr_id":         int32(8),
+		"fqdn":          fqdn,
+		"branch":        branch,
+		"commit_author": author,
+	} {
+		if got := payload[key]; got != want {
+			t.Errorf("payload[%q] = %#v, want %#v", key, got, want)
+		}
+	}
+}
+
 func TestInspectField(t *testing.T) {
 	tests := []struct {
 		name string

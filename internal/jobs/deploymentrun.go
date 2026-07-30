@@ -476,20 +476,34 @@ func (r *deploymentRun) setStatus(ctx context.Context, s store.DeploymentStatus)
 			if r.preview.LastDeployedAt.Valid {
 				evt = "application.preview.updated.v1"
 			}
-			fqdn := ""
-			if r.preview.Fqdn != nil {
-				fqdn = *r.preview.Fqdn
-			}
 			r.h.Audit.Outbox(ctx, r.h.Store, evt, teamUUID, r.app.Resource.Uuid,
-				"preview:"+pguuid.String(r.preview.Uuid), map[string]any{
-					"preview_uuid": pguuid.String(r.preview.Uuid),
-					"pr_id":        r.preview.PrID,
-					"fqdn":         fqdn,
-					"name":         r.app.Resource.Name,
-				})
+				"preview:"+pguuid.String(r.preview.Uuid),
+				previewLifecyclePayload(r.app.Resource.Name, *r.preview, r.d))
 		}
 	}
 	return nil
+}
+
+func previewLifecyclePayload(name string, preview store.Preview, deployment store.Deployment) map[string]any {
+	payload := map[string]any{
+		"preview_uuid": pguuid.String(preview.Uuid),
+		"pr_id":        preview.PrID,
+		"name":         name,
+	}
+	if preview.Fqdn != nil && *preview.Fqdn != "" {
+		payload["fqdn"] = *preview.Fqdn
+	}
+	if deployment.CommitAuthor != nil && *deployment.CommitAuthor != "" {
+		payload["commit_author"] = *deployment.CommitAuthor
+	}
+	branch := preview.SourceBranch
+	if branch == nil || *branch == "" {
+		branch = deployment.GitBranch
+	}
+	if branch != nil && *branch != "" {
+		payload["branch"] = *branch
+	}
+	return payload
 }
 
 // errCancelled aborts the pipeline at a cooperative checkpoint (§2.6).

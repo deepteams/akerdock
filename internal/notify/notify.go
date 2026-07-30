@@ -177,10 +177,11 @@ func truncate(s string, n int) string {
 	return s[:n-1] + "…"
 }
 
-// Text renders the human-readable line sent to chat channels — the resource
+// text renders the human-readable line sent to chat channels — the resource
 // NAME, not a bare uuid, plus the facts that make it actionable (PR, commit, the
-// error). Also the fallback/preview line for the rich Slack message.
-func (e Event) Text() string {
+// error). Slack omits the raw URL from this visible fallback because its rich
+// message carries a dedicated Open button.
+func (e Event) text(includeURL bool) string {
 	emoji := severityEmoji(e.Severity)
 	if e.Type == "notification.digest.v1" {
 		return fmt.Sprintf("%s Digest — %v events since %s", emoji, e.Payload["total"], e.Payload["since"])
@@ -204,13 +205,20 @@ func (e Event) Text() string {
 	if msg := payloadStr(e.Payload, "error"); msg != "" {
 		fmt.Fprintf(&b, " — %s", firstLine(msg))
 	}
-	if url := eventURL(e.Payload); url != "" {
-		fmt.Fprintf(&b, " — %s", url)
+	if includeURL {
+		if url := eventURL(e.Payload); url != "" {
+			fmt.Fprintf(&b, " — %s", url)
+		}
 	}
 	if e.Suppressed > 0 {
 		fmt.Fprintf(&b, " (and %d similar events)", e.Suppressed)
 	}
 	return b.String()
+}
+
+// Text includes the event URL for plain-text transports.
+func (e Event) Text() string {
+	return e.text(true)
 }
 
 // slackMessage renders the Slack Block Kit payload: a coloured attachment with a
@@ -237,15 +245,12 @@ func slackMessage(e Event) map[string]any {
 		field("PR", "#"+pr)
 	}
 	field("Trigger", payloadStr(e.Payload, "trigger"))
-	field("Branch", payloadStr(e.Payload, "branch"))
 	if c := payloadStr(e.Payload, "commit_sha"); c != "" {
 		field("Commit", shortCommit(c))
 	}
 	field("Author", payloadStr(e.Payload, "commit_author"))
+	field("Branch", payloadStr(e.Payload, "branch"))
 	url := eventURL(e.Payload)
-	if url != "" {
-		field("URL", "<"+url+"|"+url+">")
-	}
 	if !e.OccurredAt.IsZero() {
 		field("When", e.OccurredAt.UTC().Format("2006-01-02 15:04 UTC"))
 	}
@@ -271,7 +276,7 @@ func slackMessage(e Event) map[string]any {
 	}
 
 	return map[string]any{
-		"text":        e.Text(), // notification preview + accessibility fallback
+		"text":        e.text(false), // notification preview + accessibility fallback
 		"attachments": []map[string]any{{"color": color, "blocks": blocks}},
 	}
 }

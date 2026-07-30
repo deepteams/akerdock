@@ -111,17 +111,48 @@ func TestEventText(t *testing.T) {
 		t.Errorf("the version suffix must not reach a human message: %q", got)
 	}
 
-	// A preview event carries `fqdn`, not `url`: the URL must still surface, in
-	// the text and in the Slack blocks.
+	// A preview event carries `fqdn`, not `url`: plain-text transports surface
+	// it, while Slack keeps it exclusively on the Open button and uses the
+	// visible fields for the author and branch.
 	prev := Event{Type: "application.preview.updated.v1", Severity: "info", Payload: map[string]any{
 		"name": "varuna", "pr_id": float64(8), "fqdn": "varuna-pr8.ad.example.com",
+		"commit_author": "Ada Lovelace", "branch": "feat/analytical-engine",
 	}}
 	if pt := prev.Text(); !strings.Contains(pt, "https://varuna-pr8.ad.example.com") {
 		t.Errorf("preview Text() missing url: %q", pt)
 	}
-	att, _ := slackMessage(prev)["attachments"].([]map[string]any)
-	if len(att) == 0 || !strings.Contains(fmt.Sprint(att[0]["blocks"]), "https://varuna-pr8.ad.example.com") {
-		t.Errorf("slack blocks missing the preview url: %#v", att)
+	slack := slackMessage(prev)
+	if fallback := fmt.Sprint(slack["text"]); strings.Contains(fallback, "https://") {
+		t.Errorf("Slack fallback exposes the raw URL: %q", fallback)
+	}
+	att, _ := slack["attachments"].([]map[string]any)
+	if len(att) == 0 {
+		t.Fatal("Slack message has no attachment")
+	}
+	blocks, _ := att[0]["blocks"].([]map[string]any)
+	var fieldsText, openURL string
+	for _, block := range blocks {
+		switch block["type"] {
+		case "section":
+			if fields, ok := block["fields"].([]map[string]any); ok {
+				fieldsText += fmt.Sprint(fields)
+			}
+		case "actions":
+			if elements, ok := block["elements"].([]map[string]any); ok && len(elements) > 0 {
+				openURL = fmt.Sprint(elements[0]["url"])
+			}
+		}
+	}
+	for _, want := range []string{"*Author:*", "Ada Lovelace", "*Branch:*", "feat/analytical-engine"} {
+		if !strings.Contains(fieldsText, want) {
+			t.Errorf("Slack fields = %q, missing %q", fieldsText, want)
+		}
+	}
+	if strings.Contains(fieldsText, "*URL:*") || strings.Contains(fieldsText, "https://") {
+		t.Errorf("Slack fields expose the raw URL: %q", fieldsText)
+	}
+	if want := "https://varuna-pr8.ad.example.com"; openURL != want {
+		t.Errorf("Open button URL = %q, want %q", openURL, want)
 	}
 }
 
