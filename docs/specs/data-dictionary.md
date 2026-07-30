@@ -398,7 +398,7 @@ Linux machine driven over SSH (§3), state machine §21.2. Deletion: **RESTRICT*
 | `cleanup_enabled` | `boolean` | no | `false` | — | no | Automated Docker Cleanup (§3.7). |
 | `cleanup_disk_threshold_pct` | `integer` | yes | — | CHECK `1..100` | no | Triggering disk usage threshold. |
 | `cleanup_cron` | `text` | yes | — | — | no | Cleanup cron schedule. |
-| `cleanup_prune_volumes` | `boolean` | no | `false` | — | no | Opt-in unused volumes (§3.7). |
+| `cleanup_prune_volumes` | `boolean` | no | `false` | — | no | Opt-in unused **managed anonymous** volumes (§3.7, INV-015); named and foreign volumes stay out of reach. |
 | `cleanup_prune_networks` | `boolean` | no | `false` | — | no | Opt-in unused **managed** networks (§3.7, INV-015). |
 | `cleanup_next_run_at` | `timestamptz` | yes | — | — | no | Cleanup cron window (§3.7), owned by the scheduler — same rules as `database_backup_plans.next_run_at`. |
 | `cleanup_last_run_at` | `timestamptz` | yes | — | — | no | Last cleanup actually executed (cron, threshold or manual). |

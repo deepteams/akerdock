@@ -76,7 +76,7 @@ Removed from the product scope (ADR-027, re-assessable upon proven demand). Sect
 
 ### 3.7 Automated disk cleanup
 - "Automated Docker Cleanup" per server: triggered by **disk usage threshold** (%) and/or **scheduled cron**; opt-in options to purge unused volumes and networks.
-- Only targets managed resources (stopped containers, unused images, build cache, old helper images); never during an in-progress deployment.
+- Only targets managed resources (orphaned candidate containers, managed dangling images and volumes/networks) plus reconstructible build cache; never during an in-progress deployment on either the target or build server. The guard is atomic and a blocked cleanup is durably retried. Old helper images are reclaimed immediately after a successful helper replacement.
 
 ### 3.8 Server monitoring — Sentinel agent (experimental)
 - Lightweight Go agent deployed as a container: server and per-container CPU/RAM (~10 s), disk (~60 s); **push** architecture toward the instance (endpoint + token); configurable retention and frequency; local REST API (`localhost:8888`).

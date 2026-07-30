@@ -47,6 +47,36 @@ UPDATE deployments SET status = $2,
     updated_at = now()
 WHERE id = $1;
 
+-- name: StartDeploymentUnlessCleanupRunning :execrows
+-- Atomic counterpart of CanStartServerCleanup. The first deployment
+-- transition and the cleanup guard serialize on the same server row. A
+-- cleanup is identified from the durable job itself, so a worker crash keeps
+-- deployments out until its lease is reaped; no in-memory mutex can provide
+-- that guarantee across replicas.
+WITH locked_server AS MATERIALIZED (
+    SELECT s.id
+    FROM servers s
+    JOIN deployments d ON d.server_id = s.id
+    WHERE d.id = sqlc.arg(deployment_id)
+    FOR UPDATE OF s
+)
+UPDATE deployments d
+SET status = 'preparing',
+    started_at = coalesce(started_at, now()),
+    updated_at = now()
+FROM locked_server s
+WHERE d.id = sqlc.arg(deployment_id)
+  AND d.status = 'queued'
+  AND NOT EXISTS (
+      SELECT 1 FROM jobs j
+      WHERE j.job_type = 'server.cleanup'
+        AND j.status IN ('leased', 'running')
+        AND j.payload->>'server_id' = s.id::text
+  );
+
+-- name: GetDeploymentStatus :one
+SELECT status FROM deployments WHERE id = sqlc.arg(deployment_id);
+
 -- name: SetDeploymentError :exec
 UPDATE deployments SET error_message = $2, updated_at = now() WHERE id = $1;
 
@@ -209,5 +239,24 @@ WHERE job_type = 'deployment.run' AND status = 'queued'
 -- would also erase the history of what the dead worker had done.
 SELECT coalesce(max(seq), 0)::int AS max_seq FROM deployment_steps WHERE deployment_id = $1;
 
--- name: SetDeploymentBuildServer :exec
-UPDATE deployments SET build_server_id = $2 WHERE id = $1;
+-- name: AssignDeploymentBuildServerUnlessCleanupRunning :execrows
+-- A build server is another mutation target of the deployment. Reserve it
+-- through the same reader/writer exclusion as the deployment server, before
+-- opening SSH or creating its working directory.
+WITH locked_server AS MATERIALIZED (
+    SELECT s.id
+    FROM servers s
+    WHERE s.id = sqlc.arg(build_server_id)
+    FOR UPDATE
+)
+UPDATE deployments d
+SET build_server_id = s.id,
+    updated_at = now()
+FROM locked_server s
+WHERE d.id = sqlc.arg(deployment_id)
+  AND NOT EXISTS (
+      SELECT 1 FROM jobs j
+      WHERE j.job_type = 'server.cleanup'
+        AND j.status IN ('leased', 'running')
+        AND j.payload->>'server_id' = s.id::text
+  );

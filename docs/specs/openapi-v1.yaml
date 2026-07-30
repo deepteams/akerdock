@@ -2917,13 +2917,14 @@ paths:
       summary: Run an immediate disk cleanup
       description: >-
         Triggers the server's Docker cleanup (§3.7), outside the schedule.
-        The job only targets managed and safe objects — build cache, dangling
-        images, dead deployment candidates, `/var/lib/akerdock/tmp`, plus
-        the server's opt-in purges (anonymous volumes, managed networks) — and
-        **never** an unmanaged or persistent object (INV-015), nor rollback
-        images (ADR-006). It is postponed if a deployment is in progress
-        on the server. `409` (`operation_in_progress`) if a cleanup is
-        already running.
+        The job only targets managed and safe objects — unused build cache,
+        managed dangling images, orphaned deployment candidates in any Docker
+        state, `/var/lib/akerdock/tmp`, plus the server's opt-in purges
+        (managed anonymous volumes and managed networks) — and **never** an
+        unmanaged or persistent object (INV-015), nor rollback images
+        (ADR-006). It is durably postponed if a deployment is in progress on
+        either the target server or a build server. `409`
+        (`operation_in_progress`) if a cleanup is already running.
       x-required-permission: servers:maintain
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -10997,9 +10998,10 @@ components:
           type: boolean
           description: >-
             Automated disk cleanup (§3.7) — opt-in. Only targets
-            managed and safe objects (build cache, dangling images, dead
-            candidates, `/var/lib/akerdock/tmp`); never an unmanaged or
-            persistent object (INV-015), never during a deployment.
+            managed and safe objects (unused build cache, managed dangling
+            images, orphaned candidates, `/var/lib/akerdock/tmp`); never an
+            unmanaged or persistent object (INV-015), never during a target
+            or build-server deployment.
         cleanup_cron:
           type: string
           nullable: true
@@ -11015,9 +11017,9 @@ components:
         cleanup_prune_volumes:
           type: boolean
           description: >-
-            Destructive opt-in — purge of unused **anonymous** volumes
-            only: a named volume (data, adopted volumes §20.7)
-            is NEVER purged (INV-015).
+            Opt-in — purge of unused **managed anonymous** volumes only:
+            foreign anonymous volumes and named volumes (data, adopted
+            volumes §20.7) are NEVER purged (INV-015).
         cleanup_prune_networks:
           type: boolean
           description: >-

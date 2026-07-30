@@ -24,6 +24,17 @@ type Querier interface {
 	// Bind the pending request to the approving user/team and permissions.
 	ApproveCliAuthCode(ctx context.Context, arg ApproveCliAuthCodeParams) (int64, error)
 	ApprovePreviewFork(ctx context.Context, arg ApprovePreviewForkParams) (int64, error)
+	// A build server is another mutation target of the deployment. Reserve it
+	// through the same reader/writer exclusion as the deployment server, before
+	// opening SSH or creating its working directory.
+	AssignDeploymentBuildServerUnlessCleanupRunning(ctx context.Context, arg AssignDeploymentBuildServerUnlessCleanupRunningParams) (int64, error)
+	// Reader/writer exclusion for §3.7. The cleanup job is already `running` when
+	// it reaches this query. Locking the server row makes this check atomic with
+	// StartDeploymentUnlessCleanupRunning: either the cleanup observes an active
+	// deployment and defers, or a queued deployment observes the running cleanup
+	// and waits before its first mutation. Queued deployments do not block a
+	// cleanup because they have not touched the server yet.
+	CanStartServerCleanup(ctx context.Context, serverID int64) (bool, error)
 	CancelJobsForDeployments(ctx context.Context, deploymentIds []int64) error
 	CancelQueuedDeployment(ctx context.Context, id int64) (int64, error)
 	// HTTP idempotency (§24.1).
@@ -75,9 +86,6 @@ type Querier interface {
 	// concurrent finishes cannot both win, whatever the caller does.
 	ConsumePasskeyCeremony(ctx context.Context, arg ConsumePasskeyCeremonyParams) (PasskeyCeremony, error)
 	CountActiveDeploymentsForServer(ctx context.Context, serverID int64) (int64, error)
-	// The §3.7 guard: the cleanup never runs while a deployment is mutating the
-	// server. `queued` does not block — the deployment lock does the serializing.
-	CountActiveDeploymentsOnServer(ctx context.Context, serverID int64) (int64, error)
 	CountActiveJobsByLockKey(ctx context.Context, lockKey *string) (int64, error)
 	// Applications cloning through a deploy key backed by this key. A key still
 	// in use is not deletable (§19.2) — reported as a conflict, not as a foreign
@@ -399,6 +407,7 @@ type Querier interface {
 	// The git repository URL and provider ride along (git source only) so the UI can
 	// link the branch, commit and PR back to the forge.
 	GetDeploymentByUUIDForTeam(ctx context.Context, arg GetDeploymentByUUIDForTeamParams) (GetDeploymentByUUIDForTeamRow, error)
+	GetDeploymentStatus(ctx context.Context, deploymentID int64) (DeploymentStatus, error)
 	GetDestinationByID(ctx context.Context, id int64) (Destination, error)
 	GetEnvVarByKey(ctx context.Context, arg GetEnvVarByKeyParams) (EnvironmentVariable, error)
 	GetEnvVarByUUID(ctx context.Context, arg GetEnvVarByUUIDParams) (EnvironmentVariable, error)
@@ -953,7 +962,6 @@ type Querier interface {
 	// with an optimistic-locking PATCH).
 	SetBackupPlanSchedule(ctx context.Context, arg SetBackupPlanScheduleParams) error
 	SetCertificateStatus(ctx context.Context, arg SetCertificateStatusParams) error
-	SetDeploymentBuildServer(ctx context.Context, arg SetDeploymentBuildServerParams) error
 	SetDeploymentCommit(ctx context.Context, arg SetDeploymentCommitParams) error
 	// Author name and subject of the resolved commit, read on the build server
 	// after checkout — surfaces "who last pushed" in the deployment view. Best
@@ -1062,6 +1070,12 @@ type Querier interface {
 	SoftDeleteScheduledTask(ctx context.Context, id int64) (int64, error)
 	SoftDeleteServer(ctx context.Context, id int64) (int64, error)
 	SoftDeleteUptimeCheck(ctx context.Context, id int64) (int64, error)
+	// Atomic counterpart of CanStartServerCleanup. The first deployment
+	// transition and the cleanup guard serialize on the same server row. A
+	// cleanup is identified from the durable job itself, so a worker crash keeps
+	// deployments out until its lease is reaped; no in-memory mutex can provide
+	// that guarantee across replicas.
+	StartDeploymentUnlessCleanupRunning(ctx context.Context, deploymentID int64) (int64, error)
 	SucceedJob(ctx context.Context, arg SucceedJobParams) (int64, error)
 	// §20.4.7 (opt-in preview_cancel_obsolete_builds): a new commit makes the
 	// in-flight preview build obsolete. Queued deployments flip here; running

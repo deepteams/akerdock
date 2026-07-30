@@ -141,6 +141,10 @@ func TestWakerEnsureCommandAgentEnv(t *testing.T) {
 	if !strings.Contains(with, "--add-host=host.docker.internal:host-gateway") {
 		t.Fatalf("host-gateway alias missing from the ensure command:\n%s", with)
 	}
+	if !strings.Contains(with, `docker image rm "$old_img"`) ||
+		!strings.Contains(with, "waker || exit $?") {
+		t.Fatalf("waker replacement does not safely reclaim the old helper image:\n%s", with)
+	}
 	without := WakerEnsureCommand("net", "img:1", AgentEnv{})
 	if strings.Contains(without, "AKERDOCK_INSTANCE_URL") || strings.Contains(without, "-e ") {
 		t.Fatalf("empty enrollment must inject nothing:\n%s", without)

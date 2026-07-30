@@ -11,6 +11,42 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const assignDeploymentBuildServerUnlessCleanupRunning = `-- name: AssignDeploymentBuildServerUnlessCleanupRunning :execrows
+WITH locked_server AS MATERIALIZED (
+    SELECT s.id
+    FROM servers s
+    WHERE s.id = $2
+    FOR UPDATE
+)
+UPDATE deployments d
+SET build_server_id = s.id,
+    updated_at = now()
+FROM locked_server s
+WHERE d.id = $1
+  AND NOT EXISTS (
+      SELECT 1 FROM jobs j
+      WHERE j.job_type = 'server.cleanup'
+        AND j.status IN ('leased', 'running')
+        AND j.payload->>'server_id' = s.id::text
+  )
+`
+
+type AssignDeploymentBuildServerUnlessCleanupRunningParams struct {
+	DeploymentID  int64
+	BuildServerID int64
+}
+
+// A build server is another mutation target of the deployment. Reserve it
+// through the same reader/writer exclusion as the deployment server, before
+// opening SSH or creating its working directory.
+func (q *Queries) AssignDeploymentBuildServerUnlessCleanupRunning(ctx context.Context, arg AssignDeploymentBuildServerUnlessCleanupRunningParams) (int64, error) {
+	result, err := q.db.Exec(ctx, assignDeploymentBuildServerUnlessCleanupRunning, arg.DeploymentID, arg.BuildServerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const cancelJobsForDeployments = `-- name: CancelJobsForDeployments :exec
 UPDATE jobs SET status = 'cancelled', finished_at = now(), updated_at = now()
 WHERE job_type = 'deployment.run' AND status = 'queued'
@@ -586,6 +622,17 @@ func (q *Queries) GetDeploymentByUUIDForTeam(ctx context.Context, arg GetDeploym
 	return i, err
 }
 
+const getDeploymentStatus = `-- name: GetDeploymentStatus :one
+SELECT status FROM deployments WHERE id = $1
+`
+
+func (q *Queries) GetDeploymentStatus(ctx context.Context, deploymentID int64) (DeploymentStatus, error) {
+	row := q.db.QueryRow(ctx, getDeploymentStatus, deploymentID)
+	var status DeploymentStatus
+	err := row.Scan(&status)
+	return status, err
+}
+
 const getLastSucceededDeployment = `-- name: GetLastSucceededDeployment :one
 SELECT id, uuid, resource_id, status, attempt, retry_of_id, superseded_by_id, is_rollback, trigger, triggered_by, api_token_id, git_branch, commit_sha, is_local_source, context_digest, force_rebuild, image_name, image_tag, image_digest, config_snapshot, config_diff, error_message, server_id, build_server_id, queued_at, started_at, finished_at, created_at, updated_at, preview_id, commit_author, commit_message, skip_build FROM deployments
 WHERE resource_id = $1 AND preview_id IS NULL AND status = 'succeeded'
@@ -927,20 +974,6 @@ func (q *Queries) MaxDeploymentStepSeq(ctx context.Context, deploymentID int64) 
 	return max_seq, err
 }
 
-const setDeploymentBuildServer = `-- name: SetDeploymentBuildServer :exec
-UPDATE deployments SET build_server_id = $2 WHERE id = $1
-`
-
-type SetDeploymentBuildServerParams struct {
-	ID            int64
-	BuildServerID *int64
-}
-
-func (q *Queries) SetDeploymentBuildServer(ctx context.Context, arg SetDeploymentBuildServerParams) error {
-	_, err := q.db.Exec(ctx, setDeploymentBuildServer, arg.ID, arg.BuildServerID)
-	return err
-}
-
 const setDeploymentCommit = `-- name: SetDeploymentCommit :exec
 UPDATE deployments SET commit_sha = $2, git_branch = $3, updated_at = now() WHERE id = $1
 `
@@ -1054,6 +1087,42 @@ type SetDeploymentStepLogParams struct {
 func (q *Queries) SetDeploymentStepLog(ctx context.Context, arg SetDeploymentStepLogParams) error {
 	_, err := q.db.Exec(ctx, setDeploymentStepLog, arg.ID, arg.Log)
 	return err
+}
+
+const startDeploymentUnlessCleanupRunning = `-- name: StartDeploymentUnlessCleanupRunning :execrows
+WITH locked_server AS MATERIALIZED (
+    SELECT s.id
+    FROM servers s
+    JOIN deployments d ON d.server_id = s.id
+    WHERE d.id = $1
+    FOR UPDATE OF s
+)
+UPDATE deployments d
+SET status = 'preparing',
+    started_at = coalesce(started_at, now()),
+    updated_at = now()
+FROM locked_server s
+WHERE d.id = $1
+  AND d.status = 'queued'
+  AND NOT EXISTS (
+      SELECT 1 FROM jobs j
+      WHERE j.job_type = 'server.cleanup'
+        AND j.status IN ('leased', 'running')
+        AND j.payload->>'server_id' = s.id::text
+  )
+`
+
+// Atomic counterpart of CanStartServerCleanup. The first deployment
+// transition and the cleanup guard serialize on the same server row. A
+// cleanup is identified from the durable job itself, so a worker crash keeps
+// deployments out until its lease is reaped; no in-memory mutex can provide
+// that guarantee across replicas.
+func (q *Queries) StartDeploymentUnlessCleanupRunning(ctx context.Context, deploymentID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, startDeploymentUnlessCleanupRunning, deploymentID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const supersedeQueuedDeployments = `-- name: SupersedeQueuedDeployments :many

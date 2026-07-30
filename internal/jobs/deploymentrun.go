@@ -63,6 +63,9 @@ type DeploymentRun struct {
 var (
 	ImageRef = regexp.MustCompile(`^[a-z0-9]+((\.|_{1,2}|-+|/|:[0-9]+/)[a-z0-9]+)*$`)
 	TagRef   = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
+	// A queued deployment waits without touching the server while an atomic
+	// cleanup owns it. Variable for fast unit tests.
+	deploymentCleanupPollInterval = time.Second
 )
 
 // Execute runs one attempt. A terminal deployment is never re-run: after a
@@ -94,6 +97,10 @@ func (h *DeploymentRun) Execute(ctx context.Context, job store.Job, _ *queue.Ste
 	defer run.close()
 
 	if err := run.execute(ctx); err != nil {
+		var stateChanged *deploymentStateChangedError
+		if errors.As(err, &stateChanged) {
+			return map[string]any{"deployment_status": string(stateChanged.status)}, nil
+		}
 		if errors.Is(err, errCancelled) {
 			run.markCancelled(ctx)
 			return map[string]any{"deployment_status": "cancelled"}, nil
@@ -424,7 +431,40 @@ func (r *deploymentRun) skipStep(ctx context.Context, name, reason string) {
 
 func (r *deploymentRun) setStatus(ctx context.Context, s store.DeploymentStatus) error {
 	// Write-ahead: the state in the database says what may have started.
-	if err := r.h.Store.SetDeploymentStatus(ctx, store.SetDeploymentStatusParams{ID: r.d.ID, Status: s}); err != nil {
+	if s == store.DeploymentStatusPreparing && r.d.Status == store.DeploymentStatusQueued {
+		waitLogged := false
+		for {
+			rows, err := r.h.Store.StartDeploymentUnlessCleanupRunning(ctx, r.d.ID)
+			if err != nil {
+				return err
+			}
+			if rows > 0 {
+				break
+			}
+			status, err := r.h.Store.GetDeploymentStatus(ctx, r.d.ID)
+			if err != nil {
+				return err
+			}
+			if status != store.DeploymentStatusQueued {
+				return &deploymentStateChangedError{status: status}
+			}
+			if err := r.checkpoint(ctx); err != nil {
+				return err
+			}
+			if !waitLogged {
+				r.h.Logger.Info("deployment waiting for server cleanup",
+					"deployment_uuid", pguuid.String(r.d.Uuid), "server_id", r.server.ID)
+				waitLogged = true
+			}
+			timer := time.NewTimer(deploymentCleanupPollInterval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+	} else if err := r.h.Store.SetDeploymentStatus(ctx, store.SetDeploymentStatusParams{ID: r.d.ID, Status: s}); err != nil {
 		return err
 	}
 	// Every transition publishes a versioned outbox event (deployment-engine §12.1).
@@ -508,6 +548,18 @@ func previewLifecyclePayload(name string, preview store.Preview, deployment stor
 
 // errCancelled aborts the pipeline at a cooperative checkpoint (§2.6).
 var errCancelled = errors.New("deployment cancelled")
+
+// deploymentStateChangedError is a benign stop: while a queued deployment was
+// waiting for cleanup, it was cancelled or superseded. The atomic start query
+// refuses to resurrect it, and Execute completes the job without overwriting
+// the deployment's newer state with `failed`.
+type deploymentStateChangedError struct {
+	status store.DeploymentStatus
+}
+
+func (e *deploymentStateChangedError) Error() string {
+	return "deployment is no longer queued: " + string(e.status)
+}
 
 // checkpoint honours a pending cancellation request between steps — never
 // past the switching barrier (§21.1).
@@ -2246,6 +2298,9 @@ func (r *deploymentRun) dialBuildServer(ctx context.Context) error {
 		return fmt.Errorf("the build server is %s and the deployment server is %s: the image would not run there",
 			*pick.Architecture, *r.server.Architecture)
 	}
+	if err := r.reserveBuildServer(ctx, pick); err != nil {
+		return err
+	}
 
 	key, err := r.h.Store.GetPrivateKeyByID(ctx, pick.PrivateKeyID)
 	if err != nil {
@@ -2269,9 +2324,41 @@ func (r *deploymentRun) dialBuildServer(ctx context.Context) error {
 	if res, err := client.Run(ctx, fmt.Sprintf("mkdir -p %s/env && chmod 700 %s %s/env", appDir, appDir, appDir)); err != nil || res.ExitCode != 0 {
 		return fmt.Errorf("cannot prepare the working directory on the build server")
 	}
-	_ = r.h.Store.SetDeploymentBuildServer(ctx, store.SetDeploymentBuildServerParams{ID: r.d.ID, BuildServerID: &pick.ID})
 	r.h.Logger.Info("building on a build server", "server", pick.Name, "deployment", pguuid.String(r.d.Uuid))
 	return nil
+}
+
+func (r *deploymentRun) reserveBuildServer(ctx context.Context, server store.Server) error {
+	waitLogged := false
+	for {
+		rows, err := r.h.Store.AssignDeploymentBuildServerUnlessCleanupRunning(ctx,
+			store.AssignDeploymentBuildServerUnlessCleanupRunningParams{
+				BuildServerID: server.ID,
+				DeploymentID:  r.d.ID,
+			})
+		if err != nil {
+			return err
+		}
+		if rows > 0 {
+			r.d.BuildServerID = &server.ID
+			return nil
+		}
+		if err := r.checkpoint(ctx); err != nil {
+			return err
+		}
+		if !waitLogged {
+			r.h.Logger.Info("deployment waiting for build-server cleanup",
+				"deployment_uuid", pguuid.String(r.d.Uuid), "server_id", server.ID)
+			waitLogged = true
+		}
+		timer := time.NewTimer(deploymentCleanupPollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 // pushBuiltImage tags the image for the push registry, pushes it from the build

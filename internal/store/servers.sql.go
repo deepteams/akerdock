@@ -11,19 +11,31 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const countActiveDeploymentsOnServer = `-- name: CountActiveDeploymentsOnServer :one
-SELECT count(*) FROM deployments
-WHERE server_id = $1
-  AND status NOT IN ('queued', 'succeeded', 'failed', 'cancelled', 'superseded')
+const canStartServerCleanup = `-- name: CanStartServerCleanup :one
+WITH locked_server AS MATERIALIZED (
+    SELECT servers.id FROM servers
+    WHERE servers.id = $1
+    FOR UPDATE
+)
+SELECT NOT EXISTS (
+    SELECT 1 FROM deployments d
+    WHERE (d.server_id = ls.id OR d.build_server_id = ls.id)
+      AND d.status NOT IN ('queued', 'succeeded', 'failed', 'cancelled', 'superseded')
+) AS can_start
+FROM locked_server ls
 `
 
-// The §3.7 guard: the cleanup never runs while a deployment is mutating the
-// server. `queued` does not block — the deployment lock does the serializing.
-func (q *Queries) CountActiveDeploymentsOnServer(ctx context.Context, serverID int64) (int64, error) {
-	row := q.db.QueryRow(ctx, countActiveDeploymentsOnServer, serverID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
+// Reader/writer exclusion for §3.7. The cleanup job is already `running` when
+// it reaches this query. Locking the server row makes this check atomic with
+// StartDeploymentUnlessCleanupRunning: either the cleanup observes an active
+// deployment and defers, or a queued deployment observes the running cleanup
+// and waits before its first mutation. Queued deployments do not block a
+// cleanup because they have not touched the server yet.
+func (q *Queries) CanStartServerCleanup(ctx context.Context, serverID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, canStartServerCleanup, serverID)
+	var can_start bool
+	err := row.Scan(&can_start)
+	return can_start, err
 }
 
 const countServersUsingPrivateKey = `-- name: CountServersUsingPrivateKey :one

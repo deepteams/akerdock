@@ -57,10 +57,10 @@
    ```
 5. Disk still full after unblocking: run a **manual and targeted** prune, respecting the managed boundaries:
    ```sh
-   # build cache (harmless for managed resources):
-   ssh <user>@<server> "docker builder prune -f --keep-storage 5GB"
-   # unprotected dangling images only:
-   ssh <user>@<server> "docker image prune -f --filter label!=akerdock.retain=true"
+   # all unused build cache, keeping a warm 5 GiB reserve:
+   ssh <user>@<server> "docker builder prune -af --keep-storage 5GB"
+   # managed dangling images only:
+   ssh <user>@<server> "docker image prune -f --filter label=akerdock.managed=true"
    ```
    ⚠️ Never `docker system prune -a --volumes` on a managed server: that would violate INV-015 (destruction of unmanaged objects and persistent volumes).
 
@@ -93,7 +93,7 @@
 
 ## Prevention
 
-- Leave the destructive opt-ins **disabled** unless genuinely needed: `cleanup_prune_volumes` and `cleanup_prune_networks` are `false` by default (§3.7, data dictionary §6.1) — only enable them on servers without precious unmanaged volumes.
+- Leave the additional opt-ins **disabled** unless genuinely needed: `cleanup_prune_volumes` and `cleanup_prune_networks` are `false` by default (§3.7, data dictionary §6.1). Both are positively filtered by `akerdock.managed=true`; named/foreign volumes and unmanaged networks remain out of reach.
 - Set `cleanup_disk_threshold_pct` **before** the red zone (e.g. 75%) so the cleanup runs outside emergencies, and outside deployment hours via `cleanup_cron`.
 - Monitor disk metrics (Sentinel/OTLP) and the "disk usage threshold" event (§11).
 - Size the rollback image retention (3 by default, spec §8.2) according to the available disk.

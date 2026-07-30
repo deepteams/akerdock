@@ -32,18 +32,40 @@ import (
 const jobFixtureUUID = "33333333-3333-4333-8333-333333333333"
 
 type jobFlowDB struct {
-	blob         []byte
-	passwordBlob []byte
-	err          error
-	host         string
-	port         int
-	truthy       bool
-	preview      bool
+	blob             []byte
+	passwordBlob     []byte
+	err              error
+	host             string
+	port             int
+	truthy           bool
+	preview          bool
+	canCleanup       *bool
+	cleanupThreshold *int32
+	deploymentStatus *store.DeploymentStatus
+
+	startDeploymentBlocks   int
+	startDeploymentCalls    int
+	assignBuildServerBlocks int
+	assignBuildServerCalls  int
 }
 
-func (db *jobFlowDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+func (db *jobFlowDB) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
 	if db.err != nil {
 		return pgconn.CommandTag{}, db.err
+	}
+	if strings.Contains(sql, "-- name: StartDeploymentUnlessCleanupRunning ") {
+		db.startDeploymentCalls++
+		if db.startDeploymentBlocks > 0 {
+			db.startDeploymentBlocks--
+			return pgconn.NewCommandTag("UPDATE 0"), nil
+		}
+	}
+	if strings.Contains(sql, "-- name: AssignDeploymentBuildServerUnlessCleanupRunning ") {
+		db.assignBuildServerCalls++
+		if db.assignBuildServerBlocks > 0 {
+			db.assignBuildServerBlocks--
+			return pgconn.NewCommandTag("UPDATE 0"), nil
+		}
 	}
 	return pgconn.NewCommandTag("UPDATE 1"), nil
 }
@@ -65,18 +87,23 @@ func (db *jobFlowDB) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
 	return jobFlowRow{
 		blob: db.blob, passwordBlob: db.passwordBlob, err: db.err,
 		sql: sql, host: db.host, port: db.port, truthy: db.truthy, preview: db.preview,
+		canCleanup: db.canCleanup, cleanupThreshold: db.cleanupThreshold,
+		deploymentStatus: db.deploymentStatus,
 	}
 }
 
 type jobFlowRow struct {
-	blob         []byte
-	passwordBlob []byte
-	err          error
-	sql          string
-	host         string
-	port         int
-	truthy       bool
-	preview      bool
+	blob             []byte
+	passwordBlob     []byte
+	err              error
+	sql              string
+	host             string
+	port             int
+	truthy           bool
+	preview          bool
+	canCleanup       *bool
+	cleanupThreshold *int32
+	deploymentStatus *store.DeploymentStatus
 }
 
 func (r jobFlowRow) Scan(dest ...any) error {
@@ -84,6 +111,22 @@ func (r jobFlowRow) Scan(dest ...any) error {
 		return r.err
 	}
 	for index, d := range dest {
+		if strings.Contains(r.sql, "-- name: CanStartServerCleanup ") {
+			canCleanup := true
+			if r.canCleanup != nil {
+				canCleanup = *r.canCleanup
+			}
+			*(d.(*bool)) = canCleanup
+			continue
+		}
+		if strings.Contains(r.sql, "-- name: GetDeploymentStatus ") {
+			status := store.DeploymentStatusQueued
+			if r.deploymentStatus != nil {
+				status = *r.deploymentStatus
+			}
+			*(d.(*store.DeploymentStatus)) = status
+			continue
+		}
 		if r.preview && strings.Contains(r.sql, "-- name: GetDeploymentByID ") && index == 29 {
 			value := int64(1)
 			*(d.(**int64)) = &value
@@ -166,6 +209,12 @@ func (r jobFlowRow) Scan(dest ...any) error {
 			case 9:
 				*(d.(*int32)) = 2
 				continue
+			case 28:
+				if r.cleanupThreshold != nil {
+					value := *r.cleanupThreshold
+					*(d.(**int32)) = &value
+					continue
+				}
 			case 48:
 				reflect.ValueOf(d).Elem().SetZero()
 				continue
@@ -484,7 +533,7 @@ func jobCommandOutput(command string) string {
 		return "26.1.0\n"
 	case strings.Contains(command, nixpacksBin+" --version"):
 		return NixpacksVersion + "\n"
-	case strings.Contains(command, "df -P /var/lib/akerdock"):
+	case strings.Contains(command, ".DockerRootDir"):
 		return "75\n"
 	case strings.Contains(command, "stat -c %s"):
 		return "128\n0123456789abcdef\n16.0\n"

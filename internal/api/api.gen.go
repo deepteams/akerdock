@@ -4838,13 +4838,13 @@ type ServerUpdate struct {
 	// CleanupDiskThresholdPct Disk usage threshold (%) that triggers a cleanup between two crons (§3.7); NULL = no threshold-based triggering.
 	CleanupDiskThresholdPct *int `json:"cleanup_disk_threshold_pct,omitempty"`
 
-	// CleanupEnabled Automated disk cleanup (§3.7) — opt-in. Only targets managed and safe objects (build cache, dangling images, dead candidates, `/var/lib/akerdock/tmp`); never an unmanaged or persistent object (INV-015), never during a deployment.
+	// CleanupEnabled Automated disk cleanup (§3.7) — opt-in. Only targets managed and safe objects (unused build cache, managed dangling images, orphaned candidates, `/var/lib/akerdock/tmp`); never an unmanaged or persistent object (INV-015), never during a target or build-server deployment.
 	CleanupEnabled *bool `json:"cleanup_enabled,omitempty"`
 
 	// CleanupPruneNetworks Opt-in — purge of unused **managed** networks (label `akerdock.managed`); never an unmanaged network (INV-015).
 	CleanupPruneNetworks *bool `json:"cleanup_prune_networks,omitempty"`
 
-	// CleanupPruneVolumes Destructive opt-in — purge of unused **anonymous** volumes only: a named volume (data, adopted volumes §20.7) is NEVER purged (INV-015).
+	// CleanupPruneVolumes Opt-in — purge of unused **managed anonymous** volumes only: foreign anonymous volumes and named volumes (data, adopted volumes §20.7) are NEVER purged (INV-015).
 	CleanupPruneVolumes *bool   `json:"cleanup_prune_volumes,omitempty"`
 	Description         *string `json:"description,omitempty"`
 

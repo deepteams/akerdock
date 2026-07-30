@@ -48,12 +48,24 @@ SET cleanup_next_run_at = sqlc.narg(next_run_at),
     cleanup_last_run_at = coalesce(sqlc.narg(last_run_at), cleanup_last_run_at)
 WHERE id = $1;
 
--- name: CountActiveDeploymentsOnServer :one
--- The §3.7 guard: the cleanup never runs while a deployment is mutating the
--- server. `queued` does not block — the deployment lock does the serializing.
-SELECT count(*) FROM deployments
-WHERE server_id = $1
-  AND status NOT IN ('queued', 'succeeded', 'failed', 'cancelled', 'superseded');
+-- name: CanStartServerCleanup :one
+-- Reader/writer exclusion for §3.7. The cleanup job is already `running` when
+-- it reaches this query. Locking the server row makes this check atomic with
+-- StartDeploymentUnlessCleanupRunning: either the cleanup observes an active
+-- deployment and defers, or a queued deployment observes the running cleanup
+-- and waits before its first mutation. Queued deployments do not block a
+-- cleanup because they have not touched the server yet.
+WITH locked_server AS MATERIALIZED (
+    SELECT servers.id FROM servers
+    WHERE servers.id = sqlc.arg(server_id)
+    FOR UPDATE
+)
+SELECT NOT EXISTS (
+    SELECT 1 FROM deployments d
+    WHERE (d.server_id = ls.id OR d.build_server_id = ls.id)
+      AND d.status NOT IN ('queued', 'succeeded', 'failed', 'cancelled', 'superseded')
+) AS can_start
+FROM locked_server ls;
 
 -- name: SoftDeleteServer :execrows
 UPDATE servers SET deleted_at = now(), status = 'deleting', updated_at = now()

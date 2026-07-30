@@ -241,15 +241,16 @@ func WakerEnsureCommand(network, image string, agentEnv AgentEnv) string {
 		"mkdir -p %s && "+
 			"img=$(docker inspect -f '{{.Config.Image}}' %s 2>/dev/null || true); "+
 			"spec=$(docker inspect -f '{{index .Config.Labels \"akerdock.waker_spec\"}}' %s 2>/dev/null || true); "+
-			"if [ \"$img\" != \"%s\" ] || [ \"$spec\" != \"%s\" ]; then docker rm -f %s >/dev/null 2>&1 || true; "+
+			"if [ \"$img\" != \"%s\" ] || [ \"$spec\" != \"%s\" ]; then old_img=$img; docker rm -f %s >/dev/null 2>&1 || true; "+
 			"docker run -d --name %s --restart unless-stopped --network %s --user 0 "+
 			"--add-host=host.docker.internal:host-gateway "+
 			"-v /var/run/docker.sock:/var/run/docker.sock -v %s:%s "+
 			"--label akerdock.managed=true --label akerdock.type=helper --label akerdock.waker_spec=%s "+
-			"%s%s waker; fi",
+			"%s%s waker || exit $?; "+
+			"if [ -n \"$old_img\" ] && [ \"$old_img\" != \"%s\" ]; then docker image rm \"$old_img\" >/dev/null 2>&1 || true; fi; fi",
 		wakerDir, proxy.WakerContainerName, proxy.WakerContainerName,
 		image, wakerSpec, proxy.WakerContainerName,
-		proxy.WakerContainerName, network, wakerDir, wakerDir, wakerSpec, env, image)
+		proxy.WakerContainerName, network, wakerDir, wakerDir, wakerSpec, env, image, image)
 }
 
 // removeWakerRoutes drops a resource from the shared table (preview destroy).
