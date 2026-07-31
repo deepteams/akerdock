@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/compose"
@@ -45,15 +43,12 @@ func serviceToAPI(row store.GetServiceStackByUUIDRow) api.Service {
 }
 
 func (a *API) resolveServiceStack(w http.ResponseWriter, r *http.Request, id *auth.Identity, serviceUUID string) (store.GetServiceStackByUUIDRow, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(serviceUUID); err == nil {
-		row, err := a.Store.GetServiceStackByUUID(r.Context(), store.GetServiceStackByUUIDParams{Uuid: u, TeamID: id.TeamID})
-		if err == nil {
-			return row, true
-		}
+	u, ok := a.scanUUID(w, r, serviceUUID, "service")
+	if !ok {
+		return store.GetServiceStackByUUIDRow{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "service not found")
-	return store.GetServiceStackByUUIDRow{}, false
+	row, err := a.Store.GetServiceStackByUUID(r.Context(), store.GetServiceStackByUUIDParams{Uuid: u, TeamID: id.TeamID})
+	return resolveRow(a, w, r, "service", row, err)
 }
 
 // validateComposeContent runs the control-plane validation of compose-spec

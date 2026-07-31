@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -22,7 +21,7 @@ import (
 	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
-	"github.com/deepteams/akerdock/internal/sshexec"
+	"github.com/deepteams/akerdock/internal/serverdial"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -230,7 +229,7 @@ func (h *Adoption) composeFiles(ctx context.Context, server store.Server, contai
 	if len(paths) == 0 {
 		return out
 	}
-	client, err := h.dial(ctx, server)
+	client, err := serverdial.Open(ctx, h.Store, h.Keyring, server)
 	if err != nil {
 		for project := range paths {
 			out[project] = adoption.ComposeFile{Err: "server unreachable over SSH: " + firstLine(err.Error())}
@@ -636,19 +635,6 @@ func (h *Adoption) ExecuteDisown(ctx context.Context, job store.Job, rec *queue.
 	rec.Succeed(ctx, "resource released — remote objects untouched")
 	h.Logger.Info("resource disowned", "resource_uuid", resourceUUID)
 	return map[string]any{"disowned": resourceUUID}, nil
-}
-
-func (h *Adoption) dial(ctx context.Context, server store.Server) (*sshexec.Client, error) {
-	key, err := h.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
-	if err != nil {
-		return nil, err
-	}
-	pem, err := h.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return nil, err
-	}
-	return sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
-		time.Duration(server.SshTimeoutSeconds)*time.Second, pinnedHostKey(server))
 }
 
 // isUniqueViolationErr reports a PostgreSQL 23505: an adopted resource that

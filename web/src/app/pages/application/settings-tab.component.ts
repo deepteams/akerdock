@@ -12,6 +12,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
+import { fetchAll } from '../../core/pagination';
 import { ApiError } from '../../../api/client';
 import type { components } from '../../../api/schema';
 import { ApplicationConfigFieldsComponent } from './config-fields.component';
@@ -822,12 +823,12 @@ export class ApplicationSettingsTabComponent {
     try {
       const [app, registries, keys] = await Promise.all([
         client.getApplication(uuid),
-        client.listRegistryCredentials({ limit: 100 }),
-        client.listPrivateKeys({ limit: 100 }),
+        fetchAll((cursor) => client.listRegistryCredentials({ limit: 100, cursor })),
+        fetchAll((cursor) => client.listPrivateKeys({ limit: 100, cursor })),
       ]);
       this.setApplication(app);
-      this.registries.set(registries.data);
-      this.privateKeys.set(keys.data);
+      this.registries.set(registries);
+      this.privateKeys.set(keys);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     }

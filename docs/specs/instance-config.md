@@ -44,6 +44,13 @@ Everything else has a safe, documented default. Corollaries: no default may be s
 | `AKERDOCK_PORT` | no | `8080` | **Single port** of the control plane (PRD §27.1, ADR-021): UI, API, SSE, terminal WebSocket and `/api/v1/health` — nothing else listens. In the compose distribution, it is also the published port (§4). | no |
 | `AKERDOCK_INSTANCE_FQDN` | no | — | FQDN of the instance (PRD §14.2). Only serves to bootstrap `instance_settings.fqdn` at first startup (§6.2); afterwards the value in the database is authoritative (modifiable in the UI). | no |
 | `AKERDOCK_INSTANCE_PORT` | no | = `AKERDOCK_PORT` | Port at which the instance is reachable **on its host** — the target of the `00-control-plane` proxy route (proxy-contract §5.7). Differs from `AKERDOCK_PORT` under the compose distribution: the mapping publishes `${AKERDOCK_PORT}:8080` and the process always listens on 8080 inside the container, so the compose forwards the published port through this variable (§4). A binary launched directly on the host does not need to set it. | no |
+| `AKERDOCK_INSTANCE_URL` | no³ | derived | Base URL the server agents are enrolled to dial back (ADR-051). Must start with `http://` or `https://` (trailing `/` stripped). Empty derives it: the Docker host gateway for the pre-registered `localhost` server, the instance FQDN otherwise. Set it when neither derivation reaches the process from the servers' side (NAT'd instance, non-standard ingress, the E2E harness). | no |
+| `AKERDOCK_IMAGE` | no³ | image baked in via `-ldflags` on release builds | This release's own container image (ADR-036/ADR-051): the server agent helper (same binary, `akerdock agent` mode) is deployed from it. Set explicitly when the fallback baked into the release binary does not apply (development builds, a mirrored registry). In the compose distribution it mirrors the `image:` line (§4.1) — the process cannot read its own image tag at runtime. Empty everywhere = server validation fails with an explicit message, never a guessed registry. | no |
+| `AKERDOCK_RELAY_URL` | no | — (fallback: instance FQDN, then `localhost:` + instance port) | Base URL of the `api` a **separate** `worker`/`scheduler` process dials to bridge its Docker commands onto the agent channels the api holds (ADR-052 §8) — e.g. `http://api:8080` under a split compose. Must be an http(s) URL. `all-in-one` shares the registry in-process and ignores it. | no |
+| `AKERDOCK_ACME_EMAIL` | no | — | Let's Encrypt contact (§4.3). Seeded at bootstrap, then owned by `instance_settings`. An issuance failure is silent — the proxy runs, the certificates never come — so the address must be a deliberate choice, never a guess. | no |
+| `AKERDOCK_SCHEDULER_TICK` | no | `30s` | How often the scheduler looks for due work (cron backups, expiring certificates, notifications): Go duration. Lower is more reactive and more idle queries; the E2E suite lowers it so its assertions do not spend most of their time waiting for the next tick. | no |
+| `AKERDOCK_RETRY_BASE` | no | `5s` | First retry delay of a failed job; it doubles at each attempt, capped and jittered (§22.1): Go duration. | no |
+| `AKERDOCK_AUDIT_RETENTION_DAYS` | no | `0` | Retention of the audit trail (§23.4): `0` (the default) keeps every audit row forever — non-repudiation over disk; a positive integer enables the daily purge of rows older than that many days. Integer ≥ 0. | no |
 | `AKERDOCK_ROOT_EMAIL` | no² | — | Non-interactive bootstrap of the first root user (PRD §10.2). Strictly validated email. | no |
 | `AKERDOCK_ROOT_NAME` | no² | — | Name of the root user. Non-empty after trim, ≤ 255 characters. | no |
 | `AKERDOCK_ROOT_PASSWORD` | no² | — | Password of the root user, strict validation (≥ 12 characters — PRD §10.2); hashed with Argon2id, never logged. To be removed from the environment after the first startup (§6.3, §7.2). | **yes** |
@@ -63,6 +70,8 @@ Everything else has a safe, documented default. Corollaries: no default may be s
 
 ¹ Exactly one of the two master key sources must be provided. Both at once = fatal error (ambiguous); neither = fatal error (§6.4).
 ² The three `AKERDOCK_ROOT_*` variables form an all-or-nothing trio: providing only one or two = fatal error. They are **read only if no user exists** in the database, and consumed only once (§6.3).
+
+³ Not fatal at startup, but **required to onboard servers** (ADR-051): server validation refuses to provision the agent without an image (`AKERDOCK_IMAGE` or the release fallback) and without an enrollment URL (`AKERDOCK_INSTANCE_URL`, or a value derivable from the instance FQDN / host gateway), each with an explicit remediation message.
 
 ### 2.2 Variables consumed by the compose (not by the binary)
 
@@ -146,8 +155,8 @@ name: akerdock
 
 services:
   akerdock:
-    image: ghcr.io/deepteams/akerdock:${AKERDOCK_TAG:?tag d'image explicite requis (jamais latest)}
-    command: ["all-in-one"]              # modes all-in-one|api|worker|scheduler (PRD §18.2, §2.1)
+    image: ghcr.io/deepteams/akerdock:${AKERDOCK_TAG:?an explicit image tag is required (never latest)}
+    command: ["serve", "all-in-one"]     # serve all-in-one | api | worker | scheduler (PRD §18.2, ADR-033, §2.1)
     restart: unless-stopped
     ports:
       - "${AKERDOCK_PORT:-8080}:8080"    # the single published port of the control plane (§27.1)
@@ -155,6 +164,17 @@ services:
       AKERDOCK_DATABASE_URL: postgres://akerdock:${POSTGRES_PASSWORD}@postgres:5432/akerdock?sslmode=disable
       AKERDOCK_MASTER_KEY_FILE: /run/secrets/master.key
       AKERDOCK_INSTANCE_FQDN: ${AKERDOCK_INSTANCE_FQDN:-}
+      # The published host port above — the process cannot see its own port
+      # mapping, and the 00-control-plane proxy route must target the host
+      # side of it (proxy-contract §5.7).
+      AKERDOCK_INSTANCE_PORT: ${AKERDOCK_PORT:-8080}
+      # This instance's own image, mirroring the `image:` line above: the
+      # scale-to-zero agent (ADR-036) is deployed from it. Set here because the
+      # process cannot read its own image tag at runtime.
+      AKERDOCK_IMAGE: ${AKERDOCK_IMAGE:-ghcr.io/deepteams/akerdock:${AKERDOCK_TAG}}
+      # Let's Encrypt contact. A wrong address fails silently — the proxy runs,
+      # the certificates never come (§4.3).
+      AKERDOCK_ACME_EMAIL: ${AKERDOCK_ACME_EMAIL:-}
       # Bootstrap of the first root user (PRD §10.2) — read only if no user exists (§6.3)
       AKERDOCK_ROOT_EMAIL: ${AKERDOCK_ROOT_EMAIL:-}
       AKERDOCK_ROOT_NAME: ${AKERDOCK_ROOT_NAME:-}
@@ -195,7 +215,7 @@ services:
     environment:
       POSTGRES_USER: akerdock
       POSTGRES_DB: akerdock
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?requis (openssl rand -hex 24)}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required (openssl rand -hex 24)}
       PGDATA: /var/lib/postgresql/data   # stable path: PG18 moved the default PGDATA to a versioned subfolder — pinning it keeps the data in the mounted volume (ADR-039)
     volumes:
       - akerdock_pgdata:/var/lib/postgresql/data
@@ -350,10 +370,10 @@ On `SIGTERM`/`SIGINT`: stop listening for new requests and leasing new jobs, dra
 All configuration checks are executed **before** opening the port and touching the queue; the errors are **all collected then listed together** (the operator fixes everything in one cycle), and the process exits with code `1`:
 
 ```text
-FATAL configuration invalide (3 erreurs) :
-  - AKERDOCK_DATABASE_URL : absente (requise — DSN PostgreSQL, spec instance-config §2)
-  - AKERDOCK_MODE : valeur "workers" invalide (attendu : all-in-one|api|worker|scheduler)
-  - AKERDOCK_ROOT_EMAIL : fournie sans AKERDOCK_ROOT_NAME/AKERDOCK_ROOT_PASSWORD (trio tout-ou-rien)
+FATAL invalid configuration (3 error(s)):
+  - AKERDOCK_DATABASE_URL: missing (required — PostgreSQL DSN, spec instance-config §2)
+  - AKERDOCK_MODE: invalid value "workers" (expected: all-in-one|api|worker|scheduler)
+  - AKERDOCK_ROOT_EMAIL: AKERDOCK_ROOT_EMAIL/NAME/PASSWORD form an all-or-nothing trio — provide all three or none
 ```
 
 Notably fatal: a required variable missing (§1.2); a value outside its domain (`AKERDOCK_MODE`, `AKERDOCK_LOG_LEVEL`, `AKERDOCK_LOG_FORMAT`); `AKERDOCK_PORT` outside `1–65535`; unparsable DSN; unknown IANA timezone; unparsable duration/integer (`AKERDOCK_SHUTDOWN_TIMEOUT`, `AKERDOCK_WORKER_CONCURRENCY < 1`); incomplete or invalid `AKERDOCK_ROOT_*` trio (§6.3); master key conflicts and invalidities (§6.4); `AKERDOCK_CONFIG_FILE` unreadable or invalid YAML; `AKERDOCK_DATA_DIR` not writable. Error messages **never** reproduce the value of a sensitive variable (§2, “Sensitive” column).

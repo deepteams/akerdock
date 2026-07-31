@@ -6,11 +6,14 @@ import { filter, map, startWith } from 'rxjs';
 import { ApiService, MyTeam } from '../core/api.service';
 import { NavigationHistory } from '../core/navigation-history.service';
 import { IconComponent } from '../../ui/icon/icon.component';
+import { ConfirmHostComponent } from '../../ui/confirm/confirm-host.component';
 
 interface NavItem {
   path: string;
   label: string;
   icon: string;
+  /** The read permission the page's list call requires. Absent = always shown. */
+  permission?: string;
 }
 interface NavSection {
   title: string;
@@ -31,7 +34,7 @@ interface NavSection {
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, IconComponent],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, IconComponent, ConfirmHostComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="layout" [class.rail]="rail()">
@@ -44,7 +47,7 @@ interface NavSection {
         </a>
 
         <nav class="nav akd-sidenav" aria-label="Primary">
-          @for (section of sections; track section.title) {
+          @for (section of visibleSections(); track section.title) {
             @if (!rail()) {
               <span class="akd-sidenav__section">{{ section.title }}</span>
             }
@@ -168,6 +171,7 @@ interface NavSection {
         </main>
       </div>
     </div>
+    <akd-confirm-host />
   `,
   styles: [
     `
@@ -379,13 +383,13 @@ export class ShellComponent {
   // where the user came from — by then it has missed the answer.
   private readonly history = inject(NavigationHistory);
 
-  protected readonly sections: NavSection[] = [
+  private readonly sections: NavSection[] = [
     {
       title: 'Platform',
       items: [
-        { path: '/projects', label: 'Projects', icon: 'folder-git-2' },
-        { path: '/servers', label: 'Servers', icon: 'server' },
-        { path: '/sources', label: 'Sources', icon: 'git-branch' },
+        { path: '/projects', label: 'Projects', icon: 'folder-git-2', permission: 'projects:read' },
+        { path: '/servers', label: 'Servers', icon: 'server', permission: 'servers:read' },
+        { path: '/sources', label: 'Sources', icon: 'git-branch', permission: 'sources:read' },
       ],
     },
     {
@@ -394,24 +398,51 @@ export class ShellComponent {
       // answers "what is happening", this one answers "how do I reach it" —
       // the question an operator actually scans the menu for.
       title: 'Remote access',
-      items: [{ path: '/external-endpoints', label: 'Tunnels', icon: 'cable' }],
+      items: [
+        {
+          path: '/external-endpoints',
+          label: 'Tunnels',
+          icon: 'cable',
+          permission: 'external-endpoints:read',
+        },
+      ],
     },
     {
       title: 'Operations',
       items: [
-        { path: '/notifications', label: 'Notifications', icon: 'bell' },
-        { path: '/jobs', label: 'Jobs', icon: 'list-checks' },
-        { path: '/events', label: 'Events', icon: 'activity' },
+        {
+          path: '/notifications',
+          label: 'Notifications',
+          icon: 'bell',
+          permission: 'notifications:read',
+        },
+        { path: '/jobs', label: 'Jobs', icon: 'list-checks', permission: 'deployments:read' },
+        { path: '/events', label: 'Events', icon: 'activity', permission: 'audit:read' },
       ],
     },
     {
       title: 'Team',
       items: [
-        { path: '/team', label: 'Members', icon: 'users' },
-        { path: '/settings', label: 'Settings', icon: 'settings' },
+        { path: '/team', label: 'Members', icon: 'users', permission: 'members:read' },
+        { path: '/settings', label: 'Settings', icon: 'settings', permission: 'team:read' },
       ],
     },
   ];
+
+  /**
+   * The sidebar filtered to what this role may actually open (rbac-matrix):
+   * an entry whose page would answer 403 is noise, not navigation. The
+   * exhaustive-navigation contract above holds for the roles that hold the
+   * permissions; a reviewer simply has a shorter map.
+   */
+  protected readonly visibleSections = computed(() =>
+    this.sections
+      .map((section) => ({
+        ...section,
+        items: section.items.filter((item) => !item.permission || this.api.can(item.permission)),
+      }))
+      .filter((section) => section.items.length > 0),
+  );
 
   /** Labels for the topbar breadcrumb, keyed by first URL segment. */
   private readonly sectionLabels: Record<string, string> = {

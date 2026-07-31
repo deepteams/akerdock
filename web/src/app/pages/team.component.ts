@@ -2,6 +2,8 @@ import { SlicePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { ModalComponent } from '../../ui/modal/modal.component';
@@ -780,6 +782,7 @@ interface PermissionGroup {
 })
 export class TeamComponent {
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly tab = signal<TeamTab>('members');
   protected readonly team = signal<Team | null>(null);
@@ -932,15 +935,15 @@ export class TeamComponent {
       const client = this.api.client();
       const [team, members, invitations, roles, permissions] = await Promise.all([
         client.getTeam(teamUuid),
-        client.listTeamMembers(teamUuid, { limit: 100 }),
-        client.listTeamInvitations(teamUuid, { limit: 100 }),
-        client.listTeamRoles(teamUuid, { limit: 100 }),
+        fetchAll((cursor) => client.listTeamMembers(teamUuid, { limit: 100, cursor })),
+        fetchAll((cursor) => client.listTeamInvitations(teamUuid, { limit: 100, cursor })),
+        fetchAll((cursor) => client.listTeamRoles(teamUuid, { limit: 100, cursor })),
         client.listPermissions(),
       ]);
       this.team.set(team);
-      this.members.set(members.data);
-      this.invitations.set(invitations.data);
-      this.customRoles.set(roles.data);
+      this.members.set(members);
+      this.invitations.set(invitations);
+      this.customRoles.set(roles);
       this.permissions.set(permissions.data);
     } catch (err) {
       this.error.set(ApiService.describe(err));
@@ -988,7 +991,15 @@ export class TeamComponent {
   protected async revokeInvitation(inv: Invitation): Promise<void> {
     this.menuFor.set(null);
     if (!this.teamUuid) return;
-    if (!confirm(`Cancel the invitation for ${inv.email}? Its link stops working.`)) return;
+    if (
+      !(await this.confirm.ask({
+        title: 'Cancel the invitation',
+        message: `Cancel the invitation for ${inv.email}? Its link stops working.`,
+        confirmLabel: 'Cancel invitation',
+      }))
+    ) {
+      return;
+    }
     this.busy.set(true);
     this.error.set(null);
     try {
@@ -1093,11 +1104,14 @@ export class TeamComponent {
     this.menuFor.set(null);
     if (!this.teamUuid || !role.uuid) return;
     if (
-      !confirm(
-        `Delete the role "${role.name}"? Members carrying it fall back to their built-in role.`,
-      )
-    )
+      !(await this.confirm.ask({
+        title: 'Delete the role',
+        message: `Delete the role "${role.name}"? Members carrying it fall back to their built-in role.`,
+        confirmLabel: 'Delete',
+      }))
+    ) {
       return;
+    }
     this.busy.set(true);
     this.error.set(null);
     try {

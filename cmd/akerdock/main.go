@@ -256,16 +256,25 @@ func serveRun(mode string) int {
 	q := store.New(pool)
 	settings := instance.NewCache(q)
 
+	// One read, fatal on failure: the settings drive security decisions below
+	// (Secure cookies, the passkey relying party, the stored OTLP export). A
+	// transient read error must stop the process, not silently start it with
+	// the insecure defaults — bootstrap just seeded this row, so a failure
+	// here is a real outage, not a first boot.
+	startupSettings, err := settings.Get(ctx)
+	if err != nil {
+		logger.Error("fatal", "error", fmt.Errorf("read instance settings: %w", err))
+		return 1
+	}
+
 	// Telemetry is initialized here — AFTER the DB and keyring — so the OTLP
 	// export config stored in the instance settings (encrypted, §14.2) can be
 	// read; it falls back to the OTEL_* environment otherwise. A change to the
 	// stored config takes effect at the next restart (ADR-008/§27.8).
 	otlp := telemetry.EnvConfig()
-	if st, err := settings.Get(ctx); err == nil {
-		if stored, ok := handlers.DecodeOtlpConfig(st.OtlpConfigEnc, keyring); ok {
-			stored.PromEnabled = otlp.PromEnabled // the /metrics scrape stays env-driven
-			otlp = stored
-		}
+	if stored, ok := handlers.DecodeOtlpConfig(startupSettings.OtlpConfigEnc, keyring); ok {
+		stored.PromEnabled = otlp.PromEnabled // the /metrics scrape stays env-driven
+		otlp = stored
 	}
 	tel := telemetry.Init(ctx, version, otlp, logger)
 	defer tel.Shutdown(context.WithoutCancel(ctx))
@@ -385,10 +394,11 @@ func serveRun(mode string) int {
 	// sent over plain HTTP, so on an instance reached by IP the operator would
 	// log in successfully and then be bounced straight back to the login page,
 	// with nothing in the logs to explain why.
-	secureInstance := false
-	if st, err := settings.Get(ctx); err == nil && st.Fqdn != nil && *st.Fqdn != "" {
-		secureInstance = true
+	instanceFqdn := ""
+	if startupSettings.Fqdn != nil {
+		instanceFqdn = *startupSettings.Fqdn
 	}
+	secureInstance := instanceFqdn != ""
 
 	var apiHandler http.Handler
 	var apiServer *handlers.API
@@ -410,10 +420,7 @@ func serveRun(mode string) int {
 		// Without an FQDN the fallback is localhost, the one origin browsers
 		// treat as secure over plain HTTP: passkeys keep working on a dev
 		// instance and nowhere else.
-		fqdn := ""
-		if st, err := settings.Get(ctx); err == nil && st.Fqdn != nil {
-			fqdn = *st.Fqdn
-		}
+		fqdn := instanceFqdn
 		rpID, origins := session.RelyingParty(fqdn, cfg.Port)
 		if fqdn == "" {
 			logger.Warn("passkeys pinned to localhost — set AKERDOCK_INSTANCE_FQDN to enrol passkeys on a real origin")

@@ -208,6 +208,14 @@ loop:
 		}
 	}
 
+	// A disconnect produced while we were cancelling is a revocation: the
+	// pump's I/O failed BECAUSE the context died, and it can beat ctx.Done()
+	// to the select above. Arbitrating once here covers every error path —
+	// pumps and heartbeat alike — without each site classifying for itself.
+	if reason == EndDisconnect && ctx.Err() != nil {
+		reason = EndRevoked
+	}
+
 	// Kill first (§24.4 — the pty must not survive the socket), then tell the
 	// client why, best effort, on a fresh context: ctx may already be dead.
 	_ = pty.Close()

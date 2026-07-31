@@ -19,6 +19,7 @@ import (
 	"github.com/deepteams/akerdock/internal/gitforge"
 	"github.com/deepteams/akerdock/internal/gitwebhook"
 	"github.com/deepteams/akerdock/internal/queue"
+	"github.com/deepteams/akerdock/internal/serverdial"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
@@ -57,12 +58,12 @@ func TestJobExecutorsRejectMalformedPayloadBeforeDependencies(t *testing.T) {
 	}
 }
 
-func TestPinnedHostKey(t *testing.T) {
-	if got := PinnedHostKey(store.Server{}); got != "" {
+func TestHostKey(t *testing.T) {
+	if got := serverdial.HostKey(store.Server{}); got != "" {
 		t.Fatalf("first contact key = %q", got)
 	}
 	key := "SHA256:known"
-	if got := pinnedHostKey(store.Server{HostKeyFingerprint: &key}); got != key {
+	if got := serverdial.HostKey(store.Server{HostKeyFingerprint: &key}); got != key {
 		t.Fatalf("pinned key = %q", got)
 	}
 }

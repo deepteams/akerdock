@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, input, signal } from '@angu
 import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../../ui/card/card.component';
 import { ApiService } from '../../core/api.service';
+import { ConfirmService } from '../../../ui/confirm/confirm.service';
 import type { components } from '../../../api/schema';
 
 type WebhookEndpoint = components['schemas']['WebhookEndpoint'];
@@ -98,6 +99,7 @@ export class ApplicationWebhookTabComponent {
   readonly uuid = input.required<string>();
 
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly providers: Provider[] = ['github', 'gitlab', 'gitea'];
   protected provider: Provider = 'github';
@@ -124,9 +126,11 @@ export class ApplicationWebhookTabComponent {
 
   protected async remove(): Promise<void> {
     if (
-      !confirm(
-        `Delete the ${this.provider} webhook endpoint? Pushes from ${this.provider} will no longer trigger deployments.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Delete the webhook endpoint',
+        message: `Delete the ${this.provider} webhook endpoint? Pushes from ${this.provider} will no longer trigger deployments.`,
+        confirmLabel: 'Delete',
+      }))
     ) {
       return;
     }

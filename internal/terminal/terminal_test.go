@@ -54,6 +54,19 @@ func (c *fakeConn) Ping(context.Context) error {
 	return c.pingErr
 }
 
+// binaryOutput concatenates every binary frame written to the client so far.
+func (c *fakeConn) binaryOutput() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var output []byte
+	for _, f := range c.writes {
+		if f.typ == MessageBinary {
+			output = append(output, f.data...)
+		}
+	}
+	return string(output)
+}
+
 func (c *fakeConn) endMessage(t *testing.T) (EndReason, bool) {
 	t.Helper()
 	c.mu.Lock()
@@ -133,6 +146,21 @@ func (p *fakePTY) isClosed() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.closed
+}
+
+func (p *fakePTY) writtenBytes() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return string(p.written)
+}
+
+// waitFor polls a condition to a deadline — the sanctioned replacement for a
+// bare sleep when a test must wait on the bridge's goroutines.
+func waitFor(timeout time.Duration, condition func() bool) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) && !condition() {
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 // run executes Bridge in a goroutine and returns its reason, failing the test
@@ -315,8 +343,11 @@ func TestBridgeMovesBytesBothWays(t *testing.T) {
 	pty.out <- []byte("total 0\r\n")
 
 	go func() {
-		// Give the pumps a moment, then end the session from the client.
-		time.Sleep(100 * time.Millisecond)
+		// Close from the client only once both pumps have provably moved the
+		// seeded bytes — a wall-clock guess loses on a loaded runner.
+		waitFor(2*time.Second, func() bool {
+			return pty.writtenBytes() != "" && conn.binaryOutput() != ""
+		})
 		conn.in <- fakeFrame{err: ErrClientClosed}
 	}()
 	reason := run(context.Background(), t, conn, pty, Options{IdleTimeout: generous, MaxDuration: generous})
@@ -324,22 +355,10 @@ func TestBridgeMovesBytesBothWays(t *testing.T) {
 		t.Fatalf("reason = %q, want %q", reason, EndUserClose)
 	}
 
-	pty.mu.Lock()
-	written := string(pty.written)
-	pty.mu.Unlock()
-	if written != "ls -la\r" {
+	if written := pty.writtenBytes(); written != "ls -la\r" {
 		t.Fatalf("pty received %q, want %q", written, "ls -la\r")
 	}
-
-	conn.mu.Lock()
-	var output []byte
-	for _, f := range conn.writes {
-		if f.typ == MessageBinary {
-			output = append(output, f.data...)
-		}
-	}
-	conn.mu.Unlock()
-	if string(output) != "total 0\r\n" {
+	if output := conn.binaryOutput(); output != "total 0\r\n" {
 		t.Fatalf("client received %q, want %q", output, "total 0\r\n")
 	}
 }

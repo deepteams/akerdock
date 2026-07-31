@@ -169,13 +169,9 @@ func (a *API) GetTeamRole(w http.ResponseWriter, r *http.Request, teamUuid api.T
 	if !ok {
 		return
 	}
-	role, err := a.Store.GetCustomRoleByUUID(r.Context(), store.GetCustomRoleByUUIDParams{Uuid: u, TeamID: team.ID})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "role not found")
-			return
-		}
-		a.internalError(w, r, "get role", err)
+	row, err := a.Store.GetCustomRoleByUUID(r.Context(), store.GetCustomRoleByUUIDParams{Uuid: u, TeamID: team.ID})
+	role, ok := resolveRow(a, w, r, "role", row, err)
+	if !ok {
 		return
 	}
 	count, _ := a.Store.CountCustomRoleMembers(r.Context(), &role.ID)

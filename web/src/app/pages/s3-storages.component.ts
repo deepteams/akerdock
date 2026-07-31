@@ -4,7 +4,9 @@ import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
 import type { components } from '../../api/schema';
 
 type S3Storage = components['schemas']['S3Storage'];
@@ -260,6 +262,7 @@ type S3Storage = components['schemas']['S3Storage'];
 })
 export class S3StoragesComponent {
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly storages = signal<S3Storage[]>([]);
   protected readonly loading = signal(true);
@@ -282,8 +285,10 @@ export class S3StoragesComponent {
 
   private async load(): Promise<void> {
     try {
-      const page = await this.api.client().listS3Storages({ limit: 100 });
-      this.storages.set(page.data);
+      const storages = await fetchAll((cursor) =>
+        this.api.client().listS3Storages({ limit: 100, cursor }),
+      );
+      this.storages.set(storages);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -370,7 +375,15 @@ export class S3StoragesComponent {
   }
 
   protected async remove(storage: S3Storage): Promise<void> {
-    if (!confirm(`Delete the storage "${storage.name}"? Backup plans using it will fail.`)) return;
+    if (
+      !(await this.confirm.ask({
+        title: 'Delete the storage',
+        message: `Delete the storage "${storage.name}"? Backup plans using it will fail.`,
+        confirmLabel: 'Delete',
+      }))
+    ) {
+      return;
+    }
     this.busy.set(true);
     this.error.set(null);
     try {

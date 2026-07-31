@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
@@ -100,15 +98,12 @@ func validateS3Endpoint(raw string) bool {
 }
 
 func (a *API) resolveS3Storage(w http.ResponseWriter, r *http.Request, id *auth.Identity, storageUUID string) (store.S3Storage, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(storageUUID); err == nil {
-		s, err := a.Store.GetS3StorageByUUID(r.Context(), store.GetS3StorageByUUIDParams{Uuid: u, TeamID: id.TeamID})
-		if err == nil {
-			return s, true
-		}
+	u, ok := a.scanUUID(w, r, storageUUID, "s3 storage")
+	if !ok {
+		return store.S3Storage{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "s3 storage not found")
-	return store.S3Storage{}, false
+	s, err := a.Store.GetS3StorageByUUID(r.Context(), store.GetS3StorageByUUIDParams{Uuid: u, TeamID: id.TeamID})
+	return resolveRow(a, w, r, "s3 storage", s, err)
 }
 
 // ListS3Storages implements GET /s3-storages (permission: read).

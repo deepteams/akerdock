@@ -142,17 +142,15 @@ func (a *API) resolveBackupPlan(w http.ResponseWriter, r *http.Request, id *auth
 	if !ok {
 		return row, store.DatabaseBackupPlan{}, false
 	}
-	var u pgtype.UUID
-	if err := u.Scan(planUUID); err == nil {
-		plan, err := a.Store.GetBackupPlanByUUID(r.Context(), store.GetBackupPlanByUUIDParams{
-			Uuid: u, DatabaseID: ptr(row.Resource.ID),
-		})
-		if err == nil {
-			return row, plan, true
-		}
+	u, ok := a.scanUUID(w, r, planUUID, "backup plan")
+	if !ok {
+		return row, store.DatabaseBackupPlan{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "backup plan not found")
-	return row, store.DatabaseBackupPlan{}, false
+	plan, err := a.Store.GetBackupPlanByUUID(r.Context(), store.GetBackupPlanByUUIDParams{
+		Uuid: u, DatabaseID: ptr(row.Resource.ID),
+	})
+	plan, ok = resolveRow(a, w, r, "backup plan", plan, err)
+	return row, plan, ok
 }
 
 // ListBackupPlans implements GET /databases/{uuid}/backups (permission: read).
@@ -475,16 +473,15 @@ func (a *API) RestoreBackupExecution(w http.ResponseWriter, r *http.Request, dat
 	if !a.confirmRestoreBody(w, r) {
 		return
 	}
-	var u pgtype.UUID
-	if err := u.Scan(executionUuid); err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "backup execution not found")
+	u, ok := a.scanUUID(w, r, executionUuid, "backup execution")
+	if !ok {
 		return
 	}
-	exec, err := a.Store.GetBackupExecutionByUUID(r.Context(), store.GetBackupExecutionByUUIDParams{
+	res, err := a.Store.GetBackupExecutionByUUID(r.Context(), store.GetBackupExecutionByUUIDParams{
 		Uuid: u, BackupPlanID: plan.ID,
 	})
-	if err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "backup execution not found")
+	exec, ok := resolveRow(a, w, r, "backup execution", res, err)
+	if !ok {
 		return
 	}
 	if exec.Status == store.BackupExecutionStatusFailed || exec.Filename == nil {

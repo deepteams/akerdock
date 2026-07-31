@@ -150,13 +150,9 @@ func (a *API) CreateTeamInvitation(w http.ResponseWriter, r *http.Request, teamU
 			if !ok {
 				return
 			}
-			found, err := a.Store.GetCustomRoleByUUID(r.Context(), store.GetCustomRoleByUUIDParams{Uuid: u, TeamID: team.ID})
-			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "role not found")
-					return
-				}
-				a.internalError(w, r, "get role", err)
+			row, err := a.Store.GetCustomRoleByUUID(r.Context(), store.GetCustomRoleByUUIDParams{Uuid: u, TeamID: team.ID})
+			found, ok := resolveRow(a, w, r, "role", row, err)
+			if !ok {
 				return
 			}
 			customRole = &found

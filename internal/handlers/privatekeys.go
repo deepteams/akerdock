@@ -6,8 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
@@ -56,15 +54,12 @@ func (a *API) keysInUse(r *http.Request, ids []int64) map[int64]bool {
 }
 
 func (a *API) resolvePrivateKey(w http.ResponseWriter, r *http.Request, id *auth.Identity, keyUUID string) (store.PrivateKey, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(keyUUID); err == nil {
-		key, err := a.Store.GetPrivateKeyByUUID(r.Context(), store.GetPrivateKeyByUUIDParams{Uuid: u, TeamID: ptr(id.TeamID)})
-		if err == nil {
-			return key, true
-		}
+	u, ok := a.scanUUID(w, r, keyUUID, "private key")
+	if !ok {
+		return store.PrivateKey{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "private key not found")
-	return store.PrivateKey{}, false
+	key, err := a.Store.GetPrivateKeyByUUID(r.Context(), store.GetPrivateKeyByUUIDParams{Uuid: u, TeamID: ptr(id.TeamID)})
+	return resolveRow(a, w, r, "private key", key, err)
 }
 
 // ListPrivateKeys implements GET /private-keys (permission: read). The

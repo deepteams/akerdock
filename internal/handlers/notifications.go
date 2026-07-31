@@ -78,17 +78,14 @@ func (a *API) notificationRuleToAPI(r *http.Request, rule store.NotificationRule
 }
 
 func (a *API) resolveChannel(w http.ResponseWriter, r *http.Request, id *auth.Identity, channelUUID string) (store.NotificationChannel, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(channelUUID); err == nil {
-		c, err := a.Store.GetNotificationChannelByUUID(r.Context(), store.GetNotificationChannelByUUIDParams{
-			Uuid: u, TeamID: id.TeamID,
-		})
-		if err == nil {
-			return c, true
-		}
+	u, ok := a.scanUUID(w, r, channelUUID, "notification channel")
+	if !ok {
+		return store.NotificationChannel{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "notification channel not found")
-	return store.NotificationChannel{}, false
+	c, err := a.Store.GetNotificationChannelByUUID(r.Context(), store.GetNotificationChannelByUUIDParams{
+		Uuid: u, TeamID: id.TeamID,
+	})
+	return resolveRow(a, w, r, "notification channel", c, err)
 }
 
 // ListNotificationChannels implements GET /notification-channels.
@@ -533,16 +530,15 @@ func (a *API) DeleteNotificationRule(w http.ResponseWriter, r *http.Request, cha
 	if !ok {
 		return
 	}
-	var u pgtype.UUID
-	if err := u.Scan(ruleUuid); err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "notification rule not found")
+	u, ok := a.scanUUID(w, r, ruleUuid, "notification rule")
+	if !ok {
 		return
 	}
-	rule, err := a.Store.GetNotificationRuleByUUID(r.Context(), store.GetNotificationRuleByUUIDParams{
+	row, err := a.Store.GetNotificationRuleByUUID(r.Context(), store.GetNotificationRuleByUUIDParams{
 		Uuid: u, ChannelID: channel.ID,
 	})
-	if err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "notification rule not found")
+	rule, ok := resolveRow(a, w, r, "notification rule", row, err)
+	if !ok {
 		return
 	}
 	if _, err := a.Store.DeleteNotificationRule(r.Context(), rule.ID); err != nil {

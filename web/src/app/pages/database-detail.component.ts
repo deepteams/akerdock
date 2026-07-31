@@ -18,6 +18,8 @@ import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.compone
 import { TerminalComponent } from '../../ui/terminal/terminal.component';
 import type { TerminalSessionInfo } from '../../ui/terminal/protocol';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { ApiError } from '../../api/client';
 import type { components } from '../../api/schema';
 
@@ -690,6 +692,7 @@ export class DatabaseDetailComponent {
 
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly confirm = inject(ConfirmService);
 
   /** Shell in the database container (§5.7) — psql lives there. */
   protected readonly openTerminal = async (): Promise<TerminalSessionInfo> =>
@@ -782,11 +785,11 @@ export class DatabaseDetailComponent {
       const [db, plans, s3] = await Promise.all([
         this.api.client().getDatabase(uuid),
         this.api.client().listBackupPlans(uuid, { limit: 50 }),
-        this.api.client().listS3Storages({ limit: 100 }),
+        fetchAll((cursor) => this.api.client().listS3Storages({ limit: 100, cursor })),
       ]);
       this.setDatabase(db);
       this.plans.set(plans.data);
-      this.s3Storages.set(s3.data);
+      this.s3Storages.set(s3);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -925,9 +928,11 @@ export class DatabaseDetailComponent {
 
   protected async removePlan(plan: BackupPlan): Promise<void> {
     if (
-      !confirm(
-        `Delete this backup plan (${plan.frequency})? Scheduled backups stop; existing backup files follow the retention policy.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Delete the backup plan',
+        message: `Delete this backup plan (${plan.frequency})? Scheduled backups stop; existing backup files follow the retention policy.`,
+        confirmLabel: 'Delete',
+      }))
     ) {
       return;
     }
@@ -1003,9 +1008,11 @@ export class DatabaseDetailComponent {
     // A restore OVERWRITES the live database — the strongest warning on this
     // page, and the contract still demands confirm=true in the body on top.
     if (
-      !confirm(
-        `Restore the backup "${exec.filename ?? exec.uuid}" INTO THE LIVE DATABASE? Everything currently in it is overwritten by the backup's contents. This cannot be undone.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Restore into the live database',
+        message: `Restore the backup "${exec.filename ?? exec.uuid}" INTO THE LIVE DATABASE? Everything currently in it is overwritten by the backup's contents. This cannot be undone.`,
+        confirmLabel: 'Restore',
+      }))
     ) {
       return;
     }
@@ -1034,7 +1041,13 @@ export class DatabaseDetailComponent {
     const volumes = this.deleteVolumes
       ? ' Its volumes and ALL STORED DATA are destroyed with it.'
       : ' Its volumes are kept.';
-    if (!confirm(`Delete the database "${db.name}"? The container is removed.${volumes}`)) {
+    if (
+      !(await this.confirm.ask({
+        title: 'Delete the database',
+        message: `Delete the database "${db.name}"? The container is removed.${volumes}`,
+        confirmLabel: 'Delete',
+      }))
+    ) {
       return;
     }
     this.busy.set(true);

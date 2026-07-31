@@ -3,7 +3,9 @@ import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
 import type { components } from '../../api/schema';
 
 type GithubApp = components['schemas']['GithubApp'];
@@ -164,6 +166,7 @@ type GithubApp = components['schemas']['GithubApp'];
 })
 export class GithubAppsComponent {
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly apps = signal<GithubApp[]>([]);
   protected readonly loading = signal(true);
@@ -180,8 +183,10 @@ export class GithubAppsComponent {
 
   private async load(): Promise<void> {
     try {
-      const page = await this.api.client().listGithubApps({ limit: 100 });
-      this.apps.set(page.data);
+      const apps = await fetchAll((cursor) =>
+        this.api.client().listGithubApps({ limit: 100, cursor }),
+      );
+      this.apps.set(apps);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -222,7 +227,13 @@ export class GithubAppsComponent {
 
   protected async remove(app: GithubApp): Promise<void> {
     if (!app.uuid || this.busy()) return;
-    if (!confirm(`Delete the GitHub App "${app.name}"? The app on GitHub itself is not removed.`)) {
+    if (
+      !(await this.confirm.ask({
+        title: 'Delete the GitHub App',
+        message: `Delete the GitHub App "${app.name}"? The app on GitHub itself is not removed.`,
+        confirmLabel: 'Delete',
+      }))
+    ) {
       return;
     }
     this.busy.set(true);

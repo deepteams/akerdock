@@ -206,8 +206,3 @@ func (a *API) ListTeamMembers(w http.ResponseWriter, r *http.Request, teamUuid a
 		NextCursor *string          `json:"next_cursor"`
 	}{data, cursor})
 }
-
-func (a *API) internalError(w http.ResponseWriter, r *http.Request, op string, err error) {
-	a.Logger.Error("handler error", "op", op, "error", err)
-	httpapi.WriteError(w, r, http.StatusInternalServerError, httpapi.CodeInternal, "internal error")
-}

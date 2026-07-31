@@ -4,6 +4,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
 import type { components } from '../../api/schema';
 import { ApplicationConfigFieldsComponent } from './application/config-fields.component';
 import {
@@ -312,18 +313,18 @@ export class ApplicationNewComponent {
     const client = this.api.client();
     try {
       const [projects, servers, registries, keys, apps] = await Promise.all([
-        client.listProjects({ limit: 100 }),
-        client.listServers({ limit: 100 }),
-        client.listRegistryCredentials({ limit: 100 }),
-        client.listPrivateKeys({ limit: 100 }),
-        client.listGithubApps({ limit: 100 }),
+        fetchAll((cursor) => client.listProjects({ limit: 100, cursor })),
+        fetchAll((cursor) => client.listServers({ limit: 100, cursor })),
+        fetchAll((cursor) => client.listRegistryCredentials({ limit: 100, cursor })),
+        fetchAll((cursor) => client.listPrivateKeys({ limit: 100, cursor })),
+        fetchAll((cursor) => client.listGithubApps({ limit: 100, cursor })),
       ]);
-      this.projects.set(projects.data);
+      this.projects.set(projects);
       // A build server builds; it must not host applications (§3.4).
-      this.servers.set(servers.data.filter((server) => !server.is_build_server));
-      this.registries.set(registries.data);
-      this.privateKeys.set(keys.data);
-      this.githubApps.set(apps.data);
+      this.servers.set(servers.filter((server) => !server.is_build_server));
+      this.registries.set(registries);
+      this.privateKeys.set(keys);
+      this.githubApps.set(apps);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     }
@@ -334,8 +335,10 @@ export class ApplicationNewComponent {
     this.environments.set([]);
     if (!projectUuid) return;
     try {
-      const page = await this.api.client().listEnvironments(projectUuid, { limit: 100 });
-      this.environments.set(page.data);
+      const environments = await fetchAll((cursor) =>
+        this.api.client().listEnvironments(projectUuid, { limit: 100, cursor }),
+      );
+      this.environments.set(environments);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     }

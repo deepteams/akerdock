@@ -11,6 +11,8 @@ import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../../ui/card/card.component';
 import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
+import { fetchAll } from '../../core/pagination';
+import { ConfirmService } from '../../../ui/confirm/confirm.service';
 import { parseDotenv, quoteEnvValue, REDACTED } from './dotenv';
 import type { components } from '../../../api/schema';
 
@@ -377,6 +379,7 @@ export class ApplicationEnvsTabComponent {
   readonly previewUuid = input<string | undefined>(undefined);
 
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly envs = signal<EnvVar[]>([]);
   protected readonly loading = signal(true);
@@ -425,13 +428,16 @@ export class ApplicationEnvsTabComponent {
     this.loading.set(true);
     try {
       const previewUuid = this.previewUuid();
-      const page = previewUuid
-        ? await this.api.client().listPreviewEnvs(uuid, previewUuid)
-        : await this.api.client().listApplicationEnvs(uuid, {
-            limit: 100,
-            preview: this.set() === 'previews',
-          });
-      this.envs.set(page.data);
+      const envs = previewUuid
+        ? (await this.api.client().listPreviewEnvs(uuid, previewUuid)).data
+        : await fetchAll((cursor) =>
+            this.api.client().listApplicationEnvs(uuid, {
+              limit: 100,
+              cursor,
+              preview: this.set() === 'previews',
+            }),
+          );
+      this.envs.set(envs);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -559,10 +565,13 @@ export class ApplicationEnvsTabComponent {
     }
     if (
       deletes.length > 0 &&
-      !confirm(
-        `${deletes.length} variable(s) removed from the text will be deleted: ` +
+      !(await this.confirm.ask({
+        title: 'Delete the removed variables',
+        message:
+          `${deletes.length} variable(s) removed from the text will be deleted: ` +
           `${deletes.map((env) => env.key).join(', ')}. Continue?`,
-      )
+        confirmLabel: 'Delete',
+      }))
     ) {
       return;
     }
@@ -617,7 +626,13 @@ export class ApplicationEnvsTabComponent {
   }
 
   protected async remove(env: EnvVar): Promise<void> {
-    if (!confirm(`Delete the variable "${env.key}"? The next deployment will run without it.`)) {
+    if (
+      !(await this.confirm.ask({
+        title: 'Delete the variable',
+        message: `Delete the variable "${env.key}"? The next deployment will run without it.`,
+        confirmLabel: 'Delete',
+      }))
+    ) {
       return;
     }
     this.busy.set(true);

@@ -6,8 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
@@ -25,17 +23,14 @@ import (
 
 // resolveServiceComponent loads a component by uuid, team-scoped (INV-002).
 func (a *API) resolveServiceComponent(w http.ResponseWriter, r *http.Request, id *auth.Identity, componentUUID string) (store.ServiceComponent, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(componentUUID); err == nil {
-		sc, err := a.Store.GetServiceComponentByUUID(r.Context(), store.GetServiceComponentByUUIDParams{
-			Uuid: u, TeamID: id.TeamID,
-		})
-		if err == nil {
-			return sc, true
-		}
+	u, ok := a.scanUUID(w, r, componentUUID, "service component")
+	if !ok {
+		return store.ServiceComponent{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "service component not found")
-	return store.ServiceComponent{}, false
+	sc, err := a.Store.GetServiceComponentByUUID(r.Context(), store.GetServiceComponentByUUIDParams{
+		Uuid: u, TeamID: id.TeamID,
+	})
+	return resolveRow(a, w, r, "service component", sc, err)
 }
 
 func (a *API) resolveComponentBackupPlan(w http.ResponseWriter, r *http.Request, id *auth.Identity, componentUUID, planUUID string) (store.ServiceComponent, store.DatabaseBackupPlan, bool) {
@@ -43,17 +38,15 @@ func (a *API) resolveComponentBackupPlan(w http.ResponseWriter, r *http.Request,
 	if !ok {
 		return sc, store.DatabaseBackupPlan{}, false
 	}
-	var u pgtype.UUID
-	if err := u.Scan(planUUID); err == nil {
-		plan, err := a.Store.GetBackupPlanByUUIDForComponent(r.Context(), store.GetBackupPlanByUUIDForComponentParams{
-			Uuid: u, ServiceComponentID: ptr(sc.ID),
-		})
-		if err == nil {
-			return sc, plan, true
-		}
+	u, ok := a.scanUUID(w, r, planUUID, "backup plan")
+	if !ok {
+		return sc, store.DatabaseBackupPlan{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "backup plan not found")
-	return sc, store.DatabaseBackupPlan{}, false
+	plan, err := a.Store.GetBackupPlanByUUIDForComponent(r.Context(), store.GetBackupPlanByUUIDForComponentParams{
+		Uuid: u, ServiceComponentID: ptr(sc.ID),
+	})
+	plan, ok = resolveRow(a, w, r, "backup plan", plan, err)
+	return sc, plan, ok
 }
 
 // ListComponentBackupPlans implements GET
@@ -317,16 +310,15 @@ func (a *API) RestoreComponentBackupExecution(w http.ResponseWriter, r *http.Req
 	if !a.confirmRestoreBody(w, r) {
 		return
 	}
-	var u pgtype.UUID
-	if err := u.Scan(executionUuid); err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "backup execution not found")
+	u, ok := a.scanUUID(w, r, executionUuid, "backup execution")
+	if !ok {
 		return
 	}
-	exec, err := a.Store.GetBackupExecutionByUUID(r.Context(), store.GetBackupExecutionByUUIDParams{
+	row, err := a.Store.GetBackupExecutionByUUID(r.Context(), store.GetBackupExecutionByUUIDParams{
 		Uuid: u, BackupPlanID: plan.ID,
 	})
-	if err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "backup execution not found")
+	exec, ok := resolveRow(a, w, r, "backup execution", row, err)
+	if !ok {
 		return
 	}
 	if exec.Status == store.BackupExecutionStatusFailed || exec.Filename == nil {

@@ -6,21 +6,31 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # empty (scale-to-zero then needs AKERDOCK_IMAGE, or stays inert).
 IMAGE   ?=
 
-.PHONY: all build test test-docker unit-coverage go-unit-coverage web-unit-coverage lint generate api-gen sqlc-gen openapi-validate migrate-status e2e clean web
+.PHONY: all build test test-docker vet-docker unit-coverage go-unit-coverage web-unit-coverage lint generate api-gen sqlc-gen openapi-validate migrate-status e2e clean web
 
 all: generate build test
 
 build:
 	$(GO) build -ldflags "-X main.version=$(VERSION) -X main.image=$(IMAGE)" -o bin/akerdock ./cmd/akerdock
 
+# -race is non-negotiable here: the agent channel, the relay, the SKIP-LOCKED
+# worker pool, SSE fan-out and the terminal bridge are all concurrent — a test
+# run that does not watch for races proves much less than it looks like.
 test:
-	$(GO) test ./...
+	$(GO) test -race ./...
 
 # Integration tier of the Docker runtime adapter (ADR-051): runs the SDK
 # implementation against the local /var/run/docker.sock. Scoped to the
 # dockerruntime package on purpose — jobs and handlers stay on the fake.
+DOCKER_PKGS = ./internal/dockerruntime/... ./internal/hostops/...
+
 test-docker:
-	$(GO) test -tags dockerintegration ./internal/dockerruntime/... ./internal/hostops/...
+	$(GO) test -tags dockerintegration $(DOCKER_PKGS)
+
+# Compile-only guard for the tagged files (no daemon needed): vet builds the
+# test files too, so PRs catch bit-rot without driving Docker.
+vet-docker:
+	$(GO) vet -tags dockerintegration $(DOCKER_PKGS)
 
 # Fast coverage gates used on pull requests. Angular enforces 90% on
 # statements, branches, functions and lines; Go enforces 90% per unit package
@@ -70,8 +80,11 @@ sqlc-gen:
 		echo "sqlc: no queries in db/queries yet, skipping"; \
 	fi
 
+# No @version: kin-openapi is a direct dependency, so the validator is pinned
+# by go.mod like every other tool (a floating @latest could break main with no
+# repo change).
 openapi-validate:
-	$(GO) run github.com/getkin/kin-openapi/cmd/validate@latest docs/specs/openapi-v1.yaml
+	$(GO) run github.com/getkin/kin-openapi/cmd/validate docs/specs/openapi-v1.yaml
 
 # Requires AKERDOCK_DATABASE_URL to point at a PostgreSQL instance.
 migrate-status:

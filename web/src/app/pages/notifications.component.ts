@@ -3,6 +3,8 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
@@ -413,6 +415,7 @@ const KINDS: ChannelKind[] = [
 })
 export class NotificationsComponent {
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly kinds = KINDS;
   protected readonly channels = signal<NotificationChannel[]>([]);
@@ -449,8 +452,10 @@ export class NotificationsComponent {
 
   private async load(): Promise<void> {
     try {
-      const page = await this.api.client().listNotificationChannels({ limit: 100 });
-      this.channels.set(page.data);
+      const channels = await fetchAll((cursor) =>
+        this.api.client().listNotificationChannels({ limit: 100, cursor }),
+      );
+      this.channels.set(channels);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -553,7 +558,15 @@ export class NotificationsComponent {
   }
 
   protected async remove(channel: NotificationChannel): Promise<void> {
-    if (!confirm(`Delete the channel "${channel.name}"? Its rules go with it.`)) return;
+    if (
+      !(await this.confirm.ask({
+        title: 'Delete the channel',
+        message: `Delete the channel "${channel.name}"? Its rules go with it.`,
+        confirmLabel: 'Delete',
+      }))
+    ) {
+      return;
+    }
     this.busy.set(true);
     this.error.set(null);
     try {

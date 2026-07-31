@@ -7,6 +7,7 @@ import { StatComponent } from '../../ui/stat/stat.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
 import type { components } from '../../api/schema';
 
 type Server = components['schemas']['Server'];
@@ -267,8 +268,10 @@ export class ServersComponent {
 
   private async load(): Promise<void> {
     try {
-      const page = await this.api.client().listServers({ limit: 100 });
-      this.servers.set(page.data);
+      const servers = await fetchAll((cursor) =>
+        this.api.client().listServers({ limit: 100, cursor }),
+      );
+      this.servers.set(servers);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -283,8 +286,10 @@ export class ServersComponent {
 
   private async loadKeys(): Promise<void> {
     try {
-      const page = await this.api.client().listPrivateKeys({ limit: 100 });
-      this.privateKeys.set(page.data);
+      const keys = await fetchAll((cursor) =>
+        this.api.client().listPrivateKeys({ limit: 100, cursor }),
+      );
+      this.privateKeys.set(keys);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     }

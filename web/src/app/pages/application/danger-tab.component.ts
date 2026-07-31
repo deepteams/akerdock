@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
+import { ConfirmService } from '../../../ui/confirm/confirm.service';
 
 @Component({
   selector: 'app-application-danger-tab',
@@ -68,6 +69,7 @@ export class ApplicationDangerTabComponent {
 
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
@@ -78,7 +80,13 @@ export class ApplicationDangerTabComponent {
     const volumes = this.deleteVolumes
       ? ' Its volumes and the data they hold are destroyed too.'
       : ' Its volumes are kept.';
-    if (!confirm(`Delete ${label}? The container and its routing are removed.${volumes}`)) {
+    if (
+      !(await this.confirm.ask({
+        title: 'Delete the application',
+        message: `Delete ${label}? The container and its routing are removed.${volumes}`,
+        confirmLabel: 'Delete',
+      }))
+    ) {
       return;
     }
     this.busy.set(true);

@@ -201,15 +201,12 @@ func (a *API) ListGithubApps(w http.ResponseWriter, r *http.Request, params api.
 }
 
 func (a *API) resolveGithubApp(w http.ResponseWriter, r *http.Request, id *auth.Identity, appUUID string) (store.GithubApp, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(appUUID); err == nil {
-		row, err := a.Store.GetGithubAppByUUID(r.Context(), store.GetGithubAppByUUIDParams{Uuid: u, TeamID: id.TeamID})
-		if err == nil {
-			return row, true
-		}
+	u, ok := a.scanUUID(w, r, appUUID, "github app")
+	if !ok {
+		return store.GithubApp{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "github app not found")
-	return store.GithubApp{}, false
+	row, err := a.Store.GetGithubAppByUUID(r.Context(), store.GetGithubAppByUUIDParams{Uuid: u, TeamID: id.TeamID})
+	return resolveRow(a, w, r, "github app", row, err)
 }
 
 // GetGithubApp implements GET /github-apps/{github_app_uuid}.

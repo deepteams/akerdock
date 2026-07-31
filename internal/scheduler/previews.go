@@ -15,6 +15,7 @@ import (
 	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/jobs"
 	"github.com/deepteams/akerdock/internal/pguuid"
+	"github.com/deepteams/akerdock/internal/serverdial"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
@@ -437,20 +438,17 @@ func (w *agentScan) client(server store.Server) remoteClient {
 			"server_id", server.ID, "host", server.Host, "stage", stage, "error", err)
 		return nil
 	}
-	key, err := w.s.Store.GetPrivateKeyByID(w.ctx, server.PrivateKeyID)
+	pem, err := serverdial.Key(w.ctx, w.s.Store, w.s.Keyring, server)
 	if err != nil {
-		return fail("private key fetch", err)
-	}
-	pem, err := w.s.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return fail("private key decrypt", err)
+		// serverdial.Key's wrap already names the failing step.
+		return fail("key", err)
 	}
 	var c remoteClient
 	if w.s.dialSSH != nil {
-		c, err = w.s.dialSSH(w.ctx, server, string(pem))
+		c, err = w.s.dialSSH(w.ctx, server, pem)
 	} else {
-		c, err = sshexec.Dial(w.ctx, server.Host, int(server.Port), server.SshUser, string(pem),
-			time.Duration(server.SshTimeoutSeconds)*time.Second, hostKeyOf(server))
+		c, err = sshexec.Dial(w.ctx, server.Host, int(server.Port), server.SshUser, pem,
+			time.Duration(server.SshTimeoutSeconds)*time.Second, serverdial.HostKey(server))
 	}
 	if err != nil {
 		return fail("ssh dial", err)

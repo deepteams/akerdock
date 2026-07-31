@@ -117,7 +117,10 @@ describe('AkerDockClient', () => {
       (...args: unknown[]) => unknown
     >;
     const shortcutNames = Object.getOwnPropertyNames(AkerDockClient.prototype).filter(
-      (name) => !['constructor', 'request', 'deploymentLogs', 'events'].includes(name),
+      (name) =>
+        !['constructor', 'request', 'deploymentLogs', 'streamApplicationLogs', 'events'].includes(
+          name,
+        ),
     );
 
     for (const name of shortcutNames) {
@@ -166,17 +169,23 @@ describe('AkerDockClient', () => {
       });
       client.deploymentLogs('deployment-1');
       client.events({ lastEventId: '42' });
+      client.streamApplicationLogs('app-1', { component: 'db' });
 
       expect(new URL(seen[0].url).searchParams.get('access_token')).toBe('stream-token');
       expect(new URL(seen[1].url).searchParams.get('last_event_id')).toBe('42');
       expect(seen[0].options?.withCredentials).toBeTrue();
+      expect(new URL(seen[2].url).pathname).toBe('/api/v1/applications/app-1/logs/stream');
+      expect(new URL(seen[2].url).searchParams.get('component')).toBe('db');
+      expect(new URL(seen[2].url).searchParams.get('access_token')).toBe('stream-token');
 
       const cookieClient = new AkerDockClient({
         baseUrl: '/api/v1',
         fetch: capturingFetch().fetchImpl,
       });
       cookieClient.events();
-      expect(new URL(seen[2].url).search).toBe('');
+      cookieClient.streamApplicationLogs('app-2');
+      expect(new URL(seen[3].url).search).toBe('');
+      expect(new URL(seen[4].url).search).toBe('');
     } finally {
       Object.defineProperty(globalThis, 'EventSource', {
         configurable: true,

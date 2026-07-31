@@ -15,6 +15,7 @@ import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.compone
 import { IconComponent } from '../../ui/icon/icon.component';
 import { CardComponent } from '../../ui/card/card.component';
 import { ApiService } from '../core/api.service';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import type { components } from '../../api/schema';
 
 type Deployment = components['schemas']['Deployment'];
@@ -232,6 +233,7 @@ export class DeploymentDetailComponent {
   readonly deploymentUuid = input.required<string>();
 
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly deployment = signal<Deployment | null>(null);
   protected readonly error = signal<string | null>(null);
@@ -360,7 +362,13 @@ export class DeploymentDetailComponent {
   }
 
   protected async cancel(d: Deployment): Promise<void> {
-    if (!confirm('Cancel this deployment? The currently routed container stays untouched.')) {
+    if (
+      !(await this.confirm.ask({
+        title: 'Cancel the deployment',
+        message: 'Cancel this deployment? The currently routed container stays untouched.',
+        confirmLabel: 'Cancel deployment',
+      }))
+    ) {
       return;
     }
     this.busy.set(true);

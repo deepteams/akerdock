@@ -6,8 +6,10 @@ PR previews, backups and monitoring — no vendor lock-in.
 
 A single static Go binary. **PostgreSQL is the only dependency** — it holds both
 the state and the job queue (no Redis, no external bus). The API is spec-first
-(OpenAPI), and the control plane never runs your workloads: it drives Docker on
-your servers over SSH.
+(OpenAPI), and the control plane never runs your workloads: Docker operations
+ride an outbound channel opened by a small agent on each server
+([ADR-051](docs/adr/ADR-051-docker-runtime-adapter.md)/[052](docs/adr/ADR-052-agent-command-channel.md)), with SSH kept
+for bootstrap, repair, git clones and Nixpacks builds only.
 
 > Design docs (PRD, ADRs, specs), code, the CLI and this README are all in
 > English.
@@ -56,7 +58,12 @@ needed), generates the master key (`keys/master.key` — **back it up off the
 machine immediately**) and the `.env`, starts the reference two-service stack
 (AkerDock + PostgreSQL), and prints the first root user's credentials. Customise
 the first run with `AKERDOCK_PORT`, `AKERDOCK_INSTANCE_FQDN`,
-`AKERDOCK_ROOT_EMAIL`, etc. (see the script header).
+`AKERDOCK_ROOT_EMAIL`, etc. (see the script header). Two variables matter for
+server onboarding since [ADR-051](docs/adr/ADR-051-docker-runtime-adapter.md):
+`AKERDOCK_IMAGE` (the instance's own image, from which the per-server agent
+helper is deployed — the compose derives it from `AKERDOCK_TAG`) and
+`AKERDOCK_INSTANCE_URL` (the base URL agents dial back; derived from the
+instance FQDN or host gateway when unset).
 
 Update an existing instance: `git pull && ./install.sh` — the image is rebuilt,
 migrations apply at boot, and state persists in the named volumes. The manual
@@ -208,7 +215,7 @@ than the client commands:
 akerdock serve            # all-in-one (default, or $AKERDOCK_MODE)
 akerdock serve api        # HTTP API only …  worker | scheduler for the others
 akerdock healthcheck      # probe used by the compose healthcheck
-akerdock waker            # scale-to-zero helper container (ADR-036)
+akerdock agent            # server agent helper container (ADR-051/056; `waker` is a deprecated alias)
 akerdock version
 ```
 

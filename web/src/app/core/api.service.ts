@@ -97,6 +97,13 @@ export interface MyTeam {
   current: boolean;
 }
 
+/** Public metadata of a pending CLI login request (ADR-031 consent page). */
+export interface CliAuthRequestInfo {
+  user_code: string;
+  name: string;
+  status: string;
+}
+
 /** A federated identity linked to the account (security page). */
 export interface LinkedIdentity {
   uuid: string;
@@ -144,9 +151,15 @@ export class ApiService {
     );
   }
 
-  /** True when the current user's permissions include the given one. */
+  /**
+   * True when the current user's permissions include the given one. The
+   * team-scoped `root` permission implies every other one (rbac-matrix §2),
+   * so a root user is never shown a degraded UI.
+   */
   can(permission: string): boolean {
-    return this.user()?.permissions.includes(permission) ?? false;
+    const permissions = this.user()?.permissions;
+    if (!permissions) return false;
+    return permissions.includes('root') || permissions.includes(permission);
   }
 
   /** Restores the session on boot: the cookie may still be valid from last time. */
@@ -455,6 +468,31 @@ export class ApiService {
   async switchTeam(teamUuid: string): Promise<void> {
     await this.authPost<{ team_uuid: string }>('/auth/session/team', { team_uuid: teamUuid });
     await this.restore();
+  }
+
+  /** What a pending CLI login request says about itself (consent page). */
+  async cliAuthRequest(requestId: string): Promise<CliAuthRequestInfo> {
+    const res = await fetch('/auth/cli/request?request_id=' + encodeURIComponent(requestId), {
+      credentials: 'same-origin',
+    });
+    if (!res.ok) throw await this.authError(res);
+    return (await res.json()) as CliAuthRequestInfo;
+  }
+
+  /**
+   * The maintainer's explicit consent to a CLI login request. The server
+   * narrows the grant to the session's own permissions and answers 204.
+   */
+  async approveCliAuth(requestId: string, teamUuid: string, permissions: string[]): Promise<void> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.csrf()) headers['X-CSRF-Token'] = this.csrf()!;
+    const res = await fetch('/auth/cli/approve', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers,
+      body: JSON.stringify({ request_id: requestId, team_uuid: teamUuid, permissions }),
+    });
+    if (!res.ok && res.status !== 204) throw await this.authError(res);
   }
 
   /** POST to an /auth endpoint: session cookie rides along, CSRF echoed. */

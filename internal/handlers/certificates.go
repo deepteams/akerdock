@@ -3,8 +3,6 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
@@ -137,15 +135,12 @@ func (a *API) RenewCertificate(w http.ResponseWriter, r *http.Request, certifica
 }
 
 func (a *API) resolveCertificate(w http.ResponseWriter, r *http.Request, id *auth.Identity, certUUID string) (store.GetCertificateByUUIDForTeamRow, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(certUUID); err == nil {
-		row, err := a.Store.GetCertificateByUUIDForTeam(r.Context(), store.GetCertificateByUUIDForTeamParams{
-			Uuid: u, TeamID: id.TeamID,
-		})
-		if err == nil {
-			return row, true
-		}
+	u, ok := a.scanUUID(w, r, certUUID, "certificate")
+	if !ok {
+		return store.GetCertificateByUUIDForTeamRow{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "certificate not found")
-	return store.GetCertificateByUUIDForTeamRow{}, false
+	row, err := a.Store.GetCertificateByUUIDForTeam(r.Context(), store.GetCertificateByUUIDForTeamParams{
+		Uuid: u, TeamID: id.TeamID,
+	})
+	return resolveRow(a, w, r, "certificate", row, err)
 }

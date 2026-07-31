@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
@@ -50,15 +48,12 @@ func (a *API) resourceCountOf(r *http.Request, id int64) int {
 }
 
 func (a *API) resolveEnvironment(w http.ResponseWriter, r *http.Request, project store.Project, envUUID string) (store.Environment, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(envUUID); err == nil {
-		env, err := a.Store.GetEnvironmentByUUID(r.Context(), store.GetEnvironmentByUUIDParams{Uuid: u, ProjectID: project.ID})
-		if err == nil {
-			return env, true
-		}
+	u, ok := a.scanUUID(w, r, envUUID, "environment")
+	if !ok {
+		return store.Environment{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "environment not found")
-	return store.Environment{}, false
+	env, err := a.Store.GetEnvironmentByUUID(r.Context(), store.GetEnvironmentByUUIDParams{Uuid: u, ProjectID: project.ID})
+	return resolveRow(a, w, r, "environment", env, err)
 }
 
 // ListEnvironments implements GET /projects/{project_uuid}/environments

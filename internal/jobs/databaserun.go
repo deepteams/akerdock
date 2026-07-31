@@ -22,6 +22,7 @@ import (
 	"github.com/deepteams/akerdock/internal/pki"
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/queue"
+	"github.com/deepteams/akerdock/internal/serverdial"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
@@ -112,7 +113,7 @@ func (h *DatabaseRun) Execute(ctx context.Context, job store.Job, rec *queue.Ste
 		// The one SSH remnant: converging a proxy that may need recreating
 		// (bootstrap family, ADR-054).
 		var client *sshexec.Client
-		client, err = h.dialServer(ctx, server)
+		client, err = serverdial.Open(ctx, h.Store, h.Keyring, server)
 		if err != nil {
 			rec.Fail(ctx, "SSH connection failed")
 			return nil, err
@@ -139,19 +140,6 @@ func (h *DatabaseRun) Execute(ctx context.Context, job store.Job, rec *queue.Ste
 	rec.Succeed(ctx, payload.Action+" completed")
 	h.Logger.Info("database job done", "action", payload.Action, "db_uuid", dbUUID)
 	return map[string]any{"action": payload.Action, "database_uuid": dbUUID}, nil
-}
-
-func (h *DatabaseRun) dialServer(ctx context.Context, server store.Server) (*sshexec.Client, error) {
-	key, err := h.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
-	if err != nil {
-		return nil, err
-	}
-	pem, err := h.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return nil, err
-	}
-	return sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
-		time.Duration(server.SshTimeoutSeconds)*time.Second, pinnedHostKey(server))
 }
 
 // provision converges the database container: data volume, custom config,

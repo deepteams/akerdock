@@ -2,6 +2,8 @@ import { ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, signal }
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { AuditFetch, AuditLogComponent } from './audit-log.component';
 import { CardComponent } from '../../ui/card/card.component';
 import type { components } from '../../api/schema';
@@ -867,6 +869,7 @@ const OAUTH_PROVIDERS: { key: string; label: string; needsIssuer: boolean }[] = 
 })
 export class SystemComponent {
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
   // The Instance tab binds plain properties via ngModel, not signals. load()
   // populates them after an await but only sets signals consumed by OTHER tabs,
   // so (zoneless + OnPush) the active Instance view is never marked dirty on
@@ -945,8 +948,8 @@ export class SystemComponent {
   /** Teams of the instance — a root token lists them all (INV-001). */
   private async loadTeams(): Promise<void> {
     try {
-      const page = await this.api.client().listTeams({ limit: 100 });
-      this.teams.set(page.data);
+      const teams = await fetchAll((cursor) => this.api.client().listTeams({ limit: 100, cursor }));
+      this.teams.set(teams);
     } catch (err) {
       this.error.set(ApiService.describe(err));
       this.teams.set([]);
@@ -1099,9 +1102,13 @@ export class SystemComponent {
 
   protected async rotate(): Promise<void> {
     if (
-      !confirm(
-        'Rotate the encryption key? Every stored secret is re-encrypted in batches under the new key — it runs as a background job and is safe to run live.',
-      )
+      !(await this.confirm.ask({
+        title: 'Rotate the encryption key',
+        message:
+          'Rotate the encryption key? Every stored secret is re-encrypted in batches under the new key — it runs as a background job and is safe to run live.',
+        confirmLabel: 'Rotate',
+        danger: false,
+      }))
     ) {
       return;
     }
@@ -1172,9 +1179,11 @@ export class SystemComponent {
 
   protected async removeOauth(key: string): Promise<void> {
     if (
-      !confirm(
-        `Remove the ${this.oauthLabel(key)} sign-in? Linked accounts keep their other credentials.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Remove the sign-in provider',
+        message: `Remove the ${this.oauthLabel(key)} sign-in? Linked accounts keep their other credentials.`,
+        confirmLabel: 'Remove',
+      }))
     ) {
       return;
     }
@@ -1243,10 +1252,13 @@ export class SystemComponent {
   protected async toggleApi(next: boolean): Promise<void> {
     if (
       !next &&
-      !confirm(
-        'Disable the public API? Token, script and CI calls are refused immediately. ' +
+      !(await this.confirm.ask({
+        title: 'Disable the public API',
+        message:
+          'Disable the public API? Token, script and CI calls are refused immediately. ' +
           'The dashboard keeps working, so you can re-enable it here.',
-      )
+        confirmLabel: 'Disable',
+      }))
     ) {
       this.apiOn = true; // revert the switch, user declined
       return;

@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"regexp"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
@@ -323,15 +321,12 @@ func (a *API) updateEnvVar(r *http.Request, v store.EnvironmentVariable, value s
 }
 
 func (a *API) resolveEnvVar(w http.ResponseWriter, r *http.Request, resourceID int64, envUUID string) (store.EnvironmentVariable, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(envUUID); err == nil {
-		v, err := a.Store.GetEnvVarByUUID(r.Context(), store.GetEnvVarByUUIDParams{Uuid: u, ResourceID: resourceID})
-		if err == nil {
-			return v, true
-		}
+	u, ok := a.scanUUID(w, r, envUUID, "environment variable")
+	if !ok {
+		return store.EnvironmentVariable{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "environment variable not found")
-	return store.EnvironmentVariable{}, false
+	v, err := a.Store.GetEnvVarByUUID(r.Context(), store.GetEnvVarByUUIDParams{Uuid: u, ResourceID: resourceID})
+	return resolveRow(a, w, r, "environment variable", v, err)
 }
 
 func (a *API) writeEnvError(w http.ResponseWriter, r *http.Request, err error) {

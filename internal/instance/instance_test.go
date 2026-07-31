@@ -58,6 +58,29 @@ func TestCacheDoesNotCacheReadFailure(t *testing.T) {
 	}
 }
 
+func TestCacheServesStaleWhenRefreshFails(t *testing.T) {
+	database := &fakeSettingsStore{value: store.InstanceSetting{Timezone: "Europe/Paris"}}
+	cache := NewCache(database)
+	if _, err := cache.Get(context.Background()); err != nil {
+		t.Fatalf("prime: %v", err)
+	}
+
+	cache.Invalidate()
+	database.err = errors.New("database unavailable")
+	got, err := cache.Get(context.Background())
+	if err != nil || got.Timezone != "Europe/Paris" {
+		t.Fatalf("stale Get = %#v, %v — a primed cache must ride out a failing refresh", got, err)
+	}
+
+	database.err = nil
+	database.value.Timezone = "UTC"
+	cache.Invalidate()
+	refreshed, err := cache.Get(context.Background())
+	if err != nil || refreshed.Timezone != "UTC" {
+		t.Fatalf("recovered Get = %#v, %v", refreshed, err)
+	}
+}
+
 func TestCacheSerializesConcurrentRefresh(t *testing.T) {
 	database := &fakeSettingsStore{value: store.InstanceSetting{Timezone: "UTC"}}
 	cache := NewCache(database)

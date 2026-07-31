@@ -18,6 +18,7 @@ import (
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/queue"
+	"github.com/deepteams/akerdock/internal/serverdial"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
@@ -84,7 +85,7 @@ func (h *ServerValidate) Execute(ctx context.Context, job store.Job, rec *queue.
 		return nil, err
 	}
 	timeout := max(time.Duration(server.SshTimeoutSeconds), 1) * time.Second
-	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem), timeout, pinnedHostKey(server))
+	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem), timeout, serverdial.HostKey(server))
 	if errors.Is(err, sshexec.ErrHostKeyChanged) {
 		// Not a connectivity problem: the machine answering is not the one we
 		// onboarded. Either it was rebuilt — in which case an operator clears

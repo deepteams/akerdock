@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
@@ -36,15 +34,12 @@ func projectToAPI(p store.Project, teamUUID string, envs []store.Environment, co
 // resolveProject loads a project by public UUID within the token's team;
 // any miss is the uniform 404 (INV-002).
 func (a *API) resolveProject(w http.ResponseWriter, r *http.Request, id *auth.Identity, projectUUID string) (store.Project, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(projectUUID); err == nil {
-		project, err := a.Store.GetProjectByUUID(r.Context(), store.GetProjectByUUIDParams{Uuid: u, TeamID: id.TeamID})
-		if err == nil {
-			return project, true
-		}
+	u, ok := a.scanUUID(w, r, projectUUID, "project")
+	if !ok {
+		return store.Project{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "project not found")
-	return store.Project{}, false
+	project, err := a.Store.GetProjectByUUID(r.Context(), store.GetProjectByUUIDParams{Uuid: u, TeamID: id.TeamID})
+	return resolveRow(a, w, r, "project", project, err)
 }
 
 // ListProjects implements GET /projects (permission: read).

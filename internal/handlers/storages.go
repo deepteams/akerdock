@@ -6,8 +6,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
@@ -137,14 +135,13 @@ func (a *API) DeleteApplicationStorage(w http.ResponseWriter, r *http.Request, a
 	if !ok {
 		return
 	}
-	var u pgtype.UUID
-	if err := u.Scan(storageUuid); err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "storage not found")
+	u, ok := a.scanUUID(w, r, storageUuid, "storage")
+	if !ok {
 		return
 	}
-	s, err := a.Store.GetStorageByUUID(r.Context(), store.GetStorageByUUIDParams{Uuid: u, ResourceID: row.Resource.ID})
-	if err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "storage not found")
+	res, err := a.Store.GetStorageByUUID(r.Context(), store.GetStorageByUUIDParams{Uuid: u, ResourceID: row.Resource.ID})
+	s, ok := resolveRow(a, w, r, "storage", res, err)
+	if !ok {
 		return
 	}
 	if rows, err := a.Store.DeleteStorage(r.Context(), s.ID); err != nil || rows == 0 {

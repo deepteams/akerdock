@@ -20,8 +20,8 @@ type ServiceComponent = components['schemas']['ServiceComponent'];
 /**
  * Runtime console of the application's container (§5.7): the deployment logs
  * stop at the switch — everything the app prints after lives only in
- * `docker logs`, and this tab is its window. Snapshot + optional follow
- * (poll), never stored.
+ * `docker logs`, and this tab is its window. Snapshot + optional follow over
+ * SSE (the same stream `akerdock logs -f` rides), never stored.
  */
 @Component({
   selector: 'app-application-logs-tab',
@@ -59,7 +59,7 @@ type ServiceComponent = components['schemas']['ServiceComponent'];
         </div>
         <label class="akd-check">
           <input type="checkbox" name="follow" [(ngModel)]="follow" (ngModelChange)="onFollow()" />
-          Follow (refresh every 3 s)
+          Follow (live)
         </label>
         <span class="spacer"></span>
         <button
@@ -131,7 +131,7 @@ export class ApplicationLogsTabComponent {
   protected lines = 200;
   protected component = '';
   protected follow = false;
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private source: EventSource | null = null;
 
   constructor() {
     effect(() => {
@@ -160,21 +160,59 @@ export class ApplicationLogsTabComponent {
   }
 
   protected refresh(): void {
+    // A component or window change while following restarts the stream on the
+    // new selection; otherwise it is a plain snapshot reload.
+    if (this.follow) {
+      this.onFollow();
+      return;
+    }
     void this.load(this.uuid());
   }
 
   protected onFollow(): void {
     this.stopFollow();
     if (this.follow) {
-      this.timer = setInterval(() => void this.load(this.uuid()), 3000);
+      this.openStream(this.uuid());
     }
   }
 
+  /**
+   * Live follow over the SSE stream (ADR-024). The server tails the last 200
+   * lines into the stream, so it replaces the snapshot rather than topping it
+   * up; lines are keyed by sequence, making a reconnect's replay idempotent.
+   */
+  private openStream(uuid: string): void {
+    this.logs.set(null);
+    this.busy.set(true);
+    const source = this.api
+      .client()
+      .streamApplicationLogs(uuid, this.component ? { component: this.component } : undefined);
+    this.source = source;
+
+    source.addEventListener('log', (event) => {
+      const line = JSON.parse((event as MessageEvent<string>).data) as LogLine;
+      this.busy.set(false);
+      this.error.set(null);
+      this.logs.update((lines) => {
+        const next = (lines ?? []).filter((l) => l.sequence !== line.sequence);
+        next.push(line);
+        next.sort((a, b) => a.sequence - b.sequence);
+        // Cap what the DOM holds: a chatty container must not grow the page
+        // without bound. 2000 matches the deepest snapshot window.
+        return next.slice(-2000);
+      });
+    });
+    source.addEventListener('open', () => this.busy.set(false));
+    // EventSource retries on its own; surface the interruption without
+    // tearing the follow down.
+    source.addEventListener('error', () => {
+      if (this.follow) this.error.set('Log stream interrupted — reconnecting…');
+    });
+  }
+
   private stopFollow(): void {
-    if (this.timer !== null) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
+    this.source?.close();
+    this.source = null;
   }
 
   private async load(uuid: string): Promise<void> {
@@ -189,9 +227,6 @@ export class ApplicationLogsTabComponent {
       this.error.set(null);
     } catch (err) {
       this.error.set(ApiService.describe(err));
-      // A dead container is a stable answer, not a reason to hammer the API.
-      this.follow = false;
-      this.stopFollow();
     } finally {
       this.busy.set(false);
     }

@@ -4,7 +4,9 @@ import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
 import type { components } from '../../api/schema';
 
 type PrivateKey = components['schemas']['PrivateKey'];
@@ -175,6 +177,7 @@ type PrivateKey = components['schemas']['PrivateKey'];
 })
 export class PrivateKeysComponent {
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly keys = signal<PrivateKey[]>([]);
   protected readonly loading = signal(true);
@@ -192,8 +195,10 @@ export class PrivateKeysComponent {
 
   private async load(): Promise<void> {
     try {
-      const page = await this.api.client().listPrivateKeys({ limit: 100 });
-      this.keys.set(page.data);
+      const keys = await fetchAll((cursor) =>
+        this.api.client().listPrivateKeys({ limit: 100, cursor }),
+      );
+      this.keys.set(keys);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -263,7 +268,15 @@ export class PrivateKeysComponent {
   }
 
   protected async remove(pk: PrivateKey): Promise<void> {
-    if (!confirm(`Delete the key "${pk.name}"? Servers using it will lose SSH access.`)) return;
+    if (
+      !(await this.confirm.ask({
+        title: 'Delete the key',
+        message: `Delete the key "${pk.name}"? Servers using it will lose SSH access.`,
+        confirmLabel: 'Delete',
+      }))
+    ) {
+      return;
+    }
     this.busy.set(true);
     this.error.set(null);
     try {

@@ -11,6 +11,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ApiService } from '../core/api.service';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { BreadcrumbComponent, type Crumb } from '../../ui/breadcrumb/breadcrumb.component';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
@@ -628,6 +629,7 @@ const EVENT_CATALOG: { title: string; events: CatalogEvent[] }[] = [
 })
 export class NotificationChannelDetailComponent {
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
   private readonly router = inject(Router);
 
   /** Bound by the router from the :uuid path parameter. */
@@ -858,7 +860,15 @@ export class NotificationChannelDetailComponent {
   }
 
   protected async removeRule(ch: NotificationChannel, rule: NotificationRule): Promise<void> {
-    if (!confirm(`Delete the rule for "${rule.event_type}"?`)) return;
+    if (
+      !(await this.confirm.ask({
+        title: 'Delete the rule',
+        message: `Delete the rule for "${rule.event_type}"?`,
+        confirmLabel: 'Delete',
+      }))
+    ) {
+      return;
+    }
     this.busy.set(true);
     this.error.set(null);
     try {
@@ -872,7 +882,15 @@ export class NotificationChannelDetailComponent {
   }
 
   protected async remove(ch: NotificationChannel): Promise<void> {
-    if (!confirm(`Delete the channel "${ch.name}"? Its rules go with it.`)) return;
+    if (
+      !(await this.confirm.ask({
+        title: 'Delete the channel',
+        message: `Delete the channel "${ch.name}"? Its rules go with it.`,
+        confirmLabel: 'Delete',
+      }))
+    ) {
+      return;
+    }
     this.busy.set(true);
     this.error.set(null);
     try {

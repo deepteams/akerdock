@@ -1,0 +1,23 @@
+# Coverage ratchet floors (percent) for packages below the 90% unit target.
+# One "package<TAB>floor" per line. Ratchets only move up: raise a floor as
+# coverage lands, never lower one. Values are the measured coverage the day
+# the gate was wired into CI (2026-07-31); internal/handlers previously
+# claimed an aspirational 60 that was already broken then — 53 is the real
+# anti-regression line. Floor 0 marks deliberately untested test doubles.
+internal/cli	10
+internal/agentwire	12
+internal/agentrelay	25
+internal/dockerruntime	29
+internal/mcp	37
+internal/jobs	40
+internal/handlers	53
+internal/agent	56
+internal/scheduler	58
+internal/hostops	62
+internal/telemetry	80
+internal/accessroute	80
+internal/scim	83
+internal/tunnel	86
+internal/githubapp	87
+internal/dockerruntime/fake	0
+internal/hostops/fake	0

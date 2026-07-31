@@ -13,6 +13,7 @@ import { DrawerComponent } from '../../../ui/drawer/drawer.component';
 import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
+import { ConfirmService } from '../../../ui/confirm/confirm.service';
 import type { components } from '../../../api/schema';
 
 type Storage = components['schemas']['PersistentStorage'];
@@ -181,6 +182,7 @@ export class ApplicationStoragesTabComponent {
   readonly uuid = input.required<string>();
 
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly storages = signal<Storage[]>([]);
   protected readonly loading = signal(true);
@@ -256,9 +258,11 @@ export class ApplicationStoragesTabComponent {
 
   protected async remove(storage: Storage): Promise<void> {
     if (
-      !confirm(
-        `Delete the storage mounted at "${storage.mount_path}"? The container loses the mount at the next deployment; the underlying data is not wiped by this action.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Delete the storage',
+        message: `Delete the storage mounted at "${storage.mount_path}"? The container loses the mount at the next deployment; the underlying data is not wiped by this action.`,
+        confirmLabel: 'Delete',
+      }))
     ) {
       return;
     }

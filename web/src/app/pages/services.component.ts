@@ -6,6 +6,7 @@ import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component'
 import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
 import type { components } from '../../api/schema';
 
 type Service = components['schemas']['Service'];
@@ -268,8 +269,10 @@ export class ServicesComponent {
 
   private async load(): Promise<void> {
     try {
-      const page = await this.api.client().listServices({ limit: 100 });
-      this.services.set(page.data);
+      const services = await fetchAll((cursor) =>
+        this.api.client().listServices({ limit: 100, cursor }),
+      );
+      this.services.set(services);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -285,11 +288,11 @@ export class ServicesComponent {
   private async loadSelectors(): Promise<void> {
     try {
       const [projects, servers] = await Promise.all([
-        this.api.client().listProjects({ limit: 100 }),
-        this.api.client().listServers({ limit: 100 }),
+        fetchAll((cursor) => this.api.client().listProjects({ limit: 100, cursor })),
+        fetchAll((cursor) => this.api.client().listServers({ limit: 100, cursor })),
       ]);
-      this.projects.set(projects.data);
-      this.servers.set(servers.data.filter((server) => !server.is_build_server));
+      this.projects.set(projects);
+      this.servers.set(servers.filter((server) => !server.is_build_server));
     } catch (err) {
       this.error.set(ApiService.describe(err));
     }
@@ -300,8 +303,10 @@ export class ServicesComponent {
     this.environments.set([]);
     if (!projectUuid) return;
     try {
-      const page = await this.api.client().listEnvironments(projectUuid, { limit: 100 });
-      this.environments.set(page.data);
+      const environments = await fetchAll((cursor) =>
+        this.api.client().listEnvironments(projectUuid, { limit: 100, cursor }),
+      );
+      this.environments.set(environments);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     }

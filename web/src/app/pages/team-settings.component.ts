@@ -5,6 +5,7 @@ import { ApiService } from '../core/api.service';
 import { AuditFetch, AuditLogComponent } from './audit-log.component';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import type { components } from '../../api/schema';
 
 type SharedVariable = components['schemas']['SharedVariable'];
@@ -475,6 +476,7 @@ type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning' | 'tokens';
 })
 export class TeamSettingsComponent {
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly variables = signal<SharedVariable[]>([]);
   protected readonly team = signal<Team | null>(null);
@@ -485,18 +487,14 @@ export class TeamSettingsComponent {
 
   // Audit tab (gated by audit:read). The reusable viewer loads itself when the
   // tab is first rendered; we just hand it a team-scoped fetcher.
-  protected readonly canAudit = computed(() =>
-    (this.api.currentUser()?.permissions ?? []).some((p) => p === 'audit:read' || p === 'root'),
-  );
+  protected readonly canAudit = computed(() => this.api.can('audit:read'));
   protected readonly fetchAudit: AuditFetch = (query) => {
     const teamUuid = this.api.currentUser()?.teamUuid ?? '';
     return this.api.client().listTeamAudit(teamUuid, query);
   };
 
   // Provisioning tab (SCIM), gated by members:manage.
-  protected readonly canProvision = computed(() =>
-    (this.api.currentUser()?.permissions ?? []).some((p) => p === 'members:manage' || p === 'root'),
-  );
+  protected readonly canProvision = computed(() => this.api.can('members:manage'));
   protected readonly scimTokens = signal<ScimToken[]>([]);
   protected readonly createdToken = signal<ScimTokenCreated | null>(null);
   private scimLoaded = false;
@@ -504,9 +502,7 @@ export class TeamSettingsComponent {
 
   // Tokens tab (gated by tokens:read). The team-wide reading of what Security
   // shows each person of their own: same endpoint, `scope: 'team'`.
-  protected readonly canReadTokens = computed(() =>
-    (this.api.currentUser()?.permissions ?? []).some((p) => p === 'tokens:read' || p === 'root'),
-  );
+  protected readonly canReadTokens = computed(() => this.api.can('tokens:read'));
   protected readonly apiTokens = signal<ApiToken[]>([]);
   private tokensLoaded = false;
 
@@ -543,7 +539,13 @@ export class TeamSettingsComponent {
     const teamUuid = this.api.currentUser()?.teamUuid;
     const owner = token.owner_email ? ` (${token.owner_email})` : '';
     if (!teamUuid || this.busy()) return;
-    if (!confirm(`Revoke the API token "${token.name}"${owner}? Anything using it stops now.`)) {
+    if (
+      !(await this.confirm.ask({
+        title: 'Revoke the API token',
+        message: `Revoke the API token "${token.name}"${owner}? Anything using it stops now.`,
+        confirmLabel: 'Revoke',
+      }))
+    ) {
       return;
     }
     this.busy.set(true);
@@ -597,9 +599,13 @@ export class TeamSettingsComponent {
 
   protected async revokeScim(token: ScimToken): Promise<void> {
     const teamUuid = this.api.currentUser()?.teamUuid;
+    if (!teamUuid) return;
     if (
-      !teamUuid ||
-      !confirm(`Revoke the SCIM token "${token.name}"? Provisioning with it stops immediately.`)
+      !(await this.confirm.ask({
+        title: 'Revoke the SCIM token',
+        message: `Revoke the SCIM token "${token.name}"? Provisioning with it stops immediately.`,
+        confirmLabel: 'Revoke',
+      }))
     )
       return;
     this.busy.set(true);
@@ -666,7 +672,14 @@ export class TeamSettingsComponent {
   }
 
   protected async remove(variable: SharedVariable): Promise<void> {
-    if (!confirm(`Delete the shared variable "${variable.key}"?`)) return;
+    if (
+      !(await this.confirm.ask({
+        title: 'Delete the shared variable',
+        message: `Delete the shared variable "${variable.key}"?`,
+        confirmLabel: 'Delete',
+      }))
+    )
+      return;
     this.busy.set(true);
     this.error.set(null);
     try {

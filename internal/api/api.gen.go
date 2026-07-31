@@ -2748,7 +2748,7 @@ type ApplicationCreateDockerImage struct {
 	// PushRegistryCredentialUuid Registry where the built image is pushed, and from which the deployment server pulls it.
 	PushRegistryCredentialUuid *string `json:"push_registry_credential_uuid,omitempty"`
 
-	// RegistryCredentialUuid Credential of a private registry (amendment #17). The password only reaches the server through the **stdin** of `docker login --password-stdin` — never in `argv`, where a `ps` would read it (INV-003).
+	// RegistryCredentialUuid Credential of a private registry (amendment #17). The password reaches the server only as a per-request auth header on the typed agent channel (ADR-055) — no `docker login` ever runs, so the token never lands in any host's `~/.docker/config.json` (INV-003).
 	RegistryCredentialUuid *string `json:"registry_credential_uuid,omitempty"`
 
 	// ServerUuid Target server (must be `ready` and not a build server).
@@ -4431,7 +4431,7 @@ type PushoverConfig struct {
 	UserKey string `json:"user_key"`
 }
 
-// RegistryCredential Credential of a private registry (§6.5). The password **is never returned**, whatever the permission: it only exists at the end of a `docker login --password-stdin` on the server (INV-003).
+// RegistryCredential Credential of a private registry (§6.5). The password **is never returned**, whatever the permission: it is only encoded per request into the pull/push auth sent over the typed agent channel — no `docker login` ever runs and no token lands in any host's `~/.docker/config.json` (INV-003, ADR-055).
 type RegistryCredential struct {
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 

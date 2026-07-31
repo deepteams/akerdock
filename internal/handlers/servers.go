@@ -69,15 +69,12 @@ func (a *API) serverToAPI(r *http.Request, s store.Server, privateKeyUUID string
 }
 
 func (a *API) resolveServer(w http.ResponseWriter, r *http.Request, id *auth.Identity, serverUUID string) (store.Server, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(serverUUID); err == nil {
-		server, err := a.Store.GetServerByUUID(r.Context(), store.GetServerByUUIDParams{Uuid: u, TeamID: id.TeamID})
-		if err == nil {
-			return server, true
-		}
+	u, ok := a.scanUUID(w, r, serverUUID, "server")
+	if !ok {
+		return store.Server{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "server not found")
-	return store.Server{}, false
+	server, err := a.Store.GetServerByUUID(r.Context(), store.GetServerByUUIDParams{Uuid: u, TeamID: id.TeamID})
+	return resolveRow(a, w, r, "server", server, err)
 }
 
 // privateKeyUUIDByID resolves the public uuid of a server's key for

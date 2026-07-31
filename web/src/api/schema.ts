@@ -5026,7 +5026,7 @@ export interface components {
             /** @description Registry where the built image is pushed, and from which the deployment server pulls it. */
             push_registry_credential_uuid?: string | null;
         };
-        /** @description Creation from a Docker image of a registry (P0). Private registries via docker login on the server (§5.1). */
+        /** @description Creation from a Docker image of a registry (P0). Private registries authenticate per request over the typed agent channel (§5.1, ADR-055). */
         ApplicationCreateDockerImage: components["schemas"]["ApplicationCreateBase"] & {
             /** @enum {unknown} */
             source_type?: "docker_image";
@@ -5037,7 +5037,7 @@ export interface components {
              * @default latest
              */
             docker_image_tag: string;
-            /** @description Credential of a private registry (amendment #17). The password only reaches the server through the **stdin** of `docker login --password-stdin` — never in `argv`, where a `ps` would read it (INV-003). */
+            /** @description Credential of a private registry (amendment #17). The password reaches the server only as a per-request auth header on the typed agent channel (ADR-055) — no `docker login` ever runs, so the token never lands in any host's `~/.docker/config.json` (INV-003). */
             registry_credential_uuid?: string | null;
         } & {
             /**
@@ -5781,7 +5781,7 @@ export interface components {
                 [key: string]: string;
             };
         };
-        /** @description Credential of a private registry (§6.5). The password **is never returned**, whatever the permission: it only exists at the end of a `docker login --password-stdin` on the server (INV-003). */
+        /** @description Credential of a private registry (§6.5). The password **is never returned**, whatever the permission: it is only encoded per request into the pull/push auth sent over the typed agent channel — no `docker login` ever runs and no token lands in any host's `~/.docker/config.json` (INV-003, ADR-055). */
         RegistryCredential: {
             readonly uuid: string;
             name: string;

@@ -14,6 +14,8 @@ import { DrawerComponent } from '../../../ui/drawer/drawer.component';
 import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
+import { fetchAll } from '../../core/pagination';
+import { ConfirmService } from '../../../ui/confirm/confirm.service';
 import type { components } from '../../../api/schema';
 
 type ScheduledTask = components['schemas']['ScheduledTask'];
@@ -321,6 +323,7 @@ export class ApplicationTasksTabComponent {
   readonly uuid = input.required<string>();
 
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly tasks = signal<ScheduledTask[]>([]);
   protected readonly loading = signal(true);
@@ -365,8 +368,10 @@ export class ApplicationTasksTabComponent {
   private async load(uuid: string): Promise<void> {
     this.loading.set(true);
     try {
-      const page = await this.api.client().listScheduledTasks(uuid, { limit: 100 });
-      this.tasks.set(page.data);
+      const tasks = await fetchAll((cursor) =>
+        this.api.client().listScheduledTasks(uuid, { limit: 100, cursor }),
+      );
+      this.tasks.set(tasks);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -466,7 +471,11 @@ export class ApplicationTasksTabComponent {
 
   protected async remove(task: ScheduledTask): Promise<void> {
     if (
-      !confirm(`Delete the task "${task.name}"? Its schedule stops and its run history is removed.`)
+      !(await this.confirm.ask({
+        title: 'Delete the task',
+        message: `Delete the task "${task.name}"? Its schedule stops and its run history is removed.`,
+        confirmLabel: 'Delete',
+      }))
     ) {
       return;
     }

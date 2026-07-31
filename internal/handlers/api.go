@@ -5,6 +5,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -451,15 +452,40 @@ func (a *API) requireInstanceRoot(w http.ResponseWriter, r *http.Request) (*auth
 // valid UUID belonging to another team yields the same 404 as a missing one
 // (INV-002).
 func (a *API) resolveTeam(w http.ResponseWriter, r *http.Request, id *auth.Identity, teamUUID string) (store.Team, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(teamUUID); err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "team not found")
+	u, ok := a.scanUUID(w, r, teamUUID, "team")
+	if !ok {
 		return store.Team{}, false
 	}
-	team, err := a.Store.GetTeamByUUID(r.Context(), u)
-	if err != nil || !id.CanAccessTeam(team.ID) {
+	row, err := a.Store.GetTeamByUUID(r.Context(), u)
+	team, ok := resolveRow(a, w, r, "team", row, err)
+	if !ok {
+		return store.Team{}, false
+	}
+	if !id.CanAccessTeam(team.ID) {
 		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "team not found")
 		return store.Team{}, false
 	}
 	return team, true
+}
+
+// resolveRow turns the outcome of a single-row lookup into the right HTTP
+// answer. Only pgx.ErrNoRows is "not found": any other failure — a Postgres
+// outage, a cancelled context — is answered 500 and logged, never disguised
+// as a missing resource.
+func resolveRow[T any](a *API, w http.ResponseWriter, r *http.Request, what string, row T, err error) (T, bool) {
+	if err == nil {
+		return row, true
+	}
+	var zero T
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, what+" not found")
+	} else {
+		a.internalError(w, r, "resolve "+what, err)
+	}
+	return zero, false
+}
+
+func (a *API) internalError(w http.ResponseWriter, r *http.Request, op string, err error) {
+	a.Logger.Error("handler error", "op", op, "error", err)
+	httpapi.WriteError(w, r, http.StatusInternalServerError, httpapi.CodeInternal, "internal error")
 }

@@ -18,6 +18,7 @@ import {
   type ActionItem,
 } from '../../ui/actions-menu/actions-menu.component';
 import { ApiService } from '../core/api.service';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { NavigationHistory } from '../core/navigation-history.service';
 import { ApiError } from '../../api/client';
 import type { components } from '../../api/schema';
@@ -316,6 +317,7 @@ export class ServiceDetailComponent {
   readonly uuid = input.required<string>();
 
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
   private readonly router = inject(Router);
   private readonly history = inject(NavigationHistory);
 
@@ -456,9 +458,11 @@ export class ServiceDetailComponent {
     const svc = this.service();
     if (!svc || this.busy()) return;
     if (
-      !confirm(
-        `Delete the stack "${svc.name}"? Containers and network are removed; volumes are kept.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Delete the stack',
+        message: `Delete the stack "${svc.name}"? Containers and network are removed; volumes are kept.`,
+        confirmLabel: 'Delete',
+      }))
     ) {
       return;
     }

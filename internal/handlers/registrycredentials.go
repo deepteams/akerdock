@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
@@ -42,17 +40,14 @@ func registryCredentialToAPI(c store.RegistryCredential, inUse bool) api.Registr
 }
 
 func (a *API) resolveRegistryCredential(w http.ResponseWriter, r *http.Request, id *auth.Identity, credUUID string) (store.RegistryCredential, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(credUUID); err == nil {
-		cred, err := a.Store.GetRegistryCredentialByUUID(r.Context(), store.GetRegistryCredentialByUUIDParams{
-			Uuid: u, TeamID: id.TeamID,
-		})
-		if err == nil {
-			return cred, true
-		}
+	u, ok := a.scanUUID(w, r, credUUID, "registry credential")
+	if !ok {
+		return store.RegistryCredential{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "registry credential not found")
-	return store.RegistryCredential{}, false
+	cred, err := a.Store.GetRegistryCredentialByUUID(r.Context(), store.GetRegistryCredentialByUUIDParams{
+		Uuid: u, TeamID: id.TeamID,
+	})
+	return resolveRow(a, w, r, "registry credential", cred, err)
 }
 
 func (a *API) registryInUse(r *http.Request, credID int64) bool {

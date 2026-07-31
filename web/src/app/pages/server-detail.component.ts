@@ -16,6 +16,8 @@ import { IconComponent } from '../../ui/icon/icon.component';
 import { TerminalComponent } from '../../ui/terminal/terminal.component';
 import type { TerminalSessionInfo } from '../../ui/terminal/protocol';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { ApiError } from '../../api/client';
 import type { components } from '../../api/schema';
 
@@ -939,6 +941,7 @@ export class ServerDetailComponent {
 
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly server = signal<Server | null>(null);
   protected readonly resources = signal<ServerResource[]>([]);
@@ -1034,9 +1037,12 @@ export class ServerDetailComponent {
     if (this.busy()) return;
     if (
       action === 'stop' &&
-      !confirm(
-        'Stop the proxy? Every domain routed by this server stops answering until the proxy is started again.',
-      )
+      !(await this.confirm.ask({
+        title: 'Stop the proxy',
+        message:
+          'Stop the proxy? Every domain routed by this server stops answering until the proxy is started again.',
+        confirmLabel: 'Stop',
+      }))
     ) {
       return;
     }
@@ -1074,19 +1080,19 @@ export class ServerDetailComponent {
       const client = this.api.client();
       const [server, resources, domains, certificates] = await Promise.all([
         client.getServer(uuid),
-        client.listServerResources(uuid, { limit: 100 }),
+        fetchAll((cursor) => client.listServerResources(uuid, { limit: 100, cursor })),
         client.listServerDomains(uuid),
-        client.listServerCertificates(uuid, { limit: 100 }),
+        fetchAll((cursor) => client.listServerCertificates(uuid, { limit: 100, cursor })),
       ]);
       this.setServer(server);
-      this.resources.set(resources.data);
+      this.resources.set(resources);
       this.domains.set(domains.data);
-      this.certificates.set(certificates.data);
+      this.certificates.set(certificates);
       // Feeds the DNS-01 select of the proxy settings; decorative, must not
       // block the page.
       try {
-        const creds = await client.listDnsCredentials({ limit: 100 });
-        this.dnsCredentials.set(creds.data);
+        const creds = await fetchAll((cursor) => client.listDnsCredentials({ limit: 100, cursor }));
+        this.dnsCredentials.set(creds);
       } catch {
         /* the select simply stays empty */
       }
@@ -1290,11 +1296,14 @@ export class ServerDetailComponent {
   protected async loadCertificates(): Promise<void> {
     this.error.set(null);
     try {
-      const page = await this.api.client().listServerCertificates(this.uuid(), {
-        limit: 100,
-        expiring_within_days: this.expiringDays ?? undefined,
-      });
-      this.certificates.set(page.data);
+      const certificates = await fetchAll((cursor) =>
+        this.api.client().listServerCertificates(this.uuid(), {
+          limit: 100,
+          cursor,
+          expiring_within_days: this.expiringDays ?? undefined,
+        }),
+      );
+      this.certificates.set(certificates);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     }
@@ -1316,9 +1325,12 @@ export class ServerDetailComponent {
 
   protected async renew(cert: Certificate): Promise<void> {
     if (
-      !confirm(
-        `Renew the certificate for "${cert.main_domain}" now? A new ACME issuance is attempted — repeated renewals can hit the CA's rate limits.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Renew the certificate',
+        message: `Renew the certificate for "${cert.main_domain}" now? A new ACME issuance is attempted — repeated renewals can hit the CA's rate limits.`,
+        confirmLabel: 'Renew',
+        danger: false,
+      }))
     ) {
       return;
     }
@@ -1340,9 +1352,11 @@ export class ServerDetailComponent {
     const server = this.server();
     if (!server) return;
     if (
-      !confirm(
-        `Delete the server "${server.name}"? It is unregistered from AkerDock; nothing is uninstalled from the machine itself.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Delete the server',
+        message: `Delete the server "${server.name}"? It is unregistered from AkerDock; nothing is uninstalled from the machine itself.`,
+        confirmLabel: 'Delete',
+      }))
     ) {
       return;
     }

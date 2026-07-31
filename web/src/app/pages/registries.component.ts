@@ -3,7 +3,9 @@ import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
 import type { components } from '../../api/schema';
 
 type RegistryCredential = components['schemas']['RegistryCredential'];
@@ -194,6 +196,7 @@ type RegistryCredential = components['schemas']['RegistryCredential'];
 })
 export class RegistriesComponent {
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly credentials = signal<RegistryCredential[]>([]);
   protected readonly loading = signal(true);
@@ -212,8 +215,10 @@ export class RegistriesComponent {
 
   private async load(): Promise<void> {
     try {
-      const page = await this.api.client().listRegistryCredentials({ limit: 100 });
-      this.credentials.set(page.data);
+      const credentials = await fetchAll((cursor) =>
+        this.api.client().listRegistryCredentials({ limit: 100, cursor }),
+      );
+      this.credentials.set(credentials);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -272,7 +277,11 @@ export class RegistriesComponent {
 
   protected async remove(cred: RegistryCredential): Promise<void> {
     if (
-      !confirm(`Delete the credential "${cred.name}"? Pulls from ${cred.registry_url} will fail.`)
+      !(await this.confirm.ask({
+        title: 'Delete the credential',
+        message: `Delete the credential "${cred.name}"? Pulls from ${cred.registry_url} will fail.`,
+        confirmLabel: 'Delete',
+      }))
     ) {
       return;
     }

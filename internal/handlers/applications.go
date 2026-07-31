@@ -147,15 +147,12 @@ func applicationToAPI(row appRow) api.Application {
 }
 
 func (a *API) resolveApplication(w http.ResponseWriter, r *http.Request, id *auth.Identity, appUUID string) (store.GetApplicationByUUIDRow, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(appUUID); err == nil {
-		row, err := a.Store.GetApplicationByUUID(r.Context(), store.GetApplicationByUUIDParams{Uuid: u, TeamID: id.TeamID})
-		if err == nil {
-			return row, true
-		}
+	u, ok := a.scanUUID(w, r, appUUID, "application")
+	if !ok {
+		return store.GetApplicationByUUIDRow{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "application not found")
-	return store.GetApplicationByUUIDRow{}, false
+	row, err := a.Store.GetApplicationByUUID(r.Context(), store.GetApplicationByUUIDParams{Uuid: u, TeamID: id.TeamID})
+	return resolveRow(a, w, r, "application", row, err)
 }
 
 // ListApplications implements GET /applications (permission: read).

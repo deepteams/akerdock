@@ -9,17 +9,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/docker/docker/api/types/container"
 
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/hostops"
-	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/queue"
-	"github.com/deepteams/akerdock/internal/sshexec"
+	"github.com/deepteams/akerdock/internal/serverdial"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -63,15 +61,6 @@ func (h *ProxyLifecycle) Execute(ctx context.Context, job store.Job, rec *queue.
 	if server.ProxyType != store.ProxyTypeTraefik {
 		return nil, fmt.Errorf("this server has no managed proxy")
 	}
-	key, err := h.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
-	if err != nil {
-		return nil, err
-	}
-	pem, err := h.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return nil, err
-	}
-
 	rec.Start(ctx, payload.Action)
 	rt, err := h.Docker.Runtime(ctx, server.ID)
 	if err != nil {
@@ -92,8 +81,7 @@ func (h *ProxyLifecycle) Execute(ctx context.Context, job store.Job, rec *queue.
 		// host): converging is what "start" means — not a bare start on a
 		// name that no longer exists. The bootstrap is a provisioning path
 		// and stays on SSH.
-		client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
-			time.Duration(server.SshTimeoutSeconds)*time.Second, pinnedHostKey(server))
+		client, err := serverdial.Open(ctx, h.Store, h.Keyring, server)
 		if err != nil {
 			rec.Fail(ctx, "SSH connection failed")
 			return nil, err

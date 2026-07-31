@@ -256,6 +256,18 @@ export class AkerDockClient {
   }
 
   /**
+   * Live runtime logs (SSE, `Last-Event-ID` resumable): each `log` event
+   * carries a `LogLine`. Powers "follow" in the UI the way it powers
+   * `akerdock logs -f` — the snapshot endpoint is for the initial window only.
+   */
+  streamApplicationLogs(uuid: string, query?: { component?: string }): EventSource {
+    const url = new URL(`${this.baseUrl}/applications/${uuid}/logs/stream`, globalThis.location.origin);
+    if (query?.component) url.searchParams.set('component', query.component);
+    if (this.token) url.searchParams.set('access_token', this.token);
+    return new EventSource(url, { withCredentials: true });
+  }
+
+  /**
    * Deploys an application. `forceRebuild` rebuilds without cache;
    * `skipBuild` rebuilds nothing and reapplies the current configuration over
    * the running artifact (ADR-048) — the two are mutually exclusive, and the

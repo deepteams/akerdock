@@ -190,7 +190,7 @@ Build packs without a build step (docker image, rollback) pass through `cloning`
 | State | Preconditions | Exact actions | Remote side effects | Timeout | Crash during this state (recovery rule) | Failure transition |
 |---|---|---|---|---|---|---|
 | **queued** | Deployment + job committed; §3.2 cap respected | Waiting for acquisition; target of coalescing §3.4 | None | None (bounded by `deployment_queue_limit`) | Nothing to recover (no effect) | Cancellation → `cancelled` |
-| **preparing** | §3.1 lock acquired, §3.2 slot acquired, server `ready` | Load the config snapshot; SSH connection (`docker info` test); check disk space (`df -P /var/lib/akerdock`, min threshold **2 GiB free (proposed default)**); create the directory tree (§5.1); generate and upload `build.env`, `runtime.env`, `secrets/` (§5.7); run the **pre-deployment command** (§10); check the destination network (`docker network inspect`, create if absent) | Directories + env files (0600); destination network | SSH connect: **10 s** (configurable per server, PRD §3.1); full state: **120 s (proposed default)** | Idempotent: replay everything (mkdir -p, re-upload files, re-run the pre-command — it MUST be idempotent, documented §10) | `failed`; compensation C1 (§9) |
+| **preparing** | §3.1 lock acquired, §3.2 slot acquired, server `ready` | Load the config snapshot; SSH connection (`docker info` test); check disk space (`df -P /var/lib/akerdock`, min threshold **2 GiB free (proposed default)**); create the directory tree (§5.1) — since ADR-054/055 no `build.env`/`runtime.env` is uploaded here: runtime variables ride the typed create body over the agent channel and build args/secrets travel in the typed build command (only the nixpacks build pack still sources a host `build.env`, written at build time); run the **pre-deployment command** (§10); check the destination network (`docker network inspect`, create if absent) | Directories (0700); destination network | SSH connect: **10 s** (configurable per server, PRD §3.1); full state: **120 s (proposed default)** | Idempotent: replay everything (mkdir -p, re-upload files, re-run the pre-command — it MUST be idempotent, documented §10) | `failed`; compensation C1 (§9) |
 | **cloning** | Git source; valid credentials | Commands §5.3.1: shallow clone at the exact SHA, submodules/LFS if enabled | `source/<deployment_uuid>/` directory | **600 s (proposed default)**, configurable per application | Potentially partial directory → `rm -rf` of this deployment's directory then re-clone (idempotent by destruction) | `failed`; C1 |
 | **building** | Source present; build plan generated | Commands §5.3.2/§5.4/§5.5/§5.6 depending on build pack; logs streamed (§12.2); `--no-cache` if `forced` | Local image `akerdock/<app_uuid>:<sha12>` with §6 labels | **3600 s (proposed default)**, configurable per application | `docker image inspect akerdock/<app_uuid>:<sha12>` + `akerdock.deployment_uuid` label: if present and complete → move to the next state; otherwise rerun the build (the BuildKit cache makes the replay cheap) | `failed` (deterministic: no auto retry); C1 |
 | **pushing** *(optional)* | Registry configured (decision §27.6) or required (build server, multi-server) | `docker tag` + `docker push` (§5.3.3); **OCI digest resolution** and recording in `DeploymentArtifact` | Image in the registry | **900 s (proposed default)** | Idempotent push (deduplicated layers) → replay; re-resolve the digest | `failed` if registry mandatory; **otherwise** degradation to local-retention mode + warning **(proposed default)**; C1 |
@@ -223,9 +223,7 @@ Build packs without a build step (docker image, rollback) pass through `cloning`
 ├── applications/<app_uuid>/
 │   ├── source/<deployment_uuid>/             # throwaway clone per deployment, purged in finishing (retention: previous + current)
 │   ├── env/
-│   │   ├── build.env                         # non-secret build-time variables (0600)
-│   │   ├── runtime.env                       # runtime variables, container --env-file (0600)
-│   │   └── secrets/<VAR_NAME>                # one file per BuildKit build secret (0600)
+│   │   └── build.env                         # build-time variables — written only for the nixpacks build pack (0600, ADR-055); other paths never materialize env on the host
 │   └── keys/deploy_key                       # ephemeral Git deploy key if needed (0600, deleted after clone)
 ├── proxy/
 │   ├── dynamic/<app_uuid>.yaml               # Traefik dynamic config per application (§7)
@@ -240,10 +238,10 @@ Build packs without a build step (docker image, rollback) pass through `cloning`
 
 | Category | Materialization | Consumption |
 |---|---|---|
-| Runtime | `env/runtime.env` (`KEY=value`, multiline via quoting) | `docker create --env-file …` — never `-e KEY=value` on the command line |
-| Non-secret build-time | `env/build.env` | `--build-arg KEY` **without the value in argv**: the value is read from the environment of the `docker` process, exported from `build.env` (via `set -a; . build.env; set +a` in the remote session) — nothing sensitive in `ps` (INV-012) |
-| Build secret (BuildKit opt-in) | One file per secret: `env/secrets/<NAME>` | `--secret id=<NAME>,src=…/env/secrets/<NAME>`; consumed in the Dockerfile via `RUN --mount=type=secret,id=<NAME>`; absent from image layers and history |
-| Predefined (decision §27.22) | Injected into `runtime.env`: `AKERDOCK_FQDN`, `AKERDOCK_URL`, `AKERDOCK_BRANCH`, `AKERDOCK_RESOURCE_UUID`, `AKERDOCK_CONTAINER_NAME`, `PORT`, `HOST`, `AKERDOCK_PR_ID` (previews); `SOURCE_COMMIT` as an **opt-in** build arg (PRD §5.2) | Like the categories above |
+| Runtime | Rendered on the control plane, never on the host (ADR-054/055) | Rides the **typed container-create body** over the agent channel — never `-e KEY=value` on a command line, no `runtime.env`/`runtime.sh` on the host |
+| Non-secret build-time | Typed build command body (ADR-055); nixpacks only: `env/build.env` on the host | BuildKit build args in the typed command — nothing sensitive in `ps` (INV-012); nixpacks exports them via `set -a; . build.env; set +a` in the remote session |
+| Build secret (BuildKit opt-in) | Typed build command body — never a host file (ADR-055) | BuildKit **session secret**; consumed in the Dockerfile via `RUN --mount=type=secret,id=<NAME>`; absent from image layers and history |
+| Predefined (decision §27.22) | Injected with the runtime variables: `AKERDOCK_FQDN`, `AKERDOCK_URL`, `AKERDOCK_BRANCH`, `AKERDOCK_RESOURCE_UUID`, `AKERDOCK_CONTAINER_NAME`, `PORT`, `HOST`, `AKERDOCK_PR_ID` (previews); `SOURCE_COMMIT` as an **opt-in** build arg (PRD §5.2) | Like the categories above |
 
 Rules:
 - Interpolation of shared variables (`{{team.VAR}}`…) and of the `deployment` pseudo-scope (`{{deployment.fqdn}}`, `{{deployment.url}}`, `{{deployment.pr_id}}` — the deployment's own identity, resolved to the primary domain in production and to the preview FQDN which changes per PR; case-insensitive keys) and verification of required variables `${VAR:?}` **on the control plane, before enqueue** — a missing value blocks the deployment at validation, not mid-build.
@@ -277,9 +275,16 @@ The **base directory** (monorepo) does not change the clone; it changes the buil
 
 #### 5.3.2 Build (`building` state)
 
+> **ADR-055 phase 2.** Dockerfile builds no longer run this shell command: the
+> agent drives the daemon's embedded BuildKit through a typed build command
+> whose body carries the build args and BuildKit session secrets — no
+> `build.env` sourcing, no `--secret src=` host files. The snippet below is
+> kept as the semantic reference for flags, labels and arg/secret handling
+> (only the nixpacks path still builds through the host CLI, §5.5).
+
 ```sh
 cd /var/lib/akerdock/applications/<app_uuid>/source/<deployment_uuid>/<base_directory>
-set -a; . /var/lib/akerdock/applications/<app_uuid>/env/build.env; set +a
+set -a; . /var/lib/akerdock/applications/<app_uuid>/env/build.env; set +a   # superseded — see note above
 DOCKER_BUILDKIT=1 docker build \
   --file <dockerfile_location>            # default: ./Dockerfile
   --progress plain \
@@ -301,8 +306,9 @@ DOCKER_BUILDKIT=1 docker build \
 #### 5.3.3 Push (`pushing` state, if a registry is configured — decision §27.6)
 
 ```sh
-# login: password via stdin, never argv
-printf '%s' "$REGISTRY_PASSWORD" | docker login <registry_host> --username <user> --password-stdin
+# auth: encoded per request into the push/pull command sent over the typed
+# agent channel (ADR-051/055) — no `docker login` ever runs, so no token
+# lands in any host's ~/.docker/config.json (INV-003)
 docker tag akerdock/<app_uuid>:<sha12> <registry>/<image>:<sha12>
 [docker tag akerdock/<app_uuid>:<sha12> <registry>/<image>:<tag_custom>]   # PRD §5.2
 docker push <registry>/<image>:<sha12>
@@ -322,7 +328,7 @@ docker volume create --label akerdock.managed=true --label akerdock.resource_uui
 docker create \
   --name <app_uuid>-next \
   --network <destination_network> \
-  --env-file /var/lib/akerdock/applications/<app_uuid>/env/runtime.env \
+  # runtime variables travel in the typed create body over the agent channel (ADR-054/055), not via --env-file \
   --restart unless-stopped \
   --stop-timeout <stop_grace_period> \
   --label akerdock.managed=true \
@@ -349,7 +355,7 @@ In **non-rolling** mode (§7.4), the old container is stopped and removed before
 No Git source: `cloning`/`building` are no-ops.
 
 ```sh
-[printf '%s' "$REGISTRY_PASSWORD" | docker login <registry_host> --username <user> --password-stdin]
+# private registry: per-request auth on the typed agent channel (ADR-055), no docker login
 docker pull <image>:<tag>
 docker image inspect --format '{{index .RepoDigests 0}}' <image>:<tag>   # OCI digest frozen for this deployment
 ```

@@ -6,8 +6,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
@@ -41,15 +39,12 @@ func dnsCredentialToAPI(c store.CloudCredential, inUse bool) api.DnsCredential {
 }
 
 func (a *API) resolveDNSCredential(w http.ResponseWriter, r *http.Request, id *auth.Identity, credUUID string) (store.CloudCredential, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(credUUID); err == nil {
-		cred, err := a.Store.GetDNSCredentialByUUID(r.Context(), store.GetDNSCredentialByUUIDParams{Uuid: u, TeamID: id.TeamID})
-		if err == nil {
-			return cred, true
-		}
+	u, ok := a.scanUUID(w, r, credUUID, "DNS credential")
+	if !ok {
+		return store.CloudCredential{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "DNS credential not found")
-	return store.CloudCredential{}, false
+	cred, err := a.Store.GetDNSCredentialByUUID(r.Context(), store.GetDNSCredentialByUUIDParams{Uuid: u, TeamID: id.TeamID})
+	return resolveRow(a, w, r, "DNS credential", cred, err)
 }
 
 // ListDnsCredentials implements GET /dns-credentials.

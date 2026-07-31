@@ -22,6 +22,7 @@ import (
 	"github.com/deepteams/akerdock/internal/hostops"
 	hostfake "github.com/deepteams/akerdock/internal/hostops/fake"
 	"github.com/deepteams/akerdock/internal/pguuid"
+	"github.com/deepteams/akerdock/internal/serverdial"
 	"github.com/deepteams/akerdock/internal/store"
 	"github.com/deepteams/akerdock/internal/uptime"
 )
@@ -705,11 +706,11 @@ func TestRetentionAndHostKey(t *testing.T) {
 	}
 	newScheduler(t, &fakeSchedulerStore{errs: errs}).purgeRetention(context.Background())
 
-	if hostKeyOf(store.Server{}) != "" {
+	if serverdial.HostKey(store.Server{}) != "" {
 		t.Fatal("nil host key did not map to TOFU")
 	}
 	key := "SHA256:key"
-	if got := hostKeyOf(store.Server{HostKeyFingerprint: &key}); got != key {
+	if got := serverdial.HostKey(store.Server{HostKeyFingerprint: &key}); got != key {
 		t.Fatalf("host key = %q", got)
 	}
 	if scheduler.tick() != cronInterval {

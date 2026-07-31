@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
@@ -74,13 +72,16 @@ func (a *API) ApprovePreviewFork(w http.ResponseWriter, r *http.Request, applica
 	if !ok {
 		return
 	}
-	var u pgtype.UUID
-	if err := u.Scan(previewUuid); err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "preview not found")
+	u, ok := a.scanUUID(w, r, previewUuid, "preview")
+	if !ok {
 		return
 	}
-	preview, err := a.Store.GetPreviewByUUIDForTeam(r.Context(), store.GetPreviewByUUIDForTeamParams{Uuid: u, TeamID: id.TeamID})
-	if err != nil || preview.ApplicationID != row.Resource.ID {
+	res, err := a.Store.GetPreviewByUUIDForTeam(r.Context(), store.GetPreviewByUUIDForTeamParams{Uuid: u, TeamID: id.TeamID})
+	preview, ok := resolveRow(a, w, r, "preview", res, err)
+	if !ok {
+		return
+	}
+	if preview.ApplicationID != row.Resource.ID {
 		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "preview not found")
 		return
 	}
@@ -118,15 +119,20 @@ func (a *API) ApprovePreviewFork(w http.ResponseWriter, r *http.Request, applica
 
 // resolvePreview loads a preview by uuid, bound to the team and application.
 func (a *API) resolvePreview(w http.ResponseWriter, r *http.Request, id *auth.Identity, appResourceID int64, previewUuid string) (store.Preview, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(previewUuid); err == nil {
-		preview, err := a.Store.GetPreviewByUUIDForTeam(r.Context(), store.GetPreviewByUUIDForTeamParams{Uuid: u, TeamID: id.TeamID})
-		if err == nil && preview.ApplicationID == appResourceID {
-			return preview, true
-		}
+	u, ok := a.scanUUID(w, r, previewUuid, "preview")
+	if !ok {
+		return store.Preview{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "preview not found")
-	return store.Preview{}, false
+	row, err := a.Store.GetPreviewByUUIDForTeam(r.Context(), store.GetPreviewByUUIDForTeamParams{Uuid: u, TeamID: id.TeamID})
+	preview, ok := resolveRow(a, w, r, "preview", row, err)
+	if !ok {
+		return store.Preview{}, false
+	}
+	if preview.ApplicationID != appResourceID {
+		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "preview not found")
+		return store.Preview{}, false
+	}
+	return preview, true
 }
 
 // DestroyPreview implements DELETE /applications/{uuid}/previews/{uuid}

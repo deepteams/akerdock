@@ -22,6 +22,7 @@ import (
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
+	"github.com/deepteams/akerdock/internal/serverdial"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
@@ -118,11 +119,7 @@ func (h *ServerCleanup) Execute(ctx context.Context, job store.Job, rec *queue.S
 		return nil, err
 	}
 
-	key, err := h.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
-	if err != nil {
-		return nil, err
-	}
-	pem, err := h.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
+	pem, err := serverdial.Key(ctx, h.Store, h.Keyring, server)
 	if err != nil {
 		return nil, err
 	}
@@ -132,8 +129,8 @@ func (h *ServerCleanup) Execute(ctx context.Context, job store.Job, rec *queue.S
 			return sshexec.Dial(ctx, host, port, user, privateKey, timeout, hostKey)
 		}
 	}
-	client, err := dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
-		time.Duration(server.SshTimeoutSeconds)*time.Second, pinnedHostKey(server))
+	client, err := dial(ctx, server.Host, int(server.Port), server.SshUser, pem,
+		time.Duration(server.SshTimeoutSeconds)*time.Second, serverdial.HostKey(server))
 	if err != nil {
 		rec.Start(ctx, "ssh_connect")
 		rec.Fail(ctx, "SSH connection failed")

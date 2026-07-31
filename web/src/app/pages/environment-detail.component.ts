@@ -11,6 +11,8 @@ import {
 import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { BreadcrumbComponent, type Crumb } from '../../ui/breadcrumb/breadcrumb.component';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
@@ -507,6 +509,7 @@ export class EnvironmentDetailComponent {
 
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly project = signal<Project | null>(null);
   protected readonly environment = signal<Environment | null>(null);
@@ -575,23 +578,29 @@ export class EnvironmentDetailComponent {
       const [project, environment, apps, services, databases, variables] = await Promise.all([
         this.api.client().getProject(uuid),
         this.api.client().getEnvironment(uuid, envUuid),
-        this.api.client().listApplications({ environment_uuid: envUuid, limit: 100 }),
-        this.api.client().listServices({ limit: 100 }),
-        this.api.client().listDatabases({ environment_uuid: envUuid, limit: 100 }),
+        fetchAll((cursor) =>
+          this.api.client().listApplications({ environment_uuid: envUuid, limit: 100, cursor }),
+        ),
+        fetchAll((cursor) => this.api.client().listServices({ limit: 100, cursor })),
+        fetchAll((cursor) =>
+          this.api.client().listDatabases({ environment_uuid: envUuid, limit: 100, cursor }),
+        ),
         // The list filters by scope only, so narrow to THIS environment here.
-        this.api.client().listSharedVariables({ scope: 'environment', limit: 100 }),
+        fetchAll((cursor) =>
+          this.api.client().listSharedVariables({ scope: 'environment', limit: 100, cursor }),
+        ),
       ]);
       this.project.set(project);
       this.environment.set(environment);
       this.cfgName = environment.name;
       this.cfgDescription = environment.description ?? '';
       this.variables.set(
-        variables.data
+        variables
           .filter((v) => v.environment_uuid === envUuid)
           .sort((a, b) => a.key.localeCompare(b.key)),
       );
       const rows: ResourceRow[] = [
-        ...apps.data.map((app): ResourceRow => ({
+        ...apps.map((app): ResourceRow => ({
           uuid: app.uuid,
           kind: 'application',
           icon: KIND_ICON.application,
@@ -604,7 +613,7 @@ export class EnvironmentDetailComponent {
         })),
         // The /services list has no environment filter in the contract yet,
         // hence the client-side narrowing.
-        ...services.data
+        ...services
           .filter((service) => service.environment_uuid === envUuid)
           .map((service): ResourceRow => ({
             uuid: service.uuid,
@@ -617,7 +626,7 @@ export class EnvironmentDetailComponent {
             detail: '',
             link: ['/services', service.uuid],
           })),
-        ...databases.data.map((db): ResourceRow => ({
+        ...databases.map((db): ResourceRow => ({
           uuid: db.uuid,
           kind: 'database',
           icon: KIND_ICON.database,
@@ -684,9 +693,11 @@ export class EnvironmentDetailComponent {
 
   protected async removeVar(v: SharedVariable): Promise<void> {
     if (
-      !confirm(
-        `Delete the environment variable "${v.key}"? Resources pick it up at their next deployment.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Delete the variable',
+        message: `Delete the environment variable "${v.key}"? Resources pick it up at their next deployment.`,
+        confirmLabel: 'Delete',
+      }))
     ) {
       return;
     }
@@ -724,7 +735,15 @@ export class EnvironmentDetailComponent {
   protected async deleteEnvironment(): Promise<void> {
     const env = this.environment();
     if (!env || env.resource_count) return;
-    if (!confirm(`Delete the environment "${env.name}"? This cannot be undone.`)) return;
+    if (
+      !(await this.confirm.ask({
+        title: 'Delete the environment',
+        message: `Delete the environment "${env.name}"? This cannot be undone.`,
+        confirmLabel: 'Delete',
+      }))
+    ) {
+      return;
+    }
     this.busy.set(true);
     this.cfgError.set(null);
     try {
@@ -737,9 +756,11 @@ export class EnvironmentDetailComponent {
   }
 
   private async reloadVariables(): Promise<void> {
-    const page = await this.api.client().listSharedVariables({ scope: 'environment', limit: 100 });
+    const variables = await fetchAll((cursor) =>
+      this.api.client().listSharedVariables({ scope: 'environment', limit: 100, cursor }),
+    );
     this.variables.set(
-      page.data
+      variables
         .filter((v) => v.environment_uuid === this.envUuid())
         .sort((a, b) => a.key.localeCompare(b.key)),
     );

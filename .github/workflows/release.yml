@@ -16,31 +16,18 @@ permissions:
 
 jobs:
   # The gates of CI apply to a release too — a tag must not be able to ship
-  # what a pull request could not merge.
+  # what a pull request could not merge. Enforced by construction: verify IS
+  # the CI workflow (workflow_call), so the gate list has one definition and
+  # a job added to CI automatically gates releases. A tag push counts as a
+  # push event, so the post-merge tiers (docker-integration, e2e, dist) run
+  # here too — the pre-release proofs the PRD asks for.
   verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Check generated code is up to date
-        run: |
-          make generate
-          git diff --exit-code || {
-            echo "::error::generated code is out of sync with the spec — run 'make generate' and commit"
-            exit 1
-          }
-      - name: Test
-        run: go test ./...
-      - name: Run the complete E2E journey
-        run: make e2e
-      - name: Smoke-test the distribution
-        run: bash scripts/dist-smoke.sh
+    uses: ./.github/workflows/ci.yml
 
   publish:
     needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 

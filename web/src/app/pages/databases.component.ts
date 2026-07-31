@@ -6,6 +6,7 @@ import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component'
 import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
 import type { components } from '../../api/schema';
 
 type Database = components['schemas']['Database'];
@@ -237,8 +238,10 @@ export class DatabasesComponent {
 
   private async load(): Promise<void> {
     try {
-      const page = await this.api.client().listDatabases({ limit: 100 });
-      this.databases.set(page.data);
+      const databases = await fetchAll((cursor) =>
+        this.api.client().listDatabases({ limit: 100, cursor }),
+      );
+      this.databases.set(databases);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -255,11 +258,11 @@ export class DatabasesComponent {
   private async loadSelectors(): Promise<void> {
     try {
       const [projects, servers] = await Promise.all([
-        this.api.client().listProjects({ limit: 100 }),
-        this.api.client().listServers({ limit: 100 }),
+        fetchAll((cursor) => this.api.client().listProjects({ limit: 100, cursor })),
+        fetchAll((cursor) => this.api.client().listServers({ limit: 100, cursor })),
       ]);
-      this.projects.set(projects.data);
-      this.servers.set(servers.data);
+      this.projects.set(projects);
+      this.servers.set(servers);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     }
@@ -270,8 +273,10 @@ export class DatabasesComponent {
     this.environments.set([]);
     if (!projectUuid) return;
     try {
-      const page = await this.api.client().listEnvironments(projectUuid, { limit: 100 });
-      this.environments.set(page.data);
+      const environments = await fetchAll((cursor) =>
+        this.api.client().listEnvironments(projectUuid, { limit: 100, cursor }),
+      );
+      this.environments.set(environments);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     }

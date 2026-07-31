@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
@@ -52,15 +50,12 @@ func (a *API) jobToAPI(r *http.Request, j store.Job) api.Job {
 }
 
 func (a *API) resolveJob(w http.ResponseWriter, r *http.Request, id *auth.Identity, jobUUID string) (store.Job, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(jobUUID); err == nil {
-		job, err := a.Store.GetJobByUUIDForTeam(r.Context(), store.GetJobByUUIDForTeamParams{Uuid: u, TeamID: ptr(id.TeamID)})
-		if err == nil {
-			return job, true
-		}
+	u, ok := a.scanUUID(w, r, jobUUID, "job")
+	if !ok {
+		return store.Job{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "job not found")
-	return store.Job{}, false
+	job, err := a.Store.GetJobByUUIDForTeam(r.Context(), store.GetJobByUUIDForTeamParams{Uuid: u, TeamID: ptr(id.TeamID)})
+	return resolveRow(a, w, r, "job", job, err)
 }
 
 // ListJobs implements GET /jobs (permission: read) — team-scoped, mainly

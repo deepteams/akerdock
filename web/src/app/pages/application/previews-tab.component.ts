@@ -16,6 +16,7 @@ import { ModalComponent } from '../../../ui/modal/modal.component';
 import { IconComponent } from '../../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../../ui/status-badge/status-badge.component';
 import { ApiService } from '../../core/api.service';
+import { ConfirmService } from '../../../ui/confirm/confirm.service';
 import { DEPLOYMENT_EVENTS, LiveEventsService, PREVIEW_EVENTS } from '../../core/live-refresh';
 import type { components } from '../../../api/schema';
 
@@ -258,6 +259,7 @@ export class ApplicationPreviewsTabComponent implements OnDestroy {
   readonly uuid = input.required<string>();
 
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
   private readonly router = inject(Router);
 
   /** The application's preview_deploy_on_open — fed by the parent page so a
@@ -372,9 +374,12 @@ export class ApplicationPreviewsTabComponent implements OnDestroy {
   protected async approve(preview: Preview): Promise<void> {
     if (!preview.uuid || this.busy()) return;
     if (
-      !confirm(
-        `Approve the preview of fork PR #${preview.pr_id}? Its code will be built on this server — no secret is ever injected.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Approve the fork preview',
+        message: `Approve the preview of fork PR #${preview.pr_id}? Its code will be built on this server — no secret is ever injected.`,
+        confirmLabel: 'Approve',
+        danger: false,
+      }))
     ) {
       return;
     }

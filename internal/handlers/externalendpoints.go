@@ -55,17 +55,14 @@ const (
 // every other resolve helper, a foreign team's row is "not found", never
 // "forbidden" — the boundary must not leak what exists on the other side.
 func (a *API) resolveExternalEndpoint(w http.ResponseWriter, r *http.Request, id *auth.Identity, endpointUUID string) (store.ExternalEndpoint, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(endpointUUID); err == nil {
-		row, err := a.Store.GetExternalEndpointByUUID(r.Context(), store.GetExternalEndpointByUUIDParams{
-			Uuid: u, TeamID: id.TeamID,
-		})
-		if err == nil {
-			return row, true
-		}
+	u, ok := a.scanUUID(w, r, endpointUUID, "external endpoint")
+	if !ok {
+		return store.ExternalEndpoint{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "external endpoint not found")
-	return store.ExternalEndpoint{}, false
+	row, err := a.Store.GetExternalEndpointByUUID(r.Context(), store.GetExternalEndpointByUUIDParams{
+		Uuid: u, TeamID: id.TeamID,
+	})
+	return resolveRow(a, w, r, "external endpoint", row, err)
 }
 
 // externalEndpointToAPI renders an endpoint, resolving the internal ids it

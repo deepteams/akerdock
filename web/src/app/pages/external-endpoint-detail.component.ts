@@ -14,6 +14,8 @@ import { RouterLink } from '@angular/router';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import type { components } from '../../api/schema';
 
 type ExternalEndpoint = components['schemas']['ExternalEndpoint'];
@@ -347,6 +349,7 @@ type Environment = components['schemas']['Environment'];
 })
 export class ExternalEndpointDetailComponent {
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   /** Route parameter, bound by withComponentInputBinding(). */
   readonly uuid = input.required<string>();
@@ -387,16 +390,22 @@ export class ExternalEndpointDetailComponent {
     try {
       const [endpoint, grants, sessions, servers, projects] = await Promise.all([
         this.api.client().getExternalEndpoint(uuid),
-        this.api.client().listExternalEndpointGrants(uuid, { limit: 100 }),
-        this.api.client().listPortForwardSessions({ external_endpoint_uuid: uuid, limit: 100 }),
-        this.api.client().listServers({ limit: 100 }),
-        this.api.client().listProjects({ limit: 100 }),
+        fetchAll((cursor) =>
+          this.api.client().listExternalEndpointGrants(uuid, { limit: 100, cursor }),
+        ),
+        fetchAll((cursor) =>
+          this.api
+            .client()
+            .listPortForwardSessions({ external_endpoint_uuid: uuid, limit: 100, cursor }),
+        ),
+        fetchAll((cursor) => this.api.client().listServers({ limit: 100, cursor })),
+        fetchAll((cursor) => this.api.client().listProjects({ limit: 100, cursor })),
       ]);
       this.endpoint.set(endpoint);
-      this.grants.set(grants.data);
-      this.sessions.set(sessions.data);
-      this.servers.set(servers.data);
-      this.projects.set(projects.data);
+      this.grants.set(grants);
+      this.sessions.set(sessions);
+      this.servers.set(servers);
+      this.projects.set(projects);
       this.fillForm(endpoint);
       if (endpoint.project_uuid) {
         await this.loadEnvironments(endpoint.project_uuid);
@@ -431,8 +440,10 @@ export class ExternalEndpointDetailComponent {
 
   private async loadEnvironments(projectUuid: string): Promise<void> {
     try {
-      const page = await this.api.client().listEnvironments(projectUuid, { limit: 100 });
-      this.environments.set(page.data);
+      const environments = await fetchAll((cursor) =>
+        this.api.client().listEnvironments(projectUuid, { limit: 100, cursor }),
+      );
+      this.environments.set(environments);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     }
@@ -469,9 +480,11 @@ export class ExternalEndpointDetailComponent {
 
   protected async revoke(grant: ExternalEndpointGrant): Promise<void> {
     if (
-      !confirm(
-        `Revoke ${grant.user_email ?? 'this'} access? Their open tunnels to this endpoint are cut immediately.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Revoke the access',
+        message: `Revoke ${grant.user_email ?? 'this'} access? Their open tunnels to this endpoint are cut immediately.`,
+        confirmLabel: 'Revoke',
+      }))
     ) {
       return;
     }
@@ -479,7 +492,15 @@ export class ExternalEndpointDetailComponent {
   }
 
   protected async cut(session: PortForwardSession): Promise<void> {
-    if (!confirm(`Cut the tunnel opened by ${session.user_email ?? 'an API token'}?`)) return;
+    if (
+      !(await this.confirm.ask({
+        title: 'Cut the tunnel',
+        message: `Cut the tunnel opened by ${session.user_email ?? 'an API token'}?`,
+        confirmLabel: 'Cut',
+      }))
+    ) {
+      return;
+    }
     await this.mutate(() => this.api.client().closePortForwardSession(session.uuid));
   }
 

@@ -69,19 +69,16 @@ func taskExecutionToAPI(e store.TaskExecution) api.TaskExecution {
 }
 
 func (a *API) resolveScheduledTask(w http.ResponseWriter, r *http.Request, id *auth.Identity, taskUUID string) (store.GetScheduledTaskByUUIDRow, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(taskUUID); err == nil {
-		row, err := a.Store.GetScheduledTaskByUUID(r.Context(), store.GetScheduledTaskByUUIDParams{
-			Uuid: u, TeamID: id.TeamID,
-		})
-		if err == nil {
-			return row, true
-		}
+	u, ok := a.scanUUID(w, r, taskUUID, "scheduled task")
+	if !ok {
+		return store.GetScheduledTaskByUUIDRow{}, false
 	}
 	// Uniform 404 across teams (INV-002): a task of another team is not found,
 	// not forbidden — the difference is what tells an attacker it exists.
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "scheduled task not found")
-	return store.GetScheduledTaskByUUIDRow{}, false
+	row, err := a.Store.GetScheduledTaskByUUID(r.Context(), store.GetScheduledTaskByUUIDParams{
+		Uuid: u, TeamID: id.TeamID,
+	})
+	return resolveRow(a, w, r, "scheduled task", row, err)
 }
 
 // ListScheduledTasks implements GET /applications/{uuid}/scheduled-tasks.

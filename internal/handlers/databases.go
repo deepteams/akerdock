@@ -98,15 +98,12 @@ func (a *API) databaseToAPI(row dbRow, id *auth.Identity) api.Database {
 }
 
 func (a *API) resolveDatabase(w http.ResponseWriter, r *http.Request, id *auth.Identity, dbUUID string) (store.GetDatabaseByUUIDRow, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(dbUUID); err == nil {
-		row, err := a.Store.GetDatabaseByUUID(r.Context(), store.GetDatabaseByUUIDParams{Uuid: u, TeamID: id.TeamID})
-		if err == nil {
-			return row, true
-		}
+	u, ok := a.scanUUID(w, r, dbUUID, "database")
+	if !ok {
+		return store.GetDatabaseByUUIDRow{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "database not found")
-	return store.GetDatabaseByUUIDRow{}, false
+	row, err := a.Store.GetDatabaseByUUID(r.Context(), store.GetDatabaseByUUIDParams{Uuid: u, TeamID: id.TeamID})
+	return resolveRow(a, w, r, "database", row, err)
 }
 
 // ListDatabases implements GET /databases (permission: read).

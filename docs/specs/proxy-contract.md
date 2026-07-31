@@ -41,10 +41,12 @@ The deployment worker **drives** the switchover; the proxy applies it (deploymen
 Reference deployment (Traefik, P0):
 
 ```sh
+# idempotency guard: an existing container is left in place —
+# `docker container inspect akerdock-proxy || docker run …`
 docker run -d \
   --name akerdock-proxy \
   --restart unless-stopped \
-  --network AkerDock \
+  --network <destination_network> \                  # the server's default destination network, named by UUID (deployment-engine §6.1)
   -p <proxy_http_port>:<proxy_http_port> \
   -p <proxy_https_port>:<proxy_https_port> \
   [-p <tcp_port>:<tcp_port>]... \                    # active TCP routes (§2.6, §5.6)
@@ -54,6 +56,7 @@ docker run -d \
   -v /var/lib/akerdock/proxy/certs:/certs:ro \
   -v /var/lib/akerdock/proxy/auth:/auth:ro \
   --env-file /var/lib/akerdock/proxy/acme.env \        # DNS-01 credentials, 0600, if DNS-01 configured (§7.2)
+  --add-host=host.docker.internal:host-gateway \       # lets the 00-control-plane route reach the control plane on this host (§5.7) — harmless on every other server
   --label akerdock.managed=true \
   --label akerdock.type=proxy \
   --label akerdock.team_uuid=<server_team_uuid> \
@@ -654,11 +657,11 @@ The control plane maintains an **observed reflection** of each server's certific
 
 This entire chapter is **(proposed default)**: the PRD only requires that the proxy SHOULD support scale-to-zero (stopping an idle container, waking on the first request), previews first.
 
-> **Locked by [ADR-036](../adr/ADR-036-scale-to-zero-waker.md)** with two clarifications relative to the defaults below: (1) the waker is a **mode of the single binary** (`akerdock waker`, same image — ADR-021), not a second artifact; (2) the **two-variant switch** of §8.2 is discarded in favor of a **single variant** where the waker stays **permanently inline** in front of the STZ resources (route always to the waker). The waker thus sees all the traffic and **timestamps the last activity** in a local file that the control plane reads over SSH — inactivity is measured exactly, without parsing access logs. Sleeping/waking boils down to `docker stop`/`docker start`, without touching the dynamic file. The rest of the chapter (§8.1 waker role and confinement, §8.3 limits) stands.
+> **Locked by [ADR-036](../adr/ADR-036-scale-to-zero-waker.md)** with two clarifications relative to the defaults below: (1) the waker is a **mode of the single binary** (`akerdock waker`, same image — ADR-021), not a second artifact; (2) the **two-variant switch** of §8.2 is discarded in favor of a **single variant** where the waker stays **permanently inline** in front of the STZ resources (route always to the waker). The waker thus sees all the traffic and **timestamps the last activity** locally, and the control plane reads it over the agent's command channel (ADR-052) — inactivity is measured exactly, without parsing access logs. Sleeping/waking boils down to `docker stop`/`docker start`, without touching the dynamic file. The rest of the chapter (§8.1 waker role and confinement, §8.3 limits) stands.
 
 ### 8.1 Server-local "waker" component
 
-A helper container `akerdock-agent` (born `akerdock-waker`, renamed by ADR-056 — the legacy name survives as a network alias; `akerdock.type=helper`, project image, pinned per release) is deployed on the servers where at least one resource has `scale_to_zero` enabled. It listens on the internal network (never published on the host) and has the local Docker socket, restricted by its code to starting containers labeled `akerdock.managed=true`.
+A helper container `akerdock-agent` (born `akerdock-waker`, renamed by ADR-056 — the legacy name survives as a network alias; `akerdock.type=helper`, project image, pinned per release) is provisioned on **every ready server** by the `provision_agent` step of server validation (ADR-051/052): beyond waking, it carries the command channel over which all Docker operations, host-ops and builds ride. Its waker module listens on the internal network (never published on the host) and has the local Docker socket; wake requests are restricted by its code to starting containers labeled `akerdock.managed=true`.
 
 Why not the control plane: INV-007 (the control plane does not proxy application traffic) and push architecture (§18.1 — the server never contacts the control plane). Waking therefore works even with the control plane down; the control plane is informed after the fact through observed-state reconciliation (§18.3, §21.2).
 
@@ -666,7 +669,7 @@ Why not the control plane: INV-007 (the control plane does not proxy application
 
 **Sleep** (control plane, on the inactivity TTL §20.4.3 — measured on the proxy's access logs or the Sentinel metrics):
 
-1. Generate **two** variants of the dynamic file: the "sleeping" variant (RouteGroup service → `http://akerdock-waker:8080`, request header `X-AkerDock-Wake: <app_uuid>` added by middleware) and the normal "awake" variant, deposited at `/var/lib/akerdock/proxy/dynamic/.<app_uuid>.yaml.awake`.
+1. Generate **two** variants of the dynamic file: the "sleeping" variant (RouteGroup service → `http://akerdock-agent:8080`, request header `X-AkerDock-Wake: <app_uuid>` added by middleware) and the normal "awake" variant, deposited at `/var/lib/akerdock/proxy/dynamic/.<app_uuid>.yaml.awake`.
 2. Apply the sleeping variant (§6), then `docker stop` the container. Desired state: `sleeping`.
 
 **Wake** (waker, on the first request):

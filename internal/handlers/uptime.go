@@ -101,15 +101,12 @@ func blockedLiteralHost(host string) bool {
 }
 
 func (a *API) resolveUptimeCheck(w http.ResponseWriter, r *http.Request, id *auth.Identity, checkUUID string) (store.UptimeCheck, bool) {
-	var u pgtype.UUID
-	if err := u.Scan(checkUUID); err == nil {
-		check, err := a.Store.GetUptimeCheckByUUID(r.Context(), store.GetUptimeCheckByUUIDParams{Uuid: u, TeamID: id.TeamID})
-		if err == nil {
-			return check, true
-		}
+	u, ok := a.scanUUID(w, r, checkUUID, "uptime check")
+	if !ok {
+		return store.UptimeCheck{}, false
 	}
-	httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "uptime check not found")
-	return store.UptimeCheck{}, false
+	check, err := a.Store.GetUptimeCheckByUUID(r.Context(), store.GetUptimeCheckByUUIDParams{Uuid: u, TeamID: id.TeamID})
+	return resolveRow(a, w, r, "uptime check", check, err)
 }
 
 // resourceUUIDOf renders the optional resource link of a check.

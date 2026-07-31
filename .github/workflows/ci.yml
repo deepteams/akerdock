@@ -5,13 +5,23 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Lets release.yml run these exact gates as its verify stage: one
+  # definition of what must pass, whether the ref is a PR or a tag.
+  workflow_call:
 
 permissions:
   contents: read
 
+# Superseded pushes to the same PR cancel the outdated run instead of queuing
+# behind it; pushes to main always run to completion.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # The queue's guarantees (SKIP LOCKED, leases, lock_key) are properties of
     # the SQL: they are tested against a real PostgreSQL, not a mock.
     services:
@@ -43,11 +53,24 @@ jobs:
           git diff --exit-code
       - name: Build
         run: make build
-      - name: Test
-        run: make test
+      # The dockerintegration files only compile with their tag: without this
+      # guard they could bit-rot invisibly between pull requests (vet compiles
+      # test files too; no daemon needed). Push/dispatch runs skip it — the
+      # docker-integration job compiles strictly more.
+      - name: Compile the Docker integration tier
+        if: github.event_name == 'pull_request'
+        run: make vet-docker
+      # One execution produces both signals: the race detector and the
+      # coverage profile the gate below analyses (-race forces atomic
+      # covermode). Two separate runs would double the suite's wall-clock.
+      - name: Test (race, with coverage profile)
+        run: go test -race -coverprofile=cover.out -count=1 ./...
+      - name: Go unit coverage gate
+        run: COVERPROFILE=cover.out make go-unit-coverage
 
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -59,6 +82,7 @@ jobs:
 
   openapi:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -73,6 +97,7 @@ jobs:
   # published as an artifact.
   security:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -109,12 +134,28 @@ jobs:
           name: sbom
           path: sbom.cdx.json
 
+  # ADR-051 integration tier: the SDK runtime implementation against a real
+  # daemon (the runner's own). PRs compile-check it (see build-and-test);
+  # actually driving a daemon stays on the post-merge cadence, like e2e.
+  docker-integration:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Docker runtime integration tier
+        run: make test-docker
+
   # ADR-028: exactly one assembled-product journey. Pull requests are gated by
   # fast unit/module tests; the expensive DinD proof runs after merge to main
   # (or explicitly on demand) and again before a release.
   e2e:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     name: e2e (complete journey)
     steps:
       - uses: actions/checkout@v4
@@ -130,6 +171,7 @@ jobs:
   # implementation (design-system §5.2).
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -143,6 +185,15 @@ jobs:
         run: npm --prefix web run typecheck
       - name: Unit tests
         run: npm --prefix web test
+      # The binary embeds internal/web/dist, not web/src: a stale copy ships
+      # an old UI no matter what the sources say (.gitignore documents this
+      # contract). The Angular build is byte-deterministic for identical
+      # inputs; if this step ever fails with no web/src change, suspect a
+      # toolchain bump and rebuild+commit rather than loosening the check.
+      - name: Check the embedded dashboard is current
+        run: |
+          make web
+          git diff --exit-code -- internal/web/dist
       - name: Build the Storybook catalogue
         run: npm --prefix web run build-storybook
 
@@ -153,6 +204,7 @@ jobs:
   dist:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Smoke-test the distribution

@@ -5,6 +5,8 @@ import { CardComponent } from '../../../ui/card/card.component';
 import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
+import { fetchAll } from '../../core/pagination';
+import { ConfirmService } from '../../../ui/confirm/confirm.service';
 import type { components } from '../../../api/schema';
 
 type PortForwardSession = components['schemas']['PortForwardSessionInfo'];
@@ -134,6 +136,7 @@ type PortForwardSession = components['schemas']['PortForwardSessionInfo'];
 })
 export class TunnelSessionsTabComponent {
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly sessions = signal<PortForwardSession[]>([]);
   protected readonly loading = signal(true);
@@ -155,11 +158,14 @@ export class TunnelSessionsTabComponent {
   private async load(): Promise<void> {
     this.error.set(null);
     try {
-      const page = await this.api.client().listPortForwardSessions({
-        active: !this.includeClosed,
-        limit: 100,
-      });
-      this.sessions.set(page.data);
+      const sessions = await fetchAll((cursor) =>
+        this.api.client().listPortForwardSessions({
+          active: !this.includeClosed,
+          limit: 100,
+          cursor,
+        }),
+      );
+      this.sessions.set(sessions);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -174,7 +180,15 @@ export class TunnelSessionsTabComponent {
    * button, because who owns which session is the server's call, not ours.
    */
   protected async cut(session: PortForwardSession): Promise<void> {
-    if (!confirm(`Cut the tunnel to "${session.target_name}"?`)) return;
+    if (
+      !(await this.confirm.ask({
+        title: 'Cut the tunnel',
+        message: `Cut the tunnel to "${session.target_name}"?`,
+        confirmLabel: 'Cut',
+      }))
+    ) {
+      return;
+    }
     this.busy.set(true);
     this.error.set(null);
     try {

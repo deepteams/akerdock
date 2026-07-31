@@ -10,6 +10,8 @@ import {
   Passkey,
   TotpSetup,
 } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { ModalComponent } from '../../ui/modal/modal.component';
@@ -603,6 +605,7 @@ const PERMISSIONS: ApiTokenPermission[] = ['read', 'read:sensitive', 'write', 'd
 export class SecurityComponent {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly supported = this.api.passkeysSupported();
   protected readonly passkeys = signal<Passkey[]>([]);
@@ -673,13 +676,14 @@ export class SecurityComponent {
   }
 
   private async loadTokens(): Promise<void> {
-    if (!this.teamUuid) return;
+    const teamUuid = this.teamUuid;
+    if (!teamUuid) return;
     // `mine` is the server default, said out loud here: this page is the
     // personal one, and it must never enumerate a colleague's credentials.
-    const page = await this.api
-      .client()
-      .listApiTokens(this.teamUuid, { limit: 100, scope: 'mine' });
-    this.tokens.set(page.data);
+    const tokens = await fetchAll((cursor) =>
+      this.api.client().listApiTokens(teamUuid, { limit: 100, scope: 'mine', cursor }),
+    );
+    this.tokens.set(tokens);
   }
 
   protected openToken(): void {
@@ -717,9 +721,11 @@ export class SecurityComponent {
   protected async revokeToken(token: ApiToken): Promise<void> {
     if (!this.teamUuid) return;
     if (
-      !confirm(
-        `Revoke the token "${token.name}"? Every script or CLI session using it stops working immediately.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Revoke the token',
+        message: `Revoke the token "${token.name}"? Every script or CLI session using it stops working immediately.`,
+        confirmLabel: 'Revoke',
+      }))
     ) {
       return;
     }
@@ -765,9 +771,11 @@ export class SecurityComponent {
 
   protected async unlink(identity: LinkedIdentity): Promise<void> {
     if (
-      !confirm(
-        `Unlink ${identity.provider}? Signing in through it will no longer reach this account.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Unlink the identity',
+        message: `Unlink ${identity.provider}? Signing in through it will no longer reach this account.`,
+        confirmLabel: 'Unlink',
+      }))
     ) {
       return;
     }
@@ -807,7 +815,13 @@ export class SecurityComponent {
     // A revoked passkey cannot sign in again — worth one explicit confirmation,
     // especially when it is the last one and the password becomes the only way
     // back in.
-    if (!confirm(`Revoke the passkey "${pk.name}"? A device holding it will no longer sign in.`)) {
+    if (
+      !(await this.confirm.ask({
+        title: 'Revoke the passkey',
+        message: `Revoke the passkey "${pk.name}"? A device holding it will no longer sign in.`,
+        confirmLabel: 'Revoke',
+      }))
+    ) {
       return;
     }
     this.busy.set(true);
@@ -873,7 +887,13 @@ export class SecurityComponent {
 
   protected async disableTotp(): Promise<void> {
     if (this.busy() || !this.totpCode) return;
-    if (!confirm('Disable two-factor authentication? The password alone will sign in again.')) {
+    if (
+      !(await this.confirm.ask({
+        title: 'Disable two-factor authentication',
+        message: 'Disable two-factor authentication? The password alone will sign in again.',
+        confirmLabel: 'Disable',
+      }))
+    ) {
       return;
     }
     this.busy.set(true);

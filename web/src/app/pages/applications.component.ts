@@ -5,6 +5,7 @@ import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component'
 import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
 import type { components } from '../../api/schema';
 
 type Application = components['schemas']['Application'];
@@ -145,8 +146,10 @@ export class ApplicationsComponent {
   private async load(): Promise<void> {
     const client = this.api.client();
     try {
-      const page = await client.listApplications({ limit: 100 });
-      this.applications.set(page.data);
+      const applications = await fetchAll((cursor) =>
+        client.listApplications({ limit: 100, cursor }),
+      );
+      this.applications.set(applications);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {

@@ -212,14 +212,13 @@ func (a *API) UpdateSharedVariable(w http.ResponseWriter, r *http.Request, share
 	if !ok {
 		return
 	}
-	var u pgtype.UUID
-	if err := u.Scan(sharedVariableUuid); err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "shared variable not found")
+	u, ok := a.scanUUID(w, r, sharedVariableUuid, "shared variable")
+	if !ok {
 		return
 	}
-	v, err := a.Store.GetSharedVariableByUUID(r.Context(), store.GetSharedVariableByUUIDParams{Uuid: u, TeamID: id.TeamID})
-	if err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "shared variable not found")
+	row, err := a.Store.GetSharedVariableByUUID(r.Context(), store.GetSharedVariableByUUIDParams{Uuid: u, TeamID: id.TeamID})
+	v, ok := resolveRow(a, w, r, "shared variable", row, err)
+	if !ok {
 		return
 	}
 	var body api.SharedVariableUpdate
@@ -261,14 +260,13 @@ func (a *API) DeleteSharedVariable(w http.ResponseWriter, r *http.Request, share
 	if !ok {
 		return
 	}
-	var u pgtype.UUID
-	if err := u.Scan(sharedVariableUuid); err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "shared variable not found")
+	u, ok := a.scanUUID(w, r, sharedVariableUuid, "shared variable")
+	if !ok {
 		return
 	}
-	v, err := a.Store.GetSharedVariableByUUID(r.Context(), store.GetSharedVariableByUUIDParams{Uuid: u, TeamID: id.TeamID})
-	if err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "shared variable not found")
+	row, err := a.Store.GetSharedVariableByUUID(r.Context(), store.GetSharedVariableByUUIDParams{Uuid: u, TeamID: id.TeamID})
+	v, ok := resolveRow(a, w, r, "shared variable", row, err)
+	if !ok {
 		return
 	}
 	if _, err := a.Store.DeleteSharedVariable(r.Context(), v.ID); err != nil {

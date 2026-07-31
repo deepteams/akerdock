@@ -36,6 +36,7 @@ import (
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/queue"
+	"github.com/deepteams/akerdock/internal/serverdial"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
@@ -742,19 +743,11 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	if err := r.setStatus(ctx, store.DeploymentStatusPreparing); err != nil {
 		return err
 	}
-	key, err := r.h.Store.GetPrivateKeyByID(ctx, r.server.PrivateKeyID)
-	if err != nil {
-		return fmt.Errorf("private key vanished: %w", err)
-	}
-	pem, err := r.h.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return err
-	}
-	timeout := time.Duration(r.server.SshTimeoutSeconds) * time.Second
-	r.client, err = sshexec.Dial(ctx, r.server.Host, int(r.server.Port), r.server.SshUser, string(pem), timeout, pinnedHostKey(r.server))
+	client, err := serverdial.Open(ctx, r.h.Store, r.h.Keyring, r.server)
 	if err != nil {
 		return fmt.Errorf("ssh connect: %w", err)
 	}
+	r.client = client
 	// The target's Docker runtime (ADR-052): mandatory — the compensation
 	// (markFailed/markCancelled) also removes the candidate through it, so it
 	// is resolved once and kept on the run.
@@ -2532,16 +2525,7 @@ func (r *deploymentRun) dialBuildServer(ctx context.Context) error {
 		return err
 	}
 
-	key, err := r.h.Store.GetPrivateKeyByID(ctx, pick.PrivateKeyID)
-	if err != nil {
-		return fmt.Errorf("the private key of the build server vanished: %w", err)
-	}
-	pem, err := r.h.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return err
-	}
-	client, err := sshexec.Dial(ctx, pick.Host, int(pick.Port), pick.SshUser, string(pem),
-		time.Duration(pick.SshTimeoutSeconds)*time.Second, pinnedHostKey(pick))
+	client, err := serverdial.Open(ctx, r.h.Store, r.h.Keyring, pick)
 	if err != nil {
 		return fmt.Errorf("ssh connect to the build server: %w", err)
 	}

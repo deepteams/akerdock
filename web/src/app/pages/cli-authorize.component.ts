@@ -2,9 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { CardComponent } from '../../ui/card/card.component';
-import { ApiService } from '../core/api.service';
-
-type Team = { uuid: string; name: string };
+import { ApiService, MyTeam } from '../core/api.service';
 
 /**
  * CLI login consent page (ADR-031): reached in the browser as
@@ -103,7 +101,7 @@ export class CliAuthorizeComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly userCode = signal('');
   protected readonly clientName = signal('');
-  protected readonly teams = signal<Team[]>([]);
+  protected readonly teams = signal<MyTeam[]>([]);
 
   protected teamUuid = '';
   protected permissionChoices = [
@@ -123,16 +121,18 @@ export class CliAuthorizeComponent {
 
   private async load(): Promise<void> {
     try {
-      const [meta, teamsPage] = await Promise.all([
-        fetch('/auth/cli/request?request_id=' + encodeURIComponent(this.requestId), {
-          credentials: 'same-origin',
-        }).then((r) => (r.ok ? r.json() : Promise.reject(new Error('unknown or expired request')))),
-        this.api.client().listTeams(),
+      // The token being minted acts inside ONE team: offer memberships only
+      // (never GET /teams, which lists the whole instance for the root), and
+      // preselect the team the session is acting in.
+      const [meta, teams] = await Promise.all([
+        this.api.cliAuthRequest(this.requestId),
+        this.api.myTeams(),
       ]);
-      this.userCode.set(meta.user_code ?? '');
-      this.clientName.set(meta.name ?? '');
-      this.teams.set(teamsPage.data as Team[]);
-      if (teamsPage.data.length > 0) this.teamUuid = teamsPage.data[0].uuid;
+      this.userCode.set(meta.user_code);
+      this.clientName.set(meta.name);
+      this.teams.set(teams);
+      const current = teams.find((t) => t.current) ?? teams[0];
+      if (current) this.teamUuid = current.uuid;
       this.loaded.set(true);
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : String(err));
@@ -145,19 +145,7 @@ export class CliAuthorizeComponent {
     this.error.set(null);
     try {
       const permissions = this.permissionChoices.filter((p) => p.checked).map((p) => p.key);
-      const resp = await fetch('/auth/cli/approve', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': readCookie('akerdock_csrf'),
-        },
-        body: JSON.stringify({ request_id: this.requestId, team_uuid: this.teamUuid, permissions }),
-      });
-      if (!resp.ok && resp.status !== 204) {
-        const body = await resp.json().catch(() => ({}));
-        throw new Error(body.message ?? 'approval failed');
-      }
+      await this.api.approveCliAuth(this.requestId, this.teamUuid, permissions);
       this.done.set(true);
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : String(err));
@@ -165,9 +153,4 @@ export class CliAuthorizeComponent {
       this.busy.set(false);
     }
   }
-}
-
-function readCookie(name: string): string {
-  const match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
-  return match ? decodeURIComponent(match[1]) : '';
 }

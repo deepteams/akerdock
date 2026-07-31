@@ -14,6 +14,7 @@ import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import { ApiError } from '../../api/client';
 import { ApiService } from '../core/api.service';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import type { components } from '../../api/schema';
 
 type Job = components['schemas']['Job'];
@@ -231,6 +232,7 @@ type ErrorDetail = components['schemas']['ErrorDetail'];
 })
 export class JobDetailComponent {
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   /** Bound by the router from the :uuid path parameter. */
   readonly uuid = input.required<string>();
@@ -284,7 +286,13 @@ export class JobDetailComponent {
   }
 
   protected async forget(job: Job): Promise<void> {
-    if (!confirm('Forget this job? It is closed as cancelled and leaves the dead-letter list.')) {
+    if (
+      !(await this.confirm.ask({
+        title: 'Forget the job',
+        message: 'Forget this job? It is closed as cancelled and leaves the dead-letter list.',
+        confirmLabel: 'Forget',
+      }))
+    ) {
       return;
     }
     await this.doForget(job, false);

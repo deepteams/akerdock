@@ -11,6 +11,8 @@ import {
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { BreadcrumbComponent, type Crumb } from '../../ui/breadcrumb/breadcrumb.component';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
@@ -360,6 +362,7 @@ export class ProjectDetailComponent {
 
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly project = signal<Project | null>(null);
   protected readonly environments = signal<Environment[]>([]);
@@ -397,10 +400,10 @@ export class ProjectDetailComponent {
     try {
       const [project, envs] = await Promise.all([
         this.api.client().getProject(uuid),
-        this.api.client().listEnvironments(uuid, { limit: 100 }),
+        fetchAll((cursor) => this.api.client().listEnvironments(uuid, { limit: 100, cursor })),
       ]);
       this.project.set(project);
-      this.environments.set(envs.data);
+      this.environments.set(envs);
       this.name = project.name;
       this.description = project.description ?? '';
     } catch (err) {
@@ -431,9 +434,11 @@ export class ProjectDetailComponent {
     const p = this.project();
     if (!p) return;
     if (
-      !confirm(
-        `Delete the project "${p.name}"? Its environments are removed with it; this cannot be undone.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Delete the project',
+        message: `Delete the project "${p.name}"? Its environments are removed with it; this cannot be undone.`,
+        confirmLabel: 'Delete',
+      }))
     ) {
       return;
     }
@@ -497,9 +502,11 @@ export class ProjectDetailComponent {
 
   protected async removeEnvironment(env: Environment): Promise<void> {
     if (
-      !confirm(
-        `Delete the environment "${env.name}"? An environment still holding resources cannot be deleted.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Delete the environment',
+        message: `Delete the environment "${env.name}"? An environment still holding resources cannot be deleted.`,
+        confirmLabel: 'Delete',
+      }))
     ) {
       return;
     }

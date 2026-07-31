@@ -15,6 +15,7 @@ import { CardComponent } from '../../../ui/card/card.component';
 import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
+import { ConfirmService } from '../../../ui/confirm/confirm.service';
 import type { components } from '../../../api/schema';
 
 type Deployment = components['schemas']['Deployment'];
@@ -174,6 +175,7 @@ export class ApplicationDeploymentsTabComponent {
   readonly uuid = input.required<string>();
 
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
   private readonly router = inject(Router);
 
   protected readonly deployments = signal<Deployment[]>([]);
@@ -243,7 +245,13 @@ export class ApplicationDeploymentsTabComponent {
   }
 
   protected async cancel(d: Deployment): Promise<void> {
-    if (!confirm('Cancel this deployment? The currently routed container stays untouched.')) {
+    if (
+      !(await this.confirm.ask({
+        title: 'Cancel the deployment',
+        message: 'Cancel this deployment? The currently routed container stays untouched.',
+        confirmLabel: 'Cancel deployment',
+      }))
+    ) {
       return;
     }
     this.busy.set(true);
@@ -264,9 +272,12 @@ export class ApplicationDeploymentsTabComponent {
    */
   protected async rollback(d: Deployment): Promise<void> {
     if (
-      !confirm(
-        'Roll back to the image of this deployment? A new rollback deployment is queued and replaces what is currently running.',
-      )
+      !(await this.confirm.ask({
+        title: 'Roll back the application',
+        message:
+          'Roll back to the image of this deployment? A new rollback deployment is queued and replaces what is currently running.',
+        confirmLabel: 'Roll back',
+      }))
     ) {
       return;
     }

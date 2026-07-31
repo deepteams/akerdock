@@ -1,6 +1,6 @@
 # ADR-046 — Role assignments scoped to a project or an environment
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-047](ADR-047-withdraw-scoped-role-assignments.md)
 - **Date**: 2026-07-28
 - **Implements**: [ADR-007](ADR-007-fine-grained-rbac-project-environment.md) — the scoped
   half of it, decided in July 2026 and never built

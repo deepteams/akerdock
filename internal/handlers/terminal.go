@@ -23,8 +23,7 @@ import (
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/httpapi"
-	"github.com/deepteams/akerdock/internal/jobs"
-	"github.com/deepteams/akerdock/internal/sshexec"
+	"github.com/deepteams/akerdock/internal/serverdial"
 	"github.com/deepteams/akerdock/internal/store"
 	"github.com/deepteams/akerdock/internal/terminal"
 )
@@ -332,16 +331,7 @@ func (a *API) terminalPTY(ctx context.Context, row store.TerminalSession, cols, 
 		return pty, func() {}, ""
 	}
 
-	key, err := a.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
-	if err != nil {
-		return nil, nil, "the server's SSH key is not available"
-	}
-	pem, err := a.Keyring.Decrypt("private_keys", "private_key_enc", uuidString(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return nil, nil, "the server's SSH key is not available"
-	}
-	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
-		time.Duration(server.SshTimeoutSeconds)*time.Second, jobs.PinnedHostKey(server))
+	client, err := serverdial.Open(ctx, a.Store, a.Keyring, server)
 	if err != nil {
 		return nil, nil, "the server is not reachable over SSH right now"
 	}

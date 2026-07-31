@@ -26,6 +26,7 @@ import { ApplicationEnvsTabComponent } from './application/envs-tab.component';
 import { TerminalComponent } from '../../ui/terminal/terminal.component';
 import type { TerminalSessionInfo } from '../../ui/terminal/protocol';
 import { ApiService } from '../core/api.service';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { DEPLOYMENT_EVENTS, LiveEventsService, PREVIEW_EVENTS } from '../core/live-refresh';
 import type { components } from '../../api/schema';
 
@@ -513,6 +514,7 @@ export class PreviewDetailComponent {
   readonly previewUuid = input.required<string>();
 
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
   private readonly router = inject(Router);
 
   protected readonly tabs: readonly { id: TabId; label: string }[] = [
@@ -855,9 +857,13 @@ export class PreviewDetailComponent {
 
   protected async destroy(): Promise<void> {
     const p = this.preview();
+    if (!p) return;
     if (
-      !p ||
-      !confirm(`Destroy the preview of PR #${p.pr_id}? Its containers and volumes will be removed.`)
+      !(await this.confirm.ask({
+        title: 'Destroy the preview',
+        message: `Destroy the preview of PR #${p.pr_id}? Its containers and volumes will be removed.`,
+        confirmLabel: 'Destroy',
+      }))
     ) {
       return;
     }

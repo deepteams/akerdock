@@ -5,8 +5,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/httpapi"
@@ -84,14 +82,13 @@ func (a *API) GetDeployment(w http.ResponseWriter, r *http.Request, deploymentUu
 	if !ok {
 		return
 	}
-	var u pgtype.UUID
-	if err := u.Scan(deploymentUuid); err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "deployment not found")
+	u, ok := a.scanUUID(w, r, deploymentUuid, "deployment")
+	if !ok {
 		return
 	}
-	row, err := a.Store.GetDeploymentByUUIDForTeam(r.Context(), store.GetDeploymentByUUIDForTeamParams{Uuid: u, TeamID: id.TeamID})
-	if err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "deployment not found")
+	dep, err := a.Store.GetDeploymentByUUIDForTeam(r.Context(), store.GetDeploymentByUUIDForTeamParams{Uuid: u, TeamID: id.TeamID})
+	row, ok := resolveRow(a, w, r, "deployment", dep, err)
+	if !ok {
 		return
 	}
 	repoURL := ""
@@ -113,14 +110,13 @@ func (a *API) CancelDeployment(w http.ResponseWriter, r *http.Request, deploymen
 	if !ok {
 		return
 	}
-	var u pgtype.UUID
-	if err := u.Scan(deploymentUuid); err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "deployment not found")
+	u, ok := a.scanUUID(w, r, deploymentUuid, "deployment")
+	if !ok {
 		return
 	}
-	row, err := a.Store.GetDeploymentByUUIDForTeam(r.Context(), store.GetDeploymentByUUIDForTeamParams{Uuid: u, TeamID: id.TeamID})
-	if err != nil {
-		httpapi.WriteError(w, r, http.StatusNotFound, httpapi.CodeNotFound, "deployment not found")
+	dep, err := a.Store.GetDeploymentByUUIDForTeam(r.Context(), store.GetDeploymentByUUIDForTeamParams{Uuid: u, TeamID: id.TeamID})
+	row, ok := resolveRow(a, w, r, "deployment", dep, err)
+	if !ok {
 		return
 	}
 	d := row.Deployment

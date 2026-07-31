@@ -7,6 +7,8 @@ import { DrawerComponent } from '../../../ui/drawer/drawer.component';
 import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../../ui/icon/icon.component';
 import { ApiService } from '../../core/api.service';
+import { fetchAll } from '../../core/pagination';
+import { ConfirmService } from '../../../ui/confirm/confirm.service';
 import type { components } from '../../../api/schema';
 
 type ExternalEndpoint = components['schemas']['ExternalEndpoint'];
@@ -320,6 +322,7 @@ type Environment = components['schemas']['Environment'];
 })
 export class TunnelEndpointsTabComponent {
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly endpoints = signal<ExternalEndpoint[]>([]);
   protected readonly servers = signal<Server[]>([]);
@@ -349,13 +352,13 @@ export class TunnelEndpointsTabComponent {
   private async load(): Promise<void> {
     try {
       const [endpoints, servers, projects] = await Promise.all([
-        this.api.client().listExternalEndpoints({ limit: 100 }),
-        this.api.client().listServers({ limit: 100 }),
-        this.api.client().listProjects({ limit: 100 }),
+        fetchAll((cursor) => this.api.client().listExternalEndpoints({ limit: 100, cursor })),
+        fetchAll((cursor) => this.api.client().listServers({ limit: 100, cursor })),
+        fetchAll((cursor) => this.api.client().listProjects({ limit: 100, cursor })),
       ]);
-      this.endpoints.set(endpoints.data);
-      this.servers.set(servers.data);
-      this.projects.set(projects.data);
+      this.endpoints.set(endpoints);
+      this.servers.set(servers);
+      this.projects.set(projects);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -400,8 +403,10 @@ export class TunnelEndpointsTabComponent {
     this.environments.set([]);
     if (!uuid) return;
     try {
-      const page = await this.api.client().listEnvironments(uuid, { limit: 100 });
-      this.environments.set(page.data);
+      const environments = await fetchAll((cursor) =>
+        this.api.client().listEnvironments(uuid, { limit: 100, cursor }),
+      );
+      this.environments.set(environments);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     }
@@ -437,7 +442,11 @@ export class TunnelEndpointsTabComponent {
 
   protected async remove(endpoint: ExternalEndpoint): Promise<void> {
     if (
-      !confirm(`Delete "${endpoint.name}"? Open tunnels to it will stop at their next connection.`)
+      !(await this.confirm.ask({
+        title: 'Delete the endpoint',
+        message: `Delete "${endpoint.name}"? Open tunnels to it will stop at their next connection.`,
+        confirmLabel: 'Delete',
+      }))
     ) {
       return;
     }

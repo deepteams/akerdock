@@ -2,6 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
+import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
@@ -212,6 +214,7 @@ type Project = components['schemas']['Project'];
 })
 export class ProjectsComponent {
   private readonly api = inject(ApiService);
+  private readonly confirm = inject(ConfirmService);
 
   protected readonly projects = signal<Project[]>([]);
   protected readonly loading = signal(true);
@@ -230,8 +233,10 @@ export class ProjectsComponent {
 
   private async load(): Promise<void> {
     try {
-      const page = await this.api.client().listProjects({ limit: 100 });
-      this.projects.set(page.data);
+      const projects = await fetchAll((cursor) =>
+        this.api.client().listProjects({ limit: 100, cursor }),
+      );
+      this.projects.set(projects);
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
@@ -261,9 +266,11 @@ export class ProjectsComponent {
 
   protected async remove(project: Project): Promise<void> {
     if (
-      !confirm(
-        `Delete the project "${project.name}"? Its environments are removed with it; environments still holding resources block the deletion.`,
-      )
+      !(await this.confirm.ask({
+        title: 'Delete the project',
+        message: `Delete the project "${project.name}"? Its environments are removed with it; environments still holding resources block the deletion.`,
+        confirmLabel: 'Delete',
+      }))
     ) {
       return;
     }
