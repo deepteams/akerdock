@@ -26,6 +26,7 @@ import (
 	"github.com/docker/go-units"
 
 	"github.com/deepteams/akerdock/internal/adoption"
+	"github.com/deepteams/akerdock/internal/agent"
 	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
@@ -37,7 +38,6 @@ import (
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
-	"github.com/deepteams/akerdock/internal/waker"
 )
 
 // TypeDeploymentRun executes one deployment attempt (deployment-engine §4).
@@ -69,10 +69,10 @@ type DeploymentRun struct {
 	// the control plane straight through the Docker host gateway — never the
 	// public hairpin, whose latency taxes every preview request (ADR-030).
 	ControlPlanePort int
-	// WakerImage is this AkerDock release's own image (AKERDOCK_IMAGE): the
+	// AgentImage is this AkerDock release's own image (AKERDOCK_IMAGE): the
 	// scale-to-zero waker is deployed as a helper container from it (ADR-036).
 	// Empty leaves scale_to_zero inert with a clear error at deploy time.
-	WakerImage string
+	AgentImage string
 }
 
 // ImageRef and TagRef bound what can reach a remote shell (INV-012); they
@@ -343,7 +343,7 @@ type deploymentRun struct {
 	// so every waker provisioning of this run ships the FULL stack and its
 	// start graph (ADR-037 §5), not just the routed services. Nil for a plain
 	// single-container app.
-	stzWakeSet []waker.WakeContainer
+	stzWakeSet []agent.WakeContainer
 }
 
 func (h *DeploymentRun) newRun(ctx context.Context, d store.Deployment, jobID int64) (*deploymentRun, error) {
@@ -1549,7 +1549,7 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 				return rgErr
 			} else if ok {
 				previewUUID := pguuid.String(r.preview.Uuid)
-				if err = ensureWaker(ctx, r.client, r.hops, r.dest.Network, r.h.WakerImage, previewUUID,
+				if err = ensureAgent(ctx, r.client, r.hops, r.dest.Network, r.h.AgentImage, previewUUID,
 					wakerConfigFromRouteGroup(previewUUID, rg, r.stzWakeSet),
 					AgentEnvForServer(ctx, r.h.Store, r.h.Keyring, r.h.Logger, r.server, r.h.ControlPlanePort)); err != nil {
 					return err
@@ -1574,7 +1574,7 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 		}
 		if ok && len(rg.Routes) > 0 {
 			rg.Access = access
-			if err = ensureWaker(ctx, r.client, r.hops, r.dest.Network, r.h.WakerImage, appUUID,
+			if err = ensureAgent(ctx, r.client, r.hops, r.dest.Network, r.h.AgentImage, appUUID,
 				wakerConfigFromRouteGroup(appUUID, rg, r.stzWakeSet),
 				AgentEnvForServer(ctx, r.h.Store, r.h.Keyring, r.h.Logger, r.server, r.h.ControlPlanePort)); err != nil {
 				return err

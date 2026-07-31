@@ -1,4 +1,4 @@
-package waker
+package agent
 
 import (
 	"bufio"

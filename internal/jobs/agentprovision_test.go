@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/deepteams/akerdock/internal/agent"
 	"github.com/deepteams/akerdock/internal/compose"
 	"github.com/deepteams/akerdock/internal/proxy"
-	"github.com/deepteams/akerdock/internal/waker"
 )
 
 func TestWakerConfigFromRouteGroup(t *testing.T) {
@@ -33,7 +33,7 @@ func TestWakerConfigFromRouteGroup(t *testing.T) {
 		t.Fatalf("wake set = %v, want [pv-1-api pv-1-web]", got)
 	}
 	// Each route maps its host to the real container:port.
-	byHost := map[string]waker.Route{}
+	byHost := map[string]agent.Route{}
 	for _, r := range cfg.Routes {
 		byHost[r.Host] = r
 	}
@@ -63,7 +63,7 @@ func TestWakerConfigWakeSetIncludesDependencies(t *testing.T) {
 		AppUUID: "app-1",
 		Routes:  []proxy.Route{{FQDN: "app.example.com", Path: "/", TargetPort: 8080, Endpoint: "app-1-web"}},
 	}
-	cfg := wakerConfigFromRouteGroup("app-1", rg, []waker.WakeContainer{
+	cfg := wakerConfigFromRouteGroup("app-1", rg, []agent.WakeContainer{
 		{Container: "app-1-nats"},
 		{Container: "app-1-postgres"},
 		{Container: "app-1-web", Needs: []string{"app-1-nats", "app-1-postgres"}},
@@ -93,7 +93,7 @@ func TestWakerConfigRoutedContainerAppendedWhenMissingFromSet(t *testing.T) {
 		AppUUID: "app-1",
 		Routes:  []proxy.Route{{FQDN: "app.example.com", Path: "/", TargetPort: 8080, Endpoint: "app-1-web"}},
 	}
-	cfg := wakerConfigFromRouteGroup("app-1", rg, []waker.WakeContainer{{Container: "app-1-nats"}})
+	cfg := wakerConfigFromRouteGroup("app-1", rg, []agent.WakeContainer{{Container: "app-1-nats"}})
 
 	got := cfg.Resources[0].Containers
 	if len(got) != 2 || got[0] != "app-1-nats" || got[1] != "app-1-web" {
@@ -130,10 +130,10 @@ func TestStackWakeSetSkipsOneShotAndResolvesDeps(t *testing.T) {
 	}
 }
 
-func TestWakerEnsureCommandAgentEnv(t *testing.T) {
+func TestAgentEnsureCommandAgentEnv(t *testing.T) {
 	// With an enrollment, the run command injects the ADR-040 env, quoted;
 	// without one, no -e flag at all (waker-only helper).
-	with := WakerEnsureCommand("net", "img:1", AgentEnv{InstanceURL: "https://akerdock.example.com", Token: "akda_abc"})
+	with := AgentEnsureCommand("net", "img:1", AgentEnv{InstanceURL: "https://akerdock.example.com", Token: "akda_abc"})
 	if !strings.Contains(with, "-e AKERDOCK_INSTANCE_URL='https://akerdock.example.com'") ||
 		!strings.Contains(with, "-e AKERDOCK_AGENT_TOKEN='akda_abc'") {
 		t.Fatalf("enrollment env missing from the ensure command:\n%s", with)
@@ -144,18 +144,37 @@ func TestWakerEnsureCommandAgentEnv(t *testing.T) {
 		t.Fatalf("host-gateway alias missing from the ensure command:\n%s", with)
 	}
 	if !strings.Contains(with, `docker image rm "$old_img"`) ||
-		!strings.Contains(with, "waker || exit $?") {
-		t.Fatalf("waker replacement does not safely reclaim the old helper image:\n%s", with)
+		!strings.Contains(with, "agent || exit $?") {
+		t.Fatalf("agent replacement does not safely reclaim the old helper image:\n%s", with)
+	}
+	// The ADR-056 rename mechanics: the container runs under the NEW name
+	// with its own spec label, removes any container still bearing the
+	// pre-rename name (never two helpers), and carries the legacy name as a
+	// network alias so pre-rename scale-to-zero route files keep resolving.
+	if !strings.Contains(with, "--name "+proxy.AgentContainerName+" ") ||
+		!strings.Contains(with, "akerdock.agent_spec=") {
+		t.Fatalf("the helper must run under the renamed identity:\n%s", with)
+	}
+	if !strings.Contains(with, "docker rm -f "+proxy.LegacyAgentContainerName+" >/dev/null") {
+		t.Fatalf("the recreate must retire the pre-rename container:\n%s", with)
+	}
+	if !strings.Contains(with, "--network-alias "+proxy.LegacyAgentContainerName+" ") {
+		t.Fatalf("the legacy DNS alias is missing — pre-rename route files would 502:\n%s", with)
+	}
+	// The default bridge refuses network-scoped aliases; an observation-only
+	// server has no route files to keep resolving, so the alias is omitted.
+	if bridge := AgentEnsureCommand("bridge", "img:1", AgentEnv{}); strings.Contains(bridge, "--network-alias") {
+		t.Fatalf("the bridge network must not carry an alias:\n%s", bridge)
 	}
 	// A helper stopped by hand (`docker stop` marks it so `unless-stopped`
 	// never relaunches it) matches image and spec: without a terminal
 	// `docker start`, the ensure would be a no-op and the agent silent
 	// forever. The start is UNCONDITIONAL and strict — a helper that cannot
 	// start must fail the ensure, never pass silently.
-	if !strings.Contains(with, "fi; docker start "+proxy.WakerContainerName+" >/dev/null") {
+	if !strings.Contains(with, "fi; docker start "+proxy.AgentContainerName+" >/dev/null") {
 		t.Fatalf("the ensure must converge a stopped helper back to running:\n%s", with)
 	}
-	without := WakerEnsureCommand("net", "img:1", AgentEnv{})
+	without := AgentEnsureCommand("net", "img:1", AgentEnv{})
 	if strings.Contains(without, "AKERDOCK_INSTANCE_URL") || strings.Contains(without, "-e ") {
 		t.Fatalf("empty enrollment must inject nothing:\n%s", without)
 	}
@@ -170,11 +189,11 @@ func TestPointRouteGroupAtWaker(t *testing.T) {
 		},
 	}
 	out := pointRouteGroupAtWaker(rg)
-	if out.Endpoint != proxy.WakerContainerName {
+	if out.Endpoint != proxy.AgentContainerName {
 		t.Fatalf("group endpoint = %q, want waker", out.Endpoint)
 	}
 	for _, r := range out.Routes {
-		if r.Endpoint != proxy.WakerContainerName || r.TargetPort != proxy.WakerPort {
+		if r.Endpoint != proxy.AgentContainerName || r.TargetPort != proxy.AgentPort {
 			t.Fatalf("route not pointed at waker: %#v", r)
 		}
 	}
@@ -185,19 +204,19 @@ func TestPointRouteGroupAtWaker(t *testing.T) {
 }
 
 func TestMergeAndRemoveWakerConfig(t *testing.T) {
-	base := waker.Config{
-		Routes: []waker.Route{
+	base := agent.Config{
+		Routes: []agent.Route{
 			{Host: "other.example.com", ResourceUUID: "other", Container: "other", Port: 80},
 			{Host: "old-pv1.example.com", ResourceUUID: "pv-1", Container: "pv-1-old", Port: 80},
 		},
-		Resources: []waker.Resource{
+		Resources: []agent.Resource{
 			{UUID: "other", Containers: []string{"other"}},
 			{UUID: "pv-1", Containers: []string{"pv-1-old"}},
 		},
 	}
-	add := waker.Config{
-		Routes:    []waker.Route{{Host: "new-pv1.example.com", ResourceUUID: "pv-1", Container: "pv-1-new", Port: 3000}},
-		Resources: []waker.Resource{{UUID: "pv-1", Containers: []string{"pv-1-new"}}},
+	add := agent.Config{
+		Routes:    []agent.Route{{Host: "new-pv1.example.com", ResourceUUID: "pv-1", Container: "pv-1-new", Port: 3000}},
+		Resources: []agent.Resource{{UUID: "pv-1", Containers: []string{"pv-1-new"}}},
 	}
 
 	merged := mergeWakerConfig(base, "pv-1", add)

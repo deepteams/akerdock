@@ -99,7 +99,7 @@ type SettingsSection = ConfigSection | 'deploys' | 'previews';
                       <span class="switch__label">Sleep this application when idle</span>
                       <span class="switch__desc">
                         Stops the app after inactivity and wakes it on the first request
-                        via the waker. Best for request-driven, low-traffic apps: the
+                        via the agent. Best for request-driven, low-traffic apps: the
                         first visitor after a sleep waits for the cold start (up to 60s),
                         and background workers/crons are stopped too.
                       </span>
@@ -521,7 +521,7 @@ type SettingsSection = ConfigSection | 'deploys' | 'previews';
                         <span class="switch__label">Scale to zero (previews)</span>
                         <span class="switch__desc">
                           Sleep an idle preview (docker stop) and wake it on the first
-                          request via the waker helper.
+                          request via the agent helper.
                         </span>
                       </span>
                     </label>

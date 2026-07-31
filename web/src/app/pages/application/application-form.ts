@@ -117,7 +117,7 @@ export interface SettingsForm extends ConfigForm {
   previewRequireLabel: string;
   previewCommentCommandsEnabled: boolean;
   previewCancelObsoleteBuilds: boolean;
-  /** Sleep idle previews and wake them on demand via the waker (ADR-036). */
+  /** Sleep idle previews and wake them on demand via the agent (ADR-036). */
   previewScaleToZero: boolean;
   /** Idle window before sleeping previews, in minutes. */
   previewScaleToZeroAfterMinutes: number;

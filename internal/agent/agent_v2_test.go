@@ -1,4 +1,4 @@
-package waker
+package agent
 
 import (
 	"context"
@@ -79,7 +79,7 @@ func TestAgentExecutesCommandsOverV2(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	a := NewAgent(AgentConfig{InstanceURL: srv.URL, Token: "akda_test"}, nil, nil)
+	a := NewAgent(Enrollment{InstanceURL: srv.URL, Token: "akda_test"}, nil, nil)
 	a.Executor = NewExecutor(rt, nil, nil)
 	a.Flush = 10 * time.Millisecond
 	a.Backoff = 5 * time.Millisecond

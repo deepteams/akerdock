@@ -148,15 +148,22 @@ func GenerateDynamic(rg RouteGroup, revision int64) string {
 	return b.String()
 }
 
-// WakerContainerName is the scale-to-zero helper container (ADR-036, §8.1): a
-// mode of the AkerDock binary run from the same image, on the server's internal
-// network, never published. It is the reverse-proxy in front of every
-// scale_to_zero resource — it wakes the target on the first request and dates
-// activity for the control plane.
-const WakerContainerName = "akerdock-waker"
+// AgentContainerName is the server agent's container (ADR-056 — born as the
+// scale-to-zero waker, ADR-036, it now carries the command channel, host-ops
+// and builds): a mode of the AkerDock binary run from the same image, on the
+// server's internal network, never published. Its waker module remains the
+// reverse-proxy in front of every scale_to_zero resource.
+const AgentContainerName = "akerdock-agent"
 
-// WakerPort is the internal HTTP port the waker listens on (§8.2).
-const WakerPort = 8080
+// LegacyAgentContainerName is the pre-rename container name (ADR-056). New
+// agents carry it as a NETWORK ALIAS so scale-to-zero route files generated
+// before the rename keep resolving; the ensure removes any container still
+// bearing it when it creates the renamed one.
+const LegacyAgentContainerName = "akerdock-waker"
+
+// AgentPort is the internal HTTP port the agent's waker module listens on
+// (§8.2).
+const AgentPort = 8080
 
 // WakeHeader carries the resource UUID from the dynamic file to the waker so it
 // knows which container to start and forward to (§8.2). The waker's own routing
@@ -243,7 +250,7 @@ func GenerateWaker(rg RouteGroup, resourceUUID string, revision int64) string {
 	b.WriteString("  services:\n")
 	fmt.Fprintf(&b, "    %s-waker:\n", rg.AppUUID)
 	b.WriteString("      loadBalancer:\n        servers:\n")
-	fmt.Fprintf(&b, "          - url: \"http://%s:%d\"\n", WakerContainerName, WakerPort)
+	fmt.Fprintf(&b, "          - url: \"http://%s:%d\"\n", AgentContainerName, AgentPort)
 	writeAccessCallbackService(&b, rg)
 	return b.String()
 }

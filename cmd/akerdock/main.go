@@ -43,6 +43,7 @@ import (
 	"github.com/deepteams/akerdock/internal/notify"
 	"github.com/deepteams/akerdock/internal/postgres"
 
+	"github.com/deepteams/akerdock/internal/agent"
 	"github.com/deepteams/akerdock/internal/oidc"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/scheduler"
@@ -50,7 +51,6 @@ import (
 	"github.com/deepteams/akerdock/internal/store"
 	"github.com/deepteams/akerdock/internal/telemetry"
 	"github.com/deepteams/akerdock/internal/tunnel"
-	"github.com/deepteams/akerdock/internal/waker"
 	"github.com/deepteams/akerdock/internal/web"
 )
 
@@ -137,29 +137,34 @@ func rootCommand() *cobra.Command {
 		},
 	}
 
-	wakerCmd := &cobra.Command{
-		Use:   "waker",
-		Short: "Run the scale-to-zero waker (ADR-036, deployed as a helper container)",
+	agentCmd := &cobra.Command{
+		Use: "agent",
+		// "waker" is the pre-rename name (ADR-056): containers created before
+		// the rename run `/akerdock waker` until their next recreation.
+		Aliases: []string{"waker"},
+		Short:   "Run the server agent (command channel, host-ops, scale-to-zero waker — deployed as a helper container)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return wakerRun(cmd.Context())
+			return agentRun(cmd.Context())
 		},
 	}
 
-	root.AddCommand(serve, healthcheckCmd, versionCmd, wakerCmd)
+	root.AddCommand(serve, healthcheckCmd, versionCmd, agentCmd)
 	cli.AddCommands(root, version)
 	return root
 }
 
-// wakerRun runs the scale-to-zero waker (ADR-036). It is a mode of this single
-// binary, deployed as a helper container with the local Docker socket. Config
-// comes from AKERDOCK_WAKER_* env vars so the control plane can parameterise the
-// container without a config file beyond the routing table it deposits.
-func wakerRun(_ context.Context) error {
+// agentRun runs the server agent (ADR-040/052/056 — born as the scale-to-zero
+// waker, ADR-036). It is a mode of this single binary, deployed as a helper
+// container with the local Docker socket. Config comes from AKERDOCK_AGENT_*
+// env vars (the pre-rename AKERDOCK_WAKER_* still read as fallbacks) so the
+// control plane can parameterise the container without a config file beyond
+// the routing table it deposits.
+func agentRun(_ context.Context) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	dir := envOr("AKERDOCK_WAKER_DIR", waker.DefaultDir)
-	addr := envOr("AKERDOCK_WAKER_ADDR", waker.DefaultListenAddr)
+	dir := envOr("AKERDOCK_AGENT_DIR", envOr("AKERDOCK_WAKER_DIR", agent.DefaultDir))
+	addr := envOr("AKERDOCK_AGENT_ADDR", envOr("AKERDOCK_WAKER_ADDR", agent.DefaultListenAddr))
 	socket := envOr("AKERDOCK_DOCKER_SOCKET", dockerruntime.DefaultSocket)
 	apiVersion := os.Getenv("AKERDOCK_DOCKER_API_VERSION")
 
@@ -171,11 +176,11 @@ func wakerRun(_ context.Context) error {
 	// ADR-040 enrollment, injected by the control plane at container creation;
 	// absent, the helper runs waker-only and observation flow degrades to the
 	// control plane's SSH scans.
-	agentCfg := waker.AgentConfig{
+	agentCfg := agent.Enrollment{
 		InstanceURL: os.Getenv("AKERDOCK_INSTANCE_URL"),
 		Token:       os.Getenv("AKERDOCK_AGENT_TOKEN"),
 	}
-	return waker.Serve(ctx, dir, addr, rt, agentCfg, logger)
+	return agent.Serve(ctx, dir, addr, rt, agentCfg, logger)
 }
 
 // envOr returns the environment value for key, or def when unset/empty.
@@ -323,7 +328,7 @@ func serveRun(mode string) int {
 			Dispatcher: dispatcher, Logger: logger, Docker: dockerSource, HostOps: hostSource,
 			TerminalMaxDuration: cfg.TerminalMaxDuration,
 			AuditRetentionDays:  cfg.AuditRetentionDays,
-			WakerImage:          cfg.Image,
+			AgentImage:          cfg.Image,
 			InstancePort:        cfg.InstancePort,
 		}).Run(ctx)
 	}
@@ -334,7 +339,7 @@ func serveRun(mode string) int {
 		worker = queue.NewWorker(q, cfg.WorkerConcurrency, logger)
 		worker.Metrics, worker.Tracer = metrics, tel.Tracer
 		worker.Register(jobs.TypeServerValidate, (&jobs.ServerValidate{Store: q, Keyring: keyring, Docker: dockerSource, HostOps: hostSource, Logger: logger, ControlPlanePort: cfg.InstancePort, AgentImage: cfg.Image}).Execute)
-		worker.Register(jobs.TypeDeploymentRun, (&jobs.DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger, Docker: dockerSource, HostOps: hostSource, ControlPlanePort: cfg.InstancePort, WakerImage: cfg.Image}).Execute)
+		worker.Register(jobs.TypeDeploymentRun, (&jobs.DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger, Docker: dockerSource, HostOps: hostSource, ControlPlanePort: cfg.InstancePort, AgentImage: cfg.Image}).Execute)
 		worker.Register(jobs.TypeApplicationDelete, (&jobs.ApplicationDelete{Store: q, Docker: dockerSource, HostOps: hostSource, Logger: logger}).Execute)
 		worker.Register(jobs.TypeApplyRouting, (&jobs.ApplyRouting{
 			Store: q, Keyring: keyring, Docker: dockerSource, HostOps: hostSource, Logger: logger, ControlPlanePort: cfg.InstancePort,

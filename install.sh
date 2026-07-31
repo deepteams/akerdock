@@ -168,11 +168,11 @@ services:
       args:
         VERSION: \${AKERDOCK_TAG}
         # Bake this build's own image ref in, so scale-to-zero (ADR-036) deploys
-        # the waker from the exact same locally-built image — no registry needed.
+        # the agent from the exact same locally-built image — no registry needed.
         IMAGE: akerdock:\${AKERDOCK_TAG}
     environment:
       # Override the base compose default (ghcr.io): this install builds the
-      # image locally, so the waker must be deployed from the local tag.
+      # image locally, so the agent must be deployed from the local tag.
       AKERDOCK_IMAGE: akerdock:\${AKERDOCK_TAG}
 EOF
 

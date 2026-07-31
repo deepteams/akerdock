@@ -120,7 +120,7 @@ type Config struct {
 	RelayURL string
 	// Image is this AkerDock release's own container image (ADR-036): the
 	// scale-to-zero waker is deployed as a helper container from it (same binary,
-	// `akerdock waker` mode). AKERDOCK_IMAGE sets it explicitly; on a release
+	// `akerdock agent` mode). AKERDOCK_IMAGE sets it explicitly; on a release
 	// build it otherwise falls back (in main) to the image baked in via
 	// -ldflags. Empty everywhere disables waker provisioning — scale-to-zero then
 	// stays inert with a clear error, never a guessed registry.

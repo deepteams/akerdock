@@ -6,7 +6,7 @@
 //
 // Docker and the filesystem are behind interfaces so the wake decision, the
 // limits (§8.3) and the activity accounting are unit-testable without a daemon.
-package waker
+package agent
 
 import (
 	"context"
@@ -104,8 +104,8 @@ type Config struct {
 }
 
 // DefaultListenAddr is the port the waker listens on. It MUST match
-// proxy.WakerPort — the dynamic file routes scale-to-zero traffic to
-// http://akerdock-waker:8080 (ADR-036 §2).
+// proxy.AgentPort — the dynamic file routes scale-to-zero traffic to
+// http://akerdock-agent:8080 (ADR-036 §2, renamed by ADR-056).
 const DefaultListenAddr = ":8080"
 
 // UptimeProbeHeader marks an AkerDock uptime check (ADR-037): the waker wakes

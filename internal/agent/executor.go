@@ -4,7 +4,7 @@
 // result or stream chunks. It decides nothing — policy, ordering and retries
 // stay on the control plane (ADR-001) — and it executes nothing outside the
 // enumerated vocabulary.
-package waker
+package agent
 
 import (
 	"context"

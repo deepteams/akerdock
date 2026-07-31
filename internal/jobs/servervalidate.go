@@ -212,7 +212,7 @@ func (h *ServerValidate) provisionAgent(ctx context.Context, client *sshexec.Cli
 			return nil, nil, fmt.Errorf("destination network: %v (exit %d, %s)", err, exitCode(res), stderrOf(res))
 		}
 	}
-	res, err := client.Run(ctx, WakerEnsureCommand(network, h.AgentImage, env))
+	res, err := client.Run(ctx, AgentEnsureCommand(network, h.AgentImage, env))
 	if err != nil {
 		return nil, nil, err
 	}

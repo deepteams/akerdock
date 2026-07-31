@@ -1,4 +1,4 @@
-package waker
+package agent
 
 import (
 	"context"
@@ -65,7 +65,7 @@ func newTestAgent(t *testing.T, c *capture) (*Agent, context.CancelFunc) {
 	t.Helper()
 	srv := httptest.NewServer(c.handler())
 	t.Cleanup(srv.Close)
-	a := NewAgent(AgentConfig{InstanceURL: srv.URL, Token: "akda_test"}, nil, nil)
+	a := NewAgent(Enrollment{InstanceURL: srv.URL, Token: "akda_test"}, nil, nil)
 	a.Flush = 10 * time.Millisecond
 	a.Backoff = 5 * time.Millisecond
 	a.Heartbeat = time.Hour // out of the way unless the test wants it
@@ -119,7 +119,7 @@ func TestAgentPrefersChannel(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	a := NewAgent(AgentConfig{InstanceURL: srv.URL, Token: "akda_test"}, nil, nil)
+	a := NewAgent(Enrollment{InstanceURL: srv.URL, Token: "akda_test"}, nil, nil)
 	a.Flush = 10 * time.Millisecond
 	a.Backoff = 5 * time.Millisecond
 	a.Heartbeat = time.Hour
@@ -225,7 +225,7 @@ func TestAgentDropsDeniedBatch(t *testing.T) {
 
 func TestAgentQueueShedsOldest(t *testing.T) {
 	// No flusher running: the queue must shed its OLDEST entries, never block.
-	a := NewAgent(AgentConfig{InstanceURL: "http://unused", Token: "akda_x"}, nil, nil)
+	a := NewAgent(Enrollment{InstanceURL: "http://unused", Token: "akda_x"}, nil, nil)
 	for i := 0; i < agentQueueCap+25; i++ {
 		a.Push(Observation{Type: "container_state", ResourceUUID: fmt.Sprint(i)})
 	}
@@ -278,7 +278,7 @@ func TestAgentVerifiesStateAfterEventInsteadOfTrustingIt(t *testing.T) {
 	d.running["app-1-frontend"] = true
 	d.health["app-1-frontend"] = "healthy"
 
-	a := NewAgent(AgentConfig{InstanceURL: srv.URL, Token: "akda_test"}, d, nil)
+	a := NewAgent(Enrollment{InstanceURL: srv.URL, Token: "akda_test"}, d, nil)
 	a.Flush, a.Backoff, a.Heartbeat = 10*time.Millisecond, 5*time.Millisecond, time.Hour
 	a.Settle, a.Resync, a.DisableWS = 5*time.Millisecond, time.Hour, true
 	ctx, cancel := context.WithCancel(context.Background())
@@ -330,10 +330,10 @@ func TestObservedState(t *testing.T) {
 }
 
 func TestAgentDisabledWithoutEnrollment(t *testing.T) {
-	if (AgentConfig{}).Enabled() || (AgentConfig{InstanceURL: "http://x"}).Enabled() {
+	if (Enrollment{}).Enabled() || (Enrollment{InstanceURL: "http://x"}).Enabled() {
 		t.Fatal("an incomplete enrollment must disable the agent")
 	}
-	if !(AgentConfig{InstanceURL: "http://x", Token: "akda_y"}).Enabled() {
+	if !(Enrollment{InstanceURL: "http://x", Token: "akda_y"}).Enabled() {
 		t.Fatal("a complete enrollment must enable the agent")
 	}
 }

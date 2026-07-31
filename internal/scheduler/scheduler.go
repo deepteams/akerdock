@@ -73,11 +73,11 @@ type Scheduler struct {
 	// InstancePort is the control plane's port, used to build the localhost
 	// server's agent push URL through the Docker host gateway (ADR-040).
 	InstancePort int
-	// WakerImage is this release's own image (AKERDOCK_IMAGE / baked default):
+	// AgentImage is this release's own image (AKERDOCK_IMAGE / baked default):
 	// the scale-to-zero pass recreates any waker whose running image differs, so
 	// an upgrade propagates to every server's waker without waiting for a deploy
 	// (ADR-036). Empty disables the reconciliation.
-	WakerImage string
+	AgentImage string
 
 	acquireLeader func(context.Context) (leaderConnection, error)
 	dialSSH       func(context.Context, store.Server, string) (remoteClient, error)

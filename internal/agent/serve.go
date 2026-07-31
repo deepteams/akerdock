@@ -1,4 +1,4 @@
-package waker
+package agent
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 // enabled (ADR-040 enrollment injected at container creation), pushes
 // outbound observations alongside — its failure modes never touch the wake
 // path.
-func Serve(ctx context.Context, dir, addr string, rt dockerruntime.Runtime, agentCfg AgentConfig, logger *slog.Logger) error {
+func Serve(ctx context.Context, dir, addr string, rt dockerruntime.Runtime, agentCfg Enrollment, logger *slog.Logger) error {
 	if logger == nil {
 		logger = slog.Default()
 	}

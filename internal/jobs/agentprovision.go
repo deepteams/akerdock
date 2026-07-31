@@ -1,4 +1,4 @@
-// Scale-to-zero provisioning (ADR-036): deploy the akerdock-waker helper
+// Scale-to-zero provisioning (ADR-036): deploy the agent helper (born akerdock-waker, renamed by ADR-056)
 // container in front of a preview and maintain its shared routing table. The
 // waker routes by Host, so an STZ preview's dynamic file just points its service
 // at the waker — the protection middlewares (basic auth, noindex, SSO) are
@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"sort"
 
+	"github.com/deepteams/akerdock/internal/agent"
 	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/compose"
 	"github.com/deepteams/akerdock/internal/envelope"
@@ -19,7 +20,6 @@ import (
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
-	"github.com/deepteams/akerdock/internal/waker"
 )
 
 // wakerDir is the server-side directory holding the routing table and the
@@ -35,11 +35,11 @@ const wakerDir = "/var/lib/akerdock/waker"
 // resolves. Routed containers absent from wakeOrder are appended last: their
 // dependencies wake first. An empty wakeOrder — a plain single-container app —
 // falls back to the routed containers alone.
-func wakerConfigFromRouteGroup(resourceUUID string, rg proxy.RouteGroup, wakeSet []waker.WakeContainer) waker.Config {
+func wakerConfigFromRouteGroup(resourceUUID string, rg proxy.RouteGroup, wakeSet []agent.WakeContainer) agent.Config {
 	seen := map[string]bool{}
 	var containers []string
-	var set []waker.WakeContainer
-	add := func(c waker.WakeContainer) {
+	var set []agent.WakeContainer
+	add := func(c agent.WakeContainer) {
 		if c.Container != "" && !seen[c.Container] {
 			seen[c.Container] = true
 			containers = append(containers, c.Container)
@@ -49,7 +49,7 @@ func wakerConfigFromRouteGroup(resourceUUID string, rg proxy.RouteGroup, wakeSet
 	for _, c := range wakeSet {
 		add(c)
 	}
-	var routes []waker.Route
+	var routes []agent.Route
 	var routed []string
 	for _, rt := range rg.Routes {
 		container := rt.Endpoint
@@ -59,16 +59,16 @@ func wakerConfigFromRouteGroup(resourceUUID string, rg proxy.RouteGroup, wakeSet
 		if container == "" {
 			container = rg.AppUUID
 		}
-		routes = append(routes, waker.Route{
+		routes = append(routes, agent.Route{
 			Host: rt.FQDN, ResourceUUID: resourceUUID, Container: container, Port: rt.TargetPort,
 		})
 		routed = append(routed, container)
 	}
 	sort.Strings(routed)
 	for _, c := range routed {
-		add(waker.WakeContainer{Container: c})
+		add(agent.WakeContainer{Container: c})
 	}
-	res := waker.Resource{UUID: resourceUUID, Containers: containers}
+	res := agent.Resource{UUID: resourceUUID, Containers: containers}
 	// The dependency graph is only worth shipping when edges exist; a flat set
 	// (plain app, routed-only fallback) wakes dependency-free either way.
 	for _, c := range set {
@@ -77,9 +77,9 @@ func wakerConfigFromRouteGroup(resourceUUID string, rg proxy.RouteGroup, wakeSet
 			break
 		}
 	}
-	return waker.Config{
+	return agent.Config{
 		Routes:    routes,
-		Resources: []waker.Resource{res},
+		Resources: []agent.Resource{res},
 	}
 }
 
@@ -89,7 +89,7 @@ func wakerConfigFromRouteGroup(resourceUUID string, rg proxy.RouteGroup, wakeSet
 // compose up`'s start behavior. One-shot jobs (restart:no, §7.3) are excluded
 // from the set and from the edges — `docker start` on a completed job would
 // re-run it, and its exited state would never count as ready.
-func stackWakeSet(plan *compose.Plan) []waker.WakeContainer {
+func stackWakeSet(plan *compose.Plan) []agent.WakeContainer {
 	oneShot := map[string]bool{}
 	containerOf := map[string]string{}
 	for _, sp := range plan.Services {
@@ -98,12 +98,12 @@ func stackWakeSet(plan *compose.Plan) []waker.WakeContainer {
 			oneShot[sp.Name] = true
 		}
 	}
-	var set []waker.WakeContainer
+	var set []agent.WakeContainer
 	for _, sp := range plan.Services {
 		if sp.OneShot {
 			continue
 		}
-		wc := waker.WakeContainer{Container: sp.ContainerName}
+		wc := agent.WakeContainer{Container: sp.ContainerName}
 		for _, dep := range sp.DependsOn {
 			if oneShot[dep.Service] {
 				continue
@@ -123,11 +123,11 @@ func stackWakeSet(plan *compose.Plan) []waker.WakeContainer {
 // and the injected middlewares are untouched — the waker routes by Host.
 func pointRouteGroupAtWaker(rg proxy.RouteGroup) proxy.RouteGroup {
 	out := rg
-	out.Endpoint = proxy.WakerContainerName
+	out.Endpoint = proxy.AgentContainerName
 	out.Routes = make([]proxy.Route, len(rg.Routes))
 	for i, rt := range rg.Routes {
-		rt.Endpoint = proxy.WakerContainerName
-		rt.TargetPort = proxy.WakerPort
+		rt.Endpoint = proxy.AgentContainerName
+		rt.TargetPort = proxy.AgentPort
 		out.Routes[i] = rt
 	}
 	return out
@@ -136,7 +136,7 @@ func pointRouteGroupAtWaker(rg proxy.RouteGroup) proxy.RouteGroup {
 // mergeWakerConfig replaces the entries of resourceUUID in base with add's,
 // leaving every other resource intact — one waker serves every STZ resource on
 // the server.
-func mergeWakerConfig(base waker.Config, resourceUUID string, add waker.Config) waker.Config {
+func mergeWakerConfig(base agent.Config, resourceUUID string, add agent.Config) agent.Config {
 	out := removeWakerResource(base, resourceUUID)
 	out.Routes = append(out.Routes, add.Routes...)
 	out.Resources = append(out.Resources, add.Resources...)
@@ -144,8 +144,8 @@ func mergeWakerConfig(base waker.Config, resourceUUID string, add waker.Config) 
 }
 
 // removeWakerResource drops every route and resource entry of resourceUUID.
-func removeWakerResource(base waker.Config, resourceUUID string) waker.Config {
-	var out waker.Config
+func removeWakerResource(base agent.Config, resourceUUID string) agent.Config {
+	var out agent.Config
 	for _, r := range base.Routes {
 		if r.ResourceUUID != resourceUUID {
 			out.Routes = append(out.Routes, r)
@@ -159,21 +159,21 @@ func removeWakerResource(base waker.Config, resourceUUID string) waker.Config {
 	return out
 }
 
-// ensureWaker deploys the waker helper container (idempotent) and merges this
+// ensureAgent deploys the waker helper container (idempotent) and merges this
 // resource's routes into the shared table. image is the AkerDock release image;
 // empty is a configuration error, never a guessed registry. agentEnv carries
 // the ADR-040 enrollment (instance URL + per-server token); zero-valued, the
 // helper runs waker-only. The container converge stays SSH (bootstrap family,
 // ADR-054 — it may be creating the agent itself); the routing table is a file
 // under the mounted tree and rides the channel.
-func ensureWaker(ctx context.Context, client *sshexec.Client, ops hostops.Ops, network, image, resourceUUID string, cfg waker.Config, agentEnv AgentEnv) error {
+func ensureAgent(ctx context.Context, client *sshexec.Client, ops hostops.Ops, network, image, resourceUUID string, cfg agent.Config, agentEnv AgentEnv) error {
 	if image == "" {
 		return fmt.Errorf("scale_to_zero requires AKERDOCK_IMAGE to be set — the waker runs the AkerDock image")
 	}
 	if err := depositWakerRoutes(ctx, ops, mergeWakerConfig(readWakerConfig(ctx, ops), resourceUUID, cfg)); err != nil {
 		return err
 	}
-	res, err := client.Run(ctx, WakerEnsureCommand(network, image, agentEnv))
+	res, err := client.Run(ctx, AgentEnsureCommand(network, image, agentEnv))
 	if err != nil {
 		return err
 	}
@@ -212,7 +212,7 @@ func AgentEnvForServer(ctx context.Context, q AgentEnrollmentStore, keyring *env
 	return AgentEnv{InstanceURL: url, Token: token}
 }
 
-// wakerSpec is the run-spec generation of the waker container. Bump it whenever
+// agentSpec is the run-spec generation of the waker container. Bump it whenever
 // the `docker run` flags change — or when the waker's own behavior changes and
 // must reach servers whose image tag is unchanged (local "dirty" builds reuse a
 // tag): the deploy recreates the container when EITHER the image OR this spec
@@ -229,47 +229,64 @@ func AgentEnvForServer(ctx context.Context, q AgentEnrollmentStore, keyring *env
 // decodes every label-scoped list/prune as UNFILTERED, and a sweep that
 // arrives unfiltered force-removes the helper itself first (the 2026-07-31
 // incident). Only a recreated container running the fixed binary is safe.
-const wakerSpec = "8"
+// 9: the rename (ADR-056) — the container becomes akerdock-agent (label
+// akerdock.agent_spec), carrying the legacy name as a network alias so
+// pre-rename scale-to-zero route files keep resolving.
+const agentSpec = "9"
 
-// WakerEnsureCommand is the idempotent deploy of the waker helper. It recreates
-// the container when the running image OR the run spec differs (or when it is
-// absent), and STARTS it either way: a helper stopped by hand (`docker stop`
-// marks it so `unless-stopped` never relaunches it) would otherwise match
-// image and spec and stay silent forever — the agent is mandatory, so a
-// stopped helper is always wrong. The routing table and activity files live
-// in a bind mount, so a recreate preserves them.
+// AgentEnsureCommand is the idempotent deploy of the agent helper. It
+// recreates the container when the running image OR the run spec differs (or
+// when it is absent), and STARTS it either way: a helper stopped by hand
+// (`docker stop` marks it so `unless-stopped` never relaunches it) would
+// otherwise match image and spec and stay silent forever — the agent is
+// mandatory, so a stopped helper is always wrong. The routing table and
+// activity files live in a bind mount, so a recreate preserves them; the
+// recreate also removes any container still bearing the pre-rename name
+// (ADR-056), so a migrated server never runs two helpers.
 //
 // Deployed on the same internal network as the proxy (reachable as
-// akerdock-waker:8080, never published). It runs as root (--user 0) because it
-// needs the local Docker socket — whose access is root-equivalent anyway, so the
-// distroless nonroot default simply cannot read it, and every wake would fail.
-// Shared by the deploy path (ensureWaker) and the scheduler's cross-server
-// upgrade reconciliation. agentEnv (ADR-040) enrolls the agent loop; empty
-// fields inject nothing and the helper runs waker-only.
-func WakerEnsureCommand(network, image string, agentEnv AgentEnv) string {
+// akerdock-agent:8080 — and by its legacy alias on user-defined networks,
+// where pre-rename route files still point). It runs as root (--user 0)
+// because it needs the local Docker socket — whose access is root-equivalent
+// anyway, so the distroless nonroot default simply cannot read it. Shared by
+// the deploy path (ensureAgent) and the scheduler's cross-server upgrade
+// reconciliation. agentEnv (ADR-040) enrolls the channel loop; empty fields
+// inject nothing and the helper runs waker-only.
+func AgentEnsureCommand(network, image string, agentEnv AgentEnv) string {
 	env := ""
 	if agentEnv.InstanceURL != "" && agentEnv.Token != "" {
 		env = fmt.Sprintf("-e AKERDOCK_INSTANCE_URL=%s -e AKERDOCK_AGENT_TOKEN=%s ",
 			shellQuote(agentEnv.InstanceURL), shellQuote(agentEnv.Token))
 	}
+	// Network-scoped aliases only exist on user-defined networks; on the
+	// default bridge (an observation-only server) there are no scale-to-zero
+	// route files to keep resolving, so the alias is simply omitted.
+	alias := ""
+	if network != "bridge" {
+		alias = "--network-alias " + proxy.LegacyAgentContainerName + " "
+	}
 	return fmt.Sprintf(
 		"mkdir -p %s && "+
 			"img=$(docker inspect -f '{{.Config.Image}}' %s 2>/dev/null || true); "+
-			"spec=$(docker inspect -f '{{index .Config.Labels \"akerdock.waker_spec\"}}' %s 2>/dev/null || true); "+
-			"if [ \"$img\" != \"%s\" ] || [ \"$spec\" != \"%s\" ]; then old_img=$img; docker rm -f %s >/dev/null 2>&1 || true; "+
+			"spec=$(docker inspect -f '{{index .Config.Labels \"akerdock.agent_spec\"}}' %s 2>/dev/null || true); "+
+			"if [ \"$img\" != \"%s\" ] || [ \"$spec\" != \"%s\" ]; then old_img=$img; "+
+			"docker rm -f %s >/dev/null 2>&1 || true; docker rm -f %s >/dev/null 2>&1 || true; "+
 			"docker run -d --name %s --restart unless-stopped --network %s --user 0 "+
+			"%s"+
 			"--add-host=host.docker.internal:host-gateway "+
 			"-v /var/run/docker.sock:/var/run/docker.sock -v %s:%s "+
-			"--label akerdock.managed=true --label akerdock.type=helper --label akerdock.waker_spec=%s "+
-			"%s%s waker || exit $?; "+
+			"--label akerdock.managed=true --label akerdock.type=helper --label akerdock.agent_spec=%s "+
+			"%s%s agent || exit $?; "+
 			"if [ -n \"$old_img\" ] && [ \"$old_img\" != \"%s\" ]; then docker image rm \"$old_img\" >/dev/null 2>&1 || true; fi; fi; "+
 			"docker start %s >/dev/null",
-		wakerDir, proxy.WakerContainerName, proxy.WakerContainerName,
-		image, wakerSpec, proxy.WakerContainerName,
+		wakerDir, proxy.AgentContainerName, proxy.AgentContainerName,
+		image, agentSpec,
+		proxy.AgentContainerName, proxy.LegacyAgentContainerName,
+		proxy.AgentContainerName, network, alias,
 		// The full akerdock tree, not just the waker's corner: the agent
 		// executes the ADR-054 file primitives on it.
-		proxy.WakerContainerName, network, hostops.Root, hostops.Root, wakerSpec, env, image, image,
-		proxy.WakerContainerName)
+		hostops.Root, hostops.Root, agentSpec, env, image, image,
+		proxy.AgentContainerName)
 }
 
 // removeWakerRoutes drops a resource from the shared table (preview destroy).
@@ -279,9 +296,9 @@ func removeWakerRoutes(ctx context.Context, ops hostops.Ops, resourceUUID string
 }
 
 // readWakerConfig reads the current routing table; absent or invalid → empty.
-func readWakerConfig(ctx context.Context, ops hostops.Ops) waker.Config {
-	var cfg waker.Config
-	res, err := ops.ReadFile(ctx, agentwire.FileReadParams{Path: wakerDir + "/" + waker.RoutesFile})
+func readWakerConfig(ctx context.Context, ops hostops.Ops) agent.Config {
+	var cfg agent.Config
+	res, err := ops.ReadFile(ctx, agentwire.FileReadParams{Path: wakerDir + "/" + agent.RoutesFile})
 	if err != nil || !res.Found {
 		return cfg
 	}
@@ -291,13 +308,13 @@ func readWakerConfig(ctx context.Context, ops hostops.Ops) waker.Config {
 
 // depositWakerRoutes writes the routing table atomically, so the waker —
 // which reloads on mtime change — never reads a half-written file.
-func depositWakerRoutes(ctx context.Context, ops hostops.Ops, cfg waker.Config) error {
-	raw, err := waker.MarshalConfig(cfg)
+func depositWakerRoutes(ctx context.Context, ops hostops.Ops, cfg agent.Config) error {
+	raw, err := agent.MarshalConfig(cfg)
 	if err != nil {
 		return err
 	}
 	if err := ops.WriteFile(ctx, agentwire.FileWriteParams{
-		Path: wakerDir + "/" + waker.RoutesFile, Content: raw,
+		Path: wakerDir + "/" + agent.RoutesFile, Content: raw,
 		Mode: 0o600, MakeDirs: true, DirMode: 0o755, Atomic: true,
 	}); err != nil {
 		return fmt.Errorf("waker routes deposit failed: %s", firstLine(err.Error()))

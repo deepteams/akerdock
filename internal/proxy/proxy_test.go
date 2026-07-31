@@ -183,7 +183,7 @@ func TestGenerateWaker(t *testing.T) {
 		"service: 9f3c2a1e-waker",
 		"9f3c2a1e-wake:",
 		"X-AkerDock-Wake: \"res-uuid-1234\"",
-		`url: "http://akerdock-waker:8080"`,
+		`url: "http://akerdock-agent:8080"`,
 		"redirectScheme:",
 	} {
 		if !strings.Contains(out, want) {

@@ -4,7 +4,7 @@
 // token injected at container creation. The loop is an accelerator, never a
 // dependency: it is bounded, best-effort, isolated from the wake path, and
 // its silence degrades to the control plane's SSH scans.
-package waker
+package agent
 
 import (
 	"bytes"
@@ -30,15 +30,15 @@ import (
 // "heartbeat" (the agent is alive).
 type Observation = agentwire.Observation
 
-// AgentConfig is the enrollment injected by the control plane (ADR-040 §3).
-type AgentConfig struct {
+// Enrollment is the enrollment injected by the control plane (ADR-040 §3).
+type Enrollment struct {
 	InstanceURL string
 	Token       string
 }
 
 // Enabled reports whether the enrollment is complete; otherwise the helper
 // runs waker-only.
-func (c AgentConfig) Enabled() bool { return c.InstanceURL != "" && c.Token != "" }
+func (c Enrollment) Enabled() bool { return c.InstanceURL != "" && c.Token != "" }
 
 // eventStreamer is the Docker event source; nil disables the stream (tests).
 type eventStreamer interface {
@@ -84,7 +84,7 @@ const (
 // OLDEST entries: observations are hints the SSH scans re-derive anyway, and
 // the traffic path must never block on the control plane (ADR-040 §7).
 type Agent struct {
-	cfg    AgentConfig
+	cfg    Enrollment
 	events eventStreamer
 	state  stateReader
 	lister containerLister
@@ -128,7 +128,7 @@ type Agent struct {
 // NewAgent builds an agent; events may be nil (no Docker stream). When the
 // source also reads container state and lists managed containers (the socket
 // client does), the agent verifies every event and resyncs periodically.
-func NewAgent(cfg AgentConfig, events eventStreamer, logger *slog.Logger) *Agent {
+func NewAgent(cfg Enrollment, events eventStreamer, logger *slog.Logger) *Agent {
 	if logger == nil {
 		logger = slog.Default()
 	}

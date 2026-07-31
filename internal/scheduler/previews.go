@@ -9,6 +9,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/deepteams/akerdock/internal/agent"
 	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/hostops"
@@ -16,7 +17,6 @@ import (
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
-	"github.com/deepteams/akerdock/internal/waker"
 )
 
 // reapPreviews enforces the preview lifecycle costs (§20.4.3): previews idle
@@ -157,7 +157,7 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 		return
 	}
 
-	scan := s.newWakerScan(ctx)
+	scan := s.newAgentScan(ctx)
 	defer scan.close()
 
 	now := time.Now()
@@ -267,7 +267,7 @@ func (s *Scheduler) scaleZeroApplications(ctx context.Context) {
 		return
 	}
 
-	scan := s.newWakerScan(ctx)
+	scan := s.newAgentScan(ctx)
 	defer scan.close()
 
 	now := time.Now()
@@ -356,7 +356,7 @@ func (s *Scheduler) scaleZeroApplications(ctx context.Context) {
 // cadence; the ensure command is a no-op when the image and spec already
 // match, so a steady state costs one inspect per pass.
 func (s *Scheduler) ensureAgents(ctx context.Context) {
-	if s.WakerImage == "" {
+	if s.AgentImage == "" {
 		return
 	}
 	servers, err := s.Store.ListReadyServers(ctx)
@@ -367,7 +367,7 @@ func (s *Scheduler) ensureAgents(ctx context.Context) {
 	if len(servers) == 0 {
 		return
 	}
-	scan := s.newWakerScan(ctx)
+	scan := s.newAgentScan(ctx)
 	defer scan.close()
 	for _, server := range servers {
 		client := scan.client(server)
@@ -385,10 +385,10 @@ func (s *Scheduler) ensureAgents(ctx context.Context) {
 	}
 }
 
-// wakerScan shares one SSH connection per server across a scale-to-zero pass
+// agentScan shares one SSH connection per server across a scale-to-zero pass
 // (for the waker reconcile — bootstrap family, ADR-054) and one host-ops
 // handle (for the activity reads), reconciling each server's waker image once.
-type wakerScan struct {
+type agentScan struct {
 	s          *Scheduler
 	ctx        context.Context
 	clients    map[int64]remoteClient
@@ -396,8 +396,8 @@ type wakerScan struct {
 	reconciled map[int64]bool
 }
 
-func (s *Scheduler) newWakerScan(ctx context.Context) *wakerScan {
-	return &wakerScan{
+func (s *Scheduler) newAgentScan(ctx context.Context) *agentScan {
+	return &agentScan{
 		s: s, ctx: ctx,
 		clients: map[int64]remoteClient{}, opsCache: map[int64]hostops.Ops{},
 		reconciled: map[int64]bool{},
@@ -407,7 +407,7 @@ func (s *Scheduler) newWakerScan(ctx context.Context) *wakerScan {
 // hostOps resolves (and caches) the server's agent file primitives; nil skips
 // the server's scale-to-zero decisions this pass, with the cause logged once
 // — the same stance as an unreachable SSH server.
-func (w *wakerScan) hostOps(server store.Server) hostops.Ops {
+func (w *agentScan) hostOps(server store.Server) hostops.Ops {
 	if ops, ok := w.opsCache[server.ID]; ok {
 		return ops
 	}
@@ -422,7 +422,7 @@ func (w *wakerScan) hostOps(server store.Server) hostops.Ops {
 	return ops
 }
 
-func (w *wakerScan) client(server store.Server) remoteClient {
+func (w *agentScan) client(server store.Server) remoteClient {
 	if c, ok := w.clients[server.ID]; ok {
 		return c
 	}
@@ -462,18 +462,18 @@ func (w *wakerScan) client(server store.Server) remoteClient {
 // reconcile upgrades a server's waker in place once per pass when its running
 // image differs from this release's (ADR-036), re-injecting the agent
 // enrollment (ADR-040) so a recreate never loses it.
-func (w *wakerScan) reconcile(server store.Server, network string, client remoteClient) {
-	if w.s.WakerImage == "" || network == "" || w.reconciled[server.ID] {
+func (w *agentScan) reconcile(server store.Server, network string, client remoteClient) {
+	if w.s.AgentImage == "" || network == "" || w.reconciled[server.ID] {
 		return
 	}
 	w.reconciled[server.ID] = true
 	env := jobs.AgentEnvForServer(w.ctx, w.s.Store, w.s.Keyring, w.s.Logger, server, w.s.InstancePort)
-	if _, err := client.Run(w.ctx, jobs.WakerEnsureCommand(network, w.s.WakerImage, env)); err != nil {
+	if _, err := client.Run(w.ctx, jobs.AgentEnsureCommand(network, w.s.AgentImage, env)); err != nil {
 		w.s.Logger.Warn("waker image reconcile failed", "server_id", server.ID, "error", err)
 	}
 }
 
-func (w *wakerScan) close() {
+func (w *agentScan) close() {
 	for _, c := range w.clients {
 		_ = c.Close()
 	}
@@ -502,14 +502,14 @@ func (s *Scheduler) previewPlacement(ctx context.Context, applicationID int64) (
 // — genuine "no activity yet". A non-nil error means the channel itself
 // failed: the caller must SKIP the decision, not treat it as idleness.
 func readWakerActivity(ctx context.Context, ops hostops.Ops, uuid string) (time.Time, error) {
-	res, err := ops.ReadFile(ctx, agentwire.FileReadParams{Path: waker.ActivityPath(waker.DefaultDir, uuid)})
+	res, err := ops.ReadFile(ctx, agentwire.FileReadParams{Path: agent.ActivityPath(agent.DefaultDir, uuid)})
 	if err != nil {
 		return time.Time{}, err
 	}
 	if !res.Found {
 		return time.Time{}, nil
 	}
-	at, err := waker.ParseActivity(string(res.Content))
+	at, err := agent.ParseActivity(string(res.Content))
 	if err != nil {
 		//nolint:nilerr // an unreadable file is "no activity yet", not a channel failure.
 		return time.Time{}, nil
