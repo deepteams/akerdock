@@ -18,6 +18,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/registry"
+	"github.com/docker/go-units"
+
 	"github.com/deepteams/akerdock/internal/adoption"
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
@@ -71,6 +76,11 @@ var (
 	// A queued deployment waits without touching the server while an atomic
 	// cleanup owns it. Variable for fast unit tests.
 	deploymentCleanupPollInterval = time.Second
+	// deploymentStablePeriod is the §4 no-healthcheck wait: running and
+	// stable this long counts as up. deploymentHealthPoll is the health
+	// inspect cadence. Variables for fast unit tests.
+	deploymentStablePeriod = 10 * time.Second
+	deploymentHealthPoll   = 2 * time.Second
 )
 
 // Execute runs one attempt. A terminal deployment is never re-run: after a
@@ -228,6 +238,11 @@ type deploymentRun struct {
 	dest                 store.Destination
 	teamUUID             string
 	client               *sshexec.Client
+	// rt is the target server's Docker runtime over its agent channel
+	// (ADR-052): every container/image/volume operation on the TARGET goes
+	// through it. Builds, git, file deposits — and everything on the build
+	// server — stay on the SSH clients.
+	rt dockerruntime.Runtime
 	// builder is the machine the image is BUILT on. It is the target server
 	// unless the application asked for a build server (§3.4) — in which case
 	// what ships is not the image on that machine, but the one it pushed to a
@@ -579,9 +594,9 @@ func (r *deploymentRun) checkpoint(ctx context.Context) error {
 // markCancelled applies the same compensation as a failure — remove the
 // candidate, never the healthy serving container (INV-006).
 func (r *deploymentRun) markCancelled(ctx context.Context) {
-	if r.client != nil {
+	if r.rt != nil {
 		candidate := r.namingIdentity() + "-next"
-		_, _ = r.client.Run(ctx, "docker rm -f "+candidate+" >/dev/null 2>&1 || true")
+		_ = removeNamedContainers(ctx, r.rt, false, candidate)
 	}
 	_ = r.setStatus(ctx, store.DeploymentStatusCancelled)
 	r.h.Logger.Info("deployment cancelled", "deployment_uuid", pguuid.String(r.d.Uuid))
@@ -619,6 +634,18 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	}
 	labels := fmt.Sprintf("--label akerdock.managed=true --label akerdock.resource_uuid=%s --label akerdock.type=%s --label akerdock.team_uuid=%s --label akerdock.deployment_uuid=%s",
 		resourceUUID, resourceType, r.teamUUID, pguuid.String(r.d.Uuid)) + previewLabel
+	// The same identity as a map for the typed create — the CLI flag string
+	// above still feeds the builds, which stay on the CLI path (ADR-051).
+	labelsMap := map[string]string{
+		"akerdock.managed":         "true",
+		"akerdock.resource_uuid":   resourceUUID,
+		"akerdock.type":            resourceType,
+		"akerdock.team_uuid":       r.teamUUID,
+		"akerdock.deployment_uuid": pguuid.String(r.d.Uuid),
+	}
+	if r.preview != nil {
+		labelsMap["akerdock.preview_uuid"] = appUUID
+	}
 
 	// --- preparing -------------------------------------------------------
 	if err := r.checkpoint(ctx); err != nil {
@@ -639,6 +666,12 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	r.client, err = sshexec.Dial(ctx, r.server.Host, int(r.server.Port), r.server.SshUser, string(pem), timeout, pinnedHostKey(r.server))
 	if err != nil {
 		return fmt.Errorf("ssh connect: %w", err)
+	}
+	// The target's Docker runtime (ADR-052): mandatory — the compensation
+	// (markFailed/markCancelled) also removes the candidate through it, so it
+	// is resolved once and kept on the run.
+	if r.rt, err = r.h.Docker.Runtime(ctx, r.server.ID); err != nil {
+		return fmt.Errorf("the server's agent is not connected: %w", err)
 	}
 	// The build server (§3.4): a separate machine, dialled only when the
 	// application asked for one and only for a build pack that builds something.
@@ -666,16 +699,23 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 		return err
 	}
 
-	// runtime.env carries the decrypted variables — uploaded via stdin so
-	// values never appear in argv (INV-003), file mode 0600 (§5.1).
-	envFile, envKeys, err := r.renderRuntimeEnv(ctx)
+	// The runtime variables ride the typed create body over the channel
+	// (INV-003 as ADR-051 clarified): no argv, and no runtime.sh on the host
+	// anymore. The app directory is still prepared — builds and build.env
+	// live there.
+	envVars, err := r.renderRuntimeEnv(ctx)
 	if err != nil {
 		return err
 	}
 	if err := r.step(ctx, "prepare", func() (*sshexec.Result, error) {
-		return r.client.RunInput(ctx, fmt.Sprintf(
-			"docker info --format ok >/dev/null && mkdir -p %s/env && chmod 700 %s %s/env && umask 077 && cat > %s/env/runtime.sh && (docker network inspect %s >/dev/null 2>&1 || docker network create --label akerdock.managed=true %s)",
-			appDir, appDir, appDir, appDir, r.dest.Network, r.dest.Network), envFile)
+		if _, err := r.rt.Ping(ctx); err != nil {
+			return nil, fmt.Errorf("the Docker daemon is not answering: %s", firstLine(err.Error()))
+		}
+		if err := ensureNetwork(ctx, r.rt, r.dest.Network); err != nil {
+			return nil, err
+		}
+		return r.client.Run(ctx, fmt.Sprintf(
+			"mkdir -p %s/env && chmod 700 %s %s/env", appDir, appDir, appDir))
 	}); err != nil {
 		return err
 	}
@@ -715,39 +755,45 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 		}
 		ref := runRef
 		if err := r.step(ctx, "verify_artifact", func() (*sshexec.Result, error) {
-			res, err := r.client.Run(ctx, "docker image inspect --format '{{.Id}}' "+ref)
-			if err == nil && res.ExitCode != 0 {
-				return res, fmt.Errorf(missing, ref)
+			if _, err := r.rt.ImageInspect(ctx, ref); err != nil {
+				if dockerruntime.IsNotFound(err) {
+					return nil, fmt.Errorf(missing, ref)
+				}
+				return nil, err
 			}
-			return res, err
+			return nil, nil
 		}); err != nil {
 			return err
 		}
 	case r.app.BuildConfig.BuildPack == store.BuildPackImage:
 		r.skipStep(ctx, "clone", "no git source (image build pack)")
 		imageRef := *r.d.ImageName + ":" + *r.d.ImageTag
-		// A private image needs a `docker login` on the server first. The
-		// credential is logged out again as soon as the pull is done, whatever
-		// its outcome: leaving the server authenticated would leave the token in
-		// ~/.docker/config.json for anything else on that host to use.
-		logout, err := r.registryLogin(ctx)
+		// A private registry authenticates PER REQUEST (ADR-051): the
+		// credential rides the pull call and nothing is ever persisted in the
+		// host's ~/.docker/config.json — the login/logout dance survives only
+		// on the CLI build path.
+		auth, err := r.registryAuth(ctx, r.app.BuildConfig.RegistryCredentialID)
 		if err != nil {
 			return err
 		}
-		defer logout()
 		// Streamed: pulling a large image is otherwise a long, silent wait.
 		if err := r.streamStep(ctx, "pull", func(onOutput func(string)) (*sshexec.Result, error) {
-			return r.client.RunStream(ctx, "docker pull "+imageRef, onOutput)
+			rc, err := r.rt.ImagePull(ctx, imageRef, image.PullOptions{RegistryAuth: auth})
+			if err != nil {
+				return nil, err
+			}
+			defer func() { _ = rc.Close() }()
+			return nil, streamPullProgress(rc, onOutput)
 		}); err != nil {
 			return err
 		}
 		if err := r.step(ctx, "resolve_digest", func() (*sshexec.Result, error) {
-			res, err := r.client.Run(ctx, fmt.Sprintf("docker image inspect --format '{{index .RepoDigests 0}}' %s", imageRef))
-			if err == nil && res.ExitCode == 0 && res.Stdout != "" {
-				r.digest = firstLine(res.Stdout)
+			inspect, err := r.rt.ImageInspect(ctx, imageRef)
+			if err == nil && len(inspect.RepoDigests) > 0 {
+				r.digest = inspect.RepoDigests[0]
 				_ = r.h.Store.SetDeploymentImageDigest(ctx, store.SetDeploymentImageDigestParams{ID: r.d.ID, ImageDigest: &r.digest})
 			}
-			return res, err
+			return nil, err
 		}); err != nil {
 			return err
 		}
@@ -805,45 +851,58 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	if err := r.setStatus(ctx, store.DeploymentStatusStarting); err != nil {
 		return err
 	}
-	limits := ""
+	var memoryLimit int64
 	if r.app.RuntimeConfig.MemoryLimit != nil {
-		limits += " --memory " + *r.app.RuntimeConfig.MemoryLimit
+		if memoryLimit, err = units.RAMInBytes(*r.app.RuntimeConfig.MemoryLimit); err != nil {
+			return fmt.Errorf("invalid memory limit %q: %w", *r.app.RuntimeConfig.MemoryLimit, err)
+		}
 	}
 	// Declared volumes are created idempotently before the candidate, and
 	// mounted into it (§5.3.4). Bind mount host directories are created too.
-	mounts, prepare, err := r.renderStorages(ctx, appUUID, runRef)
+	binds, err := r.prepareStorages(ctx, appUUID, runRef)
 	if err != nil {
 		return err
 	}
-	healthFlags, hasHealthCheck := r.renderHealthCheck(ctx)
+	healthConfig, hasHealthCheck := r.healthConfig(ctx)
 	// Rolling eligibility (§7.3): a working health check is required. Without
 	// one, the deployment falls back to stop-then-start (§7.4).
 	r.rolling = hasHealthCheck
-	if prepare != "" {
-		if err := r.step(ctx, "prepare_storages", func() (*sshexec.Result, error) {
-			return r.client.Run(ctx, prepare)
-		}); err != nil {
-			return err
-		}
-	}
 	// Non-rolling fallback: the old container is stopped first and the new
 	// one is created directly under the final name (§7.4).
 	target := candidate
-	stopOld := ""
 	if !r.rolling {
 		target = appUUID
-		stopOld = fmt.Sprintf("docker stop -t %d %s >/dev/null 2>&1 && docker rm %s >/dev/null 2>&1; ",
-			r.app.RuntimeConfig.StopGracePeriodSeconds, oldName, oldName)
 	}
 	r.target = target
 	if err := r.step(ctx, "start_candidate", func() (*sshexec.Result, error) {
-		// The values are sourced into the shell and referenced by NAME only:
-		// `-e KEY` makes Docker read KEY from the environment, so a multiline
-		// value (a PEM key, a JSON blob) works and never lands in argv (INV-003).
-		return r.client.Run(ctx, fmt.Sprintf(
-			". %s/env/runtime.sh; %sdocker rm -f %s >/dev/null 2>&1 || true; docker create --name %s --restart unless-stopped --stop-timeout %d --network %s%s %s%s%s%s %s >/dev/null && docker start %s",
-			appDir, stopOld, target, target, r.app.RuntimeConfig.StopGracePeriodSeconds, r.dest.Network, envFlags(envKeys),
-			labels, limits, mounts, healthFlags, runRef, target))
+		grace := int(r.app.RuntimeConfig.StopGracePeriodSeconds)
+		if !r.rolling {
+			if err := containerLifecycle(ctx, r.rt, "stop", oldName, grace); err != nil && !dockerruntime.IsNotFound(err) {
+				return nil, err
+			}
+			if err := removeNamedContainers(ctx, r.rt, false, oldName); err != nil {
+				return nil, err
+			}
+		}
+		if err := removeNamedContainers(ctx, r.rt, false, target); err != nil {
+			return nil, err
+		}
+		// The variables ride the typed body over the encrypted channel: no
+		// shell, no argv, no host file (INV-003, ADR-051).
+		config := &container.Config{
+			Image: runRef, Env: envVars, Labels: labelsMap,
+			Healthcheck: healthConfig, StopTimeout: &grace,
+		}
+		host := &container.HostConfig{
+			RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyUnlessStopped},
+			NetworkMode:   container.NetworkMode(r.dest.Network),
+			Binds:         binds,
+		}
+		host.Memory = memoryLimit
+		if _, err := r.rt.ContainerCreate(ctx, config, host, nil, nil, target); err != nil {
+			return nil, err
+		}
+		return nil, r.rt.ContainerStart(ctx, target, container.StartOptions{})
 	}); err != nil {
 		return err
 	}
@@ -859,35 +918,17 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	}
 	// The container's own stdout/stderr is followed LIVE during the wait, so an
 	// operator sees the app boot (and why it fails) in the deployment stream
-	// instead of a silent "starting". `docker logs -f` runs in the background and
-	// is killed the moment the verdict is reached, so it never delays the switch.
+	// instead of a silent "starting". The follow stops the moment the verdict
+	// is reached, so it never delays the switch.
 	if err := r.streamStep(ctx, "healthcheck", func(onOutput func(string)) (*sshexec.Result, error) {
-		var cmd string
-		if !hasHealthCheck {
-			// No health check: wait for a stable running state (§4).
-			cmd = fmt.Sprintf(
-				"docker logs -f --tail 50 %s 2>&1 & LP=$!; sleep 10; "+
-					"st=$(docker inspect --format '{{.State.Status}}' %s 2>/dev/null); "+
-					"kill $LP 2>/dev/null; wait $LP 2>/dev/null; echo \"--- container status: $st ---\"; "+
-					"[ \"$st\" = running ] && exit 0 || exit 1",
-				target, target)
-		} else {
-			// Poll the container health until healthy, bounded by the configured
-			// budget: start_period + (interval + timeout) × retries + 30 s (§4).
-			cmd = fmt.Sprintf(
-				"docker logs -f --tail 50 %s 2>&1 & LP=$!; "+
-					"deadline=$(( $(date +%%s) + %d )); verdict=timeout; while [ $(date +%%s) -lt $deadline ]; do "+
-					"st=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' %s 2>/dev/null); "+
-					"case \"$st\" in healthy) verdict=healthy; break;; unhealthy) verdict=unhealthy; break;; none) verdict=none; break;; esac; "+
-					"sleep 2; done; kill $LP 2>/dev/null; wait $LP 2>/dev/null; echo \"--- health: $verdict ---\"; "+
-					"case \"$verdict\" in healthy|none) exit 0;; *) exit 1;; esac",
-				target, r.healthBudget, target)
+		verdict, err := r.awaitCandidate(ctx, target, hasHealthCheck, onOutput)
+		if err != nil {
+			return nil, err
 		}
-		res, err := r.client.RunStream(ctx, cmd, onOutput)
-		if err == nil && res != nil && res.ExitCode != 0 {
-			return res, r.candidateFailure(ctx, target, "the new container did not become healthy in time")
+		if !verdict {
+			return nil, r.candidateFailure(ctx, target, "the new container did not become healthy in time")
 		}
-		return res, err
+		return nil, nil
 	}); err != nil {
 		return err
 	}
@@ -915,15 +956,19 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 		// then stop the old one and promote the candidate.
 		var candidateIP string
 		if err := r.step(ctx, "resolve_endpoint", func() (*sshexec.Result, error) {
-			res, err := r.client.Run(ctx, fmt.Sprintf(
-				"docker inspect --format '{{(index .NetworkSettings.Networks \"%s\").IPAddress}}' %s", r.dest.Network, candidate))
-			if err == nil && res.ExitCode == 0 {
-				candidateIP = firstLine(res.Stdout)
-				if candidateIP == "" {
-					return res, fmt.Errorf("could not resolve the candidate IP on network %s", r.dest.Network)
+			resp, err := r.rt.ContainerInspect(ctx, candidate)
+			if err != nil {
+				return nil, err
+			}
+			if resp.NetworkSettings != nil {
+				if ep := resp.NetworkSettings.Networks[r.dest.Network]; ep != nil {
+					candidateIP = ep.IPAddress
 				}
 			}
-			return res, err
+			if candidateIP == "" {
+				return nil, fmt.Errorf("could not resolve the candidate IP on network %s", r.dest.Network)
+			}
+			return nil, nil
 		}); err != nil {
 			return err
 		}
@@ -931,15 +976,15 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 			return err
 		}
 		if err := r.step(ctx, "switch", func() (*sshexec.Result, error) {
-			return r.client.Run(ctx, fmt.Sprintf(
-				"(docker stop -t %d %s >/dev/null 2>&1 && docker rm %s >/dev/null 2>&1) || true; docker rename %s %s",
-				grace, oldName, oldName, candidate, appUUID))
+			return nil, r.promoteCandidate(ctx, oldName, candidate, appUUID, int(grace))
 		}); err != nil {
 			return err
 		}
 	} else if err := r.step(ctx, "switch", func() (*sshexec.Result, error) {
-		// Non-rolling: the old container is already gone (§7.4).
-		return r.client.Run(ctx, "docker inspect --format '{{.State.Status}}' "+appUUID)
+		// Non-rolling: the old container is already gone (§7.4); the inspect
+		// only proves the final name exists.
+		_, err := r.rt.ContainerInspect(ctx, appUUID)
+		return nil, err
 	}); err != nil {
 		return err
 	}
@@ -1471,13 +1516,13 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 	})
 }
 
-// renderHealthCheck maps the configured health check to docker create
-// flags (§5.3.4). A Dockerfile HEALTHCHECK stays authoritative: these flags
-// only add one when the image has none.
-func (r *deploymentRun) renderHealthCheck(ctx context.Context) (flags string, enabled bool) {
+// healthConfig maps the configured health check to the typed create body
+// (§5.3.4). A Dockerfile HEALTHCHECK stays authoritative: this only adds one
+// when the image has none.
+func (r *deploymentRun) healthConfig(ctx context.Context) (*container.HealthConfig, bool) {
 	hc, err := r.h.Store.GetHealthCheck(ctx, r.app.Resource.ID)
 	if err != nil || !hc.Enabled {
-		return "", false // no row means no health check
+		return nil, false // no row means no health check
 	}
 	port := 80
 	if hc.Port != nil {
@@ -1491,19 +1536,22 @@ func (r *deploymentRun) renderHealthCheck(ctx context.Context) (flags string, en
 	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, hc.Path)
 	cmd := fmt.Sprintf("curl -fsS -X %s -o /dev/null --max-time %d %s || wget -q -O /dev/null %s",
 		hc.Method, hc.TimeoutSeconds, url, url)
-	flags = fmt.Sprintf(" --health-cmd %q --health-interval %ds --health-timeout %ds --health-retries %d --health-start-period %ds",
-		cmd, hc.IntervalSeconds, hc.TimeoutSeconds, hc.Retries, hc.StartPeriodSeconds)
 	r.healthBudget = int(hc.StartPeriodSeconds) + int(hc.IntervalSeconds+hc.TimeoutSeconds)*int(hc.Retries) + 30
-	return flags, true
+	return &container.HealthConfig{
+		Test:        []string{"CMD-SHELL", cmd},
+		Interval:    time.Duration(hc.IntervalSeconds) * time.Second,
+		Timeout:     time.Duration(hc.TimeoutSeconds) * time.Second,
+		Retries:     int(hc.Retries),
+		StartPeriod: time.Duration(hc.StartPeriodSeconds) * time.Second,
+	}, true
 }
 
 // candidateFailure captures the candidate logs before it is removed by the
 // compensation, so the failure is diagnosable (§4 healthchecking).
 func (r *deploymentRun) candidateFailure(ctx context.Context, target, reason string) error {
-	logs, _ := r.client.Run(ctx, "docker logs --tail 200 "+target+" 2>&1")
 	detail := ""
-	if logs != nil {
-		detail = "\n" + logs.Stdout
+	if out, err := containerLogsTail(ctx, r.rt, target, 200); err == nil && out != "" {
+		detail = "\n" + out
 	}
 	return fmt.Errorf("%s%s", reason, detail)
 }
@@ -1514,17 +1562,19 @@ func DockerVolumeName(resourceUUID, name string) string {
 	return resourceUUID + "_" + name
 }
 
-// renderStorages returns the docker create mount flags and the idempotent
-// preparation command for the application's declared storages (§8). imageRef
-// is the image the candidate will run: still-empty volumes are handed to its
-// runtime user, so a non-root image can write its own storage without a
-// custom Dockerfile.
-func (r *deploymentRun) renderStorages(ctx context.Context, appUUID, imageRef string) (mounts, prepare string, err error) {
+// prepareStorages converges the application's declared storages (§8) and
+// returns the candidate's bind list. Volumes are ensured through the channel
+// with the management labels; bind-mount host directories are created over
+// SSH (host paths); still-empty volumes are handed to the image's runtime
+// user so a non-root image can write its own storage without a custom
+// Dockerfile.
+func (r *deploymentRun) prepareStorages(ctx context.Context, appUUID, imageRef string) ([]string, error) {
 	storages, err := r.h.Store.ListStoragesForResource(ctx, r.app.Resource.ID)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
-	var prep []string
+	var binds []string
+	var hostDirs []string
 	var volumes []string
 	for _, s := range storages {
 		switch s.Kind {
@@ -1544,10 +1594,12 @@ func (r *deploymentRun) renderStorages(ctx context.Context, appUUID, imageRef st
 				// prefixing it would remount an empty volume (INV-008).
 				vol = *s.ExternalName
 			}
-			prep = append(prep, fmt.Sprintf(
-				"docker volume inspect %s >/dev/null 2>&1 || docker volume create --label akerdock.managed=true --label akerdock.resource_uuid=%s --label akerdock.team_uuid=%s %s >/dev/null",
-				vol, appUUID, r.teamUUID, vol))
-			mounts += fmt.Sprintf(" -v %s:%s", vol, s.MountPath)
+			if err := ensureVolume(ctx, r.rt, vol, map[string]string{
+				"akerdock.managed": "true", "akerdock.resource_uuid": appUUID, "akerdock.team_uuid": r.teamUUID,
+			}); err != nil {
+				return nil, err
+			}
+			binds = append(binds, vol+":"+s.MountPath)
 			volumes = append(volumes, vol)
 		case store.StorageKindBind:
 			if s.HostPath == nil {
@@ -1559,14 +1611,50 @@ func (r *deploymentRun) renderStorages(ctx context.Context, appUUID, imageRef st
 				r.h.Logger.Warn("preview skips bind mount", "host_path", *s.HostPath)
 				continue
 			}
-			prep = append(prep, "mkdir -p "+*s.HostPath)
-			mounts += fmt.Sprintf(" -v %s:%s", *s.HostPath, s.MountPath)
+			hostDirs = append(hostDirs, *s.HostPath)
+			binds = append(binds, *s.HostPath+":"+s.MountPath)
+		}
+	}
+	if len(hostDirs) > 0 {
+		if res, err := r.client.Run(ctx, "mkdir -p "+strings.Join(hostDirs, " ")); err != nil || res.ExitCode != 0 {
+			return nil, fmt.Errorf("creating the bind-mount directories failed")
 		}
 	}
 	if len(volumes) > 0 && imageRef != "" {
-		prep = append(prep, chownEmptyVolumesScript(imageRef, volumes))
+		r.chownEmptyVolumes(ctx, imageRef, volumes)
 	}
-	return mounts, strings.Join(prep, " && "), nil
+	return binds, nil
+}
+
+// chownEmptyVolumes hands STILL-EMPTY volumes to the image's runtime user. A
+// fresh named volume mounted on a path absent from the image belongs to root
+// — a USER'd image then crash-loops on its first write. The fix runs INSIDE
+// a throwaway container of the image itself (user 0), never against
+// /var/lib/docker on the host, so a named USER resolves against the image's
+// own /etc/passwd for free. Only empty volumes are touched: data that exists
+// already has an owner, and it is not this function's to change.
+// Best-effort by design: an image without /bin/sh (distroless) falls back to
+// today's behavior instead of failing the deployment.
+func (r *deploymentRun) chownEmptyVolumes(ctx context.Context, imageRef string, volumes []string) {
+	inspect, err := r.rt.ImageInspect(ctx, imageRef)
+	if err != nil || inspect.Config == nil {
+		return
+	}
+	user := inspect.Config.User
+	if user == "" || user == "root" || user == "0" || strings.HasPrefix(user, "0:") {
+		return
+	}
+	for _, vol := range volumes {
+		err := runOneShot(ctx, r.rt, &container.Config{
+			Image:      imageRef,
+			User:       "0",
+			Entrypoint: []string{"/bin/sh"},
+			Cmd:        []string{"-c", fmt.Sprintf("[ -n \"$(ls -A /akerdock-volume)\" ] || chown -- '%s' /akerdock-volume", user)},
+		}, &container.HostConfig{Binds: []string{vol + ":/akerdock-volume"}})
+		if err != nil {
+			r.h.Logger.Warn("volume ownership fix skipped", "volume", vol, "error", err)
+		}
+	}
 }
 
 // chownEmptyVolumesScript hands STILL-EMPTY volumes to the image's runtime
@@ -1632,10 +1720,10 @@ func (r *deploymentRun) mergeDeploymentRefs(shared *sharedEnv, dep map[string]st
 	}
 }
 
-// renderRuntimeEnv decrypts the application's variables into the
-// the shell file sourced before `docker create` (§5.2). Values are
-// shell-quoted, so multiline secrets survive intact.
-func (r *deploymentRun) renderRuntimeEnv(ctx context.Context) (string, []string, error) {
+// renderRuntimeEnv decrypts the application's variables into the KEY=VALUE
+// entries of the typed create body (§5.2, ADR-051): no shell, no quoting —
+// multiline secrets survive verbatim.
+func (r *deploymentRun) renderRuntimeEnv(ctx context.Context) ([]string, error) {
 	var vars []store.EnvironmentVariable
 	var err error
 	if r.preview != nil {
@@ -1646,7 +1734,7 @@ func (r *deploymentRun) renderRuntimeEnv(ctx context.Context) (string, []string,
 		vars, err = r.h.Store.ListEnvVarsForDeploy(ctx, r.app.Resource.ID)
 	}
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	// Shared variables (§5.4, §3.1): {{scope.KEY}} references resolve inside
 	// values (literal variables excepted — that is what literal means), and
@@ -1655,25 +1743,23 @@ func (r *deploymentRun) renderRuntimeEnv(ctx context.Context) (string, []string,
 	shared := sharedEnv{}
 	if r.preview == nil {
 		if shared, err = resolveSharedEnv(ctx, r.h.Store, r.h.Keyring, r.app.Resource.ID); err != nil {
-			return "", nil, err
+			return nil, err
 		}
 	}
 	dep := r.deploymentRefs(ctx)
 	r.mergeDeploymentRefs(&shared, dep)
-	var b strings.Builder
-	keys := make([]string, 0, len(vars))
+	entries := make([]string, 0, len(vars))
 	seen := map[string]bool{}
 	for _, v := range vars {
 		plaintext, err := r.h.Keyring.Decrypt("environment_variables", "value_enc", pguuid.String(v.Uuid), v.ValueEnc)
 		if err != nil {
-			return "", nil, fmt.Errorf("decrypt variable %s: %w", v.Key, err)
+			return nil, fmt.Errorf("decrypt variable %s: %w", v.Key, err)
 		}
 		value := string(plaintext)
 		if !v.IsLiteral {
 			value = shared.interpolate(value)
 		}
-		fmt.Fprintf(&b, "export %s=%s\n", v.Key, shellQuote(value))
-		keys = append(keys, v.Key)
+		entries = append(entries, v.Key+"="+value)
 		seen[v.Key] = true
 	}
 	serverKeys := make([]string, 0, len(shared.server))
@@ -1685,22 +1771,18 @@ func (r *deploymentRun) renderRuntimeEnv(ctx context.Context) (string, []string,
 		if seen[k] {
 			continue // the resource's own variable wins
 		}
-		fmt.Fprintf(&b, "export %s=%s\n", k, shellQuote(shared.server[k]))
-		keys = append(keys, k)
+		entries = append(entries, k+"="+shared.server[k])
 	}
 	// The same deployment identity as the {{deployment.*}} tokens, also exposed
 	// as standalone predefined variables (§5.2) for apps that read them directly:
 	// AKERDOCK_FQDN/URL (own public address) and AKERDOCK_PR_ID (previews).
 	if v := dep["deployment.pr_id"]; v != "" {
-		fmt.Fprintf(&b, "export AKERDOCK_PR_ID=%s\n", shellQuote(v))
-		keys = append(keys, "AKERDOCK_PR_ID")
+		entries = append(entries, "AKERDOCK_PR_ID="+v)
 	}
 	if v := dep["deployment.fqdn"]; v != "" {
-		fmt.Fprintf(&b, "export AKERDOCK_FQDN=%s\n", shellQuote(v))
-		fmt.Fprintf(&b, "export AKERDOCK_URL=%s\n", shellQuote(dep["deployment.url"]))
-		keys = append(keys, "AKERDOCK_FQDN", "AKERDOCK_URL")
+		entries = append(entries, "AKERDOCK_FQDN="+v, "AKERDOCK_URL="+dep["deployment.url"])
 	}
-	return b.String(), keys, nil
+	return entries, nil
 }
 
 // shellQuote renders a value as a single-quoted shell literal. Single quotes
@@ -1708,13 +1790,10 @@ func (r *deploymentRun) renderRuntimeEnv(ctx context.Context) (string, []string,
 // backslashes, anything — except a single quote itself, which is closed,
 // escaped and reopened. This is what lets a PEM key or a JSON blob survive as
 // an environment variable (INV-012).
-// registryLogin authenticates the target server against the private registry of
-// this application, if it has one, and returns the logout to defer.
-//
-// The password reaches the server through STDIN, never through argv: a command
-// line is world-readable in `ps` on the target host, and it would land in the
-// shell history and in any command-level audit (INV-003). `--password-stdin` is
-// the only form docker offers that keeps it out.
+// registryLogin authenticates the target server against the private registry
+// over the CLI — the COMPOSE pipeline's form, which still pulls with the
+// CLI; it dies with that slice's migration. The password reaches the server
+// through STDIN, never argv (INV-003).
 func (r *deploymentRun) registryLogin(ctx context.Context) (func(), error) {
 	credID := r.app.BuildConfig.RegistryCredentialID
 	if credID == nil {
@@ -1729,7 +1808,6 @@ func (r *deploymentRun) registryLogin(ctx context.Context) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot decrypt the registry credential: %w", err)
 	}
-
 	if err := r.step(ctx, "registry_login", func() (*sshexec.Result, error) {
 		res, err := r.client.RunInput(ctx, fmt.Sprintf("docker login %s -u %s --password-stdin",
 			shellQuote(cred.RegistryUrl), shellQuote(cred.Username)), string(password))
@@ -1742,7 +1820,6 @@ func (r *deploymentRun) registryLogin(ctx context.Context) (func(), error) {
 	}); err != nil {
 		return nil, err
 	}
-
 	return func() {
 		// Best effort, and on a context that outlives a cancellation: a logout
 		// skipped because the deployment was cancelled would leave the token on
@@ -1753,8 +1830,137 @@ func (r *deploymentRun) registryLogin(ctx context.Context) (func(), error) {
 	}, nil
 }
 
+// registryAuth builds the per-request registry credential of a typed pull
+// (ADR-051): the password rides that one call over the encrypted channel and
+// is never persisted in any ~/.docker/config.json. Empty when the
+// application has no private registry.
+func (r *deploymentRun) registryAuth(ctx context.Context, credID *int64) (string, error) {
+	if credID == nil {
+		return "", nil
+	}
+	cred, err := r.h.Store.GetRegistryCredentialByID(ctx, *credID)
+	if err != nil {
+		return "", fmt.Errorf("the registry credential of this application is gone: %w", err)
+	}
+	password, err := r.h.Keyring.Decrypt("registry_credentials", "password_enc",
+		pguuid.String(cred.Uuid), cred.PasswordEnc)
+	if err != nil {
+		return "", fmt.Errorf("cannot decrypt the registry credential: %w", err)
+	}
+	return registry.EncodeAuthConfig(registry.AuthConfig{
+		Username: cred.Username, Password: string(password), ServerAddress: cred.RegistryUrl,
+	})
+}
+
 func shellQuote(v string) string {
 	return "'" + strings.ReplaceAll(v, "'", `'\''`) + "'"
+}
+
+// renderRuntimeEnvFile is the shell-file form of the runtime environment —
+// the compose pipeline still writes and sources it before its CLI creates;
+// this form dies with that slice's migration.
+func (r *deploymentRun) renderRuntimeEnvFile(ctx context.Context) (string, []string, error) {
+	entries, err := r.renderRuntimeEnv(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	var b strings.Builder
+	keys := make([]string, 0, len(entries))
+	for _, e := range entries {
+		k, v, _ := strings.Cut(e, "=")
+		fmt.Fprintf(&b, "export %s=%s\n", k, shellQuote(v))
+		keys = append(keys, k)
+	}
+	return b.String(), keys, nil
+}
+
+// awaitCandidate is the §4 healthchecking verdict: without a health check it
+// waits for a stable running state (10 s); with one it polls the container
+// health until healthy/unhealthy/none, bounded by the configured budget. The
+// container's own output streams live into the deployment log while the wait
+// runs, and stops with the verdict.
+func (r *deploymentRun) awaitCandidate(ctx context.Context, target string, hasHealthCheck bool, onOutput func(string)) (bool, error) {
+	logsCtx, stopLogs := context.WithCancel(ctx)
+	defer stopLogs()
+	go func() {
+		rc, err := r.rt.ContainerLogs(logsCtx, target, container.LogsOptions{
+			ShowStdout: true, ShowStderr: true, Follow: true, Tail: "50",
+		})
+		if err != nil {
+			return
+		}
+		defer func() { _ = rc.Close() }()
+		_ = dockerruntime.Demux(rc, false, onOutput)
+	}()
+
+	if !hasHealthCheck {
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(deploymentStablePeriod):
+		}
+		st, err := r.containerState(ctx, target)
+		if err != nil {
+			return false, err
+		}
+		onOutput(fmt.Sprintf("--- container status: %s ---\n", st))
+		return st == "running", nil
+	}
+
+	deadline := time.Now().Add(time.Duration(r.healthBudget) * time.Second)
+	verdict := "timeout"
+	for time.Now().Before(deadline) {
+		resp, err := r.rt.ContainerInspect(ctx, target)
+		if err == nil {
+			if resp.State == nil || resp.State.Health == nil {
+				verdict = "none"
+				break
+			}
+			if st := resp.State.Health.Status; st == "healthy" || st == "unhealthy" {
+				verdict = st
+				break
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(deploymentHealthPoll):
+		}
+	}
+	onOutput(fmt.Sprintf("--- health: %s ---\n", verdict))
+	return verdict == "healthy" || verdict == "none", nil
+}
+
+// promoteCandidate is the §7.2 switch: stop and remove the old container
+// (tolerating its absence — the replay case), then rename the candidate into
+// the final name. The rename failing fails the step: a switch that did not
+// happen must never read as done.
+func (r *deploymentRun) promoteCandidate(ctx context.Context, oldName, candidate, appUUID string, grace int) error {
+	if err := containerLifecycle(ctx, r.rt, "stop", oldName, grace); err != nil && !dockerruntime.IsNotFound(err) {
+		r.h.Logger.Warn("stopping the old container failed — promoting anyway, like the CLI switch did",
+			"container", oldName, "error", err)
+	}
+	if err := removeNamedContainers(ctx, r.rt, false, oldName); err != nil {
+		r.h.Logger.Warn("removing the old container failed — promoting anyway",
+			"container", oldName, "error", err)
+	}
+	return r.rt.ContainerRename(ctx, candidate, appUUID)
+}
+
+// containerState reports a container's status, "absent" when it does not
+// exist — the resume inspection's vocabulary (§2.5).
+func (r *deploymentRun) containerState(ctx context.Context, name string) (string, error) {
+	resp, err := r.rt.ContainerInspect(ctx, name)
+	if err != nil {
+		if dockerruntime.IsNotFound(err) {
+			return "absent", nil
+		}
+		return "", err
+	}
+	if resp.State == nil {
+		return "absent", nil
+	}
+	return resp.State.Status, nil
 }
 
 // envFlags renders `-e KEY` for each variable — with no value. Docker then
@@ -1832,7 +2038,7 @@ type prunableImage struct {
 // deployment. A deployment that reuses an existing artifact (rollback,
 // skip_build) reclaims nothing — it added no image.
 func (r *deploymentRun) pruneOldImages(ctx context.Context) {
-	if r.reusesArtifact() || r.client == nil {
+	if r.reusesArtifact() || r.rt == nil {
 		return
 	}
 	keep := 5
@@ -1873,7 +2079,9 @@ func (r *deploymentRun) pruneOldImages(ctx context.Context) {
 	}
 	for _, a := range imagesToReclaim(arts, keep) {
 		if a.ref != "" {
-			_, _ = r.client.Run(ctx, "docker rmi "+a.ref+" >/dev/null 2>&1 || true")
+			// Best-effort, like the CLI `|| true`: an image still in use (or
+			// already gone) is not this pass's problem.
+			_, _ = r.rt.ImageRemove(ctx, a.ref, image.RemoveOptions{})
 		}
 		// Drop the pointer whether or not the rmi reclaimed anything: beyond the
 		// retention window it is no longer a valid rollback target.
@@ -1918,9 +2126,9 @@ func (r *deploymentRun) markFailed(ctx context.Context, cause error) {
 		_ = r.h.Store.SetPreviewStatus(ctx, store.SetPreviewStatusParams{ID: r.preview.ID, Status: store.PreviewStatusFailed})
 		(&PreviewFeedback{Store: r.h.Store, Keyring: r.h.Keyring, Logger: r.h.Logger}).Notify(ctx, r.app, *r.preview, "failure")
 	}
-	if r.client != nil {
+	if r.rt != nil {
 		candidate := r.namingIdentity() + "-next"
-		_, _ = r.client.Run(ctx, "docker rm -f "+candidate+" >/dev/null 2>&1 || true")
+		_ = removeNamedContainers(ctx, r.rt, false, candidate)
 	}
 	msg := cause.Error()
 	_ = r.h.Store.SetDeploymentError(ctx, store.SetDeploymentErrorParams{ID: r.d.ID, ErrorMessage: &msg})
@@ -2173,15 +2381,14 @@ func (r *deploymentRun) resume(ctx context.Context, appUUID, oldName, candidate 
 		"deployment_uuid", pguuid.String(r.d.Uuid))
 
 	// What actually exists on the server decides, not what we believe.
-	res, err := r.client.Run(ctx, fmt.Sprintf(
-		"echo old=$(docker inspect --format '{{.State.Status}}' %s 2>/dev/null || echo absent); "+
-			"echo next=$(docker inspect --format '{{.State.Status}}' %s 2>/dev/null || echo absent)",
-		oldName, candidate))
+	oldState, err := r.containerState(ctx, oldName)
 	if err != nil {
 		return false, err
 	}
-	oldState := inspectField(res.Stdout, "old=")
-	nextState := inspectField(res.Stdout, "next=")
+	nextState, err := r.containerState(ctx, candidate)
+	if err != nil {
+		return false, err
+	}
 
 	// Every branch below records what the inspection found: an operator must be
 	// able to see WHY a resumed deployment did what it did.
@@ -2212,7 +2419,7 @@ func (r *deploymentRun) resume(ctx context.Context, appUUID, oldName, candidate 
 		// rename (§4, case c).
 		rec("old container gone, candidate not yet promoted; resuming at the rename")
 		if err := r.step(ctx, "switch", func() (*sshexec.Result, error) {
-			return r.client.Run(ctx, fmt.Sprintf("docker rename %s %s", candidate, appUUID))
+			return nil, r.rt.ContainerRename(ctx, candidate, appUUID)
 		}); err != nil {
 			return true, err
 		}
@@ -2229,9 +2436,7 @@ func (r *deploymentRun) resume(ctx context.Context, appUUID, oldName, candidate 
 		rec("both containers alive; resuming at the stop of the old one")
 		grace := r.app.RuntimeConfig.StopGracePeriodSeconds
 		if err := r.step(ctx, "switch", func() (*sshexec.Result, error) {
-			return r.client.Run(ctx, fmt.Sprintf(
-				"(docker stop -t %d %s >/dev/null 2>&1 && docker rm %s >/dev/null 2>&1) || true; docker rename %s %s",
-				grace, oldName, oldName, candidate, appUUID))
+			return nil, r.promoteCandidate(ctx, oldName, candidate, appUUID, int(grace))
 		}); err != nil {
 			return true, err
 		}
@@ -2278,17 +2483,6 @@ func (r *deploymentRun) finish(ctx context.Context, appUUID string) error {
 	}
 	r.h.Logger.Info("deployment succeeded", "deployment_uuid", pguuid.String(r.d.Uuid), "app_uuid", appUUID)
 	return nil
-}
-
-// inspectField reads `key=value` out of the inspection output.
-func inspectField(out, key string) string {
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if after, ok := strings.CutPrefix(line, key); ok {
-			return strings.TrimSpace(after)
-		}
-	}
-	return "absent"
 }
 
 // dialBuildServer picks a build server and connects to it.
@@ -2439,19 +2633,23 @@ func (r *deploymentRun) pushBuiltImage(ctx context.Context) (string, error) {
 	}
 
 	if err := r.streamStep(ctx, "pull_from_registry", func(onOutput func(string)) (*sshexec.Result, error) {
-		if err := dockerLogin(ctx, r.client, cred.RegistryUrl, cred.Username, string(password)); err != nil {
+		// The TARGET pulls by digest through the channel, authenticating per
+		// request (ADR-051): nothing lands in its ~/.docker/config.json.
+		auth, err := registry.EncodeAuthConfig(registry.AuthConfig{
+			Username: cred.Username, Password: string(password), ServerAddress: cred.RegistryUrl,
+		})
+		if err != nil {
 			return nil, err
 		}
-		defer dockerLogout(ctx, r.client, cred.RegistryUrl, r.h.Logger)
-
-		res, err := r.client.RunStream(ctx, "docker pull "+shellQuote(digest), onOutput)
+		rc, err := r.rt.ImagePull(ctx, digest, image.PullOptions{RegistryAuth: auth})
 		if err != nil {
-			return res, err
+			return nil, fmt.Errorf("the deployment server cannot pull %s: %s", digest, firstLine(err.Error()))
 		}
-		if res.ExitCode != 0 {
-			return res, fmt.Errorf("the deployment server cannot pull %s: %s", digest, firstLine(res.Stderr))
+		defer func() { _ = rc.Close() }()
+		if err := streamPullProgress(rc, onOutput); err != nil {
+			return nil, fmt.Errorf("the deployment server cannot pull %s: %s", digest, firstLine(err.Error()))
 		}
-		return res, nil
+		return nil, nil
 	}); err != nil {
 		return "", err
 	}

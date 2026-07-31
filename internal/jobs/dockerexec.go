@@ -5,10 +5,16 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/volume"
 
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 )
@@ -59,4 +65,98 @@ func containerLogsTail(ctx context.Context, rt dockerruntime.Runtime, containerN
 		return "", err
 	}
 	return sb.String(), nil
+}
+
+// ensureNetwork creates the destination network when absent — the typed
+// `docker network inspect || docker network create` with the managed label.
+func ensureNetwork(ctx context.Context, rt dockerruntime.Runtime, name string) error {
+	if _, err := rt.NetworkInspect(ctx, name, network.InspectOptions{}); err == nil {
+		return nil
+	} else if !dockerruntime.IsNotFound(err) {
+		return err
+	}
+	_, err := rt.NetworkCreate(ctx, name, network.CreateOptions{
+		Labels: map[string]string{"akerdock.managed": "true"},
+	})
+	if err != nil && dockerruntime.IsConflict(err) {
+		return nil // created concurrently
+	}
+	return err
+}
+
+// ensureVolume creates a labelled volume when absent — the typed
+// `docker volume inspect || docker volume create`.
+func ensureVolume(ctx context.Context, rt dockerruntime.Runtime, name string, labels map[string]string) error {
+	if _, err := rt.VolumeInspect(ctx, name); err == nil {
+		return nil
+	} else if !dockerruntime.IsNotFound(err) {
+		return err
+	}
+	_, err := rt.VolumeCreate(ctx, volume.CreateOptions{Name: name, Labels: labels})
+	return err
+}
+
+// runOneShot runs a throwaway container to completion — the typed
+// `docker run --rm`: create, start, wait, remove. A non-zero exit reports as
+// an error with the container's output attached.
+func runOneShot(ctx context.Context, rt dockerruntime.Runtime, cfg *container.Config, host *container.HostConfig) error {
+	created, err := rt.ContainerCreate(ctx, cfg, host, nil, nil, "")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = rt.ContainerRemove(ctx, created.ID, container.RemoveOptions{Force: true})
+	}()
+	if err := rt.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
+		return err
+	}
+	waitCh, errCh := rt.ContainerWait(ctx, created.ID, container.WaitConditionNotRunning)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errCh:
+		return err
+	case st := <-waitCh:
+		if st.StatusCode != 0 {
+			detail := ""
+			if out, lerr := containerLogsTail(ctx, rt, created.ID, 50); lerr == nil && out != "" {
+				detail = ": " + firstLine(out)
+			}
+			return fmt.Errorf("one-shot container exited with code %d%s", st.StatusCode, detail)
+		}
+		return nil
+	}
+}
+
+// streamPullProgress renders a pull's JSON progress stream as step-log lines
+// — one line per layer status transition, and the stream's own error
+// surfaced (the daemon reports pull failures IN the stream, not on the
+// call).
+func streamPullProgress(rc io.Reader, onOutput func(string)) error {
+	dec := json.NewDecoder(rc)
+	last := ""
+	for {
+		var m struct {
+			Status string `json:"status"`
+			ID     string `json:"id"`
+			Error  string `json:"error"`
+		}
+		if err := dec.Decode(&m); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		if m.Error != "" {
+			return fmt.Errorf("%s", m.Error)
+		}
+		line := m.Status
+		if m.ID != "" {
+			line = m.ID + ": " + line
+		}
+		if line != "" && line != last {
+			onOutput(line + "\n")
+			last = line
+		}
+	}
 }

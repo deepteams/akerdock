@@ -129,7 +129,7 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 	}
 	// The magic variables were possibly just persisted: runtime.sh must carry
 	// them, so it is rendered NOW, not in the shared preparing step.
-	envFile, stackKeys, err := r.renderRuntimeEnv(ctx)
+	envFile, stackKeys, err := r.renderRuntimeEnvFile(ctx)
 	if err != nil {
 		return err
 	}

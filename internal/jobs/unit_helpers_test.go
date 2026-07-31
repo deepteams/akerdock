@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -128,7 +129,9 @@ func TestStackLifecycleStartSkipsOneShots(t *testing.T) {
 
 func TestStackFilterUsesTheAdoptedComposeProject(t *testing.T) {
 	def := stackFilter(store.Resource{}, "abc")
-	if got := def.Get("label"); len(got) != 2 || got[0] != "akerdock.managed=true" || got[1] != "akerdock.resource_uuid=abc" {
+	got := def.Get("label")
+	slices.Sort(got) // filters.Args iterates a map: the order is not a promise
+	if len(got) != 2 || got[0] != "akerdock.managed=true" || got[1] != "akerdock.resource_uuid=abc" {
 		t.Fatalf("default filter = %v", got)
 	}
 	adopted := stackFilter(store.Resource{Adoption: []byte(`{"compose_project":"legacy"}`)}, "abc")

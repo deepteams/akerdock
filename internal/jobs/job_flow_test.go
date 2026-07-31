@@ -20,7 +20,10 @@ import (
 
 	cerrdefs "github.com/containerd/errdefs"
 	containertypes "github.com/docker/docker/api/types/container"
+	imagetypes "github.com/docker/docker/api/types/image"
+	networktypes "github.com/docker/docker/api/types/network"
 	volumetypes "github.com/docker/docker/api/types/volume"
+	"github.com/docker/docker/client"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -708,7 +711,7 @@ func TestRemainingJobFlowsReachTheirDecisionBoundary(t *testing.T) {
 		},
 		"terminal deployment": func() (any, error) {
 			j := job(TypeDeploymentRun, `{"deployment_id":1}`)
-			return (&DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger}).
+			return (&DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger, Docker: unavailableDocker{}}).
 				Execute(context.Background(), j, rec(j))
 		},
 		"encryption rotation without stale rows": func() (any, error) {
@@ -724,12 +727,45 @@ func TestRemainingJobFlowsReachTheirDecisionBoundary(t *testing.T) {
 	}
 }
 
+// deployFakeRuntime is the typed side a deployment state machine touches:
+// everything answers "present and running", pulls stream one status line.
+func deployFakeRuntime() *fake.Runtime {
+	rt := &fake.Runtime{}
+	rt.NetworkInspectFn = func(context.Context, string, networktypes.InspectOptions) (networktypes.Inspect, error) {
+		return networktypes.Inspect{}, nil
+	}
+	rt.ImageInspectFn = func(context.Context, string, ...client.ImageInspectOption) (imagetypes.InspectResponse, error) {
+		return imagetypes.InspectResponse{RepoDigests: []string{"registry.example/app@sha256:feed"}}, nil
+	}
+	rt.ImagePullFn = func(context.Context, string, imagetypes.PullOptions) (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader(`{"status":"Pulling"}` + "\n")), nil
+	}
+	rt.ContainerInspectFn = func(context.Context, string) (containertypes.InspectResponse, error) {
+		return containertypes.InspectResponse{ContainerJSONBase: &containertypes.ContainerJSONBase{
+			State: &containertypes.State{Running: true, Status: "running"},
+		}}, nil
+	}
+	rt.ContainerLogsFn = func(context.Context, string, containertypes.LogsOptions) (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader("")), nil
+	}
+	rt.VolumeInspectFn = func(context.Context, string) (volumetypes.Volume, error) {
+		return volumetypes.Volume{}, nil
+	}
+	rt.VolumeListFn = func(context.Context, volumetypes.ListOptions) (volumetypes.ListResponse, error) {
+		return volumetypes.ListResponse{}, nil
+	}
+	return rt
+}
+
 func TestImageDeploymentRunsThroughCompleteStateMachine(t *testing.T) {
 	q, keyring, recorder, logger, db := jobFlowDependencies(t)
 	db.host, db.port = newJobSSHServer(t).address(t)
 	previous := jobEnumValues["DeploymentStatus"]
 	jobEnumValues["DeploymentStatus"] = string(store.DeploymentStatusQueued)
 	defer func() { jobEnumValues["DeploymentStatus"] = previous }()
+	oldStable := deploymentStablePeriod
+	deploymentStablePeriod = time.Millisecond
+	defer func() { deploymentStablePeriod = oldStable }()
 
 	j := store.Job{
 		ID: 3, JobType: TypeDeploymentRun,
@@ -737,6 +773,7 @@ func TestImageDeploymentRunsThroughCompleteStateMachine(t *testing.T) {
 	}
 	result, err := (&DeploymentRun{
 		Store: q, Keyring: keyring, Audit: recorder, Logger: logger,
+		Docker: fixedSource{rt: deployFakeRuntime()},
 	}).Execute(context.Background(), j, nil)
 	if err != nil {
 		t.Fatalf("image deployment: %v", err)
@@ -765,6 +802,7 @@ func TestComposeDeploymentRunsThroughCompleteStateMachine(t *testing.T) {
 	}
 	result, err := (&DeploymentRun{
 		Store: q, Keyring: keyring, Audit: recorder, Logger: logger,
+		Docker: fixedSource{rt: deployFakeRuntime()},
 	}).Execute(context.Background(), j, nil)
 	if err != nil {
 		t.Fatalf("compose deployment: %v", err)
@@ -794,6 +832,7 @@ func TestComposePreviewDeploymentRunsThroughCompleteStateMachine(t *testing.T) {
 	}
 	result, err := (&DeploymentRun{
 		Store: q, Keyring: keyring, Audit: recorder, Logger: logger,
+		Docker: fixedSource{rt: deployFakeRuntime()},
 	}).Execute(context.Background(), j, nil)
 	if err != nil {
 		t.Fatalf("compose preview deployment: %v", err)
@@ -817,6 +856,9 @@ func TestSourceBuildPacksRunThroughCompleteStateMachine(t *testing.T) {
 			previousPack := jobEnumValues["BuildPack"]
 			jobEnumValues["DeploymentStatus"] = string(store.DeploymentStatusQueued)
 			jobEnumValues["BuildPack"] = string(pack)
+			oldStable := deploymentStablePeriod
+			deploymentStablePeriod = time.Millisecond
+			defer func() { deploymentStablePeriod = oldStable }()
 			defer func() {
 				jobEnumValues["DeploymentStatus"] = previousStatus
 				jobEnumValues["BuildPack"] = previousPack
@@ -828,6 +870,7 @@ func TestSourceBuildPacksRunThroughCompleteStateMachine(t *testing.T) {
 			}
 			result, err := (&DeploymentRun{
 				Store: q, Keyring: keyring, Audit: recorder, Logger: logger,
+				Docker: fixedSource{rt: deployFakeRuntime()},
 			}).Execute(context.Background(), j, nil)
 			if err != nil {
 				t.Fatalf("%s deployment: %v", pack, err)
