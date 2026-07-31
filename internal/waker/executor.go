@@ -16,6 +16,7 @@ import (
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/image"
 
 	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
@@ -142,7 +143,7 @@ func (e *Executor) executeStream(ctx context.Context, cmd agentwire.Command, sen
 			if err := json.Unmarshal(cmd.Params, &p); err != nil {
 				return nil, invalidParams(err)
 			}
-			return e.rt.ImagePull(ctx, p.Ref, p.Options)
+			return e.rt.ImagePull(ctx, p.Ref, image.PullOptions{All: p.All, RegistryAuth: p.RegistryAuth, Platform: p.Platform})
 		})
 	case agentwire.MethodImagePush:
 		var p agentwire.ImagePushParams
@@ -150,7 +151,7 @@ func (e *Executor) executeStream(ctx context.Context, cmd agentwire.Command, sen
 			if err := json.Unmarshal(cmd.Params, &p); err != nil {
 				return nil, invalidParams(err)
 			}
-			return e.rt.ImagePush(ctx, p.Ref, p.Options)
+			return e.rt.ImagePush(ctx, p.Ref, image.PushOptions{All: p.All, RegistryAuth: p.RegistryAuth, Platform: p.Platform})
 		})
 	case agentwire.MethodEvents:
 		e.pumpEvents(ctx, cmd, send)

@@ -192,14 +192,23 @@ type ContainerExecResizeParams struct {
 	Options container.ResizeOptions `json:"options"`
 }
 
+// ImagePullParams carries the pull WITHOUT the SDK options struct: its
+// PrivilegeFunc field is a func, which encoding/json refuses outright — the
+// same "SDK type unfit for the wire" trap as filters.Args, caught the same
+// day. The executor rebuilds image.PullOptions from these fields.
 type ImagePullParams struct {
-	Ref     string            `json:"ref"`
-	Options image.PullOptions `json:"options"`
+	Ref          string `json:"ref"`
+	All          bool   `json:"all,omitempty"`
+	RegistryAuth string `json:"registry_auth,omitempty"`
+	Platform     string `json:"platform,omitempty"`
 }
 
+// ImagePushParams mirrors ImagePullParams for the same reason.
 type ImagePushParams struct {
-	Ref     string            `json:"ref"`
-	Options image.PushOptions `json:"options"`
+	Ref          string            `json:"ref"`
+	All          bool              `json:"all,omitempty"`
+	RegistryAuth string            `json:"registry_auth,omitempty"`
+	Platform     *ocispec.Platform `json:"platform,omitempty"`
 }
 
 type ImageTagParams struct {

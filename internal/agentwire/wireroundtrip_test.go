@@ -71,3 +71,66 @@ func TestPruneFiltersSurviveTheWire(t *testing.T) {
 		t.Fatalf("empty filters = %v, %v", decoded, err)
 	}
 }
+
+// TestEveryParamsStructIsWireSafe marshals the zero value of EVERY params
+// and result struct of the vocabulary: encoding/json refuses func-typed
+// fields outright (image.PullOptions.PrivilegeFunc sank the first real pull
+// with "json: unsupported type"), and this sweep is what keeps the next
+// SDK-typed field from reaching production before a test does.
+func TestEveryParamsStructIsWireSafe(t *testing.T) {
+	for _, v := range []any{
+		ContainerCreateParams{},
+		ContainerStartParams{},
+		ContainerStopParams{},
+		ContainerRenameParams{},
+		ContainerRemoveParams{},
+		NameParams{},
+		ContainerWaitParams{},
+		ContainerListParams{},
+		ContainerLogsParams{},
+		StatsResult{},
+		PruneParams{},
+		ContainerExecCreateParams{},
+		ContainerExecStartParams{},
+		ContainerExecAttachParams{},
+		ContainerExecResizeParams{},
+		ImagePullParams{},
+		ImagePushParams{},
+		ImageTagParams{},
+		ImageListParams{},
+		ImageRemoveParams{},
+		VolumeCreateParams{},
+		VolumeListParams{},
+		VolumeRemoveParams{},
+		NetworkCreateParams{},
+		NetworkConnectParams{},
+		NetworkDisconnectParams{},
+		NetworkInspectParams{},
+		NetworkListParams{},
+		EventsParams{},
+		DiskUsageParams{},
+		RegistryLoginParams{},
+		FileWriteParams{},
+		FileReadParams{},
+		FileReadResult{},
+		FileRemoveParams{},
+		FileStatParams{},
+		FileStatResult{},
+		FileChownParams{},
+		FileCopyParams{},
+		DirEnsureParams{},
+		ExecToFileParams{},
+		ExecToFileResult{},
+		FileToExecParams{},
+		FileToExecResult{},
+		FileToURLParams{},
+		URLToFileParams{},
+		FileHashParams{},
+		FileHashResult{},
+		ImageBuildParams{},
+	} {
+		if _, err := json.Marshal(v); err != nil {
+			t.Errorf("%T does not survive the wire: %v", v, err)
+		}
+	}
+}

@@ -217,11 +217,11 @@ func (r *agentRuntime) ContainerExecResize(ctx context.Context, execID string, o
 }
 
 func (r *agentRuntime) ImagePull(ctx context.Context, ref string, options image.PullOptions) (io.ReadCloser, error) {
-	return r.s.Stream(ctx, agentwire.MethodImagePull, agentwire.ImagePullParams{Ref: ref, Options: options})
+	return r.s.Stream(ctx, agentwire.MethodImagePull, agentwire.ImagePullParams{Ref: ref, All: options.All, RegistryAuth: options.RegistryAuth, Platform: options.Platform})
 }
 
 func (r *agentRuntime) ImagePush(ctx context.Context, ref string, options image.PushOptions) (io.ReadCloser, error) {
-	return r.s.Stream(ctx, agentwire.MethodImagePush, agentwire.ImagePushParams{Ref: ref, Options: options})
+	return r.s.Stream(ctx, agentwire.MethodImagePush, agentwire.ImagePushParams{Ref: ref, All: options.All, RegistryAuth: options.RegistryAuth, Platform: options.Platform})
 }
 
 func (r *agentRuntime) ImageTag(ctx context.Context, img, ref string) error {
