@@ -17,19 +17,11 @@ import (
 	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/store"
 )
-
-// agentObservation mirrors waker.Observation on the wire.
-type agentObservation struct {
-	Type         string    `json:"type"`
-	At           time.Time `json:"at"`
-	Container    string    `json:"container"`
-	State        string    `json:"state"`
-	ResourceUUID string    `json:"resource_uuid"`
-}
 
 // agentBatchMax bounds one ingestion call; the agent batches at 100, this
 // leaves headroom without letting a broken sender stuff megabytes of hints.
@@ -64,7 +56,7 @@ func (a *API) AgentObservations(w http.ResponseWriter, r *http.Request) {
 	_ = a.Store.TouchAgentTokenSeen(r.Context(), token.ID)
 
 	var payload struct {
-		Observations []agentObservation `json:"observations"`
+		Observations []agentwire.Observation `json:"observations"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -112,20 +104,26 @@ func (p *AgentPresence) Connected(serverID int64) bool {
 	return p.live[serverID] > 0
 }
 
-// AgentChannel implements GET /agent/v1/ws (ADR-041): the persistent
-// outbound channel. Presence is the connection; observation frames are
-// acknowledged by sequence — a refused batch is acked `denied` so the agent
-// drops it instead of retrying forever.
+// AgentChannel implements GET /agent/v1/ws (ADR-041, ADR-052): the
+// persistent outbound channel. Presence is the connection; observation frames
+// are acknowledged by sequence — a refused batch is acked `denied` so the
+// agent drops it instead of retrying forever. When the agent offers the v2
+// subprotocol the same connection carries the typed command traffic, routed
+// through the registered agentConn.
 func (a *API) AgentChannel(w http.ResponseWriter, r *http.Request) {
 	token, ok := a.authAgentToken(w, r)
 	if !ok {
 		return
 	}
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"akerdock-agent-v1"}})
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		// Server preference order: commands whenever the agent can execute
+		// them, plain observations otherwise.
+		Subprotocols: []string{agentwire.SubprotocolV2, agentwire.SubprotocolV1},
+	})
 	if err != nil {
 		return
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 	conn.SetReadLimit(1 << 20)
 
 	a.Agents.connect(token.ServerID)
@@ -157,42 +155,45 @@ func (a *API) AgentChannel(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	type frame struct {
-		Type         string             `json:"type"`
-		Seq          int64              `json:"seq"`
-		Observations []agentObservation `json:"observations,omitempty"`
-		Denied       bool               `json:"denied,omitempty"`
+	ac := newAgentConn(ctx, conn)
+	v2 := conn.Subprotocol() == agentwire.SubprotocolV2
+	if v2 {
+		a.AgentRPC.register(token.ServerID, ac)
+		defer a.AgentRPC.unregister(token.ServerID, ac)
 	}
-	writeAck := func(seq int64, denied bool) error {
-		data, err := json.Marshal(frame{Type: "ack", Seq: seq, Denied: denied})
-		if err != nil {
-			return err
-		}
-		writeCtx, writeCancel := context.WithTimeout(ctx, 10*time.Second)
-		defer writeCancel()
-		return conn.Write(writeCtx, websocket.MessageText, data)
-	}
+
 	for {
 		_, data, err := conn.Read(ctx)
 		if err != nil {
 			return
 		}
-		var f frame
-		if json.Unmarshal(data, &f) != nil || f.Type != "observations" {
+		var f agentwire.Frame
+		if json.Unmarshal(data, &f) != nil {
 			continue
 		}
-		if len(f.Observations) > agentBatchMax {
-			if writeAck(f.Seq, true) != nil {
+		switch f.Type {
+		case agentwire.FrameObservations:
+			if len(f.Observations) > agentBatchMax {
+				if ac.writeFrame(agentwire.Frame{Type: agentwire.FrameAck, Seq: f.Seq, Denied: true}) != nil {
+					return
+				}
+				continue
+			}
+			for _, o := range f.Observations {
+				a.applyAgentObservation(ctx, token.ServerID, o)
+			}
+			_ = a.Store.TouchAgentTokenSeen(ctx, token.ID)
+			if ac.writeFrame(agentwire.Frame{Type: agentwire.FrameAck, Seq: f.Seq}) != nil {
 				return
 			}
-			continue
-		}
-		for _, o := range f.Observations {
-			a.applyAgentObservation(ctx, token.ServerID, o)
-		}
-		_ = a.Store.TouchAgentTokenSeen(ctx, token.ID)
-		if writeAck(f.Seq, false) != nil {
-			return
+		case agentwire.FrameResult:
+			if v2 {
+				ac.deliverResult(f.Res)
+			}
+		case agentwire.FrameStream:
+			if v2 {
+				ac.deliverChunk(f.Chunk)
+			}
 		}
 	}
 }
@@ -200,7 +201,7 @@ func (a *API) AgentChannel(w http.ResponseWriter, r *http.Request) {
 // applyAgentObservation applies one hint, scoped to the sender's server by
 // construction: every query carries the server id, so a compromised agent can
 // never touch another server's state.
-func (a *API) applyAgentObservation(ctx context.Context, serverID int64, o agentObservation) {
+func (a *API) applyAgentObservation(ctx context.Context, serverID int64, o agentwire.Observation) {
 	switch o.Type {
 	case "heartbeat":
 		// The touch on the token row already recorded liveness.

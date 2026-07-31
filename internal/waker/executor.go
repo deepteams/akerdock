@@ -1,0 +1,441 @@
+// Executor (ADR-052): the agent side of the typed command channel. Each
+// command names one dockerruntime.Runtime method and carries its SDK-typed
+// params; the executor unmarshals, calls the local daemon, and answers with a
+// result or stream chunks. It decides nothing — policy, ordering and retries
+// stay on the control plane (ADR-001) — and it executes nothing outside the
+// enumerated vocabulary.
+package waker
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"sync"
+
+	cerrdefs "github.com/containerd/errdefs"
+
+	"github.com/deepteams/akerdock/internal/agentwire"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
+)
+
+// execChunkSize bounds one stream chunk; small enough to interleave fairly
+// with other traffic on the shared channel, large enough to keep log
+// following cheap.
+const execChunkSize = 32 << 10
+
+// Executor runs typed commands against the local runtime.
+type Executor struct {
+	rt     dockerruntime.Runtime
+	logger *slog.Logger
+
+	mu       sync.Mutex
+	inflight map[int64]context.CancelFunc
+}
+
+// NewExecutor builds an executor over the local runtime.
+func NewExecutor(rt dockerruntime.Runtime, logger *slog.Logger) *Executor {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Executor{rt: rt, logger: logger, inflight: map[int64]context.CancelFunc{}}
+}
+
+// Cancel aborts the command with this id, if still in flight — the control
+// plane's ctx ended, or a stream consumer closed.
+func (e *Executor) Cancel(id int64) {
+	e.mu.Lock()
+	cancel := e.inflight[id]
+	e.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// Execute runs one command to completion and delivers its result — and, for
+// streaming methods, its chunks — through send. The channel runs each command
+// on its own goroutine and serializes send; a send failure means the channel
+// died, and the command's ctx dies with it.
+func (e *Executor) Execute(ctx context.Context, cmd agentwire.Command, send func(agentwire.Frame) error) {
+	ctx, cancel := context.WithCancel(ctx)
+	e.mu.Lock()
+	e.inflight[cmd.ID] = cancel
+	e.mu.Unlock()
+	defer func() {
+		cancel()
+		e.mu.Lock()
+		delete(e.inflight, cmd.ID)
+		e.mu.Unlock()
+	}()
+
+	if streamed := e.executeStream(ctx, cmd, send); streamed {
+		return
+	}
+
+	body, err := e.executeUnary(ctx, cmd)
+	res := agentwire.Result{ID: cmd.ID}
+	switch {
+	case err != nil:
+		res.Err = agentwire.WireError(err)
+	case body != nil:
+		data, mErr := json.Marshal(body)
+		if mErr != nil {
+			res.Err = agentwire.WireError(mErr)
+		} else {
+			res.Body = data
+		}
+	}
+	if err := send(agentwire.Frame{Type: agentwire.FrameResult, Res: &res}); err != nil {
+		e.logger.Warn("agent: command result lost, channel gone", "method", cmd.Method, "error", err)
+	}
+}
+
+// executeStream handles the four streaming methods: acknowledge the open with
+// an empty result, then pump chunks until EOF, error or cancel. Reports
+// whether the command was one of them.
+func (e *Executor) executeStream(ctx context.Context, cmd agentwire.Command, send func(agentwire.Frame) error) bool {
+	switch cmd.Method {
+	case agentwire.MethodContainerLogs:
+		var p agentwire.ContainerLogsParams
+		e.openAndPump(ctx, cmd, send, func() (io.ReadCloser, error) {
+			if err := json.Unmarshal(cmd.Params, &p); err != nil {
+				return nil, invalidParams(err)
+			}
+			return e.rt.ContainerLogs(ctx, p.Name, p.Options)
+		})
+	case agentwire.MethodImagePull:
+		var p agentwire.ImagePullParams
+		e.openAndPump(ctx, cmd, send, func() (io.ReadCloser, error) {
+			if err := json.Unmarshal(cmd.Params, &p); err != nil {
+				return nil, invalidParams(err)
+			}
+			return e.rt.ImagePull(ctx, p.Ref, p.Options)
+		})
+	case agentwire.MethodImagePush:
+		var p agentwire.ImagePushParams
+		e.openAndPump(ctx, cmd, send, func() (io.ReadCloser, error) {
+			if err := json.Unmarshal(cmd.Params, &p); err != nil {
+				return nil, invalidParams(err)
+			}
+			return e.rt.ImagePush(ctx, p.Ref, p.Options)
+		})
+	case agentwire.MethodEvents:
+		e.pumpEvents(ctx, cmd, send)
+	default:
+		return false
+	}
+	return true
+}
+
+// openAndPump opens the stream, acks the command, then forwards chunks. The
+// open error travels in the Result; a mid-stream error travels in the final
+// chunk.
+func (e *Executor) openAndPump(ctx context.Context, cmd agentwire.Command, send func(agentwire.Frame) error, open func() (io.ReadCloser, error)) {
+	rc, err := open()
+	if err != nil {
+		_ = send(agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: cmd.ID, Err: agentwire.WireError(err)}})
+		return
+	}
+	defer func() { _ = rc.Close() }()
+	if err := send(agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: cmd.ID}}); err != nil {
+		return
+	}
+	buf := make([]byte, execChunkSize)
+	for {
+		n, err := rc.Read(buf)
+		if n > 0 {
+			data := make([]byte, n)
+			copy(data, buf[:n])
+			if send(agentwire.Frame{Type: agentwire.FrameStream, Chunk: &agentwire.StreamChunk{ID: cmd.ID, Data: data}}) != nil {
+				return
+			}
+		}
+		if err != nil {
+			chunk := agentwire.StreamChunk{ID: cmd.ID, EOF: true}
+			if err != io.EOF && ctx.Err() == nil {
+				chunk = agentwire.StreamChunk{ID: cmd.ID, Err: agentwire.WireError(err)}
+			}
+			_ = send(agentwire.Frame{Type: agentwire.FrameStream, Chunk: &chunk})
+			return
+		}
+	}
+}
+
+// pumpEvents forwards the daemon's event stream: each chunk carries one
+// events.Message as JSON, decoded back sequentially on the other side.
+func (e *Executor) pumpEvents(ctx context.Context, cmd agentwire.Command, send func(agentwire.Frame) error) {
+	var p agentwire.EventsParams
+	if err := json.Unmarshal(cmd.Params, &p); err != nil {
+		_ = send(agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: cmd.ID, Err: agentwire.WireError(invalidParams(err))}})
+		return
+	}
+	msgs, errs := e.rt.Events(ctx, p.Options)
+	if err := send(agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: cmd.ID}}); err != nil {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			_ = send(agentwire.Frame{Type: agentwire.FrameStream, Chunk: &agentwire.StreamChunk{ID: cmd.ID, Err: agentwire.WireError(ctx.Err())}})
+			return
+		case err, ok := <-errs:
+			chunk := agentwire.StreamChunk{ID: cmd.ID, EOF: true}
+			if ok && err != nil && err != io.EOF {
+				chunk = agentwire.StreamChunk{ID: cmd.ID, Err: agentwire.WireError(err)}
+			}
+			_ = send(agentwire.Frame{Type: agentwire.FrameStream, Chunk: &chunk})
+			return
+		case m := <-msgs:
+			data, err := json.Marshal(m)
+			if err != nil {
+				continue
+			}
+			if send(agentwire.Frame{Type: agentwire.FrameStream, Chunk: &agentwire.StreamChunk{ID: cmd.ID, Data: data}}) != nil {
+				return
+			}
+		}
+	}
+}
+
+// invalidParams marks a malformed params payload — the control plane sent
+// something this build cannot read; retrying will not change that.
+func invalidParams(err error) error {
+	return fmt.Errorf("params: %w: %w", cerrdefs.ErrInvalidArgument, err)
+}
+
+// executeUnary dispatches every non-streaming method. A nil body with a nil
+// error answers with an empty result.
+func (e *Executor) executeUnary(ctx context.Context, cmd agentwire.Command) (any, error) {
+	switch cmd.Method {
+	case agentwire.MethodContainerCreate:
+		var p agentwire.ContainerCreateParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.ContainerCreate(ctx, p.Config, p.HostConfig, p.NetworkingConfig, p.Platform, p.Name)
+	case agentwire.MethodContainerStart:
+		var p agentwire.ContainerStartParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.rt.ContainerStart(ctx, p.Name, p.Options)
+	case agentwire.MethodContainerStop:
+		var p agentwire.ContainerStopParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.rt.ContainerStop(ctx, p.Name, p.Options)
+	case agentwire.MethodContainerRestart:
+		var p agentwire.ContainerStopParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.rt.ContainerRestart(ctx, p.Name, p.Options)
+	case agentwire.MethodContainerRename:
+		var p agentwire.ContainerRenameParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.rt.ContainerRename(ctx, p.Name, p.NewName)
+	case agentwire.MethodContainerRemove:
+		var p agentwire.ContainerRemoveParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.rt.ContainerRemove(ctx, p.Name, p.Options)
+	case agentwire.MethodContainerInspect:
+		var p agentwire.NameParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.ContainerInspect(ctx, p.Name)
+	case agentwire.MethodContainerWait:
+		var p agentwire.ContainerWaitParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		waitCh, errCh := e.rt.ContainerWait(ctx, p.Name, p.Condition)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case err := <-errCh:
+			return nil, err
+		case resp := <-waitCh:
+			return resp, nil
+		}
+	case agentwire.MethodContainerList:
+		var p agentwire.ContainerListParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.ContainerList(ctx, p.Options)
+	case agentwire.MethodContainerStats:
+		var p agentwire.NameParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		stats, err := e.rt.ContainerStatsOneShot(ctx, p.Name)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = stats.Body.Close() }()
+		body, err := io.ReadAll(io.LimitReader(stats.Body, 1<<20))
+		if err != nil {
+			return nil, err
+		}
+		return agentwire.StatsResult{OSType: stats.OSType, Body: body}, nil
+	case agentwire.MethodContainersPrune:
+		var p agentwire.PruneParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.ContainersPrune(ctx, p.Filters)
+	case agentwire.MethodContainerExecCreate:
+		var p agentwire.ContainerExecCreateParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.ContainerExecCreate(ctx, p.Name, p.Options)
+	case agentwire.MethodContainerExecStart:
+		var p agentwire.ContainerExecStartParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.rt.ContainerExecStart(ctx, p.ExecID, p.Options)
+	case agentwire.MethodContainerExecInspect:
+		var p agentwire.NameParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.ContainerExecInspect(ctx, p.Name)
+	case agentwire.MethodContainerExecResize:
+		var p agentwire.ContainerExecResizeParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.rt.ContainerExecResize(ctx, p.ExecID, p.Options)
+	case agentwire.MethodImageTag:
+		var p agentwire.ImageTagParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.rt.ImageTag(ctx, p.Image, p.Ref)
+	case agentwire.MethodImageInspect:
+		var p agentwire.NameParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.ImageInspect(ctx, p.Name)
+	case agentwire.MethodImageList:
+		var p agentwire.ImageListParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.ImageList(ctx, p.Options)
+	case agentwire.MethodImageRemove:
+		var p agentwire.ImageRemoveParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.ImageRemove(ctx, p.Image, p.Options)
+	case agentwire.MethodImagesPrune:
+		var p agentwire.PruneParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.ImagesPrune(ctx, p.Filters)
+	case agentwire.MethodVolumeCreate:
+		var p agentwire.VolumeCreateParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.VolumeCreate(ctx, p.Options)
+	case agentwire.MethodVolumeInspect:
+		var p agentwire.NameParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.VolumeInspect(ctx, p.Name)
+	case agentwire.MethodVolumeList:
+		var p agentwire.VolumeListParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.VolumeList(ctx, p.Options)
+	case agentwire.MethodVolumeRemove:
+		var p agentwire.VolumeRemoveParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.rt.VolumeRemove(ctx, p.Name, p.Force)
+	case agentwire.MethodVolumesPrune:
+		var p agentwire.PruneParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.VolumesPrune(ctx, p.Filters)
+	case agentwire.MethodNetworkCreate:
+		var p agentwire.NetworkCreateParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.NetworkCreate(ctx, p.Name, p.Options)
+	case agentwire.MethodNetworkConnect:
+		var p agentwire.NetworkConnectParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.rt.NetworkConnect(ctx, p.Network, p.Container, p.Config)
+	case agentwire.MethodNetworkDisconnect:
+		var p agentwire.NetworkDisconnectParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.rt.NetworkDisconnect(ctx, p.Network, p.Container, p.Force)
+	case agentwire.MethodNetworkInspect:
+		var p agentwire.NetworkInspectParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.NetworkInspect(ctx, p.Network, p.Options)
+	case agentwire.MethodNetworkList:
+		var p agentwire.NetworkListParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.NetworkList(ctx, p.Options)
+	case agentwire.MethodNetworkRemove:
+		var p agentwire.NameParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.rt.NetworkRemove(ctx, p.Name)
+	case agentwire.MethodNetworksPrune:
+		var p agentwire.PruneParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.NetworksPrune(ctx, p.Filters)
+	case agentwire.MethodInfo:
+		return e.rt.Info(ctx)
+	case agentwire.MethodServerVersion:
+		return e.rt.ServerVersion(ctx)
+	case agentwire.MethodDiskUsage:
+		var p agentwire.DiskUsageParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.DiskUsage(ctx, p.Options)
+	case agentwire.MethodRegistryLogin:
+		var p agentwire.RegistryLoginParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.RegistryLogin(ctx, p.Auth)
+	case agentwire.MethodPing:
+		return e.rt.Ping(ctx)
+	default:
+		return nil, fmt.Errorf("method %q: %w", cmd.Method, cerrdefs.ErrNotImplemented)
+	}
+}

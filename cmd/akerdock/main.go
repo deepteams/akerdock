@@ -29,6 +29,7 @@ import (
 	"github.com/deepteams/akerdock/internal/bootstrap"
 	"github.com/deepteams/akerdock/internal/cli"
 	"github.com/deepteams/akerdock/internal/config"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/events"
 	"github.com/deepteams/akerdock/internal/handlers"
@@ -157,11 +158,14 @@ func wakerRun(_ context.Context) error {
 
 	dir := envOr("AKERDOCK_WAKER_DIR", waker.DefaultDir)
 	addr := envOr("AKERDOCK_WAKER_ADDR", waker.DefaultListenAddr)
-	socket := envOr("AKERDOCK_DOCKER_SOCKET", waker.DockerSocket)
+	socket := envOr("AKERDOCK_DOCKER_SOCKET", dockerruntime.DefaultSocket)
 	apiVersion := os.Getenv("AKERDOCK_DOCKER_API_VERSION")
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	docker := waker.NewSocketDocker(socket, apiVersion)
+	rt, err := dockerruntime.NewLocal(socket, apiVersion)
+	if err != nil {
+		return err
+	}
 	// ADR-040 enrollment, injected by the control plane at container creation;
 	// absent, the helper runs waker-only and observation flow degrades to the
 	// control plane's SSH scans.
@@ -169,7 +173,7 @@ func wakerRun(_ context.Context) error {
 		InstanceURL: os.Getenv("AKERDOCK_INSTANCE_URL"),
 		Token:       os.Getenv("AKERDOCK_AGENT_TOKEN"),
 	}
-	return waker.Serve(ctx, dir, addr, docker, agentCfg, logger)
+	return waker.Serve(ctx, dir, addr, rt, agentCfg, logger)
 }
 
 // envOr returns the environment value for key, or def when unset/empty.

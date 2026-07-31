@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"time"
+
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 )
 
 // Serve runs the waker HTTP server on addr, forwarding for the routing table in
@@ -17,16 +19,19 @@ import (
 // enabled (ADR-040 enrollment injected at container creation), pushes
 // outbound observations alongside — its failure modes never touch the wake
 // path.
-func Serve(ctx context.Context, dir, addr string, docker Docker, agentCfg AgentConfig, logger *slog.Logger) error {
+func Serve(ctx context.Context, dir, addr string, rt dockerruntime.Runtime, agentCfg AgentConfig, logger *slog.Logger) error {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	activity := FileActivity{Dir: dir}
+	docker := NewRuntimeDocker(rt)
 
 	var agent *Agent
 	if agentCfg.Enabled() {
-		events, _ := docker.(eventStreamer) // the socket client streams; fakes may not
-		agent = NewAgent(agentCfg, events, logger)
+		agent = NewAgent(agentCfg, docker, logger)
+		// The ADR-052 command channel: enrolled agents execute the control
+		// plane's typed commands against the local runtime.
+		agent.Executor = NewExecutor(rt, logger)
 		go agent.Run(ctx)
 	}
 

@@ -54,6 +54,20 @@ var forbidden = []rule{
 	},
 }
 
+// exempt lists migrations allowed to contain a contracting statement, keyed by
+// filename, with the reason the expand-only rationale does not apply. The bar
+// for an entry: the object being removed must never have shipped in a release
+// (git tag), so that no N-1 binary can possibly be reading it. A table that
+// only ever existed between two commits of the same unreleased line has no
+// previous version to break.
+var exempt = map[string]string{
+	// role_assignments was created by 00081 (ADR-046) and withdrawn by 00082
+	// (ADR-047) on the same unreleased mainline — no tagged release ever
+	// carried the table, so no running binary can depend on it. Deferring the
+	// drop would protect nobody.
+	"00082_drop_scoped_role_assignments.sql": "table created by 00081 and withdrawn by 00082 (ADR-047) before any release",
+}
+
 // addColumn matches an ADD COLUMN and captures its definition, to check that a
 // NOT NULL column arrives with a default: without one, the INSERTs of the still
 // running N-1 binary — which knows nothing of the column — all fail.
@@ -73,9 +87,13 @@ func TestMigrationsAreExpandOnly(t *testing.T) {
 			}
 			up := upSection(string(raw))
 
-			for _, rule := range forbidden {
-				if loc := rule.pattern.FindString(up); loc != "" {
-					t.Errorf("%q is not backward-compatible: %s", strings.TrimSpace(loc), rule.why)
+			if why, ok := exempt[filepath.Base(file)]; ok {
+				t.Logf("contracting statements allowed: %s", why)
+			} else {
+				for _, rule := range forbidden {
+					if loc := rule.pattern.FindString(up); loc != "" {
+						t.Errorf("%q is not backward-compatible: %s", strings.TrimSpace(loc), rule.why)
+					}
 				}
 			}
 

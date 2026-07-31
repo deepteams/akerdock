@@ -47,6 +47,9 @@ type API struct {
 	// Agents tracks the live agent channels (ADR-041): presence is the
 	// connection. Zero value ready.
 	Agents AgentPresence
+	// AgentRPC holds the live v2 command channels (ADR-052), the mandatory
+	// path for Docker operations on a server. Zero value ready.
+	AgentRPC AgentConns
 	// Tunnels tracks the bridges this process runs (ADR-032/ADR-045), so a
 	// revoked grant or a closed session cuts the socket instead of merely
 	// recording that it should be gone. Zero value ready.

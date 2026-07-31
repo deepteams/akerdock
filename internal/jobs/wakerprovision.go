@@ -191,7 +191,8 @@ type AgentEnv struct {
 // design: an error yields a waker-only helper and a log line, never a failed
 // deploy. The agent is an accelerator, not a dependency (ADR-040 §6).
 func AgentEnvForServer(ctx context.Context, q AgentEnrollmentStore, keyring *envelope.Keyring,
-	logger *slog.Logger, server store.Server, controlPlanePort int) AgentEnv {
+	logger *slog.Logger, server store.Server, controlPlanePort int,
+) AgentEnv {
 	url := AgentInstanceURL(ctx, q, server, controlPlanePort)
 	if url == "" {
 		return AgentEnv{}
@@ -215,7 +216,9 @@ func AgentEnvForServer(ctx context.Context, q AgentEnrollmentStore, keyring *env
 // 4: agent enrollment env (ADR-040 phase 1). 5: host-gateway add-host — on a
 // Linux host, host.docker.internal does not resolve without it, and the
 // localhost server's agent could reach neither the channel nor the POST.
-const wakerSpec = "5"
+// 6: the ADR-052 command channel — the agent must offer akerdock-agent-v2,
+// which only a recreated container running the new binary does.
+const wakerSpec = "6"
 
 // WakerEnsureCommand is the idempotent deploy of the waker helper. It recreates
 // the container when the running image OR the run spec differs (or when it is

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/deepteams/akerdock/internal/agentwire"
 )
 
 // capture records every batch the agent posts.
@@ -78,7 +80,7 @@ func newTestAgent(t *testing.T, c *capture) (*Agent, context.CancelFunc) {
 // fallback is never touched.
 func TestAgentPrefersChannel(t *testing.T) {
 	var mu sync.Mutex
-	var frames []wsFrame
+	var frames []agentwire.Frame
 	posts := 0
 	mux := http.NewServeMux()
 	mux.HandleFunc("/agent/v1/ws", func(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +88,7 @@ func TestAgentPrefersChannel(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{agentSubprotocol}})
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{agentwire.SubprotocolV1}})
 		if err != nil {
 			return
 		}
@@ -97,12 +99,12 @@ func TestAgentPrefersChannel(t *testing.T) {
 			if err != nil {
 				return
 			}
-			var f wsFrame
+			var f agentwire.Frame
 			_ = json.Unmarshal(data, &f)
 			mu.Lock()
 			frames = append(frames, f)
 			mu.Unlock()
-			ack, _ := json.Marshal(wsFrame{Type: "ack", Seq: f.Seq})
+			ack, _ := json.Marshal(agentwire.Frame{Type: "ack", Seq: f.Seq})
 			if conn.Write(ctx, websocket.MessageText, ack) != nil {
 				return
 			}

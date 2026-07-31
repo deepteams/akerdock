@@ -41,6 +41,18 @@ linters:
       - path: internal/cli/
         linters: [revive]
         text: "var-naming"
+      # The dockerruntime fake mirrors the Runtime interface method-for-method
+      # and is documented once, on the type: a per-method "records the call and
+      # plays the scripted Fn" comment forty times over would say nothing.
+      - path: internal/dockerruntime/fake/
+        linters: [revive]
+        text: "exported"
+      # agentwire's per-method params structs are named after the method they
+      # serve and documented once by the block comment above them; a per-type
+      # comment would only repeat the type's name.
+      - path: internal/agentwire/methods\.go
+        linters: [revive]
+        text: "exported"
       # House style: every file opens with a descriptive header comment tied to
       # the section it implements (see composedeploy.go). That deliberately
       # conflicts with package-comments' "Package jobs ..." single-sentence form.

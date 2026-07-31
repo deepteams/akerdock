@@ -6,7 +6,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # empty (scale-to-zero then needs AKERDOCK_IMAGE, or stays inert).
 IMAGE   ?=
 
-.PHONY: all build test unit-coverage go-unit-coverage web-unit-coverage lint generate api-gen sqlc-gen openapi-validate migrate-status e2e clean web
+.PHONY: all build test test-docker unit-coverage go-unit-coverage web-unit-coverage lint generate api-gen sqlc-gen openapi-validate migrate-status e2e clean web
 
 all: generate build test
 
@@ -15,6 +15,12 @@ build:
 
 test:
 	$(GO) test ./...
+
+# Integration tier of the Docker runtime adapter (ADR-051): runs the SDK
+# implementation against the local /var/run/docker.sock. Scoped to the
+# dockerruntime package on purpose — jobs and handlers stay on the fake.
+test-docker:
+	$(GO) test -tags dockerintegration ./internal/dockerruntime/...
 
 # Fast coverage gates used on pull requests. Angular enforces 90% on
 # statements, branches, functions and lines; Go enforces 90% per unit package

@@ -104,8 +104,10 @@ func TestWakerConfigRoutedContainerAppendedWhenMissingFromSet(t *testing.T) {
 func TestStackWakeSetSkipsOneShotAndResolvesDeps(t *testing.T) {
 	plan := &compose.Plan{Services: []compose.ServicePlan{
 		{Name: "nats", ContainerName: "app-1-nats"},
-		{Name: "migrate", ContainerName: "app-1-migrate", OneShot: true,
-			DependsOn: []compose.Dependency{{Service: "nats", Condition: "service_started"}}},
+		{
+			Name: "migrate", ContainerName: "app-1-migrate", OneShot: true,
+			DependsOn: []compose.Dependency{{Service: "nats", Condition: "service_started"}},
+		},
 		{Name: "web", ContainerName: "app-1-web", DependsOn: []compose.Dependency{
 			{Service: "nats", Condition: "service_started"},
 			{Service: "migrate", Condition: "service_completed_successfully"},

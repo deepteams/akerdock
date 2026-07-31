@@ -20,18 +20,15 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/deepteams/akerdock/internal/agentwire"
 )
 
-// Observation is one pushed fact. Types: "container_state" (a managed
+// Observation is one pushed fact — the wire type lives in agentwire, shared
+// with the control plane's ingestion. Types: "container_state" (a managed
 // container changed state), "stz_woken" (a wake started containers),
 // "heartbeat" (the agent is alive).
-type Observation struct {
-	Type         string    `json:"type"`
-	At           time.Time `json:"at"`
-	Container    string    `json:"container,omitempty"`
-	State        string    `json:"state,omitempty"`
-	ResourceUUID string    `json:"resource_uuid,omitempty"`
-}
+type Observation = agentwire.Observation
 
 // AgentConfig is the enrollment injected by the control plane (ADR-040 §3).
 type AgentConfig struct {
@@ -115,10 +112,15 @@ type Agent struct {
 	// DisableWS forces the POST fallback (tests, or an egress known to break
 	// WebSockets).
 	DisableWS bool
-	now       func() time.Time
+	// Executor serves the ADR-052 typed commands when the control plane
+	// speaks v2; nil keeps the channel observation-only (v1).
+	Executor *Executor
+	now      func() time.Time
 
-	// Channel state — owned by the flush loop, never shared.
-	ws        *websocket.Conn
+	// Channel state — the wsChannel is created and torn down by the flush
+	// loop; its read loop (v2) runs concurrently and only ever writes through
+	// the channel's serialized writer.
+	ws        *wsChannel
 	wsSeq     int64
 	wsRetryAt time.Time
 }
@@ -355,17 +357,38 @@ func (a *Agent) flushLoop(ctx context.Context) {
 	}
 }
 
-// agentSubprotocol names the ADR-041 channel, next to akerdock-tunnel-v1.
-const agentSubprotocol = "akerdock-agent-v1"
+// wsChannel is one live channel connection. Under v2 a read loop owns
+// conn.Read — dispatching acks to the flusher, commands to the executor
+// (ADR-052) — and every write goes through the serialized writer. Under v1
+// (an older control plane) no commands can arrive, so the flusher reads its
+// acks synchronously, as before.
+type wsChannel struct {
+	conn    *websocket.Conn
+	v2      bool
+	ctx     context.Context
+	cancel  context.CancelFunc
+	writeMu sync.Mutex
+	acks    chan agentwire.Frame
+	dead    chan struct{} // closed when the read loop exits (v2)
+}
 
-// wsFrame is one message on the channel, both directions: the agent sends
-// observations, the control plane acknowledges the sequence (Denied marks a
-// batch the control plane refuses — dropped like a POST 4xx, not retried).
-type wsFrame struct {
-	Type         string        `json:"type"`
-	Seq          int64         `json:"seq"`
-	Observations []Observation `json:"observations,omitempty"`
-	Denied       bool          `json:"denied,omitempty"`
+// write serializes one frame onto the connection; the 10 s budget bounds a
+// stalled peer without limiting how long a command may run.
+func (ch *wsChannel) write(f agentwire.Frame) error {
+	data, err := json.Marshal(f)
+	if err != nil {
+		return err
+	}
+	ch.writeMu.Lock()
+	defer ch.writeMu.Unlock()
+	ioCtx, cancel := context.WithTimeout(ch.ctx, 10*time.Second)
+	defer cancel()
+	return ch.conn.Write(ioCtx, websocket.MessageText, data)
+}
+
+func (ch *wsChannel) close() {
+	ch.cancel()
+	_ = ch.conn.Close(websocket.StatusNormalClosure, "")
 }
 
 // send delivers one batch: over the persistent WebSocket when it is up (or
@@ -401,40 +424,108 @@ func (a *Agent) dialWS(ctx context.Context) error {
 	url := strings.Replace(a.cfg.InstanceURL, "http", "ws", 1) + "/agent/v1/ws"
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+	// Offer the command channel first (ADR-052); an older control plane picks
+	// v1 and the channel stays observation-only. Without an executor the agent
+	// never offers v2: it could not honor a command it accepted.
+	subprotocols := []string{agentwire.SubprotocolV1}
+	if a.Executor != nil {
+		subprotocols = []string{agentwire.SubprotocolV2, agentwire.SubprotocolV1}
+	}
 	conn, _, err := websocket.Dial(dialCtx, url, &websocket.DialOptions{
-		Subprotocols: []string{agentSubprotocol},
+		Subprotocols: subprotocols,
 		HTTPHeader:   http.Header{"Authorization": {"Bearer " + a.cfg.Token}},
 	})
 	if err != nil {
 		return err
 	}
 	conn.SetReadLimit(1 << 20)
-	a.ws = conn
-	a.logger.Info("agent: channel connected", "instance", a.cfg.InstanceURL)
+	chCtx, chCancel := context.WithCancel(ctx)
+	ch := &wsChannel{
+		conn:   conn,
+		v2:     conn.Subprotocol() == agentwire.SubprotocolV2,
+		ctx:    chCtx,
+		cancel: chCancel,
+		acks:   make(chan agentwire.Frame, 4),
+		dead:   make(chan struct{}),
+	}
+	a.ws = ch
+	if ch.v2 {
+		go contain(a.logger, "agent channel read", func() { a.readLoop(ch) })
+	}
+	a.logger.Info("agent: channel connected", "instance", a.cfg.InstanceURL, "protocol", conn.Subprotocol())
 	return nil
+}
+
+// readLoop (v2) owns conn.Read for the channel's lifetime: acks go to the
+// flusher, commands to the executor — each command on its own goroutine, its
+// result funneled back through the serialized writer.
+func (a *Agent) readLoop(ch *wsChannel) {
+	defer close(ch.dead)
+	for {
+		_, data, err := ch.conn.Read(ch.ctx)
+		if err != nil {
+			return
+		}
+		var f agentwire.Frame
+		if json.Unmarshal(data, &f) != nil {
+			continue
+		}
+		switch f.Type {
+		case agentwire.FrameAck:
+			select {
+			case ch.acks <- f:
+			default: // no flusher waiting; a stale ack is worthless
+			}
+		case agentwire.FrameCommand:
+			if f.Cmd != nil && a.Executor != nil {
+				cmd := *f.Cmd
+				go contain(a.logger, "agent command", func() { a.Executor.Execute(ch.ctx, cmd, ch.write) })
+			}
+		case agentwire.FrameCancel:
+			if a.Executor != nil {
+				a.Executor.Cancel(f.Cancel)
+			}
+		}
+	}
 }
 
 // sendWS writes the batch as a frame and waits for its acknowledgement — one
 // batch in flight at a time, so at-least-once needs no bookkeeping beyond the
-// sequence number.
+// sequence number. Under v2 the ack arrives through the read loop; under v1
+// the flusher is the connection's only reader and waits inline.
 func (a *Agent) sendWS(ctx context.Context, batch []Observation) error {
 	a.wsSeq++
-	frame, err := json.Marshal(wsFrame{Type: "observations", Seq: a.wsSeq, Observations: batch})
-	if err != nil {
+	frame := agentwire.Frame{Type: agentwire.FrameObservations, Seq: a.wsSeq, Observations: batch}
+	if err := a.ws.write(frame); err != nil {
 		return err
 	}
 	ioCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := a.ws.Write(ioCtx, websocket.MessageText, frame); err != nil {
-		return err
+	if a.ws.v2 {
+		for {
+			select {
+			case <-ioCtx.Done():
+				return ioCtx.Err()
+			case <-a.ws.dead:
+				return errors.New("agent: channel closed")
+			case ack := <-a.ws.acks:
+				if ack.Seq != a.wsSeq {
+					continue // a previous batch's ack, superseded
+				}
+				if ack.Denied {
+					return &denyError{status: http.StatusBadRequest}
+				}
+				return nil
+			}
+		}
 	}
 	for {
-		_, data, err := a.ws.Read(ioCtx)
+		_, data, err := a.ws.conn.Read(ioCtx)
 		if err != nil {
 			return err
 		}
-		var ack wsFrame
-		if json.Unmarshal(data, &ack) != nil || ack.Type != "ack" || ack.Seq != a.wsSeq {
+		var ack agentwire.Frame
+		if json.Unmarshal(data, &ack) != nil || ack.Type != agentwire.FrameAck || ack.Seq != a.wsSeq {
 			continue
 		}
 		if ack.Denied {
@@ -446,7 +537,7 @@ func (a *Agent) sendWS(ctx context.Context, batch []Observation) error {
 
 func (a *Agent) closeWS() {
 	if a.ws != nil {
-		_ = a.ws.Close(websocket.StatusNormalClosure, "")
+		a.ws.close()
 		a.ws = nil
 	}
 }

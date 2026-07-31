@@ -56,16 +56,31 @@ func TestManualFirstReserved(t *testing.T) {
 		preview  store.Preview
 		reserved bool
 	}{
-		{"auto mode: fresh queued row is promotable", true,
-			store.Preview{Status: store.PreviewStatusQueued}, false},
-		{"manual mode: fresh queued row is RESERVED", false,
-			store.Preview{Status: store.PreviewStatusQueued}, true},
-		{"manual mode: human requested deploy — promotable", false,
-			store.Preview{Status: store.PreviewStatusQueued, DeployRequestedAt: set}, false},
-		{"manual mode: already engaged (active) — pushes keep updating", false,
-			store.Preview{Status: store.PreviewStatusActive}, false},
-		{"manual mode: deployed once then queued again — promotable", false,
-			store.Preview{Status: store.PreviewStatusQueued, LastDeployedAt: set}, false},
+		{
+			"auto mode: fresh queued row is promotable", true,
+			store.Preview{Status: store.PreviewStatusQueued},
+			false,
+		},
+		{
+			"manual mode: fresh queued row is RESERVED", false,
+			store.Preview{Status: store.PreviewStatusQueued},
+			true,
+		},
+		{
+			"manual mode: human requested deploy — promotable", false,
+			store.Preview{Status: store.PreviewStatusQueued, DeployRequestedAt: set},
+			false,
+		},
+		{
+			"manual mode: already engaged (active) — pushes keep updating", false,
+			store.Preview{Status: store.PreviewStatusActive},
+			false,
+		},
+		{
+			"manual mode: deployed once then queued again — promotable", false,
+			store.Preview{Status: store.PreviewStatusQueued, LastDeployedAt: set},
+			false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
