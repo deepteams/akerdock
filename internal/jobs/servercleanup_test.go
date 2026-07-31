@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -13,15 +14,19 @@ import (
 	"testing"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/system"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/dockerruntime/fake"
 	"github.com/deepteams/akerdock/internal/hostops"
 	hostfake "github.com/deepteams/akerdock/internal/hostops/fake"
+	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
@@ -85,6 +90,9 @@ func cleanupFakeRuntime() *fake.Runtime {
 		return system.Info{DockerRootDir: "/var/lib/docker"}, nil
 	}
 	rt.ContainerListFn = func(context.Context, containertypes.ListOptions) ([]containertypes.Summary, error) {
+		return nil, nil
+	}
+	rt.NetworkListFn = func(context.Context, network.ListOptions) ([]network.Summary, error) {
 		return nil, nil
 	}
 	return rt
@@ -233,13 +241,16 @@ func TestServerCleanupExecutesCompleteManagedInventory(t *testing.T) {
 	if len(remote.commands) != 4 {
 		t.Fatalf("cleanup executed %d host commands, want 4: %v", len(remote.commands), remote.commands)
 	}
-	// Typed side: two measures plus the four managed prune passes.
+	// Typed side: two measures plus the four managed passes — networks are an
+	// owner-aware LIST + selective removals now, never a blanket prune (a
+	// blanket prune deleted sleeping scale-to-zero stack networks and broke
+	// their wake).
 	counts := map[string]int{}
 	for _, name := range rt.CallNames() {
 		counts[name]++
 	}
 	for name, want := range map[string]int{
-		"Info": 2, "ImagesPrune": 1, "ContainerList": 1, "VolumesPrune": 1, "NetworksPrune": 1,
+		"Info": 2, "ImagesPrune": 1, "ContainerList": 1, "VolumesPrune": 1, "NetworkList": 1, "NetworksPrune": 0,
 	} {
 		if counts[name] != want {
 			t.Errorf("%s ran %d times, want %d (calls: %v)", name, counts[name], want, rt.CallNames())
@@ -494,5 +505,77 @@ func TestDeploymentWaitsBeforeReservingBuildServer(t *testing.T) {
 	}
 	if run.d.BuildServerID == nil || *run.d.BuildServerID != buildServer.ID {
 		t.Fatalf("reserved build server = %v, want %d", run.d.BuildServerID, buildServer.ID)
+	}
+}
+
+// ownerStoreStub scripts the two liveness lookups of the orphan prune.
+type ownerStoreStub struct {
+	resources map[string]bool
+	previews  map[string]bool
+}
+
+func (s ownerStoreStub) ListLiveResourceUUIDs(_ context.Context, uuids []pgtype.UUID) ([]pgtype.UUID, error) {
+	var out []pgtype.UUID
+	for _, u := range uuids {
+		if s.resources[pguuid.String(u)] {
+			out = append(out, u)
+		}
+	}
+	return out, nil
+}
+
+func (s ownerStoreStub) ListLivePreviewUUIDs(_ context.Context, uuids []pgtype.UUID) ([]pgtype.UUID, error) {
+	var out []pgtype.UUID
+	for _, u := range uuids {
+		if s.previews[pguuid.String(u)] {
+			out = append(out, u)
+		}
+	}
+	return out, nil
+}
+
+// TestPruneOrphanManagedNetworks pins the wake-safety contract: a SLEEPING
+// scale-to-zero resource's stack network looks unused to Docker (stopped
+// containers hold no endpoints) but MUST survive the cleanup — pruning it
+// used to break the next wake with "network not found". Only networks whose
+// owner is gone are orphans; destination networks (no owner label) are never
+// this step's business, and an in-use refusal means "not an orphan".
+func TestPruneOrphanManagedNetworks(t *testing.T) {
+	liveRes := "11111111-1111-4111-8111-111111111111"
+	sleptPrev := "22222222-2222-4222-8222-222222222222"
+	dead := "33333333-3333-4333-8333-333333333333"
+	inUse := "44444444-4444-4444-8444-444444444444"
+
+	rt := &fake.Runtime{}
+	rt.NetworkListFn = func(context.Context, network.ListOptions) ([]network.Summary, error) {
+		return []network.Summary{
+			{ID: "n-live", Labels: map[string]string{"akerdock.managed": "true", "akerdock.resource_uuid": liveRes}},
+			{ID: "n-slept", Labels: map[string]string{"akerdock.managed": "true", "akerdock.preview_uuid": sleptPrev, "akerdock.resource_uuid": sleptPrev}},
+			{ID: "n-dead", Labels: map[string]string{"akerdock.managed": "true", "akerdock.resource_uuid": dead}},
+			{ID: "n-dest", Labels: map[string]string{"akerdock.managed": "true"}},
+			{ID: "n-inuse", Labels: map[string]string{"akerdock.managed": "true", "akerdock.resource_uuid": inUse}},
+		}, nil
+	}
+	var removed []string
+	rt.NetworkRemoveFn = func(_ context.Context, id string) error {
+		if id == "n-inuse" {
+			return fmt.Errorf("network has active endpoints: %w", cerrdefs.ErrConflict)
+		}
+		removed = append(removed, id)
+		return nil
+	}
+
+	summary, err := pruneOrphanManagedNetworks(context.Background(), rt, ownerStoreStub{
+		resources: map[string]bool{liveRes: true},
+		previews:  map[string]bool{sleptPrev: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 1 || removed[0] != "n-dead" {
+		t.Fatalf("removed = %v — only the dead owner's network is an orphan", removed)
+	}
+	if summary != "1 networks removed" {
+		t.Fatalf("summary = %q", summary)
 	}
 }

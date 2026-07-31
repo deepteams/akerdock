@@ -426,6 +426,35 @@ func (q *Queries) ListExpiredPreviews(ctx context.Context) ([]Preview, error) {
 	return items, nil
 }
 
+const listLivePreviewUUIDs = `-- name: ListLivePreviewUUIDs :many
+SELECT uuid FROM previews
+WHERE uuid = ANY ($1::uuid[]) AND status <> 'destroyed'
+`
+
+// Network-prune exclusion (§3.7): a sleeping scale-to-zero preview's stack
+// network looks unused to Docker (stopped containers hold no endpoints), but
+// pruning it breaks the wake — only networks whose preview is DESTROYED are
+// orphans.
+func (q *Queries) ListLivePreviewUUIDs(ctx context.Context, uuids []pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listLivePreviewUUIDs, uuids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var uuid pgtype.UUID
+		if err := rows.Scan(&uuid); err != nil {
+			return nil, err
+		}
+		items = append(items, uuid)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPreviewEnvVars = `-- name: ListPreviewEnvVars :many
 SELECT DISTINCT ON (key) id, uuid, resource_id, key, value_enc, is_secret, is_build_time, is_literal, is_multiline, is_locked, is_preview, is_generated, created_by, updated_by, created_at, updated_at, preview_id FROM environment_variables
 WHERE resource_id = $1 AND is_preview = true

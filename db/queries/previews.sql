@@ -201,3 +201,11 @@ SELECT p.* FROM previews p
 JOIN resources r ON r.id = p.application_id
 JOIN destinations d ON d.id = r.destination_id
 WHERE p.uuid = $1 AND p.status = 'sleeping' AND d.server_id = $2;
+
+-- name: ListLivePreviewUUIDs :many
+-- Network-prune exclusion (§3.7): a sleeping scale-to-zero preview's stack
+-- network looks unused to Docker (stopped containers hold no endpoints), but
+-- pruning it breaks the wake — only networks whose preview is DESTROYED are
+-- orphans.
+SELECT uuid FROM previews
+WHERE uuid = ANY (sqlc.arg(uuids)::uuid[]) AND status <> 'destroyed';

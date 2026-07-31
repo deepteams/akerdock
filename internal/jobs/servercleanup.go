@@ -11,6 +11,7 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/go-units"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -293,14 +294,89 @@ func (h *ServerCleanup) cleanupSteps(server store.Server, rt dockerruntime.Runti
 	}
 	if server.CleanupPruneNetworks {
 		steps = append(steps, cleanupStep{"prune_managed_networks", func(ctx context.Context) (string, error) {
-			report, err := rt.NetworksPrune(ctx, managedLabelFilter)
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("%d networks removed", len(report.NetworksDeleted)), nil
+			return pruneOrphanManagedNetworks(ctx, rt, h.Store)
 		}})
 	}
 	return steps
+}
+
+// networkOwnerStore answers "does this network's owner still exist?" — the
+// two liveness lookups the orphan prune needs.
+type networkOwnerStore interface {
+	ListLiveResourceUUIDs(ctx context.Context, uuids []pgtype.UUID) ([]pgtype.UUID, error)
+	ListLivePreviewUUIDs(ctx context.Context, uuids []pgtype.UUID) ([]pgtype.UUID, error)
+}
+
+// pruneOrphanManagedNetworks removes managed networks whose OWNER is gone —
+// never networks that merely look unused. Docker's own `network prune`
+// considers a network with only STOPPED containers unused (endpoints exist
+// only while running), so a blanket prune deleted the stack network of every
+// sleeping scale-to-zero resource and the next wake died on "network not
+// found". Ownership is the resource/preview uuid label; a managed network
+// with NO owner label (a destination network) is never touched here.
+func pruneOrphanManagedNetworks(ctx context.Context, rt dockerruntime.Runtime, q networkOwnerStore) (string, error) {
+	list, err := rt.NetworkList(ctx, network.ListOptions{Filters: managedLabelFilter})
+	if err != nil {
+		return "", err
+	}
+	var candidates []network.Summary
+	var uuids []pgtype.UUID
+	seen := map[string]bool{}
+	ownerOf := func(labels map[string]string) string {
+		if u := labels["akerdock.preview_uuid"]; u != "" {
+			return u
+		}
+		return labels["akerdock.resource_uuid"]
+	}
+	for _, n := range list {
+		owner := ownerOf(n.Labels)
+		if owner == "" {
+			continue // a destination network: owned by a row, not a uuid label
+		}
+		candidates = append(candidates, n)
+		if !seen[owner] {
+			seen[owner] = true
+			if p := pguuid.MustParse(owner); p.Valid {
+				uuids = append(uuids, p)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return "0 networks removed", nil
+	}
+	live := map[string]bool{}
+	if rows, err := q.ListLiveResourceUUIDs(ctx, uuids); err == nil {
+		for _, u := range rows {
+			live[pguuid.String(u)] = true
+		}
+	} else {
+		return "", err
+	}
+	if rows, err := q.ListLivePreviewUUIDs(ctx, uuids); err == nil {
+		for _, u := range rows {
+			live[pguuid.String(u)] = true
+		}
+	} else {
+		return "", err
+	}
+	removed := 0
+	for _, n := range candidates {
+		if live[ownerOf(n.Labels)] {
+			continue // sleeping is not orphaned — the wake needs this network
+		}
+		if err := rt.NetworkRemove(ctx, n.ID); err != nil {
+			if dockerruntime.IsNotFound(err) {
+				continue
+			}
+			// In use by a running container: not an orphan after all.
+			if dockerruntime.IsConflict(err) {
+				continue
+			}
+			return "", err
+		}
+		removed++
+	}
+	return fmt.Sprintf("%d networks removed", removed), nil
 }
 
 // pruneDeadCandidates removes every managed container whose name is exactly

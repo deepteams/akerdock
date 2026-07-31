@@ -704,6 +704,11 @@ type Querier interface {
 	ListJobsPage(ctx context.Context, arg ListJobsPageParams) ([]Job, error)
 	// Revoking a grant tears down the sessions it opened; this is that set.
 	ListLivePortForwardSessionsByGrant(ctx context.Context, grantID *int64) ([]PortForwardSession, error)
+	// Network-prune exclusion (§3.7): a sleeping scale-to-zero preview's stack
+	// network looks unused to Docker (stopped containers hold no endpoints), but
+	// pruning it breaks the wake — only networks whose preview is DESTROYED are
+	// orphans.
+	ListLivePreviewUUIDs(ctx context.Context, uuids []pgtype.UUID) ([]pgtype.UUID, error)
 	// Scan exclusion (INV-015): "managed" means tracked by a live row, not just
 	// labelled — a disowned resource keeps its labels but is adoptable again.
 	ListLiveResourceUUIDs(ctx context.Context, uuids []pgtype.UUID) ([]pgtype.UUID, error)
