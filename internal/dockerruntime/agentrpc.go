@@ -32,6 +32,14 @@ type CommandSender interface {
 	Stream(ctx context.Context, method string, params any) (io.ReadCloser, error)
 }
 
+// Source resolves the Runtime executing on a given server — the seam job and
+// handler code depends on. The api process serves it from its live channel
+// registry; a worker or scheduler serves it through the api relay
+// (ADR-052 §8). An unreachable agent answers an IsUnavailable error.
+type Source interface {
+	Runtime(ctx context.Context, serverID int64) (Runtime, error)
+}
+
 // NewAgentRuntime returns the Runtime that executes every call as a typed
 // command on the server's agent channel. The agent is mandatory (ADR-051):
 // there is no fallback below this — a dead channel surfaces as an

@@ -21,6 +21,10 @@ import (
 const (
 	SubprotocolV1 = "akerdock-agent-v1"
 	SubprotocolV2 = "akerdock-agent-v2"
+	// SubprotocolRelay is the worker→api bridge (ADR-052 §8): a process that
+	// does not terminate agent WebSockets sends its typed commands here, and
+	// the api forwards them onto the target server's live channel.
+	SubprotocolRelay = "akerdock-relay-v1"
 )
 
 // Frame types.

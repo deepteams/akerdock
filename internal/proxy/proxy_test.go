@@ -4,8 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deepteams/akerdock/internal/accessroute"
 	"gopkg.in/yaml.v3"
+
+	"github.com/deepteams/akerdock/internal/accessroute"
 )
 
 func TestPriorityFormula(t *testing.T) {

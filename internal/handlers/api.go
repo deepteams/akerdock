@@ -48,8 +48,11 @@ type API struct {
 	// connection. Zero value ready.
 	Agents AgentPresence
 	// AgentRPC holds the live v2 command channels (ADR-052), the mandatory
-	// path for Docker operations on a server. Zero value ready.
-	AgentRPC AgentConns
+	// path for Docker operations on a server. Shared as a pointer so the
+	// in-process worker (all-in-one) resolves runtimes from the same registry
+	// instead of hairpinning through the relay. Nil-safe: absent, every
+	// resolution answers unavailable.
+	AgentRPC *AgentConns
 	// Tunnels tracks the bridges this process runs (ADR-032/ADR-045), so a
 	// revoked grant or a closed session cuts the socket instead of merely
 	// recording that it should be gone. Zero value ready.
@@ -189,6 +192,10 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 	// The persistent channel (ADR-041): one long-lived WebSocket per server,
 	// no rate limiter — a connection, not a request stream.
 	r.Get("/agent/v1/ws", a.AgentChannel)
+	// The worker→api bridge (ADR-052 §8): a worker or scheduler reaches the
+	// channel this process holds, authenticated by the target server's own
+	// agent token. A connection too — no rate limiter.
+	r.Get("/agent/v1/relay", a.AgentRelay)
 
 	// Preview SSO (ADR-030): forward-auth is Traefik calling per request,
 	// authorize is a BROWSER redirect authenticated by the panel session —

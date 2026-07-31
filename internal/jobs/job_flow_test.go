@@ -22,7 +22,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/audit"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/sshkey"
@@ -572,6 +574,14 @@ func (s *jobSSHServer) close() {
 	}
 }
 
+// unavailableDocker stands in for the agent channel at the external boundary:
+// every runtime resolution answers the mandatory-agent failure (ADR-051).
+type unavailableDocker struct{}
+
+func (unavailableDocker) Runtime(context.Context, int64) (dockerruntime.Runtime, error) {
+	return nil, agentwire.Unavailable("not connected")
+}
+
 func TestJobFlowsReachExternalBoundary(t *testing.T) {
 	q, keyring, recorder, logger, db := jobFlowDependencies(t)
 	db.host, db.port = newJobSSHServer(t).address(t)
@@ -591,7 +601,7 @@ func TestJobFlowsReachExternalBoundary(t *testing.T) {
 		},
 		"application lifecycle": func() (any, error) {
 			j := job(TypeApplicationStop, `{"resource_id":1,"action":"stop"}`)
-			return (&ApplicationLifecycle{Store: q, Keyring: keyring, Logger: logger}).Execute(context.Background(), j, rec(j))
+			return (&ApplicationLifecycle{Store: q, Docker: unavailableDocker{}, Logger: logger}).Execute(context.Background(), j, rec(j))
 		},
 		"database": func() (any, error) {
 			j := job(TypeDatabaseStop, `{"resource_id":1,"action":"stop"}`)

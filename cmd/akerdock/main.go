@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
+	"github.com/deepteams/akerdock/internal/agentrelay"
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/bootstrap"
@@ -299,6 +300,30 @@ func serveRun(mode string) int {
 		}).Run(ctx)
 	}
 
+	// The agent command channels (ADR-052): the api terminates them, and the
+	// registry is shared with the in-process worker in all-in-one mode. A
+	// separate worker or scheduler process bridges through the api's relay
+	// instead (ADR-052 §8), authenticated per server by its agent token.
+	agentConns := &handlers.AgentConns{}
+	var dockerSource dockerruntime.Source = agentConns
+	if cfg.Mode == config.ModeWorker || cfg.Mode == config.ModeScheduler {
+		dockerSource = &agentrelay.Source{
+			Logger: logger,
+			BaseURL: func(ctx context.Context) (string, error) {
+				if cfg.RelayURL != "" {
+					return cfg.RelayURL, nil
+				}
+				if st, err := settings.Get(ctx); err == nil && st.Fqdn != nil && *st.Fqdn != "" {
+					return "https://" + *st.Fqdn, nil
+				}
+				return fmt.Sprintf("http://127.0.0.1:%d", cfg.InstancePort), nil
+			},
+			Token: func(ctx context.Context, serverID int64) (string, error) {
+				return jobs.EnsureAgentToken(ctx, q, keyring, serverID)
+			},
+		}
+	}
+
 	// Queue consumption runs in worker and all-in-one modes (§18.2).
 	var worker *queue.Worker
 	if cfg.Mode == config.ModeWorker || cfg.Mode == config.ModeAllInOne {
@@ -329,7 +354,7 @@ func serveRun(mode string) int {
 		worker.Register(jobs.TypeBackupRestore, backup.Execute)
 		worker.Register(jobs.TypeBackupDrill, backup.Execute)
 		worker.Register(jobs.TypeScheduledTaskRun, (&jobs.ScheduledTaskRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger}).Execute)
-		lifecycle := &jobs.ApplicationLifecycle{Store: q, Keyring: keyring, Logger: logger}
+		lifecycle := &jobs.ApplicationLifecycle{Store: q, Docker: dockerSource, Logger: logger}
 		proxyLifecycle := &jobs.ProxyLifecycle{Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort}
 		for _, t := range []string{jobs.TypeProxyStart, jobs.TypeProxyStop, jobs.TypeProxyRestart} {
 			worker.Register(t, proxyLifecycle.Execute)
@@ -416,6 +441,7 @@ func serveRun(mode string) int {
 			Keyring:  keyring,
 			Audit:    recorder,
 			Events:   broker,
+			AgentRPC: agentConns,
 			Version:  version,
 			Logger:   logger,
 

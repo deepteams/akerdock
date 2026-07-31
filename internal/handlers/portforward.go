@@ -406,7 +406,7 @@ func (a *API) dialSessionServer(ctx context.Context, server store.Server) (*sshe
 // containerIP resolves a container's first-network IP through the server's
 // agent channel.
 func (a *API) containerIP(ctx context.Context, serverID int64, container string) (string, error) {
-	rt, err := a.AgentRPC.Runtime(serverID)
+	rt, err := a.AgentRPC.Runtime(ctx, serverID)
 	if err != nil {
 		return "", err
 	}

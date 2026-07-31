@@ -161,7 +161,7 @@ func (a *API) AgentChannel(w http.ResponseWriter, r *http.Request) {
 		if a.Audit != nil {
 			metrics := a.Audit.Metrics
 			metricsCtx := context.WithoutCancel(ctx)
-			ac.record = func(method, outcome string) { metrics.RecordDockerOp(metricsCtx, method, outcome) }
+			ac.Record = func(method, outcome string) { metrics.RecordDockerOp(metricsCtx, method, outcome) }
 		}
 		a.AgentRPC.register(token.ServerID, ac)
 		defer a.AgentRPC.unregister(token.ServerID, ac)
@@ -179,7 +179,7 @@ func (a *API) AgentChannel(w http.ResponseWriter, r *http.Request) {
 		switch f.Type {
 		case agentwire.FrameObservations:
 			if len(f.Observations) > agentBatchMax {
-				if ac.writeFrame(agentwire.Frame{Type: agentwire.FrameAck, Seq: f.Seq, Denied: true}) != nil {
+				if ac.WriteFrame(agentwire.Frame{Type: agentwire.FrameAck, Seq: f.Seq, Denied: true}) != nil {
 					return
 				}
 				continue
@@ -188,16 +188,16 @@ func (a *API) AgentChannel(w http.ResponseWriter, r *http.Request) {
 				a.applyAgentObservation(ctx, token.ServerID, o)
 			}
 			_ = a.Store.TouchAgentTokenSeen(ctx, token.ID)
-			if ac.writeFrame(agentwire.Frame{Type: agentwire.FrameAck, Seq: f.Seq}) != nil {
+			if ac.WriteFrame(agentwire.Frame{Type: agentwire.FrameAck, Seq: f.Seq}) != nil {
 				return
 			}
 		case agentwire.FrameResult:
 			if v2 {
-				ac.deliverResult(f.Res)
+				ac.DeliverResult(f.Res)
 			}
 		case agentwire.FrameStream:
 			if v2 {
-				ac.deliverChunk(f.Chunk)
+				ac.DeliverChunk(f.Chunk)
 			}
 		}
 	}

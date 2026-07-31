@@ -112,6 +112,12 @@ type Config struct {
 	// proxy's for the audit trail, the auth rate limiter and a token's CIDR
 	// allowlist alike.
 	TrustedProxies []netip.Prefix
+	// RelayURL is the api base URL a separate worker or scheduler process
+	// dials to bridge its Docker commands onto the agent channels the api
+	// holds (ADR-052 §8) — `http://api:8080` under the compose distribution.
+	// Empty falls back to the instance FQDN, then to localhost:InstancePort
+	// (a binary running next to the api on one host).
+	RelayURL string
 	// Image is this AkerDock release's own container image (ADR-036): the
 	// scale-to-zero waker is deployed as a helper container from it (same binary,
 	// `akerdock waker` mode). AKERDOCK_IMAGE sets it explicitly; on a release
@@ -154,6 +160,7 @@ var envKeys = []string{
 	"AKERDOCK_PORT",
 	"AKERDOCK_INSTANCE_PORT",
 	"AKERDOCK_INSTANCE_FQDN",
+	"AKERDOCK_RELAY_URL",
 	"AKERDOCK_ACME_EMAIL",
 	"AKERDOCK_SCHEDULER_TICK",
 	"AKERDOCK_RETRY_BASE",
@@ -258,6 +265,14 @@ func Load(vars map[string]string, readFile func(string) ([]byte, error)) (*Confi
 			errs = append(errs, FieldError{"AKERDOCK_INSTANCE_PORT", fmt.Sprintf("invalid value %q (expected an integer in 1–65535)", v)})
 		} else {
 			cfg.InstancePort = p
+		}
+	}
+
+	if v := get("AKERDOCK_RELAY_URL"); v != "" {
+		if !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
+			errs = append(errs, FieldError{"AKERDOCK_RELAY_URL", fmt.Sprintf("invalid value %q (expected an http(s) base URL, e.g. http://api:8080)", v)})
+		} else {
+			cfg.RelayURL = strings.TrimRight(v, "/")
 		}
 	}
 

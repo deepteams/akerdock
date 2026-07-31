@@ -9,10 +9,12 @@ import (
 	"testing"
 	"time"
 
+	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/compose"
+	"github.com/deepteams/akerdock/internal/dockerruntime/fake"
 	"github.com/deepteams/akerdock/internal/gitforge"
 	"github.com/deepteams/akerdock/internal/gitwebhook"
 	"github.com/deepteams/akerdock/internal/queue"
@@ -64,21 +66,74 @@ func TestPinnedHostKey(t *testing.T) {
 	}
 }
 
-func TestStackLifecycleCommands(t *testing.T) {
-	stop := stackLifecycleCommand("stop", "--filter label=x", 17)
-	if !strings.Contains(stop, "docker stop -t 17") || !strings.Contains(stop, "--filter label=x") {
-		t.Fatalf("stop command = %q", stop)
+func TestStackLifecycleStopOnlyTouchesRunningContainers(t *testing.T) {
+	rt := &fake.Runtime{}
+	rt.ContainerListFn = func(_ context.Context, opts containertypes.ListOptions) ([]containertypes.Summary, error) {
+		if opts.All {
+			t.Fatal("stop must list only running containers — exited one-shots stay exited")
+		}
+		if got := opts.Filters.Get("label"); len(got) != 2 {
+			t.Fatalf("label filters = %v", got)
+		}
+		return []containertypes.Summary{
+			{Names: []string{"/abc-web"}},
+			{Names: []string{"/abc-migrate"}, Labels: map[string]string{"akerdock.oneshot": "true"}},
+		}, nil
 	}
-	start := stackLifecycleCommand("start", "labels", 1)
-	if !strings.Contains(start, "akerdock.oneshot=true") || !strings.Contains(start, "docker start") {
-		t.Fatalf("start command = %q", start)
+	if err := stackLifecycle(context.Background(), rt, "stop",
+		stackFilter(store.Resource{}, "abc"), 17); err != nil {
+		t.Fatal(err)
 	}
-	restart := stackLifecycleCommand("restart", "labels", 9)
-	if !strings.Contains(restart, "docker restart -t 9") {
-		t.Fatalf("restart command = %q", restart)
+	stops := 0
+	for _, c := range rt.Calls() {
+		if c.Method == "ContainerStop" {
+			stops++
+			opts := c.Args[1].(containertypes.StopOptions)
+			if opts.Timeout == nil || *opts.Timeout != 17 {
+				t.Fatalf("stop timeout = %v, want the stack grace", opts.Timeout)
+			}
+		}
 	}
-	if got := stackLifecycleCommand("invalid", "labels", 1); got != "" {
-		t.Fatalf("invalid command = %q", got)
+	// A RUNNING one-shot is stopped like the rest — only start/restart skip it.
+	if stops != 2 {
+		t.Fatalf("stops = %d, want 2", stops)
+	}
+}
+
+func TestStackLifecycleStartSkipsOneShots(t *testing.T) {
+	rt := &fake.Runtime{}
+	rt.ContainerListFn = func(_ context.Context, opts containertypes.ListOptions) ([]containertypes.Summary, error) {
+		if !opts.All {
+			t.Fatal("start must list stopped containers too")
+		}
+		return []containertypes.Summary{
+			{Names: []string{"/abc-web"}},
+			{Names: []string{"/abc-migrate"}, Labels: map[string]string{"akerdock.oneshot": "true"}},
+		}, nil
+	}
+	if err := stackLifecycle(context.Background(), rt, "start",
+		stackFilter(store.Resource{}, "abc"), 1); err != nil {
+		t.Fatal(err)
+	}
+	var started []string
+	for _, c := range rt.Calls() {
+		if c.Method == "ContainerStart" {
+			started = append(started, c.Args[0].(string))
+		}
+	}
+	if len(started) != 1 || started[0] != "abc-web" {
+		t.Fatalf("started = %v — a lifecycle start must never re-run a migration", started)
+	}
+}
+
+func TestStackFilterUsesTheAdoptedComposeProject(t *testing.T) {
+	def := stackFilter(store.Resource{}, "abc")
+	if got := def.Get("label"); len(got) != 2 || got[0] != "akerdock.managed=true" || got[1] != "akerdock.resource_uuid=abc" {
+		t.Fatalf("default filter = %v", got)
+	}
+	adopted := stackFilter(store.Resource{Adoption: []byte(`{"compose_project":"legacy"}`)}, "abc")
+	if got := adopted.Get("label"); len(got) != 1 || got[0] != "com.docker.compose.project=legacy" {
+		t.Fatalf("adopted filter = %v", got)
 	}
 }
 

@@ -20,11 +20,6 @@ import (
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 )
 
-// execChunkSize bounds one stream chunk; small enough to interleave fairly
-// with other traffic on the shared channel, large enough to keep log
-// following cheap.
-const execChunkSize = 32 << 10
-
 // Executor runs typed commands against the local runtime.
 type Executor struct {
 	rt     dockerruntime.Runtime
@@ -141,25 +136,7 @@ func (e *Executor) openAndPump(ctx context.Context, cmd agentwire.Command, send 
 	if err := send(agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: cmd.ID}}); err != nil {
 		return
 	}
-	buf := make([]byte, execChunkSize)
-	for {
-		n, err := rc.Read(buf)
-		if n > 0 {
-			data := make([]byte, n)
-			copy(data, buf[:n])
-			if send(agentwire.Frame{Type: agentwire.FrameStream, Chunk: &agentwire.StreamChunk{ID: cmd.ID, Data: data}}) != nil {
-				return
-			}
-		}
-		if err != nil {
-			chunk := agentwire.StreamChunk{ID: cmd.ID, EOF: true}
-			if err != io.EOF && ctx.Err() == nil {
-				chunk = agentwire.StreamChunk{ID: cmd.ID, Err: agentwire.WireError(err)}
-			}
-			_ = send(agentwire.Frame{Type: agentwire.FrameStream, Chunk: &chunk})
-			return
-		}
-	}
+	agentwire.PumpReader(ctx, cmd.ID, rc, send)
 }
 
 // pumpEvents forwards the daemon's event stream: each chunk carries one

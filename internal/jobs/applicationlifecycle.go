@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
+
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 
 	"github.com/deepteams/akerdock/internal/adoption"
-	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
-	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -30,16 +31,18 @@ type ApplicationLifecyclePayload struct {
 	Action     string `json:"action"` // start|stop|restart
 }
 
-// ApplicationLifecycle drives docker start/stop/restart on the app
-// container, converging desired and observed statuses (§21.2).
+// ApplicationLifecycle drives container start/stop/restart on the app through
+// the server's agent channel (ADR-052), converging desired and observed
+// statuses (§21.2).
 type ApplicationLifecycle struct {
-	Store   *store.Queries
-	Keyring *envelope.Keyring
-	Logger  *slog.Logger
+	Store  *store.Queries
+	Docker dockerruntime.Source
+	Logger *slog.Logger
 }
 
-// Execute performs one lifecycle attempt (idempotent: docker start/stop on
-// an already converged container succeed as no-ops).
+// Execute performs one lifecycle attempt (idempotent: start/stop of an
+// already converged container answer 304, which the runtime treats as
+// success).
 func (h *ApplicationLifecycle) Execute(ctx context.Context, job store.Job, rec *queue.StepRecorder) (any, error) {
 	var payload ApplicationLifecyclePayload
 	if err := json.Unmarshal(job.Payload, &payload); err != nil {
@@ -67,62 +70,40 @@ func (h *ApplicationLifecycle) Execute(ctx context.Context, job store.Job, rec *
 	if err != nil {
 		return nil, err
 	}
-	key, err := h.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
-	if err != nil {
-		return nil, err
-	}
-	pem, err := h.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return nil, err
-	}
 
-	rec.Start(ctx, payload.Action)
-	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem), time.Duration(server.SshTimeoutSeconds)*time.Second, pinnedHostKey(server))
-	if err != nil {
-		rec.Fail(ctx, "SSH connection failed")
-		return nil, err
-	}
-	defer func() { _ = client.Close() }()
-
-	grace := app.RuntimeConfig.StopGracePeriodSeconds
-	if stack && grace == 0 {
-		grace = 30
-	}
-	// An adopted resource awaiting normalization (§20.7) still lives under
-	// the names its original platform gave it — lifecycle targets those.
-	target := adoption.ContainerName(app.Resource.Adoption, appUUID)
-	var cmd string
 	var desired store.ResourceDesiredStatus
 	switch payload.Action {
-	case "start":
-		cmd = "docker start " + target
+	case "start", "restart":
 		desired = store.ResourceDesiredStatusRunning
 	case "stop":
-		cmd = fmt.Sprintf("docker stop -t %d %s", grace, target)
 		desired = store.ResourceDesiredStatusStopped
-	case "restart":
-		cmd = fmt.Sprintf("docker restart -t %d %s", grace, target)
-		desired = store.ResourceDesiredStatusRunning
 	default:
+		rec.Start(ctx, payload.Action)
 		rec.Fail(ctx, "unknown action")
 		return nil, fmt.Errorf("unknown lifecycle action %q", payload.Action)
 	}
-	if stack {
-		byLabel := "--filter label=akerdock.managed=true --filter label=akerdock.resource_uuid=" + appUUID
-		if p := adoption.ParsePointer(app.Resource.Adoption); p != nil && p.ComposeProject != "" {
-			byLabel = "--filter label=com.docker.compose.project=" + shellQuote(p.ComposeProject)
-		}
-		cmd = stackLifecycleCommand(payload.Action, byLabel, grace)
-	}
 
-	res, err := client.Run(ctx, cmd)
+	rec.Start(ctx, payload.Action)
+	rt, err := h.Docker.Runtime(ctx, server.ID)
 	if err != nil {
-		rec.Fail(ctx, err.Error())
+		rec.Fail(ctx, "the server's agent is not connected")
 		return nil, err
 	}
-	if res.ExitCode != 0 {
-		msg := firstLine(res.Stderr)
-		if strings.Contains(msg, "No such container") {
+
+	grace := int(app.RuntimeConfig.StopGracePeriodSeconds)
+	if stack && grace == 0 {
+		grace = 30
+	}
+	if stack {
+		err = stackLifecycle(ctx, rt, payload.Action, stackFilter(app.Resource, appUUID), grace)
+	} else {
+		// An adopted resource awaiting normalization (§20.7) still lives under
+		// the names its original platform gave it — lifecycle targets those.
+		err = containerLifecycle(ctx, rt, payload.Action, adoption.ContainerName(app.Resource.Adoption, appUUID), grace)
+	}
+	if err != nil {
+		msg := firstLine(err.Error())
+		if dockerruntime.IsNotFound(err) {
 			msg = "no container exists for this application — deploy it first"
 		}
 		rec.Fail(ctx, msg)
@@ -139,24 +120,55 @@ func (h *ApplicationLifecycle) Execute(ctx context.Context, job store.Job, rec *
 	return map[string]any{"action": payload.Action, "app_uuid": appUUID}, nil
 }
 
-// stackLifecycleCommand drives every container of a compose stack by label
-// (§2.3): the management labels normally, the original compose-project label
-// for an adopted stack awaiting normalization (§20.7). One-shot jobs
-// (akerdock.oneshot) are never started or restarted by a lifecycle action:
-// re-running a migration behind the operator's back is not a "start".
-func stackLifecycleCommand(action, byLabel string, grace int32) string {
+// containerLifecycle drives one container by name.
+func containerLifecycle(ctx context.Context, rt dockerruntime.Runtime, action, target string, grace int) error {
 	switch action {
+	case "start":
+		return rt.ContainerStart(ctx, target, container.StartOptions{})
 	case "stop":
-		// Only running containers: exited one-shots stay exited.
-		return fmt.Sprintf(`ids=$(docker ps -q %s); [ -n "$ids" ] && docker stop -t %d $ids || echo "nothing to stop"`, byLabel, grace)
-	case "start", "restart":
-		verb := "docker start"
-		if action == "restart" {
-			verb = fmt.Sprintf("docker restart -t %d", grace)
-		}
-		return fmt.Sprintf(`ones=$(docker ps -aq %s --filter label=akerdock.oneshot=true); `+
-			`for c in $(docker ps -aq %s); do echo "$ones" | grep -q "^$c$" || %s "$c"; done`,
-			byLabel, byLabel, verb)
+		return rt.ContainerStop(ctx, target, container.StopOptions{Timeout: &grace})
+	case "restart":
+		return rt.ContainerRestart(ctx, target, container.StopOptions{Timeout: &grace})
 	}
-	return ""
+	return fmt.Errorf("unknown lifecycle action %q", action)
+}
+
+// stackFilter selects every container of a compose stack: the management
+// labels normally, the original compose-project label for an adopted stack
+// awaiting normalization (§20.7).
+func stackFilter(resource store.Resource, appUUID string) filters.Args {
+	if p := adoption.ParsePointer(resource.Adoption); p != nil && p.ComposeProject != "" {
+		return filters.NewArgs(filters.Arg("label", "com.docker.compose.project="+p.ComposeProject))
+	}
+	return filters.NewArgs(
+		filters.Arg("label", "akerdock.managed=true"),
+		filters.Arg("label", "akerdock.resource_uuid="+appUUID),
+	)
+}
+
+// stackLifecycle drives every container of a compose stack (§2.3). One-shot
+// jobs (akerdock.oneshot) are never started or restarted by a lifecycle
+// action: re-running a migration behind the operator's back is not a
+// "start". Stop only lists running containers, so exited one-shots stay
+// exited — and an empty stack is a no-op, not an error. A failing container
+// does not stop the sweep; the first failure reports.
+func stackLifecycle(ctx context.Context, rt dockerruntime.Runtime, action string, byLabel filters.Args, grace int) error {
+	list, err := rt.ContainerList(ctx, container.ListOptions{All: action != "stop", Filters: byLabel})
+	if err != nil {
+		return err
+	}
+	var firstErr error
+	for _, c := range list {
+		if len(c.Names) == 0 {
+			continue
+		}
+		name := strings.TrimPrefix(c.Names[0], "/")
+		if action != "stop" && c.Labels["akerdock.oneshot"] == "true" {
+			continue
+		}
+		if err := containerLifecycle(ctx, rt, action, name, grace); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }

@@ -43,9 +43,9 @@ func dialPair(t *testing.T) (*agentConn, *websocket.Conn) {
 			}
 			switch f.Type {
 			case agentwire.FrameResult:
-				ac.deliverResult(f.Res)
+				ac.DeliverResult(f.Res)
 			case agentwire.FrameStream:
-				ac.deliverChunk(f.Chunk)
+				ac.DeliverChunk(f.Chunk)
 			}
 		}
 	}))
@@ -228,17 +228,10 @@ func TestAgentConnClosedChannelIsUnavailable(t *testing.T) {
 	_ = agent.Close(websocket.StatusNormalClosure, "agent restarting")
 
 	// The handler ctx dies with the connection; wait for it to propagate.
-	deadline := time.After(2 * time.Second)
-	for {
-		select {
-		case <-ac.ctx.Done():
-		case <-deadline:
-			t.Fatal("connection close never reached the handler ctx")
-		default:
-			time.Sleep(5 * time.Millisecond)
-			continue
-		}
-		break
+	select {
+	case <-ac.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("connection close never reached the handler ctx")
 	}
 
 	_, err := ac.Command(context.Background(), agentwire.MethodPing, nil)
@@ -261,7 +254,7 @@ func TestAgentConnsLatestConnectionWins(t *testing.T) {
 	if _, ok := r.Sender(7); ok {
 		t.Fatal("sender must be gone after its own unregister")
 	}
-	if _, err := r.Runtime(7); !cerrdefs.IsUnavailable(err) {
+	if _, err := r.Runtime(context.Background(), 7); !cerrdefs.IsUnavailable(err) {
 		t.Fatalf("Runtime without a channel = %v, want IsUnavailable", err)
 	}
 }

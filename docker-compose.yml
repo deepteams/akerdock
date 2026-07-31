@@ -31,6 +31,11 @@ services:
       # scale-to-zero waker (ADR-036) is deployed from it. Set here because the
       # process cannot read its own image tag at runtime.
       AKERDOCK_IMAGE: ${AKERDOCK_IMAGE:-ghcr.io/deepteams/akerdock:${AKERDOCK_TAG}}
+      # Only when splitting into separate api and worker/scheduler services:
+      # the api base URL a worker dials to bridge its Docker commands onto the
+      # agent channels the api holds (ADR-052 §8), e.g. http://api:8080.
+      # All-in-one shares the registry in-process and ignores it.
+      # AKERDOCK_RELAY_URL: http://api:8080
       # Let's Encrypt contact. A wrong address fails silently — the proxy runs,
       # the certificates never come (§4.3).
       AKERDOCK_ACME_EMAIL: ${AKERDOCK_ACME_EMAIL:-}
