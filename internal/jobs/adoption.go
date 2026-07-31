@@ -11,11 +11,13 @@ import (
 	"strings"
 	"time"
 
+	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/deepteams/akerdock/internal/adoption"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
@@ -60,6 +62,7 @@ type Adoption struct {
 	Store   *store.Queries
 	Pool    *pgxpool.Pool
 	Keyring *envelope.Keyring
+	Docker  dockerruntime.Source
 	Logger  *slog.Logger
 }
 
@@ -104,25 +107,31 @@ func (h *Adoption) runScan(ctx context.Context, scan store.AdoptionScan, rec *qu
 	if err != nil {
 		return nil, err
 	}
-	client, err := h.dial(ctx, server)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = client.Close() }()
 
 	rec.Start(ctx, "inventory")
-	res, err := client.Run(ctx, "ids=$(docker ps -aq); [ -n \"$ids\" ] && docker inspect $ids || echo '[]'")
-	if err != nil || res.ExitCode != 0 {
-		rec.Fail(ctx, "docker inspect failed")
-		if err == nil {
-			err = fmt.Errorf("docker inspect exited with code %d: %s", res.ExitCode, firstLine(res.Stderr))
-		}
+	rt, err := h.Docker.Runtime(ctx, server.ID)
+	if err != nil {
+		rec.Fail(ctx, "the server's agent is not connected")
 		return nil, err
 	}
-	containers, err := adoption.ParseInspects(res.Stdout)
+	// The WHOLE inventory, managed or not — the scan's very purpose is the
+	// unmanaged remainder.
+	list, err := rt.ContainerList(ctx, containertypes.ListOptions{All: true})
 	if err != nil {
-		rec.Fail(ctx, err.Error())
+		rec.Fail(ctx, firstLine(err.Error()))
 		return nil, err
+	}
+	containers := make([]adoption.Inspect, 0, len(list))
+	for _, c := range list {
+		resp, err := rt.ContainerInspect(ctx, c.ID)
+		if err != nil {
+			if dockerruntime.IsNotFound(err) {
+				continue // removed between the list and the inspect
+			}
+			rec.Fail(ctx, firstLine(err.Error()))
+			return nil, err
+		}
+		containers = append(containers, adoption.FromInspect(resp))
 	}
 	rec.Succeed(ctx, fmt.Sprintf("%d containers inspected", len(containers)))
 
@@ -134,8 +143,8 @@ func (h *Adoption) runScan(ctx context.Context, scan store.AdoptionScan, rec *qu
 	}
 	input := adoption.ScanInput{
 		Containers:        containers,
-		ImageEnv:          h.imageEnvs(ctx, client, containers, live),
-		ComposeFiles:      h.composeFiles(ctx, client, containers, live),
+		ImageEnv:          h.imageEnvs(ctx, rt, containers, live),
+		ComposeFiles:      h.composeFiles(ctx, server, containers, live),
 		LiveResourceUUIDs: live,
 	}
 	candidates := adoption.BuildCandidates(input)
@@ -174,7 +183,7 @@ func (h *Adoption) liveResourceUUIDs(ctx context.Context, containers []adoption.
 // imageEnvs fetches the default environment of each image used by an
 // unmanaged standalone container, so only the DIFF is adopted. Best-effort:
 // a missing image just means every variable is kept (the scan says so).
-func (h *Adoption) imageEnvs(ctx context.Context, client *sshexec.Client, containers []adoption.Inspect, live map[string]bool) map[string][]string {
+func (h *Adoption) imageEnvs(ctx context.Context, rt dockerruntime.Runtime, containers []adoption.Inspect, live map[string]bool) map[string][]string {
 	images := map[string]bool{}
 	for _, c := range containers {
 		if c.Config.Labels["com.docker.compose.project"] != "" {
@@ -187,21 +196,20 @@ func (h *Adoption) imageEnvs(ctx context.Context, client *sshexec.Client, contai
 	}
 	out := map[string][]string{}
 	for img := range images {
-		res, err := client.Run(ctx, "docker image inspect --format '{{json .Config.Env}}' "+shellQuote(img))
-		if err != nil || res.ExitCode != 0 {
+		resp, err := rt.ImageInspect(ctx, img)
+		if err != nil || resp.Config == nil {
 			continue
 		}
-		var env []string
-		if json.Unmarshal([]byte(firstLine(res.Stdout)), &env) == nil {
-			out[img] = env
-		}
+		out[img] = resp.Config.Env
 	}
 	return out
 }
 
 // composeFiles reads the compose definition of each unmanaged stack from the
 // server, via the standard com.docker.compose.project.config_files label.
-func (h *Adoption) composeFiles(ctx context.Context, client *sshexec.Client, containers []adoption.Inspect, live map[string]bool) map[string]adoption.ComposeFile {
+// The definitions are HOST files: this is the one scan step that still needs
+// SSH — dialed only when a stack actually exists.
+func (h *Adoption) composeFiles(ctx context.Context, server store.Server, containers []adoption.Inspect, live map[string]bool) map[string]adoption.ComposeFile {
 	paths := map[string]string{}
 	for _, c := range containers {
 		project := c.Config.Labels["com.docker.compose.project"]
@@ -217,6 +225,17 @@ func (h *Adoption) composeFiles(ctx context.Context, client *sshexec.Client, con
 		paths[project] = strings.TrimSpace(file)
 	}
 	out := map[string]adoption.ComposeFile{}
+	if len(paths) == 0 {
+		return out
+	}
+	client, err := h.dial(ctx, server)
+	if err != nil {
+		for project := range paths {
+			out[project] = adoption.ComposeFile{Err: "server unreachable over SSH: " + firstLine(err.Error())}
+		}
+		return out
+	}
+	defer func() { _ = client.Close() }()
 	for project, path := range paths {
 		if path == "" {
 			out[project] = adoption.ComposeFile{}
@@ -269,11 +288,10 @@ func (h *Adoption) ExecuteAdopt(ctx context.Context, job store.Job, rec *queue.S
 	if err != nil {
 		return nil, fmt.Errorf("server has no default destination: %w", err)
 	}
-	client, err := h.dial(ctx, server)
+	rt, err := h.Docker.Runtime(ctx, server.ID)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = client.Close() }()
 
 	var adopted []string
 	var warnings []string
@@ -290,7 +308,7 @@ func (h *Adoption) ExecuteAdopt(ctx context.Context, job store.Job, rec *queue.S
 			name = cand.ProposedName
 		}
 		rec.Start(ctx, "adopt "+name)
-		uuid, warns, err := h.adoptOne(ctx, client, scan, server, dest, payload.EnvironmentID, cand, name)
+		uuid, warns, err := h.adoptOne(ctx, rt, scan, server, dest, payload.EnvironmentID, cand, name)
 		if err != nil {
 			rec.Fail(ctx, err.Error())
 			return nil, fmt.Errorf("candidate %q: %w", item.CandidateID, err)
@@ -308,33 +326,29 @@ func (h *Adoption) ExecuteAdopt(ctx context.Context, job store.Job, rec *queue.S
 
 // adoptOne creates the AkerDock objects for one candidate, transactionally.
 // Returns "" when the resource already exists (idempotent replay).
-func (h *Adoption) adoptOne(ctx context.Context, client *sshexec.Client, scan store.AdoptionScan, _ store.Server, dest store.Destination, envID int64, cand adoption.Candidate, name string) (string, []string, error) {
+func (h *Adoption) adoptOne(ctx context.Context, rt dockerruntime.Runtime, scan store.AdoptionScan, _ store.Server, dest store.Destination, envID int64, cand adoption.Candidate, name string) (string, []string, error) {
 	// Re-inspect: the scan is a snapshot, the workload must still be there.
 	lead := cand.Containers[0]
 	probe := lead.ContainerID
 	if cand.Kind == "compose_stack" {
 		probe = lead.ContainerName
 	}
-	res, err := client.Run(ctx, "docker inspect "+shellQuote(probe))
+	resp, err := rt.ContainerInspect(ctx, probe)
 	if err != nil {
+		if dockerruntime.IsNotFound(err) {
+			return "", nil, fmt.Errorf("the container %s no longer exists — re-scan before adopting", lead.ContainerName)
+		}
 		return "", nil, err
 	}
-	if res.ExitCode != 0 {
-		return "", nil, fmt.Errorf("the container %s no longer exists — re-scan before adopting", lead.ContainerName)
-	}
-	inspected, err := adoption.ParseInspects(res.Stdout)
-	if err != nil || len(inspected) == 0 {
-		return "", nil, fmt.Errorf("could not re-inspect %s", lead.ContainerName)
-	}
-	current := inspected[0]
+	current := adoption.FromInspect(resp)
 
 	// Environment values are captured NOW, encrypted at rest, never stored in
 	// the scan (INV-003).
 	env := map[string]string{}
 	if cand.Kind == "container" {
 		var imageDefaults []string
-		if ires, err := client.Run(ctx, "docker image inspect --format '{{json .Config.Env}}' "+shellQuote(current.Config.Image)); err == nil && ires.ExitCode == 0 {
-			_ = json.Unmarshal([]byte(firstLine(ires.Stdout)), &imageDefaults)
+		if ires, err := rt.ImageInspect(ctx, current.Config.Image); err == nil && ires.Config != nil {
+			imageDefaults = ires.Config.Env
 		}
 		env = adoption.AdoptedEnv(current.Config.Env, imageDefaults)
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/deepteams/akerdock/internal/audit"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/jobs"
 	"github.com/deepteams/akerdock/internal/pguuid"
@@ -46,6 +47,10 @@ type Scheduler struct {
 	Audit      *audit.Recorder
 	Dispatcher NotificationDispatcher
 	Logger     *slog.Logger
+	// Docker resolves a server's runtime over its agent channel (ADR-052):
+	// the scale-to-zero sleep stops go through it, while the activity files
+	// and the waker reconcile stay on the scan's SSH connection.
+	Docker dockerruntime.Source
 	// thresholdProbes throttles the §3.7 disk probes (leader-local state:
 	// only the elected leader schedules).
 	thresholdProbes map[int64]time.Time

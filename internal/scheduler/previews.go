@@ -2,11 +2,14 @@ package scheduler
 
 import (
 	"context"
-	"fmt"
+	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/jobs"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/sshexec"
@@ -179,7 +182,12 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 		if last.IsZero() || !idlePastWindow(last, p.ScaleToZeroAfterMinutes, now) {
 			continue
 		}
-		if err := stopPreviewContainers(ctx, client, uuid); err != nil {
+		rt, err := s.Docker.Runtime(ctx, server.ID)
+		if err != nil {
+			s.Logger.Warn("scale-to-zero stop failed", "preview", uuid, "error", err)
+			continue
+		}
+		if err := stopPreviewContainers(ctx, rt, uuid); err != nil {
 			s.Logger.Warn("scale-to-zero stop failed", "preview", uuid, "error", err)
 			continue
 		}
@@ -268,7 +276,12 @@ func (s *Scheduler) scaleZeroApplications(ctx context.Context) {
 		if last.IsZero() || !idlePastWindow(last, a.ScaleToZeroAfterMinutes, now) {
 			continue
 		}
-		if err := stopResourceContainers(ctx, client, uuid); err != nil {
+		rt, err := s.Docker.Runtime(ctx, server.ID)
+		if err != nil {
+			s.Logger.Warn("app scale-to-zero stop failed", "application", uuid, "error", err)
+			continue
+		}
+		if err := stopResourceContainers(ctx, rt, uuid); err != nil {
 			s.Logger.Warn("app scale-to-zero stop failed", "application", uuid, "error", err)
 			continue
 		}
@@ -448,29 +461,40 @@ func readWakerActivity(ctx context.Context, client remoteClient, uuid string) ti
 // stopPreviewContainers stops every container of the preview — the single
 // container by name and, for a compose stack, every one labelled with the
 // preview uuid (INV-011). Stopped, not removed: the waker wakes them with
-// `docker start`.
-func stopPreviewContainers(ctx context.Context, client remoteClient, uuid string) error {
-	return stopByLabel(ctx, client, uuid, "akerdock.preview_uuid")
+// a plain start.
+func stopPreviewContainers(ctx context.Context, rt dockerruntime.Runtime, uuid string) error {
+	return stopByLabel(ctx, rt, uuid, "akerdock.preview_uuid")
 }
 
 // stopResourceContainers stops every container of an application — the single
 // container by name and, for a compose stack, every one labelled with the
 // resource uuid (ADR-037). Stopped, not removed.
-func stopResourceContainers(ctx context.Context, client remoteClient, uuid string) error {
-	return stopByLabel(ctx, client, uuid, "akerdock.resource_uuid")
+func stopResourceContainers(ctx context.Context, rt dockerruntime.Runtime, uuid string) error {
+	return stopByLabel(ctx, rt, uuid, "akerdock.resource_uuid")
 }
 
-func stopByLabel(ctx context.Context, client remoteClient, uuid, label string) error {
-	cmd := fmt.Sprintf(
-		"docker stop -t 10 %s >/dev/null 2>&1; "+
-			"docker ps -q --filter label=%s=%s | xargs -r docker stop -t 10 >/dev/null 2>&1; true",
-		uuid, label, uuid)
-	res, err := client.Run(ctx, cmd)
+// stopByLabel puts a resource to sleep: the container named after the uuid
+// (absent for a compose stack — tolerated), then every running container
+// carrying the label. A real stop failure reports, so a still-running
+// resource is never recorded asleep.
+func stopByLabel(ctx context.Context, rt dockerruntime.Runtime, uuid, label string) error {
+	t := 10
+	if err := rt.ContainerStop(ctx, uuid, container.StopOptions{Timeout: &t}); err != nil && !dockerruntime.IsNotFound(err) {
+		return err
+	}
+	list, err := rt.ContainerList(ctx, container.ListOptions{
+		Filters: filters.NewArgs(filters.Arg("label", label+"="+uuid)),
+	})
 	if err != nil {
 		return err
 	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("docker stop exited %d", res.ExitCode)
+	for _, c := range list {
+		if len(c.Names) == 0 {
+			continue
+		}
+		if err := rt.ContainerStop(ctx, strings.TrimPrefix(c.Names[0], "/"), container.StopOptions{Timeout: &t}); err != nil && !dockerruntime.IsNotFound(err) {
+			return err
+		}
 	}
 	return nil
 }

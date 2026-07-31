@@ -669,12 +669,12 @@ func TestRemainingJobFlowsReachTheirDecisionBoundary(t *testing.T) {
 		},
 		"adoption scan": func() (any, error) {
 			j := job(TypeAdoptionScan, `{"scan_id":1}`)
-			return (&Adoption{Store: q, Keyring: keyring, Logger: logger}).
+			return (&Adoption{Store: q, Keyring: keyring, Docker: unavailableDocker{}, Logger: logger}).
 				ExecuteScan(context.Background(), j, rec(j))
 		},
 		"adoption empty selection": func() (any, error) {
 			j := job(TypeAdoptionAdopt, `{"scan_id":1,"environment_id":1,"items":[]}`)
-			return (&Adoption{Store: q, Keyring: keyring, Logger: logger}).
+			return (&Adoption{Store: q, Keyring: keyring, Docker: unavailableDocker{}, Logger: logger}).
 				ExecuteAdopt(context.Background(), j, rec(j))
 		},
 		"disown": func() (any, error) {

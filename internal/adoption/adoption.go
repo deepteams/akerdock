@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/docker/docker/api/types/container"
 )
 
 // Label namespaces. A container carrying any akerdock.* label belongs (or
@@ -67,41 +69,68 @@ func ContainerName(adoption []byte, fallback string) string {
 	return fallback
 }
 
-// Inspect is the subset of `docker inspect` this package reads.
+// Inspect is the subset of a container inspection this package reads. The
+// JSON tags mirror the Engine API's inspect shape (what `docker inspect`
+// prints); production code builds it from the SDK response with FromInspect,
+// the fixtures and older scans decode it with ParseInspects.
 type Inspect struct {
-	ID    string `json:"Id"`
-	Name  string `json:"Name"`
-	State struct {
-		Status string `json:"Status"`
-	} `json:"State"`
-	Config struct {
-		Image        string              `json:"Image"`
-		Env          []string            `json:"Env"`
-		Labels       map[string]string   `json:"Labels"`
-		ExposedPorts map[string]struct{} `json:"ExposedPorts"`
-	} `json:"Config"`
-	HostConfig struct {
-		NetworkMode string   `json:"NetworkMode"`
-		Privileged  bool     `json:"Privileged"`
-		CapAdd      []string `json:"CapAdd"`
-		Devices     []struct {
-			PathOnHost string `json:"PathOnHost"`
-		} `json:"Devices"`
-		PortBindings map[string][]struct {
-			HostPort string `json:"HostPort"`
-		} `json:"PortBindings"`
-	} `json:"HostConfig"`
-	Mounts []struct {
-		Type        string `json:"Type"`
-		Name        string `json:"Name"`
-		Source      string `json:"Source"`
-		Destination string `json:"Destination"`
-	} `json:"Mounts"`
-	NetworkSettings struct {
-		Networks map[string]struct {
-			IPAddress string `json:"IPAddress"`
-		} `json:"Networks"`
-	} `json:"NetworkSettings"`
+	ID              string                 `json:"Id"`
+	Name            string                 `json:"Name"`
+	State           InspectState           `json:"State"`
+	Config          InspectConfig          `json:"Config"`
+	HostConfig      InspectHostConfig      `json:"HostConfig"`
+	Mounts          []InspectMount         `json:"Mounts"`
+	NetworkSettings InspectNetworkSettings `json:"NetworkSettings"`
+}
+
+// InspectState is the container's runtime state slice.
+type InspectState struct {
+	Status string `json:"Status"`
+}
+
+// InspectConfig is the container-config slice.
+type InspectConfig struct {
+	Image        string              `json:"Image"`
+	Env          []string            `json:"Env"`
+	Labels       map[string]string   `json:"Labels"`
+	ExposedPorts map[string]struct{} `json:"ExposedPorts"`
+}
+
+// InspectHostConfig is the host-config slice — what containerBlockers reads.
+type InspectHostConfig struct {
+	NetworkMode  string                          `json:"NetworkMode"`
+	Privileged   bool                            `json:"Privileged"`
+	CapAdd       []string                        `json:"CapAdd"`
+	Devices      []InspectDevice                 `json:"Devices"`
+	PortBindings map[string][]InspectPortBinding `json:"PortBindings"`
+}
+
+// InspectDevice is one mounted host device.
+type InspectDevice struct {
+	PathOnHost string `json:"PathOnHost"`
+}
+
+// InspectPortBinding is one host binding of an exposed port.
+type InspectPortBinding struct {
+	HostPort string `json:"HostPort"`
+}
+
+// InspectMount is one mount point.
+type InspectMount struct {
+	Type        string `json:"Type"`
+	Name        string `json:"Name"`
+	Source      string `json:"Source"`
+	Destination string `json:"Destination"`
+}
+
+// InspectNetworkSettings is the networks slice.
+type InspectNetworkSettings struct {
+	Networks map[string]InspectNetwork `json:"Networks"`
+}
+
+// InspectNetwork is one network endpoint.
+type InspectNetwork struct {
+	IPAddress string `json:"IPAddress"`
 }
 
 // ParseInspects decodes the JSON array printed by `docker inspect`.
@@ -114,6 +143,63 @@ func ParseInspects(raw string) ([]Inspect, error) {
 		return nil, fmt.Errorf("adoption: docker inspect output: %w", err)
 	}
 	return out, nil
+}
+
+// FromInspect maps the SDK's inspect response onto the subset this package
+// reads — the typed twin of ParseInspects, fed by the agent channel
+// (ADR-051) instead of CLI output.
+func FromInspect(resp container.InspectResponse) Inspect {
+	var out Inspect
+	if base := resp.ContainerJSONBase; base != nil {
+		out.ID = base.ID
+		out.Name = base.Name
+		if base.State != nil {
+			out.State.Status = base.State.Status
+		}
+		if hc := base.HostConfig; hc != nil {
+			out.HostConfig.NetworkMode = string(hc.NetworkMode)
+			out.HostConfig.Privileged = hc.Privileged
+			out.HostConfig.CapAdd = []string(hc.CapAdd)
+			for _, d := range hc.Devices {
+				out.HostConfig.Devices = append(out.HostConfig.Devices, InspectDevice{PathOnHost: d.PathOnHost})
+			}
+			if len(hc.PortBindings) > 0 {
+				out.HostConfig.PortBindings = map[string][]InspectPortBinding{}
+				for spec, bindings := range hc.PortBindings {
+					for _, b := range bindings {
+						out.HostConfig.PortBindings[string(spec)] = append(out.HostConfig.PortBindings[string(spec)], InspectPortBinding{HostPort: b.HostPort})
+					}
+				}
+			}
+		}
+	}
+	if cfg := resp.Config; cfg != nil {
+		out.Config.Image = cfg.Image
+		out.Config.Env = cfg.Env
+		out.Config.Labels = cfg.Labels
+		if len(cfg.ExposedPorts) > 0 {
+			out.Config.ExposedPorts = map[string]struct{}{}
+			for p := range cfg.ExposedPorts {
+				out.Config.ExposedPorts[string(p)] = struct{}{}
+			}
+		}
+	}
+	for _, m := range resp.Mounts {
+		out.Mounts = append(out.Mounts, InspectMount{
+			Type: string(m.Type), Name: m.Name, Source: m.Source, Destination: m.Destination,
+		})
+	}
+	if resp.NetworkSettings != nil && len(resp.NetworkSettings.Networks) > 0 {
+		out.NetworkSettings.Networks = map[string]InspectNetwork{}
+		for name, ep := range resp.NetworkSettings.Networks {
+			var ip string
+			if ep != nil {
+				ip = ep.IPAddress
+			}
+			out.NetworkSettings.Networks[name] = InspectNetwork{IPAddress: ip}
+		}
+	}
+	return out
 }
 
 // Candidate is one adoptable (or not) unit: a standalone container, or a

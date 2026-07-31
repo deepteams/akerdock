@@ -285,25 +285,11 @@ func serveRun(mode string) int {
 		go (&events.Publisher{Store: q, Broker: broker, Logger: logger}).Run(ctx)
 	}
 
-	// Maintenance crons run in scheduler and all-in-one modes, under a
-	// PostgreSQL advisory lock so only one instance is active (§18.2).
-	if cfg.Mode == config.ModeScheduler || cfg.Mode == config.ModeAllInOne {
-		dispatcher := &notify.Dispatcher{Store: q, Keyring: keyring, Sender: notify.New(), Logger: logger}
-		go (&scheduler.Scheduler{
-			Tick: cfg.SchedulerTick,
-			Pool: pool, Store: q, Keyring: keyring, Audit: recorder,
-			Dispatcher: dispatcher, Logger: logger,
-			TerminalMaxDuration: cfg.TerminalMaxDuration,
-			AuditRetentionDays:  cfg.AuditRetentionDays,
-			WakerImage:          cfg.Image,
-			InstancePort:        cfg.InstancePort,
-		}).Run(ctx)
-	}
-
 	// The agent command channels (ADR-052): the api terminates them, and the
-	// registry is shared with the in-process worker in all-in-one mode. A
-	// separate worker or scheduler process bridges through the api's relay
-	// instead (ADR-052 §8), authenticated per server by its agent token.
+	// registry is shared with the in-process worker and scheduler in
+	// all-in-one mode. A separate worker or scheduler process bridges through
+	// the api's relay instead (ADR-052 §8), authenticated per server by its
+	// agent token.
 	agentConns := &handlers.AgentConns{}
 	var dockerSource dockerruntime.Source = agentConns
 	if cfg.Mode == config.ModeWorker || cfg.Mode == config.ModeScheduler {
@@ -322,6 +308,21 @@ func serveRun(mode string) int {
 				return jobs.EnsureAgentToken(ctx, q, keyring, serverID)
 			},
 		}
+	}
+
+	// Maintenance crons run in scheduler and all-in-one modes, under a
+	// PostgreSQL advisory lock so only one instance is active (§18.2).
+	if cfg.Mode == config.ModeScheduler || cfg.Mode == config.ModeAllInOne {
+		dispatcher := &notify.Dispatcher{Store: q, Keyring: keyring, Sender: notify.New(), Logger: logger}
+		go (&scheduler.Scheduler{
+			Tick: cfg.SchedulerTick,
+			Pool: pool, Store: q, Keyring: keyring, Audit: recorder,
+			Dispatcher: dispatcher, Logger: logger, Docker: dockerSource,
+			TerminalMaxDuration: cfg.TerminalMaxDuration,
+			AuditRetentionDays:  cfg.AuditRetentionDays,
+			WakerImage:          cfg.Image,
+			InstancePort:        cfg.InstancePort,
+		}).Run(ctx)
 	}
 
 	// Queue consumption runs in worker and all-in-one modes (§18.2).
@@ -362,7 +363,7 @@ func serveRun(mode string) int {
 		worker.Register(jobs.TypeApplicationStart, lifecycle.Execute)
 		worker.Register(jobs.TypeApplicationStop, lifecycle.Execute)
 		worker.Register(jobs.TypeApplicationRestart, lifecycle.Execute)
-		adoptionJobs := &jobs.Adoption{Store: q, Pool: pool, Keyring: keyring, Logger: logger}
+		adoptionJobs := &jobs.Adoption{Store: q, Pool: pool, Keyring: keyring, Docker: dockerSource, Logger: logger}
 		worker.Register(jobs.TypeAdoptionScan, adoptionJobs.ExecuteScan)
 		worker.Register(jobs.TypeAdoptionAdopt, adoptionJobs.ExecuteAdopt)
 		worker.Register(jobs.TypeResourceDisown, adoptionJobs.ExecuteDisown)
