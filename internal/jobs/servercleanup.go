@@ -11,7 +11,9 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/go-units"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -277,6 +279,13 @@ func (h *ServerCleanup) cleanupSteps(server store.Server, rt dockerruntime.Runti
 		{"prune_dead_candidates", func(ctx context.Context) (string, error) {
 			return pruneDeadCandidates(ctx, rt)
 		}},
+		// Images of DESTROYED previews are tagged, so the dangling prune never
+		// reaches them — a destroy that failed partway leaks them forever.
+		// They are artifacts of a closed PR (ADR-006: none survive), so this
+		// runs unconditionally; anything a container still uses is kept.
+		{"prune_destroyed_preview_images", func(ctx context.Context) (string, error) {
+			return pruneDestroyedPreviewImages(ctx, rt, h.Store)
+		}},
 		// find includes dotfiles. Its exit status is preserved, so permission
 		// failures fail the job instead of being hidden behind `echo done`.
 		{"purge_tmp", sshStep(cleanupTmpCommand("/var/lib/akerdock/tmp"))},
@@ -291,6 +300,13 @@ func (h *ServerCleanup) cleanupSteps(server store.Server, rt dockerruntime.Runti
 			}
 			return reclaimedSummary(report.SpaceReclaimed), nil
 		}})
+		// NAMED volumes of DESTROYED previews: preview data is disposable by
+		// definition (§20.4.1) — INV-008 protects production volumes, which
+		// never carry a preview label. Same opt-in as the volume prune: it is
+		// still a data-deletion switch.
+		steps = append(steps, cleanupStep{"prune_destroyed_preview_volumes", func(ctx context.Context) (string, error) {
+			return pruneDestroyedPreviewVolumes(ctx, rt, h.Store)
+		}})
 	}
 	if server.CleanupPruneNetworks {
 		steps = append(steps, cleanupStep{"prune_managed_networks", func(ctx context.Context) (string, error) {
@@ -300,11 +316,132 @@ func (h *ServerCleanup) cleanupSteps(server store.Server, rt dockerruntime.Runti
 	return steps
 }
 
-// networkOwnerStore answers "does this network's owner still exist?" — the
-// two liveness lookups the orphan prune needs.
-type networkOwnerStore interface {
+// ownerStore answers "does this object's owner still exist?" — the two
+// liveness lookups every orphan prune shares.
+type ownerStore interface {
 	ListLiveResourceUUIDs(ctx context.Context, uuids []pgtype.UUID) ([]pgtype.UUID, error)
 	ListLivePreviewUUIDs(ctx context.Context, uuids []pgtype.UUID) ([]pgtype.UUID, error)
+}
+
+// liveOwners resolves which of the labelled owner uuids are still alive — a
+// live resource row, or a preview that is not destroyed. Sleeping counts as
+// alive everywhere: scale-to-zero is a state, not an abandonment.
+func liveOwners(ctx context.Context, q ownerStore, owners map[string]bool) (map[string]bool, error) {
+	var uuids []pgtype.UUID
+	for owner := range owners {
+		if p := pguuid.MustParse(owner); p.Valid {
+			uuids = append(uuids, p)
+		}
+	}
+	live := map[string]bool{}
+	if len(uuids) == 0 {
+		return live, nil
+	}
+	rows, err := q.ListLiveResourceUUIDs(ctx, uuids)
+	if err != nil {
+		return nil, err
+	}
+	for _, u := range rows {
+		live[pguuid.String(u)] = true
+	}
+	rows, err = q.ListLivePreviewUUIDs(ctx, uuids)
+	if err != nil {
+		return nil, err
+	}
+	for _, u := range rows {
+		live[pguuid.String(u)] = true
+	}
+	return live, nil
+}
+
+// previewLabelFilter selects objects carrying ANY preview ownership label.
+var previewLabelFilter = filters.NewArgs(filters.Arg("label", "akerdock.preview_uuid"))
+
+// pruneDestroyedPreviewImages removes images whose owning PREVIEW is
+// destroyed. Production images never carry the preview label, so rollback
+// retention (ADR-006) is out of reach by construction; a refusal (an image a
+// container still references) keeps the image and never fails the cleanup.
+func pruneDestroyedPreviewImages(ctx context.Context, rt dockerruntime.Runtime, q ownerStore) (string, error) {
+	list, err := rt.ImageList(ctx, image.ListOptions{Filters: previewLabelFilter})
+	if err != nil {
+		return "", err
+	}
+	owners := map[string]bool{}
+	for _, img := range list {
+		if u := img.Labels["akerdock.preview_uuid"]; u != "" {
+			owners[u] = true
+		}
+	}
+	if len(owners) == 0 {
+		return "0 images removed", nil
+	}
+	live, err := liveOwners(ctx, q, owners)
+	if err != nil {
+		return "", err
+	}
+	removed, kept := 0, 0
+	for _, img := range list {
+		if live[img.Labels["akerdock.preview_uuid"]] {
+			continue
+		}
+		if _, err := rt.ImageRemove(ctx, img.ID, image.RemoveOptions{Force: true}); err != nil {
+			if dockerruntime.IsNotFound(err) {
+				continue
+			}
+			kept++
+			continue
+		}
+		removed++
+	}
+	if kept > 0 {
+		return fmt.Sprintf("%d images removed, %d kept (still in use)", removed, kept), nil
+	}
+	return fmt.Sprintf("%d images removed", removed), nil
+}
+
+// pruneDestroyedPreviewVolumes removes NAMED volumes whose owning preview is
+// destroyed — the leak a partially-failed destroy leaves behind. Preview
+// data is disposable by definition (§20.4.1); production volumes never carry
+// the preview label (INV-008 stays intact by construction).
+func pruneDestroyedPreviewVolumes(ctx context.Context, rt dockerruntime.Runtime, q ownerStore) (string, error) {
+	list, err := rt.VolumeList(ctx, volume.ListOptions{Filters: previewLabelFilter})
+	if err != nil {
+		return "", err
+	}
+	owners := map[string]bool{}
+	for _, v := range list.Volumes {
+		if v == nil {
+			continue
+		}
+		if u := v.Labels["akerdock.preview_uuid"]; u != "" {
+			owners[u] = true
+		}
+	}
+	if len(owners) == 0 {
+		return "0 volumes removed", nil
+	}
+	live, err := liveOwners(ctx, q, owners)
+	if err != nil {
+		return "", err
+	}
+	removed, kept := 0, 0
+	for _, v := range list.Volumes {
+		if v == nil || live[v.Labels["akerdock.preview_uuid"]] {
+			continue
+		}
+		if err := rt.VolumeRemove(ctx, v.Name, true); err != nil {
+			if dockerruntime.IsNotFound(err) {
+				continue
+			}
+			kept++
+			continue
+		}
+		removed++
+	}
+	if kept > 0 {
+		return fmt.Sprintf("%d volumes removed, %d kept (still in use)", removed, kept), nil
+	}
+	return fmt.Sprintf("%d volumes removed", removed), nil
 }
 
 // pruneOrphanManagedNetworks removes managed networks whose OWNER is gone —
@@ -314,13 +451,12 @@ type networkOwnerStore interface {
 // sleeping scale-to-zero resource and the next wake died on "network not
 // found". Ownership is the resource/preview uuid label; a managed network
 // with NO owner label (a destination network) is never touched here.
-func pruneOrphanManagedNetworks(ctx context.Context, rt dockerruntime.Runtime, q networkOwnerStore) (string, error) {
+func pruneOrphanManagedNetworks(ctx context.Context, rt dockerruntime.Runtime, q ownerStore) (string, error) {
 	list, err := rt.NetworkList(ctx, network.ListOptions{Filters: managedLabelFilter})
 	if err != nil {
 		return "", err
 	}
 	var candidates []network.Summary
-	var uuids []pgtype.UUID
 	seen := map[string]bool{}
 	ownerOf := func(labels map[string]string) string {
 		if u := labels["akerdock.preview_uuid"]; u != "" {
@@ -334,29 +470,13 @@ func pruneOrphanManagedNetworks(ctx context.Context, rt dockerruntime.Runtime, q
 			continue // a destination network: owned by a row, not a uuid label
 		}
 		candidates = append(candidates, n)
-		if !seen[owner] {
-			seen[owner] = true
-			if p := pguuid.MustParse(owner); p.Valid {
-				uuids = append(uuids, p)
-			}
-		}
+		seen[owner] = true
 	}
 	if len(candidates) == 0 {
 		return "0 networks removed", nil
 	}
-	live := map[string]bool{}
-	if rows, err := q.ListLiveResourceUUIDs(ctx, uuids); err == nil {
-		for _, u := range rows {
-			live[pguuid.String(u)] = true
-		}
-	} else {
-		return "", err
-	}
-	if rows, err := q.ListLivePreviewUUIDs(ctx, uuids); err == nil {
-		for _, u := range rows {
-			live[pguuid.String(u)] = true
-		}
-	} else {
+	live, err := liveOwners(ctx, q, seen)
+	if err != nil {
 		return "", err
 	}
 	removed, kept := 0, 0

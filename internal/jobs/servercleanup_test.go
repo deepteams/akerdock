@@ -20,6 +20,7 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/system"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/dockerruntime"
@@ -95,6 +96,12 @@ func cleanupFakeRuntime() *fake.Runtime {
 	rt.NetworkListFn = func(context.Context, network.ListOptions) ([]network.Summary, error) {
 		return nil, nil
 	}
+	rt.ImageListFn = func(context.Context, image.ListOptions) ([]image.Summary, error) {
+		return nil, nil
+	}
+	rt.VolumeListFn = func(context.Context, volume.ListOptions) (volume.ListResponse, error) {
+		return volume.ListResponse{}, nil
+	}
 	return rt
 }
 
@@ -123,13 +130,15 @@ func TestServerCleanupStepInventory(t *testing.T) {
 	}
 	want := []string{
 		"prune_build_cache", "prune_dangling_images", "prune_dead_candidates",
-		"purge_tmp", "prune_anonymous_volumes", "prune_managed_networks",
+		"prune_destroyed_preview_images", "purge_tmp",
+		"prune_anonymous_volumes", "prune_destroyed_preview_volumes",
+		"prune_managed_networks",
 	}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("cleanup inventory = %v, want %v", names, want)
 	}
-	if defaults := h.cleanupSteps(store.Server{}, rt, remote); len(defaults) != 4 {
-		t.Fatalf("default cleanup has %d steps, want the four non-destructive steps", len(defaults))
+	if defaults := h.cleanupSteps(store.Server{}, rt, remote); len(defaults) != 5 {
+		t.Fatalf("default cleanup has %d steps, want the five always-on steps", len(defaults))
 	}
 
 	// Host-side commands: reclaim-all build cache with its warm floor, and a
@@ -250,7 +259,8 @@ func TestServerCleanupExecutesCompleteManagedInventory(t *testing.T) {
 		counts[name]++
 	}
 	for name, want := range map[string]int{
-		"Info": 2, "ImagesPrune": 1, "ContainerList": 1, "VolumesPrune": 1, "NetworkList": 1, "NetworksPrune": 0,
+		"Info": 2, "ImagesPrune": 1, "ContainerList": 1, "VolumesPrune": 1,
+		"NetworkList": 1, "NetworksPrune": 0, "ImageList": 1, "VolumeList": 1,
 	} {
 		if counts[name] != want {
 			t.Errorf("%s ran %d times, want %d (calls: %v)", name, counts[name], want, rt.CallNames())
@@ -579,5 +589,72 @@ func TestPruneOrphanManagedNetworks(t *testing.T) {
 	// counted — a cleanup never fails because something still runs.
 	if summary != "1 networks removed, 1 kept (still in use)" {
 		t.Fatalf("summary = %q", summary)
+	}
+}
+
+// TestPruneDestroyedPreviewArtifacts pins the two owner-aware artifact
+// pruners: images and named volumes of a DESTROYED preview are the leak a
+// partially-failed destroy leaves behind — reclaimed here; a live or
+// sleeping preview's artifacts survive, production artifacts (no preview
+// label) are out of reach by construction, and an in-use refusal keeps the
+// object without failing the cleanup.
+func TestPruneDestroyedPreviewArtifacts(t *testing.T) {
+	alive := "22222222-2222-4222-8222-222222222222"
+	dead := "33333333-3333-4333-8333-333333333333"
+	owners := ownerStoreStub{previews: map[string]bool{alive: true}}
+
+	rt := cleanupFakeRuntime()
+	rt.ImageListFn = func(_ context.Context, opts image.ListOptions) ([]image.Summary, error) {
+		if got := opts.Filters.Get("label"); len(got) != 1 || got[0] != "akerdock.preview_uuid" {
+			t.Errorf("image list filter = %v — must select preview-labelled images only", got)
+		}
+		return []image.Summary{
+			{ID: "img-alive", Labels: map[string]string{"akerdock.preview_uuid": alive}},
+			{ID: "img-dead", Labels: map[string]string{"akerdock.preview_uuid": dead}},
+			{ID: "img-used", Labels: map[string]string{"akerdock.preview_uuid": dead}},
+		}, nil
+	}
+	var removedImages []string
+	rt.ImageRemoveFn = func(_ context.Context, id string, opts image.RemoveOptions) ([]image.DeleteResponse, error) {
+		if !opts.Force {
+			t.Error("preview image removal must force (tags of a closed PR)")
+		}
+		if id == "img-used" {
+			return nil, fmt.Errorf("image is being used by stopped container: %w", cerrdefs.ErrConflict)
+		}
+		removedImages = append(removedImages, id)
+		return nil, nil
+	}
+	summary, err := pruneDestroyedPreviewImages(context.Background(), rt, owners)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removedImages) != 1 || removedImages[0] != "img-dead" {
+		t.Fatalf("removed images = %v", removedImages)
+	}
+	if summary != "1 images removed, 1 kept (still in use)" {
+		t.Fatalf("image summary = %q", summary)
+	}
+
+	rt.VolumeListFn = func(_ context.Context, opts volume.ListOptions) (volume.ListResponse, error) {
+		return volume.ListResponse{Volumes: []*volume.Volume{
+			{Name: "v-alive", Labels: map[string]string{"akerdock.preview_uuid": alive}},
+			{Name: "v-dead", Labels: map[string]string{"akerdock.preview_uuid": dead}},
+		}}, nil
+	}
+	var removedVolumes []string
+	rt.VolumeRemoveFn = func(_ context.Context, name string, force bool) error {
+		removedVolumes = append(removedVolumes, name)
+		return nil
+	}
+	summary, err = pruneDestroyedPreviewVolumes(context.Background(), rt, owners)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removedVolumes) != 1 || removedVolumes[0] != "v-dead" {
+		t.Fatalf("removed volumes = %v", removedVolumes)
+	}
+	if summary != "1 volumes removed" {
+		t.Fatalf("volume summary = %q", summary)
 	}
 }
