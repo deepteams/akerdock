@@ -207,3 +207,57 @@ services:
 		t.Fatalf("candidate creation must not touch the old container:\n%s", cmd)
 	}
 }
+
+// TestComposeConfigHashV2 pins the ADR-053 v2 fingerprint: deterministic,
+// sensitive to what matters (env, image), blind to the per-deployment labels
+// by construction (the hash spec is built without them), and prefixed so a
+// v1 value can never collide with it.
+func TestComposeConfigHashV2(t *testing.T) {
+	plan := loadPlan(t, `
+services:
+  web:
+    image: ghcr.io/acme/web:1.2
+    ports:
+      - "8080:80"
+`)
+	sp := plan.Services[0]
+	spec := func(env []string, ref string) composeCreateSpec {
+		return buildComposeCreateSpec(plan, sp, "/dir", nil, env, ref, composeCreateOpts{Name: sp.ContainerName, Aliases: sp.Aliases})
+	}
+	a := composeConfigHashV2(spec([]string{"A=1"}, "img:1"))
+	if a != composeConfigHashV2(spec([]string{"A=1"}, "img:1")) {
+		t.Fatal("the v2 hash must be deterministic")
+	}
+	if !strings.HasPrefix(a, "2:") {
+		t.Fatalf("v2 hash %q must carry its format prefix", a)
+	}
+	if a == composeConfigHashV2(spec([]string{"A=2"}, "img:1")) {
+		t.Fatal("an env change must change the hash")
+	}
+	if a == composeConfigHashV2(spec([]string{"A=1"}, "img:2")) {
+		t.Fatal("an image change must change the hash")
+	}
+}
+
+// TestComposeSkipDecision pins the ADR-053 dual-hash window: v2 rules, a
+// pre-rollout container (no v2 label) falls back to the frozen v1, and a
+// stopped container never skips.
+func TestComposeSkipDecision(t *testing.T) {
+	for name, tc := range map[string]struct {
+		state composeConfigState
+		want  bool
+	}{
+		"v2 match":                      {composeConfigState{hashV2: "2:abc", running: true}, true},
+		"v2 mismatch despite v1 match":  {composeConfigState{hashV1: "v1ok", hashV2: "2:old", running: true}, false},
+		"pre-rollout v1 match":          {composeConfigState{hashV1: "v1ok", running: true}, true},
+		"pre-rollout v1 mismatch":       {composeConfigState{hashV1: "stale", running: true}, false},
+		"matching but stopped":          {composeConfigState{hashV2: "2:abc"}, false},
+		"absent container (zero state)": {composeConfigState{}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := composeSkipDecision(tc.state, "v1ok", "2:abc"); got != tc.want {
+				t.Fatalf("skip = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

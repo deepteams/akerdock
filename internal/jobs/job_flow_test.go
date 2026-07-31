@@ -785,6 +785,9 @@ func TestImageDeploymentRunsThroughCompleteStateMachine(t *testing.T) {
 }
 
 func TestComposeDeploymentRunsThroughCompleteStateMachine(t *testing.T) {
+	oldStable := composeStablePeriod
+	composeStablePeriod = time.Millisecond
+	defer func() { composeStablePeriod = oldStable }()
 	q, keyring, recorder, logger, db := jobFlowDependencies(t)
 	db.host, db.port = newJobSSHServer(t).address(t)
 	previousStatus := jobEnumValues["DeploymentStatus"]
@@ -814,6 +817,9 @@ func TestComposeDeploymentRunsThroughCompleteStateMachine(t *testing.T) {
 }
 
 func TestComposePreviewDeploymentRunsThroughCompleteStateMachine(t *testing.T) {
+	oldStable := composeStablePeriod
+	composeStablePeriod = time.Millisecond
+	defer func() { composeStablePeriod = oldStable }()
 	q, keyring, recorder, logger, db := jobFlowDependencies(t)
 	db.host, db.port = newJobSSHServer(t).address(t)
 	db.preview = true

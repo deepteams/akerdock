@@ -243,6 +243,13 @@ type deploymentRun struct {
 	// through it. Builds, git, file deposits — and everything on the build
 	// server — stay on the SSH clients.
 	rt dockerruntime.Runtime
+	// labelsMap is the run's management-label set as the typed creates need
+	// it; the CLI flag string keeps feeding the builds.
+	labelsMap map[string]string
+	// composeStackEnv are the stack-wide KEY=VALUE entries of a compose run;
+	// composePullAuth is its per-request registry credential.
+	composeStackEnv []string
+	composePullAuth string
 	// builder is the machine the image is BUILT on. It is the target server
 	// unless the application asked for a build server (§3.4) — in which case
 	// what ships is not the image on that machine, but the one it pushed to a
@@ -646,6 +653,7 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	if r.preview != nil {
 		labelsMap["akerdock.preview_uuid"] = appUUID
 	}
+	r.labelsMap = labelsMap
 
 	// --- preparing -------------------------------------------------------
 	if err := r.checkpoint(ctx); err != nil {
@@ -1657,31 +1665,6 @@ func (r *deploymentRun) chownEmptyVolumes(ctx context.Context, imageRef string, 
 	}
 }
 
-// chownEmptyVolumesScript hands STILL-EMPTY volumes to the image's runtime
-// user. A fresh named volume mounted on a path absent from the image belongs
-// to root — a USER'd image then crash-loops on its first write, a failure
-// every non-root image would hit on every platform that didn't do this.
-//
-// The fix runs INSIDE a throwaway container of the image itself (--user 0),
-// never against /var/lib/docker on the host: a non-root SSH user cannot touch
-// the host path, but anyone who can talk to the daemon can do this — and a
-// named USER resolves against the image's own /etc/passwd for free, since
-// chown executes where that file lives. Only empty volumes are touched: data
-// that exists already has an owner, and it is not this function's to change.
-// Best-effort by design, hence `|| true` and the trailing `true`: an image
-// without /bin/sh (distroless) falls back to today's behavior instead of
-// failing the deployment.
-func chownEmptyVolumesScript(imageRef string, volumes []string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "u=$(docker image inspect --format '{{.Config.User}}' %s 2>/dev/null); ", imageRef)
-	b.WriteString("case \"$u\" in ''|root|0|0:*) :;; *) ")
-	fmt.Fprintf(&b, "for v in %s; do ", strings.Join(volumes, " "))
-	fmt.Fprintf(&b, "docker run --rm --user 0 --entrypoint /bin/sh -v \"$v\":/akerdock-volume %s "+
-		"-c \"[ -n \\\"\\$(ls -A /akerdock-volume)\\\" ] || chown -- '$u' /akerdock-volume\" >/dev/null 2>&1 || true; ", imageRef)
-	b.WriteString("done;; esac; true")
-	return b.String()
-}
-
 // deploymentRefs are the {{deployment.*}} interpolation values and the source
 // of the AKERDOCK_FQDN/URL/PR_ID predefined variables: the deployment's OWN
 // public identity, resolved identically in production (the application's primary
@@ -1790,46 +1773,6 @@ func (r *deploymentRun) renderRuntimeEnv(ctx context.Context) ([]string, error) 
 // backslashes, anything — except a single quote itself, which is closed,
 // escaped and reopened. This is what lets a PEM key or a JSON blob survive as
 // an environment variable (INV-012).
-// registryLogin authenticates the target server against the private registry
-// over the CLI — the COMPOSE pipeline's form, which still pulls with the
-// CLI; it dies with that slice's migration. The password reaches the server
-// through STDIN, never argv (INV-003).
-func (r *deploymentRun) registryLogin(ctx context.Context) (func(), error) {
-	credID := r.app.BuildConfig.RegistryCredentialID
-	if credID == nil {
-		return func() {}, nil
-	}
-	cred, err := r.h.Store.GetRegistryCredentialByID(ctx, *credID)
-	if err != nil {
-		return nil, fmt.Errorf("the registry credential of this application is gone: %w", err)
-	}
-	password, err := r.h.Keyring.Decrypt("registry_credentials", "password_enc",
-		pguuid.String(cred.Uuid), cred.PasswordEnc)
-	if err != nil {
-		return nil, fmt.Errorf("cannot decrypt the registry credential: %w", err)
-	}
-	if err := r.step(ctx, "registry_login", func() (*sshexec.Result, error) {
-		res, err := r.client.RunInput(ctx, fmt.Sprintf("docker login %s -u %s --password-stdin",
-			shellQuote(cred.RegistryUrl), shellQuote(cred.Username)), string(password))
-		if err == nil && res.ExitCode != 0 {
-			// firstLine, never the whole stderr: docker echoes the command it
-			// ran on some failures.
-			return res, fmt.Errorf("docker login to %s failed: %s", cred.RegistryUrl, firstLine(res.Stderr))
-		}
-		return res, err
-	}); err != nil {
-		return nil, err
-	}
-	return func() {
-		// Best effort, and on a context that outlives a cancellation: a logout
-		// skipped because the deployment was cancelled would leave the token on
-		// the server, which is the one outcome this must not have.
-		if _, err := r.client.Run(context.WithoutCancel(ctx), "docker logout "+shellQuote(cred.RegistryUrl)); err != nil {
-			r.h.Logger.Warn("docker logout failed — the registry token stays on the server", "error", err)
-		}
-	}, nil
-}
-
 // registryAuth builds the per-request registry credential of a typed pull
 // (ADR-051): the password rides that one call over the encrypted channel and
 // is never persisted in any ~/.docker/config.json. Empty when the
@@ -1854,24 +1797,6 @@ func (r *deploymentRun) registryAuth(ctx context.Context, credID *int64) (string
 
 func shellQuote(v string) string {
 	return "'" + strings.ReplaceAll(v, "'", `'\''`) + "'"
-}
-
-// renderRuntimeEnvFile is the shell-file form of the runtime environment —
-// the compose pipeline still writes and sources it before its CLI creates;
-// this form dies with that slice's migration.
-func (r *deploymentRun) renderRuntimeEnvFile(ctx context.Context) (string, []string, error) {
-	entries, err := r.renderRuntimeEnv(ctx)
-	if err != nil {
-		return "", nil, err
-	}
-	var b strings.Builder
-	keys := make([]string, 0, len(entries))
-	for _, e := range entries {
-		k, v, _ := strings.Cut(e, "=")
-		fmt.Fprintf(&b, "export %s=%s\n", k, shellQuote(v))
-		keys = append(keys, k)
-	}
-	return b.String(), keys, nil
 }
 
 // awaitCandidate is the §4 healthchecking verdict: without a health check it

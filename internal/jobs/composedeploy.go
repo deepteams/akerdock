@@ -14,8 +14,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
+	networktypes "github.com/docker/docker/api/types/network"
+
 	"github.com/deepteams/akerdock/internal/adoption"
 	"github.com/deepteams/akerdock/internal/compose"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/sshexec"
@@ -45,9 +50,14 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 	}
 
 	if err := r.step(ctx, "prepare", func() (*sshexec.Result, error) {
+		if _, err := r.rt.Ping(ctx); err != nil {
+			return nil, fmt.Errorf("the Docker daemon is not answering: %s", firstLine(err.Error()))
+		}
+		if err := ensureNetwork(ctx, r.rt, r.dest.Network); err != nil {
+			return nil, err
+		}
 		return r.client.Run(ctx, fmt.Sprintf(
-			"docker info --format ok >/dev/null && mkdir -p %s/env && chmod 700 %s %s/env && (docker network inspect %s >/dev/null 2>&1 || docker network create --label akerdock.managed=true %s)",
-			appDir, appDir, appDir, r.dest.Network, r.dest.Network))
+			"mkdir -p %s/env && chmod 700 %s %s/env", appDir, appDir, appDir))
 	}); err != nil {
 		return err
 	}
@@ -127,15 +137,16 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 			return err
 		}
 	}
-	// The magic variables were possibly just persisted: runtime.sh must carry
-	// them, so it is rendered NOW, not in the shared preparing step.
-	envFile, stackKeys, err := r.renderRuntimeEnvFile(ctx)
+	// The magic variables were possibly just persisted: the stack environment
+	// must carry them, so it is rendered NOW, not in the shared preparing
+	// step. The typed entries ride the create bodies (no runtime.sh on the
+	// host anymore); the keys still feed the frozen v1 hash.
+	stackEnv, err := r.renderRuntimeEnv(ctx)
 	if err != nil {
 		return err
 	}
-	if res, err := r.client.RunInput(ctx, fmt.Sprintf("umask 077 && cat > %s/env/runtime.sh", appDir), envFile); err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("uploading runtime.sh failed")
-	}
+	r.composeStackEnv = stackEnv
+	stackKeys := envEntryKeys(stackEnv)
 
 	result, err := compose.Load(ctx, compose.Input{
 		Content: content, StackUUID: appUUID, Variables: vars,
@@ -182,18 +193,17 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 
 	// --- stack objects: network, extra networks, volumes (§2.1, §2.4) -----
 	if err := r.step(ctx, "prepare_stack", func() (*sshexec.Result, error) {
-		var b strings.Builder
-		ensureNetwork := func(name string) {
-			fmt.Fprintf(&b, "docker network inspect %s >/dev/null 2>&1 || docker network create %s %s\n", name, labels, name)
-		}
-		ensureNetwork(plan.NetworkName)
+		networks := []string{plan.NetworkName}
 		extra := make([]string, 0, len(plan.ExtraNetworks))
 		for dockerName := range plan.ExtraNetworks {
 			extra = append(extra, dockerName)
 		}
 		sort.Strings(extra)
-		for _, dockerName := range extra {
-			ensureNetwork(dockerName)
+		networks = append(networks, extra...)
+		for _, dockerName := range networks {
+			if err := ensureStackNetwork(ctx, r.rt, dockerName, r.labelsMap); err != nil {
+				return nil, err
+			}
 		}
 		volumes := make([]string, 0, len(plan.Volumes))
 		for _, dockerName := range plan.Volumes {
@@ -201,20 +211,21 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 		}
 		sort.Strings(volumes)
 		for _, dockerName := range volumes {
-			fmt.Fprintf(&b, "docker volume create %s %s >/dev/null\n", labels, dockerName)
+			if err := ensureVolume(ctx, r.rt, dockerName, r.labelsMap); err != nil {
+				return nil, err
+			}
 		}
-		return r.client.Run(ctx, b.String())
+		return nil, nil
 	}); err != nil {
 		return err
 	}
 
 	// A private registry credential on the application applies to the whole
-	// stack's pulls, exactly like the single-container packs.
-	logout, err := r.registryLogin(ctx)
-	if err != nil {
+	// stack's pulls, exactly like the single-container packs — per-request
+	// auth on each typed pull (ADR-051), nothing persisted on the host.
+	if r.composePullAuth, err = r.registryAuth(ctx, r.app.BuildConfig.RegistryCredentialID); err != nil {
 		return err
 	}
-	defer logout()
 
 	// Which components carry a domain — they must be reachable by the proxy,
 	// so they also join the destination network (§2.1). A preview routes from
@@ -291,10 +302,7 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 		// AkerDock containers never carry the compose-CLI labels, so the
 		// project filter only matches the original stack.
 		if err := r.step(ctx, "retire_adopted_stack", func() (*sshexec.Result, error) {
-			return r.client.Run(ctx, fmt.Sprintf(
-				`ids=$(docker ps -aq --filter label=com.docker.compose.project=%s); `+
-					`[ -n "$ids" ] && { docker stop -t 30 $ids >/dev/null 2>&1; docker rm $ids >/dev/null 2>&1; } || true; echo retired`,
-				shellQuote(p.ComposeProject)))
+			return nil, r.retireAdoptedProject(ctx, p.ComposeProject)
 		}); err != nil {
 			return err
 		}
@@ -1048,8 +1056,7 @@ func (r *deploymentRun) ensureComposeImage(ctx context.Context, sp compose.Servi
 		if sp.Build {
 			reused = sp.BuildImage + ":" + sha[:12]
 		}
-		res, err := r.client.Run(ctx, "docker image inspect --format '{{.Id}}' "+reused)
-		if err == nil && res.ExitCode == 0 {
+		if _, err := r.rt.ImageInspect(ctx, reused); err == nil {
 			verb := "pull_"
 			if sp.Build {
 				verb = "build_"
@@ -1087,7 +1094,12 @@ func (r *deploymentRun) ensureComposeImage(ctx context.Context, sp compose.Servi
 		}
 	} else if err := r.streamStep(ctx, "pull_"+sp.Name, func(onOutput func(string)) (*sshexec.Result, error) {
 		// A pull of a large image is a long, opaque wait otherwise.
-		return r.client.RunStream(ctx, "docker pull "+ref, onOutput)
+		rc, err := r.rt.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: r.composePullAuth})
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = rc.Close() }()
+		return nil, streamPullProgress(rc, onOutput)
 	}); err != nil {
 		return composeImage{}, err
 	}
@@ -1102,26 +1114,25 @@ func (r *deploymentRun) ensureComposeImage(ctx context.Context, sp compose.Servi
 func (r *deploymentRun) resolveComposeImage(ctx context.Context, sp compose.ServicePlan, ref string) (composeImage, error) {
 	img := composeImage{Ref: ref}
 	if err := r.step(ctx, "resolve_"+sp.Name, func() (*sshexec.Result, error) {
-		res, err := r.client.Run(ctx, fmt.Sprintf(
-			"docker image inspect --format '{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}|{{if .Config.Healthcheck}}yes{{else}}no{{end}}' %s", ref))
-		if err == nil && res.ExitCode == 0 {
-			digest, hc, _ := strings.Cut(firstLine(res.Stdout), "|")
-			if !sp.Build && digest != "" {
-				img.Ref = digest
-			}
-			img.HasHealthcheck = hc == "yes"
+		inspect, err := r.rt.ImageInspect(ctx, ref)
+		if err != nil {
+			return nil, err
 		}
-		return res, err
+		if !sp.Build && len(inspect.RepoDigests) > 0 {
+			img.Ref = inspect.RepoDigests[0]
+		}
+		img.HasHealthcheck = inspect.Config != nil && inspect.Config.Healthcheck != nil
+		return nil, nil
 	}); err != nil {
 		return composeImage{}, err
 	}
 	return img, nil
 }
 
-// composeConfigHash fingerprints the desired state of one service: the fully
-// rendered create command (with the deployment-scoped labels blanked) plus
-// the environment content. Same hash on the running container = the service
-// is unchanged and is not replaced (§8.2 step 1).
+// composeConfigHash is the FROZEN v1 fingerprint (ADR-053): the rendered
+// create command plus the environment file content. It survives as the
+// fallback for containers created before the v2 label existed — labels are
+// immutable on a running container, so this fallback is mandatory.
 func composeConfigHash(createCommand, envContent string) string {
 	sum := sha256.Sum256([]byte(createCommand + "\x00" + envContent))
 	return hex.EncodeToString(sum[:6])
@@ -1148,37 +1159,50 @@ func zeroDowntimeEligibility(sp compose.ServicePlan, raw, imageHealthcheck bool)
 // replaceComposeService replaces one service of the stack: untouched when
 // unchanged, zero-downtime switch when web and eligible, recreate otherwise.
 func (r *deploymentRun) replaceComposeService(ctx context.Context, plan *compose.Plan, sp compose.ServicePlan, appDir, appUUID, labels string, stackKeys []string, routedComponent bool, img composeImage) error {
-	envPath, envKeys, envContent, err := r.uploadComposeEnv(ctx, sp, appDir)
-	if err != nil {
-		return err
-	}
+	_ = labels
+	serviceEnv, envKeys, envContent := composeServiceEnv(sp)
+	env := append(append([]string{}, r.composeStackEnv...), serviceEnv...)
 	allKeys := append(append([]string{}, stackKeys...), envKeys...)
 
-	// The hash is computed over the deployment-invariant parts only: the
-	// per-deployment labels would make every service look changed.
-	hash := composeConfigHash(
+	// Both fingerprints are computed over the deployment-invariant parts
+	// only: v2 hashes the typed create body (ADR-053), v1 is the FROZEN
+	// command renderer kept as a pure hash input for containers created
+	// before the rollout — labels are immutable, so the fallback is
+	// mandatory, not optional.
+	envPath := fmt.Sprintf("%s/env/%s.sh", appDir, sp.Name)
+	hashV1 := composeConfigHash(
 		r.composeCreateCommand(plan, sp, appDir, "", envPath, allKeys, img.Ref, composeCreateOpts{Name: sp.ContainerName, Aliases: sp.Aliases}),
 		envContent)
-	labeled := labels + " --label akerdock.config_hash=" + hash
+	hashV2 := composeConfigHashV2(buildComposeCreateSpec(plan, sp, appDir, nil, env, img.Ref,
+		composeCreateOpts{Name: sp.ContainerName, Aliases: sp.Aliases}))
+	createLabels := map[string]string{}
+	for k, v := range r.labelsMap {
+		createLabels[k] = v
+	}
+	createLabels["akerdock.config_hash"] = hashV1
+	createLabels["akerdock.config_hash_v2"] = hashV2
 
 	if !r.d.ForceRebuild && !sp.OneShot {
-		currentHash, running := r.containerConfigState(ctx, sp.ContainerName)
-		if currentHash == hash && running {
+		state := r.containerConfigState(ctx, sp.ContainerName)
+		if composeSkipDecision(state, hashV1, hashV2) {
 			// An unchanged container still converges its NETWORK membership:
-			// network attachments are not part of the create command, so the
+			// network attachments are not part of the create body, so the
 			// hash cannot see them — and becoming routed (a domain added
 			// since the last deployment) must not require a recreate. An
-			// already-connected network errors and is tolerated.
-			for _, connect := range r.connectCommands(sp, sp.ContainerName, routedComponent, true) {
-				_, _ = r.client.Run(ctx, connect+" >/dev/null 2>&1 || true")
+			// already-connected network is tolerated.
+			_ = r.connectServiceNetworks(ctx, sp, sp.ContainerName, routedComponent, true, true)
+			if state.hashV2 == "" {
+				// Pre-rollout container matched by the frozen v1 hash: worth a
+				// trace — the v1 renderer retires once these stop appearing.
+				r.h.Logger.Info("compose skip decided by the v1 config hash", "service", sp.Name)
 			}
-			r.skipStep(ctx, "start_"+sp.Name, "unchanged since the last deployment (config hash "+hash+")")
+			r.skipStep(ctx, "start_"+sp.Name, "unchanged since the last deployment (config hash "+hashV2+")")
 			return nil
 		}
 	}
 
 	if sp.OneShot {
-		return r.recreateComposeService(ctx, plan, sp, appDir, labeled, envPath, allKeys, img.Ref, routedComponent)
+		return r.recreateComposeService(ctx, plan, sp, appDir, createLabels, env, img.Ref, routedComponent)
 	}
 	if routedComponent {
 		switch {
@@ -1190,49 +1214,38 @@ func (r *deploymentRun) replaceComposeService(ctx context.Context, plan *compose
 		default:
 			eligible, reason := zeroDowntimeEligibility(sp, r.app.BuildConfig.RawCompose, img.HasHealthcheck)
 			if eligible {
-				return r.zeroDowntimeReplace(ctx, plan, sp, appDir, appUUID, labeled, envPath, allKeys, img.Ref)
+				return r.zeroDowntimeReplace(ctx, plan, sp, appDir, appUUID, createLabels, env, img.Ref)
 			}
 			// compose_zero_downtime_ineligible (§8.4): the interruption is
 			// assumed and displayed, never silent.
 			r.skipStep(ctx, "zero_downtime_"+sp.Name, "recreate with interruption: "+reason)
 		}
 	}
-	return r.recreateComposeService(ctx, plan, sp, appDir, labeled, envPath, allKeys, img.Ref, routedComponent)
+	return r.recreateComposeService(ctx, plan, sp, appDir, createLabels, env, img.Ref, routedComponent)
 }
 
-// uploadComposeEnv writes the per-service environment file (§2.7): values
-// travel by stdin and are sourced by name, never argv (INV-003/012).
-func (r *deploymentRun) uploadComposeEnv(ctx context.Context, sp compose.ServicePlan, appDir string) (string, []string, string, error) {
-	svc := sp.Service
-	var envFile strings.Builder
-	envKeys := make([]string, 0, len(svc.Environment))
-	for key, value := range svc.Environment {
-		if value == nil {
-			continue
-		}
-		envKeys = append(envKeys, key)
-	}
-	sort.Strings(envKeys)
-	for _, key := range envKeys {
-		fmt.Fprintf(&envFile, "export %s=%s\n", key, shellQuote(*svc.Environment[key]))
-	}
-	envPath := fmt.Sprintf("%s/env/%s.sh", appDir, sp.Name)
-	if res, err := r.client.RunInput(ctx, "umask 077 && cat > "+envPath, envFile.String()); err != nil || res.ExitCode != 0 {
-		return "", nil, "", fmt.Errorf("uploading the %s environment failed", sp.Name)
-	}
-	return envPath, envKeys, envFile.String(), nil
+// composeConfigState is what the skip decision reads off the running
+// container: both hash labels and its run state.
+type composeConfigState struct {
+	hashV1, hashV2 string
+	running        bool
 }
 
-// containerConfigState reads the config hash label and run state of the
-// current container ("", false when it does not exist).
-func (r *deploymentRun) containerConfigState(ctx context.Context, name string) (string, bool) {
-	res, err := r.client.Run(ctx, fmt.Sprintf(
-		"docker inspect --format '{{index .Config.Labels \"akerdock.config_hash\"}} {{.State.Status}}' %s 2>/dev/null", name))
-	if err != nil || res.ExitCode != 0 {
-		return "", false
+// containerConfigState reads the config hash labels and run state of the
+// current container (zero value when it does not exist).
+func (r *deploymentRun) containerConfigState(ctx context.Context, name string) composeConfigState {
+	resp, err := r.rt.ContainerInspect(ctx, name)
+	if err != nil || resp.Config == nil {
+		return composeConfigState{}
 	}
-	hash, status, _ := strings.Cut(firstLine(res.Stdout), " ")
-	return hash, status == "running"
+	state := composeConfigState{
+		hashV1: resp.Config.Labels["akerdock.config_hash"],
+		hashV2: resp.Config.Labels["akerdock.config_hash_v2"],
+	}
+	if resp.State != nil {
+		state.running = resp.State.Status == "running"
+	}
+	return state
 }
 
 // composeVolumeSources lists the docker names of the NAMED volumes a service
@@ -1248,13 +1261,9 @@ func composeVolumeSources(sp compose.ServicePlan) []string {
 	return vols
 }
 
-// previewSeedScript initializes the still-empty preview volumes of one
-// service from their production counterparts (ADR-029): `cp -a` inside a
-// throwaway container of the service's image, production mounted READ-ONLY.
-// A missing production volume skips the pair (nothing to clone — and `docker
-// run -v` must not create it as a side effect); a failing copy fails the
-// chain deliberately: the operator declared they want data, a silently empty
-// database would betray that.
+// previewSeedScript is the FROZEN v1 rendering of the preview seeding —
+// replaced by seedPreviewVolumes; kept only while its golden test documents
+// the old contract, and deleted with the v1 hash window (ADR-053).
 func previewSeedScript(imageRef string, pairs [][2]string) string {
 	var b strings.Builder
 	for _, p := range pairs {
@@ -1290,44 +1299,44 @@ func (r *deploymentRun) previewSeedPairs(plan *compose.Plan, sp compose.ServiceP
 	return pairs
 }
 
-// connectCommands attaches a container to its extra stack networks, and to
-// the destination network when the proxy must reach it (§2.1).
-func (r *deploymentRun) connectCommands(sp compose.ServicePlan, container string, routedComponent bool, shortAliases bool) []string {
-	var connects []string
-	for _, network := range sp.ExtraNetworks {
-		alias := container
-		if shortAliases {
-			alias = sp.Name
-		}
-		connects = append(connects, fmt.Sprintf("docker network connect --alias %s %s %s", alias, network, container))
-	}
-	if routedComponent {
-		connects = append(connects, fmt.Sprintf("docker network connect --alias %s %s %s", container, r.dest.Network, container))
-	}
-	return connects
-}
-
 // recreateComposeService is the stop-then-start path (§7.4 semantics): used
 // for non-web services, one-shots, and web services ineligible to the switch.
-func (r *deploymentRun) recreateComposeService(ctx context.Context, plan *compose.Plan, sp compose.ServicePlan, appDir, labels, envPath string, envKeys []string, runRef string, routedComponent bool) error {
-	create := r.composeCreateCommand(plan, sp, appDir, labels, envPath, envKeys, runRef,
-		composeCreateOpts{Name: sp.ContainerName, Aliases: sp.Aliases, ReplaceOld: true})
-	commands := append([]string{create}, r.connectCommands(sp, sp.ContainerName, routedComponent, true)...)
-	// Still-empty volumes are handed to the service image's runtime user
-	// BEFORE the first start — same contract as the single-container packs:
-	// a USER'd image must not crash-loop on its own storage.
-	if vols := composeVolumeSources(sp); len(vols) > 0 {
-		commands = append([]string{chownEmptyVolumesScript(runRef, vols)}, commands...)
-	}
-	// Preview seeding runs FIRST (ADR-029): `cp -a` carries the production
-	// ownership over, so the chown right after sees a non-empty volume and
-	// leaves it alone.
-	if pairs := r.previewSeedPairs(plan, sp); len(pairs) > 0 {
-		commands = append([]string{previewSeedScript(runRef, pairs)}, commands...)
-	}
-	commands = append(commands, "docker start "+sp.ContainerName)
+func (r *deploymentRun) recreateComposeService(ctx context.Context, plan *compose.Plan, sp compose.ServicePlan, appDir string, createLabels map[string]string, env []string, runRef string, routedComponent bool) error {
 	if err := r.step(ctx, "start_"+sp.Name, func() (*sshexec.Result, error) {
-		return r.client.Run(ctx, strings.Join(commands, " && "))
+		// Preview seeding runs FIRST (ADR-029): `cp -a` carries the
+		// production ownership over, so the chown right after sees a
+		// non-empty volume and leaves it alone.
+		if pairs := r.previewSeedPairs(plan, sp); len(pairs) > 0 {
+			if err := r.seedPreviewVolumes(ctx, runRef, pairs); err != nil {
+				return nil, err
+			}
+		}
+		// Still-empty volumes are handed to the service image's runtime user
+		// BEFORE the first start — same contract as the single-container
+		// packs: a USER'd image must not crash-loop on its own storage.
+		if vols := composeVolumeSources(sp); len(vols) > 0 {
+			r.chownEmptyVolumes(ctx, runRef, vols)
+		}
+		// Replace-old (§7.4): stop with the compose grace, then remove.
+		grace := 30
+		if sp.Service.StopGracePeriod != nil {
+			grace = int(time.Duration(*sp.Service.StopGracePeriod).Seconds())
+		}
+		if err := containerLifecycle(ctx, r.rt, "stop", sp.ContainerName, grace); err != nil && !dockerruntime.IsNotFound(err) {
+			r.h.Logger.Warn("old service container did not stop cleanly", "service", sp.Name, "error", err)
+		}
+		if err := removeNamedContainers(ctx, r.rt, false, sp.ContainerName); err != nil {
+			return nil, err
+		}
+		spec := buildComposeCreateSpec(plan, sp, appDir, createLabels, env, runRef,
+			composeCreateOpts{Name: sp.ContainerName, Aliases: sp.Aliases})
+		if _, err := r.rt.ContainerCreate(ctx, spec.Config, spec.Host, spec.Networking, nil, sp.ContainerName); err != nil {
+			return nil, err
+		}
+		if err := r.connectServiceNetworks(ctx, sp, sp.ContainerName, routedComponent, true, false); err != nil {
+			return nil, err
+		}
+		return nil, r.rt.ContainerStart(ctx, sp.ContainerName, container.StartOptions{})
 	}); err != nil {
 		return err
 	}
@@ -1336,51 +1345,68 @@ func (r *deploymentRun) recreateComposeService(ctx context.Context, plan *compos
 		// One-shot job (§7.3): runs at its topological position; a non-zero
 		// exit fails the deployment deterministically.
 		return r.step(ctx, "wait_"+sp.Name, func() (*sshexec.Result, error) {
-			res, err := r.client.Run(ctx, fmt.Sprintf("code=$(timeout 600 docker wait %s); echo \"exit=$code\"; [ \"$code\" = 0 ]", sp.ContainerName))
-			if err == nil && res.ExitCode != 0 {
-				return res, fmt.Errorf("one-shot service exited non-zero (%s)", firstLine(res.Stdout))
+			waitCtx, cancel := context.WithTimeout(ctx, composeOneShotTimeout)
+			defer cancel()
+			waitCh, errCh := r.rt.ContainerWait(waitCtx, sp.ContainerName, container.WaitConditionNotRunning)
+			select {
+			case <-waitCtx.Done():
+				return nil, fmt.Errorf("one-shot service still running after %s", composeOneShotTimeout)
+			case err := <-errCh:
+				return nil, err
+			case st := <-waitCh:
+				if st.StatusCode != 0 {
+					return nil, fmt.Errorf("one-shot service exited non-zero (exit=%d)", st.StatusCode)
+				}
+				return nil, nil
 			}
-			return res, err
 		})
 	}
 	if sp.ExcludeFromHC {
 		r.skipStep(ctx, "healthcheck_"+sp.Name, "excluded from the stack health (x-akerdock.exclude_from_hc)")
 		return nil
 	}
-	return r.waitComposeHealthy(ctx, sp, sp.ContainerName)
+	return r.composeAwaitHealthy(ctx, sp, sp.ContainerName)
 }
 
 // zeroDowntimeReplace is the two-instance switch of one web service (§8.2
 // step 4): candidate next to the old, healthy first, proxy switched for THIS
 // component only, then promotion. A failure removes the candidate and leaves
 // the old container serving (C2); services already switched stay (C3).
-func (r *deploymentRun) zeroDowntimeReplace(ctx context.Context, plan *compose.Plan, sp compose.ServicePlan, appDir, appUUID, labels, envPath string, envKeys []string, runRef string) error {
+func (r *deploymentRun) zeroDowntimeReplace(ctx context.Context, plan *compose.Plan, sp compose.ServicePlan, appDir, appUUID string, createLabels map[string]string, env []string, runRef string) error {
 	candidate := sp.CandidateName
-	discard := func() { _, _ = r.client.Run(ctx, "docker rm -f "+candidate+" >/dev/null 2>&1 || true") }
+	discard := func() { _ = removeNamedContainers(ctx, r.rt, false, candidate) }
 
-	// The candidate joins the stack network WITHOUT the short alias (§8.3):
-	// the other services keep resolving <service> to the OLD container until
-	// the promotion — they never see the candidate early.
-	create := r.composeCreateCommand(plan, sp, appDir, labels, envPath, envKeys, runRef,
-		composeCreateOpts{Name: candidate, Aliases: []string{candidate}})
-	commands := append([]string{"docker rm -f " + candidate + " >/dev/null 2>&1 || true", create},
-		r.connectCommands(sp, candidate, true, false)...)
-	// Same empty-volume ownership contract as the recreate path.
-	if vols := composeVolumeSources(sp); len(vols) > 0 {
-		commands = append([]string{chownEmptyVolumesScript(runRef, vols)}, commands...)
-	}
-	// Same preview seeding contract as the recreate path (ADR-029).
-	if pairs := r.previewSeedPairs(plan, sp); len(pairs) > 0 {
-		commands = append([]string{previewSeedScript(runRef, pairs)}, commands...)
-	}
-	commands = append(commands, "docker start "+candidate)
 	if err := r.step(ctx, "start_candidate_"+sp.Name, func() (*sshexec.Result, error) {
-		return r.client.Run(ctx, strings.Join(commands, " && "))
+		// Same preview seeding and empty-volume ownership contracts as the
+		// recreate path (ADR-029).
+		if pairs := r.previewSeedPairs(plan, sp); len(pairs) > 0 {
+			if err := r.seedPreviewVolumes(ctx, runRef, pairs); err != nil {
+				return nil, err
+			}
+		}
+		if vols := composeVolumeSources(sp); len(vols) > 0 {
+			r.chownEmptyVolumes(ctx, runRef, vols)
+		}
+		if err := removeNamedContainers(ctx, r.rt, false, candidate); err != nil {
+			return nil, err
+		}
+		// The candidate joins the stack network WITHOUT the short alias
+		// (§8.3): the other services keep resolving <service> to the OLD
+		// container until the promotion — they never see the candidate early.
+		spec := buildComposeCreateSpec(plan, sp, appDir, createLabels, env, runRef,
+			composeCreateOpts{Name: candidate, Aliases: []string{candidate}})
+		if _, err := r.rt.ContainerCreate(ctx, spec.Config, spec.Host, spec.Networking, nil, candidate); err != nil {
+			return nil, err
+		}
+		if err := r.connectServiceNetworks(ctx, sp, candidate, true, false, false); err != nil {
+			return nil, err
+		}
+		return nil, r.rt.ContainerStart(ctx, candidate, container.StartOptions{})
 	}); err != nil {
 		discard()
 		return err
 	}
-	if err := r.waitComposeHealthy(ctx, sp, candidate); err != nil {
+	if err := r.composeAwaitHealthy(ctx, sp, candidate); err != nil {
 		discard()
 		return err
 	}
@@ -1421,15 +1447,19 @@ func (r *deploymentRun) promoteComposeCandidate(ctx context.Context, plan *compo
 	// serving until the proxy really exposes the new endpoint (INV-005).
 	var candidateIP string
 	if err := r.step(ctx, "resolve_endpoint_"+sp.Name, func() (*sshexec.Result, error) {
-		res, err := r.client.Run(ctx, fmt.Sprintf(
-			"docker inspect --format '{{(index .NetworkSettings.Networks %q).IPAddress}}' %s", r.dest.Network, candidate))
-		if err == nil && res.ExitCode == 0 {
-			candidateIP = firstLine(res.Stdout)
-			if candidateIP == "" {
-				return res, fmt.Errorf("could not resolve the candidate IP on network %s", r.dest.Network)
+		resp, err := r.rt.ContainerInspect(ctx, candidate)
+		if err != nil {
+			return nil, err
+		}
+		if resp.NetworkSettings != nil {
+			if ep := resp.NetworkSettings.Networks[r.dest.Network]; ep != nil {
+				candidateIP = ep.IPAddress
 			}
 		}
-		return res, err
+		if candidateIP == "" {
+			return nil, fmt.Errorf("could not resolve the candidate IP on network %s", r.dest.Network)
+		}
+		return nil, nil
 	}); err != nil {
 		return err
 	}
@@ -1446,13 +1476,25 @@ func (r *deploymentRun) promoteComposeCandidate(ctx context.Context, plan *compo
 		grace = int(time.Duration(*sp.Service.StopGracePeriod).Seconds())
 	}
 	if err := r.step(ctx, "switch_"+sp.Name, func() (*sshexec.Result, error) {
-		return r.client.Run(ctx, fmt.Sprintf(
-			"(docker stop -t %d %s >/dev/null 2>&1 && docker rm %s >/dev/null 2>&1) || true; "+
-				"docker rename %s %s && docker network disconnect %s %s >/dev/null 2>&1; "+
-				"docker network connect --alias %s --alias %s %s %s",
-			grace, sp.ContainerName, sp.ContainerName,
-			candidate, sp.ContainerName, plan.NetworkName, sp.ContainerName,
-			sp.Name, sp.ContainerName, plan.NetworkName, sp.ContainerName))
+		// Stop and remove the old container — tolerant, like the CLI's
+		// `|| true`: a replay may find it already gone.
+		if err := containerLifecycle(ctx, r.rt, "stop", sp.ContainerName, grace); err != nil && !dockerruntime.IsNotFound(err) {
+			r.h.Logger.Warn("old service container did not stop cleanly", "service", sp.Name, "error", err)
+		}
+		if err := removeNamedContainers(ctx, r.rt, false, sp.ContainerName); err != nil {
+			r.h.Logger.Warn("old service container was not removed", "service", sp.Name, "error", err)
+		}
+		// The rename is strict; the stack-network alias swap follows — the
+		// disconnect is best-effort (the promoted container replaces its own
+		// endpoint), the reconnect with both aliases is strict (§8.3).
+		if err := r.rt.ContainerRename(ctx, candidate, sp.ContainerName); err != nil {
+			return nil, err
+		}
+		if err := r.rt.NetworkDisconnect(ctx, plan.NetworkName, sp.ContainerName, false); err != nil && !dockerruntime.IsNotFound(err) {
+			r.h.Logger.Warn("stack network disconnect failed before the alias swap", "service", sp.Name, "error", err)
+		}
+		return nil, r.rt.NetworkConnect(ctx, plan.NetworkName, sp.ContainerName,
+			&networktypes.EndpointSettings{Aliases: []string{sp.Name, sp.ContainerName}})
 	}); err != nil {
 		return err
 	}
@@ -1472,28 +1514,31 @@ func (r *deploymentRun) promoteComposeCandidate(ctx context.Context, plan *compo
 //   - no candidate: nothing to decide — the config-hash check of the normal
 //     path recognizes the services that were already completed.
 func (r *deploymentRun) resumeComposeService(ctx context.Context, plan *compose.Plan, sp compose.ServicePlan, appUUID string, componentIDs map[string]int64) (bool, error) {
-	res, err := r.client.Run(ctx, fmt.Sprintf(
-		"docker inspect --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' %s 2>/dev/null || echo absent",
-		sp.CandidateName))
+	resp, err := r.rt.ContainerInspect(ctx, sp.CandidateName)
 	if err != nil {
+		if dockerruntime.IsNotFound(err) {
+			return false, nil
+		}
 		return false, err
 	}
-	state := firstLine(res.Stdout)
-	if state == "absent" || state == "" {
-		return false, nil
+	status, health := "absent", "none"
+	if resp.State != nil {
+		status = resp.State.Status
+		if resp.State.Health != nil {
+			health = resp.State.Health.Status
+		}
 	}
-	status, health, _ := strings.Cut(state, " ")
 	if status != "running" || health == "unhealthy" {
-		r.skipStep(ctx, "resume_"+sp.Name, "stale candidate ("+state+") discarded; the service is redone from scratch")
-		_, _ = r.client.Run(ctx, "docker rm -f "+sp.CandidateName+" >/dev/null 2>&1 || true")
+		r.skipStep(ctx, "resume_"+sp.Name, "stale candidate ("+status+" "+health+") discarded; the service is redone from scratch")
+		_ = removeNamedContainers(ctx, r.rt, false, sp.CandidateName)
 		return false, nil
 	}
 
 	// The candidate survived the crash. Wait for its health verdict (it may
 	// still be starting), then finish what the dead worker was about to do.
 	r.skipStep(ctx, "resume_"+sp.Name, "healthy candidate found after the crash; finishing its interrupted switch")
-	if err := r.waitComposeHealthy(ctx, sp, sp.CandidateName); err != nil {
-		_, _ = r.client.Run(ctx, "docker rm -f "+sp.CandidateName+" >/dev/null 2>&1 || true")
+	if err := r.composeAwaitHealthy(ctx, sp, sp.CandidateName); err != nil {
+		_ = removeNamedContainers(ctx, r.rt, false, sp.CandidateName)
 		//nolint:nilerr // an unhealthy candidate is not a job failure: signal "redo from scratch".
 		return false, nil
 	}
@@ -1506,28 +1551,6 @@ func (r *deploymentRun) resumeComposeService(ctx context.Context, plan *compose.
 		})
 	}
 	return true, nil
-}
-
-// waitComposeHealthy waits for a container's health (compose or image
-// healthcheck), or a stable running state when it has none.
-func (r *deploymentRun) waitComposeHealthy(ctx context.Context, sp compose.ServicePlan, container string) error {
-	return r.step(ctx, "healthcheck_"+sp.Name, func() (*sshexec.Result, error) {
-		res, err := r.client.Run(ctx, fmt.Sprintf(
-			"deadline=$(( $(date +%%s) + %d )); while [ $(date +%%s) -lt $deadline ]; do "+
-				"st=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none-{{.State.Status}}{{end}}' %s 2>/dev/null); "+
-				"case \"$st\" in healthy) echo healthy; exit 0;; unhealthy) echo unhealthy; exit 1;; "+
-				"none-running) sleep 5; st2=$(docker inspect --format '{{.State.Status}}' %s); [ \"$st2\" = running ] && echo running && exit 0; echo \"$st2\"; exit 1;; esac; sleep 2; done; echo timeout; exit 1",
-			r.composeHealthBudget(sp), container, container))
-		if err == nil && res.ExitCode != 0 {
-			logs, _ := r.client.Run(ctx, "docker logs --tail 100 "+container+" 2>&1")
-			detail := ""
-			if logs != nil {
-				detail = "\n" + logs.Stdout
-			}
-			return res, fmt.Errorf("the service did not turn healthy (%s)%s", firstLine(res.Stdout), detail)
-		}
-		return res, err
-	})
 }
 
 // composeHealthBudget bounds the health wait (§4): start_period +
@@ -1596,10 +1619,10 @@ type composeCreateOpts struct {
 	ReplaceOld bool
 }
 
-// composeCreateCommand renders the docker create for one service — every
-// value that could be hostile is shell-quoted, every secret travels by
-// environment sourcing, never argv (INV-003, INV-012). The container is NOT
-// started: callers connect its networks first, then start it.
+// composeCreateCommand is the FROZEN v1 renderer (ADR-053): it no longer
+// executes anywhere — it is a pure input of the v1 config hash, kept
+// byte-for-byte identical so containers created before the typed rollout
+// still read as unchanged. It retires when the v1-skip metric stays silent.
 func (r *deploymentRun) composeCreateCommand(plan *compose.Plan, sp compose.ServicePlan, appDir, labels, envPath string, envKeys []string, runRef string, opts composeCreateOpts) string {
 	svc := sp.Service
 	var flags strings.Builder
