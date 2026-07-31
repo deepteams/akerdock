@@ -14,8 +14,10 @@ import (
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/go-connections/nat"
 
+	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/pki"
 	"github.com/deepteams/akerdock/internal/proxy"
@@ -51,21 +53,17 @@ var (
 	databaseReadyPoll    = 2 * time.Second
 )
 
-// databaseRemote is the SSH slice the database host-ops need: config and TLS
-// material deposits, directory removal, proxy route files.
-type databaseRemote interface {
-	Run(context.Context, string) (*sshexec.Result, error)
-	RunInput(context.Context, string, string) (*sshexec.Result, error)
-}
-
 // DatabaseRun provisions and drives managed databases. The data volume is
 // always kept unless the deletion explicitly asks otherwise (INV-008).
-// Container operations go through the agent channel (ADR-052); what stays on
-// SSH is host material — config/TLS files, directories, proxy route files.
+// Container operations go through the agent channel (ADR-052) and the host
+// material — config/TLS files, directories, proxy route files — through its
+// file primitives (ADR-054); SSH remains only for the proxy bootstrap
+// convergence.
 type DatabaseRun struct {
 	Store   *store.Queries
 	Keyring *envelope.Keyring
 	Docker  dockerruntime.Source
+	HostOps hostops.Source
 	Logger  *slog.Logger
 	// ControlPlanePort is the published port of this instance (AKERDOCK_PORT),
 	// used to route the instance FQDN on the server that hosts it (§14.2).
@@ -105,6 +103,14 @@ func (h *DatabaseRun) Execute(ctx context.Context, job store.Job, rec *queue.Ste
 
 	switch payload.Action {
 	case "provision":
+		var ops hostops.Ops
+		ops, err = h.HostOps.HostOps(ctx, server.ID)
+		if err != nil {
+			rec.Fail(ctx, "the server's agent is not connected")
+			return nil, err
+		}
+		// The one SSH remnant: converging a proxy that may need recreating
+		// (bootstrap family, ADR-054).
 		var client *sshexec.Client
 		client, err = h.dialServer(ctx, server)
 		if err != nil {
@@ -112,18 +118,17 @@ func (h *DatabaseRun) Execute(ctx context.Context, job store.Job, rec *queue.Ste
 			return nil, err
 		}
 		defer func() { _ = client.Close() }()
-		err = h.provision(ctx, rt, client, client, row, dest.Network, dbUUID)
+		err = h.provision(ctx, rt, ops, client, row, dest.Network, dbUUID)
 	case "start", "stop", "restart":
 		err = h.lifecycle(ctx, rt, payload.Action, dbUUID, row.Resource.ID)
 	case "delete":
-		var client *sshexec.Client
-		client, err = h.dialServer(ctx, server)
+		var ops hostops.Ops
+		ops, err = h.HostOps.HostOps(ctx, server.ID)
 		if err != nil {
-			rec.Fail(ctx, "SSH connection failed")
+			rec.Fail(ctx, "the server's agent is not connected")
 			return nil, err
 		}
-		defer func() { _ = client.Close() }()
-		err = h.delete(ctx, rt, client, row, dbUUID, payload.DeleteVolumes)
+		err = h.delete(ctx, rt, ops, row, dbUUID, payload.DeleteVolumes)
 	default:
 		err = fmt.Errorf("unknown database action %q", payload.Action)
 	}
@@ -156,7 +161,7 @@ func (h *DatabaseRun) dialServer(ctx context.Context, server store.Server) (*ssh
 // (INV-003 as clarified by ADR-051).
 // sshClient is the concrete connection the proxy convergence needs; nil in
 // unit tests, which stop at the route file.
-func (h *DatabaseRun) provision(ctx context.Context, rt dockerruntime.Runtime, client databaseRemote, sshClient *sshexec.Client, row store.GetDatabaseByIDRow, network, dbUUID string) error {
+func (h *DatabaseRun) provision(ctx context.Context, rt dockerruntime.Runtime, ops hostops.Ops, sshClient *sshexec.Client, row store.GetDatabaseByIDRow, network, dbUUID string) error {
 	password, err := h.Keyring.Decrypt("database_credentials", "password_enc",
 		pguuid.String(row.DatabaseCredential.Uuid), row.DatabaseCredential.PasswordEnc)
 	if err != nil {
@@ -189,12 +194,13 @@ func (h *DatabaseRun) provision(ctx context.Context, rt dockerruntime.Runtime, c
 	var args []string
 
 	// Custom postgresql.conf, mounted read-only when present (§6.2) — host
-	// material, deposited over SSH.
+	// material, deposited through the agent (ADR-054).
 	if row.Database.CustomConfig != nil && *row.Database.CustomConfig != "" {
-		if res, err := client.RunInput(ctx, fmt.Sprintf(
-			"mkdir -p %s && chmod 700 %s && umask 077 && cat > %s/postgresql.conf", dir, dir, dir),
-			*row.Database.CustomConfig); err != nil || res.ExitCode != 0 {
-			return fmt.Errorf("uploading the custom configuration failed")
+		if err := ops.WriteFile(ctx, agentwire.FileWriteParams{
+			Path: dir + "/postgresql.conf", Content: []byte(*row.Database.CustomConfig),
+			Mode: 0o600, MakeDirs: true, DirMode: 0o700,
+		}); err != nil {
+			return fmt.Errorf("uploading the custom configuration failed: %s", firstLine(err.Error()))
 		}
 		binds = append(binds, dir+"/postgresql.conf:/etc/postgresql/postgresql.conf:ro")
 		args = append(args, "-c", "config_file=/etc/postgresql/postgresql.conf")
@@ -210,23 +216,25 @@ func (h *DatabaseRun) provision(ctx context.Context, rt dockerruntime.Runtime, c
 			return err
 		}
 		// The certificate is public: 0644, and every uid can read it.
-		if res, err := client.RunInput(ctx, fmt.Sprintf(
-			"mkdir -p %s && chmod 700 %s && cat > %s/server.crt && chmod 644 %s/server.crt", dir, dir, dir, dir),
-			string(leaf.CertPEM)); err != nil || res.ExitCode != 0 {
-			return fmt.Errorf("uploading the database certificate failed")
+		if err := ops.WriteFile(ctx, agentwire.FileWriteParams{
+			Path: dir + "/server.crt", Content: leaf.CertPEM,
+			Mode: 0o644, MakeDirs: true, DirMode: 0o700,
+		}); err != nil {
+			return fmt.Errorf("uploading the database certificate failed: %s", firstLine(err.Error()))
+		}
+		if err := ops.WriteFile(ctx, agentwire.FileWriteParams{
+			Path: dir + "/server.key", Content: leaf.KeyPEM, Mode: 0o600,
+		}); err != nil {
+			return fmt.Errorf("uploading the database key failed: %s", firstLine(err.Error()))
 		}
 		// The postgres uid is READ FROM THE IMAGE, not assumed: it is 999 on the
 		// Debian images and 70 on the Alpine ones. Guessing it produces a
 		// database that starts, fails to read its own key, and restarts forever.
-		// (The probe is part of this host-side permission fix — the one docker
-		// CLI use that stays until the create path can ask the running image.)
-		writeKey := fmt.Sprintf(
-			"umask 077 && cat > %s/server.key && chmod 600 %s/server.key"+
-				" && uid=$(docker run --rm --entrypoint id %s -u postgres 2>/dev/null || echo 999)"+
-				" && chown \"$uid:$uid\" %s/server.key",
-			dir, dir, shellQuote(image), dir)
-		if res, err := client.RunInput(ctx, writeKey, string(leaf.KeyPEM)); err != nil || res.ExitCode != 0 {
-			return fmt.Errorf("uploading the database key failed")
+		uid := probePostgresUID(ctx, rt, image)
+		if err := ops.Chown(ctx, agentwire.FileChownParams{
+			Path: dir + "/server.key", UID: uid, GID: uid,
+		}); err != nil {
+			return fmt.Errorf("chowning the database key failed: %s", firstLine(err.Error()))
 		}
 		binds = append(binds,
 			dir+"/server.crt:/etc/postgresql/server.crt:ro",
@@ -299,7 +307,7 @@ func (h *DatabaseRun) provision(ctx context.Context, rt dockerruntime.Runtime, c
 	// The route is applied AFTER the database is healthy: opening a public port
 	// onto something that is not answering yet is a port that accepts a
 	// connection and then hangs.
-	if err := h.applyTCPRoute(ctx, client, sshClient, row, dbUUID); err != nil {
+	if err := h.applyTCPRoute(ctx, ops, sshClient, row, dbUUID); err != nil {
 		return err
 	}
 
@@ -356,15 +364,14 @@ func (h *DatabaseRun) lifecycle(ctx context.Context, rt dockerruntime.Runtime, a
 
 // delete removes the container and its files; the data volume survives
 // unless explicitly destroyed (INV-008).
-func (h *DatabaseRun) delete(ctx context.Context, rt dockerruntime.Runtime, client databaseRemote, row store.GetDatabaseByIDRow, dbUUID string, deleteVolumes bool) error {
+func (h *DatabaseRun) delete(ctx context.Context, rt dockerruntime.Runtime, ops hostops.Ops, row store.GetDatabaseByIDRow, dbUUID string, deleteVolumes bool) error {
 	if err := removeNamedContainers(ctx, rt, false, dbUUID); err != nil {
 		return err
 	}
-	if res, err := client.Run(ctx, "rm -rf /var/lib/akerdock/databases/"+dbUUID); err != nil || res.ExitCode != 0 {
-		if err == nil {
-			err = fmt.Errorf("directory removal exited with code %d", res.ExitCode)
-		}
-		return err
+	if err := ops.Remove(ctx, agentwire.FileRemoveParams{
+		Path: "/var/lib/akerdock/databases/" + dbUUID, Recursive: true,
+	}); err != nil {
+		return fmt.Errorf("directory removal: %w", err)
 	}
 	if deleteVolumes {
 		f := filters.NewArgs(filters.Arg("label", "akerdock.resource_uuid="+dbUUID))
@@ -374,6 +381,24 @@ func (h *DatabaseRun) delete(ctx context.Context, rt dockerruntime.Runtime, clie
 	}
 	_, err := h.Store.SoftDeleteResource(ctx, row.Resource.ID)
 	return err
+}
+
+// probePostgresUID asks the image itself which uid `postgres` maps to, with a
+// typed one-shot container (ADR-052 — this used to be the last docker CLI use
+// of the TLS path). Any failure falls back to 999, the Debian default, exactly
+// as the old shell probe did.
+func probePostgresUID(ctx context.Context, rt dockerruntime.Runtime, image string) int {
+	out, err := runOneShotCapture(ctx, rt, &container.Config{
+		Image: image, Entrypoint: []string{"id"}, Cmd: []string{"-u", "postgres"},
+	}, nil)
+	if err != nil {
+		return 999
+	}
+	uid, err := strconv.Atoi(strings.TrimSpace(firstLine(out)))
+	if err != nil || uid < 0 {
+		return 999
+	}
+	return uid
 }
 
 // tcpProxied reports whether this database is exposed through the proxy rather
@@ -388,7 +413,7 @@ func tcpProxied(db store.Database) bool {
 // then the static entrypoint (which needs a new container). The reverse order
 // would open a listener with nothing behind it — a port that accepts a
 // connection and hangs.
-func (h *DatabaseRun) applyTCPRoute(ctx context.Context, client databaseRemote, sshClient *sshexec.Client, row store.GetDatabaseByIDRow, dbUUID string) error {
+func (h *DatabaseRun) applyTCPRoute(ctx context.Context, ops hostops.Ops, sshClient *sshexec.Client, row store.GetDatabaseByIDRow, dbUUID string) error {
 	server, err := h.Store.GetServerByID(ctx, row.Database.ServerID)
 	if err != nil {
 		return err
@@ -404,10 +429,11 @@ func (h *DatabaseRun) applyTCPRoute(ctx context.Context, client databaseRemote, 
 		return bootstrapProxy(ctx, h.Store, h.Keyring, sshClient, server, true, h.ControlPlanePort)
 	}
 
+	routePath := "/var/lib/akerdock/proxy/dynamic/" + dbUUID + ".yaml"
 	if !tcpProxied(row.Database) || row.Database.PublicPort == nil {
 		// Not (or no longer) proxied: remove the file, then converge the proxy so
 		// the entrypoint disappears with it.
-		if _, err := client.Run(ctx, "rm -f /var/lib/akerdock/proxy/dynamic/"+dbUUID+".yaml"); err != nil {
+		if err := ops.Remove(ctx, agentwire.FileRemoveParams{Path: routePath}); err != nil {
 			return err
 		}
 		return converge()
@@ -418,9 +444,10 @@ func (h *DatabaseRun) applyTCPRoute(ctx context.Context, client databaseRemote, 
 		ListenPort:   int(*row.Database.PublicPort),
 		TargetPort:   5432,
 	}, int64(row.Resource.Version))
-	res, err := client.RunInput(ctx, "umask 077 && cat > /var/lib/akerdock/proxy/dynamic/"+dbUUID+".yaml", content)
-	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("writing the TCP route failed")
+	if err := ops.WriteFile(ctx, agentwire.FileWriteParams{
+		Path: routePath, Content: []byte(content), Mode: 0o600, Atomic: true,
+	}); err != nil {
+		return fmt.Errorf("writing the TCP route failed: %s", firstLine(err.Error()))
 	}
 	// The proxy is recreated because the entrypoint is static. The database is
 	// not touched: that is the entire point of this mode.

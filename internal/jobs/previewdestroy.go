@@ -14,9 +14,11 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/sshexec"
@@ -28,6 +30,7 @@ type PreviewDestroy struct {
 	Store   *store.Queries
 	Keyring *envelope.Keyring
 	Docker  dockerruntime.Source
+	HostOps hostops.Source
 	Logger  *slog.Logger
 	// Audit publishes the preview.deleted outbox event; nil disables it.
 	Audit *audit.Recorder
@@ -99,11 +102,15 @@ func (h *PreviewDestroy) Execute(ctx context.Context, job store.Job, rec *queue.
 	// created under its own labels (§20.4.1 — "détruit intégralement"), then
 	// the directory. Every object of the instance derives from the preview
 	// uuid (INV-011), so nothing of production matches these filters. Docker
-	// objects go through the agent channel (ADR-052); the instance directory
-	// is a host path and stays on SSH. A failed removal reports — the file
-	// header's promise ("never silently forgotten") holds now that the shell's
+	// objects and the instance directory go through the agent channel
+	// (ADR-052/054). A failed removal reports — the file header's promise
+	// ("never silently forgotten") holds now that the shell's
 	// `>/dev/null 2>&1` is gone.
 	rt, err := h.Docker.Runtime(ctx, server.ID)
+	if err != nil {
+		return nil, cleanupFailed(fmt.Errorf("agent channel: %w", err))
+	}
+	ops, err := h.HostOps.HostOps(ctx, server.ID)
 	if err != nil {
 		return nil, cleanupFailed(fmt.Errorf("agent channel: %w", err))
 	}
@@ -129,11 +136,10 @@ func (h *PreviewDestroy) Execute(ctx context.Context, job store.Job, rec *queue.
 	if err := sweepImagesByReference(ctx, rt, "akerdock/"+previewUUID); err != nil {
 		return nil, cleanupFailed(fmt.Errorf("image sweep: %w", err))
 	}
-	if res, err := client.Run(ctx, "rm -rf /var/lib/akerdock/previews/"+previewUUID); err != nil || res.ExitCode != 0 {
-		if err == nil {
-			err = fmt.Errorf("instance directory removal exited with code %d", res.ExitCode)
-		}
-		return nil, cleanupFailed(err)
+	if err := ops.Remove(ctx, agentwire.FileRemoveParams{
+		Path: "/var/lib/akerdock/previews/" + previewUUID, Recursive: true,
+	}); err != nil {
+		return nil, cleanupFailed(fmt.Errorf("instance directory removal: %w", err))
 	}
 
 	// Drop the preview from the waker's shared routing table (ADR-036). Best

@@ -16,7 +16,7 @@ import (
 	volumetypes "github.com/docker/docker/api/types/volume"
 
 	"github.com/deepteams/akerdock/internal/dockerruntime/fake"
-	"github.com/deepteams/akerdock/internal/sshexec"
+	hostfake "github.com/deepteams/akerdock/internal/hostops/fake"
 )
 
 // TestDatabaseProvisionCreateSpec pins the first typed ContainerCreate of the
@@ -41,10 +41,8 @@ func TestDatabaseProvisionCreateSpec(t *testing.T) {
 			State: &containertypes.State{Running: true, Health: &containertypes.Health{Status: "healthy"}},
 		}}, nil
 	}
-	remote := &cleanupRemoteStub{result: &sshexec.Result{ExitCode: 0}}
-
 	h := &DatabaseRun{Store: q, Keyring: keyring, Logger: logger}
-	if err := h.provision(context.Background(), rt, remote, nil, row, "akerdock-net", "dbuuid"); err != nil {
+	if err := h.provision(context.Background(), rt, &hostfake.Ops{}, nil, row, "akerdock-net", "dbuuid"); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
 

@@ -19,12 +19,17 @@ import (
 
 	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
+	"github.com/deepteams/akerdock/internal/hostops"
 )
 
 // Executor runs typed commands against the local runtime.
 type Executor struct {
 	rt     dockerruntime.Runtime
 	logger *slog.Logger
+	// host executes the ADR-054 file primitives on the bind-mounted tree; nil
+	// when this helper predates the mount (spec < 7), in which case host-ops
+	// answer unavailable until the control plane recreates the container.
+	host *hostops.Local
 
 	mu       sync.Mutex
 	inflight map[int64]context.CancelFunc
@@ -33,13 +38,13 @@ type Executor struct {
 	attaches map[int64]*types.HijackedResponse
 }
 
-// NewExecutor builds an executor over the local runtime.
-func NewExecutor(rt dockerruntime.Runtime, logger *slog.Logger) *Executor {
+// NewExecutor builds an executor over the local runtime and host tree.
+func NewExecutor(rt dockerruntime.Runtime, host *hostops.Local, logger *slog.Logger) *Executor {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Executor{
-		rt: rt, logger: logger,
+		rt: rt, logger: logger, host: host,
 		inflight: map[int64]context.CancelFunc{},
 		attaches: map[int64]*types.HijackedResponse{},
 	}
@@ -483,7 +488,64 @@ func (e *Executor) executeUnary(ctx context.Context, cmd agentwire.Command) (any
 		return e.rt.RegistryLogin(ctx, p.Auth)
 	case agentwire.MethodPing:
 		return e.rt.Ping(ctx)
+	case agentwire.MethodFileWrite, agentwire.MethodFileRead, agentwire.MethodFileRemove,
+		agentwire.MethodFileStat, agentwire.MethodFileChown, agentwire.MethodFileCopy,
+		agentwire.MethodDirEnsure:
+		return e.executeHostOp(ctx, cmd)
 	default:
 		return nil, fmt.Errorf("method %q: %w", cmd.Method, cerrdefs.ErrNotImplemented)
+	}
+}
+
+// executeHostOp dispatches the ADR-054 file primitives onto the mounted host
+// tree. The path guard lives in hostops.Local — authoritative on this side of
+// the wire, whatever the control plane sent.
+func (e *Executor) executeHostOp(ctx context.Context, cmd agentwire.Command) (any, error) {
+	if e.host == nil {
+		return nil, agentwire.Unavailable("this helper has no host mount — it recreates with the next spec")
+	}
+	switch cmd.Method {
+	case agentwire.MethodFileWrite:
+		var p agentwire.FileWriteParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.host.WriteFile(ctx, p)
+	case agentwire.MethodFileRead:
+		var p agentwire.FileReadParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.host.ReadFile(ctx, p)
+	case agentwire.MethodFileRemove:
+		var p agentwire.FileRemoveParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.host.Remove(ctx, p)
+	case agentwire.MethodFileStat:
+		var p agentwire.FileStatParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.host.Stat(ctx, p.Path)
+	case agentwire.MethodFileChown:
+		var p agentwire.FileChownParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.host.Chown(ctx, p)
+	case agentwire.MethodFileCopy:
+		var p agentwire.FileCopyParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.host.CopyFile(ctx, p)
+	default: // MethodDirEnsure
+		var p agentwire.DirEnsureParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.host.EnsureDir(ctx, p)
 	}
 }

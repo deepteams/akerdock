@@ -100,31 +100,46 @@ func ensureVolume(ctx context.Context, rt dockerruntime.Runtime, name string, la
 // `docker run --rm`: create, start, wait, remove. A non-zero exit reports as
 // an error with the container's output attached.
 func runOneShot(ctx context.Context, rt dockerruntime.Runtime, cfg *container.Config, host *container.HostConfig) error {
+	_, err := oneShot(ctx, rt, cfg, host, false)
+	return err
+}
+
+// runOneShotCapture is runOneShot for the rare probe whose stdout IS the
+// answer (the postgres uid, §6.3): it returns the container's output on a
+// clean exit.
+func runOneShotCapture(ctx context.Context, rt dockerruntime.Runtime, cfg *container.Config, host *container.HostConfig) (string, error) {
+	return oneShot(ctx, rt, cfg, host, true)
+}
+
+func oneShot(ctx context.Context, rt dockerruntime.Runtime, cfg *container.Config, host *container.HostConfig, capture bool) (string, error) {
 	created, err := rt.ContainerCreate(ctx, cfg, host, nil, nil, "")
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func() {
 		_ = rt.ContainerRemove(ctx, created.ID, container.RemoveOptions{Force: true})
 	}()
 	if err := rt.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
-		return err
+		return "", err
 	}
 	waitCh, errCh := rt.ContainerWait(ctx, created.ID, container.WaitConditionNotRunning)
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return "", ctx.Err()
 	case err := <-errCh:
-		return err
+		return "", err
 	case st := <-waitCh:
 		if st.StatusCode != 0 {
 			detail := ""
 			if out, lerr := containerLogsTail(ctx, rt, created.ID, 50); lerr == nil && out != "" {
 				detail = ": " + firstLine(out)
 			}
-			return fmt.Errorf("one-shot container exited with code %d%s", st.StatusCode, detail)
+			return "", fmt.Errorf("one-shot container exited with code %d%s", st.StatusCode, detail)
 		}
-		return nil
+		if !capture {
+			return "", nil
+		}
+		return containerLogsTail(ctx, rt, created.ID, 50)
 	}
 }
 

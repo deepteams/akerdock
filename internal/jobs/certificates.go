@@ -11,13 +11,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/deepteams/akerdock/internal/envelope"
-	"github.com/deepteams/akerdock/internal/pguuid"
+	"github.com/deepteams/akerdock/internal/agentwire"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/queue"
-	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -35,10 +36,12 @@ type CertificatePayload struct {
 
 // CertificateSync reads the certificates served by a server's proxy and
 // reflects them into the database (§18.3). The private key material never
-// leaves the server.
+// leaves the server: the ACME store is read through the agent channel
+// (ADR-054) and only the public chains are parsed.
 type CertificateSync struct {
 	Store   *store.Queries
-	Keyring *envelope.Keyring
+	Docker  dockerruntime.Source
+	HostOps hostops.Source
 	Logger  *slog.Logger
 }
 
@@ -64,30 +67,20 @@ func (h *CertificateSync) Execute(ctx context.Context, job store.Job, rec *queue
 	if err != nil {
 		return nil, fmt.Errorf("server not found: %w", err)
 	}
-	key, err := h.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
+	ops, err := h.HostOps.HostOps(ctx, server.ID)
 	if err != nil {
+		rec.Fail(ctx, "the server's agent is not connected")
 		return nil, err
 	}
-	pem, err := h.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return nil, err
-	}
-	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
-		time.Duration(server.SshTimeoutSeconds)*time.Second, pinnedHostKey(server))
-	if err != nil {
-		rec.Fail(ctx, "SSH connection failed")
-		return nil, err
-	}
-	defer func() { _ = client.Close() }()
 
 	if job.JobType == TypeCertificateRenew {
-		if err := h.forceRenew(ctx, rec, client, payload.CertificateID); err != nil {
+		if err := h.forceRenew(ctx, rec, ops, server, payload.CertificateID); err != nil {
 			return nil, err
 		}
 	}
 
 	rec.Start(ctx, "sync_certificates")
-	count, err := h.sync(ctx, client, server)
+	count, err := h.sync(ctx, ops, server)
 	if err != nil {
 		rec.Fail(ctx, err.Error())
 		return nil, err
@@ -96,10 +89,13 @@ func (h *CertificateSync) Execute(ctx context.Context, job store.Job, rec *queue
 	return map[string]any{"certificates": count}, nil
 }
 
+// acmePath is where Traefik keeps its ACME store on the server.
+const acmePath = "/var/lib/akerdock/proxy/acme.json"
+
 // forceRenew drops the certificate from the ACME store and restarts the
 // proxy: Traefik re-issues it on the next request (§7.5). The old
 // certificate keeps serving until the new one is ready.
-func (h *CertificateSync) forceRenew(ctx context.Context, rec *queue.StepRecorder, client *sshexec.Client, certID int64) error {
+func (h *CertificateSync) forceRenew(ctx context.Context, rec *queue.StepRecorder, ops hostops.Ops, server store.Server, certID int64) error {
 	cert, err := h.Store.GetCertificateByID(ctx, certID)
 	if err != nil {
 		return fmt.Errorf("certificate not found: %w", err)
@@ -109,34 +105,45 @@ func (h *CertificateSync) forceRenew(ctx context.Context, rec *queue.StepRecorde
 		ID: cert.ID, Status: store.CertificateStatusRenewing,
 	})
 
-	// The ACME store is backed up, then the proxy is restarted: Traefik
-	// re-evaluates what its routers need and re-issues. The current
-	// certificate keeps serving until the new one is ready (§7.5).
-	res, err := client.Run(ctx, fmt.Sprintf(
-		"cp /var/lib/akerdock/proxy/acme.json /var/lib/akerdock/proxy/acme.json.bak 2>/dev/null; docker restart %s >/dev/null",
-		proxy.ContainerName))
-	if err != nil || res.ExitCode != 0 {
+	// The ACME store is backed up best-effort (it may not exist yet), then the
+	// proxy is restarted: Traefik re-evaluates what its routers need and
+	// re-issues. The current certificate keeps serving until the new one is
+	// ready (§7.5).
+	if err := ops.CopyFile(ctx, agentwire.FileCopyParams{Src: acmePath, Dst: acmePath + ".bak"}); err != nil {
+		h.Logger.Debug("acme store backup skipped", "error", err)
+	}
+	restart := func() error {
+		rt, err := h.Docker.Runtime(ctx, server.ID)
+		if err != nil {
+			return err
+		}
+		return rt.ContainerRestart(ctx, proxy.ContainerName, container.StopOptions{})
+	}
+	if err := restart(); err != nil {
 		msg := "could not restart the proxy to trigger the renewal"
 		_ = h.Store.SetCertificateStatus(ctx, store.SetCertificateStatusParams{
 			ID: cert.ID, Status: store.CertificateStatusFailed, LastError: &msg,
 		})
 		rec.Fail(ctx, msg)
-		return fmt.Errorf("%s", msg)
+		return fmt.Errorf("%s: %w", msg, err)
 	}
 	rec.Succeed(ctx, "renewal triggered — the proxy re-issues on the next request")
 	return nil
 }
 
 // sync reads acme.json, parses the observed chains and reflects them.
-func (h *CertificateSync) sync(ctx context.Context, client *sshexec.Client, server store.Server) (int, error) {
-	res, err := client.Run(ctx, "cat /var/lib/akerdock/proxy/acme.json 2>/dev/null || echo '{}'")
+func (h *CertificateSync) sync(ctx context.Context, ops hostops.Ops, server store.Server) (int, error) {
+	res, err := ops.ReadFile(ctx, agentwire.FileReadParams{Path: acmePath})
 	if err != nil {
 		return 0, err
 	}
+	if !res.Found {
+		// A not-yet-initialized ACME store is not an error: the proxy simply
+		// has not issued anything yet.
+		return 0, nil
+	}
 	var acme acmeStore
-	if jsonErr := json.Unmarshal([]byte(res.Stdout), &acme); jsonErr != nil {
-		// An empty or not-yet-initialized ACME store is not an error: the
-		// proxy simply has not issued anything yet.
+	if jsonErr := json.Unmarshal(res.Content, &acme); jsonErr != nil {
 		h.Logger.Debug("acme store not readable yet", "error", jsonErr)
 		return 0, nil
 	}

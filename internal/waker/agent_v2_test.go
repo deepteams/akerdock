@@ -80,7 +80,7 @@ func TestAgentExecutesCommandsOverV2(t *testing.T) {
 	defer srv.Close()
 
 	a := NewAgent(AgentConfig{InstanceURL: srv.URL, Token: "akda_test"}, nil, nil)
-	a.Executor = NewExecutor(rt, nil)
+	a.Executor = NewExecutor(rt, nil, nil)
 	a.Flush = 10 * time.Millisecond
 	a.Backoff = 5 * time.Millisecond
 	a.Heartbeat = time.Hour

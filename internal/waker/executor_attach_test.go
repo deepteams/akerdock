@@ -26,7 +26,7 @@ func TestExecutorAttachBridgesBothDirections(t *testing.T) {
 		}
 		return types.HijackedResponse{Conn: clientSide, Reader: bufio.NewReader(clientSide)}, nil
 	}
-	e := NewExecutor(rt, nil)
+	e := NewExecutor(rt, nil, nil)
 	frames := make(chan agentwire.Frame, 16)
 	send := func(f agentwire.Frame) error { frames <- f; return nil }
 

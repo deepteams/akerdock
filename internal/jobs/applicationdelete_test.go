@@ -11,8 +11,9 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
 
+	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/dockerruntime/fake"
-	"github.com/deepteams/akerdock/internal/sshexec"
+	hostfake "github.com/deepteams/akerdock/internal/hostops/fake"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -32,17 +33,29 @@ func deleteFakeRuntime() *fake.Runtime {
 	return rt
 }
 
+// removedPaths extracts the recursive FileRemove targets from the journal.
+func removedPaths(ops *hostfake.Ops) []string {
+	var out []string
+	for _, p := range ops.CallsTo(agentwire.MethodFileRemove) {
+		rm := p.(agentwire.FileRemoveParams)
+		if rm.Recursive {
+			out = append(out, rm.Path)
+		}
+	}
+	return out
+}
+
 // TestTeardownWorkloadRespectsTheVolumeBoundary pins the §20.6/INV-008 rules:
-// containers and networks by managed+resource labels, host directories over
-// SSH (previews included), preview volumes always — production volumes only
-// on explicit request.
+// containers and networks by managed+resource labels, host directories through
+// the agent (previews included), preview volumes always — production volumes
+// only on explicit request.
 func TestTeardownWorkloadRespectsTheVolumeBoundary(t *testing.T) {
 	rt := deleteFakeRuntime()
-	remote := &cleanupRemoteStub{result: &sshexec.Result{ExitCode: 0}}
+	ops := &hostfake.Ops{}
 	h := &ApplicationDelete{}
 	preview := store.Preview{Uuid: mustUUID(t, "22222222-2222-4222-8222-222222222222")}
 
-	if err := h.teardownWorkload(context.Background(), rt, remote, "app", []store.Preview{preview}, false); err != nil {
+	if err := h.teardownWorkload(context.Background(), rt, ops, "app", []store.Preview{preview}, false); err != nil {
 		t.Fatal(err)
 	}
 	var volumeLists int
@@ -68,15 +81,15 @@ func TestTeardownWorkloadRespectsTheVolumeBoundary(t *testing.T) {
 	if volumeLists != 1 {
 		t.Fatalf("volume sweeps = %d, want the preview-only pass", volumeLists)
 	}
-	if len(remote.commands) != 1 || !strings.Contains(remote.commands[0], "rm -rf ") ||
-		!strings.Contains(remote.commands[0], "/var/lib/akerdock/applications/app") ||
-		!strings.Contains(remote.commands[0], "/var/lib/akerdock/previews/22222222-2222-4222-8222-222222222222") {
-		t.Fatalf("host directory removal = %v", remote.commands)
+	dirs := removedPaths(ops)
+	if !slices.Contains(dirs, "/var/lib/akerdock/applications/app") ||
+		!slices.Contains(dirs, "/var/lib/akerdock/previews/22222222-2222-4222-8222-222222222222") {
+		t.Fatalf("host directory removal = %v", dirs)
 	}
 
 	// delete_volumes: the production sweep runs too.
 	rt2 := deleteFakeRuntime()
-	if err := h.teardownWorkload(context.Background(), rt2, &cleanupRemoteStub{result: &sshexec.Result{ExitCode: 0}}, "app", nil, true); err != nil {
+	if err := h.teardownWorkload(context.Background(), rt2, &hostfake.Ops{}, "app", nil, true); err != nil {
 		t.Fatal(err)
 	}
 	volumeLists = 0
@@ -96,23 +109,25 @@ func TestTeardownWorkloadReportsARealFailure(t *testing.T) {
 		return errors.New("rm refused")
 	}
 	h := &ApplicationDelete{}
-	err := h.teardownWorkload(context.Background(), rt, &cleanupRemoteStub{result: &sshexec.Result{ExitCode: 0}}, "app", nil, false)
+	err := h.teardownWorkload(context.Background(), rt, &hostfake.Ops{}, "app", nil, false)
 	if err == nil || !strings.Contains(err.Error(), "container sweep") {
 		t.Fatalf("teardown = %v, want the container sweep failure surfaced", err)
 	}
 }
 
 // TestCollectRemnants pins §20.6.4: what a failed deletion left is read back
-// — containers and volumes through the channel, the directory over SSH — and
-// an unreachable daemon is recorded as unknown, never as empty.
+// through the agent channel — and an unreachable daemon is recorded as
+// unknown, never as empty.
 func TestCollectRemnants(t *testing.T) {
 	rt := deleteFakeRuntime()
 	rt.VolumeListFn = func(context.Context, volume.ListOptions) (volume.ListResponse, error) {
 		return volume.ListResponse{Volumes: []*volume.Volume{{Name: "app-data"}}}, nil
 	}
-	remote := &cleanupRemoteStub{result: &sshexec.Result{Stdout: "/var/lib/akerdock/applications/app\n", ExitCode: 0}}
+	ops := &hostfake.Ops{StatFn: func(context.Context, string) (agentwire.FileStatResult, error) {
+		return agentwire.FileStatResult{Found: true, IsDir: true}, nil
+	}}
 
-	inventory := collectRemnants(context.Background(), rt, remote, "app")
+	inventory := collectRemnants(context.Background(), rt, ops, "app")
 	if got := inventory["containers"].([]string); len(got) != 1 || got[0] != "app-web" {
 		t.Fatalf("containers = %v", got)
 	}
@@ -130,7 +145,7 @@ func TestCollectRemnants(t *testing.T) {
 	broken.ContainerListFn = func(context.Context, containertypes.ListOptions) ([]containertypes.Summary, error) {
 		return nil, errors.New("daemon gone")
 	}
-	inventory = collectRemnants(context.Background(), broken, remote, "app")
+	inventory = collectRemnants(context.Background(), broken, ops, "app")
 	if inventory["error"] == nil {
 		t.Fatal("an unreadable server must record UNKNOWN remnants, not an empty inventory")
 	}

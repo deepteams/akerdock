@@ -15,6 +15,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/httpapi"
 )
 
@@ -83,6 +84,18 @@ func (r *AgentConns) Runtime(_ context.Context, serverID int64) (dockerruntime.R
 	}
 	return dockerruntime.NewAgentRuntime(s), nil
 }
+
+// HostOps returns the ADR-054 file primitives executing on the given server
+// through the same channel.
+func (r *AgentConns) HostOps(_ context.Context, serverID int64) (hostops.Ops, error) {
+	s, ok := r.Sender(serverID)
+	if !ok {
+		return nil, agentwire.Unavailable("not connected")
+	}
+	return hostops.NewClient(s), nil
+}
+
+var _ hostops.Source = (*AgentConns)(nil)
 
 // agentRuntime resolves the server's Docker runtime over its command channel
 // (ADR-051: the agent is the only Docker path — no fallback hides a missing

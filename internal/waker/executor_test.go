@@ -15,6 +15,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/dockerruntime/fake"
+	"github.com/deepteams/akerdock/internal/hostops"
 )
 
 // frameSink collects everything the executor sends back on the channel.
@@ -47,7 +48,7 @@ func mustParams(t *testing.T, v any) json.RawMessage {
 
 func TestExecutorUnaryCommandRunsAndAnswers(t *testing.T) {
 	rt := &fake.Runtime{}
-	e := NewExecutor(rt, nil)
+	e := NewExecutor(rt, nil, nil)
 	sink := &frameSink{}
 
 	e.Execute(context.Background(), agentwire.Command{
@@ -69,7 +70,7 @@ func TestExecutorUnaryResultCarriesTheBody(t *testing.T) {
 	rt.ContainerInspectFn = func(context.Context, string) (container.InspectResponse, error) {
 		return container.InspectResponse{ContainerJSONBase: &container.ContainerJSONBase{ID: "abc123"}}, nil
 	}
-	e := NewExecutor(rt, nil)
+	e := NewExecutor(rt, nil, nil)
 	sink := &frameSink{}
 
 	e.Execute(context.Background(), agentwire.Command{
@@ -95,7 +96,7 @@ func TestExecutorMapsTypedErrors(t *testing.T) {
 	rt.ContainerStartFn = func(context.Context, string, container.StartOptions) error {
 		return fmt.Errorf("no such container: %w", cerrdefs.ErrNotFound)
 	}
-	e := NewExecutor(rt, nil)
+	e := NewExecutor(rt, nil, nil)
 	sink := &frameSink{}
 
 	e.Execute(context.Background(), agentwire.Command{
@@ -110,7 +111,7 @@ func TestExecutorMapsTypedErrors(t *testing.T) {
 }
 
 func TestExecutorRefusesUnknownMethodsAndBadParams(t *testing.T) {
-	e := NewExecutor(&fake.Runtime{}, nil)
+	e := NewExecutor(&fake.Runtime{}, nil, nil)
 	sink := &frameSink{}
 
 	e.Execute(context.Background(), agentwire.Command{ID: 4, Method: "DeleteEverything"}, sink.send)
@@ -132,7 +133,7 @@ func TestExecutorStreamsLogsAsAckThenChunksThenEOF(t *testing.T) {
 	rt.ContainerLogsFn = func(context.Context, string, container.LogsOptions) (io.ReadCloser, error) {
 		return io.NopCloser(strings.NewReader("line one\nline two\n")), nil
 	}
-	e := NewExecutor(rt, nil)
+	e := NewExecutor(rt, nil, nil)
 	sink := &frameSink{}
 
 	e.Execute(context.Background(), agentwire.Command{
@@ -171,7 +172,7 @@ func TestExecutorCancelAbortsALongCommand(t *testing.T) {
 		}()
 		return waitCh, errCh
 	}
-	e := NewExecutor(rt, nil)
+	e := NewExecutor(rt, nil, nil)
 	sink := &frameSink{}
 
 	done := make(chan struct{})
@@ -196,5 +197,75 @@ func TestExecutorCancelAbortsALongCommand(t *testing.T) {
 	res := sink.all()[0].Res
 	if res == nil || res.Err == nil || res.Err.Code != agentwire.CodeCanceled {
 		t.Fatalf("result = %+v, want canceled", res)
+	}
+}
+
+// TestExecutorHostOpsRoundTrip pins the ADR-054 dispatch: a FileWrite lands
+// on the mounted tree and a FileRead answers with the typed result — the
+// same guard-bearing Local the agent runs in production, rooted for the test.
+func TestExecutorHostOpsRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	e := NewExecutor(&fake.Runtime{}, &hostops.Local{Root: root}, nil)
+	sink := &frameSink{}
+
+	e.Execute(context.Background(), agentwire.Command{
+		ID: 1, Method: agentwire.MethodFileWrite,
+		Params: mustParams(t, agentwire.FileWriteParams{
+			Path: root + "/proxy/dynamic/app.yaml", Content: []byte("routing"),
+			Mode: 0o600, MakeDirs: true, Atomic: true,
+		}),
+	}, sink.send)
+	e.Execute(context.Background(), agentwire.Command{
+		ID: 2, Method: agentwire.MethodFileRead,
+		Params: mustParams(t, agentwire.FileReadParams{Path: root + "/proxy/dynamic/app.yaml"}),
+	}, sink.send)
+
+	frames := sink.all()
+	if len(frames) != 2 || frames[0].Res.Err != nil || frames[1].Res.Err != nil {
+		t.Fatalf("frames = %+v", frames)
+	}
+	var res agentwire.FileReadResult
+	if err := json.Unmarshal(frames[1].Res.Body, &res); err != nil {
+		t.Fatal(err)
+	}
+	if !res.Found || string(res.Content) != "routing" {
+		t.Fatalf("read = %+v", res)
+	}
+}
+
+// TestExecutorHostOpsWithoutMountAnswerUnavailable pins the pre-spec-7
+// contract: a helper without the host tree answers a typed unavailability the
+// control plane can distinguish from a failed operation.
+func TestExecutorHostOpsWithoutMountAnswerUnavailable(t *testing.T) {
+	e := NewExecutor(&fake.Runtime{}, nil, nil)
+	sink := &frameSink{}
+	e.Execute(context.Background(), agentwire.Command{
+		ID: 1, Method: agentwire.MethodFileStat,
+		Params: mustParams(t, agentwire.FileStatParams{Path: "/var/lib/akerdock/x"}),
+	}, sink.send)
+	frames := sink.all()
+	if len(frames) != 1 || frames[0].Res.Err == nil {
+		t.Fatalf("frames = %+v", frames)
+	}
+	if err := frames[0].Res.Err.Err(); !cerrdefs.IsUnavailable(err) {
+		t.Fatalf("error = %v, want unavailable", err)
+	}
+}
+
+// TestExecutorHostOpsGuardTravelsTyped pins that the agent-side path guard
+// crosses the wire as invalid-argument.
+func TestExecutorHostOpsGuardTravelsTyped(t *testing.T) {
+	e := NewExecutor(&fake.Runtime{}, &hostops.Local{Root: t.TempDir()}, nil)
+	sink := &frameSink{}
+	e.Execute(context.Background(), agentwire.Command{
+		ID: 1, Method: agentwire.MethodFileRemove,
+		Params: mustParams(t, agentwire.FileRemoveParams{Path: "/etc/passwd", Recursive: true}),
+	}, sink.send)
+	frames := sink.all()
+	if len(frames) != 1 || frames[0].Res.Err == nil {
+		t.Fatalf("frames = %+v", frames)
+	}
+	if err := frames[0].Res.Err.Err(); !cerrdefs.IsInvalidArgument(err) {
+		t.Fatalf("error = %v, want the guard's invalid-argument", err)
 	}
 }

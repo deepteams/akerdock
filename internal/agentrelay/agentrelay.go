@@ -19,6 +19,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
+	"github.com/deepteams/akerdock/internal/hostops"
 )
 
 // Source implements dockerruntime.Source over relay connections, one per
@@ -48,6 +49,18 @@ func (s *Source) Runtime(ctx context.Context, serverID int64) (dockerruntime.Run
 	}
 	return dockerruntime.NewAgentRuntime(c), nil
 }
+
+// HostOps returns the ADR-054 file primitives executing on the given server,
+// bridged through the api.
+func (s *Source) HostOps(ctx context.Context, serverID int64) (hostops.Ops, error) {
+	c, err := s.conn(ctx, serverID)
+	if err != nil {
+		return nil, err
+	}
+	return hostops.NewClient(c), nil
+}
+
+var _ hostops.Source = (*Source)(nil)
 
 // Close tears down every cached relay connection (process shutdown).
 func (s *Source) Close() {

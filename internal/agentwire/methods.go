@@ -67,6 +67,20 @@ const (
 	MethodPing                 = "Ping"
 )
 
+// Host-ops vocabulary (ADR-054): file primitives the agent executes in pure
+// Go against the bind-mounted /var/lib/akerdock tree — the helper image is
+// distroless, so there is no shell to fall back on, and every path is
+// validated against that root before it is touched.
+const (
+	MethodFileWrite  = "FileWrite"
+	MethodFileRead   = "FileRead"
+	MethodFileRemove = "FileRemove"
+	MethodFileStat   = "FileStat"
+	MethodFileChown  = "FileChown"
+	MethodFileCopy   = "FileCopy"
+	MethodDirEnsure  = "DirEnsure"
+)
+
 // Params structs, one per method. Fields are the SDK types — the Engine API's
 // own wire representations (filters.Args carries its custom JSON both ways).
 // Methods without params (Info, Ping, …) send none.
@@ -225,4 +239,69 @@ type DiskUsageParams struct {
 
 type RegistryLoginParams struct {
 	Auth registry.AuthConfig `json:"auth"`
+}
+
+// Host-ops params and results (ADR-054). Modes travel as the numeric
+// os.FileMode value; content as JSON base64 — these files are key material,
+// configs and manifests, kilobytes not gigabytes (bulk payloads are the pipe
+// primitives' job, a later tranche).
+
+type FileWriteParams struct {
+	Path    string `json:"path"`
+	Content []byte `json:"content"`
+	// Mode is applied explicitly after the write — the agent's umask never
+	// decides what a key file ends up world-readable as.
+	Mode uint32 `json:"mode"`
+	// MakeDirs creates the missing parents with DirMode first.
+	MakeDirs bool   `json:"make_dirs,omitempty"`
+	DirMode  uint32 `json:"dir_mode,omitempty"`
+	// Atomic stages the content next to Path and renames it into place, so a
+	// concurrent reader (the proxy, the waker) never sees a partial file.
+	Atomic bool `json:"atomic,omitempty"`
+}
+
+type FileReadParams struct {
+	Path string `json:"path"`
+	// MaxBytes bounds what travels back; 0 means the executor's default cap.
+	MaxBytes int64 `json:"max_bytes,omitempty"`
+}
+
+type FileReadResult struct {
+	Content []byte `json:"content,omitempty"`
+	// Found is false for a missing file — absence is data here (an activity
+	// file not yet written, an ACME store not yet initialized), not an error.
+	Found     bool `json:"found"`
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+type FileRemoveParams struct {
+	Path string `json:"path"`
+	// Recursive removes a whole tree; either way an absent path is a no-op.
+	Recursive bool `json:"recursive,omitempty"`
+}
+
+type FileStatParams struct {
+	Path string `json:"path"`
+}
+
+type FileStatResult struct {
+	Found bool  `json:"found"`
+	IsDir bool  `json:"is_dir,omitempty"`
+	Size  int64 `json:"size,omitempty"`
+}
+
+type FileChownParams struct {
+	Path string `json:"path"`
+	UID  int    `json:"uid"`
+	GID  int    `json:"gid"`
+}
+
+type FileCopyParams struct {
+	Src string `json:"src"`
+	Dst string `json:"dst"`
+}
+
+type DirEnsureParams struct {
+	Path string `json:"path"`
+	Mode uint32 `json:"mode"`
 }

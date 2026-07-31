@@ -14,6 +14,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/compose"
 	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
@@ -218,7 +219,10 @@ func AgentEnvForServer(ctx context.Context, q AgentEnrollmentStore, keyring *env
 // localhost server's agent could reach neither the channel nor the POST.
 // 6: the ADR-052 command channel — the agent must offer akerdock-agent-v2,
 // which only a recreated container running the new binary does.
-const wakerSpec = "6"
+// 7: the whole /var/lib/akerdock tree is mounted (ADR-054) — the agent
+// executes the host file primitives on it; the waker's own subdirectory is
+// unchanged inside the wider mount.
+const wakerSpec = "7"
 
 // WakerEnsureCommand is the idempotent deploy of the waker helper. It recreates
 // the container when the running image OR the run spec differs (or when it is
@@ -253,7 +257,9 @@ func WakerEnsureCommand(network, image string, agentEnv AgentEnv) string {
 			"if [ -n \"$old_img\" ] && [ \"$old_img\" != \"%s\" ]; then docker image rm \"$old_img\" >/dev/null 2>&1 || true; fi; fi",
 		wakerDir, proxy.WakerContainerName, proxy.WakerContainerName,
 		image, wakerSpec, proxy.WakerContainerName,
-		proxy.WakerContainerName, network, wakerDir, wakerDir, wakerSpec, env, image, image)
+		// The full akerdock tree, not just the waker's corner: the agent
+		// executes the ADR-054 file primitives on it.
+		proxy.WakerContainerName, network, hostops.Root, hostops.Root, wakerSpec, env, image, image)
 }
 
 // removeWakerRoutes drops a resource from the shared table (preview destroy).

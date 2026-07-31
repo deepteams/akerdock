@@ -41,10 +41,15 @@ linters:
       - path: internal/cli/
         linters: [revive]
         text: "var-naming"
-      # The dockerruntime fake mirrors the Runtime interface method-for-method
-      # and is documented once, on the type: a per-method "records the call and
-      # plays the scripted Fn" comment forty times over would say nothing.
+      # The dockerruntime and hostops fakes mirror their interface
+      # method-for-method and are documented once, on the type: a per-method
+      # "records the call and plays the scripted Fn" comment forty times over
+      # would say nothing. hostops.Local implements the same documented
+      # vocabulary — the semantics live on the Ops interface.
       - path: internal/dockerruntime/fake/
+        linters: [revive]
+        text: "exported"
+      - path: internal/hostops/(fake/|local\.go)
         linters: [revive]
         text: "exported"
       # agentwire's per-method params structs are named after the method they

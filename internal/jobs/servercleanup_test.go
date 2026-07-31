@@ -20,6 +20,8 @@ import (
 
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/dockerruntime/fake"
+	"github.com/deepteams/akerdock/internal/hostops"
+	hostfake "github.com/deepteams/akerdock/internal/hostops/fake"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
@@ -61,6 +63,19 @@ type fixedSource struct {
 
 func (s fixedSource) Runtime(context.Context, int64) (dockerruntime.Runtime, error) {
 	return s.rt, s.err
+}
+
+// fixedHost is the ADR-054 twin: every caller gets the same host-ops.
+type fixedHost struct {
+	ops hostops.Ops
+	err error
+}
+
+func (s fixedHost) HostOps(context.Context, int64) (hostops.Ops, error) {
+	if s.ops == nil && s.err == nil {
+		return &hostfake.Ops{}, nil
+	}
+	return s.ops, s.err
 }
 
 // cleanupFakeRuntime is a fake with the read paths every cleanup pass needs.

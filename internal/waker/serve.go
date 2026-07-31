@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/deepteams/akerdock/internal/dockerruntime"
+	"github.com/deepteams/akerdock/internal/hostops"
 )
 
 // Serve runs the waker HTTP server on addr, forwarding for the routing table in
@@ -30,8 +31,13 @@ func Serve(ctx context.Context, dir, addr string, rt dockerruntime.Runtime, agen
 	if agentCfg.Enabled() {
 		agent = NewAgent(agentCfg, docker, logger)
 		// The ADR-052 command channel: enrolled agents execute the control
-		// plane's typed commands against the local runtime.
-		agent.Executor = NewExecutor(rt, logger)
+		// plane's typed commands against the local runtime — and, when the
+		// host tree is mounted (ADR-054, spec 7), the file primitives on it.
+		host := hostops.DetectLocal()
+		if host == nil {
+			logger.Info("agent: no host tree mounted — host-ops disabled until this helper is recreated")
+		}
+		agent.Executor = NewExecutor(rt, host, logger)
 		go agent.Run(ctx)
 	}
 

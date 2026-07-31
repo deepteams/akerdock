@@ -34,6 +34,7 @@ import (
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/dockerruntime/fake"
 	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/sshkey"
 	"github.com/deepteams/akerdock/internal/store"
@@ -590,6 +591,13 @@ func (unavailableDocker) Runtime(context.Context, int64) (dockerruntime.Runtime,
 	return nil, agentwire.Unavailable("not connected")
 }
 
+// unavailableHost is its ADR-054 twin for the host-ops seam.
+type unavailableHost struct{}
+
+func (unavailableHost) HostOps(context.Context, int64) (hostops.Ops, error) {
+	return nil, agentwire.Unavailable("not connected")
+}
+
 func TestJobFlowsReachExternalBoundary(t *testing.T) {
 	q, keyring, recorder, logger, db := jobFlowDependencies(t)
 	db.host, db.port = newJobSSHServer(t).address(t)
@@ -613,7 +621,7 @@ func TestJobFlowsReachExternalBoundary(t *testing.T) {
 		},
 		"database": func() (any, error) {
 			j := job(TypeDatabaseStop, `{"resource_id":1,"action":"stop"}`)
-			return (&DatabaseRun{Store: q, Keyring: keyring, Docker: unavailableDocker{}, Logger: logger}).Execute(context.Background(), j, rec(j))
+			return (&DatabaseRun{Store: q, Keyring: keyring, Docker: unavailableDocker{}, HostOps: unavailableHost{}, Logger: logger}).Execute(context.Background(), j, rec(j))
 		},
 		"server validation": func() (any, error) {
 			j := job(TypeServerValidate, `{"server_id":1}`)
@@ -625,11 +633,11 @@ func TestJobFlowsReachExternalBoundary(t *testing.T) {
 		},
 		"certificate": func() (any, error) {
 			j := job(TypeCertificateSync, `{"server_id":1}`)
-			return (&CertificateSync{Store: q, Keyring: keyring, Logger: logger}).Execute(context.Background(), j, rec(j))
+			return (&CertificateSync{Store: q, Docker: unavailableDocker{}, HostOps: unavailableHost{}, Logger: logger}).Execute(context.Background(), j, rec(j))
 		},
 		"preview already destroyed": func() (any, error) {
 			j := job(TypePreviewDestroy, `{"preview_id":1}`)
-			return (&PreviewDestroy{Store: q, Keyring: keyring, Docker: unavailableDocker{}, Logger: logger}).Execute(context.Background(), j, rec(j))
+			return (&PreviewDestroy{Store: q, Keyring: keyring, Docker: unavailableDocker{}, HostOps: unavailableHost{}, Logger: logger}).Execute(context.Background(), j, rec(j))
 		},
 		"backup": func() (any, error) {
 			j := job(TypeBackupExecute, `{"plan_id":1}`)
@@ -637,7 +645,7 @@ func TestJobFlowsReachExternalBoundary(t *testing.T) {
 		},
 		"application delete": func() (any, error) {
 			j := job(TypeApplicationDelete, `{"resource_id":1}`)
-			return (&ApplicationDelete{Store: q, Keyring: keyring, Docker: unavailableDocker{}, Logger: logger}).Execute(context.Background(), j, rec(j))
+			return (&ApplicationDelete{Store: q, Keyring: keyring, Docker: unavailableDocker{}, HostOps: unavailableHost{}, Logger: logger}).Execute(context.Background(), j, rec(j))
 		},
 	}
 	for name, run := range tests {
@@ -917,7 +925,7 @@ func TestDatabaseActionsRunThroughTheirCompleteStateMachines(t *testing.T) {
 			}
 			payload += `}`
 			j := store.Job{ID: 6, JobType: "database." + action, Payload: []byte(payload)}
-			result, err := (&DatabaseRun{Store: q, Keyring: keyring, Docker: fixedSource{rt: rt}, Logger: logger}).
+			result, err := (&DatabaseRun{Store: q, Keyring: keyring, Docker: fixedSource{rt: rt}, HostOps: fixedHost{}, Logger: logger}).
 				Execute(context.Background(), j, queue.NewStepRecorder(q, j))
 			if err != nil {
 				t.Fatalf("%s database: %v", action, err)

@@ -34,6 +34,7 @@ import (
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/events"
 	"github.com/deepteams/akerdock/internal/handlers"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/httpserver"
 	"github.com/deepteams/akerdock/internal/instance"
 	"github.com/deepteams/akerdock/internal/jobs"
@@ -292,8 +293,9 @@ func serveRun(mode string) int {
 	// agent token.
 	agentConns := &handlers.AgentConns{}
 	var dockerSource dockerruntime.Source = agentConns
+	var hostSource hostops.Source = agentConns
 	if cfg.Mode == config.ModeWorker || cfg.Mode == config.ModeScheduler {
-		dockerSource = &agentrelay.Source{
+		relay := &agentrelay.Source{
 			Logger: logger,
 			BaseURL: func(ctx context.Context) (string, error) {
 				if cfg.RelayURL != "" {
@@ -308,6 +310,7 @@ func serveRun(mode string) int {
 				return jobs.EnsureAgentToken(ctx, q, keyring, serverID)
 			},
 		}
+		dockerSource, hostSource = relay, relay
 	}
 
 	// Maintenance crons run in scheduler and all-in-one modes, under a
@@ -332,16 +335,16 @@ func serveRun(mode string) int {
 		worker.Metrics, worker.Tracer = metrics, tel.Tracer
 		worker.Register(jobs.TypeServerValidate, (&jobs.ServerValidate{Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort}).Execute)
 		worker.Register(jobs.TypeDeploymentRun, (&jobs.DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger, Docker: dockerSource, ControlPlanePort: cfg.InstancePort, WakerImage: cfg.Image}).Execute)
-		worker.Register(jobs.TypeApplicationDelete, (&jobs.ApplicationDelete{Store: q, Keyring: keyring, Docker: dockerSource, Logger: logger}).Execute)
+		worker.Register(jobs.TypeApplicationDelete, (&jobs.ApplicationDelete{Store: q, Keyring: keyring, Docker: dockerSource, HostOps: hostSource, Logger: logger}).Execute)
 		worker.Register(jobs.TypeApplyRouting, (&jobs.ApplyRouting{
 			Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort,
 		}).Execute)
-		db := &jobs.DatabaseRun{Store: q, Keyring: keyring, Docker: dockerSource, Logger: logger, ControlPlanePort: cfg.InstancePort}
+		db := &jobs.DatabaseRun{Store: q, Keyring: keyring, Docker: dockerSource, HostOps: hostSource, Logger: logger, ControlPlanePort: cfg.InstancePort}
 		for _, t := range []string{jobs.TypeDatabaseProvision, jobs.TypeDatabaseStart, jobs.TypeDatabaseStop, jobs.TypeDatabaseRestart, jobs.TypeDatabaseDelete} {
 			worker.Register(t, db.Execute)
 		}
 		worker.Register(jobs.TypeEncryptionRotate, (&jobs.EncryptionRotate{Store: q, Keyring: keyring, Logger: logger}).Execute)
-		certs := &jobs.CertificateSync{Store: q, Keyring: keyring, Logger: logger}
+		certs := &jobs.CertificateSync{Store: q, Docker: dockerSource, HostOps: hostSource, Logger: logger}
 		worker.Register(jobs.TypeCertificateSync, certs.Execute)
 		worker.Register(jobs.TypeCertificateRenew, certs.Execute)
 		backup := &jobs.BackupRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger}
@@ -350,7 +353,7 @@ func serveRun(mode string) int {
 		worker.Register(jobs.TypeGithubAppPush, (&jobs.GithubAppPush{Store: q, Logger: logger}).Execute)
 		worker.Register(jobs.TypeGithubAppPullRequest, (&jobs.GithubAppPullRequest{Store: q, Keyring: keyring, Logger: logger}).Execute)
 		worker.Register(jobs.TypeGithubAppIssueComment, (&jobs.GithubAppIssueComment{Store: q, Keyring: keyring, Logger: logger}).Execute)
-		worker.Register(jobs.TypePreviewDestroy, (&jobs.PreviewDestroy{Store: q, Keyring: keyring, Docker: dockerSource, Logger: logger, Audit: recorder}).Execute)
+		worker.Register(jobs.TypePreviewDestroy, (&jobs.PreviewDestroy{Store: q, Keyring: keyring, Docker: dockerSource, HostOps: hostSource, Logger: logger, Audit: recorder}).Execute)
 		worker.Register(jobs.TypeBackupExecute, backup.Execute)
 		worker.Register(jobs.TypeBackupRestore, backup.Execute)
 		worker.Register(jobs.TypeBackupDrill, backup.Execute)
