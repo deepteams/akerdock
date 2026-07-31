@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math/big"
@@ -17,6 +18,9 @@ import (
 	"testing"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
+	containertypes "github.com/docker/docker/api/types/container"
+	volumetypes "github.com/docker/docker/api/types/volume"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -25,6 +29,7 @@ import (
 	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
+	"github.com/deepteams/akerdock/internal/dockerruntime/fake"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/sshkey"
@@ -593,7 +598,7 @@ func TestJobFlowsReachExternalBoundary(t *testing.T) {
 	tests := map[string]func() (any, error){
 		"proxy lifecycle": func() (any, error) {
 			j := job(TypeProxyStop, `{"server_id":1,"action":"stop"}`)
-			return (&ProxyLifecycle{Store: q, Keyring: keyring, Logger: logger}).Execute(context.Background(), j, rec(j))
+			return (&ProxyLifecycle{Store: q, Keyring: keyring, Docker: unavailableDocker{}, Logger: logger}).Execute(context.Background(), j, rec(j))
 		},
 		"server cleanup": func() (any, error) {
 			j := job(TypeServerCleanup, `{"server_id":1,"reason":"manual"}`)
@@ -605,7 +610,7 @@ func TestJobFlowsReachExternalBoundary(t *testing.T) {
 		},
 		"database": func() (any, error) {
 			j := job(TypeDatabaseStop, `{"resource_id":1,"action":"stop"}`)
-			return (&DatabaseRun{Store: q, Keyring: keyring, Logger: logger}).Execute(context.Background(), j, rec(j))
+			return (&DatabaseRun{Store: q, Keyring: keyring, Docker: unavailableDocker{}, Logger: logger}).Execute(context.Background(), j, rec(j))
 		},
 		"server validation": func() (any, error) {
 			j := job(TypeServerValidate, `{"server_id":1}`)
@@ -645,7 +650,7 @@ func TestJobFlowsPropagateStoreFailure(t *testing.T) {
 	q, keyring, _, logger, db := jobFlowDependencies(t)
 	db.err = errors.New("database unavailable")
 	j := store.Job{ID: 1, JobType: TypeProxyStop, Payload: []byte(`{"server_id":1,"action":"stop"}`)}
-	_, err := (&ProxyLifecycle{Store: q, Keyring: keyring, Logger: logger}).Execute(
+	_, err := (&ProxyLifecycle{Store: q, Keyring: keyring, Docker: unavailableDocker{}, Logger: logger}).Execute(
 		context.Background(), j, queue.NewStepRecorder(q, j))
 	if err == nil || !strings.Contains(err.Error(), "database unavailable") {
 		t.Fatalf("error = %v", err)
@@ -843,13 +848,27 @@ func TestDatabaseActionsRunThroughTheirCompleteStateMachines(t *testing.T) {
 			previousProxyState := jobEnumValues["ProxyDesiredState"]
 			jobEnumValues["ProxyDesiredState"] = string(store.ProxyDesiredStateStopped)
 			defer func() { jobEnumValues["ProxyDesiredState"] = previousProxyState }()
+			// The typed side of the flow: a volume that does not exist yet, a
+			// container that reports healthy at once, an empty volume sweep.
+			rt := &fake.Runtime{}
+			rt.VolumeInspectFn = func(context.Context, string) (volumetypes.Volume, error) {
+				return volumetypes.Volume{}, fmt.Errorf("no such volume: %w", cerrdefs.ErrNotFound)
+			}
+			rt.ContainerInspectFn = func(context.Context, string) (containertypes.InspectResponse, error) {
+				return containertypes.InspectResponse{ContainerJSONBase: &containertypes.ContainerJSONBase{
+					State: &containertypes.State{Running: true, Health: &containertypes.Health{Status: "healthy"}},
+				}}, nil
+			}
+			rt.VolumeListFn = func(context.Context, volumetypes.ListOptions) (volumetypes.ListResponse, error) {
+				return volumetypes.ListResponse{}, nil
+			}
 			payload := `{"resource_id":1,"action":"` + action + `"`
 			if action == "delete" {
 				payload += `,"delete_volumes":true`
 			}
 			payload += `}`
 			j := store.Job{ID: 6, JobType: "database." + action, Payload: []byte(payload)}
-			result, err := (&DatabaseRun{Store: q, Keyring: keyring, Logger: logger}).
+			result, err := (&DatabaseRun{Store: q, Keyring: keyring, Docker: fixedSource{rt: rt}, Logger: logger}).
 				Execute(context.Background(), j, queue.NewStepRecorder(q, j))
 			if err != nil {
 				t.Fatalf("%s database: %v", action, err)

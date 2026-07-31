@@ -5,6 +5,7 @@ package jobs
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
@@ -36,4 +37,26 @@ func execCapture(ctx context.Context, rt dockerruntime.Runtime, containerName st
 		return sb.String(), 0, err
 	}
 	return sb.String(), inspect.ExitCode, nil
+}
+
+// containerLogsTail reads a container's last lines through the agent channel
+// — stdout and stderr merged, the diagnostic attached when a wait times out.
+func containerLogsTail(ctx context.Context, rt dockerruntime.Runtime, containerName string, lines int) (string, error) {
+	inspect, err := rt.ContainerInspect(ctx, containerName)
+	if err != nil {
+		return "", err
+	}
+	tty := inspect.Config != nil && inspect.Config.Tty
+	rc, err := rt.ContainerLogs(ctx, containerName, container.LogsOptions{
+		ShowStdout: true, ShowStderr: true, Tail: strconv.Itoa(lines),
+	})
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rc.Close() }()
+	var sb strings.Builder
+	if err := dockerruntime.Demux(rc, tty, func(chunk string) { sb.WriteString(chunk) }); err != nil {
+		return "", err
+	}
+	return sb.String(), nil
 }

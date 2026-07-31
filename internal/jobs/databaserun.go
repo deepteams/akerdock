@@ -5,9 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/volume"
+	"github.com/docker/go-connections/nat"
+
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/pki"
@@ -37,11 +44,28 @@ type DatabasePayload struct {
 // DefaultDatabaseImage is the pinned default when none is configured (§6.2).
 const DefaultDatabaseImage = "postgres:16-alpine"
 
+// databaseReadyTimeout bounds the §6.2 readiness wait; databaseReadyPoll is
+// the inspect cadence (vars so tests can shrink them).
+var (
+	databaseReadyTimeout = 120 * time.Second
+	databaseReadyPoll    = 2 * time.Second
+)
+
+// databaseRemote is the SSH slice the database host-ops need: config and TLS
+// material deposits, directory removal, proxy route files.
+type databaseRemote interface {
+	Run(context.Context, string) (*sshexec.Result, error)
+	RunInput(context.Context, string, string) (*sshexec.Result, error)
+}
+
 // DatabaseRun provisions and drives managed databases. The data volume is
 // always kept unless the deletion explicitly asks otherwise (INV-008).
+// Container operations go through the agent channel (ADR-052); what stays on
+// SSH is host material — config/TLS files, directories, proxy route files.
 type DatabaseRun struct {
 	Store   *store.Queries
 	Keyring *envelope.Keyring
+	Docker  dockerruntime.Source
 	Logger  *slog.Logger
 	// ControlPlanePort is the published port of this instance (AKERDOCK_PORT),
 	// used to route the instance FQDN on the server that hosts it (§14.2).
@@ -71,38 +95,35 @@ func (h *DatabaseRun) Execute(ctx context.Context, job store.Job, rec *queue.Ste
 	if err != nil {
 		return nil, err
 	}
-	key, err := h.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
-	if err != nil {
-		return nil, err
-	}
-	pem, err := h.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return nil, err
-	}
 
 	rec.Start(ctx, payload.Action)
-	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
-		time.Duration(server.SshTimeoutSeconds)*time.Second, pinnedHostKey(server))
+	rt, err := h.Docker.Runtime(ctx, server.ID)
 	if err != nil {
-		rec.Fail(ctx, "SSH connection failed")
+		rec.Fail(ctx, "the server's agent is not connected")
 		return nil, err
 	}
-	defer func() { _ = client.Close() }()
 
 	switch payload.Action {
 	case "provision":
-		err = h.provision(ctx, client, row, dest.Network, dbUUID)
-	case "start":
-		err = h.simple(ctx, client, "docker start "+dbUUID, row.Resource.ID,
-			store.ResourceDesiredStatusRunning, store.ResourceObservedStatusHealthy)
-	case "stop":
-		err = h.simple(ctx, client, "docker stop -t 30 "+dbUUID, row.Resource.ID,
-			store.ResourceDesiredStatusStopped, store.ResourceObservedStatusExited)
-	case "restart":
-		err = h.simple(ctx, client, "docker restart -t 30 "+dbUUID, row.Resource.ID,
-			store.ResourceDesiredStatusRunning, store.ResourceObservedStatusHealthy)
+		var client *sshexec.Client
+		client, err = h.dialServer(ctx, server)
+		if err != nil {
+			rec.Fail(ctx, "SSH connection failed")
+			return nil, err
+		}
+		defer func() { _ = client.Close() }()
+		err = h.provision(ctx, rt, client, client, row, dest.Network, dbUUID)
+	case "start", "stop", "restart":
+		err = h.lifecycle(ctx, rt, payload.Action, dbUUID, row.Resource.ID)
 	case "delete":
-		err = h.delete(ctx, client, row, dbUUID, payload.DeleteVolumes)
+		var client *sshexec.Client
+		client, err = h.dialServer(ctx, server)
+		if err != nil {
+			rec.Fail(ctx, "SSH connection failed")
+			return nil, err
+		}
+		defer func() { _ = client.Close() }()
+		err = h.delete(ctx, rt, client, row, dbUUID, payload.DeleteVolumes)
 	default:
 		err = fmt.Errorf("unknown database action %q", payload.Action)
 	}
@@ -115,10 +136,27 @@ func (h *DatabaseRun) Execute(ctx context.Context, job store.Job, rec *queue.Ste
 	return map[string]any{"action": payload.Action, "database_uuid": dbUUID}, nil
 }
 
+func (h *DatabaseRun) dialServer(ctx context.Context, server store.Server) (*sshexec.Client, error) {
+	key, err := h.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
+	if err != nil {
+		return nil, err
+	}
+	pem, err := h.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
+	if err != nil {
+		return nil, err
+	}
+	return sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
+		time.Duration(server.SshTimeoutSeconds)*time.Second, pinnedHostKey(server))
+}
+
 // provision converges the database container: data volume, custom config,
-// then an idempotent create+start. The password reaches the container
-// through an env-file uploaded over stdin — never through argv (INV-003).
-func (h *DatabaseRun) provision(ctx context.Context, client *sshexec.Client, row store.GetDatabaseByIDRow, network, dbUUID string) error {
+// then an idempotent remove+create+start through the agent channel. The
+// password travels in the typed create body over the encrypted channel —
+// never on any argv, and no longer through an env file on the host
+// (INV-003 as clarified by ADR-051).
+// sshClient is the concrete connection the proxy convergence needs; nil in
+// unit tests, which stop at the route file.
+func (h *DatabaseRun) provision(ctx context.Context, rt dockerruntime.Runtime, client databaseRemote, sshClient *sshexec.Client, row store.GetDatabaseByIDRow, network, dbUUID string) error {
 	password, err := h.Keyring.Decrypt("database_credentials", "password_enc",
 		pguuid.String(row.DatabaseCredential.Uuid), row.DatabaseCredential.PasswordEnc)
 	if err != nil {
@@ -128,10 +166,13 @@ func (h *DatabaseRun) provision(ctx context.Context, client *sshexec.Client, row
 	if row.DatabaseCredential.DbName != nil && *row.DatabaseCredential.DbName != "" {
 		dbName = *row.DatabaseCredential.DbName
 	}
-	env := fmt.Sprintf("POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=%s\n",
-		row.DatabaseCredential.Username, string(password), dbName)
+	env := []string{
+		"POSTGRES_USER=" + row.DatabaseCredential.Username,
+		"POSTGRES_PASSWORD=" + string(password),
+		"POSTGRES_DB=" + dbName,
+	}
 	if row.Database.InitdbArgs != nil && *row.Database.InitdbArgs != "" {
-		env += "POSTGRES_INITDB_ARGS=" + *row.Database.InitdbArgs + "\n"
+		env = append(env, "POSTGRES_INITDB_ARGS="+*row.Database.InitdbArgs)
 	}
 
 	image := DefaultDatabaseImage
@@ -142,54 +183,43 @@ func (h *DatabaseRun) provision(ctx context.Context, client *sshexec.Client, row
 		}
 	}
 	dir := "/var/lib/akerdock/databases/" + dbUUID
-	volume := dbUUID + "_data"
+	volumeName := dbUUID + "_data"
 
-	if res, err := client.RunInput(ctx, fmt.Sprintf(
-		"mkdir -p %s && chmod 700 %s && umask 077 && cat > %s/db.env", dir, dir, dir), env); err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("preparing the database directory failed")
-	}
-	// Custom postgresql.conf, mounted read-only when present (§6.2).
-	confMount := ""
+	binds := []string{volumeName + ":/var/lib/postgresql/data"}
+	var args []string
+
+	// Custom postgresql.conf, mounted read-only when present (§6.2) — host
+	// material, deposited over SSH.
 	if row.Database.CustomConfig != nil && *row.Database.CustomConfig != "" {
-		if res, err := client.RunInput(ctx, "umask 077 && cat > "+dir+"/postgresql.conf",
+		if res, err := client.RunInput(ctx, fmt.Sprintf(
+			"mkdir -p %s && chmod 700 %s && umask 077 && cat > %s/postgresql.conf", dir, dir, dir),
 			*row.Database.CustomConfig); err != nil || res.ExitCode != 0 {
 			return fmt.Errorf("uploading the custom configuration failed")
 		}
-		confMount = fmt.Sprintf(" -v %s/postgresql.conf:/etc/postgresql/postgresql.conf:ro", dir)
-	}
-
-	// port_mapping publishes the port on the database container: changing it
-	// means recreating that container, which drops every open connection.
-	// tcp_proxy publishes nothing here — the proxy listens instead, and the
-	// database never restarts for a port change (§6.2).
-	ports := ""
-	if row.Database.IsPublic && row.Database.PublicPort != nil && !tcpProxied(row.Database) {
-		ports = fmt.Sprintf(" -p %d:5432", *row.Database.PublicPort)
-	}
-	cmd := ""
-	if confMount != "" {
-		cmd = " -c config_file=/etc/postgresql/postgresql.conf"
+		binds = append(binds, dir+"/postgresql.conf:/etc/postgresql/postgresql.conf:ro")
+		args = append(args, "-c", "config_file=/etc/postgresql/postgresql.conf")
 	}
 
 	// TLS with a certificate signed by the server's CA (§6.3). The key is
 	// written 0600 and chowned to the postgres uid: PostgreSQL REFUSES to start
 	// with a key any other user can read — which is the right call, and the
 	// reason this cannot be left to a default.
-	tlsMount := ""
 	if row.Database.SslEnabled {
 		leaf, err := h.databaseCertificate(ctx, row, dbUUID)
 		if err != nil {
 			return err
 		}
-		// The certificate is public: 0644, and every uid can read it. The KEY is
-		// not: PostgreSQL refuses to start with a key any other user can read —
-		// the right call, and the reason this cannot be left to a default.
-		if res, err := client.RunInput(ctx, fmt.Sprintf("cat > %s/server.crt && chmod 644 %s/server.crt", dir, dir), string(leaf.CertPEM)); err != nil || res.ExitCode != 0 {
+		// The certificate is public: 0644, and every uid can read it.
+		if res, err := client.RunInput(ctx, fmt.Sprintf(
+			"mkdir -p %s && chmod 700 %s && cat > %s/server.crt && chmod 644 %s/server.crt", dir, dir, dir, dir),
+			string(leaf.CertPEM)); err != nil || res.ExitCode != 0 {
 			return fmt.Errorf("uploading the database certificate failed")
 		}
 		// The postgres uid is READ FROM THE IMAGE, not assumed: it is 999 on the
 		// Debian images and 70 on the Alpine ones. Guessing it produces a
 		// database that starts, fails to read its own key, and restarts forever.
+		// (The probe is part of this host-side permission fix — the one docker
+		// CLI use that stays until the create path can ask the running image.)
 		writeKey := fmt.Sprintf(
 			"umask 077 && cat > %s/server.key && chmod 600 %s/server.key"+
 				" && uid=$(docker run --rm --entrypoint id %s -u postgres 2>/dev/null || echo 999)"+
@@ -198,59 +228,78 @@ func (h *DatabaseRun) provision(ctx context.Context, client *sshexec.Client, row
 		if res, err := client.RunInput(ctx, writeKey, string(leaf.KeyPEM)); err != nil || res.ExitCode != 0 {
 			return fmt.Errorf("uploading the database key failed")
 		}
-		tlsMount = fmt.Sprintf(" -v %s/server.crt:/etc/postgresql/server.crt:ro -v %s/server.key:/etc/postgresql/server.key:ro", dir, dir)
-		cmd += " -c ssl=on -c ssl_cert_file=/etc/postgresql/server.crt -c ssl_key_file=/etc/postgresql/server.key"
+		binds = append(binds,
+			dir+"/server.crt:/etc/postgresql/server.crt:ro",
+			dir+"/server.key:/etc/postgresql/server.key:ro")
+		args = append(args, "-c", "ssl=on", "-c", "ssl_cert_file=/etc/postgresql/server.crt", "-c", "ssl_key_file=/etc/postgresql/server.key")
 	}
+
 	team := ""
 	if t, err := h.Store.GetTeamByID(ctx, row.Resource.TeamID); err == nil {
 		team = pguuid.String(t.Uuid)
 	}
+	labels := map[string]string{
+		"akerdock.managed":       "true",
+		"akerdock.resource_uuid": dbUUID,
+		"akerdock.type":          "database",
+		"akerdock.team_uuid":     team,
+	}
 
-	create := fmt.Sprintf(
-		"docker volume inspect %s >/dev/null 2>&1 || docker volume create --label akerdock.managed=true --label akerdock.resource_uuid=%s --label akerdock.team_uuid=%s %s >/dev/null; "+
-			"docker rm -f %s >/dev/null 2>&1 || true; "+
-			"docker create --name %s --restart unless-stopped --network %s --env-file %s/db.env "+
-			"-v %s:/var/lib/postgresql/data%s%s%s "+
-			"--label akerdock.managed=true --label akerdock.resource_uuid=%s --label akerdock.type=database --label akerdock.team_uuid=%s "+
-			"--health-cmd 'pg_isready -U %s' --health-interval 5s --health-retries 5 --health-start-period 10s "+
-			"%s%s >/dev/null && docker start %s",
-		volume, dbUUID, team, volume,
-		dbUUID,
-		dbUUID, network, dir,
-		volume, confMount, tlsMount, ports,
-		dbUUID, team,
-		row.DatabaseCredential.Username,
-		image, cmd, dbUUID)
-	if res, err := client.Run(ctx, create); err != nil || res.ExitCode != 0 {
-		detail := ""
-		if res != nil {
-			detail = firstLine(res.Stderr)
+	if _, err := rt.VolumeInspect(ctx, volumeName); err != nil {
+		if !dockerruntime.IsNotFound(err) {
+			return err
 		}
-		return fmt.Errorf("creating the database container failed: %s", detail)
+		volumeLabels := map[string]string{
+			"akerdock.managed": "true", "akerdock.resource_uuid": dbUUID, "akerdock.team_uuid": team,
+		}
+		if _, err := rt.VolumeCreate(ctx, volume.CreateOptions{Name: volumeName, Labels: volumeLabels}); err != nil {
+			return err
+		}
+	}
+
+	config := &container.Config{
+		Image: image, Env: env, Cmd: args, Labels: labels,
+		Healthcheck: &container.HealthConfig{
+			Test:        []string{"CMD-SHELL", "pg_isready -U " + row.DatabaseCredential.Username},
+			Interval:    5 * time.Second,
+			Retries:     5,
+			StartPeriod: 10 * time.Second,
+		},
+	}
+	host := &container.HostConfig{
+		RestartPolicy: container.RestartPolicy{Name: container.RestartPolicyUnlessStopped},
+		NetworkMode:   container.NetworkMode(network),
+		Binds:         binds,
+	}
+	// port_mapping publishes the port on the database container: changing it
+	// means recreating that container, which drops every open connection.
+	// tcp_proxy publishes nothing here — the proxy listens instead, and the
+	// database never restarts for a port change (§6.2).
+	if row.Database.IsPublic && row.Database.PublicPort != nil && !tcpProxied(row.Database) {
+		config.ExposedPorts = nat.PortSet{"5432/tcp": struct{}{}}
+		host.PortBindings = nat.PortMap{"5432/tcp": {{HostPort: strconv.Itoa(int(*row.Database.PublicPort))}}}
+	}
+
+	if err := removeNamedContainers(ctx, rt, false, dbUUID); err != nil {
+		return err
+	}
+	if _, err := rt.ContainerCreate(ctx, config, host, nil, nil, dbUUID); err != nil {
+		return fmt.Errorf("creating the database container failed: %s", firstLine(err.Error()))
+	}
+	if err := rt.ContainerStart(ctx, dbUUID, container.StartOptions{}); err != nil {
+		return fmt.Errorf("starting the database container failed: %s", firstLine(err.Error()))
 	}
 
 	// Wait for readiness: a database is only usable once it accepts
-	// connections (§6.2).
-	res, err := client.Run(ctx, fmt.Sprintf(
-		"deadline=$(( $(date +%%s) + 120 )); while [ $(date +%%s) -lt $deadline ]; do "+
-			"st=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' %s 2>/dev/null); "+
-			"[ \"$st\" = healthy ] && { echo healthy; exit 0; }; sleep 2; done; echo timeout; exit 1", dbUUID))
-	if err != nil {
+	// connections (§6.2). The poll runs here, not as a remote shell loop.
+	if err := h.waitHealthy(ctx, rt, dbUUID); err != nil {
 		return err
-	}
-	if res.ExitCode != 0 {
-		logs, _ := client.Run(ctx, "docker logs --tail 100 "+dbUUID+" 2>&1")
-		detail := ""
-		if logs != nil {
-			detail = "\n" + logs.Stdout
-		}
-		return fmt.Errorf("the database did not become ready within 120s%s", detail)
 	}
 
 	// The route is applied AFTER the database is healthy: opening a public port
 	// onto something that is not answering yet is a port that accepts a
 	// connection and then hangs.
-	if err := h.applyTCPRoute(ctx, client, row, dbUUID); err != nil {
+	if err := h.applyTCPRoute(ctx, client, sshClient, row, dbUUID); err != nil {
 		return err
 	}
 
@@ -263,19 +312,42 @@ func (h *DatabaseRun) provision(ctx context.Context, client *sshexec.Client, row
 	return nil
 }
 
-func (h *DatabaseRun) simple(ctx context.Context, client *sshexec.Client, command string, resourceID int64,
-	desired store.ResourceDesiredStatus, observed store.ResourceObservedStatus,
-) error {
-	res, err := client.Run(ctx, command)
-	if err != nil {
+// waitHealthy polls the container's healthcheck until it reports healthy or
+// the §6.2 budget runs out — with the container's last lines attached, the
+// only thing that explains a database that never came up.
+func (h *DatabaseRun) waitHealthy(ctx context.Context, rt dockerruntime.Runtime, dbUUID string) error {
+	deadline := time.Now().Add(databaseReadyTimeout)
+	for {
+		resp, err := rt.ContainerInspect(ctx, dbUUID)
+		if err == nil && resp.State != nil && resp.State.Health != nil && resp.State.Health.Status == "healthy" {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			detail := ""
+			if out, lerr := containerLogsTail(ctx, rt, dbUUID, 100); lerr == nil && out != "" {
+				detail = "\n" + out
+			}
+			return fmt.Errorf("the database did not become ready within %s%s", databaseReadyTimeout, detail)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(databaseReadyPoll):
+		}
+	}
+}
+
+// lifecycle drives start/stop/restart with the §6.2 grace of 30 s.
+func (h *DatabaseRun) lifecycle(ctx context.Context, rt dockerruntime.Runtime, action, dbUUID string, resourceID int64) error {
+	if err := containerLifecycle(ctx, rt, action, dbUUID, 30); err != nil {
+		if dockerruntime.IsNotFound(err) {
+			return fmt.Errorf("no container exists for this database — provision it first")
+		}
 		return err
 	}
-	if res.ExitCode != 0 {
-		msg := firstLine(res.Stderr)
-		if strings.Contains(msg, "No such container") {
-			msg = "no container exists for this database — provision it first"
-		}
-		return fmt.Errorf("%s", msg)
+	desired, observed := store.ResourceDesiredStatusRunning, store.ResourceObservedStatusHealthy
+	if action == "stop" {
+		desired, observed = store.ResourceDesiredStatusStopped, store.ResourceObservedStatusExited
 	}
 	_ = h.Store.SetResourceDesiredStatus(ctx, store.SetResourceDesiredStatusParams{ID: resourceID, DesiredStatus: desired})
 	_ = h.Store.SetResourceObservedStatus(ctx, store.SetResourceObservedStatusParams{ID: resourceID, ObservedStatus: observed})
@@ -284,16 +356,21 @@ func (h *DatabaseRun) simple(ctx context.Context, client *sshexec.Client, comman
 
 // delete removes the container and its files; the data volume survives
 // unless explicitly destroyed (INV-008).
-func (h *DatabaseRun) delete(ctx context.Context, client *sshexec.Client, row store.GetDatabaseByIDRow, dbUUID string, deleteVolumes bool) error {
-	cmd := fmt.Sprintf("docker rm -f %s >/dev/null 2>&1 || true; rm -rf /var/lib/akerdock/databases/%s", dbUUID, dbUUID)
-	if deleteVolumes {
-		cmd += fmt.Sprintf("; docker volume ls -q --filter label=akerdock.resource_uuid=%s | xargs -r docker volume rm -f", dbUUID)
+func (h *DatabaseRun) delete(ctx context.Context, rt dockerruntime.Runtime, client databaseRemote, row store.GetDatabaseByIDRow, dbUUID string, deleteVolumes bool) error {
+	if err := removeNamedContainers(ctx, rt, false, dbUUID); err != nil {
+		return err
 	}
-	if res, err := client.Run(ctx, cmd); err != nil || res.ExitCode != 0 {
+	if res, err := client.Run(ctx, "rm -rf /var/lib/akerdock/databases/"+dbUUID); err != nil || res.ExitCode != 0 {
 		if err == nil {
-			err = fmt.Errorf("remote cleanup exited with code %d", res.ExitCode)
+			err = fmt.Errorf("directory removal exited with code %d", res.ExitCode)
 		}
 		return err
+	}
+	if deleteVolumes {
+		f := filters.NewArgs(filters.Arg("label", "akerdock.resource_uuid="+dbUUID))
+		if err := sweepVolumes(ctx, rt, f); err != nil {
+			return err
+		}
 	}
 	_, err := h.Store.SoftDeleteResource(ctx, row.Resource.ID)
 	return err
@@ -311,7 +388,7 @@ func tcpProxied(db store.Database) bool {
 // then the static entrypoint (which needs a new container). The reverse order
 // would open a listener with nothing behind it — a port that accepts a
 // connection and hangs.
-func (h *DatabaseRun) applyTCPRoute(ctx context.Context, client *sshexec.Client, row store.GetDatabaseByIDRow, dbUUID string) error {
+func (h *DatabaseRun) applyTCPRoute(ctx context.Context, client databaseRemote, sshClient *sshexec.Client, row store.GetDatabaseByIDRow, dbUUID string) error {
 	server, err := h.Store.GetServerByID(ctx, row.Database.ServerID)
 	if err != nil {
 		return err
@@ -321,10 +398,10 @@ func (h *DatabaseRun) applyTCPRoute(ctx context.Context, client *sshexec.Client,
 	// database: the entrypoints are regenerated from the database at the next
 	// explicit start, so the route is picked up then.
 	converge := func() error {
-		if run, _ := proxyBootstrapDecision(server); !run {
+		if run, _ := proxyBootstrapDecision(server); !run || sshClient == nil {
 			return nil
 		}
-		return bootstrapProxy(ctx, h.Store, h.Keyring, client, server, true, h.ControlPlanePort)
+		return bootstrapProxy(ctx, h.Store, h.Keyring, sshClient, server, true, h.ControlPlanePort)
 	}
 
 	if !tcpProxied(row.Database) || row.Database.PublicPort == nil {

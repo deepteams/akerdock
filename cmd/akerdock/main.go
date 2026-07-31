@@ -336,7 +336,7 @@ func serveRun(mode string) int {
 		worker.Register(jobs.TypeApplyRouting, (&jobs.ApplyRouting{
 			Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort,
 		}).Execute)
-		db := &jobs.DatabaseRun{Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort}
+		db := &jobs.DatabaseRun{Store: q, Keyring: keyring, Docker: dockerSource, Logger: logger, ControlPlanePort: cfg.InstancePort}
 		for _, t := range []string{jobs.TypeDatabaseProvision, jobs.TypeDatabaseStart, jobs.TypeDatabaseStop, jobs.TypeDatabaseRestart, jobs.TypeDatabaseDelete} {
 			worker.Register(t, db.Execute)
 		}
@@ -356,7 +356,7 @@ func serveRun(mode string) int {
 		worker.Register(jobs.TypeBackupDrill, backup.Execute)
 		worker.Register(jobs.TypeScheduledTaskRun, (&jobs.ScheduledTaskRun{Store: q, Docker: dockerSource, Audit: recorder, Logger: logger}).Execute)
 		lifecycle := &jobs.ApplicationLifecycle{Store: q, Docker: dockerSource, Logger: logger}
-		proxyLifecycle := &jobs.ProxyLifecycle{Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort}
+		proxyLifecycle := &jobs.ProxyLifecycle{Store: q, Keyring: keyring, Docker: dockerSource, Logger: logger, ControlPlanePort: cfg.InstancePort}
 		for _, t := range []string{jobs.TypeProxyStart, jobs.TypeProxyStop, jobs.TypeProxyRestart} {
 			worker.Register(t, proxyLifecycle.Execute)
 		}

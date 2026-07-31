@@ -40,6 +40,16 @@ func (s *cleanupRemoteStub) Run(_ context.Context, command string) (*sshexec.Res
 	return s.result, s.err
 }
 
+// RunInput records the command like Run; the input is host material the
+// tests never re-read.
+func (s *cleanupRemoteStub) RunInput(_ context.Context, command, _ string) (*sshexec.Result, error) {
+	s.commands = append(s.commands, command)
+	if s.run != nil {
+		return s.run(command)
+	}
+	return s.result, s.err
+}
+
 func (*cleanupRemoteStub) Close() error { return nil }
 
 // fixedSource hands every caller the same runtime — the job-test double of

@@ -11,6 +11,9 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
+
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/proxy"
@@ -32,10 +35,13 @@ type ProxyLifecyclePayload struct {
 	Action   string `json:"action"` // start | stop | restart
 }
 
-// ProxyLifecycle is the worker handler.
+// ProxyLifecycle is the worker handler. The lifecycle verbs go through the
+// agent channel (ADR-052); the bootstrap that (re)creates the container and
+// its configuration stays on SSH, like every provisioning path.
 type ProxyLifecycle struct {
 	Store   *store.Queries
 	Keyring *envelope.Keyring
+	Docker  dockerruntime.Source
 	Logger  *slog.Logger
 	// ControlPlanePort is the published port of this instance (AKERDOCK_PORT),
 	// used to route the instance FQDN on the server that hosts it (§14.2).
@@ -65,45 +71,58 @@ func (h *ProxyLifecycle) Execute(ctx context.Context, job store.Job, rec *queue.
 	}
 
 	rec.Start(ctx, payload.Action)
-	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
-		time.Duration(server.SshTimeoutSeconds)*time.Second, pinnedHostKey(server))
+	rt, err := h.Docker.Runtime(ctx, server.ID)
 	if err != nil {
-		rec.Fail(ctx, "SSH connection failed")
+		rec.Fail(ctx, "the server's agent is not connected")
 		return nil, err
 	}
-	defer func() { _ = client.Close() }()
 
-	var cmd string
+	grace := 10
 	var desired store.ProxyDesiredState
 	switch payload.Action {
 	case "start":
 		// The container may be gone entirely (a manual `docker rm`, a pruned
-		// host): converging is what "start" means — not `docker start` on a
-		// name that no longer exists.
+		// host): converging is what "start" means — not a bare start on a
+		// name that no longer exists. The bootstrap is a provisioning path
+		// and stays on SSH.
+		client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
+			time.Duration(server.SshTimeoutSeconds)*time.Second, pinnedHostKey(server))
+		if err != nil {
+			rec.Fail(ctx, "SSH connection failed")
+			return nil, err
+		}
+		defer func() { _ = client.Close() }()
 		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, server, false, h.ControlPlanePort); err != nil {
 			rec.Fail(ctx, err.Error())
 			_ = h.Store.SetProxyObservedStatus(ctx, store.SetProxyObservedStatusParams{ID: server.ID, ProxyObservedStatus: store.ResourceObservedStatusUnhealthy})
 			return nil, err
 		}
-		cmd = "docker start " + proxy.ContainerName + " >/dev/null 2>&1; docker inspect --format '{{.State.Status}}' " + proxy.ContainerName
+		// A start error is not the verdict — the status inspect below is, the
+		// same stance as the old `>/dev/null 2>&1; docker inspect` pipeline.
+		_ = rt.ContainerStart(ctx, proxy.ContainerName, container.StartOptions{})
 		desired = store.ProxyDesiredStateRunning
 	case "stop", "restart":
 		// Stop and restart operate on an EXISTING container: on a proxy that
 		// was never started, "No such container" from the daemon explains
 		// nothing — say what the operator should actually do.
-		if res, err := client.Run(ctx, "docker container inspect "+proxy.ContainerName+" >/dev/null 2>&1"); err != nil {
+		if _, err := rt.ContainerInspect(ctx, proxy.ContainerName); err != nil {
+			if dockerruntime.IsNotFound(err) {
+				msg := "the proxy container does not exist yet — the first start creates its configuration and the container: press Start"
+				rec.Fail(ctx, msg)
+				return nil, fmt.Errorf("%s", msg)
+			}
 			rec.Fail(ctx, err.Error())
 			return nil, err
-		} else if res.ExitCode != 0 {
-			msg := "the proxy container does not exist yet — the first start creates its configuration and the container: press Start"
-			rec.Fail(ctx, msg)
-			return nil, fmt.Errorf("%s", msg)
 		}
 		if payload.Action == "stop" {
-			cmd = "docker stop -t 10 " + proxy.ContainerName + " >/dev/null 2>&1; docker inspect --format '{{.State.Status}}' " + proxy.ContainerName
+			_ = rt.ContainerStop(ctx, proxy.ContainerName, container.StopOptions{Timeout: &grace})
 			desired = store.ProxyDesiredStateStopped
 		} else {
-			cmd = "docker restart -t 10 " + proxy.ContainerName + " >/dev/null && docker inspect --format '{{.State.Status}}' " + proxy.ContainerName
+			if err := rt.ContainerRestart(ctx, proxy.ContainerName, container.StopOptions{Timeout: &grace}); err != nil {
+				rec.Fail(ctx, firstLine(err.Error()))
+				_ = h.Store.SetProxyObservedStatus(ctx, store.SetProxyObservedStatusParams{ID: server.ID, ProxyObservedStatus: store.ResourceObservedStatusUnhealthy})
+				return nil, err
+			}
 			desired = store.ProxyDesiredStateRunning
 		}
 	default:
@@ -111,13 +130,14 @@ func (h *ProxyLifecycle) Execute(ctx context.Context, job store.Job, rec *queue.
 		return nil, fmt.Errorf("unknown proxy action %q", payload.Action)
 	}
 
-	res, err := client.Run(ctx, cmd)
-	if err != nil {
-		rec.Fail(ctx, err.Error())
+	status := "unknown"
+	if resp, err := rt.ContainerInspect(ctx, proxy.ContainerName); err == nil && resp.State != nil {
+		status = resp.State.Status
+	} else if err != nil {
+		rec.Fail(ctx, firstLine(err.Error()))
 		return nil, err
 	}
-	status := firstLine(res.Stdout)
-	if res.ExitCode != 0 || (payload.Action != "stop" && status != "running") {
+	if payload.Action != "stop" && status != "running" {
 		msg := fmt.Sprintf("the proxy is %q after %s", status, payload.Action)
 		rec.Fail(ctx, msg)
 		_ = h.Store.SetProxyObservedStatus(ctx, store.SetProxyObservedStatusParams{ID: server.ID, ProxyObservedStatus: store.ResourceObservedStatusUnhealthy})
