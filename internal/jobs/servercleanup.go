@@ -359,7 +359,7 @@ func pruneOrphanManagedNetworks(ctx context.Context, rt dockerruntime.Runtime, q
 	} else {
 		return "", err
 	}
-	removed := 0
+	removed, kept := 0, 0
 	for _, n := range candidates {
 		if live[ownerOf(n.Labels)] {
 			continue // sleeping is not orphaned — the wake needs this network
@@ -368,13 +368,17 @@ func pruneOrphanManagedNetworks(ctx context.Context, rt dockerruntime.Runtime, q
 			if dockerruntime.IsNotFound(err) {
 				continue
 			}
-			// In use by a running container: not an orphan after all.
-			if dockerruntime.IsConflict(err) {
-				continue
-			}
-			return "", err
+			// Best-effort per object: "has active endpoints" arrives as a
+			// Forbidden (a class the wire does not single out), and a network
+			// something still runs on is not an orphan whatever the daemon
+			// calls the refusal. Kept and counted, never a failed cleanup.
+			kept++
+			continue
 		}
 		removed++
+	}
+	if kept > 0 {
+		return fmt.Sprintf("%d networks removed, %d kept (still in use)", removed, kept), nil
 	}
 	return fmt.Sprintf("%d networks removed", removed), nil
 }

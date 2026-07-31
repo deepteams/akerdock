@@ -575,7 +575,9 @@ func TestPruneOrphanManagedNetworks(t *testing.T) {
 	if len(removed) != 1 || removed[0] != "n-dead" {
 		t.Fatalf("removed = %v — only the dead owner's network is an orphan", removed)
 	}
-	if summary != "1 networks removed" {
+	// The in-use refusal (a Forbidden on the real daemon) is kept and
+	// counted — a cleanup never fails because something still runs.
+	if summary != "1 networks removed, 1 kept (still in use)" {
 		t.Fatalf("summary = %q", summary)
 	}
 }
