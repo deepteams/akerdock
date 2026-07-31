@@ -100,8 +100,15 @@ const (
 const MethodImageBuild = "ImageBuild"
 
 // Params structs, one per method. Fields are the SDK types — the Engine API's
-// own wire representations (filters.Args carries its custom JSON both ways).
-// Methods without params (Info, Ping, …) send none.
+// own wire representations. Methods without params (Info, Ping, …) send none.
+//
+// EXCEPTION: filters. filters.Args marshals its content but LOSES it on
+// unmarshal — its UnmarshalJSON has a value receiver mutating a copy whose
+// inner map is nil, so the decoded side silently sees an EMPTY filter. A
+// label-scoped sweep arriving unfiltered force-removes every container,
+// newest first — which is the agent's own helper. Filters therefore travel
+// as RawFilters, the SDK's own canonical ToJSON/FromJSON string, and the
+// executor injects them back before calling the daemon.
 
 type ContainerCreateParams struct {
 	Config           *container.Config         `json:"config"`
@@ -145,6 +152,7 @@ type ContainerWaitParams struct {
 
 type ContainerListParams struct {
 	Options container.ListOptions `json:"options"`
+	Filters RawFilters            `json:"filters,omitempty"`
 }
 
 type ContainerLogsParams struct {
@@ -161,7 +169,7 @@ type StatsResult struct {
 
 // PruneParams serves every *sPrune method.
 type PruneParams struct {
-	Filters filters.Args `json:"filters"`
+	Filters RawFilters `json:"filters"`
 }
 
 type ContainerExecCreateParams struct {
@@ -201,6 +209,7 @@ type ImageTagParams struct {
 
 type ImageListParams struct {
 	Options image.ListOptions `json:"options"`
+	Filters RawFilters        `json:"filters,omitempty"`
 }
 
 type ImageRemoveParams struct {
@@ -214,6 +223,7 @@ type VolumeCreateParams struct {
 
 type VolumeListParams struct {
 	Options volume.ListOptions `json:"options"`
+	Filters RawFilters         `json:"filters,omitempty"`
 }
 
 type VolumeRemoveParams struct {
@@ -245,10 +255,12 @@ type NetworkInspectParams struct {
 
 type NetworkListParams struct {
 	Options network.ListOptions `json:"options"`
+	Filters RawFilters          `json:"filters,omitempty"`
 }
 
 type EventsParams struct {
 	Options events.ListOptions `json:"options"`
+	Filters RawFilters         `json:"filters,omitempty"`
 }
 
 type DiskUsageParams struct {
@@ -400,4 +412,29 @@ type FileHashParams struct {
 type FileHashResult struct {
 	SHA256    string `json:"sha256"`
 	SizeBytes int64  `json:"size_bytes"`
+}
+
+// RawFilters is filters.Args in the SDK's canonical wire string
+// (filters.ToJSON) — the ONLY form that survives a JSON round-trip; see the
+// params comment above for why the SDK type itself does not.
+type RawFilters string
+
+// EncodeFilters renders args for the wire; an empty set encodes empty.
+func EncodeFilters(f filters.Args) RawFilters {
+	if f.Len() == 0 {
+		return ""
+	}
+	s, err := filters.ToJSON(f)
+	if err != nil {
+		return ""
+	}
+	return RawFilters(s)
+}
+
+// Decode rebuilds the args; empty decodes to an empty set.
+func (r RawFilters) Decode() (filters.Args, error) {
+	if r == "" {
+		return filters.NewArgs(), nil
+	}
+	return filters.FromJSON(string(r))
 }

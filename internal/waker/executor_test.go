@@ -12,6 +12,7 @@ import (
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 
 	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/dockerruntime/fake"
@@ -267,5 +268,34 @@ func TestExecutorHostOpsGuardTravelsTyped(t *testing.T) {
 	}
 	if err := frames[0].Res.Err.Err(); !cerrdefs.IsInvalidArgument(err) {
 		t.Fatalf("error = %v, want the guard's invalid-argument", err)
+	}
+}
+
+// TestExecutorContainerListDecodesRawFilters pins the 2026-07-31 incident's
+// fix end-to-end on the executor: the label filter arrives as RawFilters and
+// MUST reach the daemon call — the SDK-typed field alone decodes empty, and
+// an unfiltered sweep force-removes the agent's own helper first.
+func TestExecutorContainerListDecodesRawFilters(t *testing.T) {
+	rt := &fake.Runtime{}
+	var got []string
+	rt.ContainerListFn = func(_ context.Context, opts container.ListOptions) ([]container.Summary, error) {
+		got = opts.Filters.Get("label")
+		return nil, nil
+	}
+	e := NewExecutor(rt, nil, nil)
+	sink := &frameSink{}
+	f := filters.NewArgs(filters.Arg("label", "akerdock.preview_uuid=p1"))
+	e.Execute(context.Background(), agentwire.Command{
+		ID: 1, Method: agentwire.MethodContainerList,
+		Params: mustParams(t, agentwire.ContainerListParams{
+			Options: container.ListOptions{All: true, Filters: f},
+			Filters: agentwire.EncodeFilters(f),
+		}),
+	}, sink.send)
+	if frames := sink.all(); len(frames) != 1 || frames[0].Res.Err != nil {
+		t.Fatalf("frames = %+v", frames)
+	}
+	if len(got) != 1 || got[0] != "akerdock.preview_uuid=p1" {
+		t.Fatalf("filter reaching the daemon = %v — an empty filter is a server-wide sweep", got)
 	}
 }

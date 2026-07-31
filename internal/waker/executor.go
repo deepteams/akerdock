@@ -233,6 +233,12 @@ func (e *Executor) pumpEvents(ctx context.Context, cmd agentwire.Command, send f
 		_ = send(agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: cmd.ID, Err: agentwire.WireError(invalidParams(err))}})
 		return
 	}
+	flt, err := p.Filters.Decode()
+	if err != nil {
+		_ = send(agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: cmd.ID, Err: agentwire.WireError(invalidParams(err))}})
+		return
+	}
+	p.Options.Filters = flt
 	msgs, errs := e.rt.Events(ctx, p.Options)
 	if err := send(agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: cmd.ID}}); err != nil {
 		return
@@ -332,6 +338,11 @@ func (e *Executor) executeUnary(ctx context.Context, cmd agentwire.Command) (any
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
 			return nil, invalidParams(err)
 		}
+		flt, err := p.Filters.Decode()
+		if err != nil {
+			return nil, invalidParams(err)
+		}
+		p.Options.Filters = flt
 		return e.rt.ContainerList(ctx, p.Options)
 	case agentwire.MethodContainerStats:
 		var p agentwire.NameParams
@@ -355,7 +366,11 @@ func (e *Executor) executeUnary(ctx context.Context, cmd agentwire.Command) (any
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
 			return nil, invalidParams(err)
 		}
-		return e.rt.ContainersPrune(ctx, p.Filters)
+		pruneFilters, err := p.Filters.Decode()
+		if err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.ContainersPrune(ctx, pruneFilters)
 	case agentwire.MethodContainerExecCreate:
 		var p agentwire.ContainerExecCreateParams
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
@@ -397,6 +412,11 @@ func (e *Executor) executeUnary(ctx context.Context, cmd agentwire.Command) (any
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
 			return nil, invalidParams(err)
 		}
+		flt, err := p.Filters.Decode()
+		if err != nil {
+			return nil, invalidParams(err)
+		}
+		p.Options.Filters = flt
 		return e.rt.ImageList(ctx, p.Options)
 	case agentwire.MethodImageRemove:
 		var p agentwire.ImageRemoveParams
@@ -409,7 +429,11 @@ func (e *Executor) executeUnary(ctx context.Context, cmd agentwire.Command) (any
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
 			return nil, invalidParams(err)
 		}
-		return e.rt.ImagesPrune(ctx, p.Filters)
+		pruneFilters, err := p.Filters.Decode()
+		if err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.ImagesPrune(ctx, pruneFilters)
 	case agentwire.MethodVolumeCreate:
 		var p agentwire.VolumeCreateParams
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
@@ -427,6 +451,11 @@ func (e *Executor) executeUnary(ctx context.Context, cmd agentwire.Command) (any
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
 			return nil, invalidParams(err)
 		}
+		flt, err := p.Filters.Decode()
+		if err != nil {
+			return nil, invalidParams(err)
+		}
+		p.Options.Filters = flt
 		return e.rt.VolumeList(ctx, p.Options)
 	case agentwire.MethodVolumeRemove:
 		var p agentwire.VolumeRemoveParams
@@ -439,7 +468,11 @@ func (e *Executor) executeUnary(ctx context.Context, cmd agentwire.Command) (any
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
 			return nil, invalidParams(err)
 		}
-		return e.rt.VolumesPrune(ctx, p.Filters)
+		pruneFilters, err := p.Filters.Decode()
+		if err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.VolumesPrune(ctx, pruneFilters)
 	case agentwire.MethodNetworkCreate:
 		var p agentwire.NetworkCreateParams
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
@@ -469,6 +502,11 @@ func (e *Executor) executeUnary(ctx context.Context, cmd agentwire.Command) (any
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
 			return nil, invalidParams(err)
 		}
+		flt, err := p.Filters.Decode()
+		if err != nil {
+			return nil, invalidParams(err)
+		}
+		p.Options.Filters = flt
 		return e.rt.NetworkList(ctx, p.Options)
 	case agentwire.MethodNetworkRemove:
 		var p agentwire.NameParams
@@ -481,7 +519,11 @@ func (e *Executor) executeUnary(ctx context.Context, cmd agentwire.Command) (any
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
 			return nil, invalidParams(err)
 		}
-		return e.rt.NetworksPrune(ctx, p.Filters)
+		pruneFilters, err := p.Filters.Decode()
+		if err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.rt.NetworksPrune(ctx, pruneFilters)
 	case agentwire.MethodInfo:
 		return e.rt.Info(ctx)
 	case agentwire.MethodServerVersion:

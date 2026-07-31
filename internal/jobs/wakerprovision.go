@@ -225,7 +225,11 @@ func AgentEnvForServer(ctx context.Context, q AgentEnrollmentStore, keyring *env
 // 7: the whole /var/lib/akerdock tree is mounted (ADR-054) — the agent
 // executes the host file primitives on it; the waker's own subdirectory is
 // unchanged inside the wider mount.
-const wakerSpec = "7"
+// 8: filters cross the channel as RawFilters — an executor without the fix
+// decodes every label-scoped list/prune as UNFILTERED, and a sweep that
+// arrives unfiltered force-removes the helper itself first (the 2026-07-31
+// incident). Only a recreated container running the fixed binary is safe.
+const wakerSpec = "8"
 
 // WakerEnsureCommand is the idempotent deploy of the waker helper. It recreates
 // the container when the running image OR the run spec differs (or when it is

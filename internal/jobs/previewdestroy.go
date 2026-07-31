@@ -118,8 +118,14 @@ func (h *PreviewDestroy) Execute(ctx context.Context, job store.Job, rec *queue.
 	}
 	// The PR is closed/merged: unlike the per-deployment retention, NONE of
 	// this preview's rollback images survive (ADR-006). They live under the
-	// preview-uuid namespace, so no production image matches (INV-011).
+	// preview-uuid namespace, so no production image matches (INV-011). Both
+	// shapes: `akerdock/<uuid>` (single-container builds) and
+	// `akerdock/<uuid>-<service>` (compose service builds — the exact repo
+	// alone silently missed every one of them).
 	if err := sweepImagesByReference(ctx, rt, "akerdock/"+previewUUID); err != nil {
+		return nil, cleanupFailed(fmt.Errorf("image sweep: %w", err))
+	}
+	if err := sweepImagesByReference(ctx, rt, "akerdock/"+previewUUID+"-*"); err != nil {
 		return nil, cleanupFailed(fmt.Errorf("image sweep: %w", err))
 	}
 	if err := ops.Remove(ctx, agentwire.FileRemoveParams{

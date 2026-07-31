@@ -137,7 +137,7 @@ func (r *agentRuntime) ContainerWait(ctx context.Context, name string, condition
 }
 
 func (r *agentRuntime) ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error) {
-	return call[[]container.Summary](ctx, r.s, agentwire.MethodContainerList, agentwire.ContainerListParams{Options: options})
+	return call[[]container.Summary](ctx, r.s, agentwire.MethodContainerList, agentwire.ContainerListParams{Options: options, Filters: agentwire.EncodeFilters(options.Filters)})
 }
 
 func (r *agentRuntime) ContainerLogs(ctx context.Context, name string, options container.LogsOptions) (io.ReadCloser, error) {
@@ -159,7 +159,7 @@ func (r *agentRuntime) ContainerStats(ctx context.Context, name string, stream b
 }
 
 func (r *agentRuntime) ContainersPrune(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error) {
-	return call[container.PruneReport](ctx, r.s, agentwire.MethodContainersPrune, agentwire.PruneParams{Filters: pruneFilters})
+	return call[container.PruneReport](ctx, r.s, agentwire.MethodContainersPrune, agentwire.PruneParams{Filters: agentwire.EncodeFilters(pruneFilters)})
 }
 
 func (r *agentRuntime) ContainerExecCreate(ctx context.Context, name string, options container.ExecOptions) (container.ExecCreateResponse, error) {
@@ -233,7 +233,7 @@ func (r *agentRuntime) ImageInspect(ctx context.Context, img string, _ ...client
 }
 
 func (r *agentRuntime) ImageList(ctx context.Context, options image.ListOptions) ([]image.Summary, error) {
-	return call[[]image.Summary](ctx, r.s, agentwire.MethodImageList, agentwire.ImageListParams{Options: options})
+	return call[[]image.Summary](ctx, r.s, agentwire.MethodImageList, agentwire.ImageListParams{Options: options, Filters: agentwire.EncodeFilters(options.Filters)})
 }
 
 func (r *agentRuntime) ImageRemove(ctx context.Context, img string, options image.RemoveOptions) ([]image.DeleteResponse, error) {
@@ -241,7 +241,7 @@ func (r *agentRuntime) ImageRemove(ctx context.Context, img string, options imag
 }
 
 func (r *agentRuntime) ImagesPrune(ctx context.Context, pruneFilter filters.Args) (image.PruneReport, error) {
-	return call[image.PruneReport](ctx, r.s, agentwire.MethodImagesPrune, agentwire.PruneParams{Filters: pruneFilter})
+	return call[image.PruneReport](ctx, r.s, agentwire.MethodImagesPrune, agentwire.PruneParams{Filters: agentwire.EncodeFilters(pruneFilter)})
 }
 
 func (r *agentRuntime) VolumeCreate(ctx context.Context, options volume.CreateOptions) (volume.Volume, error) {
@@ -253,7 +253,7 @@ func (r *agentRuntime) VolumeInspect(ctx context.Context, volumeID string) (volu
 }
 
 func (r *agentRuntime) VolumeList(ctx context.Context, options volume.ListOptions) (volume.ListResponse, error) {
-	return call[volume.ListResponse](ctx, r.s, agentwire.MethodVolumeList, agentwire.VolumeListParams{Options: options})
+	return call[volume.ListResponse](ctx, r.s, agentwire.MethodVolumeList, agentwire.VolumeListParams{Options: options, Filters: agentwire.EncodeFilters(options.Filters)})
 }
 
 func (r *agentRuntime) VolumeRemove(ctx context.Context, volumeID string, force bool) error {
@@ -261,7 +261,7 @@ func (r *agentRuntime) VolumeRemove(ctx context.Context, volumeID string, force 
 }
 
 func (r *agentRuntime) VolumesPrune(ctx context.Context, pruneFilter filters.Args) (volume.PruneReport, error) {
-	return call[volume.PruneReport](ctx, r.s, agentwire.MethodVolumesPrune, agentwire.PruneParams{Filters: pruneFilter})
+	return call[volume.PruneReport](ctx, r.s, agentwire.MethodVolumesPrune, agentwire.PruneParams{Filters: agentwire.EncodeFilters(pruneFilter)})
 }
 
 func (r *agentRuntime) NetworkCreate(ctx context.Context, name string, options network.CreateOptions) (network.CreateResponse, error) {
@@ -281,7 +281,7 @@ func (r *agentRuntime) NetworkInspect(ctx context.Context, networkID string, opt
 }
 
 func (r *agentRuntime) NetworkList(ctx context.Context, options network.ListOptions) ([]network.Summary, error) {
-	return call[[]network.Summary](ctx, r.s, agentwire.MethodNetworkList, agentwire.NetworkListParams{Options: options})
+	return call[[]network.Summary](ctx, r.s, agentwire.MethodNetworkList, agentwire.NetworkListParams{Options: options, Filters: agentwire.EncodeFilters(options.Filters)})
 }
 
 func (r *agentRuntime) NetworkRemove(ctx context.Context, networkID string) error {
@@ -289,7 +289,7 @@ func (r *agentRuntime) NetworkRemove(ctx context.Context, networkID string) erro
 }
 
 func (r *agentRuntime) NetworksPrune(ctx context.Context, pruneFilter filters.Args) (network.PruneReport, error) {
-	return call[network.PruneReport](ctx, r.s, agentwire.MethodNetworksPrune, agentwire.PruneParams{Filters: pruneFilter})
+	return call[network.PruneReport](ctx, r.s, agentwire.MethodNetworksPrune, agentwire.PruneParams{Filters: agentwire.EncodeFilters(pruneFilter)})
 }
 
 // Events opens the daemon's event stream through the channel: each chunk is
@@ -298,7 +298,7 @@ func (r *agentRuntime) Events(ctx context.Context, options events.ListOptions) (
 	msgCh := make(chan events.Message)
 	errCh := make(chan error, 1)
 	go func() {
-		rc, err := r.s.Stream(ctx, agentwire.MethodEvents, agentwire.EventsParams{Options: options})
+		rc, err := r.s.Stream(ctx, agentwire.MethodEvents, agentwire.EventsParams{Options: options, Filters: agentwire.EncodeFilters(options.Filters)})
 		if err != nil {
 			errCh <- err
 			return
