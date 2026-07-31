@@ -147,6 +147,14 @@ func TestWakerEnsureCommandAgentEnv(t *testing.T) {
 		!strings.Contains(with, "waker || exit $?") {
 		t.Fatalf("waker replacement does not safely reclaim the old helper image:\n%s", with)
 	}
+	// A helper stopped by hand (`docker stop` marks it so `unless-stopped`
+	// never relaunches it) matches image and spec: without a terminal
+	// `docker start`, the ensure would be a no-op and the agent silent
+	// forever. The start is UNCONDITIONAL and strict — a helper that cannot
+	// start must fail the ensure, never pass silently.
+	if !strings.Contains(with, "fi; docker start "+proxy.WakerContainerName+" >/dev/null") {
+		t.Fatalf("the ensure must converge a stopped helper back to running:\n%s", with)
+	}
 	without := WakerEnsureCommand("net", "img:1", AgentEnv{})
 	if strings.Contains(without, "AKERDOCK_INSTANCE_URL") || strings.Contains(without, "-e ") {
 		t.Fatalf("empty enrollment must inject nothing:\n%s", without)

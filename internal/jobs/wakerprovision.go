@@ -229,10 +229,11 @@ const wakerSpec = "7"
 
 // WakerEnsureCommand is the idempotent deploy of the waker helper. It recreates
 // the container when the running image OR the run spec differs (or when it is
-// absent), otherwise a no-op — so it provisions the waker, upgrades it when the
-// release image changes, and re-applies run-flag fixes when wakerSpec is bumped.
-// The routing table and activity files live in a bind mount, so a recreate
-// preserves them.
+// absent), and STARTS it either way: a helper stopped by hand (`docker stop`
+// marks it so `unless-stopped` never relaunches it) would otherwise match
+// image and spec and stay silent forever — the agent is mandatory, so a
+// stopped helper is always wrong. The routing table and activity files live
+// in a bind mount, so a recreate preserves them.
 //
 // Deployed on the same internal network as the proxy (reachable as
 // akerdock-waker:8080, never published). It runs as root (--user 0) because it
@@ -257,12 +258,14 @@ func WakerEnsureCommand(network, image string, agentEnv AgentEnv) string {
 			"-v /var/run/docker.sock:/var/run/docker.sock -v %s:%s "+
 			"--label akerdock.managed=true --label akerdock.type=helper --label akerdock.waker_spec=%s "+
 			"%s%s waker || exit $?; "+
-			"if [ -n \"$old_img\" ] && [ \"$old_img\" != \"%s\" ]; then docker image rm \"$old_img\" >/dev/null 2>&1 || true; fi; fi",
+			"if [ -n \"$old_img\" ] && [ \"$old_img\" != \"%s\" ]; then docker image rm \"$old_img\" >/dev/null 2>&1 || true; fi; fi; "+
+			"docker start %s >/dev/null",
 		wakerDir, proxy.WakerContainerName, proxy.WakerContainerName,
 		image, wakerSpec, proxy.WakerContainerName,
 		// The full akerdock tree, not just the waker's corner: the agent
 		// executes the ADR-054 file primitives on it.
-		proxy.WakerContainerName, network, hostops.Root, hostops.Root, wakerSpec, env, image, image)
+		proxy.WakerContainerName, network, hostops.Root, hostops.Root, wakerSpec, env, image, image,
+		proxy.WakerContainerName)
 }
 
 // removeWakerRoutes drops a resource from the shared table (preview destroy).
