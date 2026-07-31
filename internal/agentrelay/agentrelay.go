@@ -9,6 +9,7 @@ package agentrelay
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -40,24 +41,58 @@ type Source struct {
 
 var _ dockerruntime.Source = (*Source)(nil)
 
-// Runtime returns the Docker runtime executing on the given server, bridged
-// through the api.
-func (s *Source) Runtime(ctx context.Context, serverID int64) (dockerruntime.Runtime, error) {
-	c, err := s.conn(ctx, serverID)
+// dynamicSender resolves (and redials, when the cached bridge died) the relay
+// connection at every call, so a runtime held across a long job survives a
+// relay or agent reconnect mid-run — the mirror of the api-side registry's
+// per-call resolution.
+type dynamicSender struct {
+	s        *Source
+	serverID int64
+}
+
+func (d dynamicSender) Command(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	c, err := d.s.conn(ctx, d.serverID)
 	if err != nil {
 		return nil, err
 	}
-	return dockerruntime.NewAgentRuntime(c), nil
+	return c.Command(ctx, method, params)
+}
+
+func (d dynamicSender) Stream(ctx context.Context, method string, params any) (io.ReadCloser, error) {
+	c, err := d.s.conn(ctx, d.serverID)
+	if err != nil {
+		return nil, err
+	}
+	return c.Stream(ctx, method, params)
+}
+
+func (d dynamicSender) Attach(ctx context.Context, method string, params any) (dockerruntime.AttachStream, error) {
+	c, err := d.s.conn(ctx, d.serverID)
+	if err != nil {
+		return nil, err
+	}
+	return c.Attach(ctx, method, params)
+}
+
+var _ dockerruntime.CommandSender = dynamicSender{}
+
+// Runtime returns the Docker runtime executing on the given server, bridged
+// through the api. The initial dial keeps the fail-fast contract; the
+// runtime itself re-resolves (and redials) per call.
+func (s *Source) Runtime(ctx context.Context, serverID int64) (dockerruntime.Runtime, error) {
+	if _, err := s.conn(ctx, serverID); err != nil {
+		return nil, err
+	}
+	return dockerruntime.NewAgentRuntime(dynamicSender{s: s, serverID: serverID}), nil
 }
 
 // HostOps returns the ADR-054 file primitives executing on the given server,
-// bridged through the api.
+// bridged through the api, with the same per-call re-resolution.
 func (s *Source) HostOps(ctx context.Context, serverID int64) (hostops.Ops, error) {
-	c, err := s.conn(ctx, serverID)
-	if err != nil {
+	if _, err := s.conn(ctx, serverID); err != nil {
 		return nil, err
 	}
-	return hostops.NewClient(c), nil
+	return hostops.NewClient(dynamicSender{s: s, serverID: serverID}), nil
 }
 
 var _ hostops.Source = (*Source)(nil)

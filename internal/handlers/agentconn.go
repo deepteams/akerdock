@@ -8,6 +8,8 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"sync"
 
@@ -73,26 +75,71 @@ func (r *AgentConns) Sender(serverID int64) (dockerruntime.CommandSender, bool) 
 	return c, ok
 }
 
+// dynamicSender resolves the server's CURRENT channel at every call: a
+// runtime handed to a long job (a deployment holds one for many minutes)
+// survives an agent reconnect mid-run — the next call rides the fresh
+// connection instead of the corpse the job started with. The call in flight
+// when the channel died still fails, which is correct: its outcome is
+// unknown, and the caller's step/retry semantics own that.
+type dynamicSender struct {
+	conns    *AgentConns
+	serverID int64
+}
+
+func (d dynamicSender) current() (dockerruntime.CommandSender, error) {
+	s, ok := d.conns.Sender(d.serverID)
+	if !ok {
+		return nil, agentwire.Unavailable("not connected")
+	}
+	return s, nil
+}
+
+func (d dynamicSender) Command(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	s, err := d.current()
+	if err != nil {
+		return nil, err
+	}
+	return s.Command(ctx, method, params)
+}
+
+func (d dynamicSender) Stream(ctx context.Context, method string, params any) (io.ReadCloser, error) {
+	s, err := d.current()
+	if err != nil {
+		return nil, err
+	}
+	return s.Stream(ctx, method, params)
+}
+
+func (d dynamicSender) Attach(ctx context.Context, method string, params any) (dockerruntime.AttachStream, error) {
+	s, err := d.current()
+	if err != nil {
+		return nil, err
+	}
+	return s.Attach(ctx, method, params)
+}
+
+var _ dockerruntime.CommandSender = dynamicSender{}
+
 // Runtime returns the Docker runtime executing on the given server through
 // its agent channel — the ADR-051 mandatory path for Docker operations. The
+// resolve-time check keeps the fail-fast contract ("is the agent there at
+// all?"); the runtime itself re-resolves the live channel on every call. The
 // ctx is unused here (the registry is in-memory) but keeps the signature
 // shared with the relay-backed source workers use.
 func (r *AgentConns) Runtime(_ context.Context, serverID int64) (dockerruntime.Runtime, error) {
-	s, ok := r.Sender(serverID)
-	if !ok {
+	if _, ok := r.Sender(serverID); !ok {
 		return nil, agentwire.Unavailable("not connected")
 	}
-	return dockerruntime.NewAgentRuntime(s), nil
+	return dockerruntime.NewAgentRuntime(dynamicSender{conns: r, serverID: serverID}), nil
 }
 
 // HostOps returns the ADR-054 file primitives executing on the given server
-// through the same channel.
+// through the same channel, with the same per-call re-resolution.
 func (r *AgentConns) HostOps(_ context.Context, serverID int64) (hostops.Ops, error) {
-	s, ok := r.Sender(serverID)
-	if !ok {
+	if _, ok := r.Sender(serverID); !ok {
 		return nil, agentwire.Unavailable("not connected")
 	}
-	return hostops.NewClient(s), nil
+	return hostops.NewClient(dynamicSender{conns: r, serverID: serverID}), nil
 }
 
 var _ hostops.Source = (*AgentConns)(nil)

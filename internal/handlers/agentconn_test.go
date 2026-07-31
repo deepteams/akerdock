@@ -313,3 +313,53 @@ func TestAgentConnAttachEchoesBothWays(t *testing.T) {
 		t.Fatalf("after CloseWrite: %q, %v — want a clean EOF", rest, err)
 	}
 }
+
+// TestRuntimeSurvivesAgentReconnect pins the dynamic resolution: a runtime
+// resolved from the registry keeps working across an agent reconnect — the
+// call after the reconnect rides the FRESH channel, never the corpse the
+// caller started with (the failure mode: a deployment holding one runtime
+// for minutes dies on "write failed" after a harmless blip).
+func TestRuntimeSurvivesAgentReconnect(t *testing.T) {
+	var r AgentConns
+	ac1, agent1 := dialPair(t)
+	r.register(9, ac1)
+
+	rt, err := r.Runtime(context.Background(), 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	answerPing := func(agent *websocket.Conn, version string) {
+		go func() {
+			cmd, err := readCommand(agent)
+			if err != nil || cmd.Method != agentwire.MethodPing {
+				return
+			}
+			_ = agentWrite(agent, agentwire.Frame{
+				Type: agentwire.FrameResult,
+				Res:  &agentwire.Result{ID: cmd.ID, Body: json.RawMessage(`{"APIVersion":"` + version + `"}`)},
+			})
+		}()
+	}
+	answerPing(agent1, "1.45")
+	if p, err := rt.Ping(context.Background()); err != nil || p.APIVersion != "1.45" {
+		t.Fatalf("first ping = %+v, %v", p, err)
+	}
+
+	// The agent reconnects: a new channel replaces the old, whose handler
+	// unregisters on its way out.
+	ac2, agent2 := dialPair(t)
+	r.register(9, ac2)
+	r.unregister(9, ac1)
+	_ = agent1.Close(websocket.StatusNormalClosure, "")
+
+	answerPing(agent2, "1.46")
+	if p, err := rt.Ping(context.Background()); err != nil || p.APIVersion != "1.46" {
+		t.Fatalf("ping after reconnect = %+v, %v — the SAME runtime must ride the fresh channel", p, err)
+	}
+
+	// Fully gone: the same runtime answers unavailable, not a hang.
+	r.unregister(9, ac2)
+	if _, err := rt.Ping(context.Background()); !cerrdefs.IsUnavailable(err) {
+		t.Fatalf("ping without any channel = %v, want IsUnavailable", err)
+	}
+}
