@@ -143,6 +143,17 @@ func (r *deploymentRun) bc() *sshexec.Client {
 	return r.client
 }
 
+// bcrt is bc()'s typed twin: the Docker runtime of the machine that BUILT the
+// image — the build server's channel when one is dialled, the deployment
+// server's otherwise (ADR-055 phase 1: registry and inspect operations ride
+// the channel; the build invocation itself is still the host CLI).
+func (r *deploymentRun) bcrt() dockerruntime.Runtime {
+	if r.brt != nil {
+		return r.brt
+	}
+	return r.rt
+}
+
 // previewAuthHash renders the htpasswd line protecting this preview
 // (§20.4.4): the generated AKERDOCK_PREVIEW_BASIC_AUTH secret ("user:pass"),
 // bcrypt-hashed for the proxy — the clear text never enters a routing file.
@@ -249,6 +260,9 @@ type deploymentRun struct {
 	rt dockerruntime.Runtime
 	// hops is the same channel's ADR-054 file primitives on the target.
 	hops hostops.Ops
+	// brt is the build server's runtime, resolved when one is dialled — nil
+	// when the build runs on the deployment server (bcrt() falls back to rt).
+	brt dockerruntime.Runtime
 	// labelsMap is the run's management-label set as the typed creates need
 	// it; the CLI flag string keeps feeding the builds.
 	labelsMap map[string]string
@@ -1057,17 +1071,26 @@ func (r *deploymentRun) buildFromDockerfile(ctx context.Context, appUUID, appDir
 
 	// Local builds have no registry digest: the image ID is recorded so
 	// the rollback retention can pin it (ADR-006, local mode).
-	if err := r.step(ctx, "resolve_digest", func() (*sshexec.Result, error) {
-		res, err := r.bc().Run(ctx, "docker image inspect --format '{{.Id}}' "+imageRef)
-		if err == nil && res.ExitCode == 0 && res.Stdout != "" {
-			r.digest = firstLine(res.Stdout)
-			_ = r.h.Store.SetDeploymentImageDigest(ctx, store.SetDeploymentImageDigestParams{ID: r.d.ID, ImageDigest: &r.digest})
-		}
-		return res, err
-	}); err != nil {
+	if err := r.resolveLocalDigest(ctx, imageRef); err != nil {
 		return "", err
 	}
 	return imageRef, nil
+}
+
+// resolveLocalDigest records the built image's ID as the deployment digest —
+// a typed inspect on the machine that built it (ADR-055 phase 1).
+func (r *deploymentRun) resolveLocalDigest(ctx context.Context, imageRef string) error {
+	return r.step(ctx, "resolve_digest", func() (*sshexec.Result, error) {
+		resp, err := r.bcrt().ImageInspect(ctx, imageRef)
+		if err != nil {
+			return nil, err
+		}
+		if resp.ID != "" {
+			r.digest = resp.ID
+			_ = r.h.Store.SetDeploymentImageDigest(ctx, store.SetDeploymentImageDigestParams{ID: r.d.ID, ImageDigest: &r.digest})
+		}
+		return nil, nil
+	})
 }
 
 func ptrStr(s string) *string { return &s }
@@ -1333,14 +1356,7 @@ func (r *deploymentRun) buildFromGit(ctx context.Context, appUUID, appDir, label
 	r.d.ImageName, r.d.ImageTag = ptrStr("akerdock/"+appUUID), &sha12
 	_ = r.h.Store.SetDeploymentImage(ctx, store.SetDeploymentImageParams{ID: r.d.ID, ImageName: r.d.ImageName, ImageTag: r.d.ImageTag})
 
-	if err := r.step(ctx, "resolve_digest", func() (*sshexec.Result, error) {
-		res, err := r.bc().Run(ctx, "docker image inspect --format '{{.Id}}' "+imageRef)
-		if err == nil && res.ExitCode == 0 && res.Stdout != "" {
-			r.digest = firstLine(res.Stdout)
-			_ = r.h.Store.SetDeploymentImageDigest(ctx, store.SetDeploymentImageDigestParams{ID: r.d.ID, ImageDigest: &r.digest})
-		}
-		return res, err
-	}); err != nil {
+	if err := r.resolveLocalDigest(ctx, imageRef); err != nil {
 		return "", err
 	}
 	return imageRef, nil
@@ -2461,6 +2477,12 @@ func (r *deploymentRun) dialBuildServer(ctx context.Context) error {
 		return fmt.Errorf("ssh connect to the build server: %w", err)
 	}
 	r.builder, r.buildServer = client, &pick
+	// The build server's channel (ADR-055 phase 1): tag, push and inspect run
+	// typed there — agents are provisioned on every ready server, build
+	// servers included.
+	if r.brt, err = r.h.Docker.Runtime(ctx, pick.ID); err != nil {
+		return fmt.Errorf("the build server's agent is not connected: %w", err)
+	}
 
 	// The working directory exists on the deployment server because `prepare`
 	// created it there. The build machine has never seen this application, and
@@ -2510,9 +2532,9 @@ func (r *deploymentRun) reserveBuildServer(ctx context.Context, server store.Ser
 // server, and pulls it back BY DIGEST on the deployment server. It returns the
 // reference the container will actually run.
 //
-// Both machines log in and log out around their own operation: leaving either
-// authenticated would leave a registry token in ~/.docker/config.json for
-// anything else on that host to use (INV-003).
+// Both sides authenticate PER REQUEST through the channel (ADR-051/055): no
+// `docker login` ever runs, so no registry token ever lands in any host's
+// ~/.docker/config.json (INV-003) — and there is no logout to forget.
 func (r *deploymentRun) pushBuiltImage(ctx context.Context) (string, error) {
 	credID := r.app.BuildConfig.PushRegistryCredentialID
 	if credID == nil {
@@ -2526,42 +2548,50 @@ func (r *deploymentRun) pushBuiltImage(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	auth, err := registry.EncodeAuthConfig(registry.AuthConfig{
+		Username: cred.Username, Password: string(password), ServerAddress: cred.RegistryUrl,
+	})
+	if err != nil {
+		return "", err
+	}
 
 	local := *r.d.ImageName + ":" + *r.d.ImageTag
-	remote := cred.RegistryUrl + "/" + *r.d.ImageName + ":" + *r.d.ImageTag
+	remoteRepo := cred.RegistryUrl + "/" + *r.d.ImageName
+	remote := remoteRepo + ":" + *r.d.ImageTag
 
-	if err := r.step(ctx, "push", func() (*sshexec.Result, error) {
-		if err := dockerLogin(ctx, r.bc(), cred.RegistryUrl, cred.Username, string(password)); err != nil {
+	if err := r.streamStep(ctx, "push", func(onOutput func(string)) (*sshexec.Result, error) {
+		if err := r.bcrt().ImageTag(ctx, local, remote); err != nil {
 			return nil, err
 		}
-		defer dockerLogout(ctx, r.bc(), cred.RegistryUrl, r.h.Logger)
-
-		res, err := r.bc().Run(ctx, fmt.Sprintf("docker tag %s %s && docker push %s",
-			shellQuote(local), shellQuote(remote), shellQuote(remote)))
+		rc, err := r.bcrt().ImagePush(ctx, remote, image.PushOptions{RegistryAuth: auth})
 		if err != nil {
-			return res, err
+			return nil, fmt.Errorf("pushing %s failed: %s", remote, firstLine(err.Error()))
 		}
-		if res.ExitCode != 0 {
-			return res, fmt.Errorf("pushing %s failed: %s", remote, firstLine(res.Stderr))
+		defer func() { _ = rc.Close() }()
+		// The daemon reports push failures IN the stream, like pulls.
+		if err := streamPullProgress(rc, onOutput); err != nil {
+			return nil, fmt.Errorf("pushing %s failed: %s", remote, firstLine(err.Error()))
 		}
-		return res, nil
+		return nil, nil
 	}); err != nil {
 		return "", err
 	}
 
 	// The digest is read on the build server, right after the push: it is the
 	// identity of what was pushed, and it is what the target is told to pull.
-	// Pulling by tag would let a racing push swap the image under us.
+	// Pulling by tag would let a racing push swap the image under us. The
+	// image may also carry digests of OTHER repositories (its base pull): the
+	// one under the push repo is the identity that was just minted.
 	digest := ""
 	if err := r.step(ctx, "resolve_pushed_digest", func() (*sshexec.Result, error) {
-		res, err := r.bc().Run(ctx, "docker image inspect --format '{{index .RepoDigests 0}}' "+shellQuote(remote))
-		if err == nil && res.ExitCode == 0 {
-			digest = firstLine(res.Stdout)
+		resp, err := r.bcrt().ImageInspect(ctx, remote)
+		if err != nil {
+			return nil, err
 		}
-		if digest == "" {
-			return res, fmt.Errorf("the registry returned no digest for the pushed image")
+		if digest = pushedDigest(resp.RepoDigests, remoteRepo); digest == "" {
+			return nil, fmt.Errorf("the registry returned no digest for the pushed image")
 		}
-		return res, err
+		return nil, nil
 	}); err != nil {
 		return "", err
 	}
@@ -2597,26 +2627,21 @@ func (r *deploymentRun) pushBuiltImage(ctx context.Context) (string, error) {
 	return digest, nil
 }
 
-// dockerLogin authenticates a machine against a registry. The password goes in
-// through STDIN: a command line is readable by any `ps` on that host (INV-003).
-func dockerLogin(ctx context.Context, c *sshexec.Client, registry, user, password string) error {
-	res, err := c.RunInput(ctx, fmt.Sprintf("docker login %s -u %s --password-stdin",
-		shellQuote(registry), shellQuote(user)), password)
-	if err != nil {
-		return err
+// pushedDigest picks the pushed image's identity among an image's repo
+// digests: the one minted under the push repository — the image may also
+// carry digests of OTHER repositories (its base pull), and the shell era's
+// blind "index 0" could hand the target one of those. Falls back to the
+// first digest, then to absent.
+func pushedDigest(repoDigests []string, remoteRepo string) string {
+	for _, d := range repoDigests {
+		if strings.HasPrefix(d, remoteRepo+"@") {
+			return d
+		}
 	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("docker login to %s failed: %s", registry, firstLine(res.Stderr))
+	if len(repoDigests) > 0 {
+		return repoDigests[0]
 	}
-	return nil
-}
-
-// dockerLogout runs on a context that outlives a cancellation: a logout skipped
-// because the deployment was cancelled would leave the token on the machine.
-func dockerLogout(ctx context.Context, c *sshexec.Client, registry string, logger *slog.Logger) {
-	if _, err := c.Run(context.WithoutCancel(ctx), "docker logout "+shellQuote(registry)); err != nil {
-		logger.Warn("docker logout failed — the registry token stays on the server", "error", err)
-	}
+	return ""
 }
 
 // randIndex picks one of n. crypto/rand is overkill for load spreading, but it

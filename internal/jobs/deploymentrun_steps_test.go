@@ -198,3 +198,23 @@ func TestAwaitCandidateVerdicts(t *testing.T) {
 		})
 	}
 }
+
+// TestPushedDigest pins the ADR-055 digest selection: the identity minted
+// under the push repository wins over digests inherited from other repos,
+// with the shell era's index-0 as the fallback.
+func TestPushedDigest(t *testing.T) {
+	repo := "registry.example/acme/app"
+	digests := []string{
+		"docker.io/library/nginx@sha256:base",
+		repo + "@sha256:pushed",
+	}
+	if got := pushedDigest(digests, repo); got != repo+"@sha256:pushed" {
+		t.Fatalf("digest = %q", got)
+	}
+	if got := pushedDigest([]string{"other@sha256:x"}, repo); got != "other@sha256:x" {
+		t.Fatalf("fallback = %q", got)
+	}
+	if got := pushedDigest(nil, repo); got != "" {
+		t.Fatalf("absent = %q", got)
+	}
+}
