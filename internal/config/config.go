@@ -125,6 +125,12 @@ type Config struct {
 	// -ldflags. Empty everywhere disables waker provisioning — scale-to-zero then
 	// stays inert with a clear error, never a guessed registry.
 	Image string
+	// InstanceURL is the base URL agents are enrolled to dial back
+	// (AKERDOCK_INSTANCE_URL). Empty — the default — derives it: the Docker
+	// host gateway for a localhost server, the instance FQDN otherwise. Set
+	// it when neither derivation reaches this process from the servers' side
+	// (a NAT'd instance, a non-standard ingress, the E2E harness).
+	InstanceURL string
 }
 
 // HasRootBootstrap reports whether the AKERDOCK_ROOT_* trio was provided.
@@ -160,6 +166,7 @@ var envKeys = []string{
 	"AKERDOCK_PORT",
 	"AKERDOCK_INSTANCE_PORT",
 	"AKERDOCK_INSTANCE_FQDN",
+	"AKERDOCK_INSTANCE_URL",
 	"AKERDOCK_RELAY_URL",
 	"AKERDOCK_ACME_EMAIL",
 	"AKERDOCK_SCHEDULER_TICK",
@@ -265,6 +272,14 @@ func Load(vars map[string]string, readFile func(string) ([]byte, error)) (*Confi
 			errs = append(errs, FieldError{"AKERDOCK_INSTANCE_PORT", fmt.Sprintf("invalid value %q (expected an integer in 1–65535)", v)})
 		} else {
 			cfg.InstancePort = p
+		}
+	}
+
+	if v := get("AKERDOCK_INSTANCE_URL"); v != "" {
+		if !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
+			errs = append(errs, FieldError{"AKERDOCK_INSTANCE_URL", fmt.Sprintf("invalid value %q (expected an http(s) base URL reachable FROM the servers)", v)})
+		} else {
+			cfg.InstanceURL = strings.TrimRight(v, "/")
 		}
 	}
 

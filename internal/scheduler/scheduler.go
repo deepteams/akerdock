@@ -73,6 +73,9 @@ type Scheduler struct {
 	// InstancePort is the control plane's port, used to build the localhost
 	// server's agent push URL through the Docker host gateway (ADR-040).
 	InstancePort int
+	// InstanceURL is the explicit agent dial-back base URL
+	// (AKERDOCK_INSTANCE_URL); empty derives it per server.
+	InstanceURL string
 	// AgentImage is this release's own image (AKERDOCK_IMAGE / baked default):
 	// the scale-to-zero pass recreates any waker whose running image differs, so
 	// an upgrade propagates to every server's waker without waiting for a deploy

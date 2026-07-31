@@ -51,7 +51,7 @@ token's**, not a per-command choice — see the note under the global flags.
 |---|---|
 | `akerdock serve [all-in-one\|api\|worker\|scheduler]` | Server modes (ADR-033); the argument falls back to `AKERDOCK_MODE`, then `all-in-one`. |
 | `akerdock healthcheck` | Probe for the compose healthcheck. |
-| `akerdock waker` | Scale-to-zero waker (ADR-036), deployed as a helper container next to the workload. |
+| `akerdock agent` | Server agent (command channel, host-ops, scale-to-zero waker — ADR-036/052/056), deployed as a helper container next to the workload. `waker` remains as a deprecated alias. |
 | `akerdock version` | Print the build version. |
 
 ### 3.2 Client commands

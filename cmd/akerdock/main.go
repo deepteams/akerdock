@@ -326,6 +326,7 @@ func serveRun(mode string) int {
 			Tick: cfg.SchedulerTick,
 			Pool: pool, Store: q, Keyring: keyring, Audit: recorder,
 			Dispatcher: dispatcher, Logger: logger, Docker: dockerSource, HostOps: hostSource,
+			InstanceURL:         cfg.InstanceURL,
 			TerminalMaxDuration: cfg.TerminalMaxDuration,
 			AuditRetentionDays:  cfg.AuditRetentionDays,
 			AgentImage:          cfg.Image,
@@ -338,8 +339,8 @@ func serveRun(mode string) int {
 	if cfg.Mode == config.ModeWorker || cfg.Mode == config.ModeAllInOne {
 		worker = queue.NewWorker(q, cfg.WorkerConcurrency, logger)
 		worker.Metrics, worker.Tracer = metrics, tel.Tracer
-		worker.Register(jobs.TypeServerValidate, (&jobs.ServerValidate{Store: q, Keyring: keyring, Docker: dockerSource, HostOps: hostSource, Logger: logger, ControlPlanePort: cfg.InstancePort, AgentImage: cfg.Image}).Execute)
-		worker.Register(jobs.TypeDeploymentRun, (&jobs.DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger, Docker: dockerSource, HostOps: hostSource, ControlPlanePort: cfg.InstancePort, AgentImage: cfg.Image}).Execute)
+		worker.Register(jobs.TypeServerValidate, (&jobs.ServerValidate{Store: q, Keyring: keyring, Docker: dockerSource, HostOps: hostSource, Logger: logger, ControlPlanePort: cfg.InstancePort, AgentImage: cfg.Image, InstanceURL: cfg.InstanceURL}).Execute)
+		worker.Register(jobs.TypeDeploymentRun, (&jobs.DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger, Docker: dockerSource, HostOps: hostSource, ControlPlanePort: cfg.InstancePort, AgentImage: cfg.Image, InstanceURL: cfg.InstanceURL}).Execute)
 		worker.Register(jobs.TypeApplicationDelete, (&jobs.ApplicationDelete{Store: q, Docker: dockerSource, HostOps: hostSource, Logger: logger}).Execute)
 		worker.Register(jobs.TypeApplyRouting, (&jobs.ApplyRouting{
 			Store: q, Keyring: keyring, Docker: dockerSource, HostOps: hostSource, Logger: logger, ControlPlanePort: cfg.InstancePort,

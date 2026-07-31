@@ -48,6 +48,9 @@ type ServerValidate struct {
 	// helper is provisioned from it at validation time (ADR-054 tranche B) —
 	// every later operation on the server rides its channel.
 	AgentImage string
+	// InstanceURL is the explicit agent dial-back base URL
+	// (AKERDOCK_INSTANCE_URL); empty derives it per server.
+	InstanceURL string
 }
 
 // minDockerMajor is the minimum supported Docker Engine version (§3.1).
@@ -196,7 +199,7 @@ func (h *ServerValidate) provisionAgent(ctx context.Context, client *sshexec.Cli
 	if h.AgentImage == "" {
 		return nil, nil, fmt.Errorf("AKERDOCK_IMAGE is not set — the agent runs the AkerDock image and every Docker operation rides its channel (ADR-051); set it and re-validate")
 	}
-	env := AgentEnvForServer(ctx, h.Store, h.Keyring, h.Logger, server, h.ControlPlanePort)
+	env := AgentEnvForServer(ctx, h.Store, h.Keyring, h.Logger, server, h.ControlPlanePort, h.InstanceURL)
 	if env.InstanceURL == "" || env.Token == "" {
 		return nil, nil, fmt.Errorf("agent enrollment unavailable — the agent dials the instance back: set AKERDOCK_INSTANCE_URL or the instance FQDN, then re-validate")
 	}

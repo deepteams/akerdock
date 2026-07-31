@@ -467,7 +467,7 @@ func (w *agentScan) reconcile(server store.Server, network string, client remote
 		return
 	}
 	w.reconciled[server.ID] = true
-	env := jobs.AgentEnvForServer(w.ctx, w.s.Store, w.s.Keyring, w.s.Logger, server, w.s.InstancePort)
+	env := jobs.AgentEnvForServer(w.ctx, w.s.Store, w.s.Keyring, w.s.Logger, server, w.s.InstancePort, w.s.InstanceURL)
 	if _, err := client.Run(w.ctx, jobs.AgentEnsureCommand(network, w.s.AgentImage, env)); err != nil {
 		w.s.Logger.Warn("waker image reconcile failed", "server_id", server.ID, "error", err)
 	}

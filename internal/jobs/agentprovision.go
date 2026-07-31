@@ -195,9 +195,9 @@ type AgentEnv struct {
 // design: an error yields a waker-only helper and a log line, never a failed
 // deploy. The agent is an accelerator, not a dependency (ADR-040 §6).
 func AgentEnvForServer(ctx context.Context, q AgentEnrollmentStore, keyring *envelope.Keyring,
-	logger *slog.Logger, server store.Server, controlPlanePort int,
+	logger *slog.Logger, server store.Server, controlPlanePort int, instanceURL string,
 ) AgentEnv {
-	url := AgentInstanceURL(ctx, q, server, controlPlanePort)
+	url := AgentInstanceURL(ctx, q, server, controlPlanePort, instanceURL)
 	if url == "" {
 		return AgentEnv{}
 	}

@@ -658,7 +658,7 @@ This entire chapter is **(proposed default)**: the PRD only requires that the pr
 
 ### 8.1 Server-local "waker" component
 
-A helper container `akerdock-waker` (`akerdock.type=helper`, project image, pinned per release) is deployed on the servers where at least one resource has `scale_to_zero` enabled. It listens on the internal network (never published on the host) and has the local Docker socket, restricted by its code to starting containers labeled `akerdock.managed=true`.
+A helper container `akerdock-agent` (born `akerdock-waker`, renamed by ADR-056 — the legacy name survives as a network alias; `akerdock.type=helper`, project image, pinned per release) is deployed on the servers where at least one resource has `scale_to_zero` enabled. It listens on the internal network (never published on the host) and has the local Docker socket, restricted by its code to starting containers labeled `akerdock.managed=true`.
 
 Why not the control plane: INV-007 (the control plane does not proxy application traffic) and push architecture (§18.1 — the server never contacts the control plane). Waking therefore works even with the control plane down; the control plane is informed after the fact through observed-state reconciliation (§18.3, §21.2).
 

@@ -154,6 +154,8 @@ start_akerdock() { # Keep the complete boot environment in one readable place.
   AKERDOCK_RETRY_BASE=1s \
   AKERDOCK_TERMINAL_IDLE_TIMEOUT=8s \
   AKERDOCK_TERMINAL_MAX_DURATION=2m \
+  AKERDOCK_IMAGE=akerdock:e2e \
+  AKERDOCK_INSTANCE_URL="$INSTANCE_URL" \
   AKERDOCK_LOG_FORMAT=text "$WORKDIR/akerdock" serve all-in-one >> "$WORKDIR/api.log" 2>&1 &
   API_PID=$!
   for _ in $(seq 1 30); do curl -sf "$B/health" >/dev/null 2>&1 && break; sleep 1; done
@@ -222,6 +224,30 @@ done
 docker exec "$DIND_CTR" tar -czf - -C / etc/ssh 2>/dev/null > "$WORKDIR/hostkeys.tgz"
 ok "target server ready (DinD + sshd)"
 
+
+# --- agent image -------------------------------------------------------------
+# Every Docker operation rides the agent channel (ADR-051), and server
+# validation refuses to succeed without a provisioned agent (ADR-054): the
+# DinD needs an AkerDock image to run it from. A minimal one is built INSIDE
+# the DinD from the same source tree — FROM scratch, so nothing is pulled.
+say "building the agent image inside the DinD"
+DIND_ARCH=$(docker exec "$DIND_CTR" docker version --format '{{.Server.Arch}}')
+mkdir -p "$WORKDIR/agent-image"
+CGO_ENABLED=0 GOOS=linux GOARCH="$DIND_ARCH" go build -o "$WORKDIR/agent-image/akerdock" ./cmd/akerdock
+cat > "$WORKDIR/agent-image/Dockerfile" <<'DOCKERFILE'
+FROM scratch
+COPY akerdock /akerdock
+ENTRYPOINT ["/akerdock"]
+DOCKERFILE
+tar -C "$WORKDIR/agent-image" -cf - . | docker exec -i "$DIND_CTR" docker build -q -t akerdock:e2e - >/dev/null
+ok "agent image ready (akerdock:e2e)"
+
+# The agent dials the control plane BACK from a container nested inside the
+# DinD: the reachable address there is the DinD's own default gateway — the
+# runner's docker bridge, where the akerdock binary listens. Overridable for
+# environments with a VM in between (Docker Desktop): E2E_INSTANCE_URL.
+DIND_GW=$(docker exec "$DIND_CTR" sh -c "ip route | awk '/default/ {print \$3; exit}'")
+INSTANCE_URL=${E2E_INSTANCE_URL:-http://$DIND_GW:$API_PORT}
 
 # --- akerdock boot -----------------------------------------------------------
 say "building and booting akerdock"

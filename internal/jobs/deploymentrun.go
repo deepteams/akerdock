@@ -70,9 +70,12 @@ type DeploymentRun struct {
 	// public hairpin, whose latency taxes every preview request (ADR-030).
 	ControlPlanePort int
 	// AgentImage is this AkerDock release's own image (AKERDOCK_IMAGE): the
-	// scale-to-zero waker is deployed as a helper container from it (ADR-036).
-	// Empty leaves scale_to_zero inert with a clear error at deploy time.
+	// agent helper is deployed from it (ADR-036/056). Empty leaves
+	// scale_to_zero inert with a clear error at deploy time.
 	AgentImage string
+	// InstanceURL is the explicit agent dial-back base URL
+	// (AKERDOCK_INSTANCE_URL); empty derives it per server.
+	InstanceURL string
 }
 
 // ImageRef and TagRef bound what can reach a remote shell (INV-012); they
@@ -1551,7 +1554,7 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 				previewUUID := pguuid.String(r.preview.Uuid)
 				if err = ensureAgent(ctx, r.client, r.hops, r.dest.Network, r.h.AgentImage, previewUUID,
 					wakerConfigFromRouteGroup(previewUUID, rg, r.stzWakeSet),
-					AgentEnvForServer(ctx, r.h.Store, r.h.Keyring, r.h.Logger, r.server, r.h.ControlPlanePort)); err != nil {
+					AgentEnvForServer(ctx, r.h.Store, r.h.Keyring, r.h.Logger, r.server, r.h.ControlPlanePort, r.h.InstanceURL)); err != nil {
 					return err
 				}
 				content = renderPreviewContent(pointRouteGroupAtWaker(rg), previewUUID, r.d.ID,
@@ -1576,7 +1579,7 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 			rg.Access = access
 			if err = ensureAgent(ctx, r.client, r.hops, r.dest.Network, r.h.AgentImage, appUUID,
 				wakerConfigFromRouteGroup(appUUID, rg, r.stzWakeSet),
-				AgentEnvForServer(ctx, r.h.Store, r.h.Keyring, r.h.Logger, r.server, r.h.ControlPlanePort)); err != nil {
+				AgentEnvForServer(ctx, r.h.Store, r.h.Keyring, r.h.Logger, r.server, r.h.ControlPlanePort, r.h.InstanceURL)); err != nil {
 				return err
 			}
 			content = proxy.GenerateDynamic(pointRouteGroupAtWaker(rg), r.d.ID)

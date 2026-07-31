@@ -69,7 +69,13 @@ func EnsureAgentToken(ctx context.Context, q AgentEnrollmentStore, keyring *enve
 // (no DNS, no public hairpin), the instance FQDN elsewhere. Empty when no
 // FQDN is configured and the server is remote — the agent then stays silent
 // and everything degrades to the SSH scans.
-func AgentInstanceURL(ctx context.Context, q AgentEnrollmentStore, server store.Server, controlPlanePort int) string {
+func AgentInstanceURL(ctx context.Context, q AgentEnrollmentStore, server store.Server, controlPlanePort int, instanceURL string) string {
+	// An explicit AKERDOCK_INSTANCE_URL wins: it exists precisely for the
+	// setups where neither derivation below reaches this process from the
+	// servers' side (NAT, non-standard ingress, the E2E harness).
+	if instanceURL != "" {
+		return instanceURL
+	}
 	if server.IsLocalhost && controlPlanePort > 0 {
 		return fmt.Sprintf("http://host.docker.internal:%d", controlPlanePort)
 	}

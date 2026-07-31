@@ -873,7 +873,7 @@ func (r *deploymentRun) applyComposePreviewRouting(ctx context.Context, content 
 	if r.app.Application.PreviewScaleToZero && len(rg.Routes) > 0 {
 		wcfg := wakerConfigFromRouteGroup(appUUID, rg, stackWakeSet(plan))
 		if err := ensureAgent(ctx, r.client, r.hops, r.dest.Network, r.h.AgentImage, appUUID, wcfg,
-			AgentEnvForServer(ctx, r.h.Store, r.h.Keyring, r.h.Logger, r.server, r.h.ControlPlanePort)); err != nil {
+			AgentEnvForServer(ctx, r.h.Store, r.h.Keyring, r.h.Logger, r.server, r.h.ControlPlanePort, r.h.InstanceURL)); err != nil {
 			return err
 		}
 		rg = pointRouteGroupAtWaker(rg)
