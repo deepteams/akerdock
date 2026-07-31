@@ -81,8 +81,10 @@ func TestAgentBuildPumpsProgressAndSurfacesFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "did not complete successfully") {
 		t.Fatalf("agentBuild = %v, want the solve failure surfaced", err)
 	}
-	if len(lines) != 2 || lines[0] != "#1 [internal] load build definition" {
-		t.Fatalf("progress lines = %v", lines)
+	// Each chunk MUST end with its newline: streamStep only flushes complete
+	// lines to the step log — without it, the frontend streams nothing.
+	if len(lines) != 2 || lines[0] != "#1 [internal] load build definition\n" || lines[1] != "#2 DONE\n" {
+		t.Fatalf("progress lines = %q", lines)
 	}
 	// The typed params reached the channel untouched.
 	calls := ops.CallsTo(agentwire.MethodImageBuild)

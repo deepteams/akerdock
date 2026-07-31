@@ -190,7 +190,10 @@ func (r *deploymentRun) agentBuild(ctx context.Context, onOutput func(string), p
 	scanner := bufio.NewScanner(rc)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		onOutput(scanner.Text())
+		// The newline is the contract: streamStep coalesces chunks and only
+		// flushes COMPLETE lines to the step log — a chunk without one would
+		// buffer forever and the frontend would see nothing.
+		onOutput(scanner.Text() + "\n")
 	}
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("build failed: %s", firstLine(err.Error()))
