@@ -8,6 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/volume"
+
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
@@ -30,6 +35,7 @@ type ApplicationDeletePayload struct {
 type ApplicationDelete struct {
 	Store   *store.Queries
 	Keyring *envelope.Keyring
+	Docker  dockerruntime.Source
 	Logger  *slog.Logger
 }
 
@@ -91,32 +97,19 @@ func (h *ApplicationDelete) Execute(ctx context.Context, job store.Job, rec *que
 	// Removal is label-driven (§2.3): a compose stack has one container per
 	// service plus candidates, and its own networks — a name-based rm would
 	// leave all of it behind. The name-based rm stays for belt and braces.
-	byLabel := "--filter label=akerdock.managed=true --filter label=akerdock.resource_uuid=" + appUUID
-	cmd := fmt.Sprintf(
-		"docker ps -aq %s | xargs -r docker rm -f >/dev/null 2>&1; "+
-			"docker rm -f %s %s-next >/dev/null 2>&1; "+
-			"docker network ls -q %s | xargs -r docker network rm >/dev/null 2>&1; "+
-			"rm -rf /var/lib/akerdock/applications/%s /var/lib/akerdock/services/%s",
-		byLabel, appUUID, appUUID, byLabel, appUUID, appUUID)
-	for _, p := range previews {
-		cmd += " /var/lib/akerdock/previews/" + pguuid.String(p.Uuid)
+	// Docker objects go through the agent channel (ADR-052); the resource
+	// directories are host paths and stay on SSH.
+	rt, err := h.Docker.Runtime(ctx, server.ID)
+	if err != nil {
+		rec.Fail(ctx, "the server's agent is not connected — retry once it reconnects")
+		return nil, err
 	}
-	// PREVIEW volumes go unconditionally: they are ephemeral by definition
-	// (§20.4.1) — the delete_volumes choice protects PRODUCTION data only.
-	// The extra label filter is an existence check: both labels must match.
-	cmd += fmt.Sprintf("; docker volume ls -q --filter label=akerdock.resource_uuid=%s --filter label=akerdock.preview_uuid | xargs -r docker volume rm -f >/dev/null 2>&1", appUUID)
-	if payload.DeleteVolumes {
-		cmd += fmt.Sprintf("; docker volume ls -q --filter label=akerdock.resource_uuid=%s | xargs -r docker volume rm -f", appUUID)
-	}
-	if res, err := client.Run(ctx, cmd); err != nil || res.ExitCode != 0 {
+	if err := h.teardownWorkload(ctx, rt, client, appUUID, previews, payload.DeleteVolumes); err != nil {
 		// Record what is actually still there (§20.6.4). Without this the
 		// operator is told "remnants recorded" and finds nothing — and orphan
 		// containers and volumes keep consuming the server silently.
-		h.recordRemnants(ctx, client, app.Resource.ID, appUUID)
+		h.recordRemnants(ctx, rt, client, app.Resource.ID, appUUID)
 		rec.Fail(ctx, "remote cleanup failed — remnants recorded, retry or forget with acknowledgement (§20.6.4)")
-		if err == nil {
-			err = fmt.Errorf("remote cleanup exited with code %d", res.ExitCode)
-		}
 		return nil, err
 	}
 	rec.Succeed(ctx, "containers and files removed from "+dest.Network)
@@ -172,6 +165,50 @@ func (h *ApplicationDelete) loadTarget(ctx context.Context, app store.GetApplica
 	return server, dest, key, pem, nil
 }
 
+// teardownWorkload removes the resource's Docker objects through the agent
+// channel, then its host directories over SSH. Every action tolerates
+// already-deleted objects; the first REAL failure reports, so a partial
+// cleanup is never recorded clean.
+func (h *ApplicationDelete) teardownWorkload(ctx context.Context, rt dockerruntime.Runtime, client cleanupRemote, appUUID string, previews []store.Preview, deleteVolumes bool) error {
+	byLabel := managedResourceFilter(appUUID)
+	if err := sweepContainers(ctx, rt, byLabel, false); err != nil {
+		return fmt.Errorf("container sweep: %w", err)
+	}
+	if err := removeNamedContainers(ctx, rt, false, appUUID, appUUID+"-next"); err != nil {
+		return fmt.Errorf("container removal: %w", err)
+	}
+	if err := sweepNetworks(ctx, rt, byLabel); err != nil {
+		return fmt.Errorf("network sweep: %w", err)
+	}
+	dirs := "/var/lib/akerdock/applications/" + appUUID + " /var/lib/akerdock/services/" + appUUID
+	for _, p := range previews {
+		dirs += " /var/lib/akerdock/previews/" + pguuid.String(p.Uuid)
+	}
+	if res, err := client.Run(ctx, "rm -rf "+dirs); err != nil || res.ExitCode != 0 {
+		if err == nil {
+			err = fmt.Errorf("directory removal exited with code %d", res.ExitCode)
+		}
+		return err
+	}
+	// PREVIEW volumes go unconditionally: they are ephemeral by definition
+	// (§20.4.1) — the delete_volumes choice protects PRODUCTION data only.
+	// The extra bare label is an existence check: both labels must match.
+	previewVolumes := filters.NewArgs(
+		filters.Arg("label", "akerdock.resource_uuid="+appUUID),
+		filters.Arg("label", "akerdock.preview_uuid"),
+	)
+	if err := sweepVolumes(ctx, rt, previewVolumes); err != nil {
+		return fmt.Errorf("preview volume sweep: %w", err)
+	}
+	if deleteVolumes {
+		f := filters.NewArgs(filters.Arg("label", "akerdock.resource_uuid="+appUUID))
+		if err := sweepVolumes(ctx, rt, f); err != nil {
+			return fmt.Errorf("volume sweep: %w", err)
+		}
+	}
+	return nil
+}
+
 // recordRemnants inspects what a failed deletion left on the server and stores
 // it on the resource (§20.6.4).
 //
@@ -179,26 +216,8 @@ func (h *ApplicationDelete) loadTarget(ctx context.Context, app store.GetApplica
 // must never fail harder. An empty inventory is still recorded — knowing that
 // nothing is left is exactly what lets an operator forget the job with a clear
 // conscience.
-func (h *ApplicationDelete) recordRemnants(ctx context.Context, client *sshexec.Client, resourceID int64, appUUID string) {
-	inventory := map[string]any{
-		"observed_at": time.Now().UTC().Format(time.RFC3339),
-		"server_uuid": appUUID,
-	}
-
-	res, err := client.Run(ctx, fmt.Sprintf(
-		"echo '---containers'; docker ps -a --format '{{.Names}}' --filter label=akerdock.resource_uuid=%s; "+
-			"echo '---volumes'; docker volume ls -q --filter label=akerdock.resource_uuid=%s; "+
-			"echo '---files'; ls -d /var/lib/akerdock/applications/%s 2>/dev/null",
-		appUUID, appUUID, appUUID))
-	if err != nil || res == nil {
-		inventory["error"] = "the server could not be inspected — the remnants are unknown"
-	} else {
-		containers, volumes, files := parseRemnants(res.Stdout)
-		inventory["containers"] = containers
-		inventory["volumes"] = volumes
-		inventory["files"] = files
-	}
-
+func (h *ApplicationDelete) recordRemnants(ctx context.Context, rt dockerruntime.Runtime, client cleanupRemote, resourceID int64, appUUID string) {
+	inventory := collectRemnants(ctx, rt, client, appUUID)
 	raw, err := json.Marshal(inventory)
 	if err != nil {
 		return
@@ -212,26 +231,47 @@ func (h *ApplicationDelete) recordRemnants(ctx context.Context, client *sshexec.
 	h.Logger.Warn("deletion left remnants on the server", "app_uuid", appUUID, "remnants", string(raw))
 }
 
-// parseRemnants splits the inspection output into its three sections.
-func parseRemnants(out string) (containers, volumes, files []string) {
-	section := ""
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		switch {
-		case line == "":
-			continue
-		case strings.HasPrefix(line, "---"):
-			section = strings.TrimPrefix(line, "---")
-			continue
-		}
-		switch section {
-		case "containers":
-			containers = append(containers, line)
-		case "volumes":
-			volumes = append(volumes, line)
-		case "files":
-			files = append(files, line)
+// collectRemnants builds the remnant inventory: containers and volumes read
+// through the agent channel, the resource directory over SSH.
+func collectRemnants(ctx context.Context, rt dockerruntime.Runtime, client cleanupRemote, appUUID string) map[string]any {
+	inventory := map[string]any{
+		"observed_at": time.Now().UTC().Format(time.RFC3339),
+		"server_uuid": appUUID,
+	}
+	byLabel := filters.NewArgs(filters.Arg("label", "akerdock.resource_uuid="+appUUID))
+
+	containers := []string{}
+	list, err := rt.ContainerList(ctx, container.ListOptions{All: true, Filters: byLabel})
+	if err != nil {
+		inventory["error"] = "the server could not be inspected — the remnants are unknown"
+		return inventory
+	}
+	for _, c := range list {
+		if name := containerName(c); name != "" {
+			containers = append(containers, name)
 		}
 	}
-	return containers, volumes, files
+	volumes := []string{}
+	vols, err := rt.VolumeList(ctx, volume.ListOptions{Filters: byLabel})
+	if err != nil {
+		inventory["error"] = "the server could not be inspected — the remnants are unknown"
+		return inventory
+	}
+	for _, v := range vols.Volumes {
+		if v != nil {
+			volumes = append(volumes, v.Name)
+		}
+	}
+	files := []string{}
+	if res, err := client.Run(ctx, "ls -d /var/lib/akerdock/applications/"+appUUID+" 2>/dev/null"); err == nil && res != nil {
+		for line := range strings.SplitSeq(res.Stdout, "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				files = append(files, line)
+			}
+		}
+	}
+	inventory["containers"] = containers
+	inventory["volumes"] = volumes
+	inventory["files"] = files
+	return inventory
 }

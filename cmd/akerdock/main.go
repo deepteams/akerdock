@@ -332,7 +332,7 @@ func serveRun(mode string) int {
 		worker.Metrics, worker.Tracer = metrics, tel.Tracer
 		worker.Register(jobs.TypeServerValidate, (&jobs.ServerValidate{Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort}).Execute)
 		worker.Register(jobs.TypeDeploymentRun, (&jobs.DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger, ControlPlanePort: cfg.InstancePort, WakerImage: cfg.Image}).Execute)
-		worker.Register(jobs.TypeApplicationDelete, (&jobs.ApplicationDelete{Store: q, Keyring: keyring, Logger: logger}).Execute)
+		worker.Register(jobs.TypeApplicationDelete, (&jobs.ApplicationDelete{Store: q, Keyring: keyring, Docker: dockerSource, Logger: logger}).Execute)
 		worker.Register(jobs.TypeApplyRouting, (&jobs.ApplyRouting{
 			Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort,
 		}).Execute)
@@ -350,7 +350,7 @@ func serveRun(mode string) int {
 		worker.Register(jobs.TypeGithubAppPush, (&jobs.GithubAppPush{Store: q, Logger: logger}).Execute)
 		worker.Register(jobs.TypeGithubAppPullRequest, (&jobs.GithubAppPullRequest{Store: q, Keyring: keyring, Logger: logger}).Execute)
 		worker.Register(jobs.TypeGithubAppIssueComment, (&jobs.GithubAppIssueComment{Store: q, Keyring: keyring, Logger: logger}).Execute)
-		worker.Register(jobs.TypePreviewDestroy, (&jobs.PreviewDestroy{Store: q, Keyring: keyring, Logger: logger, Audit: recorder}).Execute)
+		worker.Register(jobs.TypePreviewDestroy, (&jobs.PreviewDestroy{Store: q, Keyring: keyring, Docker: dockerSource, Logger: logger, Audit: recorder}).Execute)
 		worker.Register(jobs.TypeBackupExecute, backup.Execute)
 		worker.Register(jobs.TypeBackupRestore, backup.Execute)
 		worker.Register(jobs.TypeBackupDrill, backup.Execute)
@@ -367,7 +367,7 @@ func serveRun(mode string) int {
 		worker.Register(jobs.TypeAdoptionScan, adoptionJobs.ExecuteScan)
 		worker.Register(jobs.TypeAdoptionAdopt, adoptionJobs.ExecuteAdopt)
 		worker.Register(jobs.TypeResourceDisown, adoptionJobs.ExecuteDisown)
-		worker.Register(jobs.TypeServerCleanup, (&jobs.ServerCleanup{Store: q, Keyring: keyring, Audit: recorder, Logger: logger}).Execute)
+		worker.Register(jobs.TypeServerCleanup, (&jobs.ServerCleanup{Store: q, Keyring: keyring, Audit: recorder, Docker: dockerSource, Logger: logger}).Execute)
 		go worker.Run(ctx)
 	}
 

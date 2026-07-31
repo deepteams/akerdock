@@ -597,7 +597,7 @@ func TestJobFlowsReachExternalBoundary(t *testing.T) {
 		},
 		"server cleanup": func() (any, error) {
 			j := job(TypeServerCleanup, `{"server_id":1,"reason":"manual"}`)
-			return (&ServerCleanup{Store: q, Keyring: keyring, Audit: recorder, Logger: logger}).Execute(context.Background(), j, rec(j))
+			return (&ServerCleanup{Store: q, Keyring: keyring, Audit: recorder, Docker: unavailableDocker{}, Logger: logger}).Execute(context.Background(), j, rec(j))
 		},
 		"application lifecycle": func() (any, error) {
 			j := job(TypeApplicationStop, `{"resource_id":1,"action":"stop"}`)
@@ -621,7 +621,7 @@ func TestJobFlowsReachExternalBoundary(t *testing.T) {
 		},
 		"preview already destroyed": func() (any, error) {
 			j := job(TypePreviewDestroy, `{"preview_id":1}`)
-			return (&PreviewDestroy{Store: q, Keyring: keyring, Logger: logger}).Execute(context.Background(), j, rec(j))
+			return (&PreviewDestroy{Store: q, Keyring: keyring, Docker: unavailableDocker{}, Logger: logger}).Execute(context.Background(), j, rec(j))
 		},
 		"backup": func() (any, error) {
 			j := job(TypeBackupExecute, `{"plan_id":1}`)
@@ -629,7 +629,7 @@ func TestJobFlowsReachExternalBoundary(t *testing.T) {
 		},
 		"application delete": func() (any, error) {
 			j := job(TypeApplicationDelete, `{"resource_id":1}`)
-			return (&ApplicationDelete{Store: q, Keyring: keyring, Logger: logger}).Execute(context.Background(), j, rec(j))
+			return (&ApplicationDelete{Store: q, Keyring: keyring, Docker: unavailableDocker{}, Logger: logger}).Execute(context.Background(), j, rec(j))
 		},
 	}
 	for name, run := range tests {

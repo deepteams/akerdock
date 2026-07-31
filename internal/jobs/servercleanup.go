@@ -9,9 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/go-units"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/audit"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
@@ -36,11 +40,14 @@ type ServerCleanupPayload struct {
 // networks). It NEVER touches an unmanaged or persistent object: named
 // volumes — adopted ones included (§20.7) — tagged images (the rollback
 // artifacts, ADR-006) and foreign containers are out of reach by
-// construction, not by filter discipline.
+// construction, not by filter discipline. Docker objects go through the agent
+// channel (ADR-052); the build cache, the tmp purge and the df measurement
+// are host-side and stay on SSH.
 type ServerCleanup struct {
 	Store   *store.Queries
 	Keyring *envelope.Keyring
 	Audit   *audit.Recorder
+	Docker  dockerruntime.Source
 	Logger  *slog.Logger
 	dial    cleanupDialFunc
 }
@@ -52,9 +59,10 @@ type cleanupRemote interface {
 
 type cleanupDialFunc func(context.Context, string, int, string, string, time.Duration, string) (cleanupRemote, error)
 
-type cleanupPrune struct {
+// cleanupStep is one prune: run returns the operator-facing summary line.
+type cleanupStep struct {
 	name string
-	cmd  string
+	run  func(ctx context.Context) (string, error)
 }
 
 // serverCleanupDeferDelay is short enough for a manual cleanup to remain
@@ -99,6 +107,14 @@ func (h *ServerCleanup) Execute(ctx context.Context, job store.Job, rec *queue.S
 		}, nil
 	}
 
+	rt, err := h.Docker.Runtime(ctx, server.ID)
+	if err != nil {
+		rec.Start(ctx, "agent_channel")
+		rec.Fail(ctx, "the server's agent is not connected")
+		h.publish(ctx, server, "server.cleanup.failed.v1", map[string]any{"reason": "agent not connected"})
+		return nil, err
+	}
+
 	key, err := h.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
 	if err != nil {
 		return nil, err
@@ -124,7 +140,7 @@ func (h *ServerCleanup) Execute(ctx context.Context, job store.Job, rec *queue.S
 	defer func() { _ = client.Close() }()
 
 	rec.Start(ctx, "measure_before")
-	before, err := h.diskUsagePct(ctx, client)
+	before, err := h.diskUsagePct(ctx, rt, client)
 	if err != nil {
 		rec.Fail(ctx, firstLine(err.Error()))
 		h.publish(ctx, server, "server.cleanup.failed.v1", map[string]any{
@@ -148,30 +164,26 @@ func (h *ServerCleanup) Execute(ctx context.Context, job store.Job, rec *queue.S
 		rec.Succeed(ctx, fmt.Sprintf("Docker disk at %d%%", before))
 	}
 
-	for _, p := range serverCleanupPrunes(server) {
+	for _, step := range h.cleanupSteps(server, rt, client) {
 		if err := func() error {
-			rec.Start(ctx, p.name)
-			res, err := client.Run(ctx, p.cmd)
+			rec.Start(ctx, step.name)
+			summary, err := step.run(ctx)
 			if err != nil {
-				rec.Fail(ctx, err.Error())
-				return err
+				rec.Fail(ctx, firstLine(err.Error()))
+				return fmt.Errorf("%s failed: %s", step.name, firstLine(err.Error()))
 			}
-			if res.ExitCode != 0 {
-				rec.Fail(ctx, firstLine(res.Stderr))
-				return fmt.Errorf("%s failed: %s", p.name, firstLine(res.Stderr))
-			}
-			rec.Succeed(ctx, firstLine(reclaimedLine(res.Stdout)))
+			rec.Succeed(ctx, summary)
 			return nil
 		}(); err != nil {
 			h.publish(ctx, server, "server.cleanup.failed.v1", map[string]any{
-				"reason": firstLine(err.Error()), "step": p.name,
+				"reason": firstLine(err.Error()), "step": step.name,
 			})
 			return nil, err
 		}
 	}
 
 	rec.Start(ctx, "measure_after")
-	after, err := h.diskUsagePct(ctx, client)
+	after, err := h.diskUsagePct(ctx, rt, client)
 	if err != nil {
 		rec.Fail(ctx, firstLine(err.Error()))
 		h.publish(ctx, server, "server.cleanup.failed.v1", map[string]any{
@@ -219,62 +231,131 @@ func (h *ServerCleanup) deferCleanup(ctx context.Context, job store.Job, server 
 	})
 }
 
-// serverCleanupPrunes is kept separate from Execute so the destructive
-// boundary is unit-testable as a complete inventory.
-func serverCleanupPrunes(server store.Server) []cleanupPrune {
-	prunes := []cleanupPrune{
+// managedLabelFilter scopes a prune to AkerDock's own objects — the positive
+// filtering that keeps foreign resources out of reach.
+var managedLabelFilter = filters.NewArgs(filters.Arg("label", "akerdock.managed=true"))
+
+// cleanupSteps is kept separate from Execute so the destructive boundary is
+// unit-testable as a complete inventory. The build cache and the tmp purge
+// are host-side (the CLI build path, ADR-051) and run over SSH; everything
+// else is a typed call on the agent channel.
+func (h *ServerCleanup) cleanupSteps(server store.Server, rt dockerruntime.Runtime, client cleanupRemote) []cleanupStep {
+	sshStep := func(cmd string) func(context.Context) (string, error) {
+		return func(ctx context.Context) (string, error) {
+			res, err := client.Run(ctx, cmd)
+			if err != nil {
+				return "", err
+			}
+			if res.ExitCode != 0 {
+				return "", fmt.Errorf("%s", firstLine(res.Stderr))
+			}
+			return firstLine(reclaimedLine(res.Stdout)), nil
+		}
+	}
+	steps := []cleanupStep{
 		// Build cache is reconstructible. -a includes every unused cache record;
-		// --keep-storage leaves a useful warm 2 GiB floor.
-		{"prune_build_cache", "docker builder prune -af --keep-storage 2GB"},
-		// Locally built AkerDock images carry this label. Positive filtering is
-		// what keeps foreign dangling images out of reach.
-		{"prune_dangling_images", "docker image prune -f --filter label=akerdock.managed=true"},
+		// --keep-storage leaves a useful warm 2 GiB floor. The cache belongs to
+		// the CLI build path, so its prune stays a CLI command.
+		{"prune_build_cache", sshStep("docker builder prune -af --keep-storage 2GB")},
+		// Locally built AkerDock images carry the managed label. Positive
+		// filtering is what keeps foreign dangling images out of reach; the
+		// dangling filter is what `docker image prune` (without -a) implies.
+		{"prune_dangling_images", func(ctx context.Context) (string, error) {
+			report, err := rt.ImagesPrune(ctx, filters.NewArgs(
+				filters.Arg("dangling", "true"),
+				filters.Arg("label", "akerdock.managed=true"),
+			))
+			if err != nil {
+				return "", err
+			}
+			return reclaimedSummary(report.SpaceReclaimed), nil
+		}},
 		// With no active deployment, every managed exact `-next` name is an
-		// orphan regardless of whether Docker calls it created, running,
-		// restarting, exited, paused or dead. -v also reclaims only the
+		// orphan regardless of its state. RemoveVolumes reclaims only the
 		// candidate's attached anonymous volumes; named volumes stay intact.
-		{
-			"prune_dead_candidates",
-			cleanupCandidatesCommand(),
-		},
+		{"prune_dead_candidates", func(ctx context.Context) (string, error) {
+			return pruneDeadCandidates(ctx, rt)
+		}},
 		// find includes dotfiles. Its exit status is preserved, so permission
 		// failures fail the job instead of being hidden behind `echo done`.
-		{
-			"purge_tmp",
-			cleanupTmpCommand("/var/lib/akerdock/tmp"),
-		},
+		{"purge_tmp", sshStep(cleanupTmpCommand("/var/lib/akerdock/tmp"))},
 	}
 	if server.CleanupPruneVolumes {
 		// Positive ownership filtering preserves foreign anonymous volumes.
-		// Named managed volumes are not selected without --all.
-		prunes = append(prunes, cleanupPrune{
-			"prune_anonymous_volumes",
-			"docker volume prune -f --filter label=akerdock.managed=true",
-		})
+		// Named managed volumes are not selected without the `all` filter.
+		steps = append(steps, cleanupStep{"prune_anonymous_volumes", func(ctx context.Context) (string, error) {
+			report, err := rt.VolumesPrune(ctx, managedLabelFilter)
+			if err != nil {
+				return "", err
+			}
+			return reclaimedSummary(report.SpaceReclaimed), nil
+		}})
 	}
 	if server.CleanupPruneNetworks {
-		prunes = append(prunes, cleanupPrune{
-			"prune_managed_networks",
-			"docker network prune -f --filter label=akerdock.managed=true",
-		})
+		steps = append(steps, cleanupStep{"prune_managed_networks", func(ctx context.Context) (string, error) {
+			report, err := rt.NetworksPrune(ctx, managedLabelFilter)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("%d networks removed", len(report.NetworksDeleted)), nil
+		}})
 	}
-	return prunes
+	return steps
 }
 
-func cleanupCandidatesCommand() string {
-	return `set -e; ids=$(docker ps -aq --filter label=akerdock.managed=true); for id in $ids; do meta=$(docker inspect --format '{{.Name}}|{{with index .Config.Labels "akerdock.resource_uuid"}}{{.}}{{end}}|{{with index .Config.Labels "akerdock.preview_uuid"}}{{.}}{{end}}|{{with index .Config.Labels "akerdock.component"}}{{.}}{{end}}' "$id"); name=${meta%%|*}; meta=${meta#*|}; resource=${meta%%|*}; meta=${meta#*|}; preview=${meta%%|*}; component=${meta#*|}; base=${preview:-$resource}; candidate="/$base-next"; if [ -n "$component" ]; then candidate="/$base-$component-next"; fi; if [ -n "$base" ] && [ "$name" = "$candidate" ]; then docker rm -fv "$id"; fi; done`
+// pruneDeadCandidates removes every managed container whose name is exactly
+// its resource's `-next` candidate: with no deployment running (the §3.7
+// guard), each one is an orphan of an interrupted deploy, whatever state
+// Docker reports for it.
+func pruneDeadCandidates(ctx context.Context, rt dockerruntime.Runtime) (string, error) {
+	list, err := rt.ContainerList(ctx, container.ListOptions{All: true, Filters: managedLabelFilter})
+	if err != nil {
+		return "", err
+	}
+	removed := 0
+	for _, c := range list {
+		name := containerName(c)
+		base := c.Labels["akerdock.preview_uuid"]
+		if base == "" {
+			base = c.Labels["akerdock.resource_uuid"]
+		}
+		if base == "" || name == "" {
+			continue
+		}
+		candidate := base + "-next"
+		if component := c.Labels["akerdock.component"]; component != "" {
+			candidate = base + "-" + component + "-next"
+		}
+		if name != candidate {
+			continue
+		}
+		if err := removeNamedContainers(ctx, rt, true, c.ID); err != nil {
+			return "", err
+		}
+		removed++
+	}
+	return fmt.Sprintf("%d dead candidates removed", removed), nil
 }
 
 func cleanupTmpCommand(dir string) string {
 	return `set -e; dir=` + shellQuote(dir) + `; if [ -d "$dir" ]; then find "$dir" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; fi`
 }
 
-// diskUsagePct measures Docker's actual data filesystem. Docker Root Dir may
-// live on a dedicated mount, so using /var/lib/akerdock can silently watch the
-// wrong disk. Measurement is required: a threshold job must never turn an
-// unreadable value into a successful "below threshold" result.
-func (h *ServerCleanup) diskUsagePct(ctx context.Context, client cleanupRemote) (int, error) {
-	res, err := client.Run(ctx, `root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null) && [ -n "$root" ] && df -P "$root" | awk 'NR==2 {gsub(/%/,"",$5); print $5}'`)
+// diskUsagePct measures Docker's actual data filesystem: the root comes from
+// the daemon (over the channel), the filesystem occupancy from the host's df.
+// Docker Root Dir may live on a dedicated mount, so using /var/lib/akerdock
+// can silently watch the wrong disk. Measurement is required: a threshold job
+// must never turn an unreadable value into a successful "below threshold"
+// result.
+func (h *ServerCleanup) diskUsagePct(ctx context.Context, rt dockerruntime.Runtime, client cleanupRemote) (int, error) {
+	info, err := rt.Info(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("measure Docker disk usage: %w", err)
+	}
+	if info.DockerRootDir == "" {
+		return 0, fmt.Errorf("measure Docker disk usage: the daemon reported no root dir")
+	}
+	res, err := client.Run(ctx, "df -P "+shellQuote(info.DockerRootDir)+` | awk 'NR==2 {gsub(/%/,"",$5); print $5}'`)
 	if err != nil {
 		return 0, fmt.Errorf("measure Docker disk usage: %w", err)
 	}
@@ -292,8 +373,14 @@ func (h *ServerCleanup) diskUsagePct(ctx context.Context, client cleanupRemote) 
 	return n, nil
 }
 
+// reclaimedSummary renders a prune report the way the CLI did — it is the
+// number the operator wants in the step.
+func reclaimedSummary(bytes uint64) string {
+	return "Total reclaimed space: " + units.HumanSize(float64(bytes))
+}
+
 // reclaimedLine keeps the docker prune summary ("Total reclaimed space: …")
-// when present — it is the number the operator wants in the step.
+// when present — for the host-side prunes that still run the CLI.
 func reclaimedLine(out string) string {
 	for _, line := range strings.Split(out, "\n") {
 		if strings.HasPrefix(line, "Total reclaimed space:") {

@@ -8,11 +8,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	containertypes "github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/system"
+
+	"github.com/deepteams/akerdock/internal/dockerruntime"
+	"github.com/deepteams/akerdock/internal/dockerruntime/fake"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
@@ -35,48 +42,98 @@ func (s *cleanupRemoteStub) Run(_ context.Context, command string) (*sshexec.Res
 
 func (*cleanupRemoteStub) Close() error { return nil }
 
-func TestServerCleanupPruneInventory(t *testing.T) {
-	prunes := serverCleanupPrunes(store.Server{
-		CleanupPruneVolumes:  true,
-		CleanupPruneNetworks: true,
-	})
-	byName := make(map[string]string, len(prunes))
-	for _, prune := range prunes {
-		byName[prune.name] = prune.cmd
+// fixedSource hands every caller the same runtime — the job-test double of
+// the per-server resolution.
+type fixedSource struct {
+	rt  dockerruntime.Runtime
+	err error
+}
+
+func (s fixedSource) Runtime(context.Context, int64) (dockerruntime.Runtime, error) {
+	return s.rt, s.err
+}
+
+// cleanupFakeRuntime is a fake with the read paths every cleanup pass needs.
+func cleanupFakeRuntime() *fake.Runtime {
+	rt := &fake.Runtime{}
+	rt.InfoFn = func(context.Context) (system.Info, error) {
+		return system.Info{DockerRootDir: "/var/lib/docker"}, nil
 	}
-	for _, name := range []string{
-		"prune_build_cache",
-		"prune_dangling_images",
-		"prune_dead_candidates",
-		"purge_tmp",
-		"prune_anonymous_volumes",
-		"prune_managed_networks",
-	} {
-		if byName[name] == "" {
-			t.Errorf("cleanup inventory is missing %q", name)
+	rt.ContainerListFn = func(context.Context, containertypes.ListOptions) ([]containertypes.Summary, error) {
+		return nil, nil
+	}
+	return rt
+}
+
+func labelValues(t *testing.T, f filters.Args, key string) []string {
+	t.Helper()
+	values := f.Get(key)
+	slices.Sort(values)
+	return values
+}
+
+// TestServerCleanupStepInventory pins the destructive boundary: the complete
+// step list, the positive managed-only filters of every typed prune, and the
+// two host-side commands that stay on SSH.
+func TestServerCleanupStepInventory(t *testing.T) {
+	rt := cleanupFakeRuntime()
+	remote := &cleanupRemoteStub{result: &sshexec.Result{Stdout: "Total reclaimed space: 1MB\n", ExitCode: 0}}
+	h := &ServerCleanup{}
+
+	steps := h.cleanupSteps(store.Server{CleanupPruneVolumes: true, CleanupPruneNetworks: true}, rt, remote)
+	var names []string
+	for _, step := range steps {
+		names = append(names, step.name)
+		if _, err := step.run(context.Background()); err != nil {
+			t.Fatalf("%s: %v", step.name, err)
 		}
 	}
-	if cmd := byName["prune_build_cache"]; !strings.Contains(cmd, "prune -af") ||
-		!strings.Contains(cmd, "--keep-storage 2GB") {
+	want := []string{
+		"prune_build_cache", "prune_dangling_images", "prune_dead_candidates",
+		"purge_tmp", "prune_anonymous_volumes", "prune_managed_networks",
+	}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("cleanup inventory = %v, want %v", names, want)
+	}
+	if defaults := h.cleanupSteps(store.Server{}, rt, remote); len(defaults) != 4 {
+		t.Fatalf("default cleanup has %d steps, want the four non-destructive steps", len(defaults))
+	}
+
+	// Host-side commands: reclaim-all build cache with its warm floor, and a
+	// tmp purge that neither misses dotfiles nor hides failures.
+	if cmd := remote.commands[0]; !strings.Contains(cmd, "prune -af") || !strings.Contains(cmd, "--keep-storage 2GB") {
 		t.Errorf("build cache command does not reclaim all unused cache with its reserve: %q", cmd)
 	}
-	for _, name := range []string{"prune_dangling_images", "prune_anonymous_volumes", "prune_managed_networks"} {
-		if !strings.Contains(byName[name], "label=akerdock.managed=true") {
-			t.Errorf("%s is not positively scoped to managed objects: %q", name, byName[name])
-		}
-	}
-	if cmd := byName["prune_dead_candidates"]; strings.Contains(cmd, "status=exited") ||
-		!strings.Contains(cmd, "docker rm -fv") {
-		t.Errorf("candidate cleanup is state-limited or leaves anonymous volumes: %q", cmd)
-	}
-	if cmd := byName["purge_tmp"]; !strings.Contains(cmd, "find ") ||
+	if cmd := remote.commands[1]; !strings.Contains(cmd, "find ") ||
 		strings.Contains(cmd, "/tmp/*") || strings.Contains(cmd, "echo done") {
 		t.Errorf("tmp cleanup can miss dotfiles or hide errors: %q", cmd)
 	}
 
-	defaultPrunes := serverCleanupPrunes(store.Server{})
-	if len(defaultPrunes) != 4 {
-		t.Fatalf("default cleanup has %d steps, want the four non-destructive steps", len(defaultPrunes))
+	// Typed prunes: every one positively scoped to managed objects.
+	for _, c := range rt.Calls() {
+		switch c.Method {
+		case "ImagesPrune":
+			f := c.Args[0].(filters.Args)
+			if got := labelValues(t, f, "label"); len(got) != 1 || got[0] != "akerdock.managed=true" {
+				t.Errorf("image prune labels = %v", got)
+			}
+			if got := f.Get("dangling"); len(got) != 1 || got[0] != "true" {
+				t.Errorf("image prune must stay dangling-only (tagged rollback artifacts survive): %v", got)
+			}
+		case "VolumesPrune", "NetworksPrune":
+			f := c.Args[0].(filters.Args)
+			if got := labelValues(t, f, "label"); len(got) != 1 || got[0] != "akerdock.managed=true" {
+				t.Errorf("%s labels = %v", c.Method, got)
+			}
+		case "ContainerList":
+			opts := c.Args[0].(containertypes.ListOptions)
+			if !opts.All {
+				t.Error("candidate cleanup must see every container state")
+			}
+			if got := labelValues(t, opts.Filters, "label"); len(got) != 1 || got[0] != "akerdock.managed=true" {
+				t.Errorf("candidate listing labels = %v", got)
+			}
+		}
 	}
 }
 
@@ -84,9 +141,10 @@ func TestServerCleanupThresholdSkipsWithoutPruning(t *testing.T) {
 	q, keyring, _, logger, db := jobFlowDependencies(t)
 	threshold := int32(80)
 	db.cleanupThreshold = &threshold
+	rt := cleanupFakeRuntime()
 	remote := &cleanupRemoteStub{result: &sshexec.Result{Stdout: "79\n", ExitCode: 0}}
 	handler := &ServerCleanup{
-		Store: q, Keyring: keyring, Logger: logger,
+		Store: q, Keyring: keyring, Logger: logger, Docker: fixedSource{rt: rt},
 		dial: func(context.Context, string, int, string, string, time.Duration, string) (cleanupRemote, error) {
 			return remote, nil
 		},
@@ -105,7 +163,10 @@ func TestServerCleanupThresholdSkipsWithoutPruning(t *testing.T) {
 		t.Fatalf("threshold cleanup result = %#v", result)
 	}
 	if len(remote.commands) != 1 {
-		t.Fatalf("threshold cleanup ran destructive commands below the threshold: %v", remote.commands)
+		t.Fatalf("threshold cleanup ran host commands below the threshold: %v", remote.commands)
+	}
+	if names := rt.CallNames(); len(names) != 1 || names[0] != "Info" {
+		t.Fatalf("threshold cleanup ran typed prunes below the threshold: %v", names)
 	}
 }
 
@@ -113,9 +174,10 @@ func TestServerCleanupExecutesCompleteManagedInventory(t *testing.T) {
 	q, keyring, _, logger, db := jobFlowDependencies(t)
 	db.truthy = true // enable the opt-in managed volume and network passes
 	measurements := []string{"91\n", "43\n"}
+	rt := cleanupFakeRuntime()
 	remote := &cleanupRemoteStub{}
 	remote.run = func(command string) (*sshexec.Result, error) {
-		if strings.Contains(command, ".DockerRootDir") {
+		if strings.HasPrefix(command, "df -P ") {
 			value := measurements[0]
 			measurements = measurements[1:]
 			return &sshexec.Result{Stdout: value, ExitCode: 0}, nil
@@ -123,7 +185,7 @@ func TestServerCleanupExecutesCompleteManagedInventory(t *testing.T) {
 		return &sshexec.Result{Stdout: "Total reclaimed space: 1MB\n", ExitCode: 0}, nil
 	}
 	handler := &ServerCleanup{
-		Store: q, Keyring: keyring, Logger: logger,
+		Store: q, Keyring: keyring, Logger: logger, Docker: fixedSource{rt: rt},
 		dial: func(context.Context, string, int, string, string, time.Duration, string) (cleanupRemote, error) {
 			return remote, nil
 		},
@@ -142,32 +204,33 @@ func TestServerCleanupExecutesCompleteManagedInventory(t *testing.T) {
 		payload["disk_pct_before"] != 91 || payload["disk_pct_after"] != 43 {
 		t.Fatalf("completed cleanup result = %#v", result)
 	}
-	if len(remote.commands) != 8 { // measure + six cleanup resources + measure
-		t.Fatalf("cleanup executed %d remote commands, want 8: %v", len(remote.commands), remote.commands)
+	// Host side: measure + build cache + tmp + measure.
+	if len(remote.commands) != 4 {
+		t.Fatalf("cleanup executed %d host commands, want 4: %v", len(remote.commands), remote.commands)
 	}
-	for _, prune := range serverCleanupPrunes(store.Server{
-		CleanupPruneVolumes: true, CleanupPruneNetworks: true,
-	}) {
-		if !containsString(remote.commands, prune.cmd) {
-			t.Errorf("cleanup did not execute %s", prune.name)
+	// Typed side: two measures plus the four managed prune passes.
+	counts := map[string]int{}
+	for _, name := range rt.CallNames() {
+		counts[name]++
+	}
+	for name, want := range map[string]int{
+		"Info": 2, "ImagesPrune": 1, "ContainerList": 1, "VolumesPrune": 1, "NetworksPrune": 1,
+	} {
+		if counts[name] != want {
+			t.Errorf("%s ran %d times, want %d (calls: %v)", name, counts[name], want, rt.CallNames())
 		}
 	}
 }
 
 func TestServerCleanupStopsAndReportsPruneFailure(t *testing.T) {
 	q, keyring, _, logger, _ := jobFlowDependencies(t)
-	remote := &cleanupRemoteStub{}
-	remote.run = func(command string) (*sshexec.Result, error) {
-		if strings.Contains(command, ".DockerRootDir") {
-			return &sshexec.Result{Stdout: "90\n", ExitCode: 0}, nil
-		}
-		if strings.HasPrefix(command, "docker image prune") {
-			return &sshexec.Result{Stderr: "daemon refused prune\n", ExitCode: 7}, nil
-		}
-		return &sshexec.Result{ExitCode: 0}, nil
+	rt := cleanupFakeRuntime()
+	rt.ImagesPruneFn = func(context.Context, filters.Args) (image.PruneReport, error) {
+		return image.PruneReport{}, errors.New("daemon refused prune")
 	}
+	remote := &cleanupRemoteStub{result: &sshexec.Result{Stdout: "90\n", ExitCode: 0}}
 	handler := &ServerCleanup{
-		Store: q, Keyring: keyring, Logger: logger,
+		Store: q, Keyring: keyring, Logger: logger, Docker: fixedSource{rt: rt},
 		dial: func(context.Context, string, int, string, string, time.Duration, string) (cleanupRemote, error) {
 			return remote, nil
 		},
@@ -181,77 +244,61 @@ func TestServerCleanupStopsAndReportsPruneFailure(t *testing.T) {
 		!strings.Contains(err.Error(), "prune_dangling_images") {
 		t.Fatalf("cleanup accepted a failed prune: %v", err)
 	}
-	if len(remote.commands) != 3 {
-		t.Fatalf("cleanup continued after a failed prune: %v", remote.commands)
+	// Measure + build cache only: the failed prune stops the pass.
+	if len(remote.commands) != 2 {
+		t.Fatalf("cleanup continued host commands after a failed prune: %v", remote.commands)
 	}
-}
-
-func containsString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
+	for _, name := range rt.CallNames() {
+		if name == "VolumesPrune" || name == "NetworksPrune" {
+			t.Fatalf("cleanup continued typed prunes after a failure: %v", rt.CallNames())
 		}
 	}
-	return false
 }
 
-func TestCleanupCandidateCommandMatchesExactManagedCandidates(t *testing.T) {
-	bin := t.TempDir()
-	logPath := filepath.Join(bin, "removed")
-	docker := filepath.Join(bin, "docker")
-	script := `#!/bin/sh
-case "$1" in
-  ps)
-    printf '%s\n' single_candidate compose_candidate final_service_named_next preview_candidate regular
-    ;;
-  inspect)
-    for last do :; done
-    case "$last" in
-      single_candidate)  printf '%s\n' '/app-next|app||' ;;
-      compose_candidate) printf '%s\n' '/app-web-next|app||web' ;;
-      final_service_named_next) printf '%s\n' '/app-next|app||next' ;;
-      preview_candidate) printf '%s\n' '/preview-web-next|app|preview|web' ;;
-      regular)           printf '%s\n' '/app-web|app||web' ;;
-    esac
-    ;;
-  rm)
-    id=$3
-    if [ "${CLEANUP_FAIL_ID:-}" = "$id" ]; then
-      exit 7
-    fi
-    printf '%s\n' "$id" >> "$CLEANUP_TEST_LOG"
-    ;;
-esac
-`
-	if err := os.WriteFile(docker, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
+// TestPruneDeadCandidatesMatchesExactManagedCandidates pins the orphan rule:
+// only a managed container whose name is exactly its resource's `-next`
+// candidate goes — component and preview naming included, a service that
+// happens to be CALLED "next" excluded.
+func TestPruneDeadCandidatesMatchesExactManagedCandidates(t *testing.T) {
+	rt := &fake.Runtime{}
+	rt.ContainerListFn = func(context.Context, containertypes.ListOptions) ([]containertypes.Summary, error) {
+		return []containertypes.Summary{
+			{ID: "single_candidate", Names: []string{"/app-next"}, Labels: map[string]string{"akerdock.resource_uuid": "app"}},
+			{ID: "compose_candidate", Names: []string{"/app-web-next"}, Labels: map[string]string{"akerdock.resource_uuid": "app", "akerdock.component": "web"}},
+			{ID: "final_service_named_next", Names: []string{"/app-next"}, Labels: map[string]string{"akerdock.resource_uuid": "app", "akerdock.component": "next"}},
+			{ID: "preview_candidate", Names: []string{"/preview-web-next"}, Labels: map[string]string{"akerdock.resource_uuid": "app", "akerdock.preview_uuid": "preview", "akerdock.component": "web"}},
+			{ID: "regular", Names: []string{"/app-web"}, Labels: map[string]string{"akerdock.resource_uuid": "app", "akerdock.component": "web"}},
+		}, nil
 	}
-	run := func(failID string) error {
-		cmd := exec.Command("sh", "-c", cleanupCandidatesCommand())
-		cmd.Env = append(os.Environ(),
-			"PATH="+bin+":"+os.Getenv("PATH"),
-			"CLEANUP_TEST_LOG="+logPath,
-			"CLEANUP_FAIL_ID="+failID,
-		)
-		return cmd.Run()
-	}
-	if err := run(""); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(logPath)
+	summary, err := pruneDeadCandidates(context.Background(), rt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := strings.Fields(string(raw))
-	sort.Strings(got)
+	if summary != "3 dead candidates removed" {
+		t.Fatalf("summary = %q", summary)
+	}
+	var removed []string
+	for _, c := range rt.Calls() {
+		if c.Method != "ContainerRemove" {
+			continue
+		}
+		removed = append(removed, c.Args[0].(string))
+		opts := c.Args[1].(containertypes.RemoveOptions)
+		if !opts.Force || !opts.RemoveVolumes {
+			t.Fatalf("candidate removal options = %+v, want force + anonymous volumes", opts)
+		}
+	}
+	slices.Sort(removed)
 	want := []string{"compose_candidate", "preview_candidate", "single_candidate"}
-	sort.Strings(want)
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Fatalf("removed candidates = %v, want %v", got, want)
+	if strings.Join(removed, ",") != strings.Join(want, ",") {
+		t.Fatalf("removed candidates = %v, want %v", removed, want)
 	}
 
-	if err := run("single_candidate"); err == nil {
-		t.Fatal("docker rm failure was hidden by the candidate cleanup command")
+	rt.ContainerRemoveFn = func(context.Context, string, containertypes.RemoveOptions) error {
+		return errors.New("rm refused")
+	}
+	if _, err := pruneDeadCandidates(context.Background(), rt); err == nil {
+		t.Fatal("a failed candidate removal was hidden")
 	}
 }
 
@@ -292,16 +339,31 @@ func TestCleanupTmpCommandRemovesDotfilesAndPropagatesFailure(t *testing.T) {
 }
 
 func TestCleanupDiskUsageUsesDockerRootAndRejectsUnknownValues(t *testing.T) {
+	rt := &fake.Runtime{}
+	rt.InfoFn = func(context.Context) (system.Info, error) {
+		return system.Info{DockerRootDir: "/docker-root"}, nil
+	}
 	remote := &cleanupRemoteStub{result: &sshexec.Result{Stdout: "87\n", ExitCode: 0}}
-	got, err := (&ServerCleanup{}).diskUsagePct(context.Background(), remote)
+	got, err := (&ServerCleanup{}).diskUsagePct(context.Background(), rt, remote)
 	if err != nil || got != 87 {
 		t.Fatalf("disk usage = %d, %v; want 87", got, err)
 	}
-	if len(remote.commands) != 1 || !strings.Contains(remote.commands[0], ".DockerRootDir") ||
-		strings.Contains(remote.commands[0], "df -P /var/lib/akerdock") {
+	if len(remote.commands) != 1 || !strings.Contains(remote.commands[0], "df -P '/docker-root'") {
 		t.Fatalf("measurement does not target Docker Root Dir: %v", remote.commands)
 	}
 
+	brokenInfo := &fake.Runtime{}
+	brokenInfo.InfoFn = func(context.Context) (system.Info, error) {
+		return system.Info{}, errors.New("daemon down")
+	}
+	if _, err := (&ServerCleanup{}).diskUsagePct(context.Background(), brokenInfo, remote); err == nil {
+		t.Fatal("a failed daemon info was accepted")
+	}
+	emptyRoot := &fake.Runtime{}
+	emptyRoot.InfoFn = func(context.Context) (system.Info, error) { return system.Info{}, nil }
+	if _, err := (&ServerCleanup{}).diskUsagePct(context.Background(), emptyRoot, remote); err == nil {
+		t.Fatal("an empty docker root was accepted")
+	}
 	for name, stub := range map[string]*cleanupRemoteStub{
 		"transport": {err: errors.New("ssh lost")},
 		"exit":      {result: &sshexec.Result{ExitCode: 1, Stderr: "df failed"}},
@@ -309,7 +371,7 @@ func TestCleanupDiskUsageUsesDockerRootAndRejectsUnknownValues(t *testing.T) {
 		"range":     {result: &sshexec.Result{ExitCode: 0, Stdout: "101\n"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := (&ServerCleanup{}).diskUsagePct(context.Background(), stub); err == nil {
+			if _, err := (&ServerCleanup{}).diskUsagePct(context.Background(), rt, stub); err == nil {
 				t.Fatal("invalid disk measurement was accepted")
 			}
 		})

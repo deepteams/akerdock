@@ -11,9 +11,11 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/docker/docker/api/types/filters"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/audit"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
@@ -25,6 +27,7 @@ import (
 type PreviewDestroy struct {
 	Store   *store.Queries
 	Keyring *envelope.Keyring
+	Docker  dockerruntime.Source
 	Logger  *slog.Logger
 	// Audit publishes the preview.deleted outbox event; nil disables it.
 	Audit *audit.Recorder
@@ -95,22 +98,40 @@ func (h *PreviewDestroy) Execute(ctx context.Context, job store.Job, rec *queue.
 	// Containers first, then the volumes and networks a compose preview
 	// created under its own labels (§20.4.1 — "détruit intégralement"), then
 	// the directory. Every object of the instance derives from the preview
-	// uuid (INV-011), so nothing of production matches these filters.
-	cmd := fmt.Sprintf(
-		"docker rm -f %s %s-next >/dev/null 2>&1; "+
-			"docker ps -aq --filter label=akerdock.preview_uuid=%s | xargs -r docker rm -f >/dev/null 2>&1; "+
-			"docker volume ls -q --filter label=akerdock.resource_uuid=%s | xargs -r docker volume rm -f >/dev/null 2>&1; "+
-			"docker volume ls -q --filter label=akerdock.preview_uuid=%s | xargs -r docker volume rm -f >/dev/null 2>&1; "+
-			"docker network ls -q --filter label=akerdock.preview_uuid=%s | xargs -r docker network rm >/dev/null 2>&1; "+
-			// The PR is closed/merged: unlike the per-deployment retention, NONE of
-			// this preview's rollback images survive (ADR-006). They live under the
-			// preview-uuid namespace, so no production image matches (INV-011).
-			"docker images -q akerdock/%s | sort -u | xargs -r docker rmi -f >/dev/null 2>&1; "+
-			"rm -rf /var/lib/akerdock/previews/%s",
-		previewUUID, previewUUID, previewUUID, previewUUID, previewUUID, previewUUID, previewUUID, previewUUID)
-	if res, err := client.Run(ctx, cmd); err != nil || res.ExitCode != 0 {
+	// uuid (INV-011), so nothing of production matches these filters. Docker
+	// objects go through the agent channel (ADR-052); the instance directory
+	// is a host path and stays on SSH. A failed removal reports — the file
+	// header's promise ("never silently forgotten") holds now that the shell's
+	// `>/dev/null 2>&1` is gone.
+	rt, err := h.Docker.Runtime(ctx, server.ID)
+	if err != nil {
+		return nil, cleanupFailed(fmt.Errorf("agent channel: %w", err))
+	}
+	previewLabel := filters.NewArgs(filters.Arg("label", "akerdock.preview_uuid="+previewUUID))
+	if err := removeNamedContainers(ctx, rt, false, previewUUID, previewUUID+"-next"); err != nil {
+		return nil, cleanupFailed(fmt.Errorf("container removal: %w", err))
+	}
+	if err := sweepContainers(ctx, rt, previewLabel, false); err != nil {
+		return nil, cleanupFailed(fmt.Errorf("container sweep: %w", err))
+	}
+	if err := sweepVolumes(ctx, rt, filters.NewArgs(filters.Arg("label", "akerdock.resource_uuid="+previewUUID))); err != nil {
+		return nil, cleanupFailed(fmt.Errorf("volume sweep: %w", err))
+	}
+	if err := sweepVolumes(ctx, rt, previewLabel); err != nil {
+		return nil, cleanupFailed(fmt.Errorf("volume sweep: %w", err))
+	}
+	if err := sweepNetworks(ctx, rt, previewLabel); err != nil {
+		return nil, cleanupFailed(fmt.Errorf("network sweep: %w", err))
+	}
+	// The PR is closed/merged: unlike the per-deployment retention, NONE of
+	// this preview's rollback images survive (ADR-006). They live under the
+	// preview-uuid namespace, so no production image matches (INV-011).
+	if err := sweepImagesByReference(ctx, rt, "akerdock/"+previewUUID); err != nil {
+		return nil, cleanupFailed(fmt.Errorf("image sweep: %w", err))
+	}
+	if res, err := client.Run(ctx, "rm -rf /var/lib/akerdock/previews/"+previewUUID); err != nil || res.ExitCode != 0 {
 		if err == nil {
-			err = fmt.Errorf("remote cleanup exited with code %d", res.ExitCode)
+			err = fmt.Errorf("instance directory removal exited with code %d", res.ExitCode)
 		}
 		return nil, cleanupFailed(err)
 	}
