@@ -272,11 +272,12 @@ func ObjectSchema(properties map[string]any, required ...string) map[string]any 
 	return schema
 }
 
-// StringProp and IntProp are the two property shapes the tools need.
+// StringProp is the string property shape of a tool's input schema.
 func StringProp(description string) map[string]any {
 	return map[string]any{"type": "string", "description": description}
 }
 
+// IntProp is the integer property shape of a tool's input schema.
 func IntProp(description string) map[string]any {
 	return map[string]any{"type": "integer", "description": description}
 }

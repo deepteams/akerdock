@@ -424,7 +424,7 @@ func TestTokenIsCappedByItsCreator(t *testing.T) {
 		row.CreatedBy = nil
 		id := &Identity{TeamID: row.TeamID, Permissions: EffectivePermissions(row.Permissions)}
 		m := &Middleware{Store: &fakeTokenStore{}}
-		m.boundToCreator(httptest.NewRequest("GET", "/", nil), id, &row, id.Permissions)
+		m.boundToCreator(httptest.NewRequest(http.MethodGet, "/", nil), id, &row, id.Permissions)
 
 		if !Has(id.Permissions, PermApplicationsDeploy) {
 			t.Error("a token minted before the column existed must not be broken by this rule")

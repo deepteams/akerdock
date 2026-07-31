@@ -19,5 +19,9 @@ internal/accessroute	80
 internal/scim	83
 internal/tunnel	86
 internal/githubapp	87
+# terminal sits at ~93 on a quiet machine but its bridge tests are timing-
+# dependent: on a contended runner some branches do not fire and it reads
+# ~90. The floor absorbs that jitter, not a coverage debt.
+internal/terminal	88
 internal/dockerruntime/fake	0
 internal/hostops/fake	0

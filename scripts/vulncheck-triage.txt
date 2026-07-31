@@ -1,0 +1,8 @@
+# Triaged govulncheck findings: advisories that affect reachable code but
+# have NO fixed upstream release to move to. One "GO-id<TAB>justification"
+# per line. An entry here MUST name why it is accepted and be removed the
+# day upstream ships a fix — scripts/check-govulncheck.sh fails on any
+# finding not listed here, so new advisories still break the build.
+GO-2026-5668	github.com/docker/docker — Fixed in: N/A; the SDK client is the mandated runtime channel (ADR-051)
+GO-2026-4887	github.com/docker/docker — Fixed in: N/A; same module, same rationale
+GO-2026-4883	github.com/docker/docker — Fixed in: N/A; same module, same rationale

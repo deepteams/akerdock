@@ -6,6 +6,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -72,7 +73,7 @@ func RegisterTools(s *Server, q Store) {
 		InputSchema:         ObjectSchema(map[string]any{"uuid": StringProp("Server uuid.")}, "uuid"),
 		RequiredPermissions: []auth.Permission{auth.PermServersRead},
 	}, func(ctx context.Context, teamID int64, args map[string]any) (any, error) {
-		id, err := uuidArg(args, "uuid")
+		id, err := uuidArg(args)
 		if err != nil {
 			return nil, err
 		}
@@ -142,7 +143,7 @@ func RegisterTools(s *Server, q Store) {
 		InputSchema:         ObjectSchema(map[string]any{"uuid": StringProp("Application uuid.")}, "uuid"),
 		RequiredPermissions: []auth.Permission{auth.PermApplicationsRead},
 	}, func(ctx context.Context, teamID int64, args map[string]any) (any, error) {
-		id, err := uuidArg(args, "uuid")
+		id, err := uuidArg(args)
 		if err != nil {
 			return nil, err
 		}
@@ -171,7 +172,7 @@ func RegisterTools(s *Server, q Store) {
 		if domains, err := q.ListDomainsForApplication(ctx, &app.Resource.ID); err == nil {
 			hosts := make([]string, 0, len(domains))
 			for _, d := range domains {
-				hosts = append(hosts, string(d.Fqdn))
+				hosts = append(hosts, d.Fqdn)
 			}
 			view["domains"] = hosts
 		}
@@ -212,7 +213,7 @@ func RegisterTools(s *Server, q Store) {
 		InputSchema:         ObjectSchema(map[string]any{"uuid": StringProp("Database uuid.")}, "uuid"),
 		RequiredPermissions: []auth.Permission{auth.PermDatabasesRead},
 	}, func(ctx context.Context, teamID int64, args map[string]any) (any, error) {
-		id, err := uuidArg(args, "uuid")
+		id, err := uuidArg(args)
 		if err != nil {
 			return nil, err
 		}
@@ -262,7 +263,7 @@ func RegisterTools(s *Server, q Store) {
 		InputSchema:         ObjectSchema(map[string]any{"uuid": StringProp("Service (compose stack) uuid.")}, "uuid"),
 		RequiredPermissions: []auth.Permission{auth.PermServicesRead},
 	}, func(ctx context.Context, teamID int64, args map[string]any) (any, error) {
-		id, err := uuidArg(args, "uuid")
+		id, err := uuidArg(args)
 		if err != nil {
 			return nil, err
 		}
@@ -381,14 +382,14 @@ func componentViews(comps []store.ServiceComponent) []map[string]any {
 	return out
 }
 
-func uuidArg(args map[string]any, name string) (pgtype.UUID, error) {
+func uuidArg(args map[string]any) (pgtype.UUID, error) {
 	var id pgtype.UUID
-	raw, err := RequireUUID(args, name)
+	raw, err := RequireUUID(args, "uuid")
 	if err != nil {
 		return id, err
 	}
 	if err := id.Scan(raw); err != nil {
-		return id, fmt.Errorf("%s must be a uuid", name)
+		return id, errors.New("uuid must be a uuid")
 	}
 	return id, nil
 }

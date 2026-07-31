@@ -13,6 +13,8 @@ import (
 // Match is the path matching mode of a public route.
 type Match string
 
+// The three matching modes of ADR-049: an exact path, a template with
+// {placeholders}, or a prefix subtree.
 const (
 	MatchExact    Match = "exact"
 	MatchTemplate Match = "template"

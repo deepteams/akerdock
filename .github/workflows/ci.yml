@@ -107,9 +107,11 @@ jobs:
         with:
           node-version: 22
       # Go vulnerabilities that are actually REACHABLE in our code (govulncheck's
-      # call-graph analysis keeps false positives low): a hard gate.
-      - name: govulncheck (Go)
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      # call-graph analysis keeps false positives low): a hard gate — except for
+      # advisories with no fixed release, triaged with a written justification
+      # in scripts/vulncheck-triage.txt. Any NEW advisory still breaks the build.
+      - name: govulncheck (Go, triaged)
+        run: bash scripts/check-govulncheck.sh
       # Dashboard advisories: gate on critical only. Transitive highs are triaged,
       # not build-breaking on day one; tighten once the baseline is clean.
       - name: npm audit (dashboard)

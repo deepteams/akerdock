@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -158,7 +159,7 @@ func TestPortForwardSessionActiveMatchesTheTeamCapDefinition(t *testing.T) {
 // exactly where something was deleted.
 func TestPortForwardSessionRenderingDerivesItsTarget(t *testing.T) {
 	a, _ := flowAPI(t)
-	r := httptest.NewRequest("GET", "/port-forward-sessions", nil)
+	r := httptest.NewRequest(http.MethodGet, "/port-forward-sessions", nil)
 	id := int64(7)
 
 	var endpointUUID pgtype.UUID
@@ -206,16 +207,15 @@ func TestPortForwardSessionRenderingDerivesItsTarget(t *testing.T) {
 // permission like any other third party.
 func TestAnApiTokenOwnsNoTunnelSession(t *testing.T) {
 	a, _ := flowAPI(t)
-	r := httptest.NewRequest("DELETE", "/port-forward-sessions/x", nil)
 	user := int64(3)
 
 	token := &auth.Identity{TeamID: 1}
-	if a.ownsPortForwardSession(r, token, store.PortForwardSession{UserID: &user}) {
+	if a.ownsPortForwardSession(token, store.PortForwardSession{UserID: &user}) {
 		t.Error("a token holds no session identity: it cannot own a tunnel")
 	}
 	// A session opened by a token has no user either, so nobody owns it.
 	browser := &auth.Identity{TeamID: 1, Session: true}
-	if a.ownsPortForwardSession(r, browser, store.PortForwardSession{}) {
+	if a.ownsPortForwardSession(browser, store.PortForwardSession{}) {
 		t.Error("a session with no user cannot be owned by anyone")
 	}
 }

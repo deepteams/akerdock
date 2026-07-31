@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -42,7 +43,7 @@ func TestValidateEndpointBodyRejectsAnythingButOneDestination(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			r := httptest.NewRequest("POST", "/external-endpoints", nil)
+			r := httptest.NewRequest(http.MethodPost, "/external-endpoints", nil)
 			if got := validateEndpointBody(rec, r, tc.body); got != tc.want {
 				t.Errorf("validateEndpointBody = %v, want %v (body %+v)", got, tc.want, tc.body)
 			}
@@ -172,7 +173,7 @@ func TestAccessRequestRequiredCarriesTheRequestURL(t *testing.T) {
 	_ = endpoint.Uuid.Scan(fixtureUUID)
 
 	rec := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/external-endpoints/x/port-forwards", nil)
+	r := httptest.NewRequest(http.MethodPost, "/external-endpoints/x/port-forwards", nil)
 	a.writeAccessRequestRequired(rec, r, endpoint, "no live access grant for this endpoint")
 
 	if rec.Code != 403 {
@@ -212,7 +213,7 @@ func TestATokenWithNoCreatorIsRefusedFinally(t *testing.T) {
 	a, _ := flowAPI(t)
 
 	rec := httptest.NewRecorder()
-	r := httptest.NewRequest("POST", "/external-endpoints/x/port-forwards", nil)
+	r := httptest.NewRequest(http.MethodPost, "/external-endpoints/x/port-forwards", nil)
 	a.writeTokenWithoutCreator(rec, r)
 
 	if rec.Code != 403 {

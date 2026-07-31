@@ -270,7 +270,7 @@ ok "boot sequence complete (migrations, root user, instance key)"
 # API the dashboard actually calls.
 ROOT_TOKEN="akd_$(openssl rand -hex 24)"
 docker exec "$PG_CTR" psql -U postgres -d akerdock -q \
- -c "INSERT INTO api_tokens (team_id, name, token_prefix, token_hash, permissions) SELECT id, 'e2e', left('$ROOT_TOKEN',10), encode(digest('$ROOT_TOKEN','sha256'),'hex'), '{root}' FROM teams" \
+ -c "INSERT INTO api_tokens (team_id, created_by, name, token_prefix, token_hash, permissions) SELECT t.id, u.id, 'e2e', left('$ROOT_TOKEN',10), encode(digest('$ROOT_TOKEN','sha256'),'hex'), '{root}' FROM teams t CROSS JOIN users u WHERE u.is_root" \
  -c "UPDATE instance_settings SET api_enabled = true"
 # The instance settings are cached for a few seconds (instance-config §1.1), so
 # a row updated behind the API's back is not visible instantly. Wait for the

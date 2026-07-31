@@ -270,7 +270,7 @@ func (a *API) ClosePortForwardSession(w http.ResponseWriter, r *http.Request, se
 	}
 
 	reason := tunnel.EndUserClose
-	if !a.ownsPortForwardSession(r, id, row) {
+	if !a.ownsPortForwardSession(id, row) {
 		if _, ok := a.require(w, r, auth.PermExternalEndpointsManage); !ok {
 			return
 		}
@@ -292,7 +292,7 @@ func (a *API) ClosePortForwardSession(w http.ResponseWriter, r *http.Request, se
 // ownsPortForwardSession reports whether the caller is the human who opened
 // this session. An API token owns nothing here: it has no user, so a token
 // closing a session is always doing it to somebody else's.
-func (a *API) ownsPortForwardSession(r *http.Request, id *auth.Identity, row store.PortForwardSession) bool {
+func (a *API) ownsPortForwardSession(id *auth.Identity, row store.PortForwardSession) bool {
 	if row.UserID == nil {
 		return false
 	}

@@ -18,6 +18,13 @@ die() { printf '   \033[31m✘ %s\033[0m\n' "$*"; exit 1; }
 
 cleanup() {
   status=$?
+  if [ $status -ne 0 ]; then
+    # The one thing a red run needs and cannot get after teardown: what the
+    # container actually said. Without this, "never became healthy" is
+    # undiagnosable from CI.
+    printf '\n\033[1;33m== container state and logs at failure\033[0m\n'
+    (cd "$WORKDIR" && docker compose ps 2>&1; docker compose logs --tail 80 2>&1) || true
+  fi
   (cd "$WORKDIR" && docker compose down -v >/dev/null 2>&1) || true
   rm -rf "$WORKDIR"
   if [ $status -eq 0 ]; then
@@ -49,6 +56,14 @@ cp "$ROOT/docker-compose.yml" "$WORKDIR/"
 mkdir -p "$WORKDIR/keys" "$WORKDIR/backups"
 printf '1:%s\n' "$(openssl rand -base64 32)" > "$WORKDIR/keys/master.key"
 chmod 600 "$WORKDIR/keys/master.key"
+# What install.sh does at step 2, for the same reason: the service runs as
+# distroless nonroot (uid 65532) and reads the key over a read-only bind
+# mount — a 600 file owned by the invoking user is unreadable in the
+# container and the boot dies on "permission denied". macOS Docker Desktop
+# masks bind-mount ownership, which is exactly why this only bites on Linux.
+chown 65532:65532 "$WORKDIR/keys/master.key" 2>/dev/null \
+  || sudo -n chown 65532:65532 "$WORKDIR/keys/master.key" \
+  || die "cannot chown keys/master.key to uid 65532 (needed for the container to read it)"
 # The published image is not built here: point the compose at the local tag.
 sed -i.bak 's|ghcr.io/deepteams/akerdock:${AKERDOCK_TAG:?[^}]*}|akerdock:${AKERDOCK_TAG}|' "$WORKDIR/docker-compose.yml"
 cat > "$WORKDIR/.env" <<ENV
