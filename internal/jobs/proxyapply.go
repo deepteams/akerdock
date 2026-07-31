@@ -8,21 +8,26 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deepteams/akerdock/internal/agentwire"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/proxy"
-	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
 // verifyTimeout bounds the wait for the proxy to load a new configuration
 // (proxy-contract §6.3: poll every second, at most 30 s).
-const verifyTimeout = 30 * time.Second
+var verifyTimeout = 30 * time.Second
 
 // ProxyApplier implements the atomic apply + verify + rollback contract of
 // proxy-contract §6.2–§6.4, shared by the deployment engine and the
-// configuration-change job. Every apply is a checksummed revision.
+// configuration-change job. Every apply is a checksummed revision. It runs
+// entirely on the agent channel (ADR-052/054): the routing file rides the
+// file primitives, the verification polls the proxy's API with a typed exec.
 type ProxyApplier struct {
 	Store  *store.Queries
-	Client *sshexec.Client
+	Docker dockerruntime.Runtime
+	Host   hostops.Ops
 	Server store.Server
 	// Network is the destination network the proxy must be attached to.
 	Network string
@@ -75,42 +80,39 @@ func (p *ProxyApplier) Apply(ctx context.Context, appUUID, content, expectEndpoi
 	return fmt.Errorf("proxy apply failed, routing rolled back to revision %d: %w", previous.Revision, applyErr)
 }
 
-// upload writes (or removes) the dynamic file atomically: tmp + mv on the
-// same filesystem, so the proxy never sees a partial file (§6.2).
+// upload writes (or removes) the dynamic file atomically, so the proxy never
+// sees a partial file (§6.2). The proxy is attached to the destination
+// network best-effort first — already-connected is the steady state.
 func (p *ProxyApplier) upload(ctx context.Context, appUUID, content string) error {
 	path := "/var/lib/akerdock/proxy/dynamic/" + appUUID + ".yaml"
-	var res *sshexec.Result
-	var err error
 	if content == "" {
-		res, err = p.Client.Run(ctx, "rm -f "+path)
-	} else {
-		res, err = p.Client.RunInput(ctx, fmt.Sprintf(
-			"docker network connect %s %s >/dev/null 2>&1 || true; umask 077 && cat > %s.tmp && mv -f %s.tmp %s",
-			p.Network, proxy.ContainerName, path, path, path), content)
+		return p.Host.Remove(ctx, agentwire.FileRemoveParams{Path: path})
 	}
-	if err != nil {
-		return err
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("writing the routing file exited with code %d: %s", res.ExitCode, firstLine(res.Stderr))
-	}
-	return nil
+	// Best-effort, as the shell's `|| true` was: "already connected" answers
+	// vary by engine version, and the verification below is the real gate — a
+	// proxy off the network never exposes the endpoint.
+	_ = p.Docker.NetworkConnect(ctx, p.Network, proxy.ContainerName, nil)
+	return p.Host.WriteFile(ctx, agentwire.FileWriteParams{
+		Path: path, Content: []byte(content), Mode: 0o600, Atomic: true,
+	})
 }
 
 // verify polls the proxy's local API until the expected routers/services
-// appear — or disappear, when the routing was removed (§6.3, §6.5).
+// appear — or disappear, when the routing was removed (§6.3, §6.5). The poll
+// is a typed exec in the proxy container; a non-zero exit (the proxy still
+// starting) keeps polling, exactly as the shell loop did.
 func (p *ProxyApplier) verify(ctx context.Context, appUUID, content, expectEndpoint string) error {
 	removal := content == ""
 	deadline := time.Now().Add(verifyTimeout)
 	var last string
 	for time.Now().Before(deadline) {
-		res, err := p.Client.Run(ctx, fmt.Sprintf(
-			"docker exec %s wget -qO- http://127.0.0.1:8080/api/http/services", proxy.ContainerName))
-		if err != nil {
-			return err
+		out, exit, err := execCapture(ctx, p.Docker, proxy.ContainerName,
+			[]string{"wget", "-qO-", "http://127.0.0.1:8080/api/http/services"})
+		if err != nil && ctx.Err() != nil {
+			return ctx.Err()
 		}
-		if res.ExitCode == 0 {
-			last = res.Stdout
+		if err == nil && exit == 0 {
+			last = out
 			present := strings.Contains(last, appUUID)
 			switch {
 			case removal && !present:

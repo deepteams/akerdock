@@ -17,11 +17,12 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/jobs"
-	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 	"github.com/deepteams/akerdock/internal/terminal"
@@ -48,9 +49,12 @@ type Scheduler struct {
 	Dispatcher NotificationDispatcher
 	Logger     *slog.Logger
 	// Docker resolves a server's runtime over its agent channel (ADR-052):
-	// the scale-to-zero sleep stops go through it, while the activity files
-	// and the waker reconcile stay on the scan's SSH connection.
+	// the scale-to-zero sleep stops go through it, while the waker reconcile
+	// stays on the scan's SSH connection (bootstrap family, ADR-054).
 	Docker dockerruntime.Source
+	// HostOps resolves the ADR-054 file primitives on the same channel: the
+	// proxy drift reconciliation and the scale-to-zero activity reads.
+	HostOps hostops.Source
 	// thresholdProbes throttles the §3.7 disk probes (leader-local state:
 	// only the elected leader schedules).
 	thresholdProbes map[int64]time.Time
@@ -383,43 +387,32 @@ func (s *Scheduler) reconcileServer(ctx context.Context, server store.Server) er
 	if err != nil || len(revisions) == 0 {
 		return err
 	}
-	key, err := s.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
+	// The drift check reads and re-deposits routing files under the agent's
+	// tree (ADR-054) — no SSH connection to make or break.
+	ops, err := s.HostOps.HostOps(ctx, server.ID)
 	if err != nil {
 		return err
 	}
-	pem, err := s.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return err
-	}
-	var client remoteClient
-	if s.dialSSH != nil {
-		client, err = s.dialSSH(ctx, server, string(pem))
-	} else {
-		client, err = sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
-			time.Duration(server.SshTimeoutSeconds)*time.Second, hostKeyOf(server))
-	}
-	if err != nil {
-		return err
-	}
-	defer func() { _ = client.Close() }()
 
 	for _, rev := range revisions {
 		path := "/var/lib/akerdock/proxy/dynamic/" + rev.Scope + ".yaml"
-		res, err := client.Run(ctx, "cat "+path+" 2>/dev/null || true")
+		res, err := ops.ReadFile(ctx, agentwire.FileReadParams{Path: path})
 		if err != nil {
 			return err
 		}
 		// The stored checksum is the reference (§6.2.4); trailing newlines
-		// are normalized because the shell round-trip may drop the last one.
-		sum := sha256.Sum256([]byte(strings.TrimRight(res.Stdout, "\n") + "\n"))
+		// are normalized because a shell-era round-trip may have dropped the
+		// last one.
+		sum := sha256.Sum256([]byte(strings.TrimRight(string(res.Content), "\n") + "\n"))
 		expected := sha256.Sum256([]byte(strings.TrimRight(rev.Content, "\n") + "\n"))
 		if hex.EncodeToString(sum[:]) == hex.EncodeToString(expected[:]) {
 			continue
 		}
 		s.Logger.Warn("proxy config drift detected — re-applying the expected revision",
 			"server_id", server.ID, "scope", rev.Scope, "revision", rev.Revision)
-		if _, err := client.RunInput(ctx,
-			"umask 077 && cat > "+path+".tmp && mv -f "+path+".tmp "+path, rev.Content); err != nil {
+		if err := ops.WriteFile(ctx, agentwire.FileWriteParams{
+			Path: path, Content: []byte(rev.Content), Mode: 0o600, Atomic: true,
+		}); err != nil {
 			return err
 		}
 	}

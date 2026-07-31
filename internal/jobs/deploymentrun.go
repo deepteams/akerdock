@@ -28,6 +28,7 @@ import (
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/githubapp"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/queue"
@@ -57,6 +58,9 @@ type DeploymentRun struct {
 	// The deploy pipeline migrates to it slice by slice — today the hooks'
 	// exec; builds, git and file deposits stay on SSH.
 	Docker dockerruntime.Source
+	// HostOps resolves the ADR-054 file primitives on the same channel —
+	// routing files and the waker table ride it.
+	HostOps hostops.Source
 	// ControlPlanePort is the published port of this instance (AKERDOCK_INSTANCE_PORT):
 	// on the server that HOSTS the instance, the preview forward-auth talks to
 	// the control plane straight through the Docker host gateway — never the
@@ -243,6 +247,8 @@ type deploymentRun struct {
 	// through it. Builds, git, file deposits — and everything on the build
 	// server — stay on the SSH clients.
 	rt dockerruntime.Runtime
+	// hops is the same channel's ADR-054 file primitives on the target.
+	hops hostops.Ops
 	// labelsMap is the run's management-label set as the typed creates need
 	// it; the CLI flag string keeps feeding the builds.
 	labelsMap map[string]string
@@ -679,6 +685,9 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 	// (markFailed/markCancelled) also removes the candidate through it, so it
 	// is resolved once and kept on the run.
 	if r.rt, err = r.h.Docker.Runtime(ctx, r.server.ID); err != nil {
+		return fmt.Errorf("the server's agent is not connected: %w", err)
+	}
+	if r.hops, err = r.h.HostOps.HostOps(ctx, r.server.ID); err != nil {
 		return fmt.Errorf("the server's agent is not connected: %w", err)
 	}
 	// The build server (§3.4): a separate machine, dialled only when the
@@ -1469,7 +1478,7 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 				return rgErr
 			} else if ok {
 				previewUUID := pguuid.String(r.preview.Uuid)
-				if err = ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, previewUUID,
+				if err = ensureWaker(ctx, r.client, r.hops, r.dest.Network, r.h.WakerImage, previewUUID,
 					wakerConfigFromRouteGroup(previewUUID, rg, r.stzWakeSet),
 					AgentEnvForServer(ctx, r.h.Store, r.h.Keyring, r.h.Logger, r.server, r.h.ControlPlanePort)); err != nil {
 					return err
@@ -1494,7 +1503,7 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 		}
 		if ok && len(rg.Routes) > 0 {
 			rg.Access = access
-			if err = ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, appUUID,
+			if err = ensureWaker(ctx, r.client, r.hops, r.dest.Network, r.h.WakerImage, appUUID,
 				wakerConfigFromRouteGroup(appUUID, rg, r.stzWakeSet),
 				AgentEnvForServer(ctx, r.h.Store, r.h.Keyring, r.h.Logger, r.server, r.h.ControlPlanePort)); err != nil {
 				return err
@@ -1518,7 +1527,7 @@ func (r *deploymentRun) applyRoutingTo(ctx context.Context, appUUID, endpoint st
 	if content != "" && endpoint != "" {
 		expect = "http://" + endpoint + ":"
 	}
-	applier := &ProxyApplier{Store: r.h.Store, Client: r.client, Server: r.server, Network: r.dest.Network}
+	applier := &ProxyApplier{Store: r.h.Store, Docker: r.rt, Host: r.hops, Server: r.server, Network: r.dest.Network}
 	return r.step(ctx, name, func() (*sshexec.Result, error) {
 		return nil, applier.Apply(ctx, appUUID, content, expect)
 	})

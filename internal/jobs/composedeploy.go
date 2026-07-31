@@ -871,7 +871,7 @@ func (r *deploymentRun) applyComposePreviewRouting(ctx context.Context, content 
 	// and noindex remain attached to their corresponding routers.
 	if r.app.Application.PreviewScaleToZero && len(rg.Routes) > 0 {
 		wcfg := wakerConfigFromRouteGroup(appUUID, rg, stackWakeSet(plan))
-		if err := ensureWaker(ctx, r.client, r.dest.Network, r.h.WakerImage, appUUID, wcfg,
+		if err := ensureWaker(ctx, r.client, r.hops, r.dest.Network, r.h.WakerImage, appUUID, wcfg,
 			AgentEnvForServer(ctx, r.h.Store, r.h.Keyring, r.h.Logger, r.server, r.h.ControlPlanePort)); err != nil {
 			return err
 		}
@@ -890,7 +890,7 @@ func (r *deploymentRun) applyComposePreviewRouting(ctx context.Context, content 
 		routingContent = renderPreviewContent(rg, appUUID, r.d.ID,
 			r.app.Application.PreviewProtection, r.previewAuthHash(ctx), ssoURL, hosts)
 	}
-	applier := &ProxyApplier{Store: r.h.Store, Client: r.client, Server: r.server, Network: r.dest.Network}
+	applier := &ProxyApplier{Store: r.h.Store, Docker: r.rt, Host: r.hops, Server: r.server, Network: r.dest.Network}
 	return r.step(ctx, "apply_routing", func() (*sshexec.Result, error) {
 		return nil, applier.Apply(ctx, appUUID, routingContent, "")
 	})
@@ -1604,7 +1604,7 @@ func (r *deploymentRun) switchComponentRouting(ctx context.Context, appUUID, com
 	if err != nil {
 		return err
 	}
-	applier := &ProxyApplier{Store: r.h.Store, Client: r.client, Server: r.server, Network: r.dest.Network}
+	applier := &ProxyApplier{Store: r.h.Store, Docker: r.rt, Host: r.hops, Server: r.server, Network: r.dest.Network}
 	return r.step(ctx, name, func() (*sshexec.Result, error) {
 		return nil, applier.Apply(ctx, appUUID, content, expect)
 	})

@@ -7,14 +7,14 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/deepteams/akerdock/internal/accessroute"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/queue"
-	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -30,10 +30,12 @@ type ApplyRoutingPayload struct {
 }
 
 // ApplyRouting uploads (or removes) the application's Traefik dynamic file
-// outside of any deployment.
+// outside of any deployment, through the agent channel (ADR-052/054).
 type ApplyRouting struct {
 	Store            *store.Queries
 	Keyring          *envelope.Keyring
+	Docker           dockerruntime.Source
+	HostOps          hostops.Source
 	Logger           *slog.Logger
 	ControlPlanePort int
 }
@@ -49,6 +51,7 @@ func (h *ApplyRouting) Execute(ctx context.Context, job store.Job, rec *queue.St
 	if err != nil {
 		resource, resourceErr := h.Store.GetResourceByID(ctx, payload.ResourceID)
 		if resourceErr != nil {
+			//nolint:nilerr // a deleted resource routes nothing: an expected no-op.
 			return map[string]any{"status": "resource deleted, nothing to do"}, nil
 		}
 		if resource.ResourceType != store.ResourceTypeService {
@@ -74,22 +77,18 @@ func (h *ApplyRouting) Execute(ctx context.Context, job store.Job, rec *queue.St
 	if server.ProxyType != store.ProxyTypeTraefik {
 		return map[string]any{"status": "server has no managed proxy"}, nil
 	}
-	key, err := h.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
-	if err != nil {
-		return nil, err
-	}
-	pem, err := h.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return nil, err
-	}
 
 	rec.Start(ctx, "apply_routing")
-	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem), time.Duration(server.SshTimeoutSeconds)*time.Second, pinnedHostKey(server))
+	rt, err := h.Docker.Runtime(ctx, server.ID)
 	if err != nil {
-		rec.Fail(ctx, "SSH connection failed")
+		rec.Fail(ctx, "the server's agent is not connected")
 		return nil, err
 	}
-	defer func() { _ = client.Close() }()
+	ops, err := h.HostOps.HostOps(ctx, server.ID)
+	if err != nil {
+		rec.Fail(ctx, "the server's agent is not connected")
+		return nil, err
+	}
 
 	appUUID := pguuid.String(app.Resource.Uuid)
 	access, err := resourceAccessPolicy(ctx, h.Store, h.Keyring, app, service, server, h.ControlPlanePort)
@@ -102,7 +101,7 @@ func (h *ApplyRouting) Execute(ctx context.Context, job store.Job, rec *queue.St
 		rec.Fail(ctx, err.Error())
 		return nil, err
 	}
-	applier := &ProxyApplier{Store: h.Store, Client: client, Server: server, Network: dest.Network}
+	applier := &ProxyApplier{Store: h.Store, Docker: rt, Host: ops, Server: server, Network: dest.Network}
 	if err := applier.Apply(ctx, appUUID, content, ""); err != nil {
 		rec.Fail(ctx, err.Error())
 		return nil, err

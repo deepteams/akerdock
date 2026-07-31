@@ -15,6 +15,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/queue"
@@ -42,6 +43,7 @@ type ProxyLifecycle struct {
 	Store   *store.Queries
 	Keyring *envelope.Keyring
 	Docker  dockerruntime.Source
+	HostOps hostops.Source
 	Logger  *slog.Logger
 	// ControlPlanePort is the published port of this instance (AKERDOCK_PORT),
 	// used to route the instance FQDN on the server that hosts it (§14.2).
@@ -76,6 +78,11 @@ func (h *ProxyLifecycle) Execute(ctx context.Context, job store.Job, rec *queue.
 		rec.Fail(ctx, "the server's agent is not connected")
 		return nil, err
 	}
+	ops, err := h.HostOps.HostOps(ctx, server.ID)
+	if err != nil {
+		rec.Fail(ctx, "the server's agent is not connected")
+		return nil, err
+	}
 
 	grace := 10
 	var desired store.ProxyDesiredState
@@ -92,7 +99,7 @@ func (h *ProxyLifecycle) Execute(ctx context.Context, job store.Job, rec *queue.
 			return nil, err
 		}
 		defer func() { _ = client.Close() }()
-		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, server, false, h.ControlPlanePort); err != nil {
+		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, rt, ops, server, false, h.ControlPlanePort); err != nil {
 			rec.Fail(ctx, err.Error())
 			_ = h.Store.SetProxyObservedStatus(ctx, store.SetProxyObservedStatusParams{ID: server.ID, ProxyObservedStatus: store.ResourceObservedStatusUnhealthy})
 			return nil, err

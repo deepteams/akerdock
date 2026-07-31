@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"sort"
 
+	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/compose"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/hostops"
@@ -162,12 +163,14 @@ func removeWakerResource(base waker.Config, resourceUUID string) waker.Config {
 // resource's routes into the shared table. image is the AkerDock release image;
 // empty is a configuration error, never a guessed registry. agentEnv carries
 // the ADR-040 enrollment (instance URL + per-server token); zero-valued, the
-// helper runs waker-only.
-func ensureWaker(ctx context.Context, client *sshexec.Client, network, image, resourceUUID string, cfg waker.Config, agentEnv AgentEnv) error {
+// helper runs waker-only. The container converge stays SSH (bootstrap family,
+// ADR-054 — it may be creating the agent itself); the routing table is a file
+// under the mounted tree and rides the channel.
+func ensureWaker(ctx context.Context, client *sshexec.Client, ops hostops.Ops, network, image, resourceUUID string, cfg waker.Config, agentEnv AgentEnv) error {
 	if image == "" {
 		return fmt.Errorf("scale_to_zero requires AKERDOCK_IMAGE to be set — the waker runs the AkerDock image")
 	}
-	if err := depositWakerRoutes(ctx, client, mergeWakerConfig(readWakerConfig(ctx, client), resourceUUID, cfg)); err != nil {
+	if err := depositWakerRoutes(ctx, ops, mergeWakerConfig(readWakerConfig(ctx, ops), resourceUUID, cfg)); err != nil {
 		return err
 	}
 	res, err := client.Run(ctx, WakerEnsureCommand(network, image, agentEnv))
@@ -264,36 +267,33 @@ func WakerEnsureCommand(network, image string, agentEnv AgentEnv) string {
 
 // removeWakerRoutes drops a resource from the shared table (preview destroy).
 // The container stays: it still serves the server's other STZ resources.
-func removeWakerRoutes(ctx context.Context, client *sshexec.Client, resourceUUID string) error {
-	return depositWakerRoutes(ctx, client, removeWakerResource(readWakerConfig(ctx, client), resourceUUID))
+func removeWakerRoutes(ctx context.Context, ops hostops.Ops, resourceUUID string) error {
+	return depositWakerRoutes(ctx, ops, removeWakerResource(readWakerConfig(ctx, ops), resourceUUID))
 }
 
 // readWakerConfig reads the current routing table; absent or invalid → empty.
-func readWakerConfig(ctx context.Context, client *sshexec.Client) waker.Config {
+func readWakerConfig(ctx context.Context, ops hostops.Ops) waker.Config {
 	var cfg waker.Config
-	res, err := client.Run(ctx, "cat "+wakerDir+"/"+waker.RoutesFile+" 2>/dev/null || true")
-	if err != nil || res == nil || res.Stdout == "" {
+	res, err := ops.ReadFile(ctx, agentwire.FileReadParams{Path: wakerDir + "/" + waker.RoutesFile})
+	if err != nil || !res.Found {
 		return cfg
 	}
-	_ = json.Unmarshal([]byte(res.Stdout), &cfg)
+	_ = json.Unmarshal(res.Content, &cfg)
 	return cfg
 }
 
-// depositWakerRoutes writes the routing table atomically (temp + mv), so the
-// waker — which reloads on mtime change — never reads a half-written file.
-func depositWakerRoutes(ctx context.Context, client *sshexec.Client, cfg waker.Config) error {
+// depositWakerRoutes writes the routing table atomically, so the waker —
+// which reloads on mtime change — never reads a half-written file.
+func depositWakerRoutes(ctx context.Context, ops hostops.Ops, cfg waker.Config) error {
 	raw, err := waker.MarshalConfig(cfg)
 	if err != nil {
 		return err
 	}
-	cmd := fmt.Sprintf("mkdir -p %s && cat > %s/%s.tmp && mv -f %s/%s.tmp %s/%s",
-		wakerDir, wakerDir, waker.RoutesFile, wakerDir, waker.RoutesFile, wakerDir, waker.RoutesFile)
-	res, err := client.RunInput(ctx, cmd, string(raw))
-	if err != nil {
-		return err
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("waker routes deposit failed (exit %d): %s", res.ExitCode, stderrOf(res))
+	if err := ops.WriteFile(ctx, agentwire.FileWriteParams{
+		Path: wakerDir + "/" + waker.RoutesFile, Content: raw,
+		Mode: 0o600, MakeDirs: true, DirMode: 0o755, Atomic: true,
+	}); err != nil {
+		return fmt.Errorf("waker routes deposit failed: %s", firstLine(err.Error()))
 	}
 	return nil
 }

@@ -16,10 +16,12 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/hostops"
+	hostfake "github.com/deepteams/akerdock/internal/hostops/fake"
 	"github.com/deepteams/akerdock/internal/pguuid"
-	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 	"github.com/deepteams/akerdock/internal/uptime"
 )
@@ -359,6 +361,19 @@ func schedulerKeyring(t *testing.T) *envelope.Keyring {
 	return keyring
 }
 
+// stubHostSource hands every caller the same host-ops (or the mandatory-agent
+// failure when none is set).
+type stubHostSource struct {
+	ops hostops.Ops
+}
+
+func (s stubHostSource) HostOps(context.Context, int64) (hostops.Ops, error) {
+	if s.ops == nil {
+		return nil, agentwire.Unavailable("not connected")
+	}
+	return s.ops, nil
+}
+
 func newScheduler(t *testing.T, database *fakeSchedulerStore) *Scheduler {
 	t.Helper()
 	logger := schedulerLogger()
@@ -366,6 +381,7 @@ func newScheduler(t *testing.T, database *fakeSchedulerStore) *Scheduler {
 		Store: database, Keyring: schedulerKeyring(t),
 		Audit: &audit.Recorder{Logger: logger}, Logger: logger,
 		Dispatcher: &fakeDispatcher{},
+		HostOps:    stubHostSource{},
 	}
 }
 
@@ -705,7 +721,7 @@ func TestRetentionAndHostKey(t *testing.T) {
 	}
 }
 
-func TestProxyReconciliationPreDialBranches(t *testing.T) {
+func TestProxyReconciliationPreChannelBranches(t *testing.T) {
 	newScheduler(t, &fakeSchedulerStore{errs: map[string]error{"proxyServers": errors.New("x")}}).
 		reconcileProxyDrift(context.Background())
 	database := &fakeSchedulerStore{
@@ -720,14 +736,9 @@ func TestProxyReconciliationPreDialBranches(t *testing.T) {
 	}{
 		{"empty", &fakeSchedulerStore{}},
 		{"revision error", &fakeSchedulerStore{errs: map[string]error{"revisions": errors.New("x")}}},
-		{"key error", &fakeSchedulerStore{
-			revisions: []store.ProxyConfigRevision{{ID: 1}},
-			errs:      map[string]error{"privateKey": errors.New("x")},
-		}},
-		{"decrypt error", &fakeSchedulerStore{
-			revisions:  []store.ProxyConfigRevision{{ID: 1}},
-			privateKey: store.PrivateKey{Uuid: testUUID(), PrivateKeyEnc: []byte("bad")},
-		}},
+		// The channel is the transport now: revisions to check + no agent
+		// must surface, never silently skip the drift check.
+		{"channel unavailable", &fakeSchedulerStore{revisions: []store.ProxyConfigRevision{{ID: 1}}}},
 	} {
 		err := newScheduler(t, tc.db).reconcileServer(context.Background(), store.Server{})
 		if tc.name == "empty" {
@@ -740,37 +751,13 @@ func TestProxyReconciliationPreDialBranches(t *testing.T) {
 	}
 }
 
-type fakeRemoteClient struct {
-	result    *sshexec.Result
-	runErr    error
-	inputErr  error
-	commands  []string
-	inputs    []string
-	closeCall int
-}
-
-func (f *fakeRemoteClient) Run(_ context.Context, command string) (*sshexec.Result, error) {
-	f.commands = append(f.commands, command)
-	if f.result == nil {
-		f.result = &sshexec.Result{}
-	}
-	return f.result, f.runErr
-}
-
-func (f *fakeRemoteClient) RunInput(_ context.Context, command, input string) (*sshexec.Result, error) {
-	f.commands = append(f.commands, command)
-	f.inputs = append(f.inputs, input)
-	return &sshexec.Result{}, f.inputErr
-}
-func (f *fakeRemoteClient) Close() error { f.closeCall++; return nil }
-
 func TestProxyReconciliationComparesAndRepairs(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		remoteText string
-		runErr     error
-		inputErr   error
-		wantInputs int
+		readErr    error
+		writeErr   error
+		wantWrites int
 		wantErr    bool
 	}{
 		{"same", "expected", nil, nil, 0, false},
@@ -785,45 +772,31 @@ func TestProxyReconciliationComparesAndRepairs(t *testing.T) {
 				}},
 			}
 			scheduler := newScheduler(t, database)
-			keyUUID := testUUID()
-			ciphertext, err := scheduler.Keyring.Encrypt(
-				"private_keys", "private_key_enc", pguuid.String(keyUUID), []byte("private pem"),
-			)
-			if err != nil {
-				t.Fatal(err)
+			ops := &hostfake.Ops{
+				ReadFileFn: func(context.Context, agentwire.FileReadParams) (agentwire.FileReadResult, error) {
+					if tc.readErr != nil {
+						return agentwire.FileReadResult{}, tc.readErr
+					}
+					return agentwire.FileReadResult{Content: []byte(tc.remoteText), Found: true}, nil
+				},
+				WriteFileFn: func(context.Context, agentwire.FileWriteParams) error { return tc.writeErr },
 			}
-			database.privateKey = store.PrivateKey{Uuid: keyUUID, PrivateKeyEnc: ciphertext}
-			remote := &fakeRemoteClient{
-				result: &sshexec.Result{Stdout: tc.remoteText}, runErr: tc.runErr, inputErr: tc.inputErr,
-			}
-			scheduler.dialSSH = func(context.Context, store.Server, string) (remoteClient, error) {
-				return remote, nil
-			}
-			err = scheduler.reconcileServer(context.Background(), store.Server{ID: 1})
+			scheduler.HostOps = stubHostSource{ops: ops}
+			err := scheduler.reconcileServer(context.Background(), store.Server{ID: 1})
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("reconcile error = %v", err)
 			}
-			if len(remote.inputs) != tc.wantInputs || remote.closeCall != 1 {
-				t.Fatalf("inputs=%v closes=%d", remote.inputs, remote.closeCall)
+			writes := ops.CallsTo(agentwire.MethodFileWrite)
+			if len(writes) != tc.wantWrites {
+				t.Fatalf("writes = %v", writes)
+			}
+			if tc.wantWrites == 1 && tc.writeErr == nil {
+				w := writes[0].(agentwire.FileWriteParams)
+				if w.Path != "/var/lib/akerdock/proxy/dynamic/http.yaml" || string(w.Content) != "expected\n" || !w.Atomic {
+					t.Fatalf("repair write = %+v", w)
+				}
 			}
 		})
-	}
-
-	database := &fakeSchedulerStore{revisions: []store.ProxyConfigRevision{{Content: "expected"}}}
-	scheduler := newScheduler(t, database)
-	keyUUID := testUUID()
-	ciphertext, err := scheduler.Keyring.Encrypt(
-		"private_keys", "private_key_enc", pguuid.String(keyUUID), []byte("private pem"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	database.privateKey = store.PrivateKey{Uuid: keyUUID, PrivateKeyEnc: ciphertext}
-	scheduler.dialSSH = func(context.Context, store.Server, string) (remoteClient, error) {
-		return nil, errors.New("dial")
-	}
-	if err := scheduler.reconcileServer(context.Background(), store.Server{}); err == nil {
-		t.Fatal("dial error hidden")
 	}
 }
 

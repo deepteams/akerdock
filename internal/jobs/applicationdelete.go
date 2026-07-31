@@ -13,11 +13,9 @@ import (
 
 	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
-	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
-	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -35,7 +33,6 @@ type ApplicationDeletePayload struct {
 // volumes are kept unless explicitly requested otherwise (INV-008).
 type ApplicationDelete struct {
 	Store   *store.Queries
-	Keyring *envelope.Keyring
 	Docker  dockerruntime.Source
 	HostOps hostops.Source
 	Logger  *slog.Logger
@@ -54,25 +51,31 @@ func (h *ApplicationDelete) Execute(ctx context.Context, job store.Job, rec *que
 		// their objects are found by the management labels (§2.3).
 		resource, rerr := h.Store.GetResourceByID(ctx, payload.ResourceID)
 		if rerr != nil || resource.ResourceType != store.ResourceTypeService {
+			//nolint:nilerr // already deleted: an idempotent replay, not a job error.
 			return map[string]any{"status": "already deleted"}, nil
 		}
 		app = store.GetApplicationByIDRow{Resource: resource}
 	}
 	appUUID := pguuid.String(app.Resource.Uuid)
 
-	server, dest, key, pem, err := h.loadTarget(ctx, app)
+	server, dest, err := h.loadTarget(ctx, app)
 	if err != nil {
 		return nil, err
 	}
-	_ = key
 
 	rec.Start(ctx, "remove_workload")
-	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem), time.Duration(server.SshTimeoutSeconds)*time.Second, pinnedHostKey(server))
+	// The whole deletion rides the agent channel (ADR-052/054): Docker
+	// objects, routing files, resource directories.
+	rt, err := h.Docker.Runtime(ctx, server.ID)
 	if err != nil {
-		rec.Fail(ctx, "SSH connection failed — the server must be reachable to clean up; retry once it is back")
+		rec.Fail(ctx, "the server's agent is not connected — retry once it reconnects")
 		return nil, err
 	}
-	defer func() { _ = client.Close() }()
+	ops, err := h.HostOps.HostOps(ctx, server.ID)
+	if err != nil {
+		rec.Fail(ctx, "the server's agent is not connected — retry once it reconnects")
+		return nil, err
+	}
 
 	// Routing is removed first and its removal verified through the proxy
 	// API (§6.5, §20.6): the domains detach before the workload disappears.
@@ -81,7 +84,7 @@ func (h *ApplicationDelete) Execute(ctx context.Context, job store.Job, rec *que
 	// container would otherwise survive as a permanent 502.
 	previews, _ := h.Store.ListPreviewsForApplication(ctx, app.Resource.ID)
 	if server.ProxyType == store.ProxyTypeTraefik {
-		applier := &ProxyApplier{Store: h.Store, Client: client, Server: server, Network: dest.Network}
+		applier := &ProxyApplier{Store: h.Store, Docker: rt, Host: ops, Server: server, Network: dest.Network}
 		if err := applier.Apply(ctx, appUUID, "", ""); err != nil {
 			rec.Fail(ctx, "could not remove the routing — the workload is left untouched, retry once the proxy is healthy")
 			return nil, err
@@ -99,18 +102,6 @@ func (h *ApplicationDelete) Execute(ctx context.Context, job store.Job, rec *que
 	// Removal is label-driven (§2.3): a compose stack has one container per
 	// service plus candidates, and its own networks — a name-based rm would
 	// leave all of it behind. The name-based rm stays for belt and braces.
-	// Docker objects and the resource directories both go through the agent
-	// channel (ADR-052/054).
-	rt, err := h.Docker.Runtime(ctx, server.ID)
-	if err != nil {
-		rec.Fail(ctx, "the server's agent is not connected — retry once it reconnects")
-		return nil, err
-	}
-	ops, err := h.HostOps.HostOps(ctx, server.ID)
-	if err != nil {
-		rec.Fail(ctx, "the server's agent is not connected — retry once it reconnects")
-		return nil, err
-	}
 	if err := h.teardownWorkload(ctx, rt, ops, appUUID, previews, payload.DeleteVolumes); err != nil {
 		// Record what is actually still there (§20.6.4). Without this the
 		// operator is told "remnants recorded" and finds nothing — and orphan
@@ -152,24 +143,16 @@ func (h *ApplicationDelete) Execute(ctx context.Context, job store.Job, rec *que
 	return map[string]any{"deleted": appUUID, "volumes_deleted": payload.DeleteVolumes}, nil
 }
 
-func (h *ApplicationDelete) loadTarget(ctx context.Context, app store.GetApplicationByIDRow) (store.Server, store.Destination, store.PrivateKey, []byte, error) {
+func (h *ApplicationDelete) loadTarget(ctx context.Context, app store.GetApplicationByIDRow) (store.Server, store.Destination, error) {
 	dest, err := h.Store.GetDestinationByID(ctx, app.Resource.DestinationID)
 	if err != nil {
-		return store.Server{}, store.Destination{}, store.PrivateKey{}, nil, err
+		return store.Server{}, store.Destination{}, err
 	}
 	server, err := h.Store.GetServerByID(ctx, dest.ServerID)
 	if err != nil {
-		return store.Server{}, store.Destination{}, store.PrivateKey{}, nil, err
+		return store.Server{}, store.Destination{}, err
 	}
-	key, err := h.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
-	if err != nil {
-		return store.Server{}, store.Destination{}, store.PrivateKey{}, nil, err
-	}
-	pem, err := h.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return store.Server{}, store.Destination{}, store.PrivateKey{}, nil, err
-	}
-	return server, dest, key, pem, nil
+	return server, dest, nil
 }
 
 // teardownWorkload removes the resource's Docker objects and its host

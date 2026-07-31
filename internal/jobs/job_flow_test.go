@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"bufio"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/docker/docker/api/types"
 	containertypes "github.com/docker/docker/api/types/container"
 	imagetypes "github.com/docker/docker/api/types/image"
 	networktypes "github.com/docker/docker/api/types/network"
@@ -609,7 +611,7 @@ func TestJobFlowsReachExternalBoundary(t *testing.T) {
 	tests := map[string]func() (any, error){
 		"proxy lifecycle": func() (any, error) {
 			j := job(TypeProxyStop, `{"server_id":1,"action":"stop"}`)
-			return (&ProxyLifecycle{Store: q, Keyring: keyring, Docker: unavailableDocker{}, Logger: logger}).Execute(context.Background(), j, rec(j))
+			return (&ProxyLifecycle{Store: q, Keyring: keyring, Docker: unavailableDocker{}, HostOps: unavailableHost{}, Logger: logger}).Execute(context.Background(), j, rec(j))
 		},
 		"server cleanup": func() (any, error) {
 			j := job(TypeServerCleanup, `{"server_id":1,"reason":"manual"}`)
@@ -625,11 +627,11 @@ func TestJobFlowsReachExternalBoundary(t *testing.T) {
 		},
 		"server validation": func() (any, error) {
 			j := job(TypeServerValidate, `{"server_id":1}`)
-			return (&ServerValidate{Store: q, Keyring: keyring, Logger: logger}).Execute(context.Background(), j, rec(j))
+			return (&ServerValidate{Store: q, Keyring: keyring, Docker: unavailableDocker{}, HostOps: unavailableHost{}, Logger: logger}).Execute(context.Background(), j, rec(j))
 		},
 		"routing": func() (any, error) {
 			j := job(TypeApplyRouting, `{"application_id":1,"revision":1}`)
-			return (&ApplyRouting{Store: q, Keyring: keyring, Logger: logger}).Execute(context.Background(), j, rec(j))
+			return (&ApplyRouting{Store: q, Keyring: keyring, Docker: unavailableDocker{}, HostOps: unavailableHost{}, Logger: logger}).Execute(context.Background(), j, rec(j))
 		},
 		"certificate": func() (any, error) {
 			j := job(TypeCertificateSync, `{"server_id":1}`)
@@ -645,7 +647,7 @@ func TestJobFlowsReachExternalBoundary(t *testing.T) {
 		},
 		"application delete": func() (any, error) {
 			j := job(TypeApplicationDelete, `{"resource_id":1}`)
-			return (&ApplicationDelete{Store: q, Keyring: keyring, Docker: unavailableDocker{}, HostOps: unavailableHost{}, Logger: logger}).Execute(context.Background(), j, rec(j))
+			return (&ApplicationDelete{Store: q, Docker: unavailableDocker{}, HostOps: unavailableHost{}, Logger: logger}).Execute(context.Background(), j, rec(j))
 		},
 	}
 	for name, run := range tests {
@@ -661,7 +663,7 @@ func TestJobFlowsPropagateStoreFailure(t *testing.T) {
 	q, keyring, _, logger, db := jobFlowDependencies(t)
 	db.err = errors.New("database unavailable")
 	j := store.Job{ID: 1, JobType: TypeProxyStop, Payload: []byte(`{"server_id":1,"action":"stop"}`)}
-	_, err := (&ProxyLifecycle{Store: q, Keyring: keyring, Docker: unavailableDocker{}, Logger: logger}).Execute(
+	_, err := (&ProxyLifecycle{Store: q, Keyring: keyring, Docker: unavailableDocker{}, HostOps: unavailableHost{}, Logger: logger}).Execute(
 		context.Background(), j, queue.NewStepRecorder(q, j))
 	if err == nil || !strings.Contains(err.Error(), "database unavailable") {
 		t.Fatalf("error = %v", err)
@@ -695,7 +697,7 @@ func TestRemainingJobFlowsReachTheirDecisionBoundary(t *testing.T) {
 		},
 		"disown": func() (any, error) {
 			j := job(TypeResourceDisown, `{"resource_id":1}`)
-			return (&Adoption{Store: q, Keyring: keyring, Logger: logger}).
+			return (&Adoption{Store: q, Keyring: keyring, Docker: unavailableDocker{}, HostOps: unavailableHost{}, Logger: logger}).
 				ExecuteDisown(context.Background(), j, rec(j))
 		},
 		"webhook": func() (any, error) {
@@ -719,7 +721,7 @@ func TestRemainingJobFlowsReachTheirDecisionBoundary(t *testing.T) {
 		},
 		"terminal deployment": func() (any, error) {
 			j := job(TypeDeploymentRun, `{"deployment_id":1}`)
-			return (&DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger, Docker: unavailableDocker{}}).
+			return (&DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger, Docker: unavailableDocker{}, HostOps: unavailableHost{}}).
 				Execute(context.Background(), j, rec(j))
 		},
 		"encryption rotation without stale rows": func() (any, error) {
@@ -762,6 +764,20 @@ func deployFakeRuntime() *fake.Runtime {
 	rt.VolumeListFn = func(context.Context, volumetypes.ListOptions) (volumetypes.ListResponse, error) {
 		return volumetypes.ListResponse{}, nil
 	}
+	// The proxy applier's verification exec (wget on the Traefik API): empty
+	// output with a clean exit — the routing-removal verdicts these flows
+	// reach (no domain rows) succeed on absence.
+	rt.ContainerExecCreateFn = func(context.Context, string, containertypes.ExecOptions) (containertypes.ExecCreateResponse, error) {
+		return containertypes.ExecCreateResponse{ID: "verify"}, nil
+	}
+	rt.ContainerExecAttachFn = func(context.Context, string, containertypes.ExecAttachOptions) (types.HijackedResponse, error) {
+		client, server := net.Pipe()
+		_ = server.Close()
+		return types.HijackedResponse{Conn: client, Reader: bufio.NewReader(client)}, nil
+	}
+	rt.ContainerExecInspectFn = func(context.Context, string) (containertypes.ExecInspect, error) {
+		return containertypes.ExecInspect{ExitCode: 0}, nil
+	}
 	return rt
 }
 
@@ -781,7 +797,7 @@ func TestImageDeploymentRunsThroughCompleteStateMachine(t *testing.T) {
 	}
 	result, err := (&DeploymentRun{
 		Store: q, Keyring: keyring, Audit: recorder, Logger: logger,
-		Docker: fixedSource{rt: deployFakeRuntime()},
+		Docker: fixedSource{rt: deployFakeRuntime()}, HostOps: fixedHost{},
 	}).Execute(context.Background(), j, nil)
 	if err != nil {
 		t.Fatalf("image deployment: %v", err)
@@ -813,7 +829,7 @@ func TestComposeDeploymentRunsThroughCompleteStateMachine(t *testing.T) {
 	}
 	result, err := (&DeploymentRun{
 		Store: q, Keyring: keyring, Audit: recorder, Logger: logger,
-		Docker: fixedSource{rt: deployFakeRuntime()},
+		Docker: fixedSource{rt: deployFakeRuntime()}, HostOps: fixedHost{},
 	}).Execute(context.Background(), j, nil)
 	if err != nil {
 		t.Fatalf("compose deployment: %v", err)
@@ -846,7 +862,7 @@ func TestComposePreviewDeploymentRunsThroughCompleteStateMachine(t *testing.T) {
 	}
 	result, err := (&DeploymentRun{
 		Store: q, Keyring: keyring, Audit: recorder, Logger: logger,
-		Docker: fixedSource{rt: deployFakeRuntime()},
+		Docker: fixedSource{rt: deployFakeRuntime()}, HostOps: fixedHost{},
 	}).Execute(context.Background(), j, nil)
 	if err != nil {
 		t.Fatalf("compose preview deployment: %v", err)
@@ -884,7 +900,7 @@ func TestSourceBuildPacksRunThroughCompleteStateMachine(t *testing.T) {
 			}
 			result, err := (&DeploymentRun{
 				Store: q, Keyring: keyring, Audit: recorder, Logger: logger,
-				Docker: fixedSource{rt: deployFakeRuntime()},
+				Docker: fixedSource{rt: deployFakeRuntime()}, HostOps: fixedHost{},
 			}).Execute(context.Background(), j, nil)
 			if err != nil {
 				t.Fatalf("%s deployment: %v", pack, err)

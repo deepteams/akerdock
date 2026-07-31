@@ -9,7 +9,9 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/jobs"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/sshexec"
@@ -165,13 +167,22 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		client := scan.client(server)
-		if client == nil {
+		// The reconcile is opportunistic (SSH, bootstrap family); the
+		// DECISIONS require the agent channel — an unreachable channel skips
+		// them rather than reading absence as idleness.
+		if client := scan.client(server); client != nil {
+			scan.reconcile(server, network, client)
+		}
+		ops := scan.hostOps(server)
+		if ops == nil {
 			continue
 		}
-		scan.reconcile(server, network, client)
 		uuid := pguuid.String(p.Uuid)
-		last := readWakerActivity(ctx, client, uuid)
+		last, err := readWakerActivity(ctx, ops, uuid)
+		if err != nil {
+			s.Logger.Warn("scale-to-zero activity unreadable — decision skipped", "preview", uuid, "error", err)
+			continue
+		}
 		// A redeploy IS activity: the waker file only moves on proxied
 		// requests, so a preview relaunched after it slept would otherwise
 		// read as idle since its stale file and be re-slept — and shown
@@ -204,13 +215,19 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		client := scan.client(server)
-		if client == nil {
+		if client := scan.client(server); client != nil {
+			scan.reconcile(server, network, client)
+		}
+		ops := scan.hostOps(server)
+		if ops == nil {
 			continue
 		}
-		scan.reconcile(server, network, client)
 		uuid := pguuid.String(p.Uuid)
-		last := readWakerActivity(ctx, client, uuid)
+		last, err := readWakerActivity(ctx, ops, uuid)
+		if err != nil {
+			s.Logger.Warn("scale-to-zero activity unreadable — decision skipped", "preview", uuid, "error", err)
+			continue
+		}
 		// The waker records activity when it serves a request, which it only does
 		// after starting the container: a timestamp newer than when we slept the
 		// preview means it is awake again.
@@ -260,13 +277,19 @@ func (s *Scheduler) scaleZeroApplications(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		client := scan.client(server)
-		if client == nil {
+		if client := scan.client(server); client != nil {
+			scan.reconcile(server, network, client)
+		}
+		ops := scan.hostOps(server)
+		if ops == nil {
 			continue
 		}
-		scan.reconcile(server, network, client)
 		uuid := pguuid.String(a.Uuid)
-		last := readWakerActivity(ctx, client, uuid)
+		last, err := readWakerActivity(ctx, ops, uuid)
+		if err != nil {
+			s.Logger.Warn("scale-to-zero activity unreadable — decision skipped", "application", uuid, "error", err)
+			continue
+		}
 		// Same rule as previews: a fresh deploy/update counts as activity, or
 		// a stale waker file would put a just-redeployed app straight back to
 		// sleep.
@@ -298,13 +321,19 @@ func (s *Scheduler) scaleZeroApplications(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		client := scan.client(server)
-		if client == nil {
+		if client := scan.client(server); client != nil {
+			scan.reconcile(server, network, client)
+		}
+		ops := scan.hostOps(server)
+		if ops == nil {
 			continue
 		}
-		scan.reconcile(server, network, client)
 		uuid := pguuid.String(a.Uuid)
-		last := readWakerActivity(ctx, client, uuid)
+		last, err := readWakerActivity(ctx, ops, uuid)
+		if err != nil {
+			s.Logger.Warn("scale-to-zero activity unreadable — decision skipped", "application", uuid, "error", err)
+			continue
+		}
 		// Woken by the waker if the activity file is newer than when we slept it.
 		if !last.IsZero() && a.ScaleSleptAt.Valid && last.After(a.ScaleSleptAt.Time) {
 			if err := s.Store.SetApplicationAwake(ctx, a.ID); err != nil {
@@ -356,17 +385,41 @@ func (s *Scheduler) ensureAgents(ctx context.Context) {
 	}
 }
 
-// wakerScan shares one SSH connection per server across a scale-to-zero pass and
-// reconciles each server's waker image once.
+// wakerScan shares one SSH connection per server across a scale-to-zero pass
+// (for the waker reconcile — bootstrap family, ADR-054) and one host-ops
+// handle (for the activity reads), reconciling each server's waker image once.
 type wakerScan struct {
 	s          *Scheduler
 	ctx        context.Context
 	clients    map[int64]remoteClient
+	opsCache   map[int64]hostops.Ops
 	reconciled map[int64]bool
 }
 
 func (s *Scheduler) newWakerScan(ctx context.Context) *wakerScan {
-	return &wakerScan{s: s, ctx: ctx, clients: map[int64]remoteClient{}, reconciled: map[int64]bool{}}
+	return &wakerScan{
+		s: s, ctx: ctx,
+		clients: map[int64]remoteClient{}, opsCache: map[int64]hostops.Ops{},
+		reconciled: map[int64]bool{},
+	}
+}
+
+// hostOps resolves (and caches) the server's agent file primitives; nil skips
+// the server's scale-to-zero decisions this pass, with the cause logged once
+// — the same stance as an unreachable SSH server.
+func (w *wakerScan) hostOps(server store.Server) hostops.Ops {
+	if ops, ok := w.opsCache[server.ID]; ok {
+		return ops
+	}
+	ops, err := w.s.HostOps.HostOps(w.ctx, server.ID)
+	if err != nil {
+		w.opsCache[server.ID] = nil
+		w.s.Logger.Warn("scale-to-zero scan: agent channel unavailable, resources skipped",
+			"server_id", server.ID, "error", err)
+		return nil
+	}
+	w.opsCache[server.ID] = ops
+	return ops
 }
 
 func (w *wakerScan) client(server store.Server) remoteClient {
@@ -444,18 +497,24 @@ func (s *Scheduler) previewPlacement(ctx context.Context, applicationID int64) (
 	return server, dest.Network, true
 }
 
-// readWakerActivity reads a preview's waker activity file over SSH; a zero time
-// means absent or unreadable (never an error the scan should stop on).
-func readWakerActivity(ctx context.Context, client remoteClient, uuid string) time.Time {
-	res, err := client.Run(ctx, "cat "+waker.ActivityPath(waker.DefaultDir, uuid)+" 2>/dev/null || true")
-	if err != nil || res == nil || res.Stdout == "" {
-		return time.Time{}
-	}
-	at, err := waker.ParseActivity(res.Stdout)
+// readWakerActivity reads a resource's waker activity file through the agent
+// channel (ADR-054). A zero time with a nil error means absent or unreadable
+// — genuine "no activity yet". A non-nil error means the channel itself
+// failed: the caller must SKIP the decision, not treat it as idleness.
+func readWakerActivity(ctx context.Context, ops hostops.Ops, uuid string) (time.Time, error) {
+	res, err := ops.ReadFile(ctx, agentwire.FileReadParams{Path: waker.ActivityPath(waker.DefaultDir, uuid)})
 	if err != nil {
-		return time.Time{}
+		return time.Time{}, err
 	}
-	return at
+	if !res.Found {
+		return time.Time{}, nil
+	}
+	at, err := waker.ParseActivity(string(res.Content))
+	if err != nil {
+		//nolint:nilerr // an unreadable file is "no activity yet", not a channel failure.
+		return time.Time{}, nil
+	}
+	return at, nil
 }
 
 // stopPreviewContainers stops every container of the preview — the single

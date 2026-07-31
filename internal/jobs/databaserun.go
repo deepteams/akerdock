@@ -307,7 +307,7 @@ func (h *DatabaseRun) provision(ctx context.Context, rt dockerruntime.Runtime, o
 	// The route is applied AFTER the database is healthy: opening a public port
 	// onto something that is not answering yet is a port that accepts a
 	// connection and then hangs.
-	if err := h.applyTCPRoute(ctx, ops, sshClient, row, dbUUID); err != nil {
+	if err := h.applyTCPRoute(ctx, rt, ops, sshClient, row, dbUUID); err != nil {
 		return err
 	}
 
@@ -413,7 +413,7 @@ func tcpProxied(db store.Database) bool {
 // then the static entrypoint (which needs a new container). The reverse order
 // would open a listener with nothing behind it — a port that accepts a
 // connection and hangs.
-func (h *DatabaseRun) applyTCPRoute(ctx context.Context, ops hostops.Ops, sshClient *sshexec.Client, row store.GetDatabaseByIDRow, dbUUID string) error {
+func (h *DatabaseRun) applyTCPRoute(ctx context.Context, rt dockerruntime.Runtime, ops hostops.Ops, sshClient *sshexec.Client, row store.GetDatabaseByIDRow, dbUUID string) error {
 	server, err := h.Store.GetServerByID(ctx, row.Database.ServerID)
 	if err != nil {
 		return err
@@ -426,7 +426,7 @@ func (h *DatabaseRun) applyTCPRoute(ctx context.Context, ops hostops.Ops, sshCli
 		if run, _ := proxyBootstrapDecision(server); !run || sshClient == nil {
 			return nil
 		}
-		return bootstrapProxy(ctx, h.Store, h.Keyring, sshClient, server, true, h.ControlPlanePort)
+		return bootstrapProxy(ctx, h.Store, h.Keyring, sshClient, rt, ops, server, true, h.ControlPlanePort)
 	}
 
 	routePath := "/var/lib/akerdock/proxy/dynamic/" + dbUUID + ".yaml"

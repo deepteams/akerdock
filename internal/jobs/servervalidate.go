@@ -12,7 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/queue"
@@ -36,10 +38,16 @@ type ServerValidatePayload struct {
 type ServerValidate struct {
 	Store   *store.Queries
 	Keyring *envelope.Keyring
+	Docker  dockerruntime.Source
+	HostOps hostops.Source
 	Logger  *slog.Logger
 	// ControlPlanePort is the published port of this instance (AKERDOCK_PORT),
 	// used to route the instance FQDN on the server that hosts it (§14.2).
 	ControlPlanePort int
+	// AgentImage is this release's own image (AKERDOCK_IMAGE): the agent
+	// helper is provisioned from it at validation time (ADR-054 tranche B) —
+	// every later operation on the server rides its channel.
+	AgentImage string
 }
 
 // minDockerMajor is the minimum supported Docker Engine version (§3.1).
@@ -122,20 +130,33 @@ func (h *ServerValidate) Execute(ctx context.Context, job store.Job, rec *queue.
 		return nil, err
 	}
 
-	// Step 4 — proxy bootstrap (proxy-contract §1.3): static config +
+	// Step 4 — the agent (ADR-051/054): since Docker operations flow through
+	// its channel exclusively, a server without an agent is a server AkerDock
+	// cannot operate — provisioning it is part of first contact, and the
+	// validation only succeeds once the channel answers. The scheduler's
+	// reconciliation keeps it converged afterwards.
+	rec.Start(ctx, "provision_agent")
+	rt, ops, err := h.provisionAgent(ctx, client, server)
+	if err != nil {
+		rec.Fail(ctx, firstLine(err.Error()))
+		return nil, err
+	}
+	rec.Succeed(ctx, "agent connected — the command channel answers")
+
+	// Step 5 — proxy bootstrap (proxy-contract §1.3): static config +
 	// managed Traefik container, when the operator's intent asks for it.
 	if run, reason := proxyBootstrapDecision(server); !run {
 		rec.Skip(ctx, "bootstrap_proxy", reason)
 	} else {
 		rec.Start(ctx, "bootstrap_proxy")
-		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, server, false, h.ControlPlanePort); err != nil {
+		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, rt, ops, server, false, h.ControlPlanePort); err != nil {
 			rec.Fail(ctx, "proxy bootstrap failed — retry the validation once the cause is fixed: "+firstLine(err.Error()))
 			return nil, err
 		}
 		rec.Succeed(ctx, "proxy running on ports "+fmt.Sprintf("%d/%d", server.ProxyHttpPort, server.ProxyHttpsPort))
 	}
 
-	// Step 5 — build packs that need a binary on the server (§5.5). Failing to
+	// Step 6 — build packs that need a binary on the server (§5.5). Failing to
 	// install it does NOT fail the validation: a server that can run image and
 	// dockerfile deployments is a usable server. The deployment engine
 	// reinstalls on demand and fails there, where the user asked for nixpacks.
@@ -157,6 +178,67 @@ func (h *ServerValidate) Execute(ctx context.Context, job store.Job, rec *queue.
 		"docker_version":       facts.DockerVersion,
 		"host_key_fingerprint": client.HostKeyFingerprint,
 	}, nil
+}
+
+// agentReadyTimeout bounds the wait for a freshly provisioned agent to dial
+// back and answer on its channel; agentReadyPoll is the probe cadence (vars
+// so tests can shrink them).
+var (
+	agentReadyTimeout = 90 * time.Second
+	agentReadyPoll    = 2 * time.Second
+)
+
+// provisionAgent converges the agent helper over SSH (the bootstrap family —
+// nothing else can carry it, ADR-054) and waits until its command channel
+// answers, returning the server's runtime and file primitives. The failure
+// messages name the remediation: this is where the operator is looking.
+func (h *ServerValidate) provisionAgent(ctx context.Context, client *sshexec.Client, server store.Server) (dockerruntime.Runtime, hostops.Ops, error) {
+	if h.AgentImage == "" {
+		return nil, nil, fmt.Errorf("AKERDOCK_IMAGE is not set — the agent runs the AkerDock image and every Docker operation rides its channel (ADR-051); set it and re-validate")
+	}
+	env := AgentEnvForServer(ctx, h.Store, h.Keyring, h.Logger, server, h.ControlPlanePort)
+	if env.InstanceURL == "" || env.Token == "" {
+		return nil, nil, fmt.Errorf("agent enrollment unavailable — the agent dials the instance back: set AKERDOCK_INSTANCE_URL or the instance FQDN, then re-validate")
+	}
+	// The helper joins the server's default destination network when one
+	// exists — created here if needed, exactly as the proxy bootstrap does
+	// (it may not have run yet).
+	network := "bridge"
+	if dest, err := h.Store.GetDefaultDestination(ctx, server.ID); err == nil && dest.Network != "" {
+		network = dest.Network
+		if res, err := client.Run(ctx, fmt.Sprintf(
+			"docker network inspect %s >/dev/null 2>&1 || docker network create --label akerdock.managed=true %s",
+			network, network)); err != nil || res.ExitCode != 0 {
+			return nil, nil, fmt.Errorf("destination network: %v (exit %d, %s)", err, exitCode(res), stderrOf(res))
+		}
+	}
+	res, err := client.Run(ctx, WakerEnsureCommand(network, h.AgentImage, env))
+	if err != nil {
+		return nil, nil, err
+	}
+	if res.ExitCode != 0 {
+		return nil, nil, fmt.Errorf("agent deploy failed (exit %d): %s", res.ExitCode, stderrOf(res))
+	}
+	// The agent dials OUTBOUND: wait for its channel, not for the container.
+	deadline := time.Now().Add(agentReadyTimeout)
+	for {
+		if rt, err := h.Docker.Runtime(ctx, server.ID); err == nil {
+			if _, err := rt.Ping(ctx); err == nil {
+				ops, err := h.HostOps.HostOps(ctx, server.ID)
+				if err == nil {
+					return rt, ops, nil
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			return nil, nil, fmt.Errorf("the agent did not connect within %s — the container is running but its channel never reached this instance: check that %s is reachable FROM the server (firewall, DNS)", agentReadyTimeout, env.InstanceURL)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		case <-time.After(agentReadyPoll):
+		}
+	}
 }
 
 // NixpacksVersion is pinned per AkerDock release (§5.5): a build pack that
@@ -298,7 +380,7 @@ func proxyBootstrapDecision(server store.Server) (run bool, skipReason string) {
 	}
 }
 
-func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring, client *sshexec.Client, server store.Server, recreate bool, cpPort int) error {
+func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring, client *sshexec.Client, rt dockerruntime.Runtime, ops hostops.Ops, server store.Server, recreate bool, cpPort int) error {
 	h := &ServerValidate{Store: q, Keyring: kr}
 	dest, err := h.Store.GetDefaultDestination(ctx, server.ID)
 	if err != nil {
@@ -482,7 +564,7 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 	case lastErr != nil && content == "":
 		return nil // never routed, nothing to withdraw
 	}
-	applier := &ProxyApplier{Store: q, Client: client, Server: server, Network: dest.Network}
+	applier := &ProxyApplier{Store: q, Docker: rt, Host: ops, Server: server, Network: dest.Network}
 	if err := applier.Apply(ctx, proxy.ControlPlaneScope, content, ""); err != nil {
 		return fmt.Errorf("instance FQDN routing (%s): %w", proxy.ControlPlaneScope, err)
 	}

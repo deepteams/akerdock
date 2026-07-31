@@ -19,6 +19,7 @@ import (
 	"github.com/deepteams/akerdock/internal/adoption"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/sshexec"
@@ -63,6 +64,7 @@ type Adoption struct {
 	Pool    *pgxpool.Pool
 	Keyring *envelope.Keyring
 	Docker  dockerruntime.Source
+	HostOps hostops.Source
 	Logger  *slog.Logger
 }
 
@@ -590,6 +592,7 @@ func (h *Adoption) ExecuteDisown(ctx context.Context, job store.Job, rec *queue.
 	}
 	resource, err := h.Store.GetResourceByID(ctx, payload.ResourceID)
 	if err != nil {
+		//nolint:nilerr // a vanished resource is an expected no-op, not a job error.
 		return map[string]any{"status": "already gone"}, nil
 	}
 	resourceUUID := pguuid.String(resource.Uuid)
@@ -607,13 +610,17 @@ func (h *Adoption) ExecuteDisown(ctx context.Context, job store.Job, rec *queue.
 	// workload keeps serving whoever routes to it next.
 	if server.ProxyType == store.ProxyTypeTraefik {
 		rec.Start(ctx, "detach_routing")
-		client, err := h.dial(ctx, server)
+		rt, err := h.Docker.Runtime(ctx, server.ID)
 		if err != nil {
-			rec.Fail(ctx, "SSH connection failed — the server must be reachable to detach the routing; retry once it is back")
+			rec.Fail(ctx, "the server's agent is not connected — retry once it reconnects")
 			return nil, err
 		}
-		defer func() { _ = client.Close() }()
-		applier := &ProxyApplier{Store: h.Store, Client: client, Server: server, Network: dest.Network}
+		ops, err := h.HostOps.HostOps(ctx, server.ID)
+		if err != nil {
+			rec.Fail(ctx, "the server's agent is not connected — retry once it reconnects")
+			return nil, err
+		}
+		applier := &ProxyApplier{Store: h.Store, Docker: rt, Host: ops, Server: server, Network: dest.Network}
 		if err := applier.Apply(ctx, resourceUUID, "", ""); err != nil {
 			rec.Fail(ctx, "could not detach the routing — nothing was released, retry once the proxy is healthy")
 			return nil, err
