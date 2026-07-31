@@ -1,11 +1,14 @@
 package dockerruntime
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
+	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types"
@@ -24,12 +27,22 @@ import (
 )
 
 // CommandSender is the control-plane handle on one server's agent channel
-// (ADR-052): it carries a typed command and returns its result, or opens the
-// command's output stream. internal/handlers implements it on the live
-// WebSocket; this package never sees the transport.
+// (ADR-052): it carries a typed command and returns its result, opens the
+// command's output stream, or attaches to the one bidirectional command.
+// internal/handlers implements it on the live WebSocket; this package never
+// sees the transport.
 type CommandSender interface {
 	Command(ctx context.Context, method string, params any) (json.RawMessage, error)
 	Stream(ctx context.Context, method string, params any) (io.ReadCloser, error)
+	Attach(ctx context.Context, method string, params any) (AttachStream, error)
+}
+
+// AttachStream is the bidirectional stream of an attached exec: reads carry
+// its output, writes its stdin, CloseWrite ends the stdin without ending the
+// output.
+type AttachStream interface {
+	io.ReadWriteCloser
+	CloseWrite() error
 }
 
 // Source resolves the Runtime executing on a given server — the seam job and
@@ -157,11 +170,43 @@ func (r *agentRuntime) ContainerExecStart(ctx context.Context, execID string, op
 	return do(ctx, r.s, agentwire.MethodContainerExecStart, agentwire.ContainerExecStartParams{ExecID: execID, Options: options})
 }
 
-// ContainerExecAttach is the hijacked bidirectional terminal stream — not yet
-// carried by the channel; the terminal slice will design it (ADR-052 scope).
-func (r *agentRuntime) ContainerExecAttach(context.Context, string, container.ExecAttachOptions) (types.HijackedResponse, error) {
-	return types.HijackedResponse{}, fmt.Errorf("exec attach over the agent channel: %w", cerrdefs.ErrNotImplemented)
+// ContainerExecAttach carries the hijacked bidirectional exec stream over
+// the channel: output as chunks one way, stdin as input chunks the other,
+// under one command id.
+func (r *agentRuntime) ContainerExecAttach(ctx context.Context, execID string, options container.ExecAttachOptions) (types.HijackedResponse, error) {
+	att, err := r.s.Attach(ctx, agentwire.MethodContainerExecAttach,
+		agentwire.ContainerExecAttachParams{ExecID: execID, Options: options})
+	if err != nil {
+		return types.HijackedResponse{}, err
+	}
+	return types.HijackedResponse{Conn: &attachConn{att: att}, Reader: bufio.NewReader(att)}, nil
 }
+
+// attachConn dresses an AttachStream as the net.Conn a HijackedResponse
+// carries. Deadlines are not supported — every caller bounds the exec by ctx,
+// the same discipline as the rest of the runtime.
+type attachConn struct {
+	att AttachStream
+}
+
+func (c *attachConn) Read(p []byte) (int, error)  { return c.att.Read(p) }
+func (c *attachConn) Write(p []byte) (int, error) { return c.att.Write(p) }
+func (c *attachConn) Close() error                { return c.att.Close() }
+
+// CloseWrite closes the exec's stdin — what HijackedResponse.CloseWrite
+// looks for.
+func (c *attachConn) CloseWrite() error { return c.att.CloseWrite() }
+
+func (c *attachConn) LocalAddr() net.Addr              { return attachAddr{} }
+func (c *attachConn) RemoteAddr() net.Addr             { return attachAddr{} }
+func (c *attachConn) SetDeadline(time.Time) error      { return nil }
+func (c *attachConn) SetReadDeadline(time.Time) error  { return nil }
+func (c *attachConn) SetWriteDeadline(time.Time) error { return nil }
+
+type attachAddr struct{}
+
+func (attachAddr) Network() string { return "akerdock-agent" }
+func (attachAddr) String() string  { return "agent-channel" }
 
 func (r *agentRuntime) ContainerExecInspect(ctx context.Context, execID string) (container.ExecInspect, error) {
 	return call[container.ExecInspect](ctx, r.s, agentwire.MethodContainerExecInspect, agentwire.NameParams{Name: execID})

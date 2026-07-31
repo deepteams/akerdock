@@ -14,9 +14,15 @@ import (
 
 // The command vocabulary: one name per dockerruntime.Runtime method carried
 // over the channel. The executor refuses anything outside this list, and each
-// name is what audit and telemetry record. ContainerExecAttach (the hijacked
-// bidirectional terminal stream) is deliberately absent until the terminal
-// slice designs it.
+// name is what audit and telemetry record.
+const (
+	// MethodContainerExecAttach is the one BIDIRECTIONAL stream: after the
+	// acknowledging result, output flows as chunks one way and input chunks
+	// travel the other way under the same command id — an input chunk with
+	// EOF closes the exec's stdin without ending the output.
+	MethodContainerExecAttach = "ContainerExecAttach"
+)
+
 const (
 	MethodContainerCreate      = "ContainerCreate"
 	MethodContainerStart       = "ContainerStart"
@@ -134,6 +140,11 @@ type ContainerExecCreateParams struct {
 type ContainerExecStartParams struct {
 	ExecID  string                     `json:"exec_id"`
 	Options container.ExecStartOptions `json:"options"`
+}
+
+type ContainerExecAttachParams struct {
+	ExecID  string                      `json:"exec_id"`
+	Options container.ExecAttachOptions `json:"options"`
 }
 
 type ContainerExecResizeParams struct {

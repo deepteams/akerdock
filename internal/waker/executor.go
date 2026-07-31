@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/docker/docker/api/types"
 
 	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
@@ -27,6 +28,9 @@ type Executor struct {
 
 	mu       sync.Mutex
 	inflight map[int64]context.CancelFunc
+	// attaches are the hijacked exec streams in flight, keyed by command id —
+	// where the control plane's input chunks land (DeliverInput).
+	attaches map[int64]*types.HijackedResponse
 }
 
 // NewExecutor builds an executor over the local runtime.
@@ -34,7 +38,35 @@ func NewExecutor(rt dockerruntime.Runtime, logger *slog.Logger) *Executor {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Executor{rt: rt, logger: logger, inflight: map[int64]context.CancelFunc{}}
+	return &Executor{
+		rt: rt, logger: logger,
+		inflight: map[int64]context.CancelFunc{},
+		attaches: map[int64]*types.HijackedResponse{},
+	}
+}
+
+// DeliverInput routes one input chunk to its attach session: data goes to the
+// exec's stdin, EOF closes it (output keeps flowing). Writes land on the
+// local daemon socket, so the channel's read loop is never meaningfully
+// stalled here.
+func (e *Executor) DeliverInput(chunk *agentwire.StreamChunk) {
+	if chunk == nil {
+		return
+	}
+	e.mu.Lock()
+	hijack := e.attaches[chunk.ID]
+	e.mu.Unlock()
+	if hijack == nil {
+		return
+	}
+	if len(chunk.Data) > 0 {
+		if _, err := hijack.Conn.Write(chunk.Data); err != nil {
+			e.logger.Warn("agent: exec input write failed", "error", err)
+		}
+	}
+	if chunk.EOF {
+		_ = hijack.CloseWrite()
+	}
 }
 
 // Cancel aborts the command with this id, if still in flight — the control
@@ -117,10 +149,47 @@ func (e *Executor) executeStream(ctx context.Context, cmd agentwire.Command, sen
 		})
 	case agentwire.MethodEvents:
 		e.pumpEvents(ctx, cmd, send)
+	case agentwire.MethodContainerExecAttach:
+		e.attachExec(ctx, cmd, send)
 	default:
 		return false
 	}
 	return true
+}
+
+// attachExec runs the one bidirectional command: the hijacked exec stream's
+// output pumps out as chunks while DeliverInput feeds its stdin, until the
+// exec ends (daemon closes the stream) or the command is canceled.
+func (e *Executor) attachExec(ctx context.Context, cmd agentwire.Command, send func(agentwire.Frame) error) {
+	var p agentwire.ContainerExecAttachParams
+	if err := json.Unmarshal(cmd.Params, &p); err != nil {
+		_ = send(agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: cmd.ID, Err: agentwire.WireError(invalidParams(err))}})
+		return
+	}
+	hijack, err := e.rt.ContainerExecAttach(ctx, p.ExecID, p.Options)
+	if err != nil {
+		_ = send(agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: cmd.ID, Err: agentwire.WireError(err)}})
+		return
+	}
+	e.mu.Lock()
+	e.attaches[cmd.ID] = &hijack
+	e.mu.Unlock()
+	defer func() {
+		e.mu.Lock()
+		delete(e.attaches, cmd.ID)
+		e.mu.Unlock()
+		hijack.Close()
+	}()
+	if err := send(agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: cmd.ID}}); err != nil {
+		return
+	}
+	// A canceled command must unblock the reader: the hijacked stream has no
+	// ctx of its own.
+	go func() {
+		<-ctx.Done()
+		hijack.Close()
+	}()
+	agentwire.PumpReader(ctx, cmd.ID, hijack.Reader, send)
 }
 
 // openAndPump opens the stream, acks the command, then forwards chunks. The

@@ -20,6 +20,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/adoption"
 	"github.com/deepteams/akerdock/internal/audit"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/githubapp"
 	"github.com/deepteams/akerdock/internal/pguuid"
@@ -47,6 +48,10 @@ type DeploymentRun struct {
 	Keyring *envelope.Keyring
 	Audit   *audit.Recorder
 	Logger  *slog.Logger
+	// Docker resolves a server's runtime over its agent channel (ADR-052).
+	// The deploy pipeline migrates to it slice by slice — today the hooks'
+	// exec; builds, git and file deposits stay on SSH.
+	Docker dockerruntime.Source
 	// ControlPlanePort is the published port of this instance (AKERDOCK_INSTANCE_PORT):
 	// on the server that HOSTS the instance, the preview forward-auth talks to
 	// the control plane straight through the Docker host gateway — never the
@@ -2106,15 +2111,23 @@ func (r *deploymentRun) runHook(ctx context.Context, name string, command *strin
 		r.skipStep(ctx, name, "no command configured")
 		return nil
 	}
+	rt, err := r.h.Docker.Runtime(ctx, r.server.ID)
+	if err != nil {
+		return err
+	}
 	// Prefix, not equality: the compose hooks are per service
 	// ("pre_deployment_<svc>") and share the same §10 rule — no existing
 	// container means nothing to run in, not a failure.
 	if strings.HasPrefix(name, "pre_deployment") {
-		res, err := r.client.Run(ctx, "docker inspect --format '{{.State.Running}}' "+container+" 2>/dev/null || true")
+		resp, err := rt.ContainerInspect(ctx, container)
 		if err != nil {
+			if dockerruntime.IsNotFound(err) {
+				r.skipStep(ctx, name, "skipped: no running container")
+				return nil
+			}
 			return err
 		}
-		if !strings.Contains(res.Stdout, "true") {
+		if resp.State == nil || !resp.State.Running {
 			r.skipStep(ctx, name, "skipped: no running container")
 			return nil
 		}
@@ -2123,7 +2136,11 @@ func (r *deploymentRun) runHook(ctx context.Context, name string, command *strin
 	ctx, cancel := context.WithTimeout(ctx, hookTimeout)
 	defer cancel()
 	return r.step(ctx, name, func() (*sshexec.Result, error) {
-		return r.client.Run(ctx, fmt.Sprintf("docker exec %s sh -c %s", container, shellQuote(*command)))
+		out, exit, err := execCapture(ctx, rt, container, []string{"sh", "-c", *command})
+		if err != nil {
+			return nil, err
+		}
+		return &sshexec.Result{Stdout: out, ExitCode: exit}, nil
 	})
 }
 

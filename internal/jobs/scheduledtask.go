@@ -10,10 +10,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/audit"
-	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
-	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -35,10 +34,10 @@ type ScheduledTaskPayload struct {
 
 // ScheduledTaskRun executes a task's command inside the resource's container.
 type ScheduledTaskRun struct {
-	Store   *store.Queries
-	Keyring *envelope.Keyring
-	Audit   *audit.Recorder
-	Logger  *slog.Logger
+	Store  *store.Queries
+	Docker dockerruntime.Source
+	Audit  *audit.Recorder
+	Logger *slog.Logger
 }
 
 // Execute runs one occurrence. A command that FAILS is a result, not a job to
@@ -75,38 +74,27 @@ func (h *ScheduledTaskRun) Execute(ctx context.Context, job store.Job, rec *queu
 	if err != nil {
 		return nil, err
 	}
-	key, err := h.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
-	if err != nil {
-		return nil, err
-	}
-	pem, err := h.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return nil, err
-	}
 
 	rec.Start(ctx, "exec")
-	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
-		time.Duration(server.SshTimeoutSeconds)*time.Second, pinnedHostKey(server))
+	rt, err := h.Docker.Runtime(ctx, server.ID)
 	if err != nil {
-		h.fail(ctx, payload.ExecutionID, nil, "SSH connection failed: "+err.Error())
-		rec.Fail(ctx, "SSH connection failed")
+		h.fail(ctx, payload.ExecutionID, nil, "the server's agent is not connected")
+		rec.Fail(ctx, "the server's agent is not connected")
 		return nil, err
 	}
-	defer func() { _ = client.Close() }()
 
-	// The command is the operator's shell, deliberately: it is quoted whole and
-	// handed to the container's shell, never inspected or sanitised (INV-012 is
-	// about the boundary, not about second-guessing the command).
+	// The command is the operator's shell, deliberately: it is handed whole to
+	// the container's shell, never inspected or sanitised (INV-012 is about
+	// the boundary, not about second-guessing the command) — and as exec argv,
+	// it no longer transits any host shell at all.
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(task.TimeoutSeconds)*time.Second)
 	defer cancel()
-	cmd := fmt.Sprintf("docker exec %s sh -c %s", container, shellQuote(task.Command))
-
-	res, err := client.Run(runCtx, cmd)
+	rawOutput, exitCode, err := execCapture(runCtx, rt, container, []string{"sh", "-c", task.Command})
 	if err != nil {
 		// A timeout is a failure of the TASK, not of the job: retrying a command
 		// that hangs would just hang again, and the history must say what
 		// happened rather than leave a `running` row forever.
-		reason := err.Error()
+		reason := firstLine(err.Error())
 		if runCtx.Err() != nil {
 			reason = fmt.Sprintf("the command exceeded its timeout of %ds", task.TimeoutSeconds)
 		}
@@ -115,12 +103,12 @@ func (h *ScheduledTaskRun) Execute(ctx context.Context, job store.Job, rec *queu
 		return map[string]any{"status": "failed", "reason": reason}, nil
 	}
 
-	output, truncated := clampOutput(res.Stdout + res.Stderr)
+	output, truncated := clampOutput(rawOutput)
 	status := store.TaskExecutionStatusSucceeded
-	if res.ExitCode != 0 {
+	if exitCode != 0 {
 		status = store.TaskExecutionStatusFailed
 	}
-	exit := int32(res.ExitCode)
+	exit := int32(exitCode)
 	if err := h.Store.FinishTaskExecution(ctx, store.FinishTaskExecutionParams{
 		ID: payload.ExecutionID, Status: status, ExitCode: &exit,
 		Output: &output, OutputTruncated: truncated,
@@ -128,14 +116,14 @@ func (h *ScheduledTaskRun) Execute(ctx context.Context, job store.Job, rec *queu
 		return nil, err
 	}
 
-	if res.ExitCode != 0 {
+	if exitCode != 0 {
 		// A failing scheduled task is worth a notification (§290) — it is the
 		// canonical thing that silently stops working.
 		h.publish(ctx, task, app.Resource.Uuid, "scheduled_task.failed.v1", map[string]any{
-			"task": task.Name, "exit_code": res.ExitCode,
+			"task": task.Name, "exit_code": exitCode,
 		})
-		rec.Fail(ctx, fmt.Sprintf("the command exited with code %d", res.ExitCode))
-		return map[string]any{"status": "failed", "exit_code": res.ExitCode}, nil
+		rec.Fail(ctx, fmt.Sprintf("the command exited with code %d", exitCode))
+		return map[string]any{"status": "failed", "exit_code": exitCode}, nil
 	}
 	h.publish(ctx, task, app.Resource.Uuid, "scheduled_task.succeeded.v1", map[string]any{"task": task.Name})
 	rec.Succeed(ctx, "the command exited with code 0")

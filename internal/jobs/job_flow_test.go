@@ -664,7 +664,7 @@ func TestRemainingJobFlowsReachTheirDecisionBoundary(t *testing.T) {
 	tests := map[string]func() (any, error){
 		"scheduled task": func() (any, error) {
 			j := job(TypeScheduledTaskRun, `{"task_id":1,"execution_id":1}`)
-			return (&ScheduledTaskRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger}).
+			return (&ScheduledTaskRun{Store: q, Docker: unavailableDocker{}, Audit: recorder, Logger: logger}).
 				Execute(context.Background(), j, rec(j))
 		},
 		"adoption scan": func() (any, error) {

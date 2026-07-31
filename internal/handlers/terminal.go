@@ -13,12 +13,15 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/docker/docker/api/types"
+	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/adoption"
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/auth"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/jobs"
 	"github.com/deepteams/akerdock/internal/sshexec"
@@ -280,21 +283,14 @@ func (a *API) TerminalWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve the target BEFORE upgrading: an HTTP error is diagnosable, a
 	// WebSocket that closes immediately is a mystery.
-	client, command, errMsg := a.terminalConnect(r.Context(), row)
+	cols, rows := terminalGeometry(r)
+	pty, cleanup, errMsg := a.terminalPTY(r.Context(), row, cols, rows)
 	if errMsg != "" {
 		a.endTerminalSession(row, terminal.EndRevoked)
 		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, errMsg)
 		return
 	}
-	defer func() { _ = client.Close() }()
-
-	cols, rows := terminalGeometry(r)
-	pty, err := client.StartPTY(command, cols, rows)
-	if err != nil {
-		a.endTerminalSession(row, terminal.EndRevoked)
-		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "could not start the remote terminal")
-		return
-	}
+	defer cleanup()
 
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
@@ -311,70 +307,139 @@ func (a *API) TerminalWebSocket(w http.ResponseWriter, r *http.Request) {
 	_ = conn.Close(websocket.StatusNormalClosure, string(reason))
 }
 
-// terminalConnect dials the session's server and builds the remote command:
-// none for a server shell, a docker exec for a container. The container is
-// named by the resource's UUID (INV-011) — the same convention every job
-// relies on.
-func (a *API) terminalConnect(ctx context.Context, row store.TerminalSession) (*sshexec.Client, string, string) {
+// terminalPTY resolves the session's target and opens its pseudo-terminal: a
+// container terminal is an exec attach on the agent channel (ADR-052), a
+// server shell keeps its SSH PTY — the one terminal SSH keeps forever. The
+// returned cleanup releases the transport once the bridge ends.
+func (a *API) terminalPTY(ctx context.Context, row store.TerminalSession, cols, rows int) (terminal.PTY, func(), string) {
 	if row.ServerID == nil {
-		return nil, "", "the target server no longer exists"
+		return nil, nil, "the target server no longer exists"
 	}
 	server, err := a.Store.GetServerByID(ctx, *row.ServerID)
 	if err != nil {
-		return nil, "", "the target server no longer exists"
+		return nil, nil, "the target server no longer exists"
 	}
 
-	command := ""
 	if row.TargetKind == store.TerminalTargetContainer {
-		if row.ResourceID == nil {
-			return nil, "", "the target resource no longer exists"
+		containerName, errMsg := a.terminalContainer(ctx, row)
+		if errMsg != "" {
+			return nil, nil, errMsg
 		}
-		res, err := a.Store.GetResourceByID(ctx, *row.ResourceID)
-		if err != nil {
-			return nil, "", "the target resource no longer exists"
+		pty, errMsg := a.execTerminal(ctx, server.ID, containerName, cols, rows)
+		if errMsg != "" {
+			return nil, nil, errMsg
 		}
-		// bash when the image has it, sh otherwise; the fallback chain is a
-		// fixed literal, and the container name is a UUID — or, for an
-		// adopted resource awaiting normalization (§20.7), the original
-		// Docker name recorded by our own adopt job from `docker inspect`
-		// (Docker's name charset has no shell metacharacters) (INV-012).
-		container := adoption.ContainerName(res.Adoption, uuidString(res.Uuid))
-		base := uuidString(res.Uuid)
-		if row.PreviewID != nil {
-			// A preview instance: every container derives from the PREVIEW
-			// uuid (INV-011) — and a destroyed preview has no container left
-			// to exec into, say so instead of a raw docker error.
-			preview, err := a.Store.GetPreviewByID(ctx, *row.PreviewID)
-			if err != nil || preview.Status == store.PreviewStatusDestroyed {
-				return nil, "", "the preview no longer exists — it may have been destroyed"
-			}
-			base = uuidString(preview.Uuid)
-			container = base
-		}
-		if row.TargetComponent != nil && *row.TargetComponent != "" {
-			// A compose service's container (compose-spec §2.2). The component
-			// was validated against service_components at session creation.
-			container = base + "-" + *row.TargetComponent
-		}
-		command = fmt.Sprintf(
-			"docker exec -it -e TERM=xterm-256color %s sh -c 'command -v bash >/dev/null 2>&1 && exec bash || exec sh'",
-			container)
+		return pty, func() {}, ""
 	}
 
 	key, err := a.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
 	if err != nil {
-		return nil, "", "the server's SSH key is not available"
+		return nil, nil, "the server's SSH key is not available"
 	}
 	pem, err := a.Keyring.Decrypt("private_keys", "private_key_enc", uuidString(key.Uuid), key.PrivateKeyEnc)
 	if err != nil {
-		return nil, "", "the server's SSH key is not available"
+		return nil, nil, "the server's SSH key is not available"
 	}
 	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
 		time.Duration(server.SshTimeoutSeconds)*time.Second, jobs.PinnedHostKey(server))
 	if err != nil {
-		return nil, "", "the server is not reachable over SSH right now"
+		return nil, nil, "the server is not reachable over SSH right now"
 	}
-	return client, command, ""
+	pty, err := client.StartPTY("", cols, rows)
+	if err != nil {
+		_ = client.Close()
+		return nil, nil, "could not start the remote terminal"
+	}
+	return pty, func() { _ = client.Close() }, ""
+}
+
+// terminalContainer names the session's container: the resource's UUID
+// (INV-011) — or, for an adopted resource awaiting normalization (§20.7),
+// the original Docker name our own adopt job recorded.
+func (a *API) terminalContainer(ctx context.Context, row store.TerminalSession) (string, string) {
+	if row.ResourceID == nil {
+		return "", "the target resource no longer exists"
+	}
+	res, err := a.Store.GetResourceByID(ctx, *row.ResourceID)
+	if err != nil {
+		return "", "the target resource no longer exists"
+	}
+	containerName := adoption.ContainerName(res.Adoption, uuidString(res.Uuid))
+	base := uuidString(res.Uuid)
+	if row.PreviewID != nil {
+		// A preview instance: every container derives from the PREVIEW uuid
+		// (INV-011) — and a destroyed preview has no container left to exec
+		// into, say so instead of a raw daemon error.
+		preview, err := a.Store.GetPreviewByID(ctx, *row.PreviewID)
+		if err != nil || preview.Status == store.PreviewStatusDestroyed {
+			return "", "the preview no longer exists — it may have been destroyed"
+		}
+		base = uuidString(preview.Uuid)
+		containerName = base
+	}
+	if row.TargetComponent != nil && *row.TargetComponent != "" {
+		// A compose service's container (compose-spec §2.2). The component
+		// was validated against service_components at session creation.
+		containerName = base + "-" + *row.TargetComponent
+	}
+	return containerName, ""
+}
+
+// execTerminal opens the container terminal through the agent channel: a TTY
+// exec — bash when the image has it, sh otherwise, the same fixed fallback
+// chain as always — attached bidirectionally, resized by typed command.
+func (a *API) execTerminal(ctx context.Context, serverID int64, containerName string, cols, rows int) (terminal.PTY, string) {
+	rt, err := a.AgentRPC.Runtime(ctx, serverID)
+	if err != nil {
+		return nil, "the server's agent is not connected — it reconnects on its own; check the server page if this persists"
+	}
+	created, err := rt.ContainerExecCreate(ctx, containerName, containertypes.ExecOptions{
+		Tty: true, AttachStdin: true, AttachStdout: true, AttachStderr: true,
+		Env: []string{"TERM=xterm-256color"},
+		Cmd: []string{"sh", "-c", "command -v bash >/dev/null 2>&1 && exec bash || exec sh"},
+	})
+	if err != nil {
+		if dockerruntime.IsNotFound(err) {
+			return nil, "the container does not exist on the server — deploy it first"
+		}
+		if dockerruntime.IsConflict(err) {
+			return nil, "the container is not running — start it first"
+		}
+		return nil, "could not start the remote terminal"
+	}
+	hijack, err := rt.ContainerExecAttach(ctx, created.ID, containertypes.ExecAttachOptions{
+		Tty: true, ConsoleSize: &[2]uint{uint(rows), uint(cols)},
+	})
+	if err != nil {
+		return nil, "could not start the remote terminal"
+	}
+	return &execPTY{hijack: hijack, rt: rt, execID: created.ID}, ""
+}
+
+// execPTY adapts a channel exec attach to the terminal bridge: the hijacked
+// stream carries the TTY bytes, resize travels as the typed command.
+type execPTY struct {
+	hijack types.HijackedResponse
+	rt     dockerruntime.Runtime
+	execID string
+}
+
+func (p *execPTY) Read(b []byte) (int, error)  { return p.hijack.Reader.Read(b) }
+func (p *execPTY) Write(b []byte) (int, error) { return p.hijack.Conn.Write(b) }
+
+func (p *execPTY) Close() error {
+	p.hijack.Close()
+	return nil
+}
+
+func (p *execPTY) Resize(cols, rows int) error {
+	// The bridge calls this from the client's resize messages; the session
+	// ctx may already be gone at teardown, so the command gets its own bound.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return p.rt.ContainerExecResize(ctx, p.execID, containertypes.ResizeOptions{
+		Width: uint(cols), Height: uint(rows),
+	})
 }
 
 // endTerminalSession closes the row and audits the close. It runs on a fresh

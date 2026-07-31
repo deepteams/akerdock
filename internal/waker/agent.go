@@ -481,6 +481,12 @@ func (a *Agent) readLoop(ch *wsChannel) {
 				cmd := *f.Cmd
 				go contain(a.logger, "agent command", func() { a.Executor.Execute(ch.ctx, cmd, ch.write) })
 			}
+		case agentwire.FrameStream:
+			// Input chunks of a bidirectional attach (ADR-052): routed to the
+			// exec session's stdin.
+			if a.Executor != nil {
+				a.Executor.DeliverInput(f.Chunk)
+			}
 		case agentwire.FrameCancel:
 			if a.Executor != nil {
 				a.Executor.Cancel(f.Cancel)

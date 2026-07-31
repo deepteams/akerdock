@@ -258,3 +258,58 @@ func TestAgentConnsLatestConnectionWins(t *testing.T) {
 		t.Fatalf("Runtime without a channel = %v, want IsUnavailable", err)
 	}
 }
+
+// TestAgentConnAttachEchoesBothWays pins the bidirectional stream on the CP
+// side: writes travel as input chunks, output chunks come back through Read,
+// CloseWrite marks stdin closed without ending the reads.
+func TestAgentConnAttachEchoesBothWays(t *testing.T) {
+	ac, agent := dialPair(t)
+
+	go func() {
+		cmd, err := readCommand(agent)
+		if err != nil || cmd.Method != agentwire.MethodContainerExecAttach {
+			return
+		}
+		_ = agentWrite(agent, agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: cmd.ID}})
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		for {
+			_, data, err := agent.Read(ctx)
+			if err != nil {
+				return
+			}
+			var f agentwire.Frame
+			if json.Unmarshal(data, &f) != nil || f.Type != agentwire.FrameStream || f.Chunk == nil || f.Chunk.ID != cmd.ID {
+				continue
+			}
+			if len(f.Chunk.Data) > 0 { // echo the input back as output
+				_ = agentWrite(agent, agentwire.Frame{Type: agentwire.FrameStream, Chunk: &agentwire.StreamChunk{ID: cmd.ID, Data: f.Chunk.Data}})
+			}
+			if f.Chunk.EOF { // stdin closed: the exec ends, output EOFs
+				_ = agentWrite(agent, agentwire.Frame{Type: agentwire.FrameStream, Chunk: &agentwire.StreamChunk{ID: cmd.ID, EOF: true}})
+				return
+			}
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	att, err := ac.Attach(ctx, agentwire.MethodContainerExecAttach, agentwire.ContainerExecAttachParams{ExecID: "e1"})
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	defer func() { _ = att.Close() }()
+	if _, err := att.Write([]byte("ping")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	buf := make([]byte, 4)
+	if _, err := io.ReadFull(att, buf); err != nil || string(buf) != "ping" {
+		t.Fatalf("echo = %q, %v", buf, err)
+	}
+	if err := att.CloseWrite(); err != nil {
+		t.Fatalf("CloseWrite: %v", err)
+	}
+	if rest, err := io.ReadAll(att); err != nil || len(rest) != 0 {
+		t.Fatalf("after CloseWrite: %q, %v — want a clean EOF", rest, err)
+	}
+}

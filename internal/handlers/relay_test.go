@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 type scriptedSender struct {
 	CommandFn func(ctx context.Context, method string, params any) (json.RawMessage, error)
 	StreamFn  func(ctx context.Context, method string, params any) (io.ReadCloser, error)
+	AttachFn  func(ctx context.Context, method string, params any) (dockerruntime.AttachStream, error)
 }
 
 func (s *scriptedSender) Command(ctx context.Context, method string, params any) (json.RawMessage, error) {
@@ -32,6 +34,13 @@ func (s *scriptedSender) Command(ctx context.Context, method string, params any)
 
 func (s *scriptedSender) Stream(ctx context.Context, method string, params any) (io.ReadCloser, error) {
 	return s.StreamFn(ctx, method, params)
+}
+
+func (s *scriptedSender) Attach(ctx context.Context, method string, params any) (dockerruntime.AttachStream, error) {
+	if s.AttachFn == nil {
+		return nil, errors.New("no attach scripted")
+	}
+	return s.AttachFn(ctx, method, params)
 }
 
 // relayTestServer runs the api side of the relay over a scripted sender —
@@ -164,3 +173,59 @@ func TestRelaySourceRedialsAfterABrokenConnection(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// TestRelayBridgesAttach proves the bidirectional stream survives the second
+// hop: a worker-side exec attach echoes through the relay, the bridge and
+// the (scripted) live channel.
+func TestRelayBridgesAttach(t *testing.T) {
+	sender := &scriptedSender{
+		CommandFn: func(_ context.Context, method string, _ any) (json.RawMessage, error) {
+			if method == agentwire.MethodContainerExecCreate {
+				return json.RawMessage(`{"Id":"e1"}`), nil
+			}
+			return json.RawMessage(`{}`), nil
+		},
+		AttachFn: func(context.Context, string, any) (dockerruntime.AttachStream, error) {
+			pr, pw := io.Pipe()
+			return &loopbackAttach{pr: pr, pw: pw}, nil
+		},
+	}
+	srv := relayTestServer(t, func() (dockerruntime.CommandSender, bool) { return sender, true })
+	src := relaySource(t, srv)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rt, err := src.Runtime(ctx, 7)
+	if err != nil {
+		t.Fatalf("Runtime: %v", err)
+	}
+	hijack, err := rt.ContainerExecAttach(ctx, "e1", containertypes.ExecAttachOptions{})
+	if err != nil {
+		t.Fatalf("ContainerExecAttach: %v", err)
+	}
+	defer hijack.Close()
+	if _, err := hijack.Conn.Write([]byte("ping")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	buf := make([]byte, 4)
+	if _, err := io.ReadFull(hijack.Reader, buf); err != nil || string(buf) != "ping" {
+		t.Fatalf("echo across the relay = %q, %v", buf, err)
+	}
+	if err := hijack.CloseWrite(); err != nil {
+		t.Fatalf("CloseWrite: %v", err)
+	}
+	if rest, err := io.ReadAll(hijack.Reader); err != nil || len(rest) != 0 {
+		t.Fatalf("after CloseWrite: %q, %v — want a clean EOF", rest, err)
+	}
+}
+
+// loopbackAttach echoes its input back as output; CloseWrite ends it.
+type loopbackAttach struct {
+	pr *io.PipeReader
+	pw *io.PipeWriter
+}
+
+func (l *loopbackAttach) Read(p []byte) (int, error)  { return l.pr.Read(p) }
+func (l *loopbackAttach) Write(p []byte) (int, error) { return l.pw.Write(p) }
+func (l *loopbackAttach) CloseWrite() error           { return l.pw.Close() }
+func (l *loopbackAttach) Close() error                { _ = l.pw.Close(); return l.pr.Close() }

@@ -42,12 +42,24 @@ func (a *API) AgentRelay(w http.ResponseWriter, r *http.Request) {
 }
 
 // relayLoop bridges relay frames onto the server's live channel: each cmd
-// becomes a Command or Stream call on THIS process's agent connection — so
-// command id spaces never collide, and telemetry counts every operation
-// exactly once, where the channel is.
+// becomes a Command, Stream or Attach call on THIS process's agent
+// connection — so command id spaces never collide, and telemetry counts
+// every operation exactly once, where the channel is. Input chunks of a
+// bridged attach route to its stream by id.
 func relayLoop(ctx context.Context, conn *websocket.Conn, wc *agentwire.Conn, senderFor func() (dockerruntime.CommandSender, bool)) {
 	var mu sync.Mutex
 	inflight := map[int64]context.CancelFunc{}
+	attaches := map[int64]dockerruntime.AttachStream{}
+	registerAttach := func(id int64, att dockerruntime.AttachStream) func() {
+		mu.Lock()
+		attaches[id] = att
+		mu.Unlock()
+		return func() {
+			mu.Lock()
+			delete(attaches, id)
+			mu.Unlock()
+		}
+	}
 	for {
 		_, data, err := conn.Read(ctx)
 		if err != nil {
@@ -74,8 +86,24 @@ func relayLoop(ctx context.Context, conn *websocket.Conn, wc *agentwire.Conn, se
 					delete(inflight, cmd.ID)
 					mu.Unlock()
 				}()
-				bridgeCommand(cmdCtx, wc, cmd, senderFor)
+				bridgeCommand(cmdCtx, wc, cmd, senderFor, registerAttach)
 			}()
+		case agentwire.FrameStream:
+			if f.Chunk == nil {
+				continue
+			}
+			mu.Lock()
+			att := attaches[f.Chunk.ID]
+			mu.Unlock()
+			if att == nil {
+				continue
+			}
+			if len(f.Chunk.Data) > 0 {
+				_, _ = att.Write(f.Chunk.Data)
+			}
+			if f.Chunk.EOF {
+				_ = att.CloseWrite()
+			}
 		case agentwire.FrameCancel:
 			mu.Lock()
 			cancelCmd := inflight[f.Cancel]
@@ -91,13 +119,30 @@ func relayLoop(ctx context.Context, conn *websocket.Conn, wc *agentwire.Conn, se
 // error round-trips intact: rebuilt from the agent's wire code by the
 // channel, re-flattened here — the worker's IsNotFound sees what the daemon
 // said, two hops away.
-func bridgeCommand(ctx context.Context, wc *agentwire.Conn, cmd agentwire.Command, senderFor func() (dockerruntime.CommandSender, bool)) {
+func bridgeCommand(ctx context.Context, wc *agentwire.Conn, cmd agentwire.Command, senderFor func() (dockerruntime.CommandSender, bool), registerAttach func(int64, dockerruntime.AttachStream) func()) {
 	fail := func(err error) {
 		_ = wc.WriteFrame(agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: cmd.ID, Err: agentwire.WireError(err)}})
 	}
 	sender, ok := senderFor()
 	if !ok {
 		fail(agentwire.Unavailable("not connected"))
+		return
+	}
+	if cmd.Method == agentwire.MethodContainerExecAttach {
+		att, err := sender.Attach(ctx, cmd.Method, cmd.Params)
+		if err != nil {
+			fail(err)
+			return
+		}
+		unregister := registerAttach(cmd.ID, att)
+		defer func() {
+			unregister()
+			_ = att.Close()
+		}()
+		if wc.WriteFrame(agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: cmd.ID}}) != nil {
+			return
+		}
+		agentwire.PumpReader(ctx, cmd.ID, att, wc.WriteFrame)
 		return
 	}
 	if agentwire.IsStreamMethod(cmd.Method) {

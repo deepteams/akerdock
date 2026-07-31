@@ -215,6 +215,66 @@ func (c *Conn) Stream(ctx context.Context, method string, params any) (io.ReadCl
 	return &stream{conn: c, id: id, call: cl, ctx: ctx}, nil
 }
 
+// Attach sends one bidirectional command: the result acknowledges the open,
+// output arrives through Read, writes travel as input chunks under the same
+// id, and CloseWrite marks the peer-side stdin closed without ending reads.
+func (c *Conn) Attach(ctx context.Context, method string, params any) (*Attached, error) {
+	cmd, id, cl, err := c.open(method, params, true)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.WriteFrame(Frame{Type: FrameCommand, Cmd: cmd}); err != nil {
+		c.finish(id)
+		c.observe(method, CodeUnavailable)
+		return nil, Unavailable("write failed")
+	}
+	select {
+	case <-ctx.Done():
+		c.CancelRemote(id)
+		c.finish(id)
+		c.observe(method, CodeCanceled)
+		return nil, ctx.Err()
+	case <-c.ctx.Done():
+		c.finish(id)
+		c.observe(method, CodeUnavailable)
+		return nil, Unavailable("closed")
+	case res := <-cl.res:
+		if res.Err != nil {
+			c.finish(id)
+			c.observe(method, res.Err.Code)
+			return nil, res.Err.Err()
+		}
+	}
+	c.observe(method, "ok")
+	return &Attached{stream: stream{conn: c, id: id, call: cl, ctx: ctx}}, nil
+}
+
+// Attached is a bidirectional attach stream (ContainerExecAttach): reads
+// carry the peer's output, writes its input.
+type Attached struct {
+	stream
+}
+
+func (a *Attached) Write(p []byte) (int, error) {
+	total := 0
+	for len(p) > 0 {
+		n := min(len(p), ChunkSize)
+		data := make([]byte, n)
+		copy(data, p[:n])
+		if err := a.conn.WriteFrame(Frame{Type: FrameStream, Chunk: &StreamChunk{ID: a.id, Data: data}}); err != nil {
+			return total, err
+		}
+		total += n
+		p = p[n:]
+	}
+	return total, nil
+}
+
+// CloseWrite closes the peer-side stdin; output keeps flowing.
+func (a *Attached) CloseWrite() error {
+	return a.conn.WriteFrame(Frame{Type: FrameStream, Chunk: &StreamChunk{ID: a.id, EOF: true}})
+}
+
 func (c *Conn) open(method string, params any, streamed bool) (*Command, int64, *call, error) {
 	var raw json.RawMessage
 	if params != nil {

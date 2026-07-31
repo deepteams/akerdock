@@ -133,6 +133,11 @@ type relayConn struct {
 	cancel context.CancelFunc
 }
 
+// Attach narrows agentwire's concrete stream to the CommandSender interface.
+func (c *relayConn) Attach(ctx context.Context, method string, params any) (dockerruntime.AttachStream, error) {
+	return c.Conn.Attach(ctx, method, params)
+}
+
 func (c *relayConn) close() {
 	c.cancel()
 	_ = c.ws.Close(websocket.StatusNormalClosure, "")

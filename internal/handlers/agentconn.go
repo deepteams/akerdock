@@ -18,11 +18,19 @@ import (
 	"github.com/deepteams/akerdock/internal/httpapi"
 )
 
-// agentConn is one live v2 channel.
-type agentConn = agentwire.Conn
+// agentConn is one live v2 channel: agentwire.Conn plus the Attach signature
+// dockerruntime.CommandSender asks for.
+type agentConn struct {
+	*agentwire.Conn
+}
 
 func newAgentConn(ctx context.Context, conn *websocket.Conn) *agentConn {
-	return agentwire.NewConn(ctx, conn)
+	return &agentConn{Conn: agentwire.NewConn(ctx, conn)}
+}
+
+// Attach narrows agentwire's concrete stream to the CommandSender interface.
+func (c *agentConn) Attach(ctx context.Context, method string, params any) (dockerruntime.AttachStream, error) {
+	return c.Conn.Attach(ctx, method, params)
 }
 
 var _ dockerruntime.CommandSender = (*agentConn)(nil)

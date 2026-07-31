@@ -331,7 +331,7 @@ func serveRun(mode string) int {
 		worker = queue.NewWorker(q, cfg.WorkerConcurrency, logger)
 		worker.Metrics, worker.Tracer = metrics, tel.Tracer
 		worker.Register(jobs.TypeServerValidate, (&jobs.ServerValidate{Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort}).Execute)
-		worker.Register(jobs.TypeDeploymentRun, (&jobs.DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger, ControlPlanePort: cfg.InstancePort, WakerImage: cfg.Image}).Execute)
+		worker.Register(jobs.TypeDeploymentRun, (&jobs.DeploymentRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger, Docker: dockerSource, ControlPlanePort: cfg.InstancePort, WakerImage: cfg.Image}).Execute)
 		worker.Register(jobs.TypeApplicationDelete, (&jobs.ApplicationDelete{Store: q, Keyring: keyring, Docker: dockerSource, Logger: logger}).Execute)
 		worker.Register(jobs.TypeApplyRouting, (&jobs.ApplyRouting{
 			Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort,
@@ -354,7 +354,7 @@ func serveRun(mode string) int {
 		worker.Register(jobs.TypeBackupExecute, backup.Execute)
 		worker.Register(jobs.TypeBackupRestore, backup.Execute)
 		worker.Register(jobs.TypeBackupDrill, backup.Execute)
-		worker.Register(jobs.TypeScheduledTaskRun, (&jobs.ScheduledTaskRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger}).Execute)
+		worker.Register(jobs.TypeScheduledTaskRun, (&jobs.ScheduledTaskRun{Store: q, Docker: dockerSource, Audit: recorder, Logger: logger}).Execute)
 		lifecycle := &jobs.ApplicationLifecycle{Store: q, Docker: dockerSource, Logger: logger}
 		proxyLifecycle := &jobs.ProxyLifecycle{Store: q, Keyring: keyring, Logger: logger, ControlPlanePort: cfg.InstancePort}
 		for _, t := range []string{jobs.TypeProxyStart, jobs.TypeProxyStop, jobs.TypeProxyRestart} {
