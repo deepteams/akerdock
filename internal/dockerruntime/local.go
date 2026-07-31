@@ -1,10 +1,23 @@
 package dockerruntime
 
 import (
+	"context"
 	"fmt"
+	"net"
 
 	"github.com/docker/docker/client"
 )
+
+// Hijacker is the raw connection upgrade the SDK client exposes — the rail
+// the agent's BuildKit session rides (ADR-055 phase 2: /grpc for the build
+// gRPC, /session for the attachables). Only the LOCAL implementation has it;
+// a remote runtime deliberately does not — builds execute where the context
+// lives, never across the channel.
+type Hijacker interface {
+	DialHijack(ctx context.Context, url, proto string, meta map[string][]string) (net.Conn, error)
+}
+
+var _ Hijacker = (*Local)(nil)
 
 // DefaultSocket is the local Docker Engine API socket (ADR-004: standalone
 // Docker is the only runtime).

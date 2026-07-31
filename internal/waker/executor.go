@@ -156,6 +156,18 @@ func (e *Executor) executeStream(ctx context.Context, cmd agentwire.Command, sen
 		e.pumpEvents(ctx, cmd, send)
 	case agentwire.MethodContainerExecAttach:
 		e.attachExec(ctx, cmd, send)
+	case agentwire.MethodImageBuild:
+		// The ADR-055 build: solved agent-side, only progress crosses the wire.
+		var p agentwire.ImageBuildParams
+		e.openAndPump(ctx, cmd, send, func() (io.ReadCloser, error) {
+			if err := json.Unmarshal(cmd.Params, &p); err != nil {
+				return nil, invalidParams(err)
+			}
+			if e.host == nil {
+				return nil, agentwire.Unavailable("this helper has no host mount — it recreates with the next spec")
+			}
+			return e.host.BuildImage(ctx, p)
+		})
 	default:
 		return false
 	}

@@ -1,8 +1,14 @@
 package jobs
 
 import (
+	"context"
+	"errors"
+	"io"
+	"strings"
 	"testing"
 
+	"github.com/deepteams/akerdock/internal/agentwire"
+	hostfake "github.com/deepteams/akerdock/internal/hostops/fake"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -55,46 +61,33 @@ func TestPreviewLifecyclePayloadIncludesSlackContext(t *testing.T) {
 	}
 }
 
-// TestBuildInputsFlags checks the ARG/secret split (INV-003): a plain variable
-// becomes --build-arg, a secret NEVER does — it is mounted via --secret. The
-// key names below are fixtures; no values are involved at all, which is the
-// point of the flag shape.
-func TestBuildInputsFlags(t *testing.T) {
-	tests := []struct {
-		name string
-		in   buildInputs
-		want string
-	}{
-		{
-			name: "empty inputs render no flags",
-			in:   buildInputs{},
-			want: "",
-		},
-		{
-			name: "args only",
-			in:   buildInputs{args: []string{"NODE_ENV", "BASE_URL"}},
-			want: " --build-arg NODE_ENV --build-arg BASE_URL",
-		},
-		{
-			name: "secrets only",
-			in:   buildInputs{secrets: []string{"NPM_TOKEN"}},
-			want: " --secret id=NPM_TOKEN,env=NPM_TOKEN",
-		},
-		{
-			name: "mixed: args first, then secrets",
-			in: buildInputs{
-				args:    []string{"NODE_ENV"},
-				secrets: []string{"NPM_TOKEN", "FAKE_API_KEY"},
-			},
-			want: " --build-arg NODE_ENV --secret id=NPM_TOKEN,env=NPM_TOKEN --secret id=FAKE_API_KEY,env=FAKE_API_KEY",
-		},
+// TestAgentBuildPumpsProgressAndSurfacesFailure pins the ADR-055 seam: the
+// typed build's plain-text progress reaches the step log line by line, and
+// the stream's terminal error IS the build failure, cause included.
+func TestAgentBuildPumpsProgressAndSurfacesFailure(t *testing.T) {
+	ops := &hostfake.Ops{BuildImageFn: func(context.Context, agentwire.ImageBuildParams) (io.ReadCloser, error) {
+		pr, pw := io.Pipe()
+		go func() {
+			_, _ = io.WriteString(pw, "#1 [internal] load build definition\n#2 DONE\n")
+			pw.CloseWithError(errors.New("process \"/bin/sh -c make\" did not complete successfully: exit code 2"))
+		}()
+		return pr, nil
+	}}
+	r := &deploymentRun{hops: ops}
+	var lines []string
+	err := r.agentBuild(context.Background(), func(s string) { lines = append(lines, s) }, agentwire.ImageBuildParams{
+		ContextDir: "/var/lib/akerdock/applications/app/source", Dockerfile: "Dockerfile", Tags: []string{"akerdock/app:abc"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "did not complete successfully") {
+		t.Fatalf("agentBuild = %v, want the solve failure surfaced", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.in.Flags(); got != tt.want {
-				t.Errorf("Flags() = %q, want %q", got, tt.want)
-			}
-		})
+	if len(lines) != 2 || lines[0] != "#1 [internal] load build definition" {
+		t.Fatalf("progress lines = %v", lines)
+	}
+	// The typed params reached the channel untouched.
+	calls := ops.CallsTo(agentwire.MethodImageBuild)
+	if len(calls) != 1 || calls[0].(agentwire.ImageBuildParams).Dockerfile != "Dockerfile" {
+		t.Fatalf("build calls = %v", calls)
 	}
 }
 

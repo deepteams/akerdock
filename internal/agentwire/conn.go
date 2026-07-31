@@ -345,7 +345,7 @@ func (s *stream) Close() error {
 // its acknowledging result — what a relay must know to bridge it.
 func IsStreamMethod(method string) bool {
 	switch method {
-	case MethodContainerLogs, MethodImagePull, MethodImagePush, MethodEvents:
+	case MethodContainerLogs, MethodImagePull, MethodImagePush, MethodEvents, MethodImageBuild:
 		return true
 	}
 	return false

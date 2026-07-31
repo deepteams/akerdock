@@ -225,3 +225,42 @@ func TestPipesRefuseWithoutRuntime(t *testing.T) {
 		t.Fatalf("ExecToFile without runtime = %v", err)
 	}
 }
+
+// TestBuildImageGuards pins the ADR-055 preconditions: context inside the
+// root, a relative dockerfile, at least one tag, and a runtime capable of
+// carrying the session — each refused with a typed cause before anything
+// dials the daemon.
+func TestBuildImageGuards(t *testing.T) {
+	l := &Local{Root: t.TempDir()}
+	ctx := context.Background()
+	if _, err := l.BuildImage(ctx, agentwire.ImageBuildParams{
+		ContextDir: "/etc", Dockerfile: "Dockerfile", Tags: []string{"t"},
+	}); err == nil {
+		t.Fatal("a context outside the root must be refused")
+	}
+	for name, dockerfile := range map[string]string{"absolute": "/tmp/Dockerfile", "escape": "../Dockerfile", "empty": ""} {
+		if _, err := l.BuildImage(ctx, agentwire.ImageBuildParams{
+			ContextDir: l.Root, Dockerfile: dockerfile, Tags: []string{"t"},
+		}); err == nil {
+			t.Fatalf("dockerfile %s must be refused", name)
+		}
+	}
+	if _, err := l.BuildImage(ctx, agentwire.ImageBuildParams{
+		ContextDir: l.Root, Dockerfile: "Dockerfile",
+	}); err == nil {
+		t.Fatal("a build without a tag must be refused")
+	}
+	// A Local without the daemon handle (or with a non-hijacking runtime)
+	// refuses before dialing anything.
+	if _, err := l.BuildImage(ctx, agentwire.ImageBuildParams{
+		ContextDir: l.Root, Dockerfile: "Dockerfile", Tags: []string{"t"},
+	}); err == nil || !strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("no runtime = %v", err)
+	}
+	l.RT = &fake.Runtime{}
+	if _, err := l.BuildImage(ctx, agentwire.ImageBuildParams{
+		ContextDir: l.Root, Dockerfile: "Dockerfile", Tags: []string{"t"},
+	}); err == nil || !strings.Contains(err.Error(), "session") {
+		t.Fatalf("non-hijacking runtime = %v", err)
+	}
+}

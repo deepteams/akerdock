@@ -6,6 +6,8 @@ package fake
 
 import (
 	"context"
+	"io"
+	"strings"
 	"sync"
 
 	"github.com/deepteams/akerdock/internal/agentwire"
@@ -35,6 +37,7 @@ type Ops struct {
 	FileToURLFn  func(ctx context.Context, p agentwire.FileToURLParams) error
 	URLToFileFn  func(ctx context.Context, p agentwire.URLToFileParams) error
 	HashFileFn   func(ctx context.Context, path string) (agentwire.FileHashResult, error)
+	BuildImageFn func(ctx context.Context, p agentwire.ImageBuildParams) (io.ReadCloser, error)
 }
 
 var _ hostops.Ops = (*Ops)(nil)
@@ -157,4 +160,12 @@ func (f *Ops) HashFile(ctx context.Context, path string) (agentwire.FileHashResu
 		return f.HashFileFn(ctx, path)
 	}
 	return agentwire.FileHashResult{}, nil
+}
+
+func (f *Ops) BuildImage(ctx context.Context, p agentwire.ImageBuildParams) (io.ReadCloser, error) {
+	f.record(agentwire.MethodImageBuild, p)
+	if f.BuildImageFn != nil {
+		return f.BuildImageFn(ctx, p)
+	}
+	return io.NopCloser(strings.NewReader("")), nil
 }

@@ -20,7 +20,7 @@ test:
 # implementation against the local /var/run/docker.sock. Scoped to the
 # dockerruntime package on purpose — jobs and handlers stay on the fake.
 test-docker:
-	$(GO) test -tags dockerintegration ./internal/dockerruntime/...
+	$(GO) test -tags dockerintegration ./internal/dockerruntime/... ./internal/hostops/...
 
 # Fast coverage gates used on pull requests. Angular enforces 90% on
 # statements, branches, functions and lines; Go enforces 90% per unit package

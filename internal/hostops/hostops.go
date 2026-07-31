@@ -8,6 +8,7 @@ package hostops
 
 import (
 	"context"
+	"io"
 
 	"github.com/deepteams/akerdock/internal/agentwire"
 )
@@ -37,6 +38,12 @@ type Ops interface {
 	FileToURL(ctx context.Context, p agentwire.FileToURLParams) error
 	URLToFile(ctx context.Context, p agentwire.URLToFileParams) error
 	HashFile(ctx context.Context, path string) (agentwire.FileHashResult, error)
+
+	// BuildImage (ADR-055 phase 2) runs a BuildKit build against the local
+	// daemon — the context is a host path local to the agent — and returns
+	// its plain-text progress stream; the stream's terminal error is the
+	// build's failure.
+	BuildImage(ctx context.Context, p agentwire.ImageBuildParams) (io.ReadCloser, error)
 }
 
 // Source resolves the Ops executing on a given server — the seam job code

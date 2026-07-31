@@ -19,6 +19,7 @@ import (
 	networktypes "github.com/docker/docker/api/types/network"
 
 	"github.com/deepteams/akerdock/internal/adoption"
+	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/compose"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/pguuid"
@@ -265,7 +266,7 @@ func (r *deploymentRun) executeCompose(ctx context.Context, appUUID, appDir, lab
 	// later service turned out to be unpullable.
 	images := map[string]composeImage{}
 	for _, sp := range plan.Services {
-		img, err := r.ensureComposeImage(ctx, sp, workDir, labels, sha)
+		img, err := r.ensureComposeImage(ctx, sp, workDir, sha)
 		if err != nil {
 			return fmt.Errorf("service %s: %w", sp.Name, err)
 		}
@@ -1041,7 +1042,7 @@ type composeImage struct {
 
 // ensureComposeImage builds or pulls one service's image — before any
 // container of the stack is touched (§8.2 step 2).
-func (r *deploymentRun) ensureComposeImage(ctx context.Context, sp compose.ServicePlan, workDir, labels, sha string) (composeImage, error) {
+func (r *deploymentRun) ensureComposeImage(ctx context.Context, sp compose.ServicePlan, workDir, sha string) (composeImage, error) {
 	svc := sp.Service
 	ref := sp.Image
 
@@ -1067,28 +1068,30 @@ func (r *deploymentRun) ensureComposeImage(ctx context.Context, sp compose.Servi
 	}
 
 	if sp.Build {
-		buildCtx := "."
-		if svc.Build.Context != "" {
-			buildCtx = "./" + strings.TrimPrefix(svc.Build.Context, "./")
-		}
+		buildCtx := strings.TrimPrefix(svc.Build.Context, "./")
 		dockerfile := "Dockerfile"
 		if svc.Build.Dockerfile != "" {
 			dockerfile = svc.Build.Dockerfile
 		}
 		ref = sp.BuildImage + ":" + sha[:12]
-		args := ""
+		args := map[string]string{}
 		for key, value := range svc.Build.Args {
 			if value == nil {
 				continue
 			}
-			args += fmt.Sprintf(" --build-arg %s=%s", key, shellQuote(*value))
+			args[key] = *value
 		}
-		// Streamed: a service image build is often the longest part of a compose
-		// deploy — its progress must show live, not arrive in one block at the end.
+		// Typed and streamed (ADR-055): a service image build is often the
+		// longest part of a compose deploy — its progress must show live, not
+		// arrive in one block at the end.
 		if err := r.streamStep(ctx, "build_"+sp.Name, func(onOutput func(string)) (*sshexec.Result, error) {
-			return r.client.RunStream(ctx, fmt.Sprintf(
-				"cd %s/%s && DOCKER_BUILDKIT=1 docker build --file %s --progress plain%s --tag %s %s --label akerdock.commit_sha=%s --label akerdock.component=%s .",
-				workDir, strings.TrimPrefix(buildCtx, "./"), dockerfile, args, ref, labels, sha, sp.Name), onOutput)
+			return nil, r.agentBuild(ctx, onOutput, agentwire.ImageBuildParams{
+				ContextDir: strings.TrimRight(workDir+"/"+buildCtx, "/"), Dockerfile: dockerfile,
+				Tags: []string{ref}, BuildArgs: args,
+				Labels: r.buildLabels(map[string]string{
+					"akerdock.commit_sha": sha, "akerdock.component": sp.Name,
+				}),
+			})
 		}); err != nil {
 			return composeImage{}, err
 		}

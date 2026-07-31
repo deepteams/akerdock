@@ -94,6 +94,11 @@ const (
 	MethodFileHash   = "FileHash"
 )
 
+// MethodImageBuild (ADR-055 phase 2) runs a BuildKit build agent-side: the
+// context is a host path local to the agent, the image lands in the local
+// daemon's store, and only the progress stream crosses the channel. Streamed.
+const MethodImageBuild = "ImageBuild"
+
 // Params structs, one per method. Fields are the SDK types — the Engine API's
 // own wire representations (filters.Args carries its custom JSON both ways).
 // Methods without params (Info, Ping, …) send none.
@@ -369,6 +374,23 @@ type URLToFileParams struct {
 	Mode     uint32 `json:"mode"`
 	MakeDirs bool   `json:"make_dirs,omitempty"`
 	DirMode  uint32 `json:"dir_mode,omitempty"`
+}
+
+// ImageBuildParams describes one agent-side BuildKit build (ADR-055). The
+// values that must never become image layers — the secrets — travel in this
+// body over the encrypted channel and are mounted as BuildKit secrets, never
+// exported as ARGs (INV-003, §5.2).
+type ImageBuildParams struct {
+	// ContextDir is the build context, a host path under the mounted tree.
+	ContextDir string `json:"context_dir"`
+	// Dockerfile is the dockerfile path RELATIVE to ContextDir.
+	Dockerfile string            `json:"dockerfile"`
+	Tags       []string          `json:"tags"`
+	BuildArgs  map[string]string `json:"build_args,omitempty"`
+	Secrets    map[string][]byte `json:"secrets,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"`
+	Target     string            `json:"target,omitempty"`
+	NoCache    bool              `json:"no_cache,omitempty"`
 }
 
 type FileHashParams struct {

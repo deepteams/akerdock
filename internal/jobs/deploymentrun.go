@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
@@ -24,6 +25,7 @@ import (
 	"github.com/docker/go-units"
 
 	"github.com/deepteams/akerdock/internal/adoption"
+	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
@@ -154,6 +156,48 @@ func (r *deploymentRun) bcrt() dockerruntime.Runtime {
 	return r.rt
 }
 
+// bhostops is bcrt()'s host-ops twin: the file primitives and the build of
+// the machine that builds.
+func (r *deploymentRun) bhostops() hostops.Ops {
+	if r.bhops != nil {
+		return r.bhops
+	}
+	return r.hops
+}
+
+// buildLabels assembles the typed label set of a built image: the managed
+// labels every AkerDock object carries, plus the build-specific ones.
+func (r *deploymentRun) buildLabels(extra map[string]string) map[string]string {
+	labels := make(map[string]string, len(r.labelsMap)+len(extra))
+	for k, v := range r.labelsMap {
+		labels[k] = v
+	}
+	for k, v := range extra {
+		labels[k] = v
+	}
+	return labels
+}
+
+// agentBuild runs the typed BuildKit build on the machine that builds
+// (ADR-055 phase 2) and pumps its plain-text progress into the step log. The
+// stream's terminal error IS the build failure, cause included.
+func (r *deploymentRun) agentBuild(ctx context.Context, onOutput func(string), p agentwire.ImageBuildParams) error {
+	rc, err := r.bhostops().BuildImage(ctx, p)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rc.Close() }()
+	scanner := bufio.NewScanner(rc)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		onOutput(scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("build failed: %s", firstLine(err.Error()))
+	}
+	return nil
+}
+
 // previewAuthHash renders the htpasswd line protecting this preview
 // (§20.4.4): the generated AKERDOCK_PREVIEW_BASIC_AUTH secret ("user:pass"),
 // bcrypt-hashed for the proxy — the clear text never enters a routing file.
@@ -263,6 +307,8 @@ type deploymentRun struct {
 	// brt is the build server's runtime, resolved when one is dialled — nil
 	// when the build runs on the deployment server (bcrt() falls back to rt).
 	brt dockerruntime.Runtime
+	// bhops is the build server's host-ops; bhostops() falls back to hops.
+	bhops hostops.Ops
 	// labelsMap is the run's management-label set as the typed creates need
 	// it; the CLI flag string keeps feeding the builds.
 	labelsMap map[string]string
@@ -837,7 +883,7 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 		if r.app.Application.GitRepositoryUrl != nil {
 			runRef, err = r.buildFromGit(ctx, appUUID, appDir, labels)
 		} else {
-			runRef, err = r.buildFromDockerfile(ctx, appUUID, appDir, labels)
+			runRef, err = r.buildFromDockerfile(ctx, appUUID, appDir)
 		}
 		if err != nil {
 			return err
@@ -1032,7 +1078,7 @@ func (r *deploymentRun) execute(ctx context.Context) error {
 // content is uploaded via stdin into the per-deployment source directory,
 // then built locally with the system labels. There is no git source, so
 // the image tag derives from the deployment UUID instead of a commit SHA.
-func (r *deploymentRun) buildFromDockerfile(ctx context.Context, appUUID, appDir, labels string) (string, error) {
+func (r *deploymentRun) buildFromDockerfile(ctx context.Context, appUUID, appDir string) (string, error) {
 	r.skipStep(ctx, "clone", "inline Dockerfile (no git source)")
 
 	dockerfile := r.app.BuildConfig.DockerfileContent
@@ -1044,25 +1090,26 @@ func (r *deploymentRun) buildFromDockerfile(ctx context.Context, appUUID, appDir
 	imageRef := "akerdock/" + appUUID + ":" + tag
 	srcDir := fmt.Sprintf("%s/source/%s", appDir, depUUID)
 
-	noCache := ""
-	if r.d.ForceRebuild {
-		noCache = " --no-cache"
-	}
 	// Build-time variables reach an inline Dockerfile exactly as they reach a
-	// git one: plain ones as ARGs, secret ones as BuildKit secrets (§5.2).
-	buildEnv, buildArgs, err := r.renderBuildEnv(ctx)
+	// git one: plain ones as ARGs, secret ones as BuildKit secrets (§5.2) —
+	// both in the typed build command now (ADR-055): no build.env lands on
+	// the host for a dockerfile build.
+	_, buildArgs, err := r.renderBuildEnv(ctx)
 	if err != nil {
 		return "", err
 	}
-	if res, err := r.bc().RunInput(ctx, fmt.Sprintf(
-		"mkdir -p %s/env && umask 077 && cat > %s/env/build.env", appDir, appDir), buildEnv); err != nil || res.ExitCode != 0 {
-		return "", fmt.Errorf("uploading build.env failed")
+	if err := r.bhostops().WriteFile(ctx, agentwire.FileWriteParams{
+		Path: srcDir + "/Dockerfile", Content: []byte(*dockerfile),
+		Mode: 0o600, MakeDirs: true, DirMode: 0o700,
+	}); err != nil {
+		return "", fmt.Errorf("writing the Dockerfile failed: %s", firstLine(err.Error()))
 	}
 	if err := r.streamStep(ctx, "build", func(onOutput func(string)) (*sshexec.Result, error) {
-		return r.bc().RunInputStream(ctx, fmt.Sprintf(
-			"mkdir -p %s && cat > %s/Dockerfile && set -a && . %s/env/build.env && set +a && "+
-				"DOCKER_BUILDKIT=1 docker build --progress plain%s%s -t %s %s --label akerdock.commit_sha= %s",
-			srcDir, srcDir, appDir, noCache, buildArgs.Flags(), imageRef, labels, srcDir), *dockerfile, onOutput)
+		return nil, r.agentBuild(ctx, onOutput, agentwire.ImageBuildParams{
+			ContextDir: srcDir, Dockerfile: "Dockerfile", Tags: []string{imageRef},
+			BuildArgs: buildArgs.argValues, Secrets: buildArgs.secretValues,
+			Labels: r.buildLabels(map[string]string{"akerdock.commit_sha": ""}), NoCache: r.d.ForceRebuild,
+		})
 	}); err != nil {
 		return "", err
 	}
@@ -1316,16 +1363,13 @@ func (r *deploymentRun) buildFromGit(ctx context.Context, appUUID, appDir, label
 	if err != nil {
 		return "", err
 	}
-	if res, err := r.bc().RunInput(ctx, fmt.Sprintf("umask 077 && cat > %s/env/build.env", appDir), buildEnv); err != nil || res.ExitCode != 0 {
-		return "", fmt.Errorf("uploading build.env failed")
-	}
 
 	sha12 := sha[:12]
 	imageRef := "akerdock/" + appUUID + ":" + sha12
 	baseDir := strings.TrimPrefix(r.app.Application.BaseDirectory, "/")
-	dockerfile := "./Dockerfile"
+	dockerfile := "Dockerfile"
 	if p := r.app.BuildConfig.DockerfilePath; p != nil && *p != "" {
-		dockerfile = "./" + strings.TrimPrefix(*p, "/")
+		dockerfile = strings.TrimPrefix(*p, "/")
 	}
 
 	// The static build pack has no Dockerfile in the repository: one is
@@ -1333,23 +1377,32 @@ func (r *deploymentRun) buildFromGit(ctx context.Context, appUUID, appDir, label
 	// our own so it can never collide with — or overwrite — a file the
 	// repository already ships.
 	if r.app.BuildConfig.BuildPack == store.BuildPackStatic {
-		dockerfile = "./" + staticDockerfileName
+		dockerfile = staticDockerfileName
 		if err := r.writeStaticDockerfile(ctx, srcDir, baseDir); err != nil {
 			return "", err
 		}
 	}
-	noCache := ""
-	if r.d.ForceRebuild {
-		noCache = " --no-cache"
-	}
 	if r.app.BuildConfig.BuildPack == store.BuildPackNixpacks {
+		// nixpacks drives the host CLI itself and sources build.env — the one
+		// build path a host env file still serves (ADR-055 phase 2 note).
+		noCache := ""
+		if r.d.ForceRebuild {
+			noCache = " --no-cache"
+		}
+		if res, err := r.bc().RunInput(ctx, fmt.Sprintf("umask 077 && cat > %s/env/build.env", appDir), buildEnv); err != nil || res.ExitCode != 0 {
+			return "", fmt.Errorf("uploading build.env failed")
+		}
 		if err := r.buildWithNixpacks(ctx, srcDir, baseDir, appDir, imageRef, labels, sha, noCache); err != nil {
 			return "", err
 		}
 	} else if err := r.streamStep(ctx, "build", func(onOutput func(string)) (*sshexec.Result, error) {
-		return r.bc().RunStream(ctx, fmt.Sprintf(
-			"cd %s/%s && set -a && . %s/env/build.env && set +a && DOCKER_BUILDKIT=1 docker build --file %s --progress plain%s%s --tag %s %s --label akerdock.commit_sha=%s .",
-			srcDir, baseDir, appDir, dockerfile, noCache, buildArgs.Flags(), imageRef, labels, sha), onOutput)
+		// The typed BuildKit build (ADR-055): args and secrets travel in the
+		// command body — build.env never lands on the host for this path.
+		return nil, r.agentBuild(ctx, onOutput, agentwire.ImageBuildParams{
+			ContextDir: strings.TrimRight(srcDir+"/"+baseDir, "/"), Dockerfile: dockerfile,
+			Tags: []string{imageRef}, BuildArgs: buildArgs.argValues, Secrets: buildArgs.secretValues,
+			Labels: r.buildLabels(map[string]string{"akerdock.commit_sha": sha}), NoCache: r.d.ForceRebuild,
+		})
 	}); err != nil {
 		return "", err
 	}
@@ -1417,43 +1470,34 @@ func (r *deploymentRun) renderBuildEnv(ctx context.Context) (string, buildInputs
 		// multiline value is exported intact.
 		fmt.Fprintf(&b, "%s=%s\n", v.Key, shellQuote(value))
 		if v.IsSecret {
-			inputs.secrets = append(inputs.secrets, v.Key)
+			if inputs.secretValues == nil {
+				inputs.secretValues = map[string][]byte{}
+			}
+			inputs.secretValues[v.Key] = []byte(value)
 		} else {
-			inputs.args = append(inputs.args, v.Key)
+			if inputs.argValues == nil {
+				inputs.argValues = map[string]string{}
+			}
+			inputs.argValues[v.Key] = value
 		}
 	}
 	return b.String(), inputs, nil
 }
 
 // buildInputs splits the build-time variables into what may end up in the image
-// and what must never (§5.2).
+// and what must never (§5.2). The key lists feed the shell renderer (build.env
+// + flags, nixpacks); the value maps feed the typed build command (ADR-055),
+// where secrets become BuildKit session secrets without ever touching a host
+// file.
+// The distinction is the whole point (§5.2): a plain value becomes a
+// build-arg — written into the image metadata, where `docker history` shows
+// it to anyone who can pull the image. A variable marked secret NEVER
+// becomes one: it rides the typed build command as a BuildKit session
+// secret, mounted under /run/secrets/KEY for the lifetime of a single RUN
+// and left out of every layer (INV-003).
 type buildInputs struct {
-	args    []string // plain values: available as ARG, and visible in `docker history`
-	secrets []string // BuildKit secrets: mounted at RUN time, never a layer
-}
-
-// Flags renders the docker build flags.
-//
-// The distinction is the whole point. `--build-arg KEY` (no value: BuildKit
-// reads it from the environment) makes the value an ARG — and an ARG is written
-// into the image metadata, where `docker history` shows it to anyone who can
-// pull the image. So a variable marked secret NEVER becomes a build arg: it is
-// passed as `--secret id=KEY,env=KEY`, which BuildKit mounts under
-// /run/secrets/KEY for the lifetime of a single RUN and leaves out of every
-// layer (INV-003).
-//
-// Neither form puts a value in argv: both name the variable and let BuildKit
-// read it from the environment the shell already sourced.
-func (in buildInputs) Flags() string {
-	var b strings.Builder
-	for _, key := range in.args {
-		b.WriteString(" --build-arg ")
-		b.WriteString(key)
-	}
-	for _, key := range in.secrets {
-		fmt.Fprintf(&b, " --secret id=%s,env=%s", key, key)
-	}
-	return b.String()
+	argValues    map[string]string
+	secretValues map[string][]byte
 }
 
 // applyRouting materializes the stable routing (by container name, robust
@@ -2133,8 +2177,10 @@ func (r *deploymentRun) writeStaticDockerfile(ctx context.Context, srcDir, baseD
 	// it through the Dockerfile would mean escaping a multi-line value into a
 	// RUN, which is exactly the kind of thing INV-012 exists to avoid.
 	confPath := srcDir + "/" + baseDir + "/.akerdock-nginx.conf"
-	if res, err := r.bc().RunInput(ctx, "cat > "+confPath, nginxConf); err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("writing the nginx config failed")
+	if err := r.bhostops().WriteFile(ctx, agentwire.FileWriteParams{
+		Path: confPath, Content: []byte(nginxConf), Mode: 0o644,
+	}); err != nil {
+		return fmt.Errorf("writing the nginx config failed: %s", firstLine(err.Error()))
 	}
 
 	dockerfile := fmt.Sprintf(`FROM nginx:alpine
@@ -2143,9 +2189,10 @@ COPY %s /usr/share/nginx/html
 EXPOSE 80
 `, publish)
 	path := srcDir + "/" + baseDir + "/" + staticDockerfileName
-	res, err := r.bc().RunInput(ctx, "cat > "+path, dockerfile)
-	if err != nil || res.ExitCode != 0 {
-		return fmt.Errorf("writing the static Dockerfile failed")
+	if err := r.bhostops().WriteFile(ctx, agentwire.FileWriteParams{
+		Path: path, Content: []byte(dockerfile), Mode: 0o644,
+	}); err != nil {
+		return fmt.Errorf("writing the static Dockerfile failed: %s", firstLine(err.Error()))
 	}
 	return nil
 }
@@ -2219,12 +2266,13 @@ func (r *deploymentRun) buildWithNixpacks(ctx context.Context, srcDir, baseDir, 
 			conf = *c
 		}
 		confPath := srcDir + "/" + baseDir + "/.akerdock-nginx.conf"
-		if res, err := r.bc().RunInput(ctx, "cat > "+confPath, conf); err != nil || res.ExitCode != 0 {
-			return res, fmt.Errorf("writing the nginx config failed")
+		if err := r.bhostops().WriteFile(ctx, agentwire.FileWriteParams{
+			Path: confPath, Content: []byte(conf), Mode: 0o644,
+		}); err != nil {
+			return nil, fmt.Errorf("writing the nginx config failed: %s", firstLine(err.Error()))
 		}
 		// Nixpacks builds into /app. The publish directory is validated at the
-		// API edge (INV-012) before it is interpolated into a Dockerfile that a
-		// remote shell then builds.
+		// API edge (INV-012) before it is interpolated into the Dockerfile.
 		dockerfile := fmt.Sprintf(`FROM %s AS build
 FROM nginx:alpine
 COPY .akerdock-nginx.conf /etc/nginx/conf.d/default.conf
@@ -2232,19 +2280,26 @@ COPY --from=build /app/%s /usr/share/nginx/html
 EXPOSE 80
 `, buildRef, publish)
 		path := srcDir + "/" + baseDir + "/" + staticDockerfileName
-		if res, err := r.bc().RunInput(ctx, "cat > "+path, dockerfile); err != nil || res.ExitCode != 0 {
-			return res, fmt.Errorf("writing the static Dockerfile failed")
+		if err := r.bhostops().WriteFile(ctx, agentwire.FileWriteParams{
+			Path: path, Content: []byte(dockerfile), Mode: 0o644,
+		}); err != nil {
+			return nil, fmt.Errorf("writing the static Dockerfile failed: %s", firstLine(err.Error()))
 		}
-		// Streamed like every other docker build: the nginx packaging can pull a
-		// base image and copy a large asset tree, so its progress must show live
-		// rather than land in one block at the end.
-		res, err := r.bc().RunStream(ctx, fmt.Sprintf(
-			"cd %s/%s && DOCKER_BUILDKIT=1 docker build --file %s --progress plain --tag %s %s --label akerdock.commit_sha=%s . && docker rmi %s >/dev/null 2>&1 || true",
-			srcDir, baseDir, staticDockerfileName, imageRef, labels, sha, buildRef), onOutput)
-		if err == nil && res.ExitCode != 0 {
-			return res, fmt.Errorf("packaging the built assets into nginx failed: %s", firstLine(res.Stderr))
+		// Typed and streamed like every other build (ADR-055): the packaging
+		// can pull a base image and copy a large asset tree, so its progress
+		// must show live rather than land in one block at the end.
+		if err := r.agentBuild(ctx, onOutput, agentwire.ImageBuildParams{
+			ContextDir: strings.TrimRight(srcDir+"/"+baseDir, "/"), Dockerfile: staticDockerfileName,
+			Tags:   []string{imageRef},
+			Labels: r.buildLabels(map[string]string{"akerdock.commit_sha": sha}),
+		}); err != nil {
+			return nil, fmt.Errorf("packaging the built assets into nginx failed: %s", firstLine(err.Error()))
 		}
-		return res, err
+		// The builder image was only the intermediate; tolerate its absence.
+		if _, err := r.bcrt().ImageRemove(ctx, buildRef, image.RemoveOptions{}); err != nil && !dockerruntime.IsNotFound(err) && !dockerruntime.IsConflict(err) {
+			r.h.Logger.Debug("builder image not removed", "image", buildRef, "error", err)
+		}
+		return nil, nil
 	})
 }
 
@@ -2477,10 +2532,13 @@ func (r *deploymentRun) dialBuildServer(ctx context.Context) error {
 		return fmt.Errorf("ssh connect to the build server: %w", err)
 	}
 	r.builder, r.buildServer = client, &pick
-	// The build server's channel (ADR-055 phase 1): tag, push and inspect run
+	// The build server's channel (ADR-055): builds, tag, push and inspect run
 	// typed there — agents are provisioned on every ready server, build
 	// servers included.
 	if r.brt, err = r.h.Docker.Runtime(ctx, pick.ID); err != nil {
+		return fmt.Errorf("the build server's agent is not connected: %w", err)
+	}
+	if r.bhops, err = r.h.HostOps.HostOps(ctx, pick.ID); err != nil {
 		return fmt.Errorf("the build server's agent is not connected: %w", err)
 	}
 

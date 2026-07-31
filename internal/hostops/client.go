@@ -3,15 +3,17 @@ package hostops
 import (
 	"context"
 	"encoding/json"
+	"io"
 
 	"github.com/deepteams/akerdock/internal/agentwire"
 )
 
-// Sender carries one typed command to a server's agent and returns its result
-// body — the unary subset of the channel, satisfied by the same live and
-// relayed connections the Docker runtime rides.
+// Sender carries typed commands to a server's agent — the unary calls and
+// the one streamed build — satisfied by the same live and relayed
+// connections the Docker runtime rides.
 type Sender interface {
 	Command(ctx context.Context, method string, params any) (json.RawMessage, error)
+	Stream(ctx context.Context, method string, params any) (io.ReadCloser, error)
 }
 
 // NewClient returns the Ops that executes every call as a typed command on
@@ -94,4 +96,8 @@ func (c *client) URLToFile(ctx context.Context, p agentwire.URLToFileParams) err
 
 func (c *client) HashFile(ctx context.Context, path string) (agentwire.FileHashResult, error) {
 	return call[agentwire.FileHashResult](ctx, c.s, agentwire.MethodFileHash, agentwire.FileHashParams{Path: path})
+}
+
+func (c *client) BuildImage(ctx context.Context, p agentwire.ImageBuildParams) (io.ReadCloser, error) {
+	return c.s.Stream(ctx, agentwire.MethodImageBuild, p)
 }
