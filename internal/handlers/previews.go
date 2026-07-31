@@ -15,10 +15,10 @@ import (
 
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/githubapp"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/jobs"
-	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -258,29 +258,6 @@ func (a *API) GetPreviewLogs(w http.ResponseWriter, r *http.Request, application
 		lines = *params.Lines
 	}
 
-	server, err := a.Store.GetServerByID(r.Context(), row.ServerRowID)
-	if err != nil {
-		a.internalError(w, r, "preview logs", err)
-		return
-	}
-	key, err := a.Store.GetPrivateKeyByID(r.Context(), server.PrivateKeyID)
-	if err != nil {
-		a.internalError(w, r, "preview logs", err)
-		return
-	}
-	pem, err := a.Keyring.Decrypt("private_keys", "private_key_enc", uuidString(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		a.internalError(w, r, "preview logs", err)
-		return
-	}
-	client, err := sshexec.Dial(r.Context(), server.Host, int(server.Port), server.SshUser, string(pem),
-		time.Duration(server.SshTimeoutSeconds)*time.Second, jobs.PinnedHostKey(server))
-	if err != nil {
-		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "the server is not reachable over SSH right now")
-		return
-	}
-	defer func() { _ = client.Close() }()
-
 	// Preview containers derive from the PREVIEW uuid (INV-011): the stack
 	// name for single containers, `<uuid>-<service>` for compose services.
 	container := uuidString(preview.Uuid)
@@ -304,17 +281,21 @@ func (a *API) GetPreviewLogs(w http.ResponseWriter, r *http.Request, application
 		}
 		container = container + "-" + *params.Component
 	}
-	res, err := client.Run(r.Context(), fmt.Sprintf("docker logs --tail %d %s 2>&1", lines, container))
+	rt, ok := a.agentRuntime(w, r, row.ServerRowID)
+	if !ok {
+		return
+	}
+	out, err := containerLogsSnapshot(r.Context(), rt, container, lines)
 	if err != nil {
+		if dockerruntime.IsNotFound(err) {
+			httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict,
+				"the preview container does not exist on the server — the preview may be destroyed or not deployed yet")
+			return
+		}
 		a.internalError(w, r, "preview logs", err)
 		return
 	}
-	if res.ExitCode != 0 {
-		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict,
-			"the preview container does not exist on the server — the preview may be destroyed or not deployed yet")
-		return
-	}
-	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": containerLogLines(res.Stdout)})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": containerLogLines(out)})
 }
 
 // CreatePreviewTerminalSession implements

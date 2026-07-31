@@ -759,6 +759,10 @@ type Querier interface {
 	// that is not ready is not a build server: dispatching to it would fail the
 	// deployment for a reason that has nothing to do with the application.
 	ListReadyBuildServers(ctx context.Context, teamID int64) ([]Server, error)
+	// Every server the agent must run on (ADR-052): Docker operations flow
+	// through the command channel, so the helper is ensured on ALL ready servers
+	// — build servers and database-only hosts included, proxy or not.
+	ListReadyServers(ctx context.Context) ([]Server, error)
 	ListRegistryCredentialsPage(ctx context.Context, arg ListRegistryCredentialsPageParams) ([]RegistryCredential, error)
 	ListRepositoriesForSource(ctx context.Context, gitSourceID int64) ([]Repository, error)
 	ListRestoreDrillsPage(ctx context.Context, arg ListRestoreDrillsPageParams) ([]ListRestoreDrillsPageRow, error)

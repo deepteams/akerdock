@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"sync"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
+	"github.com/deepteams/akerdock/internal/httpapi"
 )
 
 // agentStreamBuffer bounds one stream's undelivered chunks. The channel is
@@ -43,6 +45,9 @@ type agentCall struct {
 type agentConn struct {
 	ctx  context.Context // the connection handler's lifetime
 	conn *websocket.Conn
+	// record, when set, feeds the docker-ops counter: one increment per
+	// command or stream open, by method and outcome.
+	record func(method, outcome string)
 
 	writeMu sync.Mutex
 	mu      sync.Mutex
@@ -101,6 +106,13 @@ func (c *agentConn) cancelRemote(id int64) {
 	_ = c.writeFrame(agentwire.Frame{Type: agentwire.FrameCancel, Cancel: id})
 }
 
+// observe reports one command's outcome to the docker-ops counter.
+func (c *agentConn) observe(method, outcome string) {
+	if c.record != nil {
+		c.record(method, outcome)
+	}
+}
+
 // deliverResult routes a result frame to its waiting call.
 func (c *agentConn) deliverResult(res *agentwire.Result) {
 	if res == nil {
@@ -151,18 +163,23 @@ func (c *agentConn) Command(ctx context.Context, method string, params any) (jso
 	}
 	defer c.finish(id)
 	if err := c.writeFrame(agentwire.Frame{Type: agentwire.FrameCommand, Cmd: cmd}); err != nil {
+		c.observe(method, agentwire.CodeUnavailable)
 		return nil, errAgentUnavailable("write failed")
 	}
 	select {
 	case <-ctx.Done():
 		c.cancelRemote(id)
+		c.observe(method, agentwire.CodeCanceled)
 		return nil, ctx.Err()
 	case <-c.ctx.Done():
+		c.observe(method, agentwire.CodeUnavailable)
 		return nil, errAgentUnavailable("closed")
 	case res := <-call.res:
 		if res.Err != nil {
+			c.observe(method, res.Err.Code)
 			return nil, res.Err.Err()
 		}
+		c.observe(method, "ok")
 		return res.Body, nil
 	}
 }
@@ -176,22 +193,27 @@ func (c *agentConn) Stream(ctx context.Context, method string, params any) (io.R
 	}
 	if err := c.writeFrame(agentwire.Frame{Type: agentwire.FrameCommand, Cmd: cmd}); err != nil {
 		c.finish(id)
+		c.observe(method, agentwire.CodeUnavailable)
 		return nil, errAgentUnavailable("write failed")
 	}
 	select {
 	case <-ctx.Done():
 		c.cancelRemote(id)
 		c.finish(id)
+		c.observe(method, agentwire.CodeCanceled)
 		return nil, ctx.Err()
 	case <-c.ctx.Done():
 		c.finish(id)
+		c.observe(method, agentwire.CodeUnavailable)
 		return nil, errAgentUnavailable("closed")
 	case res := <-call.res:
 		if res.Err != nil {
 			c.finish(id)
+			c.observe(method, res.Err.Code)
 			return nil, res.Err.Err()
 		}
 	}
+	c.observe(method, "ok")
 	return &agentStream{conn: c, id: id, call: call, ctx: ctx}, nil
 }
 
@@ -303,4 +325,17 @@ func (r *AgentConns) Runtime(serverID int64) (dockerruntime.Runtime, error) {
 		return nil, errAgentUnavailable("not connected")
 	}
 	return dockerruntime.NewAgentRuntime(s), nil
+}
+
+// agentRuntime resolves the server's Docker runtime over its command channel
+// (ADR-051: the agent is the only Docker path — no fallback hides a missing
+// channel); ok=false means the 409 was already written.
+func (a *API) agentRuntime(w http.ResponseWriter, r *http.Request, serverID int64) (dockerruntime.Runtime, bool) {
+	rt, err := a.AgentRPC.Runtime(serverID)
+	if err != nil {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict,
+			"the server's agent is not connected — it reconnects on its own; check the server page if this persists")
+		return nil, false
+	}
+	return rt, true
 }

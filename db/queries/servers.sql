@@ -18,6 +18,12 @@ WHERE team_id = sqlc.arg(team_id) AND deleted_at IS NULL
 ORDER BY id DESC
 LIMIT sqlc.arg(page_limit);
 
+-- name: ListReadyServers :many
+-- Every server the agent must run on (ADR-052): Docker operations flow
+-- through the command channel, so the helper is ensured on ALL ready servers
+-- — build servers and database-only hosts included, proxy or not.
+SELECT * FROM servers WHERE deleted_at IS NULL AND status = 'ready';
+
 -- name: UpdateServer :execrows
 UPDATE servers SET
     name = $2, description = $3, host = $4, port = $5, ssh_user = $6,

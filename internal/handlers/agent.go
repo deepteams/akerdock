@@ -158,6 +158,11 @@ func (a *API) AgentChannel(w http.ResponseWriter, r *http.Request) {
 	ac := newAgentConn(ctx, conn)
 	v2 := conn.Subprotocol() == agentwire.SubprotocolV2
 	if v2 {
+		if a.Audit != nil {
+			metrics := a.Audit.Metrics
+			metricsCtx := context.WithoutCancel(ctx)
+			ac.record = func(method, outcome string) { metrics.RecordDockerOp(metricsCtx, method, outcome) }
+		}
 		a.AgentRPC.register(token.ServerID, ac)
 		defer a.AgentRPC.unregister(token.ServerID, ac)
 	}

@@ -275,7 +275,9 @@ func (e *Executor) executeUnary(ctx context.Context, cmd agentwire.Command) (any
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
 			return nil, invalidParams(err)
 		}
-		stats, err := e.rt.ContainerStatsOneShot(ctx, p.Name)
+		// Always the stream=false snapshot: precpu filled (CPU% computable),
+		// exactly one JSON body — a true stream would never end this unary.
+		stats, err := e.rt.ContainerStats(ctx, p.Name, false)
 		if err != nil {
 			return nil, err
 		}

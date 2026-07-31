@@ -123,7 +123,10 @@ func (r *agentRuntime) ContainerLogs(ctx context.Context, name string, options c
 	return r.s.Stream(ctx, agentwire.MethodContainerLogs, agentwire.ContainerLogsParams{Name: name, Options: options})
 }
 
-func (r *agentRuntime) ContainerStatsOneShot(ctx context.Context, name string) (container.StatsResponseReader, error) {
+func (r *agentRuntime) ContainerStats(ctx context.Context, name string, stream bool) (container.StatsResponseReader, error) {
+	if stream {
+		return container.StatsResponseReader{}, fmt.Errorf("streamed stats over the agent channel: %w", cerrdefs.ErrNotImplemented)
+	}
 	res, err := call[agentwire.StatsResult](ctx, r.s, agentwire.MethodContainerStats, agentwire.NameParams{Name: name})
 	if err != nil {
 		return container.StatsResponseReader{}, err

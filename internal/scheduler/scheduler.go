@@ -139,6 +139,7 @@ type Store interface {
 	SweepPortForwardSessions(context.Context) ([]store.SweepPortForwardSessionsRow, error)
 	PurgePortForwardSessions(context.Context, int32) (int64, error)
 	ListServersWithProxy(context.Context) ([]store.Server, error)
+	ListReadyServers(context.Context) ([]store.Server, error)
 	ListAppliedProxyRevisions(context.Context, int64) ([]store.ProxyConfigRevision, error)
 	GetPrivateKeyByID(context.Context, int64) (store.PrivateKey, error)
 	ListDueUptimeChecks(context.Context) ([]store.UptimeCheck, error)

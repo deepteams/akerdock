@@ -1,25 +1,28 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	containertypes "github.com/docker/docker/api/types/container"
+
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/httpapi"
-	"github.com/deepteams/akerdock/internal/jobs"
-	"github.com/deepteams/akerdock/internal/sshexec"
 )
 
 // GetApplicationLogs implements GET /applications/{application_uuid}/logs
 // (permission: read): the last lines of the application's running container,
-// read straight from the server with `docker logs` — never stored (§5.7).
-// The runtime console is the missing half of debugging: deployment logs stop
-// at the switch, and everything the app prints after lands only here.
+// read through the agent channel (ADR-052) and never stored (§5.7). The
+// runtime console is the missing half of debugging: deployment logs stop at
+// the switch, and everything the app prints after lands only here.
 func (a *API) GetApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.GetApplicationLogsParams) {
 	id, ok := a.require(w, r, auth.PermLogsRead)
 	if !ok {
@@ -33,29 +36,6 @@ func (a *API) GetApplicationLogs(w http.ResponseWriter, r *http.Request, applica
 	if params.Lines != nil && *params.Lines > 0 && *params.Lines <= 2000 {
 		lines = *params.Lines
 	}
-
-	server, err := a.Store.GetServerByID(r.Context(), row.ServerRowID)
-	if err != nil {
-		a.internalError(w, r, "application logs", err)
-		return
-	}
-	key, err := a.Store.GetPrivateKeyByID(r.Context(), server.PrivateKeyID)
-	if err != nil {
-		a.internalError(w, r, "application logs", err)
-		return
-	}
-	pem, err := a.Keyring.Decrypt("private_keys", "private_key_enc", uuidString(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		a.internalError(w, r, "application logs", err)
-		return
-	}
-	client, err := sshexec.Dial(r.Context(), server.Host, int(server.Port), server.SshUser, string(pem),
-		time.Duration(server.SshTimeoutSeconds)*time.Second, jobs.PinnedHostKey(server))
-	if err != nil {
-		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "the server is not reachable over SSH right now")
-		return
-	}
-	defer func() { _ = client.Close() }()
 
 	// The container carries the resource UUID as its name (INV-011). A
 	// compose stack has no container of its own: `component` picks the
@@ -81,22 +61,50 @@ func (a *API) GetApplicationLogs(w http.ResponseWriter, r *http.Request, applica
 		}
 		container = container + "-" + *params.Component
 	}
-	res, err := client.Run(r.Context(), fmt.Sprintf("docker logs --tail %d %s 2>&1", lines, container))
+
+	rt, ok := a.agentRuntime(w, r, row.ServerRowID)
+	if !ok {
+		return
+	}
+	out, err := containerLogsSnapshot(r.Context(), rt, container, lines)
 	if err != nil {
+		if dockerruntime.IsNotFound(err) {
+			httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict,
+				"the application container does not exist on the server — deploy the application first")
+			return
+		}
 		a.internalError(w, r, "application logs", err)
 		return
 	}
-	if res.ExitCode != 0 {
-		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict,
-			"the application container does not exist on the server — deploy the application first")
-		return
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": containerLogLines(out)})
+}
+
+// containerLogsSnapshot reads a container's last lines through the agent
+// channel — stdout and stderr merged in arrival order, the CLI's `2>&1`. The
+// inspect reads the TTY bit, which decides the log stream's framing.
+func containerLogsSnapshot(ctx context.Context, rt dockerruntime.Runtime, container string, lines int) (string, error) {
+	inspect, err := rt.ContainerInspect(ctx, container)
+	if err != nil {
+		return "", err
 	}
-	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": containerLogLines(res.Stdout)})
+	tty := inspect.Config != nil && inspect.Config.Tty
+	rc, err := rt.ContainerLogs(ctx, container, containertypes.LogsOptions{
+		ShowStdout: true, ShowStderr: true, Tail: strconv.Itoa(lines),
+	})
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rc.Close() }()
+	var sb strings.Builder
+	if err := dockerruntime.Demux(rc, tty, func(chunk string) { sb.WriteString(chunk) }); err != nil {
+		return "", err
+	}
+	return sb.String(), nil
 }
 
 // StreamApplicationLogs implements GET /applications/{uuid}/logs/stream — the
-// runtime console as Server-Sent Events (ADR-024): `docker logs -f` piped
-// line by line as `log` events. Powers `akerdock logs -f`.
+// runtime console as Server-Sent Events (ADR-024): the container's follow
+// stream piped line by line as `log` events. Powers `akerdock logs -f`.
 func (a *API) StreamApplicationLogs(w http.ResponseWriter, r *http.Request, applicationUuid api.ApplicationUuid, params api.StreamApplicationLogsParams) {
 	id, ok := a.require(w, r, auth.PermLogsRead)
 	if !ok {
@@ -112,21 +120,6 @@ func (a *API) StreamApplicationLogs(w http.ResponseWriter, r *http.Request, appl
 		return
 	}
 
-	server, err := a.Store.GetServerByID(r.Context(), row.ServerRowID)
-	if err != nil {
-		a.internalError(w, r, "application logs", err)
-		return
-	}
-	key, err := a.Store.GetPrivateKeyByID(r.Context(), server.PrivateKeyID)
-	if err != nil {
-		a.internalError(w, r, "application logs", err)
-		return
-	}
-	pem, err := a.Keyring.Decrypt("private_keys", "private_key_enc", uuidString(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		a.internalError(w, r, "application logs", err)
-		return
-	}
 	container := uuidString(row.Resource.Uuid)
 	if params.Component != nil && *params.Component != "" {
 		if !a.componentExists(w, r, row.Resource.ID, *params.Component) {
@@ -134,13 +127,31 @@ func (a *API) StreamApplicationLogs(w http.ResponseWriter, r *http.Request, appl
 		}
 		container = container + "-" + *params.Component
 	}
-	client, err := sshexec.Dial(r.Context(), server.Host, int(server.Port), server.SshUser, string(pem),
-		time.Duration(server.SshTimeoutSeconds)*time.Second, jobs.PinnedHostKey(server))
-	if err != nil {
-		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "the server is not reachable over SSH right now")
+	rt, ok := a.agentRuntime(w, r, row.ServerRowID)
+	if !ok {
 		return
 	}
-	defer func() { _ = client.Close() }()
+	// Inspect before the SSE headers: a missing container must answer 409,
+	// not an empty event stream. The TTY bit decides the follow's framing.
+	inspect, err := rt.ContainerInspect(r.Context(), container)
+	if err != nil {
+		if dockerruntime.IsNotFound(err) {
+			httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict,
+				"the application container does not exist on the server — deploy the application first")
+			return
+		}
+		a.internalError(w, r, "application logs", err)
+		return
+	}
+	tty := inspect.Config != nil && inspect.Config.Tty
+	rc, err := rt.ContainerLogs(r.Context(), container, containertypes.LogsOptions{
+		ShowStdout: true, ShowStderr: true, Follow: true, Tail: "200",
+	})
+	if err != nil {
+		a.internalError(w, r, "application logs", err)
+		return
+	}
+	defer func() { _ = rc.Close() }()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -152,8 +163,8 @@ func (a *API) StreamApplicationLogs(w http.ResponseWriter, r *http.Request, appl
 	_, _ = fmt.Fprint(w, ": connected\n\n")
 	flusher.Flush()
 
-	// Serialize writes: RunStream already calls onOutput from one goroutine,
-	// but the ANSI cleanup + SSE framing keep the handler self-contained.
+	// Serialize writes: Demux already calls onOutput from one goroutine, but
+	// the ANSI cleanup + SSE framing keep the handler self-contained.
 	var mu sync.Mutex
 	var seq int
 	var carry string
@@ -177,7 +188,7 @@ func (a *API) StreamApplicationLogs(w http.ResponseWriter, r *http.Request, appl
 			flusher.Flush()
 		}
 	}
-	// `docker logs -f`: streams until the client disconnects (ctx cancels).
-	_, _ = client.RunStream(r.Context(),
-		fmt.Sprintf("docker logs -f --tail 200 %s 2>&1", container), emit)
+	// Follow streams until the client disconnects (ctx cancels) or the
+	// container goes away.
+	_ = dockerruntime.Demux(rc, tty, emit)
 }

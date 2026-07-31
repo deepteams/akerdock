@@ -51,7 +51,7 @@ type Runtime struct {
 	ContainerWaitFn        func(ctx context.Context, name string, condition container.WaitCondition) (<-chan container.WaitResponse, <-chan error)
 	ContainerListFn        func(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
 	ContainerLogsFn        func(ctx context.Context, name string, options container.LogsOptions) (io.ReadCloser, error)
-	ContainerStatsFn       func(ctx context.Context, name string) (container.StatsResponseReader, error)
+	ContainerStatsFn       func(ctx context.Context, name string, stream bool) (container.StatsResponseReader, error)
 	ContainersPruneFn      func(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error)
 	ContainerExecCreateFn  func(ctx context.Context, name string, options container.ExecOptions) (container.ExecCreateResponse, error)
 	ContainerExecStartFn   func(ctx context.Context, execID string, options container.ExecStartOptions) error
@@ -193,12 +193,12 @@ func (f *Runtime) ContainerLogs(ctx context.Context, name string, options contai
 	return f.ContainerLogsFn(ctx, name, options)
 }
 
-func (f *Runtime) ContainerStatsOneShot(ctx context.Context, name string) (container.StatsResponseReader, error) {
-	f.record("ContainerStatsOneShot", name)
+func (f *Runtime) ContainerStats(ctx context.Context, name string, stream bool) (container.StatsResponseReader, error) {
+	f.record("ContainerStats", name, stream)
 	if f.ContainerStatsFn == nil {
 		panic("fake: ContainerStatsFn not set")
 	}
-	return f.ContainerStatsFn(ctx, name)
+	return f.ContainerStatsFn(ctx, name, stream)
 }
 
 func (f *Runtime) ContainersPrune(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error) {

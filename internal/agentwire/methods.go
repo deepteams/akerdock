@@ -28,7 +28,7 @@ const (
 	MethodContainerWait        = "ContainerWait"
 	MethodContainerList        = "ContainerList"
 	MethodContainerLogs        = "ContainerLogs" // stream
-	MethodContainerStats       = "ContainerStatsOneShot"
+	MethodContainerStats       = "ContainerStats"
 	MethodContainersPrune      = "ContainersPrune"
 	MethodContainerExecCreate  = "ContainerExecCreate"
 	MethodContainerExecStart   = "ContainerExecStart"

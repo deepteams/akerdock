@@ -307,16 +307,17 @@ func (s *Scheduler) scaleZeroApplications(ctx context.Context) {
 	}
 }
 
-// ensureAgents provisions the helper on EVERY server with a proxy (ADR-040):
-// servers without a scale-to-zero resource never go through ensureWaker, yet
-// their observations — container states, heartbeat — are just as valuable.
-// Runs at the maintenance cadence; the ensure command is a no-op when the
-// image and spec already match, so a steady state costs one inspect per pass.
+// ensureAgents provisions the helper on EVERY ready server (ADR-040/052):
+// Docker operations flow through the agent's command channel, so a server
+// without an agent has no Docker path at all — build servers and
+// database-only hosts included, proxy or not. Runs at the maintenance
+// cadence; the ensure command is a no-op when the image and spec already
+// match, so a steady state costs one inspect per pass.
 func (s *Scheduler) ensureAgents(ctx context.Context) {
 	if s.WakerImage == "" {
 		return
 	}
-	servers, err := s.Store.ListServersWithProxy(ctx)
+	servers, err := s.Store.ListReadyServers(ctx)
 	if err != nil {
 		s.Logger.Warn("agent ensure: cannot list servers", "error", err)
 		return

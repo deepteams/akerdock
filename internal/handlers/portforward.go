@@ -14,7 +14,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -23,6 +22,7 @@ import (
 	"github.com/deepteams/akerdock/internal/adoption"
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/jobs"
 	"github.com/deepteams/akerdock/internal/sshexec"
@@ -341,16 +341,19 @@ func (a *API) tunnelTarget(ctx context.Context, row store.PortForwardSession) (*
 		container = base + "-" + *row.TargetComponent
 	}
 
+	// The container's IP on its Docker network — reachable host→container even
+	// without a published port. First network wins (INV-011 naming); read
+	// through the agent channel (ADR-052) before paying the SSH dial.
+	ip, err := a.containerIP(ctx, server.ID, container)
+	if err != nil {
+		if dockerruntime.IsUnavailable(err) {
+			return nil, "", "the server's agent is not connected right now"
+		}
+		return nil, "", "the target container is not running"
+	}
 	client, msg := a.dialSessionServer(ctx, server)
 	if msg != "" {
 		return nil, "", msg
-	}
-	// The container's IP on its Docker network — reachable host→container even
-	// without a published port. First network wins (INV-011 naming).
-	ip, err := containerIP(ctx, client, container)
-	if err != nil {
-		_ = client.Close()
-		return nil, "", "the target container is not running"
 	}
 	return client, fmt.Sprintf("%s:%d", ip, row.TargetPort), ""
 }
@@ -400,18 +403,25 @@ func (a *API) dialSessionServer(ctx context.Context, server store.Server) (*sshe
 	return client, ""
 }
 
-// containerIP resolves a container's first-network IP via docker inspect.
-func containerIP(ctx context.Context, client *sshexec.Client, container string) (string, error) {
-	res, err := client.Run(ctx, fmt.Sprintf(
-		"docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' %s", container))
-	if err != nil || res.ExitCode != 0 {
-		return "", fmt.Errorf("docker inspect failed")
+// containerIP resolves a container's first-network IP through the server's
+// agent channel.
+func (a *API) containerIP(ctx context.Context, serverID int64, container string) (string, error) {
+	rt, err := a.AgentRPC.Runtime(serverID)
+	if err != nil {
+		return "", err
 	}
-	ip := strings.TrimSpace(strings.Fields(res.Stdout + " ")[0])
-	if ip == "" {
-		return "", fmt.Errorf("no IP for %s", container)
+	resp, err := rt.ContainerInspect(ctx, container)
+	if err != nil {
+		return "", err
 	}
-	return ip, nil
+	if resp.NetworkSettings != nil {
+		for _, n := range resp.NetworkSettings.Networks {
+			if n != nil && n.IPAddress != "" {
+				return n.IPAddress, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no IP for %s", container)
 }
 
 func (a *API) endPortForwardSession(row store.PortForwardSession, reason tunnel.EndReason) {

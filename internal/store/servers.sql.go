@@ -445,6 +445,86 @@ func (q *Queries) ListReadyBuildServers(ctx context.Context, teamID int64) ([]Se
 	return items, nil
 }
 
+const listReadyServers = `-- name: ListReadyServers :many
+SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at FROM servers WHERE deleted_at IS NULL AND status = 'ready'
+`
+
+// Every server the agent must run on (ADR-052): Docker operations flow
+// through the command channel, so the helper is ensured on ALL ready servers
+// — build servers and database-only hosts included, proxy or not.
+func (q *Queries) ListReadyServers(ctx context.Context) ([]Server, error) {
+	rows, err := q.db.Query(ctx, listReadyServers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Server
+	for rows.Next() {
+		var i Server
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.TeamID,
+			&i.Name,
+			&i.Description,
+			&i.Host,
+			&i.Port,
+			&i.SshUser,
+			&i.UseSudo,
+			&i.SshTimeoutSeconds,
+			&i.PrivateKeyID,
+			&i.Status,
+			&i.ObservedAt,
+			&i.UnreachableSince,
+			&i.OsName,
+			&i.Architecture,
+			&i.DockerVersion,
+			&i.IsLocalhost,
+			&i.IsBuildServer,
+			&i.WildcardDomain,
+			&i.ProxyType,
+			&i.ProxyDesiredState,
+			&i.ProxyObservedStatus,
+			&i.ProxyHttpPort,
+			&i.ProxyHttpsPort,
+			&i.ConcurrentBuilds,
+			&i.DeploymentQueueLimit,
+			&i.CleanupEnabled,
+			&i.CleanupDiskThresholdPct,
+			&i.CleanupCron,
+			&i.CleanupPruneVolumes,
+			&i.CleanupPruneNetworks,
+			&i.SentinelEnabled,
+			&i.SentinelTokenHash,
+			&i.SentinelPushIntervalSeconds,
+			&i.SentinelMetricsRetentionDays,
+			&i.LogDrainKind,
+			&i.LogDrainConfigEnc,
+			&i.CaCert,
+			&i.CaKeyEnc,
+			&i.CloudCredentialID,
+			&i.CloudExternalID,
+			&i.CreatedBy,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.Version,
+			&i.HostKeyFingerprint,
+			&i.DnsCredentialID,
+			&i.CleanupNextRunAt,
+			&i.CleanupLastRunAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listServerDomains = `-- name: ListServerDomains :many
 SELECT r.uuid AS resource_uuid, r.resource_type, dom.fqdn, dom.path, dom.target_port
 FROM domains dom

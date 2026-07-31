@@ -52,7 +52,10 @@ type Runtime interface {
 	ContainerWait(ctx context.Context, container string, condition container.WaitCondition) (<-chan container.WaitResponse, <-chan error)
 	ContainerList(ctx context.Context, options container.ListOptions) ([]container.Summary, error)
 	ContainerLogs(ctx context.Context, container string, options container.LogsOptions) (io.ReadCloser, error)
-	ContainerStatsOneShot(ctx context.Context, container string) (container.StatsResponseReader, error)
+	// ContainerStats with stream=false is the metrics snapshot: unlike the
+	// one-shot variant, it fills precpu_stats, without which CPU% cannot be
+	// computed (ADR-034). stream=true is not carried by the agent channel.
+	ContainerStats(ctx context.Context, container string, stream bool) (container.StatsResponseReader, error)
 	ContainersPrune(ctx context.Context, pruneFilters filters.Args) (container.PruneReport, error)
 
 	// Exec — one-shot (ContainerExecStart) and attached/interactive

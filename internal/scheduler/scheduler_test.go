@@ -307,6 +307,10 @@ func (f *fakeSchedulerStore) ListServersWithProxy(context.Context) ([]store.Serv
 	return f.proxyServers, f.err("proxyServers")
 }
 
+func (f *fakeSchedulerStore) ListReadyServers(context.Context) ([]store.Server, error) {
+	return f.proxyServers, f.err("proxyServers")
+}
+
 func (f *fakeSchedulerStore) ListAppliedProxyRevisions(context.Context, int64) ([]store.ProxyConfigRevision, error) {
 	return f.revisions, f.err("revisions")
 }

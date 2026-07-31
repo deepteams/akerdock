@@ -284,6 +284,9 @@ type Metrics struct {
 	// passes through), by action name, actor kind and result — the product-wide
 	// "what happened" counter.
 	ActionsTotal metric.Int64Counter
+	// DockerOps counts every typed command sent on an agent channel
+	// (ADR-052), by method and outcome — the migration's health signal.
+	DockerOps metric.Int64Counter
 }
 
 // NewMetrics builds the instruments. Errors are folded into no-ops rather than
@@ -299,10 +302,12 @@ func NewMetrics(m metric.Meter) *Metrics {
 		metric.WithDescription("Deployment wall-clock time"), metric.WithUnit("s"))
 	actions, _ := m.Int64Counter("akerdock.actions.total",
 		metric.WithDescription("Audited actions, by action, actor and result"))
+	dockerOps, _ := m.Int64Counter("akerdock.docker.runtime.ops",
+		metric.WithDescription("Typed Docker commands sent on agent channels, by method and outcome"))
 	return &Metrics{
 		JobsCompleted: jobs, JobDuration: jobDur,
 		DeploymentsTotal: deploys, DeploymentLatency: deployDur,
-		ActionsTotal: actions,
+		ActionsTotal: actions, DockerOps: dockerOps,
 	}
 }
 
@@ -330,6 +335,19 @@ func (m *Metrics) RecordJob(ctx context.Context, jobType, status string, seconds
 	)
 	m.JobsCompleted.Add(ctx, 1, attrs)
 	m.JobDuration.Record(ctx, seconds, attrs)
+}
+
+// RecordDockerOp reports one typed command sent on an agent channel
+// (ADR-052): the migration's health signal, by method and outcome ("ok" or
+// the wire error code).
+func (m *Metrics) RecordDockerOp(ctx context.Context, method, outcome string) {
+	if m == nil || m.DockerOps == nil {
+		return
+	}
+	m.DockerOps.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("method", method),
+		attribute.String("outcome", outcome),
+	))
 }
 
 // RecordDeployment reports one terminal deployment.

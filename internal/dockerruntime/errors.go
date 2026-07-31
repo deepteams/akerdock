@@ -22,3 +22,8 @@ func IsConflict(err error) bool { return cerrdefs.IsConflict(err) }
 // stop of an already-stopped container. The SDK swallows most of these as
 // success; the predicate exists for the paths where it surfaces.
 func IsNotModified(err error) bool { return cerrdefs.IsNotModified(err) }
+
+// IsUnavailable reports the mandatory-agent failure mode (ADR-051): the
+// server's command channel is not there. The remedy is the agent's
+// reconciliation, never a fallback.
+func IsUnavailable(err error) bool { return cerrdefs.IsUnavailable(err) }
