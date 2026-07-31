@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -182,6 +183,13 @@ func (r *deploymentRun) buildLabels(extra map[string]string) map[string]string {
 // (ADR-055 phase 2) and pumps its plain-text progress into the step log. The
 // stream's terminal error IS the build failure, cause included.
 func (r *deploymentRun) agentBuild(ctx context.Context, onOutput func(string), p agentwire.ImageBuildParams) error {
+	// The agent-side path guard demands clean paths; the compose shapes that
+	// were fine under `cd` (a context of ".", a "./"-prefixed dockerfile)
+	// are normalized here, at the single entry every build goes through.
+	p.ContextDir = filepath.Clean(p.ContextDir)
+	if p.Dockerfile != "" {
+		p.Dockerfile = filepath.Clean(p.Dockerfile)
+	}
 	rc, err := r.bhostops().BuildImage(ctx, p)
 	if err != nil {
 		return err

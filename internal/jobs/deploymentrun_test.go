@@ -93,6 +93,30 @@ func TestAgentBuildPumpsProgressAndSurfacesFailure(t *testing.T) {
 	}
 }
 
+// TestAgentBuildCleansComposePathShapes pins the path normalization: a
+// compose context of "." and a "./"-prefixed dockerfile were fine under the
+// shell's `cd`, but the agent-side guard demands clean paths — they must
+// arrive normalized, from the single entry every build goes through.
+func TestAgentBuildCleansComposePathShapes(t *testing.T) {
+	ops := &hostfake.Ops{}
+	r := &deploymentRun{hops: ops}
+	err := r.agentBuild(context.Background(), func(string) {}, agentwire.ImageBuildParams{
+		ContextDir: "/var/lib/akerdock/previews/p1/source/sha/.",
+		Dockerfile: "./docker/Dockerfile",
+		Tags:       []string{"akerdock/p1-web:sha"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := ops.CallsTo(agentwire.MethodImageBuild)[0].(agentwire.ImageBuildParams)
+	if p.ContextDir != "/var/lib/akerdock/previews/p1/source/sha" {
+		t.Fatalf("context = %q, want it clean", p.ContextDir)
+	}
+	if p.Dockerfile != "docker/Dockerfile" {
+		t.Fatalf("dockerfile = %q, want it clean", p.Dockerfile)
+	}
+}
+
 // TestDockerVolumeName pins the deterministic naming scheme (INV-011): the
 // resource UUID prefixes the declared name, so two applications declaring
 // `data` never collide. Existing volumes are addressed by this exact string —
