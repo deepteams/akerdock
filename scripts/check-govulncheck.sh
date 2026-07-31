@@ -32,6 +32,21 @@ for id in $FOUND; do
     NEW=1
   fi
 done
+# A triage entry is only valid while there is nothing to upgrade to. The
+# moment upstream ships a fix ("Fixed in" stops being N/A), the exception
+# must not survive: fail until the dependency is bumped and the entry
+# removed, so an accepted risk cannot silently outlive its justification.
+FIXABLE=$(echo "$OUTPUT" | awk '
+  /^Vulnerability #/ { sub(/:$/, "", $3); id = $3 }
+  /Fixed in:/ && $NF != "N/A" && id != "" { print id; id = "" }
+' | sort -u)
+for id in $FIXABLE; do
+  if grep -q "^${id}	" scripts/vulncheck-triage.txt; then
+    echo "::error::triaged vulnerability ${id} now has a fixed release — upgrade the dependency and remove its entry from scripts/vulncheck-triage.txt"
+    NEW=1
+  fi
+done
+
 if [ "$NEW" -eq 0 ]; then
   echo "govulncheck: all findings are triaged in scripts/vulncheck-triage.txt (no fixed release upstream)"
 fi
