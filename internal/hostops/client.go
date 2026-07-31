@@ -73,3 +73,25 @@ func (c *client) EnsureDir(ctx context.Context, p agentwire.DirEnsureParams) err
 	_, err := c.s.Command(ctx, agentwire.MethodDirEnsure, p)
 	return err
 }
+
+func (c *client) ExecToFile(ctx context.Context, p agentwire.ExecToFileParams) (agentwire.ExecToFileResult, error) {
+	return call[agentwire.ExecToFileResult](ctx, c.s, agentwire.MethodExecToFile, p)
+}
+
+func (c *client) FileToExec(ctx context.Context, p agentwire.FileToExecParams) (agentwire.FileToExecResult, error) {
+	return call[agentwire.FileToExecResult](ctx, c.s, agentwire.MethodFileToExec, p)
+}
+
+func (c *client) FileToURL(ctx context.Context, p agentwire.FileToURLParams) error {
+	_, err := c.s.Command(ctx, agentwire.MethodFileToURL, p)
+	return err
+}
+
+func (c *client) URLToFile(ctx context.Context, p agentwire.URLToFileParams) error {
+	_, err := c.s.Command(ctx, agentwire.MethodURLToFile, p)
+	return err
+}
+
+func (c *client) HashFile(ctx context.Context, path string) (agentwire.FileHashResult, error) {
+	return call[agentwire.FileHashResult](ctx, c.s, agentwire.MethodFileHash, agentwire.FileHashParams{Path: path})
+}

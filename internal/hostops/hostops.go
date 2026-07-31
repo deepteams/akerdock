@@ -27,6 +27,16 @@ type Ops interface {
 	Chown(ctx context.Context, p agentwire.FileChownParams) error
 	CopyFile(ctx context.Context, p agentwire.FileCopyParams) error
 	EnsureDir(ctx context.Context, p agentwire.DirEnsureParams) error
+
+	// The pipe primitives (tranche C): bulk transfers executed agent-side so
+	// the payload never crosses the control plane — a dump can be tens of
+	// gigabytes, and relaying it would make every backup depend on the
+	// instance's bandwidth. Only the typed verdict travels back.
+	ExecToFile(ctx context.Context, p agentwire.ExecToFileParams) (agentwire.ExecToFileResult, error)
+	FileToExec(ctx context.Context, p agentwire.FileToExecParams) (agentwire.FileToExecResult, error)
+	FileToURL(ctx context.Context, p agentwire.FileToURLParams) error
+	URLToFile(ctx context.Context, p agentwire.URLToFileParams) error
+	HashFile(ctx context.Context, path string) (agentwire.FileHashResult, error)
 }
 
 // Source resolves the Ops executing on a given server — the seam job code

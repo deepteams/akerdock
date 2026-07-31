@@ -11,6 +11,7 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 
 	"github.com/deepteams/akerdock/internal/agentwire"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 )
 
 // defaultReadCap bounds a FileRead when the caller sets none: these files are
@@ -20,20 +21,22 @@ const defaultReadCap = 4 << 20
 
 // Local executes the vocabulary on the local filesystem — the agent side.
 // Every path is resolved against Root before anything is touched; the guard
-// is authoritative here, whatever the control plane sent.
+// is authoritative here, whatever the control plane sent. RT is the LOCAL
+// Docker runtime the pipe primitives exec through; nil refuses them.
 type Local struct {
 	Root string
+	RT   dockerruntime.Runtime
 }
 
 // DetectLocal returns the Local rooted at Root when the tree is present, nil
 // when it is not — a helper created before the ADR-054 mount (spec < 7) has
 // no host tree, and nil makes the executor answer that plainly instead of
-// ENOENT-ing on every call.
-func DetectLocal() *Local {
+// ENOENT-ing on every call. rt powers the pipe primitives.
+func DetectLocal(rt dockerruntime.Runtime) *Local {
 	if st, err := os.Stat(Root); err != nil || !st.IsDir() {
 		return nil
 	}
-	return &Local{Root: Root}
+	return &Local{Root: Root, RT: rt}
 }
 
 var _ Ops = (*Local)(nil)

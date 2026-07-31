@@ -81,6 +81,19 @@ const (
 	MethodDirEnsure  = "DirEnsure"
 )
 
+// Pipe vocabulary (ADR-054 tranche C): bulk transfers the agent executes
+// LOCALLY — container exec ↔ host file with compression, host file ↔
+// presigned URL — so a multi-gigabyte dump never crosses the control plane.
+// Each is a single long-running unary command; only the typed verdict (exit
+// code, size, digest, output tail) travels back.
+const (
+	MethodExecToFile = "ExecToFile"
+	MethodFileToExec = "FileToExec"
+	MethodFileToURL  = "FileToURL"
+	MethodURLToFile  = "URLToFile"
+	MethodFileHash   = "FileHash"
+)
+
 // Params structs, one per method. Fields are the SDK types — the Engine API's
 // own wire representations (filters.Args carries its custom JSON both ways).
 // Methods without params (Info, Ping, …) send none.
@@ -304,4 +317,65 @@ type FileCopyParams struct {
 type DirEnsureParams struct {
 	Path string `json:"path"`
 	Mode uint32 `json:"mode"`
+}
+
+// ExecToFileParams runs Cmd in Container and streams its stdout to Path —
+// gzipped when Gzip is set. The digest and size describe the file as
+// written (compressed), so a later FileHash comparison is byte-exact.
+type ExecToFileParams struct {
+	Container string   `json:"container"`
+	Cmd       []string `json:"cmd"`
+	Path      string   `json:"path"`
+	Mode      uint32   `json:"mode"`
+	MakeDirs  bool     `json:"make_dirs,omitempty"`
+	DirMode   uint32   `json:"dir_mode,omitempty"`
+	Gzip      bool     `json:"gzip,omitempty"`
+}
+
+type ExecToFileResult struct {
+	ExitCode  int    `json:"exit_code"`
+	Stderr    string `json:"stderr,omitempty"` // tail — the diagnostic, not the payload
+	SizeBytes int64  `json:"size_bytes"`
+	SHA256    string `json:"sha256"`
+}
+
+// FileToExecParams streams Path — gunzipped when Gunzip is set — into the
+// stdin of Cmd run in Container.
+type FileToExecParams struct {
+	Path      string   `json:"path"`
+	Gunzip    bool     `json:"gunzip,omitempty"`
+	Container string   `json:"container"`
+	Cmd       []string `json:"cmd"`
+}
+
+type FileToExecResult struct {
+	ExitCode int    `json:"exit_code"`
+	Output   string `json:"output,omitempty"` // merged tail
+}
+
+// FileToURLParams uploads Path to URL with a plain PUT. The URL is presigned
+// by the control plane and travels in this body over the encrypted channel —
+// never argv, never a process list (INV-003).
+type FileToURLParams struct {
+	Path    string            `json:"path"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+// URLToFileParams downloads URL into Path.
+type URLToFileParams struct {
+	URL      string `json:"url"`
+	Path     string `json:"path"`
+	Mode     uint32 `json:"mode"`
+	MakeDirs bool   `json:"make_dirs,omitempty"`
+	DirMode  uint32 `json:"dir_mode,omitempty"`
+}
+
+type FileHashParams struct {
+	Path string `json:"path"`
+}
+
+type FileHashResult struct {
+	SHA256    string `json:"sha256"`
+	SizeBytes int64  `json:"size_bytes"`
 }

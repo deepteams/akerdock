@@ -33,7 +33,7 @@ func Serve(ctx context.Context, dir, addr string, rt dockerruntime.Runtime, agen
 		// The ADR-052 command channel: enrolled agents execute the control
 		// plane's typed commands against the local runtime — and, when the
 		// host tree is mounted (ADR-054, spec 7), the file primitives on it.
-		host := hostops.DetectLocal()
+		host := hostops.DetectLocal(rt)
 		if host == nil {
 			logger.Info("agent: no host tree mounted — host-ops disabled until this helper is recreated")
 		}

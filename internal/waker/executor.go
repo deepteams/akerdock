@@ -490,7 +490,8 @@ func (e *Executor) executeUnary(ctx context.Context, cmd agentwire.Command) (any
 		return e.rt.Ping(ctx)
 	case agentwire.MethodFileWrite, agentwire.MethodFileRead, agentwire.MethodFileRemove,
 		agentwire.MethodFileStat, agentwire.MethodFileChown, agentwire.MethodFileCopy,
-		agentwire.MethodDirEnsure:
+		agentwire.MethodDirEnsure, agentwire.MethodExecToFile, agentwire.MethodFileToExec,
+		agentwire.MethodFileToURL, agentwire.MethodURLToFile, agentwire.MethodFileHash:
 		return e.executeHostOp(ctx, cmd)
 	default:
 		return nil, fmt.Errorf("method %q: %w", cmd.Method, cerrdefs.ErrNotImplemented)
@@ -541,11 +542,41 @@ func (e *Executor) executeHostOp(ctx context.Context, cmd agentwire.Command) (an
 			return nil, invalidParams(err)
 		}
 		return nil, e.host.CopyFile(ctx, p)
-	default: // MethodDirEnsure
+	case agentwire.MethodDirEnsure:
 		var p agentwire.DirEnsureParams
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
 			return nil, invalidParams(err)
 		}
 		return nil, e.host.EnsureDir(ctx, p)
+	case agentwire.MethodExecToFile:
+		var p agentwire.ExecToFileParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.host.ExecToFile(ctx, p)
+	case agentwire.MethodFileToExec:
+		var p agentwire.FileToExecParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.host.FileToExec(ctx, p)
+	case agentwire.MethodFileToURL:
+		var p agentwire.FileToURLParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.host.FileToURL(ctx, p)
+	case agentwire.MethodURLToFile:
+		var p agentwire.URLToFileParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return nil, e.host.URLToFile(ctx, p)
+	default: // MethodFileHash
+		var p agentwire.FileHashParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.host.HashFile(ctx, p.Path)
 	}
 }

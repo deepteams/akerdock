@@ -5,14 +5,19 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/deepteams/akerdock/internal/agentwire"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
-	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -20,8 +25,13 @@ import (
 // checks what came back (ADR-014, §20.5).
 const TypeBackupDrill = "backup.drill"
 
-// drillBoot bounds the wait for the throwaway PostgreSQL to accept connections.
-const drillBoot = 90 * time.Second
+// drillBoot bounds the wait for the throwaway PostgreSQL to accept
+// connections; drillBootPoll is the probe cadence (vars so tests can shrink
+// them).
+var (
+	drillBoot     = 90 * time.Second
+	drillBootPoll = 2 * time.Second
+)
 
 // Drill runs one restore drill.
 //
@@ -34,7 +44,7 @@ const drillBoot = 90 * time.Second
 // (critical by suffix, ADR-019), because the failure mode this feature exists
 // to catch is precisely the one nobody looks for: backups that ran green for
 // months and restore into nothing.
-func (h *BackupRun) drill(ctx context.Context, rec *queue.StepRecorder, client *sshexec.Client,
+func (h *BackupRun) drill(ctx context.Context, rec *queue.StepRecorder, rt dockerruntime.Runtime, ops hostops.Ops,
 	plan store.DatabaseBackupPlan, target backupTarget,
 ) (any, error) {
 	exec, err := h.Store.GetLatestSuccessfulBackupExecution(ctx, plan.ID)
@@ -72,7 +82,8 @@ func (h *BackupRun) drill(ctx context.Context, rec *queue.StepRecorder, client *
 	// to "leave it for inspection" would leave a stray database with production
 	// data on the server.
 	defer func() {
-		if _, err := client.Run(context.WithoutCancel(ctx), "docker rm -f "+scratch+" >/dev/null 2>&1"); err != nil {
+		err := rt.ContainerRemove(context.WithoutCancel(ctx), scratch, container.RemoveOptions{Force: true})
+		if err != nil && !dockerruntime.IsNotFound(err) {
 			h.Logger.Warn("the drill container could not be removed", "container", scratch, "error", err)
 		}
 	}()
@@ -87,7 +98,7 @@ func (h *BackupRun) drill(ctx context.Context, rec *queue.StepRecorder, client *
 			return fail("fetch", fmt.Errorf("the dump is gone — no local copy, and none left in the bucket")), nil
 		}
 		rec.Start(ctx, "fetch_s3")
-		if err := h.fetchFromS3(ctx, client, plan, exec); err != nil {
+		if err := h.fetchFromS3(ctx, ops, plan, exec); err != nil {
 			return fail("fetch", err), nil
 		}
 		rec.Succeed(ctx, "dump downloaded from "+*exec.S3Key)
@@ -95,13 +106,13 @@ func (h *BackupRun) drill(ctx context.Context, rec *queue.StepRecorder, client *
 
 	rec.Start(ctx, "verify_checksum")
 	if exec.ChecksumSha256 != nil {
-		res, err := client.Run(ctx, "sha256sum "+*exec.Filename+" | cut -d' ' -f1")
+		digest, err := ops.HashFile(ctx, *exec.Filename)
 		if err != nil {
 			return fail("verify_checksum", err), nil
 		}
-		if got := firstLine(res.Stdout); got != *exec.ChecksumSha256 {
+		if digest.SHA256 != *exec.ChecksumSha256 {
 			return fail("verify_checksum", fmt.Errorf("checksum mismatch: the dump is corrupted (expected %s, got %s)",
-				*exec.ChecksumSha256, got)), nil
+				*exec.ChecksumSha256, digest.SHA256)), nil
 		}
 	}
 	rec.Succeed(ctx, "dump integrity verified")
@@ -119,24 +130,18 @@ func (h *BackupRun) drill(ctx context.Context, rec *queue.StepRecorder, client *
 	if err != nil {
 		return fail("boot_scratch", err), nil
 	}
-	image := "postgres:16-alpine"
+	scratchImage := DefaultDatabaseImage
 	if target.image != "" {
-		image = target.image
+		scratchImage = target.image
 	}
-	login, err := h.drillLogin(ctx, client, target)
+	login, err := h.drillLogin(ctx, rt, target)
 	if err != nil {
 		return fail("boot_scratch", err), nil
 	}
-	res, err := client.Run(ctx, fmt.Sprintf(
-		"docker run -d --rm --name %s -e POSTGRES_PASSWORD=%s -e POSTGRES_USER=%s -e POSTGRES_DB=%s %s",
-		scratch, shellQuote(password), shellQuote(login.User), shellQuote(login.DB), shellQuote(image)))
-	if err != nil {
+	if err := h.bootScratch(ctx, rt, scratch, scratchImage, password, login); err != nil {
 		return fail("boot_scratch", err), nil
 	}
-	if res.ExitCode != 0 {
-		return fail("boot_scratch", fmt.Errorf("cannot start the disposable database: %s", firstLine(res.Stderr))), nil
-	}
-	if err := h.waitReady(ctx, client, scratch, login.User); err != nil {
+	if err := h.waitReady(ctx, rt, scratch, login.User); err != nil {
 		return fail("boot_scratch", err), nil
 	}
 	rec.Succeed(ctx, "disposable database ready")
@@ -144,19 +149,21 @@ func (h *BackupRun) drill(ctx context.Context, rec *queue.StepRecorder, client *
 	rec.Start(ctx, "restore")
 	// ON_ERROR_STOP is what turns "the restore printed some errors" into "the
 	// restore failed". Without it psql exits 0 on a dump it only half applied.
-	res, err = client.Run(ctx, fmt.Sprintf(
-		"gunzip -c %s | docker exec -i %s psql -U %s -d %s -v ON_ERROR_STOP=1 >/dev/null",
-		*exec.Filename, scratch, shellQuote(login.User), shellQuote(login.DB)))
+	// Pure argv: the drill knows its login, no shell is involved anywhere.
+	res, err := ops.FileToExec(ctx, agentwire.FileToExecParams{
+		Path: *exec.Filename, Gunzip: true, Container: scratch,
+		Cmd: []string{"psql", "-U", login.User, "-d", login.DB, "-v", "ON_ERROR_STOP=1", "-o", "/dev/null"},
+	})
 	if err != nil {
 		return fail("restore", err), nil
 	}
 	if res.ExitCode != 0 {
-		return fail("restore", fmt.Errorf("the dump did not restore: %s", firstLine(res.Stderr))), nil
+		return fail("restore", fmt.Errorf("the dump did not restore: %s", firstLine(res.Output))), nil
 	}
 	rec.Succeed(ctx, "dump restored into the disposable database")
 
 	rec.Start(ctx, "verify_content")
-	restored, err := h.countTables(ctx, client, scratch, &login)
+	restored, err := h.countTables(ctx, rt, scratch, &login)
 	if err != nil {
 		return fail("verify_content", err), nil
 	}
@@ -206,6 +213,41 @@ func drillPassword() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
+// bootScratch creates and starts the disposable instance: no volume, no
+// published port, its own password in the typed create body (INV-003). The
+// image already runs on this server (it is the source database's own), but a
+// pruned host is tolerated with an explicit pull — the shell-era `docker run`
+// pulled silently.
+func (h *BackupRun) bootScratch(ctx context.Context, rt dockerruntime.Runtime, name, ref, password string, login dbLogin) error {
+	config := &container.Config{
+		Image: ref,
+		Env: []string{
+			"POSTGRES_PASSWORD=" + password,
+			"POSTGRES_USER=" + login.User,
+			"POSTGRES_DB=" + login.DB,
+		},
+		Labels: map[string]string{"akerdock.managed": "true", "akerdock.type": "drill"},
+	}
+	if _, err := rt.ContainerCreate(ctx, config, nil, nil, nil, name); err != nil {
+		if !dockerruntime.IsNotFound(err) {
+			return fmt.Errorf("cannot create the disposable database: %s", firstLine(err.Error()))
+		}
+		rc, pullErr := rt.ImagePull(ctx, ref, image.PullOptions{})
+		if pullErr != nil {
+			return fmt.Errorf("cannot pull the drill image %s: %s", ref, firstLine(pullErr.Error()))
+		}
+		_, _ = io.Copy(io.Discard, rc)
+		_ = rc.Close()
+		if _, err := rt.ContainerCreate(ctx, config, nil, nil, nil, name); err != nil {
+			return fmt.Errorf("cannot create the disposable database: %s", firstLine(err.Error()))
+		}
+	}
+	if err := rt.ContainerStart(ctx, name, container.StartOptions{}); err != nil {
+		return fmt.Errorf("cannot start the disposable database: %s", firstLine(err.Error()))
+	}
+	return nil
+}
+
 // drillLogin resolves the role and database the scratch instance must be
 // born with. A dump carries `ALTER … OWNER TO <role>` and GRANTs: restored
 // under any other role, every one of those statements errors out and a
@@ -214,20 +256,21 @@ func drillPassword() (string, error) {
 // Managed databases know their login from the credential row. A stack
 // component (compose-spec §10) does not: the role and database NAMES are read
 // from its container environment — names only, never the password (INV-003).
-func (h *BackupRun) drillLogin(ctx context.Context, client *sshexec.Client, target backupTarget) (dbLogin, error) {
+func (h *BackupRun) drillLogin(ctx context.Context, rt dockerruntime.Runtime, target backupTarget) (dbLogin, error) {
 	if target.login != nil {
 		return *target.login, nil
 	}
-	res, err := client.Run(ctx, fmt.Sprintf(
-		`docker exec %s sh -c 'printf "%%s\n%%s\n" "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}"'`,
-		target.container))
+	out, exit, err := execCapture(ctx, rt, target.container, []string{
+		"sh", "-c",
+		`printf "%s\n%s\n" "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}"`,
+	})
 	if err != nil {
 		return dbLogin{}, err
 	}
-	if res.ExitCode != 0 {
-		return dbLogin{}, fmt.Errorf("cannot read the component's role and database names: %s", firstLine(res.Stderr))
+	if exit != 0 {
+		return dbLogin{}, fmt.Errorf("cannot read the component's role and database names: %s", firstLine(out))
 	}
-	lines := strings.Split(strings.TrimSpace(res.Stdout), "\n")
+	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) < 2 || strings.TrimSpace(lines[0]) == "" {
 		return dbLogin{}, fmt.Errorf("the component did not expose its role and database names")
 	}
@@ -235,20 +278,20 @@ func (h *BackupRun) drillLogin(ctx context.Context, client *sshexec.Client, targ
 }
 
 // waitReady polls the disposable instance until it accepts connections.
-func (h *BackupRun) waitReady(ctx context.Context, client *sshexec.Client, container, user string) error {
+func (h *BackupRun) waitReady(ctx context.Context, rt dockerruntime.Runtime, containerName, user string) error {
 	deadline := time.Now().Add(drillBoot)
 	for time.Now().Before(deadline) {
-		res, err := client.Run(ctx, fmt.Sprintf("docker exec %s pg_isready -U %s", container, shellQuote(user)))
+		_, exit, err := execCapture(ctx, rt, containerName, []string{"pg_isready", "-U", user})
 		if err != nil {
 			return err
 		}
-		if res.ExitCode == 0 {
+		if exit == 0 {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(2 * time.Second):
+		case <-time.After(drillBootPoll):
 		}
 	}
 	return fmt.Errorf("the disposable database never became ready within %s", drillBoot)

@@ -29,6 +29,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/deepteams/akerdock/internal/agentwire"
@@ -37,6 +38,7 @@ import (
 	"github.com/deepteams/akerdock/internal/dockerruntime/fake"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/hostops"
+	hostfake "github.com/deepteams/akerdock/internal/hostops/fake"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/sshkey"
 	"github.com/deepteams/akerdock/internal/store"
@@ -643,7 +645,7 @@ func TestJobFlowsReachExternalBoundary(t *testing.T) {
 		},
 		"backup": func() (any, error) {
 			j := job(TypeBackupExecute, `{"plan_id":1}`)
-			return (&BackupRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger}).Execute(context.Background(), j, rec(j))
+			return (&BackupRun{Store: q, Keyring: keyring, Docker: unavailableDocker{}, HostOps: unavailableHost{}, Audit: recorder, Logger: logger}).Execute(context.Background(), j, rec(j))
 		},
 		"application delete": func() (any, error) {
 			j := job(TypeApplicationDelete, `{"resource_id":1}`)
@@ -971,9 +973,25 @@ func TestBackupActionsRunThroughTheirCompleteStateMachines(t *testing.T) {
 				payload += `,"execution_id":1`
 			}
 			payload += `}`
+			// The typed side (ADR-054 pipes): exec answers in call order — the
+			// engine-version probe / pg_isready, then the table count — and the
+			// pipe results carry the fixture's recorded digest.
+			rt := verifyRuntime("16.0\n", "3\n")
+			rt.ContainerCreateFn = func(context.Context, *containertypes.Config, *containertypes.HostConfig, *networktypes.NetworkingConfig, *ocispec.Platform, string) (containertypes.CreateResponse, error) {
+				return containertypes.CreateResponse{ID: "scratch"}, nil
+			}
+			ops := &hostfake.Ops{
+				ExecToFileFn: func(context.Context, agentwire.ExecToFileParams) (agentwire.ExecToFileResult, error) {
+					return agentwire.ExecToFileResult{SizeBytes: 128, SHA256: "0123456789abcdef"}, nil
+				},
+				HashFileFn: func(context.Context, string) (agentwire.FileHashResult, error) {
+					return agentwire.FileHashResult{SHA256: "0123456789abcdef", SizeBytes: 128}, nil
+				},
+			}
 			j := store.Job{ID: 7, JobType: tc.jobType, Payload: []byte(payload)}
 			result, err := (&BackupRun{
-				Store: q, Keyring: keyring, Audit: recorder, Logger: logger,
+				Store: q, Keyring: keyring, Docker: fixedSource{rt: rt}, HostOps: fixedHost{ops: ops},
+				Audit: recorder, Logger: logger,
 			}).Execute(context.Background(), j, queue.NewStepRecorder(q, j))
 			if err != nil {
 				t.Fatalf("%s: %v", tc.name, err)

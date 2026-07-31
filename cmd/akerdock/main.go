@@ -347,7 +347,7 @@ func serveRun(mode string) int {
 		certs := &jobs.CertificateSync{Store: q, Docker: dockerSource, HostOps: hostSource, Logger: logger}
 		worker.Register(jobs.TypeCertificateSync, certs.Execute)
 		worker.Register(jobs.TypeCertificateRenew, certs.Execute)
-		backup := &jobs.BackupRun{Store: q, Keyring: keyring, Audit: recorder, Logger: logger}
+		backup := &jobs.BackupRun{Store: q, Keyring: keyring, Docker: dockerSource, HostOps: hostSource, Audit: recorder, Logger: logger}
 		webhookProcess := &jobs.WebhookProcess{Store: q, Keyring: keyring, Logger: logger}
 		worker.Register(jobs.TypeWebhookProcess, webhookProcess.Execute)
 		worker.Register(jobs.TypeGithubAppPush, (&jobs.GithubAppPush{Store: q, Logger: logger}).Execute)

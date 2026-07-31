@@ -189,7 +189,7 @@ func TestLocalEnsureDir(t *testing.T) {
 // TestDetectLocal pins the mount detection: an agent without the host tree
 // answers nil so the executor reports unavailability instead of ENOENT.
 func TestDetectLocal(t *testing.T) {
-	if got := DetectLocal(); got != nil {
+	if got := DetectLocal(nil); got != nil {
 		// The developer machine MAY have /var/lib/akerdock; both answers are
 		// legitimate — only the nil contract on absence is testable portably.
 		if got.Root != Root {

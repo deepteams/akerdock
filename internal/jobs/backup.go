@@ -12,12 +12,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/audit"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
+	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/s3"
-	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -33,12 +35,17 @@ type BackupPayload struct {
 	ExecutionID int64 `json:"execution_id,omitempty"`
 }
 
-// BackupRun executes database backups and restores. The dump runs inside
-// the database container; the credential is passed through the container
-// environment, never in argv (INV-003).
+// BackupRun executes database backups and restores through the agent channel
+// (ADR-054 pipes): the dump runs inside the database container and streams
+// to the host file agent-side — the payload never crosses the control plane,
+// and the credential stays in the container environment, never argv
+// (INV-003). The Keyring remains for the S3 credentials, which are only ever
+// exchanged for presigned URLs.
 type BackupRun struct {
 	Store   *store.Queries
 	Keyring *envelope.Keyring
+	Docker  dockerruntime.Source
+	HostOps hostops.Source
 	Audit   *audit.Recorder
 	Logger  *slog.Logger
 }
@@ -84,20 +91,24 @@ func (h *BackupRun) Execute(ctx context.Context, job store.Job, rec *queue.StepR
 		return nil, err
 	}
 
-	client, err := h.connect(ctx, target.serverID)
+	rt, err := h.Docker.Runtime(ctx, target.serverID)
 	if err != nil {
-		rec.Fail(ctx, "SSH connection failed")
+		rec.Fail(ctx, "the server's agent is not connected")
 		return nil, err
 	}
-	defer func() { _ = client.Close() }()
+	ops, err := h.HostOps.HostOps(ctx, target.serverID)
+	if err != nil {
+		rec.Fail(ctx, "the server's agent is not connected")
+		return nil, err
+	}
 
 	switch job.JobType {
 	case TypeBackupRestore:
-		return h.restore(ctx, rec, client, plan, payload.ExecutionID, target)
+		return h.restore(ctx, rec, rt, ops, plan, payload.ExecutionID, target)
 	case TypeBackupDrill:
-		return h.drill(ctx, rec, client, plan, target)
+		return h.drill(ctx, rec, rt, ops, plan, target)
 	}
-	return h.backup(ctx, rec, client, plan, target)
+	return h.backup(ctx, rec, rt, ops, plan, target)
 }
 
 // resolveTarget maps the plan onto its dump target. The three-way CHECK of
@@ -145,27 +156,10 @@ func (h *BackupRun) resolveTarget(ctx context.Context, plan store.DatabaseBackup
 	return backupTarget{}, fmt.Errorf("this plan has no dump target")
 }
 
-func (h *BackupRun) connect(ctx context.Context, serverID int64) (*sshexec.Client, error) {
-	server, err := h.Store.GetServerByID(ctx, serverID)
-	if err != nil {
-		return nil, err
-	}
-	key, err := h.Store.GetPrivateKeyByID(ctx, server.PrivateKeyID)
-	if err != nil {
-		return nil, err
-	}
-	pem, err := h.Keyring.Decrypt("private_keys", "private_key_enc", pguuid.String(key.Uuid), key.PrivateKeyEnc)
-	if err != nil {
-		return nil, err
-	}
-	return sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem),
-		time.Duration(server.SshTimeoutSeconds)*time.Second, pinnedHostKey(server))
-}
-
 // backup dumps the database, records size, checksum and engine version, then
 // applies the local retention. An S3 upload failure yields the explicit
 // `partial` status — never a silent success (§20.5).
-func (h *BackupRun) backup(ctx context.Context, rec *queue.StepRecorder, client *sshexec.Client,
+func (h *BackupRun) backup(ctx context.Context, rec *queue.StepRecorder, rt dockerruntime.Runtime, ops hostops.Ops,
 	plan store.DatabaseBackupPlan, target backupTarget,
 ) (any, error) {
 	u, err := pguuid.New()
@@ -194,44 +188,39 @@ func (h *BackupRun) backup(ctx context.Context, rec *queue.StepRecorder, client 
 
 	// The `${VAR:-default}` forms mirror the official postgres image: a
 	// compose component often relies on those defaults instead of setting the
-	// variables explicitly, and a managed container always sets them.
+	// variables explicitly, and a managed container always sets them. The
+	// shell below runs in the DATABASE container, not on the host.
 	dumpCmd := "pg_dump -U \"${POSTGRES_USER:-postgres}\" -d \"${POSTGRES_DB:-${POSTGRES_USER:-postgres}}\""
 	if plan.DumpAll {
 		dumpCmd = "pg_dumpall -U \"${POSTGRES_USER:-postgres}\""
 	}
-	// The dump runs inside the container: the credential stays in its
-	// environment and never reaches argv (INV-003).
-	res, err := client.Run(ctx, fmt.Sprintf(
-		"mkdir -p %s && chmod 700 %s && umask 077 && docker exec %s sh -c '%s' | gzip > %s && test -s %s",
-		dir, dir, target.container, dumpCmd, file, file))
+	// The dump runs inside the container and streams to the host file
+	// agent-side, gzipped and hashed as written (ADR-054 pipes): the
+	// credential stays in the container environment (INV-003), and the size,
+	// checksum and emptiness verdicts come typed with the result.
+	res, err := ops.ExecToFile(ctx, agentwire.ExecToFileParams{
+		Container: target.container, Cmd: []string{"sh", "-c", dumpCmd},
+		Path: file, Mode: 0o600, MakeDirs: true, DirMode: 0o700, Gzip: true,
+	})
 	if err != nil {
 		return fail("dump", err)
 	}
 	if res.ExitCode != 0 {
 		return fail("dump", fmt.Errorf("pg_dump exited with code %d: %s", res.ExitCode, firstLine(res.Stderr)))
 	}
-
-	// Size, checksum and engine version: the integrity metadata verified at
-	// restore and during the drills (§20.5).
-	meta, err := client.Run(ctx, fmt.Sprintf(
-		"stat -c %%s %s; sha256sum %s | cut -d' ' -f1; docker exec %s sh -c 'psql -U \"${POSTGRES_USER:-postgres}\" -tAc \"SHOW server_version\"' 2>/dev/null || true",
-		file, file, target.container))
-	if err != nil || meta.ExitCode != 0 {
-		return fail("checksum", fmt.Errorf("could not read the dump metadata"))
+	if res.SizeBytes == 0 {
+		return fail("dump", fmt.Errorf("the dump came out empty"))
 	}
-	lines := strings.Split(strings.TrimSpace(meta.Stdout), "\n")
-	var size *int64
-	var checksum, version *string
-	if len(lines) > 0 {
-		if n, convErr := strconv.ParseInt(strings.TrimSpace(lines[0]), 10, 64); convErr == nil {
-			size = &n
+	size := &res.SizeBytes
+	checksum := ptrStr(res.SHA256)
+	// The engine version: integrity metadata verified at restore and during
+	// the drills (§20.5). Best-effort, exactly as the old `|| true` was.
+	var version *string
+	if out, exit, verr := execCapture(ctx, rt, target.container,
+		[]string{"sh", "-c", `psql -U "${POSTGRES_USER:-postgres}" -tAc "SHOW server_version"`}); verr == nil && exit == 0 {
+		if v := strings.TrimSpace(out); v != "" {
+			version = &v
 		}
-	}
-	if len(lines) > 1 {
-		checksum = ptrStr(strings.TrimSpace(lines[1]))
-	}
-	if len(lines) > 2 && strings.TrimSpace(lines[2]) != "" {
-		version = ptrStr(strings.TrimSpace(lines[2]))
 	}
 
 	// How many tables the SOURCE database held at dump time. This is the
@@ -239,7 +228,7 @@ func (h *BackupRun) backup(ctx context.Context, rec *queue.StepRecorder, client 
 	// restore without an error and contain nothing — an empty psql restore
 	// exits 0. Without a number to compare, a drill can only prove that
 	// nothing crashed.
-	if count, err := h.countTables(ctx, client, target.container, target.login); err == nil {
+	if count, err := h.countTables(ctx, rt, target.container, target.login); err == nil {
 		if err := h.Store.SetBackupExecutionTableCount(ctx, store.SetBackupExecutionTableCountParams{
 			ID: exec.ID, TableCount: &count,
 		}); err != nil {
@@ -256,7 +245,7 @@ func (h *BackupRun) backup(ctx context.Context, rec *queue.StepRecorder, client 
 	uploaded := false
 	if plan.S3StorageID != nil {
 		rec.Start(ctx, "upload_s3")
-		key, err := h.uploadToS3(ctx, client, plan, target.key, file, size)
+		key, err := h.uploadToS3(ctx, ops, plan, target.key, file, size)
 		switch {
 		case err != nil:
 			msg := firstLine(err.Error())
@@ -273,7 +262,7 @@ func (h *BackupRun) backup(ctx context.Context, rec *queue.StepRecorder, client 
 	// row keeps the path either way: it is where a restore puts the file back.
 	localDropped := false
 	if plan.S3Only && uploaded {
-		if res, err := client.Run(ctx, "rm -f "+file); err == nil && res.ExitCode == 0 {
+		if err := ops.Remove(ctx, agentwire.FileRemoveParams{Path: file}); err == nil {
 			localDropped = true
 		}
 	}
@@ -289,7 +278,7 @@ func (h *BackupRun) backup(ctx context.Context, rec *queue.StepRecorder, client 
 		_ = h.Store.MarkBackupLocalDeleted(ctx, exec.ID)
 	}
 
-	h.applyRetention(ctx, client, plan)
+	h.applyRetention(ctx, ops, plan)
 	h.Logger.Info("backup completed", "target", target.container, "status", status, "file", file)
 	return map[string]any{
 		"execution_uuid": pguuid.String(exec.Uuid),
@@ -317,32 +306,30 @@ func credentialsOf(row store.GetDatabaseByIDRow) dbLogin {
 // empty restore look populated.
 //
 // With a known login (managed database, drill scratch) the role and database
-// are passed explicitly. With none (stack component, compose-spec §10) the
-// query travels on STDIN and psql resolves its login from the container's
-// own environment — nothing is read out of the container.
-func (h *BackupRun) countTables(ctx context.Context, client *sshexec.Client, container string, c *dbLogin) (int32, error) {
+// are passed as pure argv. With none (stack component, compose-spec §10) an
+// in-container shell resolves them from the container's own environment —
+// nothing is read out of the container.
+func (h *BackupRun) countTables(ctx context.Context, rt dockerruntime.Runtime, container string, c *dbLogin) (int32, error) {
 	const q = "SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema')"
-	var res *sshexec.Result
-	var err error
+	var cmd []string
 	if c != nil {
-		// No `sh -c` wrapper here: the query itself contains single quotes, and
-		// nesting them inside a single-quoted shell string silently mangles the
-		// command. The role and database come from the credential row, so nothing
-		// needs to be read from the container's environment.
-		res, err = client.Run(ctx, fmt.Sprintf("docker exec %s psql -U %s -d %s -tAc %s",
-			container, shellQuote(c.User), shellQuote(c.DB), shellQuote(q)))
+		cmd = []string{"psql", "-U", c.User, "-d", c.DB, "-tAc", q}
 	} else {
-		res, err = client.RunInput(ctx, fmt.Sprintf(
-			"docker exec -i %s sh -c 'psql -U \"${POSTGRES_USER:-postgres}\" -d \"${POSTGRES_DB:-${POSTGRES_USER:-postgres}}\" -tA -f -'",
-			container), q)
+		// The query rides double-quoted inside the in-container shell: it
+		// contains single quotes, and carries no `$` for the shell to expand.
+		cmd = []string{
+			"sh", "-c",
+			`psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}" -tAc "` + q + `"`,
+		}
 	}
+	out, exit, err := execCapture(ctx, rt, container, cmd)
 	if err != nil {
 		return 0, err
 	}
-	if res.ExitCode != 0 {
-		return 0, fmt.Errorf("counting tables failed: %s", firstLine(res.Stderr))
+	if exit != 0 {
+		return 0, fmt.Errorf("counting tables failed: %s", firstLine(out))
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(firstLine(res.Stdout)))
+	n, err := strconv.Atoi(strings.TrimSpace(firstLine(out)))
 	if err != nil {
 		return 0, err
 	}
@@ -354,12 +341,12 @@ func (h *BackupRun) countTables(ctx context.Context, client *sshexec.Client, con
 // dumps and 30 in S3), and neither ever removes the last successful backup
 // (§7.2). A purge that fails is logged, never fatal: the backup that just
 // succeeded must not be reported as failed because an old file resisted.
-func (h *BackupRun) applyRetention(ctx context.Context, client *sshexec.Client, plan store.DatabaseBackupPlan) {
-	h.applyLocalRetention(ctx, client, plan)
+func (h *BackupRun) applyRetention(ctx context.Context, ops hostops.Ops, plan store.DatabaseBackupPlan) {
+	h.applyLocalRetention(ctx, ops, plan)
 	h.applyS3Retention(ctx, plan)
 }
 
-func (h *BackupRun) applyLocalRetention(ctx context.Context, client *sshexec.Client, plan store.DatabaseBackupPlan) {
+func (h *BackupRun) applyLocalRetention(ctx context.Context, ops hostops.Ops, plan store.DatabaseBackupPlan) {
 	if plan.RetentionLocalMaxCount <= 0 && plan.RetentionLocalMaxDays <= 0 {
 		return // 0/0 = unlimited
 	}
@@ -376,7 +363,7 @@ func (h *BackupRun) applyLocalRetention(ctx context.Context, client *sshexec.Cli
 		if e.Filename == nil {
 			continue
 		}
-		if res, err := client.Run(ctx, "rm -f "+*e.Filename); err != nil || res.ExitCode != 0 {
+		if err := ops.Remove(ctx, agentwire.FileRemoveParams{Path: *e.Filename}); err != nil {
 			h.Logger.Warn("could not delete an expired backup", "file", *e.Filename, "error", err)
 			continue
 		}
@@ -423,7 +410,7 @@ func (h *BackupRun) applyS3Retention(ctx context.Context, plan store.DatabaseBac
 // restore verifies the dump checksum, then replays it into the database.
 // The integrity check comes first: a corrupted dump is never restored
 // (§20.5).
-func (h *BackupRun) restore(ctx context.Context, rec *queue.StepRecorder, client *sshexec.Client,
+func (h *BackupRun) restore(ctx context.Context, rec *queue.StepRecorder, _ dockerruntime.Runtime, ops hostops.Ops,
 	plan store.DatabaseBackupPlan, executionID int64, target backupTarget,
 ) (any, error) {
 	exec, err := h.Store.GetBackupExecutionByID(ctx, executionID)
@@ -441,7 +428,7 @@ func (h *BackupRun) restore(ctx context.Context, rec *queue.StepRecorder, client
 			return nil, fmt.Errorf("the dump of this backup is gone — no local copy, and none left in the bucket")
 		}
 		rec.Start(ctx, "fetch_s3")
-		if err := h.fetchFromS3(ctx, client, plan, exec); err != nil {
+		if err := h.fetchFromS3(ctx, ops, plan, exec); err != nil {
 			rec.Fail(ctx, err.Error())
 			return nil, err
 		}
@@ -450,28 +437,31 @@ func (h *BackupRun) restore(ctx context.Context, rec *queue.StepRecorder, client
 
 	rec.Start(ctx, "verify_checksum")
 	if exec.ChecksumSha256 != nil {
-		res, err := client.Run(ctx, "sha256sum "+*exec.Filename+" | cut -d' ' -f1")
+		digest, err := ops.HashFile(ctx, *exec.Filename)
 		if err != nil {
 			return nil, err
 		}
-		if got := firstLine(res.Stdout); got != *exec.ChecksumSha256 {
+		if digest.SHA256 != *exec.ChecksumSha256 {
 			rec.Fail(ctx, "checksum mismatch — the dump is corrupted, restore aborted")
-			return nil, fmt.Errorf("checksum mismatch: the dump is corrupted (expected %s, got %s)", *exec.ChecksumSha256, got)
+			return nil, fmt.Errorf("checksum mismatch: the dump is corrupted (expected %s, got %s)", *exec.ChecksumSha256, digest.SHA256)
 		}
 	}
 	rec.Succeed(ctx, "dump integrity verified")
 
 	rec.Start(ctx, "restore")
-	res, err := client.Run(ctx, fmt.Sprintf(
-		"gunzip -c %s | docker exec -i %s sh -c 'psql -U \"${POSTGRES_USER:-postgres}\" -d \"${POSTGRES_DB:-${POSTGRES_USER:-postgres}}\" -v ON_ERROR_STOP=1'",
-		*exec.Filename, target.container))
+	// The dump gunzips agent-side straight into psql's stdin; the in-container
+	// shell resolves the login from the container's own environment (INV-003).
+	res, err := ops.FileToExec(ctx, agentwire.FileToExecParams{
+		Path: *exec.Filename, Gunzip: true, Container: target.container,
+		Cmd: []string{"sh", "-c", `psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}" -v ON_ERROR_STOP=1 >/dev/null`},
+	})
 	if err != nil {
 		rec.Fail(ctx, err.Error())
 		return nil, err
 	}
 	if res.ExitCode != 0 {
-		rec.Fail(ctx, "psql restore failed: "+firstLine(res.Stderr))
-		return nil, fmt.Errorf("restore failed with code %d: %s", res.ExitCode, firstLine(res.Stderr))
+		rec.Fail(ctx, "psql restore failed: "+firstLine(res.Output))
+		return nil, fmt.Errorf("restore failed with code %d: %s", res.ExitCode, firstLine(res.Output))
 	}
 	rec.Succeed(ctx, "database restored")
 	h.Logger.Info("backup restored", "target", target.container, "execution_uuid", pguuid.String(exec.Uuid))
@@ -520,13 +510,14 @@ func (h *BackupRun) s3ClientFor(ctx context.Context, storageID int64) (*s3.Clien
 //
 // The transfer never goes through the control plane: a dump can be tens of
 // gigabytes, and relaying it would make every backup depend on the
-// instance's bandwidth. The instance only signs a URL, which curl reads from
-// stdin — a presigned URL is a credential for that one object, so it must not
-// land in argv, in `ps`, or in a shell history (INV-003).
+// instance's bandwidth. The instance only signs a URL, which travels to the
+// agent in the typed command body over the encrypted channel — a presigned
+// URL is a credential for that one object, so it must not land in argv, in
+// `ps`, or in a shell history (INV-003).
 //
-// The upload is confirmed by asking the bucket for the object's size: curl
-// exiting 0 only says the request was sent.
-func (h *BackupRun) uploadToS3(ctx context.Context, client *sshexec.Client,
+// The upload is confirmed by asking the bucket for the object's size: a
+// clean PUT only says the request was sent.
+func (h *BackupRun) uploadToS3(ctx context.Context, ops hostops.Ops,
 	plan store.DatabaseBackupPlan, dbUUID, file string, size *int64,
 ) (string, error) {
 	s3c, err := h.s3ClientFor(ctx, *plan.S3StorageID)
@@ -538,25 +529,18 @@ func (h *BackupRun) uploadToS3(ctx context.Context, client *sshexec.Client,
 	if err != nil {
 		return "", err
 	}
-
-	// `curl -K -` reads its configuration — including the URL — from stdin. When
-	// the storage requests server-side encryption, the matching header must be
-	// sent (it was signed into the presigned URL); on stdin it stays off the
-	// process list like the URL.
-	config := "url = \"" + url + "\"\n"
+	// When the storage requests server-side encryption, the matching header
+	// must be sent — it was signed into the presigned URL.
+	headers := map[string]string{}
 	if sseHeader, ok := s3c.SSEHeader(); ok {
-		config += "header = \"" + sseHeader + "\"\n"
+		if name, value, found := strings.Cut(sseHeader, ": "); found {
+			headers[name] = value
+		}
 	}
-	res, err := client.RunInput(ctx,
-		"curl -sS --fail-with-body -X PUT -K - --upload-file "+file,
-		config)
-	if err != nil {
-		return "", err
-	}
-	if res.ExitCode != 0 {
+	if err := ops.FileToURL(ctx, agentwire.FileToURLParams{Path: file, URL: url, Headers: headers}); err != nil {
 		// The body of an S3 error names the cause (AccessDenied, NoSuchBucket…)
-		// and carries no credential — the URL is on stdin, not in the output.
-		return "", fmt.Errorf("curl upload failed (exit %d): %s", res.ExitCode, firstLine(res.Stderr+res.Stdout))
+		// and carries no credential — the URL never appears in it.
+		return "", fmt.Errorf("upload failed: %s", firstLine(err.Error()))
 	}
 
 	remote, exists, err := s3c.Size(ctx, key)
@@ -575,7 +559,7 @@ func (h *BackupRun) uploadToS3(ctx context.Context, client *sshexec.Client,
 // fetchFromS3 downloads an object back onto the target server, at the path
 // the execution recorded. Used when the local dump is gone (s3_only, or a
 // retention purge) — the checksum is verified afterwards, as for any restore.
-func (h *BackupRun) fetchFromS3(ctx context.Context, client *sshexec.Client,
+func (h *BackupRun) fetchFromS3(ctx context.Context, ops hostops.Ops,
 	plan store.DatabaseBackupPlan, exec store.BackupExecution,
 ) error {
 	if exec.S3Key == nil || plan.S3StorageID == nil {
@@ -589,15 +573,10 @@ func (h *BackupRun) fetchFromS3(ctx context.Context, client *sshexec.Client,
 	if err != nil {
 		return err
 	}
-	res, err := client.RunInput(ctx, fmt.Sprintf(
-		"mkdir -p %s && umask 077 && curl -sS --fail-with-body -K - -o %s",
-		filepath.Dir(*exec.Filename), *exec.Filename),
-		"url = \""+url+"\"\n")
-	if err != nil {
-		return err
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("download failed (exit %d): %s", res.ExitCode, firstLine(res.Stderr+res.Stdout))
+	if err := ops.URLToFile(ctx, agentwire.URLToFileParams{
+		URL: url, Path: *exec.Filename, Mode: 0o600, MakeDirs: true, DirMode: 0o700,
+	}); err != nil {
+		return fmt.Errorf("download failed: %s", firstLine(err.Error()))
 	}
 	return nil
 }

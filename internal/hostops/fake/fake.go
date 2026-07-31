@@ -23,13 +23,18 @@ type Ops struct {
 	mu    sync.Mutex
 	calls []Call
 
-	WriteFileFn func(ctx context.Context, p agentwire.FileWriteParams) error
-	ReadFileFn  func(ctx context.Context, p agentwire.FileReadParams) (agentwire.FileReadResult, error)
-	RemoveFn    func(ctx context.Context, p agentwire.FileRemoveParams) error
-	StatFn      func(ctx context.Context, path string) (agentwire.FileStatResult, error)
-	ChownFn     func(ctx context.Context, p agentwire.FileChownParams) error
-	CopyFileFn  func(ctx context.Context, p agentwire.FileCopyParams) error
-	EnsureDirFn func(ctx context.Context, p agentwire.DirEnsureParams) error
+	WriteFileFn  func(ctx context.Context, p agentwire.FileWriteParams) error
+	ReadFileFn   func(ctx context.Context, p agentwire.FileReadParams) (agentwire.FileReadResult, error)
+	RemoveFn     func(ctx context.Context, p agentwire.FileRemoveParams) error
+	StatFn       func(ctx context.Context, path string) (agentwire.FileStatResult, error)
+	ChownFn      func(ctx context.Context, p agentwire.FileChownParams) error
+	CopyFileFn   func(ctx context.Context, p agentwire.FileCopyParams) error
+	EnsureDirFn  func(ctx context.Context, p agentwire.DirEnsureParams) error
+	ExecToFileFn func(ctx context.Context, p agentwire.ExecToFileParams) (agentwire.ExecToFileResult, error)
+	FileToExecFn func(ctx context.Context, p agentwire.FileToExecParams) (agentwire.FileToExecResult, error)
+	FileToURLFn  func(ctx context.Context, p agentwire.FileToURLParams) error
+	URLToFileFn  func(ctx context.Context, p agentwire.URLToFileParams) error
+	HashFileFn   func(ctx context.Context, path string) (agentwire.FileHashResult, error)
 }
 
 var _ hostops.Ops = (*Ops)(nil)
@@ -112,4 +117,44 @@ func (f *Ops) EnsureDir(ctx context.Context, p agentwire.DirEnsureParams) error 
 		return f.EnsureDirFn(ctx, p)
 	}
 	return nil
+}
+
+func (f *Ops) ExecToFile(ctx context.Context, p agentwire.ExecToFileParams) (agentwire.ExecToFileResult, error) {
+	f.record(agentwire.MethodExecToFile, p)
+	if f.ExecToFileFn != nil {
+		return f.ExecToFileFn(ctx, p)
+	}
+	return agentwire.ExecToFileResult{}, nil
+}
+
+func (f *Ops) FileToExec(ctx context.Context, p agentwire.FileToExecParams) (agentwire.FileToExecResult, error) {
+	f.record(agentwire.MethodFileToExec, p)
+	if f.FileToExecFn != nil {
+		return f.FileToExecFn(ctx, p)
+	}
+	return agentwire.FileToExecResult{}, nil
+}
+
+func (f *Ops) FileToURL(ctx context.Context, p agentwire.FileToURLParams) error {
+	f.record(agentwire.MethodFileToURL, p)
+	if f.FileToURLFn != nil {
+		return f.FileToURLFn(ctx, p)
+	}
+	return nil
+}
+
+func (f *Ops) URLToFile(ctx context.Context, p agentwire.URLToFileParams) error {
+	f.record(agentwire.MethodURLToFile, p)
+	if f.URLToFileFn != nil {
+		return f.URLToFileFn(ctx, p)
+	}
+	return nil
+}
+
+func (f *Ops) HashFile(ctx context.Context, path string) (agentwire.FileHashResult, error) {
+	f.record(agentwire.MethodFileHash, agentwire.FileHashParams{Path: path})
+	if f.HashFileFn != nil {
+		return f.HashFileFn(ctx, path)
+	}
+	return agentwire.FileHashResult{}, nil
 }
