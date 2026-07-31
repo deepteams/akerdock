@@ -171,10 +171,16 @@ func (l *Local) FileToExec(ctx context.Context, p agentwire.FileToExecParams) (a
 	defer att.Close()
 
 	// The output must drain WHILE stdin feeds: a psql that blocks writing its
-	// notices against a full pipe would deadlock the copy.
+	// notices against a full pipe would deadlock the copy. The recover keeps
+	// a demux panic from killing the agent process.
 	tail := &tailBuffer{}
 	done := make(chan error, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fmt.Errorf("exec output drain panicked: %v", r)
+			}
+		}()
 		_, err := stdcopy.StdCopy(tail, tail, att.Reader)
 		done <- err
 	}()

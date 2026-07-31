@@ -98,8 +98,15 @@ func (l *Local) BuildImage(ctx context.Context, p agentwire.ImageBuildParams) (i
 	statusCh := make(chan *bkclient.SolveStatus)
 	// The solve and its progress consumer run to completion in the
 	// background; the pipe carries the plain-text progress and, on failure,
-	// the solve's error as the stream's terminal error.
+	// the solve's error as the stream's terminal error. The recover is the
+	// agent's life insurance: a panic anywhere in the solve stack must fail
+	// THIS build, never kill the process every command in flight rides on.
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				pw.CloseWithError(fmt.Errorf("build panicked: %v", r))
+			}
+		}()
 		defer func() { _ = bk.Close() }()
 		eg, egCtx := errgroup.WithContext(ctx)
 		eg.Go(func() error {
