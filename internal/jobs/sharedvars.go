@@ -22,6 +22,15 @@ import (
 // sharedRefRe matches one {{scope.KEY}} reference.
 var sharedRefRe = regexp.MustCompile(`\{\{(team|project|environment|deployment)\.([A-Za-z_][A-Za-z0-9_]*)\}\}`)
 
+// inheritsSharedScopes reports whether a deployment resolves the shared
+// {{scope.KEY}} references and receives server-scoped variables (ADR-057).
+// Production always does; a preview does only when its PR lives in the base
+// repository. A fork preview never inherits them, approval included —
+// approval grants a build, never secrets (INV-010, §20.4.8).
+func inheritsSharedScopes(preview *store.Preview) bool {
+	return preview == nil || !preview.IsFork
+}
+
 // sharedEnv is the resolved inheritance of one resource.
 type sharedEnv struct {
 	// refs maps "scope.KEY" to its plaintext value.

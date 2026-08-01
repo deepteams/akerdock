@@ -508,18 +508,27 @@ func (r *deploymentRun) syncComponents(ctx context.Context, plan *compose.Plan) 
 // (compose-spec §3.2) — never logged, never in argv (INV-003).
 func (r *deploymentRun) plainEnvVars(ctx context.Context) (map[string]string, error) {
 	if r.preview != nil {
-		// The DEDICATED preview set (INV-010): production secrets and shared
-		// scopes never reach a PR instance — plus the predefined preview
-		// variables (§5.6), so ${AKERDOCK_URL} interpolates in the file too.
+		// The DEDICATED preview set (§5.6) — plus the predefined preview
+		// variables, so ${AKERDOCK_URL} interpolates in the file too. Base-repo
+		// previews resolve the shared scopes and get the server-scoped
+		// variables like production; fork previews never do, approval
+		// included, and only their own identity ({{deployment.*}}) resolves
+		// (ADR-057, INV-010).
 		rows, err := r.h.Store.ListPreviewEnvVars(ctx, store.ListPreviewEnvVarsParams{ResourceID: r.app.Resource.ID, PreviewID: &r.preview.ID})
 		if err != nil {
 			return nil, err
 		}
-		// The preview's own identity ({{deployment.*}}) resolves in values too —
-		// not a production secret, so it is INV-010-safe unlike the shared scopes.
-		depEnv := sharedEnv{}
-		r.mergeDeploymentRefs(&depEnv, r.deploymentRefs(ctx))
-		vars := make(map[string]string, len(rows)+3)
+		shared := sharedEnv{}
+		if inheritsSharedScopes(r.preview) {
+			if shared, err = resolveSharedEnv(ctx, r.h.Store, r.h.Keyring, r.app.Resource.ID); err != nil {
+				return nil, err
+			}
+		}
+		r.mergeDeploymentRefs(&shared, r.deploymentRefs(ctx))
+		vars := make(map[string]string, len(rows)+len(shared.server)+3)
+		for k, v := range shared.server {
+			vars[k] = v
+		}
 		for _, v := range rows {
 			plaintext, err := r.h.Keyring.Decrypt("environment_variables", "value_enc", pguuid.String(v.Uuid), v.ValueEnc)
 			if err != nil {
@@ -527,7 +536,7 @@ func (r *deploymentRun) plainEnvVars(ctx context.Context) (map[string]string, er
 			}
 			value := string(plaintext)
 			if !v.IsLiteral {
-				value = depEnv.interpolate(value)
+				value = shared.interpolate(value)
 			}
 			vars[v.Key] = value
 		}

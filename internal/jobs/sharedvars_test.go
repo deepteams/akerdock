@@ -1,6 +1,29 @@
 package jobs
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/deepteams/akerdock/internal/store"
+)
+
+func TestInheritsSharedScopes(t *testing.T) {
+	if !inheritsSharedScopes(nil) {
+		t.Fatal("production (no preview) must inherit the shared scopes")
+	}
+	if !inheritsSharedScopes(&store.Preview{IsFork: false}) {
+		t.Fatal("a base-repo preview must inherit the shared scopes (ADR-057)")
+	}
+	if inheritsSharedScopes(&store.Preview{IsFork: true}) {
+		t.Fatal("a fork preview must never inherit the shared scopes (INV-010)")
+	}
+	// Approval grants a build, never secrets (§20.4.8).
+	approved := &store.Preview{IsFork: true, ForkApprovedAt: pgtype.Timestamptz{Valid: true}}
+	if inheritsSharedScopes(approved) {
+		t.Fatal("an APPROVED fork preview must still not inherit the shared scopes")
+	}
+}
 
 func TestSharedInterpolate(t *testing.T) {
 	s := sharedEnv{refs: map[string]string{

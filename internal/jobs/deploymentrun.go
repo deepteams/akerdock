@@ -1448,9 +1448,9 @@ func (r *deploymentRun) renderBuildEnv(ctx context.Context) (string, buildInputs
 		return "", buildInputs{}, err
 	}
 	// Shared {{scope.KEY}} references resolve in build values too (§5.4) —
-	// never for previews (their set is strictly dedicated, INV-010).
+	// base-repo previews included, never fork previews (ADR-057, INV-010).
 	shared := sharedEnv{}
-	if r.preview == nil {
+	if inheritsSharedScopes(r.preview) {
 		if shared, err = resolveSharedEnv(ctx, r.h.Store, r.h.Keyring, r.app.Resource.ID); err != nil {
 			return "", buildInputs{}, err
 		}
@@ -1765,8 +1765,8 @@ func (r *deploymentRun) deploymentRefs(ctx context.Context) map[string]string {
 }
 
 // mergeDeploymentRefs adds the {{deployment.*}} pseudo-scope to a resolved
-// sharedEnv so interpolation resolves it — for previews too, where the plain
-// shared set is skipped (INV-010): a deployment's own FQDN is not a secret.
+// sharedEnv so interpolation resolves it — for fork previews too, where the
+// shared scopes are skipped (ADR-057): a deployment's own FQDN is not a secret.
 func (r *deploymentRun) mergeDeploymentRefs(shared *sharedEnv, dep map[string]string) {
 	if len(dep) == 0 {
 		return
@@ -1798,9 +1798,10 @@ func (r *deploymentRun) renderRuntimeEnv(ctx context.Context) ([]string, error) 
 	// Shared variables (§5.4, §3.1): {{scope.KEY}} references resolve inside
 	// values (literal variables excepted — that is what literal means), and
 	// the server-scoped variables are injected unless the resource overrides
-	// the key. Previews keep their strictly dedicated set (INV-010).
+	// the key. Base-repo previews resolve them too on their strictly dedicated
+	// set; fork previews never do, approval included (ADR-057, INV-010).
 	shared := sharedEnv{}
-	if r.preview == nil {
+	if inheritsSharedScopes(r.preview) {
 		if shared, err = resolveSharedEnv(ctx, r.h.Store, r.h.Keyring, r.app.Resource.ID); err != nil {
 			return nil, err
 		}
