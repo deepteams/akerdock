@@ -12,6 +12,7 @@ import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
 import { fetchAll } from '../core/pagination';
+import { sharedVariableEditValue, sharedVariableUpdatePayload } from '../core/shared-variables';
 import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { BreadcrumbComponent, type Crumb } from '../../ui/breadcrumb/breadcrumb.component';
 import { CardComponent } from '../../ui/card/card.component';
@@ -237,24 +238,81 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
                       {{ '{{' }}environment.{{ v.key }}{{ '}}' }}
                     </div>
                   </td>
-                  <td class="akd-mono akd-muted">{{ v.is_redacted ? '••••••••' : v.value }}</td>
-                  <td>
-                    @if (v.is_secret) {
-                      <span class="akd-badge akd-badge--accent">secret</span>
-                    } @else {
-                      <span class="akd-muted">—</span>
-                    }
-                  </td>
-                  <td class="right">
-                    <button
-                      class="akd-btn akd-btn--danger akd-btn--sm"
-                      type="button"
-                      [disabled]="busy()"
-                      (click)="removeVar(v)"
-                    >
-                      Delete
-                    </button>
-                  </td>
+                  @if (editing() === v.uuid) {
+                    <!-- The key and the scope are identity: only the value and
+                         the masking are editable (recreate to rename). -->
+                    <td>
+                      <input
+                        class="akd-input akd-input--mono"
+                        name="editValue"
+                        [attr.aria-label]="'Value of ' + v.key"
+                        [placeholder]="v.is_redacted ? '•••••• unchanged' : 'value'"
+                        [(ngModel)]="editValue"
+                        [disabled]="busy()"
+                        (keydown.enter)="saveVar(v)"
+                        (keydown.escape)="cancelEdit()"
+                      />
+                      @if (v.is_redacted) {
+                        <div class="ref akd-muted">Leave empty to keep the stored value.</div>
+                      }
+                    </td>
+                    <td>
+                      <label class="akd-check">
+                        <input
+                          type="checkbox"
+                          name="editSecret"
+                          [(ngModel)]="editSecret"
+                          [disabled]="busy()"
+                        />
+                        secret
+                      </label>
+                    </td>
+                    <td class="right">
+                      <button
+                        class="akd-btn akd-btn--primary akd-btn--sm"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="saveVar(v)"
+                      >
+                        Save
+                      </button>
+                      <button
+                        class="akd-btn akd-btn--ghost akd-btn--sm"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="cancelEdit()"
+                      >
+                        Cancel
+                      </button>
+                    </td>
+                  } @else {
+                    <td class="akd-mono akd-muted">{{ v.is_redacted ? '••••••••' : v.value }}</td>
+                    <td>
+                      @if (v.is_secret) {
+                        <span class="akd-badge akd-badge--accent">secret</span>
+                      } @else {
+                        <span class="akd-muted">—</span>
+                      }
+                    </td>
+                    <td class="right">
+                      <button
+                        class="akd-btn akd-btn--ghost akd-btn--sm"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="startEdit(v)"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        class="akd-btn akd-btn--danger akd-btn--sm"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="removeVar(v)"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  }
                 </tr>
               }
               <!-- The last row IS the creator: add a variable in place. -->
@@ -524,6 +582,10 @@ export class EnvironmentDetailComponent {
   protected varKey = '';
   protected varValue = '';
   protected varSecret = false;
+  /** UUID of the row open for editing — one at a time. */
+  protected readonly editing = signal<string | null>(null);
+  protected editValue = '';
+  protected editSecret = false;
 
   protected readonly cfgError = signal<string | null>(null);
   protected cfgName = '';
@@ -683,6 +745,39 @@ export class EnvironmentDetailComponent {
       this.varKey = '';
       this.varValue = '';
       this.varSecret = false;
+      await this.reloadVariables();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected startEdit(v: SharedVariable): void {
+    this.editing.set(v.uuid);
+    this.editValue = sharedVariableEditValue(v);
+    this.editSecret = v.is_secret;
+    this.error.set(null);
+  }
+
+  protected cancelEdit(): void {
+    this.editing.set(null);
+  }
+
+  /** Saves the edited row. The value only reaches the API when it changed —
+   * a redacted variable left untouched keeps the value nobody could read. */
+  protected async saveVar(v: SharedVariable): Promise<void> {
+    if (this.busy()) return;
+    const body = sharedVariableUpdatePayload(v, { value: this.editValue, secret: this.editSecret });
+    if (!body) {
+      this.editing.set(null);
+      return;
+    }
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.client().updateSharedVariable(v.uuid, body);
+      this.editing.set(null);
       await this.reloadVariables();
     } catch (err) {
       this.error.set(ApiService.describe(err));

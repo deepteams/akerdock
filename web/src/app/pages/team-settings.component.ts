@@ -2,6 +2,8 @@ import { SlicePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
+import { fetchAll } from '../core/pagination';
+import { sharedVariableEditValue, sharedVariableUpdatePayload } from '../core/shared-variables';
 import { AuditFetch, AuditLogComponent } from './audit-log.component';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
@@ -132,26 +134,83 @@ type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning' | 'tokens';
                   <td>
                     <span class="akd-badge akd-badge--mono">{{ variable.scope }}</span>
                   </td>
-                  <td class="akd-mono akd-muted">
-                    {{ variable.is_redacted ? '••••••••' : (variable.value ?? '—') }}
-                  </td>
-                  <td>
-                    @if (variable.is_secret) {
-                      <span class="akd-badge akd-badge--accent">read:sensitive</span>
-                    } @else {
-                      <span class="akd-badge">plain</span>
-                    }
-                  </td>
-                  <td class="right">
-                    <button
-                      class="akd-btn akd-btn--danger akd-btn--sm"
-                      type="button"
-                      [disabled]="busy()"
-                      (click)="remove(variable)"
-                    >
-                      Delete
-                    </button>
-                  </td>
+                  @if (editing() === variable.uuid) {
+                    <!-- The key and the scope are identity: only the value and
+                         the masking are editable (recreate to rename). -->
+                    <td>
+                      <input
+                        class="akd-input akd-input--mono"
+                        name="editValue"
+                        [attr.aria-label]="'Value of ' + variable.key"
+                        [placeholder]="variable.is_redacted ? '•••••• unchanged' : 'value'"
+                        [(ngModel)]="editValue"
+                        [disabled]="busy()"
+                        (keydown.enter)="save(variable)"
+                        (keydown.escape)="cancelEdit()"
+                      />
+                      @if (variable.is_redacted) {
+                        <div class="ref akd-muted">Leave empty to keep the stored value.</div>
+                      }
+                    </td>
+                    <td>
+                      <label class="akd-check">
+                        <input
+                          type="checkbox"
+                          name="editSecret"
+                          [(ngModel)]="editSecret"
+                          [disabled]="busy()"
+                        />
+                        secret
+                      </label>
+                    </td>
+                    <td class="right">
+                      <button
+                        class="akd-btn akd-btn--primary akd-btn--sm"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="save(variable)"
+                      >
+                        Save
+                      </button>
+                      <button
+                        class="akd-btn akd-btn--ghost akd-btn--sm"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="cancelEdit()"
+                      >
+                        Cancel
+                      </button>
+                    </td>
+                  } @else {
+                    <td class="akd-mono akd-muted">
+                      {{ variable.is_redacted ? '••••••••' : (variable.value ?? '—') }}
+                    </td>
+                    <td>
+                      @if (variable.is_secret) {
+                        <span class="akd-badge akd-badge--accent">read:sensitive</span>
+                      } @else {
+                        <span class="akd-badge">plain</span>
+                      }
+                    </td>
+                    <td class="right">
+                      <button
+                        class="akd-btn akd-btn--ghost akd-btn--sm"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="startEdit(variable)"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        class="akd-btn akd-btn--danger akd-btn--sm"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="remove(variable)"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  }
                 </tr>
               }
               <!-- The last row IS the creator: a team-scoped variable in place. -->
@@ -209,10 +268,11 @@ type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning' | 'tokens';
         <p class="footnote">
           Reference these anywhere in a resource's env as
           <code class="akd-mono">{{ '{{' }}team.KEY{{ '}}' }}</code> — for example
-          <code class="akd-mono">SENTRY_ORG={{ '{{' }}team.SENTRY_ORG{{ '}}' }}</code> (the scope
-          prefix matches the Scope column). Interpolated at deploy time; an unknown reference stays
-          verbatim in the container — visible, therefore diagnosable. Previews never receive shared
-          secrets.
+          <code class="akd-mono">SENTRY_ORG={{ '{{' }}team.SENTRY_ORG{{ '}}' }}</code>. Only the
+          team scope is listed here — narrower variables live on their environment's page, where
+          <code class="akd-mono">{{ '{{' }}environment.KEY{{ '}}' }}</code> resolves them.
+          Interpolated at deploy time; an unknown reference stays verbatim in the container —
+          visible, therefore diagnosable. Previews never receive shared secrets.
         </p>
       } @else if (active() === 'audit') {
         <akd-audit-log [fetch]="fetchAudit" exportName="team-audit" />
@@ -484,6 +544,10 @@ export class TeamSettingsComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
   protected readonly active = signal<SettingsTab>('variables');
+  /** UUID of the row open for editing — one at a time. */
+  protected readonly editing = signal<string | null>(null);
+  protected editValue = '';
+  protected editSecret = false;
 
   // Audit tab (gated by audit:read). The reusable viewer loads itself when the
   // tab is first rendered; we just hand it a team-scoped fetcher.
@@ -633,11 +697,15 @@ export class TeamSettingsComponent {
 
   private async load(): Promise<void> {
     try {
+      // Team scope only: the project/environment/server variables belong to
+      // their own page — listing them here reads as if they applied team-wide.
       const [variables, teams] = await Promise.all([
-        this.api.client().listSharedVariables({ limit: 100 }),
+        fetchAll((cursor) =>
+          this.api.client().listSharedVariables({ scope: 'team', limit: 100, cursor }),
+        ),
         this.api.client().listTeams({ limit: 1 }),
       ]);
-      this.variables.set(variables.data);
+      this.variables.set(variables);
       const team = teams.data[0] ?? null;
       this.team.set(team);
       this.cfgName = team?.name ?? '';
@@ -663,6 +731,42 @@ export class TeamSettingsComponent {
       this.key = '';
       this.value = '';
       this.secret = false;
+      await this.reloadVariables();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected startEdit(variable: SharedVariable): void {
+    this.editing.set(variable.uuid);
+    this.editValue = sharedVariableEditValue(variable);
+    this.editSecret = variable.is_secret;
+    this.error.set(null);
+  }
+
+  protected cancelEdit(): void {
+    this.editing.set(null);
+  }
+
+  /** Saves the edited row. The value only reaches the API when it changed —
+   * a redacted variable left untouched keeps the value nobody could read. */
+  protected async save(variable: SharedVariable): Promise<void> {
+    if (this.busy()) return;
+    const body = sharedVariableUpdatePayload(variable, {
+      value: this.editValue,
+      secret: this.editSecret,
+    });
+    if (!body) {
+      this.editing.set(null);
+      return;
+    }
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.client().updateSharedVariable(variable.uuid, body);
+      this.editing.set(null);
       await this.reloadVariables();
     } catch (err) {
       this.error.set(ApiService.describe(err));
@@ -713,7 +817,10 @@ export class TeamSettingsComponent {
   }
 
   private async reloadVariables(): Promise<void> {
-    const page = await this.api.client().listSharedVariables({ limit: 100 });
-    this.variables.set(page.data);
+    this.variables.set(
+      await fetchAll((cursor) =>
+        this.api.client().listSharedVariables({ scope: 'team', limit: 100, cursor }),
+      ),
+    );
   }
 }
