@@ -269,10 +269,13 @@ type SettingsTab = 'variables' | 'config' | 'audit' | 'provisioning' | 'tokens';
           Reference these anywhere in a resource's env as
           <code class="akd-mono">{{ '{{' }}team.KEY{{ '}}' }}</code> — for example
           <code class="akd-mono">SENTRY_ORG={{ '{{' }}team.SENTRY_ORG{{ '}}' }}</code>. Only the
-          team scope is listed here — narrower variables live on their environment's page, where
-          <code class="akd-mono">{{ '{{' }}environment.KEY{{ '}}' }}</code> resolves them.
-          Interpolated at deploy time; an unknown reference stays verbatim in the container —
-          visible, therefore diagnosable. Previews never receive shared secrets.
+          team scope is listed here — the narrower ones live in the Variables tab of their own
+          project, environment or server, where
+          <code class="akd-mono">{{ '{{' }}project.KEY{{ '}}' }}</code>,
+          <code class="akd-mono">{{ '{{' }}environment.KEY{{ '}}' }}</code> and
+          <code class="akd-mono">{{ '{{' }}server.KEY{{ '}}' }}</code> resolve them. Interpolated at
+          deploy time; an unknown reference stays verbatim in the container — visible, therefore
+          diagnosable. Previews never receive shared secrets.
         </p>
       } @else if (active() === 'audit') {
         <akd-audit-log [fetch]="fetchAudit" exportName="team-audit" />

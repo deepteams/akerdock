@@ -1,7 +1,14 @@
 import type { components } from '../../api/schema';
 
 type SharedVariable = components['schemas']['SharedVariable'];
+type SharedVariableCreate = components['schemas']['SharedVariableCreate'];
 type SharedVariableUpdate = components['schemas']['SharedVariableUpdate'];
+
+/** The inheritance levels of §5.4 — `team` has no parent, the others do. */
+export type SharedVariableScope = SharedVariable['scope'];
+
+/** A scope that hangs off one parent entity: the levels a detail page owns. */
+export type ScopedSharedVariableScope = Exclude<SharedVariableScope, 'team'>;
 
 /** The row being edited: what the inputs currently hold. */
 export interface SharedVariableEdit {
@@ -38,4 +45,48 @@ export function sharedVariableUpdatePayload(
   if (valueChanged) body.value = edit.value;
   if (edit.secret !== variable.is_secret) body.is_secret = edit.secret;
   return body.value === undefined && body.is_secret === undefined ? null : body;
+}
+
+/** The UUID of the entity a variable hangs off, or null for the team scope. */
+export function sharedVariableParentUuid(variable: SharedVariable): string | null {
+  switch (variable.scope) {
+    case 'project':
+      return variable.project_uuid ?? null;
+    case 'environment':
+      return variable.environment_uuid ?? null;
+    case 'server':
+      return variable.server_uuid ?? null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * The variables of ONE parent, sorted by key. `GET /shared-variables` filters
+ * by scope alone, so the narrowing to a single project/environment/server is
+ * ours to do.
+ */
+export function sharedVariablesOf(
+  variables: readonly SharedVariable[],
+  scope: ScopedSharedVariableScope,
+  parentUuid: string,
+): SharedVariable[] {
+  return variables
+    .filter((v) => v.scope === scope && sharedVariableParentUuid(v) === parentUuid)
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/** The POST body for a new variable — the parent UUID lands in the field its scope names. */
+export function sharedVariableCreatePayload(
+  scope: ScopedSharedVariableScope,
+  parentUuid: string,
+  draft: { key: string; value: string; secret: boolean },
+): SharedVariableCreate {
+  return {
+    scope,
+    [`${scope}_uuid`]: parentUuid,
+    key: draft.key.trim(),
+    value: draft.value,
+    is_secret: draft.secret,
+  };
 }

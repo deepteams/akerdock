@@ -20,6 +20,7 @@ import {
 import { ApiService } from '../core/api.service';
 import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { NavigationHistory } from '../core/navigation-history.service';
+import { ServiceEnvsComponent } from './variables/service-envs-tab.component';
 import { ApiError } from '../../api/client';
 import type { components } from '../../api/schema';
 
@@ -41,6 +42,7 @@ type Deployment = components['schemas']['Deployment'];
     IconComponent,
     StatusBadgeComponent,
     ActionsMenuComponent,
+    ServiceEnvsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -146,8 +148,8 @@ type Deployment = components['schemas']['Deployment'];
               }
               <p class="akd-muted">
                 The wall covers every routed component. Put
-                <code>x-akerdock.access_public_routes</code> on a Compose service to expose only
-                its webhook or callback paths.
+                <code>x-akerdock.access_public_routes</code> on a Compose service to expose only its
+                webhook or callback paths.
               </p>
             </div>
           </akd-card>
@@ -174,6 +176,8 @@ type Deployment = components['schemas']['Deployment'];
               </div>
             </form>
           </akd-card>
+
+          <akd-service-envs [serviceUuid]="uuid()" />
 
           <akd-card title="Deployments" [padded]="false">
             @if (deployments().length === 0) {
@@ -404,9 +408,7 @@ export class ServiceDetailComponent {
       const updated = await this.api.client().updateService(this.uuid(), svc.version!, {
         compose_content: this.composeContent,
         access_protection: this.accessProtection,
-        ...(this.accessBasicAuth.trim()
-          ? { access_basic_auth: this.accessBasicAuth.trim() }
-          : {}),
+        ...(this.accessBasicAuth.trim() ? { access_basic_auth: this.accessBasicAuth.trim() } : {}),
       });
       this.service.set(updated);
       this.composeContent = updated.compose_content;

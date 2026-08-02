@@ -17,6 +17,7 @@ import { BreadcrumbComponent, type Crumb } from '../../ui/breadcrumb/breadcrumb.
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
+import { SharedVariablesComponent } from './variables/shared-variables-tab.component';
 import type { components } from '../../api/schema';
 
 type Project = components['schemas']['Project'];
@@ -32,6 +33,7 @@ type Environment = components['schemas']['Environment'];
     CardComponent,
     EmptyStateComponent,
     IconComponent,
+    SharedVariablesComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -65,6 +67,16 @@ type Environment = components['schemas']['Environment'];
           @if (environments().length > 0) {
             <span class="akd-tab__count">{{ environments().length }}</span>
           }
+        </button>
+        <button
+          type="button"
+          class="akd-tab"
+          role="tab"
+          [class.akd-tab--active]="active() === 'variables'"
+          [attr.aria-selected]="active() === 'variables'"
+          (click)="active.set('variables')"
+        >
+          Variables
         </button>
         <button
           type="button"
@@ -209,6 +221,13 @@ type Environment = components['schemas']['Environment'];
               </table>
             }
           </akd-card>
+        } @else if (active() === 'variables') {
+          <akd-shared-variables
+            scope="project"
+            [parentUuid]="uuid()"
+            heading="Project variables"
+            reach="of this project"
+          />
         } @else {
           <akd-card title="Project" class="cfg">
             <form class="cfgform" (ngSubmit)="save()">
@@ -370,7 +389,7 @@ export class ProjectDetailComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
   protected readonly editing = signal<string | null>(null);
-  protected readonly active = signal<'environments' | 'config'>('environments');
+  protected readonly active = signal<'environments' | 'variables' | 'config'>('environments');
 
   protected readonly crumbs = computed<Crumb[]>(() => [
     { label: 'Projects', link: '/projects' },

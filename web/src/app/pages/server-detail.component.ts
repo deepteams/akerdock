@@ -15,6 +15,7 @@ import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { TerminalComponent } from '../../ui/terminal/terminal.component';
 import type { TerminalSessionInfo } from '../../ui/terminal/protocol';
+import { SharedVariablesComponent } from './variables/shared-variables-tab.component';
 import { ApiService } from '../core/api.service';
 import { fetchAll } from '../core/pagination';
 import { ConfirmService } from '../../ui/confirm/confirm.service';
@@ -34,6 +35,7 @@ const EXPIRY_WARN_DAYS = 14;
 type TabId =
   | 'overview'
   | 'resources'
+  | 'variables'
   | 'proxy'
   | 'certificates'
   | 'settings'
@@ -45,6 +47,7 @@ type TabId =
 const TABS: readonly { id: TabId; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'resources', label: 'Resources' },
+  { id: 'variables', label: 'Variables' },
   { id: 'proxy', label: 'Proxy' },
   { id: 'certificates', label: 'Certificates' },
   { id: 'settings', label: 'Settings' },
@@ -63,6 +66,7 @@ const TABS: readonly { id: TabId; label: string }[] = [
     CardComponent,
     IconComponent,
     TerminalComponent,
+    SharedVariablesComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -294,6 +298,17 @@ const TABS: readonly { id: TabId; label: string }[] = [
                   </table>
                 }
               </akd-card>
+            }
+
+            @case ('variables') {
+              <!-- Server scope: injected into every resource deployed here,
+                   the resource's own variable winning (§5.4). -->
+              <akd-shared-variables
+                scope="server"
+                [parentUuid]="uuid()"
+                heading="Server variables"
+                reach="deployed on this server"
+              />
             }
 
             @case ('proxy') {

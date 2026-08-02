@@ -261,7 +261,10 @@ export class AkerDockClient {
    * `akerdock logs -f` — the snapshot endpoint is for the initial window only.
    */
   streamApplicationLogs(uuid: string, query?: { component?: string }): EventSource {
-    const url = new URL(`${this.baseUrl}/applications/${uuid}/logs/stream`, globalThis.location.origin);
+    const url = new URL(
+      `${this.baseUrl}/applications/${uuid}/logs/stream`,
+      globalThis.location.origin,
+    );
     if (query?.component) url.searchParams.set('component', query.component);
     if (this.token) url.searchParams.set('access_token', this.token);
     return new EventSource(url, { withCredentials: true });
@@ -482,6 +485,32 @@ export class AkerDockClient {
     type Response =
       paths['/services/{service_uuid}/deployments']['get']['responses']['200']['content']['application/json'];
     return this.request<Response>('GET', `/services/${uuid}/deployments`, { query });
+  }
+
+  listServiceEnvs(uuid: string, query?: { cursor?: string; limit?: number }) {
+    type Response =
+      paths['/services/{service_uuid}/envs']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/services/${uuid}/envs`, { query });
+  }
+
+  createServiceEnv(uuid: string, body: components['schemas']['EnvironmentVariableCreate']) {
+    type Response =
+      paths['/services/{service_uuid}/envs']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', `/services/${uuid}/envs`, { body });
+  }
+
+  updateServiceEnv(
+    serviceUuid: string,
+    envUuid: string,
+    body: components['schemas']['EnvironmentVariableUpdate'],
+  ) {
+    type Response =
+      paths['/services/{service_uuid}/envs/{env_uuid}']['patch']['responses']['200']['content']['application/json'];
+    return this.request<Response>('PATCH', `/services/${serviceUuid}/envs/${envUuid}`, { body });
+  }
+
+  deleteServiceEnv(serviceUuid: string, envUuid: string) {
+    return this.request<void>('DELETE', `/services/${serviceUuid}/envs/${envUuid}`);
   }
 
   /** Lifecycle (§8). Separate from deploy: starting is not deploying. */

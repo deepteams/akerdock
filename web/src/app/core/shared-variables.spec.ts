@@ -1,5 +1,11 @@
 import type { components } from '../../api/schema';
-import { sharedVariableEditValue, sharedVariableUpdatePayload } from './shared-variables';
+import {
+  sharedVariableCreatePayload,
+  sharedVariableEditValue,
+  sharedVariableParentUuid,
+  sharedVariableUpdatePayload,
+  sharedVariablesOf,
+} from './shared-variables';
 
 type SharedVariable = components['schemas']['SharedVariable'];
 
@@ -73,6 +79,77 @@ describe('sharedVariableUpdatePayload', () => {
     const redacted = variable({ is_redacted: true, value: null, is_secret: true });
     expect(sharedVariableUpdatePayload(redacted, { value: 'new', secret: true })).toEqual({
       value: 'new',
+    });
+  });
+});
+
+describe('sharedVariableParentUuid', () => {
+  it('reads the parent named by the scope', () => {
+    expect(sharedVariableParentUuid(variable({ scope: 'project', project_uuid: 'p1' }))).toBe('p1');
+    expect(sharedVariableParentUuid(variable({ environment_uuid: 'e1' }))).toBe('e1');
+    expect(sharedVariableParentUuid(variable({ scope: 'server', server_uuid: 's1' }))).toBe('s1');
+  });
+
+  it('has none for the team scope', () => {
+    expect(sharedVariableParentUuid(variable({ scope: 'team' }))).toBe(null);
+  });
+
+  it('ignores a sibling parent left on the row', () => {
+    // A server-scoped row carrying a stale project_uuid must not answer with it.
+    expect(sharedVariableParentUuid(variable({ scope: 'server', project_uuid: 'p1' }))).toBe(null);
+  });
+});
+
+describe('sharedVariablesOf', () => {
+  const list = [
+    variable({ uuid: 'b', scope: 'server', server_uuid: 's1', key: 'B' }),
+    variable({ uuid: 'a', scope: 'server', server_uuid: 's1', key: 'A' }),
+    variable({ uuid: 'other', scope: 'server', server_uuid: 's2', key: 'A' }),
+    variable({ uuid: 'env', scope: 'environment', environment_uuid: 's1', key: 'A' }),
+  ];
+
+  it('keeps only the variables of that one parent, sorted by key', () => {
+    expect(sharedVariablesOf(list, 'server', 's1').map((v) => v.uuid)).toEqual(['a', 'b']);
+  });
+
+  it('does not confuse two parents that share a UUID across scopes', () => {
+    expect(sharedVariablesOf(list, 'environment', 's1').map((v) => v.uuid)).toEqual(['env']);
+  });
+
+  it('is empty for a parent with nothing of its own', () => {
+    expect(sharedVariablesOf(list, 'project', 'p1')).toEqual([]);
+  });
+});
+
+describe('sharedVariableCreatePayload', () => {
+  it('puts the parent UUID in the field its scope names', () => {
+    expect(
+      sharedVariableCreatePayload('project', 'p1', { key: 'API_URL', value: 'x', secret: false }),
+    ).toEqual({
+      scope: 'project',
+      project_uuid: 'p1',
+      key: 'API_URL',
+      value: 'x',
+      is_secret: false,
+    });
+    expect(
+      sharedVariableCreatePayload('server', 's1', { key: 'K', value: 'v', secret: true }),
+    ).toEqual({ scope: 'server', server_uuid: 's1', key: 'K', value: 'v', is_secret: true });
+  });
+
+  it('trims the key but never the value — trailing spaces can be meaningful', () => {
+    expect(
+      sharedVariableCreatePayload('environment', 'e1', {
+        key: '  K  ',
+        value: ' v ',
+        secret: false,
+      }),
+    ).toEqual({
+      scope: 'environment',
+      environment_uuid: 'e1',
+      key: 'K',
+      value: ' v ',
+      is_secret: false,
     });
   });
 });
