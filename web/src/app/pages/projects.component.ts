@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
@@ -7,7 +7,6 @@ import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
-import { StatComponent } from '../../ui/stat/stat.component';
 import type { components } from '../../api/schema';
 
 type Project = components['schemas']['Project'];
@@ -15,14 +14,7 @@ type Project = components['schemas']['Project'];
 @Component({
   selector: 'app-projects',
   standalone: true,
-  imports: [
-    FormsModule,
-    RouterLink,
-    CardComponent,
-    EmptyStateComponent,
-    IconComponent,
-    StatComponent,
-  ],
+  imports: [FormsModule, RouterLink, CardComponent, EmptyStateComponent, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
@@ -100,11 +92,6 @@ type Project = components['schemas']['Project'];
           }
         </akd-empty-state>
       } @else {
-        <div class="stats">
-          <akd-card><akd-stat label="Projects" [value]="projects().length" /></akd-card>
-          <akd-card><akd-stat label="Environments" [value]="totalEnvironments()" /></akd-card>
-        </div>
-
         <div class="grid">
           @for (project of projects(); track project.uuid) {
             <div class="pcard akd-card">
@@ -150,12 +137,6 @@ type Project = components['schemas']['Project'];
       .create__actions {
         display: flex;
         justify-content: flex-end;
-      }
-      .stats {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
-        gap: var(--space-4);
-        margin-bottom: var(--space-5);
       }
       .grid {
         display: grid;
@@ -221,9 +202,6 @@ export class ProjectsComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
   protected readonly creating = signal(false);
-  protected readonly totalEnvironments = computed(() =>
-    this.projects().reduce((sum, project) => sum + (project.environments?.length ?? 0), 0),
-  );
   protected name = '';
   protected description = '';
 
