@@ -11,6 +11,8 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
 	bkclient "github.com/moby/buildkit/client"
@@ -96,6 +98,8 @@ func (l *Local) BuildImage(ctx context.Context, p agentwire.ImageBuildParams) (i
 
 	pr, pw := io.Pipe()
 	statusCh := make(chan *bkclient.SolveStatus)
+	lw := &lineWriter{w: pw}
+	stopFlush := make(chan struct{})
 	// The solve and its progress consumer run to completion in the
 	// background; the pipe carries the plain-text progress and, on failure,
 	// the solve's error as the stream's terminal error. The recover is the
@@ -114,7 +118,7 @@ func (l *Local) BuildImage(ctx context.Context, p agentwire.ImageBuildParams) (i
 			return err
 		})
 		eg.Go(func() error {
-			display, err := progressui.NewDisplay(&lineWriter{w: pw}, progressui.PlainMode)
+			display, err := progressui.NewDisplay(lw, progressui.PlainMode)
 			if err != nil {
 				// The status channel must drain or the solve deadlocks.
 				for status := range statusCh {
@@ -125,15 +129,73 @@ func (l *Local) BuildImage(ctx context.Context, p agentwire.ImageBuildParams) (i
 			_, err = display.UpdateFrom(egCtx, statusCh)
 			return err
 		})
-		pw.CloseWithError(eg.Wait())
+		err := eg.Wait()
+		close(stopFlush)
+		lw.Flush() // whatever the last tick did not carry
+		pw.CloseWithError(err)
+	}()
+	// The coalescing buffer only bounds SIZE; this bounds LATENCY, so a quiet
+	// build step still shows up in the console within a tick.
+	go func() {
+		tick := time.NewTicker(flushInterval)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stopFlush:
+				return
+			case <-tick.C:
+				lw.Flush()
+			}
+		}
 	}()
 	return pr, nil
 }
 
-// lineWriter forwards writes; it exists so the progress display never
-// receives the pipe directly (a CloseWithError on our side must win).
+// flushInterval bounds how long a coalesced progress line waits before it
+// reaches the pipe.
+const flushInterval = 100 * time.Millisecond
+
+// lineWriter coalesces the progress display's many small writes — plain mode
+// writes per status update, so a chatty build emits thousands of them — into
+// pipe writes of at most ChunkSize. Every pipe write becomes one wire frame
+// against a per-stream buffer of StreamBuffer chunks: one frame per line
+// overruns it on a verbose build and the stream dies as a slow consumer.
+// Writing through it (rather than handing the pipe to the display) also keeps
+// a CloseWithError on our side authoritative.
 type lineWriter struct {
-	w io.Writer
+	mu  sync.Mutex
+	w   io.Writer
+	buf []byte
 }
 
-func (l *lineWriter) Write(p []byte) (int, error) { return l.w.Write(p) }
+func (l *lineWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.buf = append(l.buf, p...)
+	if len(l.buf) < agentwire.ChunkSize {
+		return len(p), nil
+	}
+	if err := l.flushLocked(); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+// Flush writes out what has accumulated; it is safe to call concurrently with
+// Write and after the display is done.
+func (l *lineWriter) Flush() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	_ = l.flushLocked()
+}
+
+func (l *lineWriter) flushLocked() error {
+	if len(l.buf) == 0 {
+		return nil
+	}
+	// The pipe write blocks until the pump has taken everything; releasing
+	// the buffer first would let a concurrent Write interleave into it.
+	_, err := l.w.Write(l.buf)
+	l.buf = l.buf[:0]
+	return err
+}

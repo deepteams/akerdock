@@ -468,34 +468,56 @@ func (r *deploymentRun) streamStep(ctx context.Context, name string, fn func(onO
 
 	var mu sync.Mutex
 	var buf strings.Builder
-	var lastFlush time.Time
+	// onOutput sits on the READER's path: agentBuild pumps the agent channel's
+	// build stream through it, and that stream has a bounded per-command
+	// buffer — a database write here stalls the reader, the buffer overruns
+	// and the whole build dies as a slow consumer. So the sink only appends,
+	// and the ticker below publishes what has accumulated.
 	onOutput := func(chunk string) {
 		mu.Lock()
 		buf.WriteString(chunk)
-		// Flush new complete lines several times a second so the stream reads
-		// line-by-line rather than in one-second blocks — still coalesced enough
-		// to spare the database a write per line on a chatty build.
-		flush := time.Since(lastFlush) >= 200*time.Millisecond
-		var text string
-		if flush {
-			lastFlush = time.Now()
+		mu.Unlock()
+	}
+	// Publish new complete lines several times a second so the browser reads
+	// the build line-by-line — still coalesced enough to spare the database a
+	// write per line on a chatty build.
+	stopFlush := make(chan struct{})
+	flushDone := make(chan struct{})
+	go func() {
+		defer close(flushDone)
+		tick := time.NewTicker(200 * time.Millisecond)
+		defer tick.Stop()
+		published := 0
+		flush := func() {
+			mu.Lock()
+			text := buf.String()
+			mu.Unlock()
 			// Only up to the last COMPLETE line: the SSE stream assigns each
 			// line a definitive sequence — a line cut mid-flush would be
 			// emitted short and never completed on screen.
-			text = buf.String()
-			if i := strings.LastIndexByte(text, '\n'); i >= 0 {
-				text = strings.TrimSpace(text[:i])
-			} else {
-				text = ""
+			i := strings.LastIndexByte(text, '\n')
+			if i < 0 || i <= published {
+				return
 			}
-		}
-		mu.Unlock()
-		if flush && text != "" {
+			published = i
+			if text = strings.TrimSpace(text[:i]); text == "" {
+				return
+			}
 			_ = r.h.Store.SetDeploymentStepLog(ctx, store.SetDeploymentStepLogParams{ID: stepID, Log: &text})
 		}
-	}
+		for {
+			select {
+			case <-stopFlush:
+				return
+			case <-tick.C:
+				flush()
+			}
+		}
+	}()
 
 	res, err := fn(onOutput)
+	close(stopFlush)
+	<-flushDone
 	status := store.DeploymentStepStatusSucceeded
 	var exit *int32
 	var logText *string
