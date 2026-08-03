@@ -122,34 +122,63 @@ interface NavSection {
               }
               <!-- Role inspection (ADR-058): the roles are offered only to
                    whoever may enter the mode, so the list stays empty (and the
-                   section absent) for everybody else. -->
+                   entry absent) for everybody else.
+
+                   A hover fly-out rather than the team switcher's accordion:
+                   the roles are a short, rarely-used list, and pushing the
+                   items below it down every time one hovers the menu would
+                   move Sign out under the cursor. -->
               @if (inspectableRoles().length > 0) {
                 <div class="menu-sep"></div>
-                <div class="akd-sidenav__section">View as</div>
-                @if (viewAs()) {
+                <div class="flyout">
                   <button
                     class="akd-sidenav__item"
-                    role="menuitem"
                     type="button"
-                    [disabled]="switching()"
-                    (click)="stopViewAs()"
-                  >
-                    <akd-icon name="check" [size]="14" />
-                    <span class="team-name">Back to my own view</span>
-                  </button>
-                }
-                @for (role of inspectableRoles(); track role.name) {
-                  <button
-                    class="akd-sidenav__item team-option"
                     role="menuitem"
-                    type="button"
-                    [disabled]="switching() || viewAs() === role.name.toLowerCase()"
-                    (click)="startViewAs(role)"
+                    aria-haspopup="menu"
+                    [class.active]="viewAs()"
                   >
                     <akd-icon name="eye" [size]="14" />
-                    <span class="team-name">{{ role.name }}</span>
+                    <span class="team-name">View as</span>
+                    @if (viewAs()) {
+                      <span class="current">{{ viewAs() }}</span>
+                    }
+                    <akd-icon name="chevron-right" [size]="13" />
                   </button>
-                }
+
+                  <div class="flyout-panel">
+                    <div class="flyout-inner" role="menu">
+                      @if (viewAs()) {
+                        <button
+                          class="akd-sidenav__item"
+                          role="menuitem"
+                          type="button"
+                          [disabled]="switching()"
+                          (click)="stopViewAs()"
+                        >
+                          <akd-icon name="check" [size]="14" />
+                          <span class="team-name">My own view</span>
+                        </button>
+                        <div class="menu-sep"></div>
+                      }
+                      @for (role of inspectableRoles(); track role.name) {
+                        <button
+                          class="akd-sidenav__item team-option"
+                          role="menuitem"
+                          type="button"
+                          [disabled]="switching() || isViewingAs(role)"
+                          (click)="startViewAs(role)"
+                        >
+                          <akd-icon name="eye" [size]="14" />
+                          <span class="team-name">{{ role.name }}</span>
+                          @if (isViewingAs(role)) {
+                            <span class="current">current</span>
+                          }
+                        </button>
+                      }
+                    </div>
+                  </div>
+                </div>
               }
               <div class="menu-sep"></div>
               <button class="akd-sidenav__item" role="menuitem" (click)="signOut()">
@@ -317,6 +346,44 @@ interface NavSection {
         flex: 1;
         font-family: var(--font-mono);
         font-size: var(--text-sm);
+      }
+
+      /* Hover fly-out (role inspection). Opens on hover AND on keyboard focus:
+         a menu reachable only by pointer is a menu half the operators cannot
+         use. */
+      .flyout {
+        position: relative;
+      }
+      .flyout-panel {
+        position: absolute;
+        left: 100%;
+        bottom: -6px;
+        /* The bridge: without this gap belonging to the panel, crossing the
+           few pixels between the item and its fly-out closes it. */
+        padding-left: 6px;
+        display: none;
+        z-index: 60;
+      }
+      .flyout:hover > .flyout-panel,
+      .flyout:focus-within > .flyout-panel {
+        display: block;
+      }
+      .flyout-inner {
+        min-width: 200px;
+        background: var(--bg-3);
+        border: 1px solid var(--border-2);
+        border-radius: var(--radius-3);
+        box-shadow: var(--shadow-2);
+        padding: 6px;
+        animation: akd-slide-in var(--dur-1) var(--ease-out);
+      }
+      /* The parent entry stays lit while its fly-out is open, so the eye is
+         not left wondering which item the panel belongs to. */
+      .flyout:hover > .akd-sidenav__item,
+      .flyout:focus-within > .akd-sidenav__item,
+      .flyout > .akd-sidenav__item.active {
+        background: var(--bg-4, var(--bg-2));
+        color: var(--text-1);
       }
       .current {
         font-size: var(--text-2xs);
@@ -661,6 +728,14 @@ export class ShellComponent {
    * data the simulated role may not read. Landing on /projects avoids a URL the
    * inspected role has no access to — which would open the mode on a 403.
    */
+  /** Whether the session is currently inspecting this exact role. The server
+   *  answers with the role's own label — a system role's name, or a custom
+   *  role's — so the comparison is on that, case-insensitively. */
+  protected isViewingAs(role: InspectableRole): boolean {
+    const current = this.viewAs();
+    return !!current && current.toLowerCase() === (role.role ?? role.name).toLowerCase();
+  }
+
   protected async startViewAs(role: InspectableRole): Promise<void> {
     await this.applyViewAs(role);
   }
