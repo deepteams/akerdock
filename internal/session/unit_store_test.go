@@ -23,6 +23,8 @@ type fakeSessionStore struct {
 	memberships       []store.ListTeamMembershipsForUserRow
 	membershipQueries []store.GetTeamMembershipForUserParams
 	sessionTeamSets   []store.SetSessionCurrentTeamParams
+	viewAsSets        []store.SetSessionViewAsParams
+	customRole        store.CustomRole
 	lastTeamSets      []store.SetUserLastTeamParams
 	session           store.Session
 	sessionRow        store.GetSessionByTokenHashRow
@@ -146,6 +148,34 @@ func (f *fakeSessionStore) SetSessionCurrentTeam(_ context.Context, arg store.Se
 	}
 	f.sessionTeamSets = append(f.sessionTeamSets, arg)
 	return 1, nil
+}
+
+func (f *fakeSessionStore) SetSessionViewAs(_ context.Context, arg store.SetSessionViewAsParams) error {
+	if err := f.err("setViewAs"); err != nil {
+		return err
+	}
+	f.viewAsSets = append(f.viewAsSets, arg)
+	return nil
+}
+
+func (f *fakeSessionStore) GetCustomRoleByID(_ context.Context, id int64) (store.CustomRole, error) {
+	if err := f.err("customRoleByID"); err != nil {
+		return store.CustomRole{}, err
+	}
+	if f.customRole.ID != id {
+		return store.CustomRole{}, pgx.ErrNoRows
+	}
+	return f.customRole, nil
+}
+
+func (f *fakeSessionStore) GetCustomRoleByUUID(_ context.Context, arg store.GetCustomRoleByUUIDParams) (store.CustomRole, error) {
+	if err := f.err("customRoleByUUID"); err != nil {
+		return store.CustomRole{}, err
+	}
+	if f.customRole.TeamID != arg.TeamID {
+		return store.CustomRole{}, pgx.ErrNoRows
+	}
+	return f.customRole, nil
 }
 
 func (f *fakeSessionStore) SetUserLastTeam(_ context.Context, arg store.SetUserLastTeamParams) error {

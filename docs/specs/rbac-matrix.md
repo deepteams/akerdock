@@ -428,6 +428,38 @@ permission set comes from the membership held **in that team**.
 - **API tokens are unaffected**: a token is bound to one team at creation (§4.1) and has no
   session to move.
 
+### 3.7 Role inspection — a session narrowed to another role (ADR-058)
+
+A session may carry a **simulated role** (`sessions.view_as_role`, or
+`view_as_custom_role_id` for a custom one). While it does, its effective permissions are the
+**intersection** of the permissions it really holds with the simulated role's — the same
+operation as §4.2, applied to a session instead of a token.
+
+- **It can only remove.** The result is a subset of what the session already held, so no
+  input to this feature — role name, custom role uuid, a forged cookie value — can produce a
+  permission the session did not have. The instance-root wildcard is dropped by the same
+  intersection, and `instance_root` is false while the mode is on (§3.4 gates close with it).
+- **The identity is unchanged.** The acting user, the session row and every audit record
+  still name the real person: this is a role restriction, never the impersonation of another
+  account. There is no "act as Alice" in the model.
+- **Entering is reserved** to the instance root and to team admins, checked against the
+  session's **real membership in its acting team** — never against the permissions the
+  session presents, which the mode may already have narrowed. **Leaving is unconditional**:
+  it restores the session to its own authority, so it grants nothing and needs no authority
+  to ask for. A session can never lock itself out of its own view, not even when its role
+  changed while it was inspecting.
+- The mode's endpoints (`GET`/`POST /auth/session/view-as`) live on the session surface,
+  outside the permission-checked API: a session narrowed to `reviewer` holds no `roles:read`
+  and must still be able to read its state and leave.
+- The mode **dies with the session**, is cleared on a team switch (authority is per team, and
+  a custom role belongs to the team it was chosen in), and grants **nothing at all** if the
+  simulated role stops resolving — a stale simulation must not silently restore real powers.
+- Entering and leaving are audited as `auth.session.view_as`.
+- **Not a security boundary.** The operator keeps their real authority on every other
+  channel — an existing API token, another browser profile, the CLI. The mode is an
+  inspection tool for verifying degraded views, and must never be relied on to contain
+  anybody.
+
 ---
 
 ## 4. API tokens — mapping and anti-elevation guard

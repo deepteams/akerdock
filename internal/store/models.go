@@ -3184,21 +3184,23 @@ type ServiceComponent struct {
 }
 
 type Session struct {
-	ID             int64
-	Uuid           pgtype.UUID
-	UserID         int64
-	TokenHash      string
-	CurrentTeamID  *int64
-	MfaVerifiedAt  pgtype.Timestamptz
-	Ip             *netip.Addr
-	UserAgent      *string
-	LastSeenAt     pgtype.Timestamptz
-	ExpiresAt      pgtype.Timestamptz
-	RevokedAt      pgtype.Timestamptz
-	CreatedAt      pgtype.Timestamptz
-	CsrfToken      *string
-	MfaPending     bool
-	TotpVerifiedAt pgtype.Timestamptz
+	ID                 int64
+	Uuid               pgtype.UUID
+	UserID             int64
+	TokenHash          string
+	CurrentTeamID      *int64
+	MfaVerifiedAt      pgtype.Timestamptz
+	Ip                 *netip.Addr
+	UserAgent          *string
+	LastSeenAt         pgtype.Timestamptz
+	ExpiresAt          pgtype.Timestamptz
+	RevokedAt          pgtype.Timestamptz
+	CreatedAt          pgtype.Timestamptz
+	CsrfToken          *string
+	MfaPending         bool
+	TotpVerifiedAt     pgtype.Timestamptz
+	ViewAsRole         *TeamRole
+	ViewAsCustomRoleID *int64
 }
 
 type SharedVariable struct {

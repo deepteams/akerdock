@@ -173,6 +173,8 @@ Browser session (Secure/HttpOnly/SameSite cookies, rotation after login/elevatio
 | `user_id` | `bigint` | no | — | FK `users(id)` ON DELETE CASCADE, index | no | — |
 | `token_hash` | `text` | no | — | UNIQUE | no (SHA-256 hash) | Hash of the session token; the plaintext token is never stored. |
 | `current_team_id` | `bigint` | yes | — | FK `teams(id)` ON DELETE SET NULL | no | Active team of the session (§10.4: sessions bounded to the active team). |
+| `view_as_role` | `team_role` | yes | — | exclusive with `view_as_custom_role_id` | no | System role this session is inspecting (ADR-058): permissions become real ∩ simulated. |
+| `view_as_custom_role_id` | `bigint` | yes | — | FK `custom_roles(id)` ON DELETE SET NULL | no | Custom role being inspected (ADR-058); cleared on team switch and when the role is deleted. |
 | `mfa_verified_at` | `timestamptz` | yes | — | — | no | 2FA step passed. |
 | `ip` | `inet` | yes | — | — | no | Creation IP. |
 | `user_agent` | `text` | yes | — | — | no | — |

@@ -3,7 +3,7 @@ import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/rou
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
-import { ApiService, MyTeam } from '../core/api.service';
+import { ApiService, InspectableRole, MyTeam } from '../core/api.service';
 import { NavigationHistory } from '../core/navigation-history.service';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { ConfirmHostComponent } from '../../ui/confirm/confirm-host.component';
@@ -120,6 +120,38 @@ interface NavSection {
                   <akd-icon name="globe" [size]="14" /><span>Global settings</span>
                 </button>
               }
+              <!-- Role inspection (ADR-058): the roles are offered only to
+                   whoever may enter the mode, so the list stays empty (and the
+                   section absent) for everybody else. -->
+              @if (inspectableRoles().length > 0) {
+                <div class="menu-sep"></div>
+                <div class="akd-sidenav__section">View as</div>
+                @if (viewAs()) {
+                  <button
+                    class="akd-sidenav__item"
+                    role="menuitem"
+                    type="button"
+                    [disabled]="switching()"
+                    (click)="stopViewAs()"
+                  >
+                    <akd-icon name="check" [size]="14" />
+                    <span class="team-name">Back to my own view</span>
+                  </button>
+                }
+                @for (role of inspectableRoles(); track role.name) {
+                  <button
+                    class="akd-sidenav__item team-option"
+                    role="menuitem"
+                    type="button"
+                    [disabled]="switching() || viewAs() === role.name.toLowerCase()"
+                    (click)="startViewAs(role)"
+                  >
+                    <akd-icon name="eye" [size]="14" />
+                    <span class="team-name">{{ role.name }}</span>
+                  </button>
+                }
+              }
+              <div class="menu-sep"></div>
               <button class="akd-sidenav__item" role="menuitem" (click)="signOut()">
                 <akd-icon name="log-out" [size]="14" /><span>Sign out</span>
               </button>
@@ -159,6 +191,18 @@ interface NavSection {
             <span class="akd-breadcrumb__current">{{ sectionLabel() }}</span>
           </nav>
           <div class="spacer"></div>
+          <!-- Permanent while the mode is on: a degraded UI with no explanation
+               reads as a bug, and an operator who forgot they were inspecting
+               would file one. -->
+          @if (viewAs()) {
+            <span class="viewas-banner">
+              <akd-icon name="eye" [size]="14" />
+              <span>Viewing as <strong>{{ viewAs() }}</strong></span>
+              <button type="button" class="viewas-exit" [disabled]="switching()" (click)="stopViewAs()">
+                Exit
+              </button>
+            </span>
+          }
           @if (version()) {
             <span class="akd-badge akd-badge--accent akd-badge--mono">v{{ version() }}</span>
           }
@@ -361,6 +405,31 @@ interface NavSection {
       .crumb-team {
         font-family: var(--font-mono);
       }
+      /* Loud on purpose: this says "what you are looking at is not your own
+         view", and it has to survive being ignored for an hour. */
+      .viewas-banner {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 3px 8px;
+        border: 1px solid var(--warning, var(--accent));
+        border-radius: var(--radius-sm, 6px);
+        color: var(--warning, var(--accent));
+        font-size: var(--text-2xs);
+      }
+      .viewas-exit {
+        border: 0;
+        background: none;
+        padding: 0;
+        color: inherit;
+        font: inherit;
+        text-decoration: underline;
+        cursor: pointer;
+      }
+      .viewas-exit:disabled {
+        cursor: progress;
+        opacity: 0.6;
+      }
       .spacer {
         flex: 1;
       }
@@ -470,6 +539,11 @@ export class ShellComponent {
   protected readonly switchError = signal<string | null>(null);
   /** The "Switch team" sub-menu, collapsed until asked for. */
   protected readonly teamMenu = signal(false);
+  /** Roles this session may inspect (ADR-058) — empty for anyone who may not,
+   *  which is also what hides the whole section. */
+  protected readonly inspectableRoles = signal<InspectableRole[]>([]);
+  /** The role currently simulated, straight from the server's answer. */
+  protected readonly viewAs = computed(() => this.api.currentUser()?.viewAs ?? null);
 
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -525,6 +599,13 @@ export class ShellComponent {
     } catch {
       /* no badge */
     }
+    try {
+      // 403 for anyone who may not inspect: the empty list is the answer, and
+      // the menu section simply does not appear.
+      this.inspectableRoles.set(await this.api.inspectableRoles());
+    } catch {
+      /* no role inspection for this session */
+    }
   }
 
   /** Closing the user menu collapses the team sub-menu with it: reopening
@@ -565,6 +646,35 @@ export class ShellComponent {
     this.switchError.set(null);
     try {
       await this.api.switchTeam(uuid);
+      window.location.assign('/projects');
+    } catch (error) {
+      this.switchError.set(ApiService.describe(error));
+      this.switching.set(false);
+    }
+  }
+
+  /**
+   * Enters or leaves the role-inspection mode (ADR-058).
+   *
+   * A full page load for the same reason as a team switch: every open page was
+   * built from permissions that no longer hold, and half of them are streaming
+   * data the simulated role may not read. Landing on /projects avoids a URL the
+   * inspected role has no access to — which would open the mode on a 403.
+   */
+  protected async startViewAs(role: InspectableRole): Promise<void> {
+    await this.applyViewAs(role);
+  }
+
+  protected async stopViewAs(): Promise<void> {
+    await this.applyViewAs(null);
+  }
+
+  private async applyViewAs(role: InspectableRole | null): Promise<void> {
+    if (this.switching()) return;
+    this.switching.set(true);
+    this.switchError.set(null);
+    try {
+      await this.api.setViewAs(role);
       window.location.assign('/projects');
     } catch (error) {
       this.switchError.set(ApiService.describe(error));

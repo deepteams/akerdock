@@ -27,6 +27,21 @@ WHERE s.token_hash = $1
 -- name: TouchSession :exec
 UPDATE sessions SET last_seen_at = now() WHERE id = $1;
 
+-- name: SetSessionViewAs :exec
+-- Enter or leave the role-inspection mode (ADR-058). Both arguments null =
+-- leave; the CHECK constraint keeps the two sources exclusive. Nothing here
+-- verifies authority: the caller does, against the session's REAL membership.
+UPDATE sessions SET
+    view_as_role = sqlc.narg(view_as_role),
+    view_as_custom_role_id = sqlc.narg(view_as_custom_role_id)
+WHERE id = $1;
+
+-- name: ClearViewAsForCustomRole :execrows
+-- A custom role that stops existing must not leave sessions simulating it. The
+-- FK already nulls the id; this clears the sessions of a role whose permissions
+-- changed enough that the simulation is stale.
+UPDATE sessions SET view_as_custom_role_id = NULL WHERE view_as_custom_role_id = $1;
+
 -- name: RevokeSession :exec
 UPDATE sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL;
 

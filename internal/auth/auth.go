@@ -78,6 +78,13 @@ type Identity struct {
 	// UserID is the acting human, when there is one — the session's user, or a
 	// token's creator once its permissions have been capped by theirs (§4.2).
 	UserID *int64
+
+	// ViewAs names the role this session is currently simulating (ADR-058) —
+	// "member", "reviewer", or a custom role's name. Empty means the session
+	// acts with its own authority. The permissions above are ALREADY narrowed
+	// to it: nothing downstream has to know about the mode, which is precisely
+	// why the inspection is faithful.
+	ViewAs string
 }
 
 // IsRoot reports whether the token carries the root permission.

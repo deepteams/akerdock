@@ -16,6 +16,12 @@ LIMIT sqlc.arg(page_limit);
 -- name: GetCustomRoleByUUID :one
 SELECT * FROM custom_roles WHERE uuid = $1 AND team_id = $2;
 
+-- name: GetCustomRoleByID :one
+-- Read path of a simulated custom role (ADR-058): the session stores the id, and
+-- resolving it back to permissions happens on every authenticated request while
+-- the mode is on. The team is checked by the caller against the session's team.
+SELECT * FROM custom_roles WHERE id = $1;
+
 -- name: UpdateCustomRole :one
 -- Partial update: name/description/permissions. Permissions arrive already
 -- validated and closed under prerequisites by the handler.

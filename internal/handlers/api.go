@@ -255,6 +255,11 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 		// and is audited as the boundary crossing it is (§23.1).
 		r.Get("/auth/teams", a.ListMyTeams)
 		r.Post("/auth/session/team", a.SwitchTeam)
+		// Role inspection (ADR-058). Session endpoints, deliberately outside
+		// the permission-checked API: a session already narrowed to `reviewer`
+		// must still be able to read its own state and leave the mode.
+		r.Get("/auth/session/view-as", a.ListViewAsRoles)
+		r.Post("/auth/session/view-as", a.ViewAs)
 
 		// Passkeys (WebAuthn). Management requires a session (and CSRF); the
 		// login pair is anonymous by nature — a discoverable credential names

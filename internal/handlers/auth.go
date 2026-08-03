@@ -165,5 +165,9 @@ func (a *API) Me(w http.ResponseWriter, r *http.Request) {
 		"email":                   email,
 		"name":                    name,
 		"mfa_enrollment_required": identity.MFAPending,
+		// The role this session is simulating (ADR-058), null when it acts with
+		// its own authority. The permissions above are already narrowed to it —
+		// this field only tells the dashboard to say so.
+		"view_as": nullableString(identity.ViewAs),
 	})
 }

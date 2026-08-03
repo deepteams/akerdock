@@ -20,6 +20,11 @@ type Store interface {
 	// session into one of them, and remembering it for the next login.
 	ListTeamMembershipsForUser(context.Context, int64) ([]store.ListTeamMembershipsForUserRow, error)
 	SetSessionCurrentTeam(context.Context, store.SetSessionCurrentTeamParams) (int64, error)
+	// Role inspection (ADR-058): the simulated role is stored on the session,
+	// and resolved back to permissions on every authenticated request.
+	SetSessionViewAs(context.Context, store.SetSessionViewAsParams) error
+	GetCustomRoleByID(context.Context, int64) (store.CustomRole, error)
+	GetCustomRoleByUUID(context.Context, store.GetCustomRoleByUUIDParams) (store.CustomRole, error)
 	SetUserLastTeam(context.Context, store.SetUserLastTeamParams) error
 	CreateSession(context.Context, store.CreateSessionParams) (store.Session, error)
 	GetSessionByTokenHash(context.Context, string) (store.GetSessionByTokenHashRow, error)

@@ -27,6 +27,10 @@ type browserSessionStore struct {
 	// team every other test in this file assumes.
 	memberships []store.ListTeamMembershipsForUserRow
 	switched    []store.SetSessionCurrentTeamParams
+	// Role inspection (ADR-058): what the session was put into, and the one
+	// custom role these tests know about.
+	viewAsSets []store.SetSessionViewAsParams
+	customRole store.CustomRole
 }
 
 func newBrowserSessionStore(t *testing.T) *browserSessionStore {
@@ -73,6 +77,25 @@ func (s *browserSessionStore) teams() []store.ListTeamMembershipsForUserRow {
 
 func (s *browserSessionStore) ListTeamMembershipsForUser(context.Context, int64) ([]store.ListTeamMembershipsForUserRow, error) {
 	return s.teams(), nil
+}
+
+func (s *browserSessionStore) SetSessionViewAs(_ context.Context, arg store.SetSessionViewAsParams) error {
+	s.viewAsSets = append(s.viewAsSets, arg)
+	return nil
+}
+
+func (s *browserSessionStore) GetCustomRoleByID(_ context.Context, id int64) (store.CustomRole, error) {
+	if s.customRole.ID != id {
+		return store.CustomRole{}, pgx.ErrNoRows
+	}
+	return s.customRole, nil
+}
+
+func (s *browserSessionStore) GetCustomRoleByUUID(_ context.Context, arg store.GetCustomRoleByUUIDParams) (store.CustomRole, error) {
+	if s.customRole.TeamID != arg.TeamID {
+		return store.CustomRole{}, pgx.ErrNoRows
+	}
+	return s.customRole, nil
 }
 
 func (s *browserSessionStore) SetSessionCurrentTeam(_ context.Context, arg store.SetSessionCurrentTeamParams) (int64, error) {

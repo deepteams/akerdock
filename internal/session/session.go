@@ -313,6 +313,12 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) *auth.Ident
 		perms = append(perms, string(auth.PermRoot))
 	}
 
+	// Role inspection (ADR-058) narrows the session to what the simulated role
+	// would hold. It runs LAST, after the root wildcard, precisely so the root
+	// loses it too: an inspection that keeps `root` shows the root's own view
+	// under someone else's name — the one answer that is never useful.
+	perms, viewAs := m.narrowToViewAs(ctx, row, teamID, perms)
+
 	return &auth.Identity{
 		TokenID:      row.ID,
 		TokenUUID:    uuidString(row.Uuid),
@@ -320,9 +326,10 @@ func (m *Manager) Authenticate(ctx context.Context, r *http.Request) *auth.Ident
 		TeamUUID:     uuidString(membership.TeamUuid),
 		Permissions:  perms,
 		Session:      true,
-		InstanceRoot: membership.IsRoot,
+		InstanceRoot: membership.IsRoot && viewAs == "",
 		MFAPending:   row.MfaPending,
 		UserID:       &row.UserID,
+		ViewAs:       viewAs,
 	}
 }
 
@@ -384,6 +391,13 @@ func (m *Manager) SwitchTeam(ctx context.Context, userID int64, sessionID int64,
 		if _, err := m.Store.SetSessionCurrentTeam(ctx, store.SetSessionCurrentTeamParams{
 			ID: sessionID, CurrentTeamID: &team,
 		}); err != nil {
+			return TeamMembership{}, err
+		}
+		// A simulated role belongs to the team it was chosen in (ADR-058): a
+		// custom role of the team being left means nothing here, and the
+		// authority to inspect at all is per team. Leaving the team leaves the
+		// mode.
+		if err := m.Store.SetSessionViewAs(ctx, store.SetSessionViewAsParams{ID: sessionID}); err != nil {
 			return TeamMembership{}, err
 		}
 		// Best-effort: failing to remember the choice must not fail the switch —

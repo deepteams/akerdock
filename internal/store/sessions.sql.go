@@ -55,6 +55,21 @@ func (q *Queries) ClearMfaPendingForUser(ctx context.Context, userID int64) erro
 	return err
 }
 
+const clearViewAsForCustomRole = `-- name: ClearViewAsForCustomRole :execrows
+UPDATE sessions SET view_as_custom_role_id = NULL WHERE view_as_custom_role_id = $1
+`
+
+// A custom role that stops existing must not leave sessions simulating it. The
+// FK already nulls the id; this clears the sessions of a role whose permissions
+// changed enough that the simulation is stale.
+func (q *Queries) ClearViewAsForCustomRole(ctx context.Context, viewAsCustomRoleID *int64) (int64, error) {
+	result, err := q.db.Exec(ctx, clearViewAsForCustomRole, viewAsCustomRoleID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createPersonalTeam = `-- name: CreatePersonalTeam :one
 INSERT INTO teams (name, personal) VALUES ($1, true) RETURNING id, uuid, name, description, created_by, updated_by, created_at, updated_at, deleted_at, version, personal
 `
@@ -81,7 +96,7 @@ func (q *Queries) CreatePersonalTeam(ctx context.Context, name string) (Team, er
 const createSession = `-- name: CreateSession :one
 INSERT INTO sessions (user_id, token_hash, csrf_token, current_team_id, ip, user_agent, expires_at, mfa_pending)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, uuid, user_id, token_hash, current_team_id, mfa_verified_at, ip, user_agent, last_seen_at, expires_at, revoked_at, created_at, csrf_token, mfa_pending, totp_verified_at
+RETURNING id, uuid, user_id, token_hash, current_team_id, mfa_verified_at, ip, user_agent, last_seen_at, expires_at, revoked_at, created_at, csrf_token, mfa_pending, totp_verified_at, view_as_role, view_as_custom_role_id
 `
 
 type CreateSessionParams struct {
@@ -123,12 +138,14 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.CsrfToken,
 		&i.MfaPending,
 		&i.TotpVerifiedAt,
+		&i.ViewAsRole,
+		&i.ViewAsCustomRoleID,
 	)
 	return i, err
 }
 
 const getSessionByTokenHash = `-- name: GetSessionByTokenHash :one
-SELECT s.id, s.uuid, s.user_id, s.token_hash, s.current_team_id, s.mfa_verified_at, s.ip, s.user_agent, s.last_seen_at, s.expires_at, s.revoked_at, s.created_at, s.csrf_token, s.mfa_pending, s.totp_verified_at, u.email, u.name AS user_name, u.deleted_at AS user_deleted_at
+SELECT s.id, s.uuid, s.user_id, s.token_hash, s.current_team_id, s.mfa_verified_at, s.ip, s.user_agent, s.last_seen_at, s.expires_at, s.revoked_at, s.created_at, s.csrf_token, s.mfa_pending, s.totp_verified_at, s.view_as_role, s.view_as_custom_role_id, u.email, u.name AS user_name, u.deleted_at AS user_deleted_at
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1
@@ -138,24 +155,26 @@ WHERE s.token_hash = $1
 `
 
 type GetSessionByTokenHashRow struct {
-	ID             int64
-	Uuid           pgtype.UUID
-	UserID         int64
-	TokenHash      string
-	CurrentTeamID  *int64
-	MfaVerifiedAt  pgtype.Timestamptz
-	Ip             *netip.Addr
-	UserAgent      *string
-	LastSeenAt     pgtype.Timestamptz
-	ExpiresAt      pgtype.Timestamptz
-	RevokedAt      pgtype.Timestamptz
-	CreatedAt      pgtype.Timestamptz
-	CsrfToken      *string
-	MfaPending     bool
-	TotpVerifiedAt pgtype.Timestamptz
-	Email          string
-	UserName       string
-	UserDeletedAt  pgtype.Timestamptz
+	ID                 int64
+	Uuid               pgtype.UUID
+	UserID             int64
+	TokenHash          string
+	CurrentTeamID      *int64
+	MfaVerifiedAt      pgtype.Timestamptz
+	Ip                 *netip.Addr
+	UserAgent          *string
+	LastSeenAt         pgtype.Timestamptz
+	ExpiresAt          pgtype.Timestamptz
+	RevokedAt          pgtype.Timestamptz
+	CreatedAt          pgtype.Timestamptz
+	CsrfToken          *string
+	MfaPending         bool
+	TotpVerifiedAt     pgtype.Timestamptz
+	ViewAsRole         *TeamRole
+	ViewAsCustomRoleID *int64
+	Email              string
+	UserName           string
+	UserDeletedAt      pgtype.Timestamptz
 }
 
 // A session is only valid while it is unrevoked AND unexpired: both are checked
@@ -179,6 +198,8 @@ func (q *Queries) GetSessionByTokenHash(ctx context.Context, tokenHash string) (
 		&i.CsrfToken,
 		&i.MfaPending,
 		&i.TotpVerifiedAt,
+		&i.ViewAsRole,
+		&i.ViewAsCustomRoleID,
 		&i.Email,
 		&i.UserName,
 		&i.UserDeletedAt,
@@ -406,6 +427,27 @@ func (q *Queries) SetSessionCurrentTeam(ctx context.Context, arg SetSessionCurre
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setSessionViewAs = `-- name: SetSessionViewAs :exec
+UPDATE sessions SET
+    view_as_role = $2,
+    view_as_custom_role_id = $3
+WHERE id = $1
+`
+
+type SetSessionViewAsParams struct {
+	ID                 int64
+	ViewAsRole         *TeamRole
+	ViewAsCustomRoleID *int64
+}
+
+// Enter or leave the role-inspection mode (ADR-058). Both arguments null =
+// leave; the CHECK constraint keeps the two sources exclusive. Nothing here
+// verifies authority: the caller does, against the session's REAL membership.
+func (q *Queries) SetSessionViewAs(ctx context.Context, arg SetSessionViewAsParams) error {
+	_, err := q.db.Exec(ctx, setSessionViewAs, arg.ID, arg.ViewAsRole, arg.ViewAsCustomRoleID)
+	return err
 }
 
 const setUserLastTeam = `-- name: SetUserLastTeam :exec

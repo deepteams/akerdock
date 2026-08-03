@@ -60,6 +60,10 @@ type Querier interface {
 	// uuid-derived names (§20.7): the pointer is obsolete, the history stays.
 	ClearResourceAdoption(ctx context.Context, id int64) error
 	ClearResourceTags(ctx context.Context, resourceID int64) error
+	// A custom role that stops existing must not leave sessions simulating it. The
+	// FK already nulls the id; this clears the sessions of a role whose permissions
+	// changed enough that the simulation is stale.
+	ClearViewAsForCustomRole(ctx context.Context, viewAsCustomRoleID *int64) (int64, error)
 	CompleteAdoptionScan(ctx context.Context, arg CompleteAdoptionScanParams) error
 	// Conversion (protocols §2.1 step 5): persist what GitHub returned, clear the
 	// state so the callback cannot be replayed.
@@ -393,6 +397,10 @@ type Querier interface {
 	// Same, scoped to one PR instance: a preview never redeploys the production
 	// image (INV-010/INV-011).
 	GetCurrentPreviewArtifact(ctx context.Context, previewID *int64) (DeploymentArtifact, error)
+	// Read path of a simulated custom role (ADR-058): the session stores the id, and
+	// resolving it back to permissions happens on every authenticated request while
+	// the mode is on. The team is checked by the caller against the session's team.
+	GetCustomRoleByID(ctx context.Context, id int64) (CustomRole, error)
 	GetCustomRoleByUUID(ctx context.Context, arg GetCustomRoleByUUIDParams) (CustomRole, error)
 	GetDNSCredentialByID(ctx context.Context, id int64) (CloudCredential, error)
 	GetDNSCredentialByUUID(ctx context.Context, arg GetDNSCredentialByUUIDParams) (CloudCredential, error)
@@ -1063,6 +1071,10 @@ type Querier interface {
 	// that ritual, and letting a TOTP set it would hand every TOTP-only user a root
 	// shell.
 	SetSessionTotpVerified(ctx context.Context, id int64) error
+	// Enter or leave the role-inspection mode (ADR-058). Both arguments null =
+	// leave; the CHECK constraint keeps the two sources exclusive. Nothing here
+	// verifies authority: the caller does, against the session's REAL membership.
+	SetSessionViewAs(ctx context.Context, arg SetSessionViewAsParams) error
 	SetTransactionalEmailConfig(ctx context.Context, transactionalEmailConfigEnc []byte) error
 	// The prober's state write: counters, verdict, and the next window. Never
 	// bumps `version` (not a user edit — it must not conflict with a PATCH).

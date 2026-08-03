@@ -90,6 +90,29 @@ func (q *Queries) DeleteCustomRole(ctx context.Context, arg DeleteCustomRolePara
 	return result.RowsAffected(), nil
 }
 
+const getCustomRoleByID = `-- name: GetCustomRoleByID :one
+SELECT id, uuid, team_id, name, description, permissions, created_at, updated_at FROM custom_roles WHERE id = $1
+`
+
+// Read path of a simulated custom role (ADR-058): the session stores the id, and
+// resolving it back to permissions happens on every authenticated request while
+// the mode is on. The team is checked by the caller against the session's team.
+func (q *Queries) GetCustomRoleByID(ctx context.Context, id int64) (CustomRole, error) {
+	row := q.db.QueryRow(ctx, getCustomRoleByID, id)
+	var i CustomRole
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.TeamID,
+		&i.Name,
+		&i.Description,
+		&i.Permissions,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getCustomRoleByUUID = `-- name: GetCustomRoleByUUID :one
 SELECT id, uuid, team_id, name, description, permissions, created_at, updated_at FROM custom_roles WHERE uuid = $1 AND team_id = $2
 `

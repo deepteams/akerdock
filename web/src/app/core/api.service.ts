@@ -32,6 +32,17 @@ export interface CurrentUser {
   /** The instance requires MFA and this user has no confirmed factor yet: the
    * app is blocked until they enrol one (forced enrollment). */
   mfaEnrollmentRequired: boolean;
+  /** Role this session is inspecting (ADR-058), null when acting as oneself.
+   * `permissions` above is ALREADY the narrowed set — the whole UI degrades
+   * from the server's answer, never from a local guess. */
+  viewAs: string | null;
+}
+
+/** One role a session may inspect: a system role, or a custom role by uuid. */
+export interface InspectableRole {
+  role?: string;
+  custom_role_uuid?: string;
+  name: string;
 }
 
 export interface Passkey {
@@ -175,6 +186,7 @@ export class ApiService {
         email: string;
         name: string;
         mfa_enrollment_required?: boolean;
+        view_as?: string | null;
       };
       this.user.set({
         teamUuid: body.team_uuid,
@@ -183,6 +195,7 @@ export class ApiService {
         email: body.email,
         name: body.name,
         mfaEnrollmentRequired: body.mfa_enrollment_required ?? false,
+        viewAs: body.view_as ?? null,
       });
       this.csrf.set(body.csrf_token);
       return true;
@@ -467,6 +480,32 @@ export class ApiService {
    */
   async switchTeam(teamUuid: string): Promise<void> {
     await this.authPost<{ team_uuid: string }>('/auth/session/team', { team_uuid: teamUuid });
+    await this.restore();
+  }
+
+  /**
+   * The roles this session may inspect (ADR-058). A session already narrowed to
+   * `reviewer` holds no `roles:read`, which is exactly why this listing lives
+   * on /auth and not behind the permission-checked API — otherwise entering the
+   * mode would take away the means of leaving it.
+   */
+  async inspectableRoles(): Promise<InspectableRole[]> {
+    const res = await fetch('/auth/session/view-as', { credentials: 'same-origin' });
+    if (!res.ok) throw await this.authError(res);
+    const body = (await res.json()) as { data: InspectableRole[] };
+    return body.data;
+  }
+
+  /**
+   * Enters the role-inspection mode, or leaves it with null. The local user is
+   * refreshed from the server afterwards: the permissions the UI degrades from
+   * are the ones the API will actually enforce, never a client-side guess.
+   */
+  async setViewAs(target: InspectableRole | null): Promise<void> {
+    await this.authPost('/auth/session/view-as', {
+      role: target?.role ?? '',
+      custom_role_uuid: target?.custom_role_uuid ?? '',
+    });
     await this.restore();
   }
 

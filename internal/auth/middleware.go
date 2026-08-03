@@ -228,12 +228,15 @@ func (m *Middleware) boundToCreator(r *http.Request, id *Identity, match *store.
 	}
 
 	base := PermissionsForMembership(authority.Role, authority.CustomRoleID != nil, authority.CustomPermissions)
-	id.Permissions = intersect(granted, ExpandGranular(base))
+	id.Permissions = Intersect(granted, ExpandGranular(base))
 	id.UserID = &authority.UserID
 }
 
-// intersect keeps the permissions present in both sets.
-func intersect(a, b []string) []string {
+// Intersect keeps the permissions present in both sets. Exported because it is
+// how EVERY ceiling in the model is applied — a token capped at its creator's
+// authority (§4.2), a session narrowed to a simulated role (ADR-058) — and a
+// second implementation would be a second chance to get "and" wrong.
+func Intersect(a, b []string) []string {
 	held := make(map[string]bool, len(b))
 	for _, p := range b {
 		held[p] = true
