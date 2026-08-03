@@ -192,7 +192,7 @@ func TestRenderPreviewRoutingFileWithoutAuth(t *testing.T) {
 	if strings.Contains(content, "basicAuth") {
 		t.Fatalf("no auth expected:\n%s", content)
 	}
-	if !strings.Contains(content, "X-Robots-Tag: noindex") {
+	if !strings.Contains(content, `X-Robots-Tag: "noindex, nofollow"`) {
 		t.Fatalf("noindex is not optional:\n%s", content)
 	}
 	var doc map[string]any
@@ -215,7 +215,7 @@ func TestRenderPreviewRoutingFileSSO(t *testing.T) {
 		"forwardAuth:",
 		"address: \"https://manager.example.com/webhooks/previews/forward-auth?preview=",
 		"-auth",
-		"X-Robots-Tag: noindex",
+		`X-Robots-Tag: "noindex, nofollow"`,
 		// The cookie bootstrap router (ADR-030): the preview's own host, the
 		// callback path, proxied server-side to the control plane.
 		"-authcb:",

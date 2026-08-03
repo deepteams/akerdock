@@ -136,6 +136,7 @@ func applicationToAPI(row appRow) api.Application {
 		PreDeploymentCommand:           row.RuntimeConfig.PreDeploymentCommand,
 		PostDeploymentCommand:          row.RuntimeConfig.PostDeploymentCommand,
 		PortsExposes:                   row.RuntimeConfig.PortsExposes,
+		Noindex:                        ptr(row.RuntimeConfig.Noindex),
 		Limits:                         limits,
 		DesiredStatus:                  api.DesiredStatus(row.Resource.DesiredStatus),
 		ObservedStatus:                 api.ObservedStatus(row.Resource.ObservedStatus),
@@ -611,6 +612,7 @@ func (a *API) CreateApplication(w http.ResponseWriter, r *http.Request, params a
 		PreDeploymentCommand:  create.PreDeploymentCommand,
 		PostDeploymentCommand: create.PostDeploymentCommand,
 		ApplicationID:         resource.ID, PortsExposes: create.PortsExposes, MemoryLimit: memoryLimit,
+		Noindex: create.Noindex != nil && *create.Noindex,
 	}); err != nil {
 		a.internalError(w, r, "create application", err)
 		return
@@ -883,6 +885,7 @@ func auditFieldsOf(row appRow) map[string]any {
 		"docker_image_tag":     deref(row.BuildConfig.ImageTag),
 		"access_protection":    string(row.Application.AccessProtection),
 		"access_public_routes": string(row.Application.AccessPublicRoutes),
+		"noindex":              row.RuntimeConfig.Noindex,
 	}
 	if row.RuntimeConfig.MemoryLimit != nil {
 		fields["memory_limit"] = *row.RuntimeConfig.MemoryLimit

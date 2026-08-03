@@ -5002,6 +5002,8 @@ export interface components {
             domains: string[];
             /** @description Internal port(s) exposed to the proxy, comma-separated (e.g. "3000"). Optional for an app without inbound traffic. */
             ports_exposes?: string | null;
+            /** @description Answers every request on the application's domains with `X-Robots-Tag: noindex, nofollow` (proxy-contract §4.7), keeping them out of search results. Off by default: a production domain is often a site whose ranking is the point. Preview URLs are noindexed unconditionally, whatever this says. */
+            noindex?: boolean;
             health_check?: components["schemas"]["HealthCheckConfig"];
             limits?: components["schemas"]["ResourceLimits"];
             /** @description Command executed in the **existing** container before any clone/build (§10). A failure fails the deployment **before any mutation** — the existing container is untouched. Skipped if there is no running container. MUST be idempotent: it may be replayed during a crash recovery. */
@@ -5216,6 +5218,8 @@ export interface components {
              * @enum {string}
              */
             access_protection?: "none" | "basic_auth" | "sso";
+            /** @description Whether every routed component answers with `X-Robots-Tag: noindex, nofollow` (proxy-contract §4.7). */
+            noindex?: boolean;
             /** @description Whether shared basic-auth credentials are configured. */
             readonly access_basic_auth_set?: boolean;
             desired_status: components["schemas"]["DesiredStatus"];
@@ -5248,6 +5252,8 @@ export interface components {
             access_protection: "none" | "basic_auth" | "sso";
             /** @description Shared `user:password`; null with basic_auth generates one. */
             access_basic_auth?: string | null;
+            /** @description Keeps every routed component out of search results (proxy-contract §4.7). Absent = false. */
+            noindex?: boolean;
             /** @default false */
             instant_deploy: boolean;
         };
@@ -5261,6 +5267,8 @@ export interface components {
             access_protection?: "none" | "basic_auth" | "sso";
             /** @description Shared `user:password`; null while enabling basic_auth generates one. */
             access_basic_auth?: string | null;
+            /** @description Keeps every routed component out of search results (proxy-contract §4.7). Applied with the routing, no deployment needed. */
+            noindex?: boolean;
         };
         /** @description Sub-container of a compose stack (data dictionary §9.2) — one per service of the file, individual observed status (§5.7). */
         ServiceComponent: {
@@ -5319,6 +5327,8 @@ export interface components {
         ApplicationCreateRequest: components["schemas"]["ApplicationCreateDockerImage"] | components["schemas"]["ApplicationCreateDockerfile"] | components["schemas"]["ApplicationCreateGit"];
         /** @description Partial update of the configuration. Changes are versioned (INV-014) and applied at the next deployment, except `domains` (routing regenerated immediately). `source_type` is not modifiable — recreate the application to change the source type. */
         ApplicationUpdate: {
+            /** @description Keeps the application's domains out of search results (proxy-contract §4.7). Applied with the routing, like `domains`: no deployment needed. */
+            noindex?: boolean;
             /** @description Command executed in the **existing** container before any clone/build (§10). A failure fails the deployment **before any mutation** — the existing container is untouched. Skipped if there is no running container. MUST be idempotent: it may be replayed during a crash recovery. */
             pre_deployment_command?: string | null;
             /** @description Command executed in the **candidate** once healthy, before the switchover (§10). A failure fails the deployment: the candidate is deleted and the old container **stays routed** (INV-005), with no automatic rollback. MUST be idempotent. */
@@ -5496,6 +5506,8 @@ export interface components {
             git_api_url?: string | null;
             domains?: string[];
             ports_exposes?: string | null;
+            /** @description Whether the application's domains answer with `X-Robots-Tag: noindex, nofollow` (proxy-contract §4.7). */
+            noindex?: boolean;
             health_check?: components["schemas"]["HealthCheckConfig"];
             limits?: components["schemas"]["ResourceLimits"];
             tags?: string[];

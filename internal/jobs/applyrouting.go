@@ -65,6 +65,9 @@ func (h *ApplyRouting) Execute(ctx context.Context, job store.Job, rec *queue.St
 		app = store.GetApplicationByIDRow{Resource: resource}
 		app.BuildConfig.BuildPack = store.BuildPackCompose
 		app.RuntimeConfig.ForceHttps = true
+		// Same as in the deployment run: the stack's setting is mirrored onto
+		// the runtime config the routing pipeline reads.
+		app.RuntimeConfig.Noindex = stack.Noindex
 	}
 	dest, err := h.Store.GetDestinationByID(ctx, app.Resource.DestinationID)
 	if err != nil {
@@ -155,7 +158,11 @@ func applicationRouteGroup(ctx context.Context, q *store.Queries, app store.GetA
 	if endpoint == "" {
 		endpoint = appUUID // Docker DNS by container name
 	}
-	rg := proxy.RouteGroup{AppUUID: appUUID, Endpoint: endpoint, ForceHTTPS: app.RuntimeConfig.ForceHttps}
+	rg := proxy.RouteGroup{
+		AppUUID: appUUID, Endpoint: endpoint,
+		ForceHTTPS: app.RuntimeConfig.ForceHttps,
+		Noindex:    app.RuntimeConfig.Noindex,
+	}
 	applicationPublicRoutes, err := decodeStoredPublicRoutes(app.Application.AccessPublicRoutes)
 	if err != nil {
 		return proxy.RouteGroup{}, false, fmt.Errorf("decode application public routes: %w", err)
@@ -355,8 +362,10 @@ func previewSingleRouteGroup(app store.GetApplicationByIDRow, preview store.Prev
 // service target.
 func renderPreviewContent(rg proxy.RouteGroup, previewUUID string, revision int64, protection store.PreviewProtection, basicAuthHash, ssoAuthURL string, fqdns []string) string {
 	rg.Access = previewAccessPolicy(previewUUID, protection, basicAuthHash, ssoAuthURL)
+	// A preview is a copy of a site: indexed, it competes with the original for
+	// the same terms. Never an option, unlike the production setting.
+	rg.Noindex = true
 	content := proxy.GenerateDynamic(rg, revision)
-	content = injectPreviewNoindex(content, previewUUID)
 	if protection == store.PreviewProtectionSso && ssoAuthURL != "" {
 		content = injectPreviewSSOCallback(content, previewUUID, fqdns,
 			strings.TrimSuffix(ssoAuthURL, "/webhooks/previews/forward-auth"))
@@ -415,90 +424,4 @@ func injectPreviewSSOCallback(content, previewUUID string, hosts []string, insta
 		}
 	}
 	return strings.Join(out, "\n")
-}
-
-// injectPreviewNoindex attaches noindex to every generated https router,
-// including public exceptions. It appends to an existing access/wake list
-// instead of emitting a duplicate YAML key.
-func injectPreviewNoindex(content, previewUUID string) string {
-	name := previewUUID + "-noindex"
-	definition := fmt.Sprintf("    %s:\n      headers:\n        customResponseHeaders:\n          X-Robots-Tag: noindex\n", name)
-	return injectMiddlewares(content, []string{name}, definition)
-}
-
-// injectMiddlewares appends names to every https router of the file and defines
-// them before the services section. Existing middleware lists are preserved:
-// protected preview routers retain access, public routers retain wake, and all
-// of them gain noindex.
-func injectMiddlewares(content string, names []string, definitions string) string {
-	lines := strings.Split(content, "\n")
-	insertAfter := map[int]bool{}
-	for i, line := range lines {
-		if strings.TrimSpace(line) != "entryPoints: [websecure]" {
-			continue
-		}
-		middlewareLine := -1
-		for j := i + 1; j < len(lines); j++ {
-			if strings.HasPrefix(lines[j], "    ") && !strings.HasPrefix(lines[j], "      ") {
-				break
-			}
-			if strings.HasPrefix(lines[j], "      middlewares: [") {
-				middlewareLine = j
-				break
-			}
-		}
-		if middlewareLine < 0 {
-			insertAfter[i] = true
-			continue
-		}
-		lines[middlewareLine] = appendInlineMiddlewares(lines[middlewareLine], names)
-	}
-
-	var out []string
-	inserted := false
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		switch {
-		case trimmed == "middlewares:" && strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "   "):
-			// The generator's own middlewares section (https-redirect).
-			out = append(out, line)
-			out = append(out, strings.TrimRight(definitions, "\n"))
-			inserted = true
-			continue
-		case trimmed == "services:" && !inserted:
-			out = append(out, "  middlewares:")
-			out = append(out, strings.TrimRight(definitions, "\n"))
-			inserted = true
-		}
-		out = append(out, line)
-		if insertAfter[i] {
-			out = append(out, "      middlewares: ["+strings.Join(names, ", ")+"]")
-		}
-	}
-	return strings.Join(out, "\n")
-}
-
-func appendInlineMiddlewares(line string, names []string) string {
-	open := strings.Index(line, "[")
-	endBracket := strings.LastIndex(line, "]")
-	if open < 0 || endBracket < open {
-		return line
-	}
-	existing := strings.TrimSpace(line[open+1 : endBracket])
-	seen := map[string]bool{}
-	values := make([]string, 0, len(names)+1)
-	for _, value := range strings.Split(existing, ",") {
-		value = strings.TrimSpace(value)
-		if value != "" && !seen[value] {
-			seen[value] = true
-			values = append(values, value)
-		}
-	}
-	for _, name := range names {
-		if name != "" && !seen[name] {
-			seen[name] = true
-			values = append(values, name)
-		}
-	}
-	return line[:open+1] + strings.Join(values, ", ") + line[endBracket:]
 }

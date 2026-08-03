@@ -173,6 +173,16 @@ describe('settingsFromApplication / settingsToUpdate round trip', () => {
     expect(update.preview_cancel_obsolete_builds).toBeTrue();
   });
 
+  it('round-trips the search-engine setting for every source type', () => {
+    const noindexed = settingsToUpdate(settingsFromApplication(anApplication({ noindex: true })), 'git');
+    expect(noindexed.noindex).toBeTrue();
+
+    // Absent from the payload = indexable: the default must survive the trip,
+    // or an upgrade would silently delist a production site.
+    const indexable = settingsToUpdate(settingsFromApplication(anApplication({})), 'docker_image');
+    expect(indexable.noindex).toBeFalse();
+  });
+
   it('round-trips a parameterized public webhook route', () => {
     const app = anApplication({
       access_protection: 'sso',

@@ -422,9 +422,13 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 		}})
 		return
 	}
+	noindex := row.RuntimeConfig.Noindex
+	if body.Noindex != nil {
+		noindex = *body.Noindex
+	}
 	if err := qtx.UpdateRuntimeSettings(r.Context(), store.UpdateRuntimeSettingsParams{
 		ApplicationID: row.Resource.ID, PortsExposes: portsExposes, MemoryLimit: memoryLimit,
-		PreDeploymentCommand: preCmd, PostDeploymentCommand: postCmd,
+		PreDeploymentCommand: preCmd, PostDeploymentCommand: postCmd, Noindex: noindex,
 	}); err != nil {
 		a.internalError(w, r, "update application", err)
 		return
@@ -472,8 +476,10 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request, applicat
 
 	// Domains regenerate the routing immediately (OpenAPI updateApplication)
 	// — via a job, on servers with a managed proxy.
+	// noindex belongs to the same family: it is a property of the generated
+	// routing file, so it lands without waiting for a deployment.
 	routingChanged := domainsChanged || body.AccessProtection != nil ||
-		body.AccessBasicAuth != nil || body.AccessPublicRoutes != nil
+		body.AccessBasicAuth != nil || body.AccessPublicRoutes != nil || body.Noindex != nil
 	if routingChanged {
 		server, err := a.Store.GetServerByID(r.Context(), updated.ServerRowID)
 		if err == nil && server.ProxyType == store.ProxyTypeTraefik && server.Status == store.ServerStatusReady {

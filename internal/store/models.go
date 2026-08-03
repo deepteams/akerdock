@@ -3038,6 +3038,7 @@ type RuntimeConfig struct {
 	RedirectDirection      RedirectDirection
 	CreatedAt              pgtype.Timestamptz
 	UpdatedAt              pgtype.Timestamptz
+	Noindex                bool
 }
 
 type S3Storage struct {
@@ -3162,6 +3163,7 @@ type Service struct {
 	UpdatedAt                  pgtype.Timestamptz
 	AccessProtection           PreviewProtection
 	AccessBasicAuthEnc         []byte
+	Noindex                    bool
 }
 
 type ServiceComponent struct {

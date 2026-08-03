@@ -308,6 +308,16 @@ const TABS: readonly { id: TabId; label: string }[] = [
                     <code>x-akerdock.access_public_routes</code> on a Compose service to expose only
                     its webhook or callback paths.
                   </p>
+                  <label class="akd-check">
+                    <input
+                      type="checkbox"
+                      name="serviceNoindex"
+                      [(ngModel)]="noindex"
+                      [disabled]="busy()"
+                    />
+                    Keep out of search results (<code>X-Robots-Tag: noindex, nofollow</code> on
+                    every routed component)
+                  </label>
                   <div class="save-row">
                     <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
                       {{ busy() ? 'Saving…' : 'Save' }}
@@ -475,6 +485,7 @@ export class ServiceDetailComponent {
   protected connectToPredefinedNetwork = false;
   protected accessProtection: 'none' | 'basic_auth' | 'sso' = 'none';
   protected accessBasicAuth = '';
+  protected noindex = false;
 
   protected readonly accessLabel = computed(() => {
     switch (this.service()?.access_protection ?? 'none') {
@@ -554,6 +565,7 @@ export class ServiceDetailComponent {
     this.connectToPredefinedNetwork = svc.connect_to_predefined_network ?? false;
     this.accessProtection = svc.access_protection ?? 'none';
     this.accessBasicAuth = '';
+    this.noindex = svc.noindex ?? false;
   }
 
   protected saveCompose(): Promise<void> {
@@ -582,6 +594,7 @@ export class ServiceDetailComponent {
         // Empty means "keep what is stored" — the API generates credentials
         // itself when basic auth is switched on without any.
         ...(this.accessBasicAuth.trim() ? { access_basic_auth: this.accessBasicAuth.trim() } : {}),
+        noindex: this.noindex,
       },
       'Saved. The access wall is updated immediately.',
     );

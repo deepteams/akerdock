@@ -2579,6 +2579,9 @@ type Application struct {
 	Limits *ResourceLimits `json:"limits,omitempty"`
 	Name   string          `json:"name"`
 
+	// Noindex Whether the application's domains answer with `X-Robots-Tag: noindex, nofollow` (proxy-contract §4.7).
+	Noindex *bool `json:"noindex,omitempty"`
+
 	// ObservedAt Timestamp of the last observation (beyond a threshold, stale status, §19.2).
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
 
@@ -2679,6 +2682,9 @@ type ApplicationCreateBase struct {
 	Limits *ResourceLimits `json:"limits,omitempty"`
 	Name   string          `json:"name"`
 
+	// Noindex Answers every request on the application's domains with `X-Robots-Tag: noindex, nofollow` (proxy-contract §4.7), keeping them out of search results. Off by default: a production domain is often a site whose ranking is the point. Preview URLs are noindexed unconditionally, whatever this says.
+	Noindex *bool `json:"noindex,omitempty"`
+
 	// PortsExposes Internal port(s) exposed to the proxy, comma-separated (e.g. "3000"). Optional for an app without inbound traffic.
 	PortsExposes *string `json:"ports_exposes,omitempty"`
 
@@ -2735,6 +2741,9 @@ type ApplicationCreateDockerImage struct {
 	Limits *ResourceLimits `json:"limits,omitempty"`
 	Name   string          `json:"name"`
 
+	// Noindex Answers every request on the application's domains with `X-Robots-Tag: noindex, nofollow` (proxy-contract §4.7), keeping them out of search results. Off by default: a production domain is often a site whose ranking is the point. Preview URLs are noindexed unconditionally, whatever this says.
+	Noindex *bool `json:"noindex,omitempty"`
+
 	// PortsExposes Internal port(s) exposed to the proxy, comma-separated (e.g. "3000"). Optional for an app without inbound traffic.
 	PortsExposes *string `json:"ports_exposes,omitempty"`
 
@@ -2785,6 +2794,9 @@ type ApplicationCreateDockerfile struct {
 	// Limits Resource limits of the container (§5.3).
 	Limits *ResourceLimits `json:"limits,omitempty"`
 	Name   string          `json:"name"`
+
+	// Noindex Answers every request on the application's domains with `X-Robots-Tag: noindex, nofollow` (proxy-contract §4.7), keeping them out of search results. Off by default: a production domain is often a site whose ranking is the point. Preview URLs are noindexed unconditionally, whatever this says.
+	Noindex *bool `json:"noindex,omitempty"`
 
 	// PortsExposes Internal port(s) exposed to the proxy, comma-separated (e.g. "3000"). Optional for an app without inbound traffic.
 	PortsExposes *string `json:"ports_exposes,omitempty"`
@@ -2850,6 +2862,9 @@ type ApplicationCreateGit struct {
 	// Limits Resource limits of the container (§5.3).
 	Limits *ResourceLimits `json:"limits,omitempty"`
 	Name   string          `json:"name"`
+
+	// Noindex Answers every request on the application's domains with `X-Robots-Tag: noindex, nofollow` (proxy-contract §4.7), keeping them out of search results. Off by default: a production domain is often a site whose ranking is the point. Preview URLs are noindexed unconditionally, whatever this says.
+	Noindex *bool `json:"noindex,omitempty"`
 
 	// PortsExposes Internal port(s) exposed to the proxy, comma-separated (e.g. "3000"). Optional for an app without inbound traffic.
 	PortsExposes *string `json:"ports_exposes,omitempty"`
@@ -2951,9 +2966,12 @@ type ApplicationUpdate struct {
 	HealthCheck *HealthCheckConfig `json:"health_check,omitempty"`
 
 	// Limits Resource limits of the container (§5.3).
-	Limits       *ResourceLimits `json:"limits,omitempty"`
-	Name         *string         `json:"name,omitempty"`
-	PortsExposes *string         `json:"ports_exposes,omitempty"`
+	Limits *ResourceLimits `json:"limits,omitempty"`
+	Name   *string         `json:"name,omitempty"`
+
+	// Noindex Keeps the application's domains out of search results (proxy-contract §4.7). Applied with the routing, like `domains`: no deployment needed.
+	Noindex      *bool   `json:"noindex,omitempty"`
+	PortsExposes *string `json:"ports_exposes,omitempty"`
 
 	// PostDeploymentCommand Command executed in the **candidate** once healthy, before the switchover (§10). A failure fails the deployment: the candidate is deleted and the old container **stays routed** (INV-005), with no automatic rollback. MUST be idempotent.
 	PostDeploymentCommand *string `json:"post_deployment_command,omitempty"`
@@ -4888,7 +4906,10 @@ type Service struct {
 	LastDeploymentAt   *time.Time    `json:"last_deployment_at,omitempty"`
 	LastDeploymentUuid *string       `json:"last_deployment_uuid,omitempty"`
 	Name               string        `json:"name"`
-	ObservedAt         *time.Time    `json:"observed_at,omitempty"`
+
+	// Noindex Whether every routed component answers with `X-Robots-Tag: noindex, nofollow` (proxy-contract §4.7).
+	Noindex    *bool      `json:"noindex,omitempty"`
+	ObservedAt *time.Time `json:"observed_at,omitempty"`
 
 	// ObservedStatus Observed state of a resource (§21.2) — `unknown` if the observation is too old (stale).
 	ObservedStatus ObservedStatus `json:"observed_status"`
@@ -4941,8 +4962,11 @@ type ServiceCreateRequest struct {
 	EnvironmentUuid            string  `json:"environment_uuid"`
 	InstantDeploy              *bool   `json:"instant_deploy,omitempty"`
 	Name                       string  `json:"name"`
-	ProjectUuid                string  `json:"project_uuid"`
-	ServerUuid                 string  `json:"server_uuid"`
+
+	// Noindex Keeps every routed component out of search results (proxy-contract §4.7). Absent = false.
+	Noindex     *bool  `json:"noindex,omitempty"`
+	ProjectUuid string `json:"project_uuid"`
+	ServerUuid  string `json:"server_uuid"`
 }
 
 // ServiceCreateRequestAccessProtection defines model for ServiceCreateRequest.AccessProtection.
@@ -4959,6 +4983,9 @@ type ServiceUpdate struct {
 	ConnectToPredefinedNetwork *bool   `json:"connect_to_predefined_network,omitempty"`
 	Description                *string `json:"description,omitempty"`
 	Name                       *string `json:"name,omitempty"`
+
+	// Noindex Keeps every routed component out of search results (proxy-contract §4.7). Applied with the routing, no deployment needed.
+	Noindex *bool `json:"noindex,omitempty"`
 }
 
 // ServiceUpdateAccessProtection defines model for ServiceUpdate.AccessProtection.

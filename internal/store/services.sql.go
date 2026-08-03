@@ -13,14 +13,15 @@ import (
 
 const createServiceRow = `-- name: CreateServiceRow :exec
 
-INSERT INTO services (id, compose_content, template_slug, template_version, template_repository, connect_to_predefined_network)
-VALUES ($1, $2, $4, $5, $6, $3)
+INSERT INTO services (id, compose_content, template_slug, template_version, template_repository, connect_to_predefined_network, noindex)
+VALUES ($1, $2, $5, $6, $7, $3, $4)
 `
 
 type CreateServiceRowParams struct {
 	ID                         int64
 	ComposeContent             string
 	ConnectToPredefinedNetwork bool
+	Noindex                    bool
 	TemplateSlug               *string
 	TemplateVersion            *string
 	TemplateRepository         *string
@@ -32,6 +33,7 @@ func (q *Queries) CreateServiceRow(ctx context.Context, arg CreateServiceRowPara
 		arg.ID,
 		arg.ComposeContent,
 		arg.ConnectToPredefinedNetwork,
+		arg.Noindex,
 		arg.TemplateSlug,
 		arg.TemplateVersion,
 		arg.TemplateRepository,
@@ -60,7 +62,7 @@ func (q *Queries) DeleteVanishedServiceComponents(ctx context.Context, arg Delet
 }
 
 const getServiceByID = `-- name: GetServiceByID :one
-SELECT id, compose_content, template_slug, template_version, template_repository, connect_to_predefined_network, created_at, updated_at, access_protection, access_basic_auth_enc FROM services WHERE id = $1
+SELECT id, compose_content, template_slug, template_version, template_repository, connect_to_predefined_network, created_at, updated_at, access_protection, access_basic_auth_enc, noindex FROM services WHERE id = $1
 `
 
 func (q *Queries) GetServiceByID(ctx context.Context, id int64) (Service, error) {
@@ -77,6 +79,7 @@ func (q *Queries) GetServiceByID(ctx context.Context, id int64) (Service, error)
 		&i.UpdatedAt,
 		&i.AccessProtection,
 		&i.AccessBasicAuthEnc,
+		&i.Noindex,
 	)
 	return i, err
 }
@@ -115,7 +118,7 @@ func (q *Queries) GetServiceComponentByUUID(ctx context.Context, arg GetServiceC
 }
 
 const getServiceStackByUUID = `-- name: GetServiceStackByUUID :one
-SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, s.id, s.compose_content, s.template_slug, s.template_version, s.template_repository, s.connect_to_predefined_network, s.created_at, s.updated_at, s.access_protection, s.access_basic_auth_enc,
+SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, s.id, s.compose_content, s.template_slug, s.template_version, s.template_repository, s.connect_to_predefined_network, s.created_at, s.updated_at, s.access_protection, s.access_basic_auth_enc, s.noindex,
        e.uuid AS environment_uuid, p.uuid AS project_uuid,
        dst.uuid AS destination_uuid, srv.uuid AS server_uuid, srv.id AS server_row_id
 FROM resources r
@@ -179,6 +182,7 @@ func (q *Queries) GetServiceStackByUUID(ctx context.Context, arg GetServiceStack
 		&i.Service.UpdatedAt,
 		&i.Service.AccessProtection,
 		&i.Service.AccessBasicAuthEnc,
+		&i.Service.Noindex,
 		&i.EnvironmentUuid,
 		&i.ProjectUuid,
 		&i.DestinationUuid,
@@ -266,7 +270,7 @@ func (q *Queries) ListServiceComponents(ctx context.Context, resourceID int64) (
 }
 
 const listServiceStacksPage = `-- name: ListServiceStacksPage :many
-SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, s.id, s.compose_content, s.template_slug, s.template_version, s.template_repository, s.connect_to_predefined_network, s.created_at, s.updated_at, s.access_protection, s.access_basic_auth_enc,
+SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, s.id, s.compose_content, s.template_slug, s.template_version, s.template_repository, s.connect_to_predefined_network, s.created_at, s.updated_at, s.access_protection, s.access_basic_auth_enc, s.noindex,
        e.uuid AS environment_uuid, p.uuid AS project_uuid,
        dst.uuid AS destination_uuid, srv.uuid AS server_uuid
 FROM resources r
@@ -337,6 +341,7 @@ func (q *Queries) ListServiceStacksPage(ctx context.Context, arg ListServiceStac
 			&i.Service.UpdatedAt,
 			&i.Service.AccessProtection,
 			&i.Service.AccessBasicAuthEnc,
+			&i.Service.Noindex,
 			&i.EnvironmentUuid,
 			&i.ProjectUuid,
 			&i.DestinationUuid,
@@ -424,6 +429,20 @@ func (q *Queries) SetServiceComponentObservedByName(ctx context.Context, arg Set
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setServiceNoindex = `-- name: SetServiceNoindex :exec
+UPDATE services SET noindex = $2, updated_at = now() WHERE id = $1
+`
+
+type SetServiceNoindexParams struct {
+	ID      int64
+	Noindex bool
+}
+
+func (q *Queries) SetServiceNoindex(ctx context.Context, arg SetServiceNoindexParams) error {
+	_, err := q.db.Exec(ctx, setServiceNoindex, arg.ID, arg.Noindex)
+	return err
 }
 
 const updateServiceCompose = `-- name: UpdateServiceCompose :execrows

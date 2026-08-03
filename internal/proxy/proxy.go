@@ -50,6 +50,11 @@ type RouteGroup struct {
 	Routes     []Route
 	ForceHTTPS bool
 	Access     *AccessPolicy
+	// Noindex answers every request with `X-Robots-Tag: noindex, nofollow`
+	// (§4.7). Set on previews unconditionally — a preview is a copy of a site,
+	// and an indexed copy competes with the original — and on production routes
+	// when the resource asks for it.
+	Noindex bool
 }
 
 // Priority implements the §3.1 formula: 1000 × segments(path) + len(path).
@@ -88,8 +93,13 @@ func GenerateDynamic(rg RouteGroup, revision int64) string {
 		b.WriteString("      entryPoints: [web]\n")
 		fmt.Fprintf(&b, "      rule: %s\n", rule)
 		fmt.Fprintf(&b, "      priority: %d\n", priority)
-		if forceHTTPS {
-			fmt.Fprintf(&b, "      middlewares: [%s-https-redirect]\n", rg.AppUUID)
+		// A redirecting router answers 301 and never reaches the application:
+		// its own response carries no content to keep out of an index.
+		switch {
+		case forceHTTPS:
+			writeMiddlewares(&b, rg, "https-redirect")
+		case rg.Noindex:
+			writeMiddlewares(&b, rg, "noindex")
 		}
 		fmt.Fprintf(&b, "      service: %s-s%d\n", rg.AppUUID, n)
 
@@ -97,9 +107,7 @@ func GenerateDynamic(rg RouteGroup, revision int64) string {
 		b.WriteString("      entryPoints: [websecure]\n")
 		fmt.Fprintf(&b, "      rule: %s\n", rule)
 		fmt.Fprintf(&b, "      priority: %d\n", priority)
-		if rg.Access != nil {
-			fmt.Fprintf(&b, "      middlewares: [%s-access]\n", rg.AppUUID)
-		}
+		writeMiddlewares(&b, rg, secureMiddlewares(rg)...)
 		fmt.Fprintf(&b, "      service: %s-s%d\n", rg.AppUUID, n)
 		writeTLS(&b, rg, route.FQDN)
 
@@ -113,13 +121,18 @@ func GenerateDynamic(rg RouteGroup, revision int64) string {
 				fmt.Fprintf(&b, "      rule: Host(`%s`) && %s && %s\n", route.FQDN,
 					accessroute.PathExpression(public), accessroute.MethodExpression(public.Methods))
 				fmt.Fprintf(&b, "      priority: %d\n", publicPriority(route.Path))
+				// A public exception drops the access wall and NOTHING else:
+				// noindex still applies to it.
+				if rg.Noindex {
+					writeMiddlewares(&b, rg, "noindex")
+				}
 				fmt.Fprintf(&b, "      service: %s-s%d\n", rg.AppUUID, n)
 				writeTLS(&b, rg, route.FQDN)
 			}
 		}
 	}
 	writeAccessCallbackRouters(&b, rg, routes)
-	if forceHTTPS || rg.Access != nil {
+	if forceHTTPS || rg.Access != nil || rg.Noindex {
 		b.WriteString("  middlewares:\n")
 	}
 	if forceHTTPS {
@@ -127,6 +140,7 @@ func GenerateDynamic(rg RouteGroup, revision int64) string {
 		b.WriteString("      redirectScheme:\n        scheme: https\n        permanent: true\n")
 	}
 	writeAccessMiddleware(&b, rg)
+	writeNoindexMiddleware(&b, rg)
 	// One service per distinct target port. The contract's single-service
 	// form (§5.1) holds when every route targets the same port; per-route
 	// services keep domain:port targeting correct in the meantime.
@@ -186,6 +200,45 @@ func writeTLS(b *strings.Builder, rg RouteGroup, fqdn string) {
 		return
 	}
 	b.WriteString("      tls:\n        certResolver: http01\n")
+}
+
+// writeMiddlewares emits the middlewares line of a router, prefixing each
+// suffix with the group scope: names are global to the proxy, so two resources
+// sharing a bare `noindex` would fight over one definition.
+func writeMiddlewares(b *strings.Builder, rg RouteGroup, suffixes ...string) {
+	if len(suffixes) == 0 {
+		return
+	}
+	names := make([]string, 0, len(suffixes))
+	for _, s := range suffixes {
+		names = append(names, rg.AppUUID+"-"+s)
+	}
+	fmt.Fprintf(b, "      middlewares: [%s]\n", strings.Join(names, ", "))
+}
+
+// secureMiddlewares is what every https router of the group carries, in the
+// order they apply: the wall first — an unauthenticated request must not reach
+// the application to collect a response header.
+func secureMiddlewares(rg RouteGroup) []string {
+	var names []string
+	if rg.Access != nil {
+		names = append(names, "access")
+	}
+	if rg.Noindex {
+		names = append(names, "noindex")
+	}
+	return names
+}
+
+// writeNoindexMiddleware defines the response header keeping the group's
+// domains out of search results. nofollow rides along: an indexed link found
+// on a noindexed page puts the URL back in the index anyway.
+func writeNoindexMiddleware(b *strings.Builder, rg RouteGroup) {
+	if !rg.Noindex {
+		return
+	}
+	fmt.Fprintf(b, "    %s-noindex:\n", rg.AppUUID)
+	b.WriteString("      headers:\n        customResponseHeaders:\n          X-Robots-Tag: \"noindex, nofollow\"\n")
 }
 
 func writeAccessMiddleware(b *strings.Builder, rg RouteGroup) {

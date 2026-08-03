@@ -525,7 +525,9 @@ func serveRun(mode string) int {
 	}
 	// Security headers wrap the WHOLE port — dashboard, /auth, API, /metrics:
 	// a header applied per-route is a header forgotten on the next route.
-	apiHandler = httpserver.SecurityHeaders(secureInstance)(apiHandler)
+	// robots.txt sits inside them, for the same reason: it must answer in every
+	// mode, with or without an embedded dashboard.
+	apiHandler = httpserver.SecurityHeaders(secureInstance)(httpserver.Robots(apiHandler))
 	srv := httpserver.New(cfg.Port, apiHandler)
 
 	errCh := make(chan error, 1)

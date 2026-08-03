@@ -98,6 +98,7 @@ Removed from the product scope (ADR-027, re-assessable upon proven demand). Sect
 - **Wildcard domain per server**: new apps automatically receive `<uuid>.example.com` (fallback: **sslip.io** domains).
 - Native **www/non-www** redirect ("Direction": both / to-www / to-non-www).
 - DNS validation via 1.1.1.1 (customizable validation DNS).
+- **Keep out of search engines** option per application and per Compose stack: every domain of the resource answers `X-Robots-Tag: noindex, nofollow` (proxy-contract §4.7). Off by default — a production domain is often a site whose ranking is the point. Preview URLs are noindexed regardless (§20.4.4), and the control plane itself is never indexable (§14.2).
 
 ### 4.3 SSL/TLS
 - **Automatic Let's Encrypt** certificates (issuance + renewal, HTTP-01 by default); fallback to self-signed certificate if issuance fails.
@@ -321,6 +322,7 @@ Ephemeral environment deployed automatically **for each pull request** (GitHub) 
 
 ### 14.2 Instance settings
 - **Instance FQDN**: dashboard served behind the proxy with automatic certificate, allowing the direct ports 8000/6001/6002 to be closed.
+- **Never indexable**: the control-plane port serves `robots.txt` with `Disallow: /` and answers every request with `X-Robots-Tag: noindex, nofollow`. Not a setting — an indexed dashboard publishes the login URL of the instance, and robots.txt alone would not keep a linked page out of the index.
 - **Instance timezone** configurable (display and platform maintenance crons).
 - Public registration on/off, API on/off (see §10), custom validation DNS server (see §4.2).
 - **Instance transactional email** (SMTP or Resend): invitations, password reset, test email; teams can reuse this system configuration for their notifications instead of their own SMTP.

@@ -1,8 +1,8 @@
 -- Compose stacks and their components (compose-spec.md, data-dictionary §9).
 
 -- name: CreateServiceRow :exec
-INSERT INTO services (id, compose_content, template_slug, template_version, template_repository, connect_to_predefined_network)
-VALUES ($1, $2, sqlc.narg(template_slug), sqlc.narg(template_version), sqlc.narg(template_repository), $3);
+INSERT INTO services (id, compose_content, template_slug, template_version, template_repository, connect_to_predefined_network, noindex)
+VALUES ($1, $2, sqlc.narg(template_slug), sqlc.narg(template_version), sqlc.narg(template_repository), $3, $4);
 
 -- name: GetServiceByID :one
 SELECT * FROM services WHERE id = $1;
@@ -98,3 +98,6 @@ UPDATE services SET access_protection = $2, updated_at = now() WHERE id = $1;
 
 -- name: SetServiceAccessBasicAuth :exec
 UPDATE services SET access_basic_auth_enc = $2, updated_at = now() WHERE id = $1;
+
+-- name: SetServiceNoindex :exec
+UPDATE services SET noindex = $2, updated_at = now() WHERE id = $1;

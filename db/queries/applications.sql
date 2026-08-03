@@ -45,8 +45,8 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, sqlc.narg(compose_file_pat
 
 -- name: CreateRuntimeConfig :exec
 INSERT INTO runtime_configs (application_id, ports_exposes, memory_limit, cpu_limit,
-                             pre_deployment_command, post_deployment_command)
-VALUES ($1, $2, $3, $4, sqlc.narg(pre_deployment_command), sqlc.narg(post_deployment_command));
+                             pre_deployment_command, post_deployment_command, noindex)
+VALUES ($1, $2, $3, $4, sqlc.narg(pre_deployment_command), sqlc.narg(post_deployment_command), $5);
 
 -- name: GetApplicationByUUID :one
 SELECT sqlc.embed(r), sqlc.embed(a), sqlc.embed(b), sqlc.embed(rt),
@@ -171,6 +171,9 @@ WHERE application_id = $1;
 UPDATE runtime_configs SET ports_exposes = $2, memory_limit = $3,
     pre_deployment_command = sqlc.narg(pre_deployment_command),
     post_deployment_command = sqlc.narg(post_deployment_command),
+    -- Routing setting, not a runtime one, but it lives on this row: the caller
+    -- resolves "omitted" to the stored value, like every other column here.
+    noindex = sqlc.arg(noindex),
     updated_at = now()
 WHERE application_id = $1;
 

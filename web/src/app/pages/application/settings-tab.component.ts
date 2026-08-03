@@ -290,6 +290,33 @@ type SettingsSection = ConfigSection | 'deploys' | 'previews';
                   }
                 </div>
               </section>
+
+              <!-- Search-engine visibility: a routing property, applied without
+                   a deployment like the domains themselves. -->
+              <section class="akd-card group">
+                <div class="akd-card__header">
+                  <h2 class="akd-card__title">Search engines</h2>
+                </div>
+                <div class="akd-card__body body">
+                  <label class="switch">
+                    <input
+                      type="checkbox"
+                      class="akd-switch"
+                      name="noindex"
+                      [(ngModel)]="form.noindex"
+                      [disabled]="busy()"
+                    />
+                    <span>
+                      <span class="switch__label">Keep out of search results</span>
+                      <span class="switch__desc">
+                        Answers every domain of this application with
+                        <code>X-Robots-Tag: noindex, nofollow</code>. Preview URLs are never
+                        indexable, whatever this says.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </section>
             }
 
             @if (active() === 'previews') {
@@ -789,6 +816,7 @@ export class ApplicationSettingsTabComponent {
     accessProtection: 'none',
     accessBasicAuth: '',
     accessPublicRoutes: [],
+    noindex: false,
     previewForkApprovalEnabled: false,
     previewExcludeDrafts: false,
     previewDeployOnOpen: true,

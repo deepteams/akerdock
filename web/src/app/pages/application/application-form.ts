@@ -108,6 +108,9 @@ export interface SettingsForm extends ConfigForm {
   /** Narrow unauthenticated production routes (ADR-049). Compose owns these
    * per service in x-akerdock instead. */
   accessPublicRoutes: AccessPublicRouteRow[];
+  /** Keeps the application's domains out of search results (X-Robots-Tag).
+   * Preview urls are noindexed whatever this says. */
+  noindex: boolean;
   previewForkApprovalEnabled: boolean;
   previewExcludeDrafts: boolean;
   /** Auto-deploy the preview when a PR opens (default); false = first deploy
@@ -242,6 +245,7 @@ export function settingsFromApplication(app: Application): SettingsForm {
     previewProtection: (app.preview_protection as 'none' | 'basic_auth' | 'sso') ?? 'basic_auth',
     accessProtection: (app.access_protection as 'none' | 'basic_auth' | 'sso') ?? 'none',
     accessBasicAuth: '',
+    noindex: app.noindex ?? false,
     accessPublicRoutes: (app.access_public_routes ?? []).map((route) => ({
       path: route.path,
       match: route.match ?? 'exact',
@@ -429,6 +433,7 @@ export function settingsToUpdate(form: SettingsForm, sourceType: SourceType): Ap
   if (form.accessBasicAuth.trim()) {
     update.access_basic_auth = form.accessBasicAuth.trim();
   }
+  update.noindex = form.noindex;
   if (form.buildPack !== 'compose') {
     update.access_public_routes = form.accessPublicRoutes
       .filter((route) => route.path.trim())

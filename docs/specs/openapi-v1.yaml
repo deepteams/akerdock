@@ -11429,6 +11429,14 @@ components:
           type: string
           nullable: true
           description: Internal port(s) exposed to the proxy, comma-separated (e.g. "3000"). Optional for an app without inbound traffic.
+        noindex:
+          type: boolean
+          description: >-
+            Answers every request on the application's domains with
+            `X-Robots-Tag: noindex, nofollow` (proxy-contract §4.7), keeping
+            them out of search results. Off by default: a production domain is
+            often a site whose ranking is the point. Preview URLs are
+            noindexed unconditionally, whatever this says.
         health_check:
           $ref: "#/components/schemas/HealthCheckConfig"
         limits:
@@ -11851,6 +11859,11 @@ components:
           description: >-
             Access wall shared by every routed component of this inline
             Compose stack (ADR-049).
+        noindex:
+          type: boolean
+          description: >-
+            Whether every routed component answers with
+            `X-Robots-Tag: noindex, nofollow` (proxy-contract §4.7).
         access_basic_auth_set:
           type: boolean
           readOnly: true
@@ -11921,6 +11934,11 @@ components:
           writeOnly: true
           description: >-
             Shared `user:password`; null with basic_auth generates one.
+        noindex:
+          type: boolean
+          description: >-
+            Keeps every routed component out of search results
+            (proxy-contract §4.7). Absent = false.
         instant_deploy:
           type: boolean
           default: false
@@ -11949,6 +11967,12 @@ components:
           description: >-
             Shared `user:password`; null while enabling basic_auth generates
             one.
+        noindex:
+          type: boolean
+          description: >-
+            Keeps every routed component out of search results
+            (proxy-contract §4.7). Applied with the routing, no deployment
+            needed.
 
     ServiceComponent:
       type: object
@@ -12072,6 +12096,12 @@ components:
         `domains` (routing regenerated immediately). `source_type` is not
         modifiable — recreate the application to change the source type.
       properties:
+        noindex:
+          type: boolean
+          description: >-
+            Keeps the application's domains out of search results
+            (proxy-contract §4.7). Applied with the routing, like `domains`:
+            no deployment needed.
         pre_deployment_command:
           type: string
           nullable: true
@@ -12506,6 +12536,11 @@ components:
         ports_exposes:
           type: string
           nullable: true
+        noindex:
+          type: boolean
+          description: >-
+            Whether the application's domains answer with
+            `X-Robots-Tag: noindex, nofollow` (proxy-contract §4.7).
         health_check:
           $ref: "#/components/schemas/HealthCheckConfig"
         limits:

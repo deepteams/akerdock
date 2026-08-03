@@ -33,6 +33,7 @@ func serviceToAPI(row store.GetServiceStackByUUIDRow) api.Service {
 		ConnectToPredefinedNetwork: ptr(row.Service.ConnectToPredefinedNetwork),
 		AccessProtection:           ptr(api.ServiceAccessProtection(row.Service.AccessProtection)),
 		AccessBasicAuthSet:         ptr(len(row.Service.AccessBasicAuthEnc) > 0),
+		Noindex:                    ptr(row.Service.Noindex),
 		DesiredStatus:              api.DesiredStatus(row.Resource.DesiredStatus),
 		ObservedStatus:             api.ObservedStatus(row.Resource.ObservedStatus),
 		ObservedAt:                 timePtr(row.Resource.ObservedAt),
@@ -206,6 +207,7 @@ func (a *API) CreateService(w http.ResponseWriter, r *http.Request, params api.C
 	connect := body.ConnectToPredefinedNetwork != nil && *body.ConnectToPredefinedNetwork
 	if err := qtx.CreateServiceRow(r.Context(), store.CreateServiceRowParams{
 		ID: resource.ID, ComposeContent: body.ComposeContent, ConnectToPredefinedNetwork: connect,
+		Noindex: body.Noindex != nil && *body.Noindex,
 	}); err != nil {
 		a.internalError(w, r, "create service", err)
 		return
@@ -385,6 +387,14 @@ func (a *API) UpdateService(w http.ResponseWriter, r *http.Request, serviceUuid 
 			return
 		}
 	}
+	if body.Noindex != nil {
+		if err := qtx.SetServiceNoindex(r.Context(), store.SetServiceNoindexParams{
+			ID: row.Resource.ID, Noindex: *body.Noindex,
+		}); err != nil {
+			a.internalError(w, r, "update service noindex", err)
+			return
+		}
+	}
 	credentials := ""
 	switch {
 	case body.AccessBasicAuth != nil && *body.AccessBasicAuth != "":
@@ -423,7 +433,7 @@ func (a *API) UpdateService(w http.ResponseWriter, r *http.Request, serviceUuid 
 		a.internalError(w, r, "update service", err)
 		return
 	}
-	if body.AccessProtection != nil || body.AccessBasicAuth != nil {
+	if body.AccessProtection != nil || body.AccessBasicAuth != nil || body.Noindex != nil {
 		server, serverErr := a.Store.GetServerByID(r.Context(), updated.ServerRowID)
 		if serverErr == nil && server.ProxyType == store.ProxyTypeTraefik &&
 			server.Status == store.ServerStatusReady {

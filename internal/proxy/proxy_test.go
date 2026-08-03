@@ -83,6 +83,58 @@ func TestGenerateDynamicProtectedRouteWithTemplateException(t *testing.T) {
 	assertValidYAML(t, out)
 }
 
+func TestNoindexCoversEveryRouterServingTheApplication(t *testing.T) {
+	out := GenerateDynamic(RouteGroup{
+		AppUUID: "app-n", Noindex: true, ForceHTTPS: true,
+		Routes: []Route{{
+			FQDN: "app.example.com", Path: "/", TargetPort: 8080,
+			PublicRoutes: []accessroute.Route{{Path: "/health", Match: accessroute.MatchExact}},
+		}},
+		Access: &AccessPolicy{Mode: "basic_auth", BasicAuthHash: "akerdock:$2y$10$hash"},
+	}, 3)
+
+	for _, want := range []string{
+		"middlewares: [app-n-access, app-n-noindex]",
+		"app-n-noindex:",
+		`X-Robots-Tag: "noindex, nofollow"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("noindex routing missing %q\n%s", want, out)
+		}
+	}
+	// The public exception drops the wall, not the noindex: an endpoint reachable
+	// without credentials is exactly the one a crawler can reach.
+	publicBlock := between(out, "    app-n-r0-public-0:\n", "  middlewares:\n")
+	if !strings.Contains(publicBlock, "app-n-noindex") {
+		t.Fatalf("public router lost noindex:\n%s", publicBlock)
+	}
+	assertValidYAML(t, out)
+}
+
+func TestNoindexOnPlainHTTPUsesTheHTTPRouter(t *testing.T) {
+	// Without force_https the http router SERVES the site instead of redirecting:
+	// leaving it bare would publish an indexable copy on port 80.
+	out := GenerateDynamic(RouteGroup{
+		AppUUID: "app-p", Noindex: true,
+		Routes: []Route{{FQDN: "app.example.com", Path: "/", TargetPort: 80}},
+	}, 1)
+	webBlock := between(out, "    app-p-r0-web:\n", "    app-p-r0:\n")
+	if !strings.Contains(webBlock, "middlewares: [app-p-noindex]") {
+		t.Fatalf("http router serves without noindex:\n%s", webBlock)
+	}
+	assertValidYAML(t, out)
+}
+
+func TestWithoutNoindexNothingIsEmitted(t *testing.T) {
+	out := GenerateDynamic(RouteGroup{
+		AppUUID: "app-q", ForceHTTPS: true,
+		Routes: []Route{{FQDN: "app.example.com", Path: "/", TargetPort: 80}},
+	}, 1)
+	if strings.Contains(out, "noindex") {
+		t.Fatalf("an application that never asked for it must stay indexable:\n%s", out)
+	}
+}
+
 func TestGenerateDynamicSSOCallbackIsUnprotected(t *testing.T) {
 	out := GenerateDynamic(RouteGroup{
 		AppUUID: "app-2",

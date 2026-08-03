@@ -370,6 +370,9 @@ func (h *DeploymentRun) newRun(ctx context.Context, d store.Deployment, jobID in
 		// Same routing default as an application's runtime_configs row: HTTP
 		// redirects to HTTPS unless the operator opts out.
 		app.RuntimeConfig.ForceHttps = true
+		// A stack keeps its search-engine setting on its own row; the rest of
+		// the routing pipeline only reads runtime_configs.
+		app.RuntimeConfig.Noindex = svc.Noindex
 	}
 	server, err := h.Store.GetServerByID(ctx, d.ServerID)
 	if err != nil {

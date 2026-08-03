@@ -102,7 +102,7 @@ Lifecycle: `proxy_desired_state` (`running`/`stopped`) and `proxy_observed_statu
 
 ### 2.1 Principles
 
-- The IR is **the** single generation source: Traefik (P0) and Caddy (P2) derive from it deterministically (ADR-009). No IR field is specific to one proxy, except the `provider_raw` escape hatch (§4.6).
+- The IR is **the** single generation source: Traefik (P0) and Caddy (P2) derive from it deterministically (ADR-009). No IR field is specific to one proxy, except the `provider_raw` escape hatch (§4.8).
 - A server's IR is built by the control plane from PostgreSQL (`servers`, `applications`, `domains`, `service_components`, `databases`, deployment snapshots) — never edited by hand.
 - **Canonical serialization**: JSON, sorted keys, no timestamp nor non-deterministic field. Two identical business states produce a byte-for-byte identical IR — the foundation of the checksum and of drift detection (§18.3).
 - **No secret value** in the IR: only references (`secret://…`), resolved at generation time into `0600` files on the server (INV-003).
@@ -150,7 +150,7 @@ routes:                          # one entry per `domains` row (fqdn, path) — 
       force: true                # force_https per application (PRD §4.3, default true)
       cert: { resolver: http01 } # { resolver: <name> } XOR { ref: <certificates §2.5> }
     redirect_direction: both     # both | www | non_www — "Direction" (PRD §4.2, §3.5)
-    middlewares: [auth, noindex] # refs to §2.4, application order defined in §4.8
+    middlewares: [auth, noindex] # refs to §2.4, application order defined in §4.9
 service:                         # single target — the switchover replaces this block (deployment-engine §7.2)
   endpoint_type: container_name  # container_name (stable form) | container_ip (transient form)
   endpoint: "9f3c2a1e-7b44-4c1d-9e2a-1f0b8c6d5a01"   # or "172.18.0.7" during switching
@@ -181,11 +181,11 @@ Notes:
   cidrs: ["203.0.113.0/24", "2001:db8::/48"]
 - name: noindex
   type: custom_headers
-  response: { X-Robots-Tag: "noindex" }
+  response: { X-Robots-Tag: "noindex, nofollow" }
   request: {}                      # headers added toward the backend
 - name: gzip
   type: compression
-- name: sablier                    # escape hatch, out of conformance scope (§4.6)
+- name: sablier                    # escape hatch, out of conformance scope (§4.8)
   type: provider_raw
   provider: traefik
   payload: { … }
@@ -268,7 +268,7 @@ The `domain:port` syntax (PRD §4.2) targets an **internal port** of the contain
 | `www` | The apex counterpart redirects `308` to `www.<fqdn>` (scheme and path preserved) |
 | `non_www` | `www.<fqdn>` redirects `308` to the apex |
 
-The counterpart is only generated if it does not collide with an existing `domains` row (the §3.3 uniqueness prevails; on conflict, the redirect is omitted and a validation warning is raised) **(proposed default)**. The HTTPS and www redirects are composed in the §4.8 order (HTTPS first: at most one visible redirect per request, to the final URL).
+The counterpart is only generated if it does not collide with an existing `domains` row (the §3.3 uniqueness prevails; on conflict, the redirect is omitted and a validation warning is raised) **(proposed default)**. The HTTPS and www redirects are composed in the §4.9 order (HTTPS first: at most one visible redirect per request, to the final URL).
 
 ---
 
@@ -297,13 +297,13 @@ The counterpart is only generated if it does not collide with an existing `domai
 For `kind: preview`, the control plane injects by default (according to `preview_protection`, default `basic_auth`):
 
 1. a `basic_auth` middleware (credentials generated per preview, preview variable set) — or **signed link** validation in P2;
-2. a `custom_headers` middleware with `X-Robots-Tag: noindex` — present **even if** `preview_protection = none` (public exposure remains unindexed) **(proposed default)**.
+2. a `custom_headers` middleware with `X-Robots-Tag: noindex, nofollow` — present **even if** `preview_protection = none` (public exposure remains unindexed) **(proposed default)**.
 
 `preview_protection = none` is an explicit per-application choice (§20.4.4).
 
 Per ADR-050, a protected preview inherits the application's
 `access_public_routes`, or each Compose service's own list. The public router
-omits only preview access protection: `X-Robots-Tag: noindex`, HTTPS and
+omits only preview access protection: `X-Robots-Tag: noindex, nofollow`, HTTPS and
 scale-to-zero wake-up remain active. There is no preview-specific exception
 list.
 
@@ -321,12 +321,36 @@ Every exception has an explicit non-empty HTTP method allow-list. Query strings 
 
 For each covered host/base route, the generator emits an HTTPS public router at `priority(base path) + 1` and omits only the access middleware. The `+1` wins over that route's protected router but remains below any descendant domain route, so an exception cannot shadow a more specific path owned by another resource on the same host. HTTPS redirect, scale-to-zero wake-up and every other applicable middleware remain active. The reserved SSO callback router uses priority `2,000,000`. When the policy is `none`, exception entries have no effect because the ordinary route is already public.
 
-### 4.7 Extensibility
+### 4.7 Search-engine visibility (`noindex`)
+
+A RouteGroup carries a `noindex` flag. When set, the generator emits the
+`custom_headers` middleware of §2.4 and attaches it to **every router that
+serves the resource**: the HTTPS routers, their narrow public exceptions
+(§4.6 — an exception drops the wall and nothing else), and the HTTP router
+when `force_https` is off, since that one serves instead of redirecting. A
+redirecting HTTP router is left bare: its `301` carries no content to keep out
+of an index.
+
+The flag is set:
+
+- **unconditionally on previews** (§4.5) — a preview is a copy of a site, and
+  an indexed copy competes with the original;
+- **per resource in production**, off by default: a production domain is often
+  a site whose ranking is the point. Applications carry it on
+  `runtime_configs.noindex`, inline Compose stacks on `services.noindex`; both
+  apply to every domain of the resource. Changing it regenerates the routing
+  file without a deployment, like `domains`.
+
+The control plane's own FQDN (§5.7) is out of scope here: it answers
+`X-Robots-Tag: noindex, nofollow` and a `Disallow: /` robots.txt from the
+control-plane process itself, so a direct-port instance is covered too.
+
+### 4.8 Extensibility
 
 - Adding a middleware type = extending the IR (new `type`, possible `ir_version` bump) **and** providing its mapping for every provider **and** its fixtures (§9). A type without a complete mapping is refused.
 - `type: provider_raw` escape hatch (ADR-009, "explicit extensions"): payload passed as-is to the named provider, **excluded from the conformance fixtures**, flagged in the UI as non-portable — a proxy switch reports it and ignores it.
 
-### 4.8 Application order (deterministic, proposed default)
+### 4.9 Application order (deterministic, proposed default)
 
 ```text
 force-https → www/non-www redirect → ip_whitelist → rate_limit → basic_auth → custom_headers → compression → provider_raw
@@ -502,7 +526,7 @@ http:
       rule: Host(`123.preview.example.com`) && PathPrefix(`/`)
       priority: 1
       middlewares:
-        - b2d15c78-90ab-4cde-8123-456789abcdef-pr-123-auth      # ip_whitelist → rate_limit → auth → headers (§4.8)
+        - b2d15c78-90ab-4cde-8123-456789abcdef-pr-123-auth      # ip_whitelist → rate_limit → auth → headers (§4.9)
         - b2d15c78-90ab-4cde-8123-456789abcdef-pr-123-noindex
       service: b2d15c78-90ab-4cde-8123-456789abcdef-pr-123
       tls:
@@ -525,7 +549,7 @@ http:
     b2d15c78-90ab-4cde-8123-456789abcdef-pr-123-noindex:
       headers:
         customResponseHeaders:
-          X-Robots-Tag: "noindex"
+          X-Robots-Tag: "noindex, nofollow"
   services:
     b2d15c78-90ab-4cde-8123-456789abcdef-pr-123:
       loadBalancer:
@@ -735,7 +759,7 @@ Two test levels, both mandatory for a provider to be conformant:
   expect:  { status: 401 }
 - name: "preview: authenticated, X-Robots-Tag present"
   request: { method: GET, url: "https://123.preview.example.com/", basic_auth: "preview:s3cret", insecure_tls: true }
-  expect:  { status: 200, headers: { X-Robots-Tag: "noindex" }, backend: "pr-123" }
+  expect:  { status: 200, headers: { X-Robots-Tag: "noindex, nofollow" }, backend: "pr-123" }
 - name: "TCP database"
   tcp:     { connect: "127.0.0.1:15432" }
   expect:  { connected: true, backend: "pg-echo" }
@@ -745,7 +769,7 @@ Two test levels, both mandatory for a provider to be conformant:
 
 ### 9.3 Minimal case set (P0)
 
-simple HTTP app; forced-HTTPS app; multi-domain + paths + `domain:port`; protected preview (auth + noindex) with inherited exact/template/prefix public exceptions; production access wall with the same exceptions and SSO callback; materialized `<uuid>.domain` wildcard; middlewares (rate limit 429, ip_whitelist 403 before auth — §4.8 order); custom certificate; self-signed fallback; TCP database; proxy ports 8080/8443; switchover (two sequential `ir.json`: transient IP then stable name — verifies that no request fails during the swap); routing removal (404 after `RemoveApp`).
+simple HTTP app; forced-HTTPS app; multi-domain + paths + `domain:port`; protected preview (auth + noindex) with inherited exact/template/prefix public exceptions; production access wall with the same exceptions and SSO callback; materialized `<uuid>.domain` wildcard; middlewares (rate limit 429, ip_whitelist 403 before auth — §4.9 order); custom certificate; self-signed fallback; TCP database; proxy ports 8080/8443; switchover (two sequential `ir.json`: transient IP then stable name — verifies that no request fails during the swap); routing removal (404 after `RemoveApp`).
 
 ---
 

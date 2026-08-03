@@ -1,1 +1,0 @@
-function d(e){return e.is_redacted?"":e.value??""}function i(e,a){let r={},t=d(e);return(e.is_redacted?a.value!=="":a.value!==t)&&(r.value=a.value),a.secret!==e.is_secret&&(r.is_secret=a.secret),r.value===void 0&&r.is_secret===void 0?null:r}export{d as a,i as b};

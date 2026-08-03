@@ -818,6 +818,7 @@ Runtime configuration of an application (§5.3), 1—1. Deletion: **CASCADE** wi
 | `cpu_shares` | `integer` | yes | — | CHECK `> 0` | no | — |
 | `force_https` | `boolean` | no | `true` | — | no | Per-application HTTPS redirect (§4.3). |
 | `redirect_direction` | `redirect_direction` | no | `'both'` | — | no | www / non-www (§4.2). |
+| `noindex` | `boolean` | no | `false` | — | no | `X-Robots-Tag: noindex, nofollow` on every domain of the application (proxy-contract §4.7). |
 | `created_at` | `timestamptz` | no | `now()` | — | no | — |
 | `updated_at` | `timestamptz` | no | `now()` | — | no | — |
 
@@ -989,6 +990,7 @@ Hash-only browser grants for preview SSO and production resource access walls (A
 | `template_version` | `text` | yes | — | — | no | Catalog version at instantiation (versioned/signed catalog, §27.10). |
 | `template_repository` | `text` | yes | — | — | no | Original template repository (official or team repository, §27.10). |
 | `connect_to_predefined_network` | `boolean` | no | `false` | — | no | Inter-stack communication (§9). |
+| `noindex` | `boolean` | no | `false` | — | no | `X-Robots-Tag: noindex, nofollow` on every routed component (proxy-contract §4.7). |
 | `access_protection` | `preview_protection` | no | `'none'` | — | no | Production access wall for the whole inline stack resource: `none`, `basic_auth` or `sso` (ADR-049). |
 | `access_basic_auth_enc` | `bytea` | yes | — | — | **yes** | Stack `user:password`, envelope-encrypted; the proxy receives only a bcrypt hash. |
 | `created_at` | `timestamptz` | no | `now()` | — | no | — |

@@ -1051,6 +1051,7 @@ type Querier interface {
 	// pushed Docker event, scoped to the resource's server. No-op when the state
 	// is unchanged, so at-least-once delivery stays idempotent.
 	SetServiceComponentObservedByName(ctx context.Context, arg SetServiceComponentObservedByNameParams) (int64, error)
+	SetServiceNoindex(ctx context.Context, arg SetServiceNoindexParams) error
 	// Moves a live session into another team (PRD §37). Revoked sessions are not
 	// matched: nothing may be done through a session that is already dead.
 	SetSessionCurrentTeam(ctx context.Context, arg SetSessionCurrentTeamParams) (int64, error)
