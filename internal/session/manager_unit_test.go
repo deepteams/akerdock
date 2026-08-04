@@ -328,9 +328,20 @@ func TestPermissionsForEveryRole(t *testing.T) {
 		}
 	}
 
-	// reviewer sees PR previews and nothing else.
-	if !reflect.DeepEqual(reviewer, []string{"previews:read"}) {
-		t.Errorf("reviewer = %v, want just [previews:read]", reviewer)
+	// reviewer sees PR previews plus the read-only path to them (ADR-059):
+	// projects → environments → applications → previews. Nothing more — no
+	// writes, no deploys, no secrets, no logs, no infrastructure.
+	wantReviewer := []string{"projects:read", "environments:read", "applications:read", "previews:read"}
+	if !reflect.DeepEqual(reviewer, wantReviewer) {
+		t.Errorf("reviewer = %v, want %v", reviewer, wantReviewer)
+	}
+	// Every reviewer permission is a read; the expanded set grants no socle
+	// beyond `read` either.
+	for _, p := range auth.ExpandGranular(reviewer) {
+		if p == "read" || strings.HasSuffix(p, ":read") {
+			continue
+		}
+		t.Errorf("reviewer holds non-read permission %q", p)
 	}
 }
 

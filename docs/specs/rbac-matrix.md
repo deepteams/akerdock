@@ -195,7 +195,7 @@ Domain families:
 | 53 | `deployments:read` | History, detail, build logs (SSE) | `read` |
 | 54 | `deployments:cancel` | Cancel an in-progress deployment | `deploy` |
 | 70 | `jobs:manage` | Retry/forget dead-letter jobs (audited manual action, §21.3, deployment-engine §2.4) | `write` |
-| 75 | `previews:read` | See the PR previews and their status — the whole of the `reviewer` role (ADR-038) | `read` |
+| 75 | `previews:read` | See the PR previews and their status — the heart of the `reviewer` role (ADR-038, path widened by ADR-059) | `read` |
 | 55 | `previews:manage` | Manage previews, approve a fork PR (§20.4.8) | `write` |
 | 56 | `templates:manage` | Register/sync template repos (§27.10) | `write` |
 | 57 | `terminal:open` | Open a container/server terminal (non-root) | `write` |
@@ -247,7 +247,7 @@ Domain families:
 | `applications:deploy` | deploy | ● | ● | ○ |
 | `applications:exec` | deploy | ● | ● | ○ |
 | `applications:lifecycle` | deploy | ● | ● | ○ |
-| `applications:read` | read | ● | ● | ○ |
+| `applications:read` | read | ● | ● | ● |
 | `applications:update` | write | ● | ● | ○ |
 | `audit:read` | read | ● | ● | ○ |
 | `backups:manage` | write | ● | ● | ○ |
@@ -269,7 +269,7 @@ Domain families:
 | `deployments:read` | read | ● | ● | ○ |
 | `environments:deploy` | deploy | ● | ○ | ○ |
 | `environments:manage` | write | ● | ● | ○ |
-| `environments:read` | read | ● | ● | ○ |
+| `environments:read` | read | ● | ● | ● |
 | `external-endpoints:manage` | write | ● | ○ | ○ |
 | `external-endpoints:read` | read | ● | ● | ○ |
 | `instance:audit` | root | ○ | ○ | ○ |
@@ -291,7 +291,7 @@ Domain families:
 | `previews:manage` | write | ● | ● | ○ |
 | `previews:read` | read | ● | ● | ● |
 | `projects:manage` | write | ● | ● | ○ |
-| `projects:read` | read | ● | ● | ○ |
+| `projects:read` | read | ● | ● | ● |
 | `registries:manage` | write | ● | ● | ○ |
 | `resources:adopt` | write | ● | ● | ○ |
 | `resources:read` | read | ● | ● | ○ |
@@ -332,8 +332,11 @@ Domain families:
 >   `secrets:reveal`, `databases:read` without `databases:credentials`, `keys:read` without
 >   `keys:reveal`: setting a value is a configuration act, reading one back is exfiltration
 >   of a secret, and INV-003 separates the two. This surprises people; it is deliberate.
-> - **reviewer** holds exactly one permission, `previews:read`. It is not a "read-only
->   member" — someone reviewing a pull request has no business listing the team's databases.
+> - **reviewer** holds four permissions (ADR-059): `previews:read` plus the read-only path
+>   to reach it — `projects:read`, `environments:read`, `applications:read` (previews are
+>   only addressable per application, and the original one-permission set left the role
+>   unable to discover any UUID). It is still not a "read-only member" — someone reviewing
+>   a pull request has no business listing the team's databases, deployments or servers.
 >   A read-only profile broader than that is a **custom role**, which is what custom roles
 >   are for.
 > - **`environments:deploy` is admin-only**, while `applications:deploy` is granted to
@@ -576,7 +579,8 @@ diff (§23.4).
 ### 6.4 Each system role × each endpoint family
 - `admin`, `member`, `reviewer` tested on each family (applications, databases, services,
   secrets, servers, keys, backups, terminal, deployments, cloud, config).
-- **reviewer**: everything except `previews:read` → `403`/`404`. It is not a read-only
+- **reviewer**: everything except its four reads (`projects:read`, `environments:read`,
+  `applications:read`, `previews:read` — ADR-059) → `403`/`404`. It is not a read-only
   member, and a test that only checks "cannot mutate" would miss the point.
 - **member**: `servers:manage`, `keys:manage`, `cloud:*`, `terminal:root`, `members:manage`,
   `roles:manage`, `tokens:create`, `jobs:manage`, `config:*` → `403`.
@@ -671,7 +675,8 @@ diff (§23.4).
 - **78 granular permissions** defined (`domain:action`), of which 75 for the team role model
   and 3 exclusively `instance:*` (instance root). §1.2 and §2 are kept in step with
   `internal/auth/permissions.go`, which is the catalogue in code.
-- **3 immutable system roles**: `admin`, `member`, `reviewer` (previews only) + custom roles
+- **3 immutable system roles**: `admin`, `member`, `reviewer` (previews plus the read-only
+  path to them — ADR-059) + custom roles
   composable by team admins (ADR-038, replacing ADR-007's owner/developer/viewer).
 - **One role per member per team**, applying to every project of that team; **implicit deny**;
   the team is the only isolation boundary (§23.1). Per-project scoping was built and withdrawn

@@ -113,13 +113,15 @@ type TabId =
         @if (serverName(); as server) {
           <span class="akd-badge akd-badge--mono">{{ server }}</span>
         }
-        <div class="actions">
-          <akd-actions-menu
-            [items]="actions()"
-            [disabled]="busy()"
-            (selected)="run($any($event))"
-          />
-        </div>
+        @if (canAct()) {
+          <div class="actions">
+            <akd-actions-menu
+              [items]="actions()"
+              [disabled]="busy()"
+              (selected)="run($any($event))"
+            />
+          </div>
+        }
       }
     </header>
 
@@ -128,7 +130,7 @@ type TabId =
     }
 
     <nav class="akd-tabs" role="tablist" aria-label="Application sections">
-      @for (t of tabs; track t.id) {
+      @for (t of tabs(); track t.id) {
         <button
           type="button"
           class="akd-tab"
@@ -277,19 +279,31 @@ export class ApplicationDetailComponent {
 
   private readonly api = inject(ApiService);
 
-  protected readonly tabs: readonly { id: TabId; label: string }[] = [
+  /**
+   * Each tab names the permission it is useless without — the permission of
+   * its primary read, or of the act a management tab exists for. A reviewer
+   * (ADR-059) is left with Overview and Previews; the server refuses the rest
+   * anyway, so hiding them is honesty, not security.
+   */
+  private readonly allTabs: readonly { id: TabId; label: string; permission?: string }[] = [
     { id: 'overview', label: 'Overview' },
-    { id: 'settings', label: 'Settings' },
-    { id: 'envs', label: 'Environment variables' },
-    { id: 'storages', label: 'Storages' },
-    { id: 'tasks', label: 'Scheduled tasks' },
-    { id: 'deployments', label: 'Deployments' },
-    { id: 'logs', label: 'Logs' },
-    { id: 'previews', label: 'Previews' },
-    { id: 'terminal', label: 'Terminal' },
-    { id: 'webhook', label: 'Webhook' },
-    { id: 'danger', label: 'Danger' },
+    { id: 'settings', label: 'Settings', permission: 'applications:update' },
+    { id: 'envs', label: 'Environment variables', permission: 'secrets:read' },
+    { id: 'storages', label: 'Storages', permission: 'storages:manage' },
+    { id: 'tasks', label: 'Scheduled tasks', permission: 'applications:update' },
+    { id: 'deployments', label: 'Deployments', permission: 'deployments:read' },
+    { id: 'logs', label: 'Logs', permission: 'logs:read' },
+    { id: 'previews', label: 'Previews', permission: 'previews:read' },
+    { id: 'terminal', label: 'Terminal', permission: 'terminal:open' },
+    { id: 'webhook', label: 'Webhook', permission: 'applications:update' },
+    { id: 'danger', label: 'Danger', permission: 'applications:delete' },
   ];
+  protected readonly tabs = computed(() =>
+    this.allTabs.filter((t) => !t.permission || this.api.can(t.permission)),
+  );
+  protected readonly canAct = computed(
+    () => this.api.can('applications:deploy') || this.api.can('applications:lifecycle'),
+  );
   protected readonly tab = signal<TabId>('overview');
   /** The active tab lives in the URL (?tab=…): a refresh keeps it, and
    * back/forward walk the tabs — withComponentInputBinding feeds this input
@@ -419,8 +433,8 @@ export class ApplicationDetailComponent {
     // navigation history is the source of truth for which tab is open.
     effect(() => {
       const wanted = this.tabParam();
-      const valid = this.tabs.find((t) => t.id === wanted)?.id;
-      this.tab.set(valid ?? this.tabs[0].id);
+      const valid = this.tabs().find((t) => t.id === wanted)?.id;
+      this.tab.set(valid ?? 'overview');
     });
     // The uuid is a route input: it is not readable before the router binds it,
     // so the initial load waits for the effect rather than the constructor.
@@ -449,7 +463,7 @@ export class ApplicationDetailComponent {
       const uuid = this.uuid();
       const app = this.application();
       const hasPanel = this.single() ? !!app : this.components().length > 0;
-      if (this.tab() !== 'overview' || !hasPanel) {
+      if (this.tab() !== 'overview' || !hasPanel || !this.api.can('metrics:read')) {
         this.metrics.set({});
         return;
       }
@@ -481,14 +495,18 @@ export class ApplicationDetailComponent {
   private async load(uuid: string): Promise<void> {
     const client = this.api.client();
     try {
-      const [app, page, comps] = await Promise.all([
+      const [app, deployments, comps] = await Promise.all([
         client.getApplication(uuid),
-        client.listApplicationDeployments(uuid, { limit: 20 }),
+        // A role without deployments:read (reviewer, ADR-059) must still open
+        // the page — the list stays empty rather than sinking the whole load.
+        this.api.can('deployments:read')
+          ? client.listApplicationDeployments(uuid, { limit: 20 }).then((page) => page.data)
+          : Promise.resolve<Deployment[]>([]),
         client.listApplicationComponents(uuid),
       ]);
       this.application.set(app);
       this.components.set(comps.data);
-      this.deployments.set(page.data);
+      this.deployments.set(deployments);
       void this.loadServerName(app.server_uuid);
     } catch (err) {
       this.error.set(ApiService.describe(err));
@@ -512,14 +530,19 @@ export class ApplicationDetailComponent {
 
   private async refreshDeployments(): Promise<void> {
     try {
-      const [app, page, comps] = await Promise.all([
+      const [app, deployments, comps] = await Promise.all([
         this.api.client().getApplication(this.uuid()),
-        this.api.client().listApplicationDeployments(this.uuid(), { limit: 20 }),
+        this.api.can('deployments:read')
+          ? this.api
+              .client()
+              .listApplicationDeployments(this.uuid(), { limit: 20 })
+              .then((page) => page.data)
+          : Promise.resolve<Deployment[]>([]),
         this.api.client().listApplicationComponents(this.uuid()),
       ]);
       this.application.set(app);
       this.components.set(comps.data);
-      this.deployments.set(page.data);
+      this.deployments.set(deployments);
     } catch {
       // A failed refresh must not wipe what is already on screen.
     }

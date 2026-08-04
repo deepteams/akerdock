@@ -19,10 +19,12 @@ type Application = components['schemas']['Application'];
     <div class="akd-page">
       <header class="akd-bar">
         <h1>Applications</h1>
-        <a class="akd-btn akd-btn--primary" routerLink="/applications/new">
-          <akd-icon name="plus" [size]="15" />
-          New application
-        </a>
+        @if (api.can('applications:create')) {
+          <a class="akd-btn akd-btn--primary" routerLink="/applications/new">
+            <akd-icon name="plus" [size]="15" />
+            New application
+          </a>
+        }
       </header>
 
       @if (error(); as message) {
@@ -37,10 +39,12 @@ type Application = components['schemas']['Application'];
           title="No applications yet"
           message="Deploy from a Docker image, an inline Dockerfile, or a Git repository."
         >
-          <a class="akd-btn akd-btn--primary" routerLink="/applications/new">
-            <akd-icon name="plus" [size]="15" />
-            Create your first application
-          </a>
+          @if (api.can('applications:create')) {
+            <a class="akd-btn akd-btn--primary" routerLink="/applications/new">
+              <akd-icon name="plus" [size]="15" />
+              Create your first application
+            </a>
+          }
         </akd-empty-state>
       } @else {
         <akd-card [padded]="false">
@@ -91,15 +95,17 @@ type Application = components['schemas']['Application'];
                     <akd-status-badge domain="resource" [state]="app.observed_status" />
                   </td>
                   <td class="right" (click)="$event.stopPropagation()">
-                    <button
-                      class="akd-btn akd-btn--secondary akd-btn--sm"
-                      type="button"
-                      [disabled]="deploying() === app.uuid"
-                      (click)="deploy(app)"
-                    >
-                      <akd-icon name="rocket" [size]="13" />
-                      {{ deploying() === app.uuid ? 'Queued…' : 'Deploy' }}
-                    </button>
+                    @if (api.can('applications:deploy')) {
+                      <button
+                        class="akd-btn akd-btn--secondary akd-btn--sm"
+                        type="button"
+                        [disabled]="deploying() === app.uuid"
+                        (click)="deploy(app)"
+                      >
+                        <akd-icon name="rocket" [size]="13" />
+                        {{ deploying() === app.uuid ? 'Queued…' : 'Deploy' }}
+                      </button>
+                    }
                   </td>
                 </tr>
               }
@@ -121,7 +127,7 @@ type Application = components['schemas']['Application'];
   ],
 })
 export class ApplicationsComponent {
-  private readonly api = inject(ApiService);
+  protected readonly api = inject(ApiService);
   private readonly router = inject(Router);
 
   protected readonly applications = signal<Application[]>([]);

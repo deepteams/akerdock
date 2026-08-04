@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted — **supersedes the "roles" part of [ADR-007](ADR-007-fine-grained-rbac-project-environment.md)**
+Accepted — the `reviewer` permission set is **amended by
+[ADR-059](ADR-059-reviewer-inventory-read-access.md)** (read-only path to previews);
+the rest stands. **Supersedes the "roles" part of [ADR-007](ADR-007-fine-grained-rbac-project-environment.md)**
 (the set of system roles and the degree of granularity) and updates
 [rbac-matrix.md](../specs/rbac-matrix.md) (§2, §3) accordingly. The rest of
 ADR-007 (permissions carried by the Identity, most-specific scope,

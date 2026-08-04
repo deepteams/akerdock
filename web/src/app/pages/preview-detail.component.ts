@@ -136,7 +136,7 @@ function browsableRepo(raw: string | null | undefined): string {
             <span class="akd-badge akd-badge--mono">{{ sha.slice(0, 8) }}</span>
           }
         }
-        @if (p.status !== 'destroyed' && p.status !== 'destroying') {
+        @if (canManage() && p.status !== 'destroyed' && p.status !== 'destroying') {
           <button
             class="akd-btn akd-btn--secondary akd-btn--sm"
             type="button"
@@ -167,7 +167,7 @@ function browsableRepo(raw: string | null | undefined): string {
     }
 
     <nav class="akd-tabs" role="tablist" aria-label="Preview sections">
-      @for (t of tabs; track t.id) {
+      @for (t of tabs(); track t.id) {
         <button
           type="button"
           class="akd-tab"
@@ -517,14 +517,27 @@ export class PreviewDetailComponent {
   private readonly confirm = inject(ConfirmService);
   private readonly router = inject(Router);
 
-  protected readonly tabs: readonly { id: TabId; label: string }[] = [
+  /**
+   * Each tab names the permission it is useless without. Logs and storages ride
+   * on the permissions that already open this page (previews:read covers the
+   * preview's logs by contract); a reviewer (ADR-059) loses the shell, the
+   * variables and the danger zone.
+   */
+  private readonly allTabs: readonly { id: TabId; label: string; permission?: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'logs', label: 'Logs' },
-    { id: 'terminal', label: 'Terminal' },
-    { id: 'envs', label: 'Environment variables' },
+    { id: 'terminal', label: 'Terminal', permission: 'terminal:open' },
+    { id: 'envs', label: 'Environment variables', permission: 'secrets:read' },
     { id: 'storages', label: 'Storages' },
-    { id: 'danger', label: 'Danger' },
+    { id: 'danger', label: 'Danger', permission: 'previews:manage' },
   ];
+  protected readonly tabs = computed(() =>
+    this.allTabs.filter((t) => !t.permission || this.api.can(t.permission)),
+  );
+  /** Keep-alive, redeploy and destroy stay with previews:manage. */
+  protected canManage(): boolean {
+    return this.api.can('previews:manage');
+  }
   protected readonly tab = signal<TabId>('overview');
   /** The active tab lives in the URL (?tab=…): a refresh keeps it, and
    * back/forward walk the tabs — withComponentInputBinding feeds this input
@@ -628,8 +641,8 @@ export class PreviewDetailComponent {
     // navigation history is the source of truth for which tab is open.
     effect(() => {
       const wanted = this.tabParam();
-      const valid = this.tabs.find((t) => t.id === wanted)?.id;
-      this.tab.set(valid ?? this.tabs[0].id);
+      const valid = this.tabs().find((t) => t.id === wanted)?.id;
+      this.tab.set(valid ?? 'overview');
     });
     effect(() => {
       const app = this.uuid();

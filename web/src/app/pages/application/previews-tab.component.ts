@@ -21,10 +21,16 @@ import { DEPLOYMENT_EVENTS, LiveEventsService, PREVIEW_EVENTS } from '../../core
 import type { components } from '../../../api/schema';
 
 type Preview = components['schemas']['Preview'];
-type PullRequestInfo =
-  components['schemas'] extends never
-    ? never
-    : { number: number; title: string; branch: string; head_sha: string; is_fork: boolean; draft?: boolean };
+type PullRequestInfo = components['schemas'] extends never
+  ? never
+  : {
+      number: number;
+      title: string;
+      branch: string;
+      head_sha: string;
+      is_fork: boolean;
+      draft?: boolean;
+    };
 
 /**
  * PR previews (§20.4): one ephemeral instance per pull request, protected by
@@ -49,19 +55,21 @@ type PullRequestInfo =
       <p class="akd-error" role="alert">{{ message }}</p>
     }
 
-    <div class="actions-bar">
-      <!-- The platform-side /deploy (§20.4.7): pick any open PR of the
-           repository and give it an instance, without leaving the page. -->
-      <button
-        class="akd-btn akd-btn--primary akd-btn--sm"
-        type="button"
-        [disabled]="busy()"
-        (click)="openDeployModal()"
-      >
-        <akd-icon name="rocket" [size]="14" />
-        Deploy a PR
-      </button>
-    </div>
+    @if (canManage()) {
+      <div class="actions-bar">
+        <!-- The platform-side /deploy (§20.4.7): pick any open PR of the
+             repository and give it an instance, without leaving the page. -->
+        <button
+          class="akd-btn akd-btn--primary akd-btn--sm"
+          type="button"
+          [disabled]="busy()"
+          (click)="openDeployModal()"
+        >
+          <akd-icon name="rocket" [size]="14" />
+          Deploy a PR
+        </button>
+      </div>
+    }
 
     @if (loading()) {
       <p class="akd-muted">Loading…</p>
@@ -138,7 +146,7 @@ type PullRequestInfo =
                   }
                 </td>
                 <td class="right" (click)="$event.stopPropagation()">
-                  @if (awaitingDeploy(p) && !p.is_fork && p.pr_id) {
+                  @if (canManage() && awaitingDeploy(p) && !p.is_fork && p.pr_id) {
                     <button
                       class="akd-btn akd-btn--primary akd-btn--sm"
                       type="button"
@@ -154,7 +162,7 @@ type PullRequestInfo =
                   >
                     Details
                   </a>
-                  @if (p.is_fork && !p.fork_approved && p.status !== 'destroyed') {
+                  @if (canManage() && p.is_fork && !p.fork_approved && p.status !== 'destroyed') {
                     <button
                       class="akd-btn akd-btn--primary akd-btn--sm"
                       type="button"
@@ -172,7 +180,11 @@ type PullRequestInfo =
       </akd-card>
     }
 
-    <akd-modal [open]="deployOpen()" title="Deploy a pull request preview" (closed)="deployOpen.set(false)">
+    <akd-modal
+      [open]="deployOpen()"
+      title="Deploy a pull request preview"
+      (closed)="deployOpen.set(false)"
+    >
       <div class="modal-body">
         <input
           class="akd-input"
@@ -278,6 +290,12 @@ export class ApplicationPreviewsTabComponent implements OnDestroy {
       !p.deploy_requested_at &&
       !p.last_deployed_at
     );
+  }
+
+  /** A reviewer (ADR-059) reads previews and follows their links; deploying a
+   * PR and approving a fork stay with previews:manage. */
+  protected canManage(): boolean {
+    return this.api.can('previews:manage');
   }
 
   protected readonly previews = signal<Preview[]>([]);

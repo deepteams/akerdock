@@ -83,35 +83,37 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
           </h1>
         </div>
 
-        <div class="newres">
-          <button
-            class="akd-btn akd-btn--primary"
-            type="button"
-            (click)="menu.set(!menu())"
-            [attr.aria-expanded]="menu()"
-          >
-            <akd-icon name="plus" [size]="15" />
-            New resource
-            <akd-icon name="chevron-down" [size]="13" />
-          </button>
-          @if (menu()) {
-            <div class="newres__menu" role="menu">
-              @for (option of newResourceOptions; track option.title) {
-                <button
-                  class="akd-sidenav__item newres__item"
-                  role="menuitem"
-                  (click)="create(option)"
-                >
-                  <span class="newres__icon"><akd-icon [name]="option.icon" [size]="15" /></span>
-                  <span class="newres__text">
-                    <span class="newres__title">{{ option.title }}</span>
-                    <span class="newres__desc">{{ option.desc }}</span>
-                  </span>
-                </button>
-              }
-            </div>
-          }
-        </div>
+        @if (canCreate()) {
+          <div class="newres">
+            <button
+              class="akd-btn akd-btn--primary"
+              type="button"
+              (click)="menu.set(!menu())"
+              [attr.aria-expanded]="menu()"
+            >
+              <akd-icon name="plus" [size]="15" />
+              New resource
+              <akd-icon name="chevron-down" [size]="13" />
+            </button>
+            @if (menu()) {
+              <div class="newres__menu" role="menu">
+                @for (option of newResourceOptions; track option.title) {
+                  <button
+                    class="akd-sidenav__item newres__item"
+                    role="menuitem"
+                    (click)="create(option)"
+                  >
+                    <span class="newres__icon"><akd-icon [name]="option.icon" [size]="15" /></span>
+                    <span class="newres__text">
+                      <span class="newres__title">{{ option.title }}</span>
+                      <span class="newres__desc">{{ option.desc }}</span>
+                    </span>
+                  </button>
+                }
+              </div>
+            }
+          </div>
+        }
       </header>
 
       <nav class="akd-tabs" role="tablist" aria-label="Environment sections">
@@ -125,26 +127,30 @@ const KIND_ICON: Record<ResourceRow['kind'], string> = {
         >
           Resources
         </button>
-        <button
-          type="button"
-          class="akd-tab"
-          role="tab"
-          [class.akd-tab--active]="active() === 'variables'"
-          [attr.aria-selected]="active() === 'variables'"
-          (click)="active.set('variables')"
-        >
-          Variables
-        </button>
-        <button
-          type="button"
-          class="akd-tab"
-          role="tab"
-          [class.akd-tab--active]="active() === 'config'"
-          [attr.aria-selected]="active() === 'config'"
-          (click)="active.set('config')"
-        >
-          Config
-        </button>
+        @if (api.can('secrets:read')) {
+          <button
+            type="button"
+            class="akd-tab"
+            role="tab"
+            [class.akd-tab--active]="active() === 'variables'"
+            [attr.aria-selected]="active() === 'variables'"
+            (click)="active.set('variables')"
+          >
+            Variables
+          </button>
+        }
+        @if (api.can('environments:manage')) {
+          <button
+            type="button"
+            class="akd-tab"
+            role="tab"
+            [class.akd-tab--active]="active() === 'config'"
+            [attr.aria-selected]="active() === 'config'"
+            (click)="active.set('config')"
+          >
+            Config
+          </button>
+        }
       </nav>
 
       @if (error(); as message) {
@@ -393,9 +399,18 @@ export class EnvironmentDetailComponent {
   readonly uuid = input.required<string>();
   readonly envUuid = input.required<string>();
 
-  private readonly api = inject(ApiService);
+  protected readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly confirm = inject(ConfirmService);
+
+  /** The create menu offers three resource kinds; one grantable act suffices. */
+  protected canCreate(): boolean {
+    return (
+      this.api.can('applications:create') ||
+      this.api.can('services:manage') ||
+      this.api.can('databases:create')
+    );
+  }
 
   protected readonly project = signal<Project | null>(null);
   protected readonly environment = signal<Environment | null>(null);
@@ -457,16 +472,25 @@ export class EnvironmentDetailComponent {
     this.loading.set(true);
     this.error.set(null);
     try {
+      // A role may hold only part of the resource reads (reviewer: applications
+      // without services or databases, ADR-059) — the kinds it cannot list are
+      // simply absent from the table instead of sinking the whole page.
       const [project, environment, apps, services, databases] = await Promise.all([
         this.api.client().getProject(uuid),
         this.api.client().getEnvironment(uuid, envUuid),
-        fetchAll((cursor) =>
-          this.api.client().listApplications({ environment_uuid: envUuid, limit: 100, cursor }),
-        ),
-        fetchAll((cursor) => this.api.client().listServices({ limit: 100, cursor })),
-        fetchAll((cursor) =>
-          this.api.client().listDatabases({ environment_uuid: envUuid, limit: 100, cursor }),
-        ),
+        this.api.can('applications:read')
+          ? fetchAll((cursor) =>
+              this.api.client().listApplications({ environment_uuid: envUuid, limit: 100, cursor }),
+            )
+          : [],
+        this.api.can('services:read')
+          ? fetchAll((cursor) => this.api.client().listServices({ limit: 100, cursor }))
+          : [],
+        this.api.can('databases:read')
+          ? fetchAll((cursor) =>
+              this.api.client().listDatabases({ environment_uuid: envUuid, limit: 100, cursor }),
+            )
+          : [],
       ]);
       this.project.set(project);
       this.environment.set(environment);

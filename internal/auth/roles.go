@@ -14,6 +14,16 @@ import "github.com/deepteams/akerdock/internal/store"
 // infrastructure (servers/keys/cloud), instance settings, or root-shell access.
 // Closure adds the `:read` prerequisites, so only the acting permissions are
 // listed here.
+// reviewerPermissions is the granular set of the team `reviewer` role: the PR
+// previews it exists for (ADR-038), plus the inventory reads needed to REACH
+// them — projects → environments → applications → previews — and the
+// application's public URL on the way (ADR-059). Read-only by construction:
+// nothing here mutates, deploys, or reveals secrets/logs/infrastructure.
+var reviewerPermissions = []string{
+	string(PermProjectsRead), string(PermEnvironmentsRead),
+	string(PermApplicationsRead), string(PermPreviewsRead),
+}
+
 var memberPermissions = []string{
 	string(PermTeamRead), string(PermMembersRead),
 	string(PermProjectsRead), string(PermProjectsManage),
@@ -56,8 +66,8 @@ func PermissionsForRole(role store.TeamRole) []string {
 		// powerless.
 		return TeamAdminPermissions()
 	case store.TeamRoleReviewer:
-		// reviewer sees only PR previews — nothing else (ADR-038).
-		return []string{string(PermPreviewsRead)}
+		// reviewer sees PR previews and the read-only path to them (ADR-059).
+		return reviewerPermissions
 	case store.TeamRoleNone:
 		// Legacy value (ADR-046, withdrawn by ADR-047): 00082 moved every member
 		// off it, but a row could survive a partial migration and must not be

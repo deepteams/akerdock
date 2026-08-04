@@ -20,15 +20,17 @@ type Project = components['schemas']['Project'];
     <div class="akd-page">
       <header class="akd-bar">
         <h1>Projects</h1>
-        @if (creating()) {
-          <button class="akd-btn akd-btn--ghost" type="button" (click)="creating.set(false)">
-            Cancel
-          </button>
-        } @else {
-          <button class="akd-btn akd-btn--primary" type="button" (click)="creating.set(true)">
-            <akd-icon name="plus" [size]="15" />
-            New project
-          </button>
+        @if (api.can('projects:manage')) {
+          @if (creating()) {
+            <button class="akd-btn akd-btn--ghost" type="button" (click)="creating.set(false)">
+              Cancel
+            </button>
+          } @else {
+            <button class="akd-btn akd-btn--primary" type="button" (click)="creating.set(true)">
+              <akd-icon name="plus" [size]="15" />
+              New project
+            </button>
+          }
         }
       </header>
 
@@ -84,7 +86,7 @@ type Project = components['schemas']['Project'];
           title="No projects yet"
           message="A project groups environments; environments hold the resources."
         >
-          @if (!creating()) {
+          @if (api.can('projects:manage') && !creating()) {
             <button class="akd-btn akd-btn--primary" type="button" (click)="creating.set(true)">
               <akd-icon name="plus" [size]="15" />
               New project
@@ -101,15 +103,17 @@ type Project = components['schemas']['Project'];
                   {{ project.name }}
                 </a>
                 <span class="spacer"></span>
-                <button
-                  class="akd-iconbtn pcard__delete"
-                  type="button"
-                  [attr.aria-label]="'Delete project ' + project.name"
-                  [disabled]="busy()"
-                  (click)="remove(project)"
-                >
-                  <akd-icon name="trash-2" [size]="15" />
-                </button>
+                @if (api.can('projects:manage')) {
+                  <button
+                    class="akd-iconbtn pcard__delete"
+                    type="button"
+                    [attr.aria-label]="'Delete project ' + project.name"
+                    [disabled]="busy()"
+                    (click)="remove(project)"
+                  >
+                    <akd-icon name="trash-2" [size]="15" />
+                  </button>
+                }
               </div>
               <div class="pcard__desc akd-muted">{{ project.description || '—' }}</div>
               <div class="pcard__badges">
@@ -194,7 +198,7 @@ type Project = components['schemas']['Project'];
   ],
 })
 export class ProjectsComponent {
-  private readonly api = inject(ApiService);
+  protected readonly api = inject(ApiService);
   private readonly confirm = inject(ConfirmService);
 
   protected readonly projects = signal<Project[]>([]);

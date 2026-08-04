@@ -68,26 +68,30 @@ type Environment = components['schemas']['Environment'];
             <span class="akd-tab__count">{{ environments().length }}</span>
           }
         </button>
-        <button
-          type="button"
-          class="akd-tab"
-          role="tab"
-          [class.akd-tab--active]="active() === 'variables'"
-          [attr.aria-selected]="active() === 'variables'"
-          (click)="active.set('variables')"
-        >
-          Variables
-        </button>
-        <button
-          type="button"
-          class="akd-tab"
-          role="tab"
-          [class.akd-tab--active]="active() === 'config'"
-          [attr.aria-selected]="active() === 'config'"
-          (click)="active.set('config')"
-        >
-          Config
-        </button>
+        @if (api.can('secrets:read')) {
+          <button
+            type="button"
+            class="akd-tab"
+            role="tab"
+            [class.akd-tab--active]="active() === 'variables'"
+            [attr.aria-selected]="active() === 'variables'"
+            (click)="active.set('variables')"
+          >
+            Variables
+          </button>
+        }
+        @if (api.can('projects:manage')) {
+          <button
+            type="button"
+            class="akd-tab"
+            role="tab"
+            [class.akd-tab--active]="active() === 'config'"
+            [attr.aria-selected]="active() === 'config'"
+            (click)="active.set('config')"
+          >
+            Config
+          </button>
+        }
       </nav>
 
       @if (error(); as message) {
@@ -99,24 +103,26 @@ type Environment = components['schemas']['Environment'];
       } @else if (project(); as p) {
         @if (active() === 'environments') {
           <akd-card title="Environments" [padded]="false" class="section">
-            <form card-actions class="envform" (ngSubmit)="createEnvironment()">
-              <input
-                class="akd-input akd-input--mono"
-                name="envName"
-                placeholder="e.g. production, staging"
-                aria-label="New environment name"
-                [(ngModel)]="envName"
-                [disabled]="busy()"
-              />
-              <button
-                class="akd-btn akd-btn--primary akd-btn--sm"
-                type="submit"
-                [disabled]="busy() || !envName.trim()"
-              >
-                <akd-icon name="plus" [size]="14" />
-                Add
-              </button>
-            </form>
+            @if (api.can('environments:manage')) {
+              <form card-actions class="envform" (ngSubmit)="createEnvironment()">
+                <input
+                  class="akd-input akd-input--mono"
+                  name="envName"
+                  placeholder="e.g. production, staging"
+                  aria-label="New environment name"
+                  [(ngModel)]="envName"
+                  [disabled]="busy()"
+                />
+                <button
+                  class="akd-btn akd-btn--primary akd-btn--sm"
+                  type="submit"
+                  [disabled]="busy() || !envName.trim()"
+                >
+                  <akd-icon name="plus" [size]="14" />
+                  Add
+                </button>
+              </form>
+            }
 
             @if (environments().length === 0) {
               <akd-empty-state
@@ -192,24 +198,26 @@ type Environment = components['schemas']['Environment'];
                       </td>
                       <td class="right">
                         <div class="actions" (click)="$event.stopPropagation()">
-                          <button
-                            class="akd-iconbtn"
-                            type="button"
-                            [attr.aria-label]="'Rename environment ' + env.name"
-                            [disabled]="busy()"
-                            (click)="startRename(env)"
-                          >
-                            <akd-icon name="pencil" [size]="15" />
-                          </button>
-                          <button
-                            class="akd-iconbtn"
-                            type="button"
-                            [attr.aria-label]="'Delete environment ' + env.name"
-                            [disabled]="busy()"
-                            (click)="removeEnvironment(env)"
-                          >
-                            <akd-icon name="trash-2" [size]="15" />
-                          </button>
+                          @if (api.can('environments:manage')) {
+                            <button
+                              class="akd-iconbtn"
+                              type="button"
+                              [attr.aria-label]="'Rename environment ' + env.name"
+                              [disabled]="busy()"
+                              (click)="startRename(env)"
+                            >
+                              <akd-icon name="pencil" [size]="15" />
+                            </button>
+                            <button
+                              class="akd-iconbtn"
+                              type="button"
+                              [attr.aria-label]="'Delete environment ' + env.name"
+                              [disabled]="busy()"
+                              (click)="removeEnvironment(env)"
+                            >
+                              <akd-icon name="trash-2" [size]="15" />
+                            </button>
+                          }
                           <span class="chevron" aria-hidden="true">
                             <akd-icon name="chevron-right" [size]="15" />
                           </span>
@@ -379,7 +387,7 @@ export class ProjectDetailComponent {
   /** Bound from the route (`projects/:uuid`) by withComponentInputBinding. */
   readonly uuid = input.required<string>();
 
-  private readonly api = inject(ApiService);
+  protected readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly confirm = inject(ConfirmService);
 

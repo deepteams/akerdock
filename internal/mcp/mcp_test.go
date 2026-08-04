@@ -207,9 +207,16 @@ func TestRegisteredToolsFollowTeamRoles(t *testing.T) {
 		return resp.Result.(map[string]any)["tools"].([]Tool)
 	}
 
+	// reviewer holds the read-only path to previews (ADR-059): it discovers the
+	// project/application inventory tools — and nothing touching servers,
+	// databases or compose stacks.
 	reviewer := auth.ExpandGranular(auth.PermissionsForRole(store.TeamRoleReviewer))
-	if tools := list(reviewer); len(tools) != 0 {
-		t.Fatalf("reviewer discovered unrelated inventory tools: %+v", tools)
+	reviewerTools := list(reviewer)
+	if len(reviewerTools) != 3 ||
+		reviewerTools[0].Name != "list_projects" ||
+		reviewerTools[1].Name != "list_applications" ||
+		reviewerTools[2].Name != "get_application" {
+		t.Fatalf("reviewer tools = %+v", reviewerTools)
 	}
 
 	appOnly := auth.ExpandGranular([]string{string(auth.PermApplicationsRead)})
