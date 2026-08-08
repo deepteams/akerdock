@@ -66,6 +66,10 @@ type Options struct {
 	MaxPendingStreams int
 	// StreamQueueTimeout bounds that wait without changing the session timers.
 	StreamQueueTimeout time.Duration
+	// OnStreamWait observes admission latency and its outcome. It is invoked
+	// once for every OpenStream attempt, including immediate admission and
+	// queue refusal, so callers can distinguish throughput from hidden waits.
+	OnStreamWait func(time.Duration, error)
 	// OnHeartbeat persists liveness after a successful WebSocket ping. It is
 	// best-effort on storage errors (the caller returns true), but returning
 	// false means the durable session has already been closed and cuts the
@@ -131,7 +135,7 @@ func Bridge(ctx context.Context, conn Conn, dial Dialer, opts Options) EndReason
 	m := &mux{
 		conn:     conn,
 		dial:     dial,
-		streams:  map[uint32]net.Conn{},
+		streams:  map[uint32]*bridgeStream{},
 		activity: make(chan struct{}, 1),
 		max:      opts.MaxStreams,
 	}
@@ -185,9 +189,14 @@ type mux struct {
 	dial     Dialer
 	max      int
 	mu       sync.Mutex
-	streams  map[uint32]net.Conn
+	streams  map[uint32]*bridgeStream
 	writeMu  sync.Mutex
 	activity chan struct{}
+}
+
+type bridgeStream struct {
+	target net.Conn
+	inbox  *streamQueue
 }
 
 func (m *mux) touch() {
@@ -199,18 +208,25 @@ func (m *mux) touch() {
 
 func (m *mux) sendCtrl(ctx context.Context, c ctrl) error {
 	data, _ := json.Marshal(c)
-	m.writeMu.Lock()
-	defer m.writeMu.Unlock()
-	return m.conn.Write(ctx, MessageText, data)
+	return writeTunnelMessage(ctx, m.conn, &m.writeMu, MessageText, data)
 }
 
 func (m *mux) sendData(ctx context.Context, id uint32, p []byte) error {
 	frame := make([]byte, 4+len(p))
 	binary.BigEndian.PutUint32(frame, id)
 	copy(frame[4:], p)
-	m.writeMu.Lock()
-	defer m.writeMu.Unlock()
-	return m.conn.Write(ctx, MessageBinary, frame)
+	return writeTunnelMessage(ctx, m.conn, &m.writeMu, MessageBinary, frame)
+}
+
+type parallelWriteConn interface{ parallelWrites() }
+
+func writeTunnelMessage(ctx context.Context, conn Conn, writeMu *sync.Mutex, typ MessageType, data []byte) error {
+	if _, ok := conn.(parallelWriteConn); ok {
+		return conn.Write(ctx, typ, data)
+	}
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	return conn.Write(ctx, typ, data)
 }
 
 func (m *mux) readLoop(readCtx, workCtx context.Context, done chan<- EndReason) {
@@ -247,8 +263,9 @@ func (m *mux) readLoop(readCtx, workCtx context.Context, done chan<- EndReason) 
 				continue
 			}
 			id := binary.BigEndian.Uint32(data[:4])
-			if s := m.get(id); s != nil {
-				_, _ = s.Write(data[4:])
+			if s := m.get(id); s != nil && !s.inbox.enqueue(data[4:]) {
+				m.closeStream(id)
+				go func() { _ = m.sendCtrl(workCtx, ctrl{T: "close", ID: id}) }()
 			}
 		}
 	}
@@ -269,8 +286,14 @@ func (m *mux) openStream(ctx context.Context, id uint32) {
 		return
 	}
 	m.mu.Lock()
-	m.streams[id] = target
+	stream := &bridgeStream{target: target, inbox: newStreamQueue()}
+	m.streams[id] = stream
 	m.mu.Unlock()
+	go func() {
+		if err := stream.inbox.pump(target); err != nil {
+			m.closeStream(id)
+		}
+	}()
 	_ = m.sendCtrl(ctx, ctrl{T: "open_ok", ID: id})
 
 	// target → client, as binary frames tagged with the stream id.
@@ -296,7 +319,7 @@ func (m *mux) openStream(ctx context.Context, id uint32) {
 	}()
 }
 
-func (m *mux) get(id uint32) net.Conn {
+func (m *mux) get(id uint32) *bridgeStream {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.streams[id]
@@ -308,16 +331,19 @@ func (m *mux) closeStream(id uint32) {
 	delete(m.streams, id)
 	m.mu.Unlock()
 	if s != nil {
-		_ = s.Close()
+		s.inbox.close()
+		_ = s.target.Close()
 	}
 }
 
 func (m *mux) closeAll() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	for id, s := range m.streams {
-		_ = s.Close()
-		delete(m.streams, id)
+	streams := m.streams
+	m.streams = map[uint32]*bridgeStream{}
+	m.mu.Unlock()
+	for _, s := range streams {
+		s.inbox.close()
+		_ = s.target.Close()
 	}
 }
 

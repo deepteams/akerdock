@@ -386,8 +386,8 @@ func TestIngressClientConn(t *testing.T) {
 	defer func() { _ = clientWS.CloseNow() }()
 	server := <-serverConnCh
 
-	var reason string
-	cc := ingressClientConn{clientWS, &reason}
+	reason := &ingressCloseReason{}
+	cc := ingressClientConn{clientWS, reason}
 
 	// Both frame kinds cross the adapter in both directions.
 	if err := server.Write(ctx, websocket.MessageText, []byte("ctrl")); err != nil {
@@ -439,8 +439,8 @@ func TestIngressClientConn(t *testing.T) {
 	if res := <-clientRead; res.err != tun.ErrClientClosed {
 		t.Fatalf("err = %v, want ErrClientClosed", res.err)
 	}
-	if reason != "maintenance" {
-		t.Fatalf("reason = %q", reason)
+	if reason.get() != "maintenance" {
+		t.Fatalf("reason = %q", reason.get())
 	}
 }
 
@@ -459,15 +459,15 @@ func TestIngressClientConnNonCloseError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = clientWS.CloseNow() }()
-	var reason string
-	cc := ingressClientConn{clientWS, &reason}
+	reason := &ingressCloseReason{}
+	cc := ingressClientConn{clientWS, reason}
 	// A cancelled read is a transport error, not a close: no reason captured.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, _, err := cc.Read(ctx); err == nil || err == tun.ErrClientClosed {
 		t.Fatalf("err = %v", err)
 	}
-	if reason != "" {
-		t.Fatalf("reason = %q", reason)
+	if reason.get() != "" {
+		t.Fatalf("reason = %q", reason.get())
 	}
 }

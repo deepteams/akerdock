@@ -11,6 +11,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/hostops"
+	"github.com/deepteams/akerdock/internal/proxy"
 )
 
 // Serve runs the waker HTTP server on addr, forwarding for the routing table in
@@ -21,6 +22,13 @@ import (
 // outbound observations alongside — its failure modes never touch the wake
 // path.
 func Serve(ctx context.Context, dir, addr string, rt dockerruntime.Runtime, agentCfg Enrollment, logger *slog.Logger) error {
+	return ServeWithTelemetry(ctx, dir, addr, rt, agentCfg, logger, nil)
+}
+
+// ServeWithTelemetry is Serve with the optional Prometheus handler produced
+// by telemetry.Init. The helper is not published on the host, but collectors
+// on its destination network can scrape the same standard /metrics endpoint.
+func ServeWithTelemetry(ctx context.Context, dir, addr string, rt dockerruntime.Runtime, agentCfg Enrollment, logger *slog.Logger, metrics http.Handler) error {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -92,6 +100,10 @@ func Serve(ctx context.Context, dir, addr string, rt dockerruntime.Runtime, agen
 	}()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if metrics != nil && r.URL.Path == "/metrics" && isAgentMetricsHost(hostname(r.Host)) {
+			metrics.ServeHTTP(w, r)
+			return
+		}
 		// Ingress hosts first (ADR-060): they are declared, never scale-to-zero.
 		if ingress.Handles(hostname(r.Host)) {
 			ingress.ServeHTTP(w, r)
@@ -117,4 +129,13 @@ func Serve(ctx context.Context, dir, addr string, rt dockerruntime.Runtime, agen
 		return err
 	}
 	return nil
+}
+
+func isAgentMetricsHost(host string) bool {
+	switch host {
+	case proxy.AgentContainerName, "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
 }

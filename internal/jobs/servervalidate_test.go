@@ -92,6 +92,14 @@ func TestPortConflictHint(t *testing.T) {
 	}
 }
 
+func TestProxyPortPublishArgsIncludesHTTPSUDP(t *testing.T) {
+	got := proxyPortPublishArgs(8080, 8443, []int{15432})
+	want := "-p 8080:8080 -p 8443:8443 -p 8443:8443/udp -p 15432:15432 "
+	if got != want {
+		t.Fatalf("publish args = %q, want %q", got, want)
+	}
+}
+
 // The instance FQDN rides the proxy of exactly one server — the localhost
 // server that hosts the instance (PRD §14.2). Every other combination must
 // yield no route, and the content must be stable so bootstrap can compare it

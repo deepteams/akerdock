@@ -5,7 +5,9 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 )
@@ -110,6 +112,52 @@ func TestBridgeStreamRoundTrip(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("bridge did not return after client close")
+	}
+}
+
+// A local target that stops reading may consume its bounded per-stream queue,
+// but it must not block the socket decoder or a second target.
+func TestBridgeStalledTargetDoesNotBlockSibling(t *testing.T) {
+	fc := newFakeConn()
+	stalledBridge, stalledTarget := net.Pipe()
+	siblingBridge, siblingTarget := net.Pipe()
+	defer func() { _ = stalledTarget.Close() }()
+	defer func() { _ = siblingTarget.Close() }()
+
+	var dialMu sync.Mutex
+	dials := []net.Conn{stalledBridge, siblingBridge}
+	dial := func(context.Context) (net.Conn, error) {
+		dialMu.Lock()
+		defer dialMu.Unlock()
+		conn := dials[0]
+		dials = dials[1:]
+		return conn, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go Bridge(ctx, fc, dial, Options{MaxStreams: 2})
+
+	for _, id := range []uint32{1, 2} {
+		open, _ := json.Marshal(ctrl{T: "open", ID: id})
+		fc.in <- frame{MessageText, open}
+		if got := waitCtrl(t, fc); got.T != "open_ok" || got.ID != id {
+			t.Fatalf("open %d = %+v", id, got)
+		}
+	}
+
+	payload := make([]byte, streamFramePayload)
+	for range streamQueueChunks + 4 {
+		fc.in <- frame{MessageBinary, dataFrame(1, payload)}
+	}
+	fc.in <- frame{MessageBinary, dataFrame(2, []byte("still-moving"))}
+
+	_ = siblingTarget.SetReadDeadline(time.Now().Add(2 * time.Second))
+	got := make([]byte, len("still-moving"))
+	if _, err := io.ReadFull(siblingTarget, got); err != nil {
+		t.Fatalf("sibling was blocked by stalled target: %v", err)
+	}
+	if string(got) != "still-moving" {
+		t.Fatalf("sibling got %q", got)
 	}
 }
 

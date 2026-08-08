@@ -12,13 +12,16 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -76,7 +79,11 @@ type ingressExpect struct {
 type ingressSession struct {
 	sessionUUID  string
 	endpointUUID string
-	origin       *tunnel.Origin
+	origin       ingressStreamOpener
+	httpOrigin   *tunnel.HTTPOrigin
+	wsLanes      *tunnel.MultiLaneConn
+	attachKey    [sha256.Size]byte
+	transport    string
 	cancel       chan tunnel.EndReason
 	relay        http.Handler
 }
@@ -86,7 +93,8 @@ type ingressSession struct {
 // must never drop a live tunnel — so Serve constructs one and updates its
 // host table on each reload.
 type Ingress struct {
-	Logger *slog.Logger
+	Logger  *slog.Logger
+	metrics *ingressMetrics
 	// Notify pushes lifecycle observations (claimed / alive / closed) to the
 	// control plane; nil drops them (un-enrolled helper — sessions cannot be
 	// armed either, so nothing is lost).
@@ -105,6 +113,7 @@ func NewIngress(logger *slog.Logger) *Ingress {
 	}
 	return &Ingress{
 		Logger:  logger,
+		metrics: newIngressMetrics(),
 		hosts:   map[string]string{},
 		expects: map[string]ingressExpect{},
 		live:    map[string]*ingressSession{},
@@ -168,9 +177,11 @@ func (ig *Ingress) Expect(p agentwire.IngressExpectParams) {
 func (ig *Ingress) Cut(sessionUUID, reason string) bool {
 	ig.mu.Lock()
 	var target *ingressSession
+	var cancel chan tunnel.EndReason
 	for _, s := range ig.live {
 		if s.sessionUUID == sessionUUID {
 			target = s
+			cancel = s.cancel
 			break
 		}
 	}
@@ -188,7 +199,7 @@ func (ig *Ingress) Cut(sessionUUID, reason string) bool {
 			r = endReasonRevoked
 		}
 		select {
-		case target.cancel <- r:
+		case cancel <- r:
 		default:
 		}
 	}
@@ -201,8 +212,12 @@ func (ig *Ingress) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ig.mu.Lock()
 	endpointUUID, ok := ig.hosts[host]
 	var session *ingressSession
+	var relay http.Handler
 	if ok {
 		session = ig.live[endpointUUID]
+		if session != nil {
+			relay = session.relay
+		}
 	}
 	ig.mu.Unlock()
 	if !ok {
@@ -213,19 +228,51 @@ func (ig *Ingress) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ig.attach(w, r, endpointUUID)
 		return
 	}
-	if session == nil {
+	if session == nil || relay == nil {
 		ig.serveOfflinePage(w, r, host)
 		return
 	}
-	session.relay.ServeHTTP(w, r)
+	relay.ServeHTTP(w, r)
 }
 
-// attach redeems the single-use token and becomes the endpoint's live tunnel.
+// attach routes the reserved path without consuming a mint during capability
+// discovery. HTTP v2 and the compatibility WebSocket share the same one-use
+// claim and endpoint occupancy boundary.
 func (ig *Ingress) attach(w http.ResponseWriter, r *http.Request, endpointUUID string) {
-	token := r.URL.Query().Get("token")
-	if token == "" {
-		http.Error(w, "missing attach token", http.StatusUnauthorized)
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Allow", "OPTIONS, POST, GET")
+		w.Header().Set(tunnel.IngressCapabilitiesHeader, tunnel.IngressHTTPProtocol+",h3,h2,websocket-v2,websocket")
+		w.WriteHeader(http.StatusNoContent)
 		return
+	}
+	contentType := r.Header.Get("Content-Type")
+	if i := strings.IndexByte(contentType, ';'); i >= 0 {
+		contentType = strings.TrimSpace(contentType[:i])
+	}
+	if r.Method == http.MethodPost && contentType == tunnel.IngressControlContentType {
+		ig.attachHTTPControl(w, r, endpointUUID)
+		return
+	}
+	if r.Method == http.MethodPost && contentType == tunnel.IngressStreamContentType {
+		ig.attachHTTPStream(w, r, endpointUUID)
+		return
+	}
+	if r.Header.Get(tunnel.IngressLaneHeader) != "" {
+		ig.attachWebSocketLane(w, r, endpointUUID)
+		return
+	}
+	ig.attachWebSocket(w, r, endpointUUID)
+}
+
+type ingressClaimError struct {
+	status  int
+	message string
+}
+
+// claimAttach consumes a mint on sight and reserves exclusive occupancy.
+func (ig *Ingress) claimAttach(token, endpointUUID string) (ingressExpect, *ingressSession, *ingressClaimError) {
+	if token == "" {
+		return ingressExpect{}, nil, &ingressClaimError{http.StatusUnauthorized, "missing attach token"}
 	}
 	sum := sha256.Sum256([]byte(token))
 	hash := hex.EncodeToString(sum[:])
@@ -237,26 +284,40 @@ func (ig *Ingress) attach(w http.ResponseWriter, r *http.Request, endpointUUID s
 	switch {
 	case !ok || subtle.ConstantTimeCompare([]byte(expect.endpointUUID), []byte(endpointUUID)) != 1:
 		ig.mu.Unlock()
-		http.Error(w, "invalid attach token", http.StatusUnauthorized)
-		return
+		return ingressExpect{}, nil, &ingressClaimError{http.StatusUnauthorized, "invalid attach token"}
 	case expect.expires.Before(time.Now()):
 		ig.mu.Unlock()
-		http.Error(w, "attach token expired — mint a new session", http.StatusUnauthorized)
-		return
+		return ingressExpect{}, nil, &ingressClaimError{http.StatusUnauthorized, "attach token expired — mint a new session"}
 	case ig.live[endpointUUID] != nil:
 		ig.mu.Unlock()
-		http.Error(w, "endpoint occupied — one laptop per endpoint", http.StatusConflict)
-		return
+		return ingressExpect{}, nil, &ingressClaimError{http.StatusConflict, "endpoint occupied — one laptop per endpoint"}
 	}
-	// Reserve the slot before releasing the lock so two racing attaches
-	// cannot both pass the occupancy check.
-	placeholder := &ingressSession{sessionUUID: expect.sessionUUID, endpointUUID: endpointUUID}
+	placeholder := &ingressSession{
+		sessionUUID: expect.sessionUUID, endpointUUID: endpointUUID,
+		cancel: make(chan tunnel.EndReason, 1),
+	}
 	ig.live[endpointUUID] = placeholder
 	ig.mu.Unlock()
+	return expect, placeholder, nil
+}
 
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{IngressSubprotocol}})
+// attachWebSocket is ADR-060's compatible final fallback.
+func (ig *Ingress) attachWebSocket(w http.ResponseWriter, r *http.Request, endpointUUID string) {
+	token := r.URL.Query().Get("token")
+	expect, placeholder, claimErr := ig.claimAttach(token, endpointUUID)
+	if claimErr != nil {
+		http.Error(w, claimErr.message, claimErr.status)
+		return
+	}
+
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{tunnel.IngressWebSocketV2, IngressSubprotocol}})
 	if err != nil {
 		ig.release(endpointUUID, placeholder)
+		return
+	}
+	if conn.Subprotocol() != tunnel.IngressWebSocketV2 && conn.Subprotocol() != IngressSubprotocol {
+		ig.release(endpointUUID, placeholder)
+		_ = conn.Close(websocket.StatusPolicyViolation, "unsupported ingress protocol")
 		return
 	}
 	// Same unlimited read as every tunnel end: frames follow the relayed
@@ -264,28 +325,57 @@ func (ig *Ingress) attach(w http.ResponseWriter, r *http.Request, endpointUUID s
 	// first large one.
 	conn.SetReadLimit(-1)
 
-	placeholder.cancel = make(chan tunnel.EndReason, 1)
+	var tunnelConn tunnel.Conn = tunnelWSConn{conn}
+	var lanes *tunnel.MultiLaneConn
+	if conn.Subprotocol() == tunnel.IngressWebSocketV2 {
+		keyHash, keyErr := decodeAttachKey(r.Header.Get(tunnel.IngressAttachKeyHeader))
+		if keyErr != nil {
+			ig.release(endpointUUID, placeholder)
+			_ = conn.Close(websocket.StatusPolicyViolation, "invalid ingress attach key")
+			return
+		}
+		lanes = tunnel.NewMultiLaneConn(tunnelConn, nil, 4)
+		tunnelConn = lanes
+		ig.mu.Lock()
+		placeholder.attachKey = keyHash
+		placeholder.wsLanes = lanes
+		ig.mu.Unlock()
+	}
+
+	transport := "websocket"
 	streamOpts := tunnel.Options{
 		IdleTimeout:        tunnel.DefaultIdleTimeout,
 		MaxDuration:        ingressMaxDuration,
 		MaxStreams:         ingressMaxActiveStreams,
 		MaxPendingStreams:  ingressMaxQueuedStreams,
 		StreamQueueTimeout: ingressStreamQueueWait,
-		Cancel:             placeholder.cancel,
+		OnStreamWait: func(wait time.Duration, err error) {
+			ig.metrics.recordQueueWait(r.Context(), transport, wait, err)
+		},
+		Cancel: placeholder.cancel,
 		OnHeartbeat: func(context.Context) bool {
 			ig.notify(Observation{Type: "ingress_alive", At: time.Now(), ResourceUUID: expect.sessionUUID})
 			return true
 		},
 	}
-	origin := tunnel.NewOriginWithOptions(tunnelWSConn{conn}, streamOpts)
+	origin := tunnel.NewOriginWithOptions(tunnelConn, streamOpts)
+	relay := ig.newRelay(origin, transport)
+	ig.mu.Lock()
 	placeholder.origin = origin
-	placeholder.relay = ig.newRelay(origin)
+	placeholder.transport = transport
+	placeholder.relay = relay
+	ig.mu.Unlock()
 
+	ig.metrics.recordSessionStart(r.Context(), transport)
 	ig.notify(Observation{Type: "ingress_claimed", At: time.Now(), ResourceUUID: expect.sessionUUID})
-	ig.Logger.Info("ingress: laptop attached", "endpoint", endpointUUID, "session", expect.sessionUUID)
+	ig.Logger.Info("ingress: laptop attached", "endpoint", endpointUUID, "session", expect.sessionUUID, "transport", placeholder.transport)
 
 	reason := origin.Run(r.Context(), streamOpts)
+	ig.metrics.recordSessionEnd(context.WithoutCancel(r.Context()), transport, reason)
 
+	if lanes != nil {
+		_ = lanes.Close()
+	}
 	ig.release(endpointUUID, placeholder)
 	ig.notify(Observation{Type: "ingress_closed", At: time.Now(), ResourceUUID: expect.sessionUUID, State: string(reason)})
 	ig.Logger.Info("ingress: tunnel closed", "endpoint", endpointUUID, "session", expect.sessionUUID, "reason", string(reason))
@@ -293,6 +383,210 @@ func (ig *Ingress) attach(w http.ResponseWriter, r *http.Request, endpointUUID s
 	// discipline): the CLI decides re-dial vs exit on it.
 	_ = conn.Close(websocket.StatusNormalClosure, string(reason))
 }
+
+// attachWebSocketLane joins one authenticated secondary socket to a v2
+// fallback session. It does not consume a mint token: the primary already did
+// that, and the ephemeral attach key binds this lane to that exact session.
+func (ig *Ingress) attachWebSocketLane(w http.ResponseWriter, r *http.Request, endpointUUID string) {
+	lane64, err := strconv.ParseUint(r.Header.Get(tunnel.IngressLaneHeader), 10, 8)
+	if err != nil || lane64 < 1 || lane64 > 3 {
+		http.Error(w, "invalid ingress WebSocket lane", http.StatusBadRequest)
+		return
+	}
+	keyHash, err := decodeAttachKey(r.Header.Get(tunnel.IngressAttachKeyHeader))
+	if err != nil {
+		http.Error(w, "invalid ingress attach key", http.StatusUnauthorized)
+		return
+	}
+	sessionUUID := r.Header.Get(tunnel.IngressSessionHeader)
+	ig.mu.Lock()
+	session := ig.live[endpointUUID]
+	valid := session != nil && session.wsLanes != nil && session.sessionUUID == sessionUUID &&
+		subtle.ConstantTimeCompare(session.attachKey[:], keyHash[:]) == 1
+	var lanes *tunnel.MultiLaneConn
+	if valid {
+		lanes = session.wsLanes
+	}
+	ig.mu.Unlock()
+	if !valid {
+		http.Error(w, "unknown ingress WebSocket session", http.StatusUnauthorized)
+		return
+	}
+
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{tunnel.IngressWebSocketV2}})
+	if err != nil {
+		return
+	}
+	closeLane := func() error { return conn.Close(websocket.StatusNormalClosure, "") }
+	if conn.Subprotocol() != tunnel.IngressWebSocketV2 {
+		_ = conn.Close(websocket.StatusPolicyViolation, "unsupported ingress protocol")
+		return
+	}
+	if err := lanes.AddLane(int(lane64), tunnelWSConn{conn}, closeLane); err != nil {
+		_ = conn.Close(websocket.StatusPolicyViolation, err.Error())
+		return
+	}
+	select {
+	case <-lanes.Done():
+	case <-r.Context().Done():
+	}
+}
+
+func decodeAttachKey(value string) ([sha256.Size]byte, error) {
+	var hash [sha256.Size]byte
+	raw, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil || len(raw) != sha256.Size {
+		return hash, errors.New("attach key must be 256-bit base64url")
+	}
+	// Hash the key immediately; plaintext lives only in the request headers.
+	hash = sha256.Sum256(raw)
+	return hash, nil
+}
+
+func (ig *Ingress) attachHTTPControl(w http.ResponseWriter, r *http.Request, endpointUUID string) {
+	if r.Header.Get(tunnel.IngressProtocolHeader) != tunnel.IngressHTTPProtocol {
+		http.Error(w, "unsupported ingress protocol", http.StatusUpgradeRequired)
+		return
+	}
+	keyHash, err := decodeAttachKey(r.Header.Get(tunnel.IngressAttachKeyHeader))
+	if err != nil {
+		http.Error(w, "invalid ingress attach key", http.StatusBadRequest)
+		return
+	}
+	expect, session, claimErr := ig.claimAttach(r.URL.Query().Get("token"), endpointUUID)
+	if claimErr != nil {
+		http.Error(w, claimErr.message, claimErr.status)
+		return
+	}
+	if err := enableHTTPFullDuplex(w, r); err != nil {
+		ig.release(endpointUUID, session)
+		http.Error(w, "full-duplex HTTP streaming is unavailable", http.StatusHTTPVersionNotSupported)
+		return
+	}
+
+	w.Header().Set("Content-Type", tunnel.IngressControlContentType)
+	w.Header().Set(tunnel.IngressProtocolHeader, tunnel.IngressHTTPProtocol)
+	w.WriteHeader(http.StatusOK)
+	controller := http.NewResponseController(w)
+	if err := controller.Flush(); err != nil {
+		ig.release(endpointUUID, session)
+		return
+	}
+	control := tunnel.NewLineControl(r.Body, responseWriteCloser{Writer: w}, controller.Flush, r.Body.Close)
+	cancelCh := session.cancel
+	transport := normalizedIngressTransport(r.Header.Get(tunnel.IngressTransportHeader))
+	streamOpts := tunnel.Options{
+		IdleTimeout:        tunnel.DefaultIdleTimeout,
+		MaxDuration:        ingressMaxDuration,
+		MaxStreams:         ingressMaxActiveStreams,
+		MaxPendingStreams:  ingressMaxQueuedStreams,
+		StreamQueueTimeout: ingressStreamQueueWait,
+		OnStreamWait: func(wait time.Duration, err error) {
+			ig.metrics.recordQueueWait(r.Context(), transport, wait, err)
+		},
+		Cancel: cancelCh,
+		OnHeartbeat: func(context.Context) bool {
+			ig.notify(Observation{Type: "ingress_alive", At: time.Now(), ResourceUUID: expect.sessionUUID})
+			return true
+		},
+	}
+	origin := tunnel.NewHTTPOrigin(control, streamOpts)
+	relay := ig.newRelay(origin, transport)
+	ig.mu.Lock()
+	session.origin = origin
+	session.httpOrigin = origin
+	session.attachKey = keyHash
+	session.transport = transport
+	session.cancel = cancelCh
+	session.relay = relay
+	ig.mu.Unlock()
+
+	ig.metrics.recordSessionStart(r.Context(), transport)
+	ig.notify(Observation{Type: "ingress_claimed", At: time.Now(), ResourceUUID: expect.sessionUUID})
+	ig.Logger.Info("ingress: laptop attached", "endpoint", endpointUUID, "session", expect.sessionUUID, "transport", session.transport)
+	reason := origin.Run(r.Context(), streamOpts)
+	ig.metrics.recordSessionEnd(context.WithoutCancel(r.Context()), transport, reason)
+	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), time.Second)
+	_ = origin.SendClose(closeCtx, reason)
+	cancel()
+	_ = origin.Close()
+	ig.release(endpointUUID, session)
+	ig.notify(Observation{Type: "ingress_closed", At: time.Now(), ResourceUUID: expect.sessionUUID, State: string(reason)})
+	ig.Logger.Info("ingress: tunnel closed", "endpoint", endpointUUID, "session", expect.sessionUUID, "transport", session.transport, "reason", string(reason))
+}
+
+func normalizedIngressTransport(value string) string {
+	switch value {
+	case "h3", "h2":
+		return value
+	default:
+		return "http"
+	}
+}
+
+func enableHTTPFullDuplex(w http.ResponseWriter, r *http.Request) error {
+	err := http.NewResponseController(w).EnableFullDuplex()
+	if err != nil && r.ProtoMajor < 2 {
+		return err
+	}
+	return nil
+}
+
+func (ig *Ingress) attachHTTPStream(w http.ResponseWriter, r *http.Request, endpointUUID string) {
+	sessionUUID := r.Header.Get(tunnel.IngressSessionHeader)
+	streamID64, err := strconv.ParseUint(r.Header.Get(tunnel.IngressStreamHeader), 10, 32)
+	if err != nil || streamID64 == 0 {
+		http.Error(w, "invalid ingress stream id", http.StatusBadRequest)
+		return
+	}
+	keyHash, err := decodeAttachKey(r.Header.Get(tunnel.IngressAttachKeyHeader))
+	if err != nil {
+		http.Error(w, "invalid ingress attach key", http.StatusUnauthorized)
+		return
+	}
+	ig.mu.Lock()
+	session := ig.live[endpointUUID]
+	valid := session != nil && session.httpOrigin != nil && session.sessionUUID == sessionUUID &&
+		subtle.ConstantTimeCompare(session.attachKey[:], keyHash[:]) == 1
+	ig.mu.Unlock()
+	if !valid {
+		http.Error(w, "unknown ingress HTTP session", http.StatusUnauthorized)
+		return
+	}
+	id := uint32(streamID64)
+	if !session.httpOrigin.WantsStream(id) {
+		http.Error(w, "ingress stream is not pending", http.StatusConflict)
+		return
+	}
+	if err := enableHTTPFullDuplex(w, r); err != nil {
+		http.Error(w, "full-duplex HTTP streaming is unavailable", http.StatusHTTPVersionNotSupported)
+		return
+	}
+	w.Header().Set("Content-Type", tunnel.IngressStreamContentType)
+	w.WriteHeader(http.StatusOK)
+	controller := http.NewResponseController(w)
+	if err := controller.Flush(); err != nil {
+		return
+	}
+	done := make(chan struct{})
+	var doneOnce sync.Once
+	conn := tunnel.NewDuplexConn(r.Body, responseWriteCloser{Writer: w}, controller.Flush, func() {
+		doneOnce.Do(func() { close(done) })
+	})
+	if err := session.httpOrigin.AttachStream(id, conn); err != nil {
+		_ = conn.Close()
+		return
+	}
+	select {
+	case <-done:
+	case <-r.Context().Done():
+		_ = conn.Close()
+	}
+}
+
+type responseWriteCloser struct{ io.Writer }
+
+func (responseWriteCloser) Close() error { return nil }
 
 func (ig *Ingress) release(endpointUUID string, s *ingressSession) {
 	ig.mu.Lock()
@@ -308,19 +602,36 @@ func (ig *Ingress) notify(o Observation) {
 	}
 }
 
-// newRelay builds the reverse proxy that carries one visitor request per mux
-// stream. Keep-alives are OFF by design: Traefik pools its connections to
-// this front across routers, so a spliced or reused backend connection could
-// carry an unrelated resource's request to the laptop. One stream per request
-// keeps every byte attributable; upgrades (WebSocket, SSE) ride the same
-// stream for their whole life — httputil.ReverseProxy handles the switch and
-// splices both directions itself.
-func (ig *Ingress) newRelay(origin *tunnel.Origin) http.Handler {
+type ingressStreamOpener interface {
+	OpenStream(context.Context) (net.Conn, error)
+}
+
+// newRelay owns one reverse proxy and one Transport per claimed endpoint
+// session. Keeping upstream connections alive is therefore safe: an idle
+// connection can be reused only by requests already routed to this exact
+// endpoint and laptop, never by another ingressSession. Upgrades (WebSocket,
+// SSE) retain their dedicated connection for their whole life.
+func (ig *Ingress) newRelay(origin ingressStreamOpener, transports ...string) http.Handler {
+	transportName := "unknown"
+	if len(transports) > 0 && transports[0] != "" {
+		transportName = transports[0]
+	}
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return origin.OpenStream(ctx)
+			started := time.Now()
+			conn, err := origin.OpenStream(ctx)
+			ig.metrics.recordStreamOpen(ctx, transportName, time.Since(started), err)
+			if err != nil {
+				return nil, err
+			}
+			return ig.metrics.wrapStream(ctx, transportName, conn), nil
 		},
-		DisableKeepAlives: true,
+		// Admission belongs to Origin: it owns the 32 active + 512 pending
+		// bound and can return the explicit 30-second overload error. Capping
+		// here would create an opaque, unbounded net/http wait in front of it.
+		MaxIdleConns:        ingressMaxActiveStreams,
+		MaxIdleConnsPerHost: ingressMaxActiveStreams,
+		IdleConnTimeout:     90 * time.Second,
 		// SSE and long-polls must not buffer server-side.
 		ResponseHeaderTimeout: 0,
 	}
@@ -332,8 +643,10 @@ func (ig *Ingress) newRelay(origin *tunnel.Origin) http.Handler {
 			req.Out.URL.Host = "ingress"
 			req.Out.Host = req.In.Host
 		},
-		Transport:     transport,
-		FlushInterval: 100 * time.Millisecond,
+		Transport: transport,
+		// Zero lets net/http coalesce bulk responses; ReverseProxy still
+		// switches to immediate flushing automatically for streaming bodies.
+		FlushInterval: 0,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			ig.Logger.Warn("ingress: relay failed", "host", hostname(r.Host), "error", err)
 			if errors.Is(err, tunnel.ErrOriginQueueFull) || errors.Is(err, tunnel.ErrOriginQueueTimeout) {

@@ -19,9 +19,9 @@ import (
 //
 // Same wire as Bridge (text control frames + [u32 id][payload] binary), same
 // session invariants (idle timeout, max duration, heartbeat, cancel-with-
-// reason, guaranteed teardown). Streams share the underlying socket, so a
-// stalled consumer stalls its siblings — the protocol's accepted
-// head-of-line limitation (ADR-032).
+// reason, guaranteed teardown). Each stream has a bounded receive queue so a
+// stalled consumer can lose only its own stream, never block sibling data or
+// control frames (ADR-061).
 type Origin struct {
 	conn Conn
 
@@ -37,19 +37,21 @@ type Origin struct {
 	done     chan struct{} // closed when Run returns; OpenStream fails after
 	doneOnce sync.Once
 
-	admissionMu sync.Mutex
-	streamSlots chan struct{}
-	maxQueued   int
-	queued      int
-	queueWait   time.Duration
+	admissionMu  sync.Mutex
+	streamSlots  chan struct{}
+	maxQueued    int
+	queued       int
+	queueWait    time.Duration
+	onStreamWait func(time.Duration, error)
 }
 
-// originStream pairs the caller-facing net.Conn with the pipe end the read
-// loop feeds. net.Pipe is synchronous: a consumer that stops reading blocks
-// the mux read loop, which is the same back-pressure Bridge applies.
+// originStream pairs the caller-facing net.Conn with the pipe end fed by its
+// own bounded queue. net.Pipe remains synchronous, but only this stream's pump
+// can block on it.
 type originStream struct {
 	local  net.Conn // returned to the caller
-	remote net.Conn // fed by the read loop, drained by the pump
+	remote net.Conn // fed by the queue pump, drained by the caller
+	inbox  *streamQueue
 }
 
 // NewOrigin wraps an established, already-authenticated connection with the
@@ -69,14 +71,15 @@ func NewOriginWithOptions(conn Conn, opts Options) *Origin {
 		opts.StreamQueueTimeout = defaultStreamQueueTimeout
 	}
 	return &Origin{
-		conn:        conn,
-		streams:     map[uint32]*originStream{},
-		pending:     map[uint32]chan error{},
-		activity:    make(chan struct{}, 1),
-		done:        make(chan struct{}),
-		streamSlots: make(chan struct{}, opts.MaxStreams),
-		maxQueued:   max(opts.MaxPendingStreams, 0),
-		queueWait:   opts.StreamQueueTimeout,
+		conn:         conn,
+		streams:      map[uint32]*originStream{},
+		pending:      map[uint32]chan error{},
+		activity:     make(chan struct{}, 1),
+		done:         make(chan struct{}),
+		streamSlots:  make(chan struct{}, opts.MaxStreams),
+		maxQueued:    max(opts.MaxPendingStreams, 0),
+		queueWait:    opts.StreamQueueTimeout,
+		onStreamWait: opts.OnStreamWait,
 	}
 }
 
@@ -165,9 +168,12 @@ func (o *Origin) OpenStream(ctx context.Context) (net.Conn, error) {
 		return nil, ErrOriginClosed
 	default:
 	}
+	waitStarted := time.Now()
 	if err := o.acquireStream(ctx); err != nil {
+		o.observeStreamWait(time.Since(waitStarted), err)
 		return nil, err
 	}
+	o.observeStreamWait(time.Since(waitStarted), nil)
 	// A slot and session shutdown may become ready together. Never register
 	// new work after shutdown won the race.
 	select {
@@ -189,9 +195,15 @@ func (o *Origin) OpenStream(ctx context.Context) (net.Conn, error) {
 	}
 	o.nextID++
 	id := o.nextID
-	o.streams[id] = &originStream{local: local, remote: remote}
+	stream := &originStream{local: local, remote: remote, inbox: newStreamQueue()}
+	o.streams[id] = stream
 	o.pending[id] = wait
 	o.mu.Unlock()
+	go func() {
+		if err := stream.inbox.pump(remote); err != nil {
+			o.closeStream(id)
+		}
+	}()
 
 	if err := o.sendCtrl(ctx, ctrl{T: "open", ID: id}); err != nil {
 		o.dropStream(id)
@@ -279,6 +291,12 @@ func (o *Origin) acquireStream(ctx context.Context) error {
 
 func (o *Origin) releaseStream() { <-o.streamSlots }
 
+func (o *Origin) observeStreamWait(wait time.Duration, err error) {
+	if o.onStreamWait != nil {
+		o.onStreamWait(wait, err)
+	}
+}
+
 func (o *Origin) touch() {
 	select {
 	case o.activity <- struct{}{}:
@@ -288,18 +306,14 @@ func (o *Origin) touch() {
 
 func (o *Origin) sendCtrl(ctx context.Context, c ctrl) error {
 	data, _ := json.Marshal(c)
-	o.writeMu.Lock()
-	defer o.writeMu.Unlock()
-	return o.conn.Write(ctx, MessageText, data)
+	return writeTunnelMessage(ctx, o.conn, &o.writeMu, MessageText, data)
 }
 
 func (o *Origin) sendData(ctx context.Context, id uint32, p []byte) error {
 	frame := make([]byte, 4+len(p))
 	binary.BigEndian.PutUint32(frame, id)
 	copy(frame[4:], p)
-	o.writeMu.Lock()
-	defer o.writeMu.Unlock()
-	return o.conn.Write(ctx, MessageBinary, frame)
+	return writeTunnelMessage(ctx, o.conn, &o.writeMu, MessageBinary, frame)
 }
 
 func (o *Origin) readLoop(ctx context.Context, done chan<- EndReason) {
@@ -336,8 +350,11 @@ func (o *Origin) readLoop(ctx context.Context, done chan<- EndReason) {
 			o.mu.Lock()
 			s := o.streams[id]
 			o.mu.Unlock()
-			if s != nil {
-				_, _ = s.remote.Write(data[4:])
+			if s != nil && !s.inbox.enqueue(data[4:]) {
+				// A peer that outruns this stream's bounded receive queue loses
+				// only this stream. Keep reading so siblings and close frames move.
+				o.closeStream(id)
+				go func() { _ = o.sendCtrl(context.Background(), ctrl{T: "close", ID: id}) }()
 			}
 		}
 	}
@@ -361,6 +378,7 @@ func (o *Origin) closeStream(id uint32) {
 	delete(o.pending, id)
 	o.mu.Unlock()
 	if s != nil {
+		s.inbox.close()
 		_ = s.remote.Close()
 		_ = s.local.Close()
 		o.releaseStream()
@@ -380,6 +398,7 @@ func (o *Origin) shutdown() {
 	o.pending = map[uint32]chan error{}
 	o.mu.Unlock()
 	for _, s := range streams {
+		s.inbox.close()
 		_ = s.remote.Close()
 		_ = s.local.Close()
 		o.releaseStream()

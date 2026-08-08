@@ -49,6 +49,7 @@ docker run -d \
   --network <destination_network> \                  # the server's default destination network, named by UUID (deployment-engine §6.1)
   -p <proxy_http_port>:<proxy_http_port> \
   -p <proxy_https_port>:<proxy_https_port> \
+  -p <proxy_https_port>:<proxy_https_port>/udp \
   [-p <tcp_port>:<tcp_port>]... \                    # active TCP routes (§2.6, §5.6)
   -v /var/lib/akerdock/proxy/traefik.yaml:/etc/traefik/traefik.yaml:ro \
   -v /var/lib/akerdock/proxy/dynamic:/dynamic:ro \
@@ -67,7 +68,7 @@ docker run -d \
 
 Normative points:
 
-- **Listen ports configurable per server** (`proxy_http_port`/`proxy_https_port`, defaults 80/443, decision §27.1): the entrypoints listen directly on these ports inside the container and are published identically (`8443:8443`, never `8443:443`) — HTTP→HTTPS redirects thus emit the right port without rewriting **(proposed default)**.
+- **Listen ports configurable per server** (`proxy_http_port`/`proxy_https_port`, defaults 80/443, decision §27.1): the entrypoints listen directly on these ports inside the container and are published identically (`8443:8443`, never `8443:443`) — HTTP→HTTPS redirects thus emit the right port without rewriting **(proposed default)**. The HTTPS port is published over both TCP and UDP so the same entrypoint can serve HTTP/1.1, HTTP/2 and HTTP/3.
 - The proxy's local API (Traefik `:8080`) is **never published on the host**: it is only reachable via `docker exec` inside the container (verification §6.3, consistent with deployment-engine §7.2).
 - The Docker socket is **not** mounted into the proxy: all configuration goes through the files (no Traefik docker provider; the parity labels are informational, §5.1).
 - Directory tree under `/var/lib/akerdock/proxy/` (extension of deployment-engine §5.1, **(proposed default)** — except `acme.json` and `acme.env`, whose locations are **normative**, §7.2/§7.5):
@@ -395,6 +396,7 @@ entryPoints:
     address: ":80"        # = servers.proxy_http_port (§27.1) — ":8080" if 8080 configured
   websecure:
     address: ":443"       # = servers.proxy_https_port — ":8443" if 8443 configured
+    http3: {}              # HTTP/3 over QUIC on the same HTTPS port (UDP)
   tcp-15432:              # one entrypoint per active TCPRoute (§2.6)
     address: ":15432/tcp"
 

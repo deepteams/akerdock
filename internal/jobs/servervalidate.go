@@ -485,10 +485,7 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 		envFileFlag = "--env-file /var/lib/akerdock/proxy/acme.env "
 	}
 
-	tcpPublish := ""
-	for _, p := range ports {
-		tcpPublish += fmt.Sprintf("-p %d:%d ", p, p)
-	}
+	portPublish := proxyPortPublishArgs(int(server.ProxyHttpPort), int(server.ProxyHttpsPort), ports)
 	if recreate {
 		// Removed, not restarted: a static config change only takes effect on a
 		// new container (§1.4).
@@ -498,7 +495,7 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 	}
 	runCmd := fmt.Sprintf(
 		"docker container inspect %s >/dev/null 2>&1 || docker run -d --name %s --restart unless-stopped --network %s "+
-			"%s%s-p %d:%d -p %d:%d "+
+			"%s%s"+
 			"-v /var/lib/akerdock/proxy/traefik.yaml:/etc/traefik/traefik.yaml:ro "+
 			"-v /var/lib/akerdock/proxy/dynamic:/dynamic:ro "+
 			"-v /var/lib/akerdock/proxy/acme.json:/acme/acme.json "+
@@ -510,8 +507,7 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 			"--label akerdock.managed=true --label akerdock.type=proxy --label akerdock.team_uuid=%s "+
 			"--health-cmd 'traefik healthcheck --ping' --health-interval 5s --health-retries 3 "+
 			"%s",
-		proxy.ContainerName, proxy.ContainerName, dest.Network, envFileFlag, tcpPublish,
-		server.ProxyHttpPort, server.ProxyHttpPort, server.ProxyHttpsPort, server.ProxyHttpsPort,
+		proxy.ContainerName, proxy.ContainerName, dest.Network, envFileFlag, portPublish,
 		team, proxy.Image)
 	res, err = client.Run(ctx, runCmd)
 	if err != nil || res.ExitCode != 0 {
@@ -573,6 +569,16 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 		return fmt.Errorf("instance FQDN routing (%s): %w", proxy.ControlPlaneScope, err)
 	}
 	return nil
+}
+
+func proxyPortPublishArgs(httpPort, httpsPort int, tcpPorts []int) string {
+	var args strings.Builder
+	fmt.Fprintf(&args, "-p %d:%d -p %d:%d -p %d:%d/udp ",
+		httpPort, httpPort, httpsPort, httpsPort, httpsPort, httpsPort)
+	for _, port := range tcpPorts {
+		fmt.Fprintf(&args, "-p %d:%d ", port, port)
+	}
+	return args.String()
 }
 
 // controlPlaneRouteContent is the desired content of the 00-control-plane

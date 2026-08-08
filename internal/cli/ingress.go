@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -91,6 +93,7 @@ func (c *Client) runIngress(ctx context.Context, endpoint string, localPort int)
 	// a while, so a stable tunnel that blips once does not inherit a long delay.
 	backoff := time.Second
 	announced := false
+	transportState := newIngressTransportState()
 
 	for {
 		var sess ingressMint
@@ -118,7 +121,7 @@ func (c *Client) runIngress(ctx context.Context, endpoint string, localPort int)
 			announced = true
 		}
 		start := time.Now()
-		reason, err := c.attachIngress(ctx, sess, localPort)
+		reason, _, err := c.attachIngress(ctx, sess, localPort, transportState)
 		if ctx.Err() != nil {
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 			cleanupErr := c.closeIngressMint(cleanupCtx, sess.Uuid)
@@ -159,13 +162,77 @@ func (c *Client) runIngress(ctx context.Context, endpoint string, localPort int)
 // returning the server's end reason (empty on a bare transport error). The
 // laptop is the Bridge side: it receives "open" per visitor connection and
 // dials 127.0.0.1:port (internal/tunnel, roles mirrored from the agent).
-func (c *Client) attachIngress(ctx context.Context, sess ingressMint, localPort int) (string, error) {
+func (c *Client) attachIngress(
+	ctx context.Context,
+	sess ingressMint,
+	localPort int,
+	state *ingressTransportState,
+) (string, ingressTransportKind, error) {
+	httpAttach, httpErr := ingressHTTPURL(sess)
+	if httpErr == nil {
+		preference := ingressTransportPreference()
+		for _, kind := range preference[:2] {
+			if state.disabled[kind] {
+				continue
+			}
+			var pool *ingressHTTPLanePool
+			if kind == ingressTransportH3 {
+				pool = newIngressH3Pool()
+			} else {
+				pool = newIngressH2Pool()
+			}
+			if err := probeIngressHTTP(ctx, pool, httpAttach, kind); err != nil {
+				_ = pool.Close()
+				continue
+			}
+			key, err := tun.NewIngressAttachKey()
+			if err != nil {
+				_ = pool.Close()
+				return "", kind, err
+			}
+			control, err := openIngressHTTPControl(ctx, pool, sess, key, kind)
+			if err != nil {
+				state.disabled[kind] = true
+				_ = pool.Close()
+				return "", kind, err
+			}
+			if state.announced != kind {
+				fmt.Fprintf(os.Stderr, "tunnel transport: %s\n", kind.label())
+				state.announced = kind
+			}
+			started := time.Now()
+			reason, runErr := runIngressHTTPBridge(ctx, control.control, pool, httpAttach, sess.Uuid, key, localPort)
+			if runErr != nil && time.Since(started) < ingressTransportAttachTimeout {
+				state.disabled[kind] = true
+			}
+			_ = control.control.Close()
+			control.cancel()
+			_ = pool.Close()
+			return reason, kind, runErr
+		}
+	}
+	reason, err := c.attachIngressWebSocket(ctx, sess, localPort)
+	if state.announced != ingressTransportWS && err == nil {
+		fmt.Fprintf(os.Stderr, "tunnel transport: %s\n", ingressTransportWS.label())
+		state.announced = ingressTransportWS
+	}
+	return reason, ingressTransportWS, err
+}
+
+func (c *Client) attachIngressWebSocket(ctx context.Context, sess ingressMint, localPort int) (string, error) {
 	attachURL, err := ingressAttachURL(sess)
 	if err != nil {
 		return "", err
 	}
+	key, err := tun.NewIngressAttachKey()
+	if err != nil {
+		return "", err
+	}
+	primaryHeaders := make(http.Header)
+	primaryHeaders.Set(tun.IngressAttachKeyHeader, key)
 	conn, resp, err := websocket.Dial(ctx, attachURL, &websocket.DialOptions{
-		Subprotocols: []string{ingressSubprotocol},
+		Subprotocols: []string{tun.IngressWebSocketV2, ingressSubprotocol},
+		HTTPHeader:   primaryHeaders,
 	})
 	if err != nil {
 		if reason := handshakeReason(resp); reason != "" {
@@ -175,21 +242,84 @@ func (c *Client) attachIngress(ctx context.Context, sess ingressMint, localPort 
 	}
 	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 	conn.SetReadLimit(-1)
+	closeReason := &ingressCloseReason{}
+	primary := ingressClientConn{c: conn, reason: closeReason}
+	var bridgeConn tun.Conn = primary
+	if conn.Subprotocol() == tun.IngressWebSocketV2 {
+		lanes := tun.NewMultiLaneConn(primary, func() error {
+			return conn.Close(websocket.StatusNormalClosure, "")
+		}, 4)
+		defer func() { _ = lanes.Close() }()
+		bridgeConn = lanes
+
+		laneURL, parseErr := url.Parse(attachURL)
+		if parseErr != nil {
+			return "", parseErr
+		}
+		query := laneURL.Query()
+		query.Del("token")
+		laneURL.RawQuery = query.Encode()
+		var joins sync.WaitGroup
+		for lane := 1; lane < 4; lane++ {
+			joins.Add(1)
+			go func() {
+				defer joins.Done()
+				laneConn, joinErr := dialIngressWebSocketLane(ctx, laneURL.String(), sess.Uuid, key, lane, closeReason)
+				if joinErr != nil {
+					return
+				}
+				laneConn.c.SetReadLimit(-1)
+				if addErr := lanes.AddLane(lane, laneConn, func() error {
+					return laneConn.c.Close(websocket.StatusNormalClosure, "")
+				}); addErr != nil {
+					_ = laneConn.c.Close(websocket.StatusPolicyViolation, addErr.Error())
+				}
+			}()
+		}
+		joins.Wait()
+	}
 
 	dial := func(dialCtx context.Context) (net.Conn, error) {
 		var d net.Dialer
 		return d.DialContext(dialCtx, "tcp", fmt.Sprintf("127.0.0.1:%d", localPort))
 	}
-	// Capture the end reason the agent sends in the close frame.
-	var closeReason string
-	reason := tun.Bridge(ctx, ingressClientConn{conn, &closeReason}, dial, tun.Options{
+	reason := tun.Bridge(ctx, bridgeConn, dial, tun.Options{
 		// The agent enforces the real idle/ceiling bounds; the client's own
 		// timers only need not fire first.
 		IdleTimeout: 24 * time.Hour,
 		MaxDuration: 24 * time.Hour,
 	})
 	_ = reason
-	return closeReason, nil
+	return closeReason.get(), nil
+}
+
+func dialIngressWebSocketLane(
+	ctx context.Context,
+	attachURL, sessionUUID, key string,
+	lane int,
+	reason *ingressCloseReason,
+) (ingressClientConn, error) {
+	headers := make(http.Header)
+	headers.Set(tun.IngressSessionHeader, sessionUUID)
+	headers.Set(tun.IngressAttachKeyHeader, key)
+	headers.Set(tun.IngressLaneHeader, strconv.Itoa(lane))
+	var lastErr error
+	for attempt := 0; attempt < 4; attempt++ {
+		laneCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		conn, resp, err := websocket.Dial(laneCtx, attachURL, &websocket.DialOptions{
+			Subprotocols: []string{tun.IngressWebSocketV2},
+			HTTPHeader:   headers,
+		})
+		cancel()
+		if err == nil {
+			return ingressClientConn{c: conn, reason: reason}, nil
+		}
+		lastErr = err
+		if resp == nil || resp.StatusCode != http.StatusUnauthorized || !sleepCtx(ctx, 25*time.Millisecond) {
+			break
+		}
+	}
+	return ingressClientConn{}, lastErr
 }
 
 // ingressAttachURL keeps the CLI compatible with mint responses produced
@@ -264,7 +394,26 @@ func ingressCloseMessage(reason string) string {
 // exit on it.
 type ingressClientConn struct {
 	c      *websocket.Conn
-	reason *string
+	reason *ingressCloseReason
+}
+
+type ingressCloseReason struct {
+	mu    sync.Mutex
+	value string
+}
+
+func (r *ingressCloseReason) set(value string) {
+	r.mu.Lock()
+	if value != "" || r.value == "" {
+		r.value = value
+	}
+	r.mu.Unlock()
+}
+
+func (r *ingressCloseReason) get() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.value
 }
 
 func (t ingressClientConn) Read(ctx context.Context) (tun.MessageType, []byte, error) {
@@ -272,7 +421,7 @@ func (t ingressClientConn) Read(ctx context.Context) (tun.MessageType, []byte, e
 	if err != nil {
 		var ce websocket.CloseError
 		if errors.As(err, &ce) {
-			*t.reason = ce.Reason
+			t.reason.set(ce.Reason)
 			switch ce.Code {
 			case websocket.StatusNormalClosure, websocket.StatusGoingAway:
 				return 0, nil, tun.ErrClientClosed

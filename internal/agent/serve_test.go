@@ -210,3 +210,16 @@ func TestServeSurfacesABindFailure(t *testing.T) {
 		t.Fatalf("bind failure = %v (%T), want a net error", err, err)
 	}
 }
+
+func TestAgentMetricsHostIsNeverAPublicIngressHost(t *testing.T) {
+	for _, host := range []string{"akerdock-agent", "localhost", "127.0.0.1", "::1"} {
+		if !isAgentMetricsHost(host) {
+			t.Fatalf("internal metrics host %q was refused", host)
+		}
+	}
+	for _, host := range []string{"dev.example.com", "app.local", "metrics.example.com"} {
+		if isAgentMetricsHost(host) {
+			t.Fatalf("public host %q could expose agent metrics", host)
+		}
+	}
+}

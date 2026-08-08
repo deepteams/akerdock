@@ -169,6 +169,37 @@ func TestOriginBridgeRoundTrip(t *testing.T) {
 	}
 }
 
+// A caller that stops reading one stream must not stop the single WebSocket
+// decoder. The stalled stream is reset after its bounded queue fills and a
+// sibling continues to receive data.
+func TestOriginStalledConsumerDoesNotBlockSibling(t *testing.T) {
+	fc := newFakeConn()
+	origin := NewOriginWithOptions(fc, Options{MaxStreams: 2})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go origin.Run(ctx, Options{})
+
+	stalled, stalledOpen := openOriginTestStream(ctx, t, origin, fc)
+	defer func() { _ = stalled.Close() }()
+	sibling, siblingOpen := openOriginTestStream(ctx, t, origin, fc)
+	defer func() { _ = sibling.Close() }()
+
+	payload := make([]byte, streamFramePayload)
+	for range streamQueueChunks + 4 {
+		fc.in <- frame{MessageBinary, dataFrame(stalledOpen.ID, payload)}
+	}
+	fc.in <- frame{MessageBinary, dataFrame(siblingOpen.ID, []byte("still-moving"))}
+
+	_ = sibling.SetReadDeadline(time.Now().Add(2 * time.Second))
+	got := make([]byte, len("still-moving"))
+	if _, err := io.ReadFull(sibling, got); err != nil {
+		t.Fatalf("sibling was blocked by stalled stream: %v", err)
+	}
+	if string(got) != "still-moving" {
+		t.Fatalf("sibling got %q", got)
+	}
+}
+
 // A burst beyond the active-stream bound waits locally at Origin. Closing an
 // active stream sends its EOF before admitting the replacement, so Bridge has
 // released the matching target by the time the next open arrives.
@@ -244,8 +275,10 @@ func TestOriginQueueBoundAndCancellation(t *testing.T) {
 
 func TestOriginQueueTimeout(t *testing.T) {
 	fc := newFakeConn()
+	waits := make(chan error, 2)
 	origin := NewOriginWithOptions(fc, Options{
 		MaxStreams: 1, MaxPendingStreams: 1, StreamQueueTimeout: 20 * time.Millisecond,
+		OnStreamWait: func(_ time.Duration, err error) { waits <- err },
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -254,6 +287,10 @@ func TestOriginQueueTimeout(t *testing.T) {
 	first, _ := openOriginTestStream(ctx, t, origin, fc)
 	if _, err := origin.OpenStream(ctx); !errors.Is(err, ErrOriginQueueTimeout) {
 		t.Fatalf("timed-out queued open = %v, want ErrOriginQueueTimeout", err)
+	}
+	<-waits // the first stream's immediate admission
+	if observed := <-waits; !errors.Is(observed, ErrOriginQueueTimeout) {
+		t.Fatalf("observed queue outcome = %v", observed)
 	}
 	waitOriginQueued(t, origin, 0)
 	_ = first.Close()

@@ -168,7 +168,16 @@ func agentRun(_ context.Context) error {
 	socket := envOr("AKERDOCK_DOCKER_SOCKET", dockerruntime.DefaultSocket)
 	apiVersion := os.Getenv("AKERDOCK_DOCKER_API_VERSION")
 
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	baseHandler := slog.NewJSONHandler(os.Stderr, nil)
+	logger := slog.New(logredact.Wrap(baseHandler))
+	tel := telemetry.Init(ctx, version, telemetry.EnvConfig(), logger)
+	defer tel.Shutdown(context.WithoutCancel(ctx))
+	if tel.Enabled() {
+		logger = slog.New(logredact.Wrap(multiHandler{
+			baseHandler,
+			otelslog.NewHandler(telemetry.ScopeName()),
+		}))
+	}
 	rt, err := dockerruntime.NewLocal(socket, apiVersion)
 	if err != nil {
 		return err
@@ -180,7 +189,7 @@ func agentRun(_ context.Context) error {
 		InstanceURL: os.Getenv("AKERDOCK_INSTANCE_URL"),
 		Token:       os.Getenv("AKERDOCK_AGENT_TOKEN"),
 	}
-	return agent.Serve(ctx, dir, addr, rt, agentCfg, logger)
+	return agent.ServeWithTelemetry(ctx, dir, addr, rt, agentCfg, logger, tel.PromHandler)
 }
 
 // envOr returns the environment value for key, or def when unset/empty.

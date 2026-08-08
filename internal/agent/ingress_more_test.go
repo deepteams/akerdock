@@ -1,17 +1,24 @@
 package agent
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
+	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
 
+	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/tunnel"
 )
 
@@ -27,6 +34,128 @@ func TestIngressAttachRequiresAToken(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("attach without token: got %d, want 401", rec.Code)
 	}
+}
+
+func TestIngressCapabilityProbeDoesNotConsumeToken(t *testing.T) {
+	ig := NewIngress(nil)
+	ig.SetRoutes([]IngressRoute{{Host: "dev.example.com", EndpointUUID: "ep1"}})
+	armed(ig, "sess1", "ep1", "tok", time.Minute)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodOptions, "http://dev.example.com/.akerdock/ingress", nil)
+	ig.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("probe status = %d", rec.Code)
+	}
+	if got := rec.Header().Get(tunnel.IngressCapabilitiesHeader); got != tunnel.IngressHTTPProtocol+",h3,h2,websocket-v2,websocket" {
+		t.Fatalf("capabilities = %q", got)
+	}
+	ig.mu.Lock()
+	remaining := len(ig.expects)
+	ig.mu.Unlock()
+	if remaining != 1 {
+		t.Fatalf("probe consumed a mint: %d expectations remain", remaining)
+	}
+}
+
+// HTTP v2 carries each relayed connection in its own full-duplex request. This
+// test acts as the CLI at the byte level and proves the agent reverse proxy can
+// exchange an HTTP request and response without the WebSocket mux.
+func TestIngressHTTPV2EndToEndRelay(t *testing.T) {
+	ig := NewIngress(nil)
+	srv := httptest.NewServer(ig)
+	defer srv.Close()
+	host := hostname(strings.TrimPrefix(srv.URL, "http://"))
+	ig.SetRoutes([]IngressRoute{{Host: host, EndpointUUID: "ep1"}})
+	armed(ig, "sess-http", "ep1", "tok", time.Minute)
+	key, err := tunnel.NewIngressAttachKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	controlReader, controlWriter := io.Pipe()
+	controlReq, _ := http.NewRequest(http.MethodPost, srv.URL+proxy.IngressAttachPath+"?token=tok", controlReader)
+	controlReq.Header.Set("Content-Type", tunnel.IngressControlContentType)
+	controlReq.Header.Set(tunnel.IngressProtocolHeader, tunnel.IngressHTTPProtocol)
+	controlReq.Header.Set(tunnel.IngressAttachKeyHeader, key)
+	controlReq.Header.Set(tunnel.IngressTransportHeader, "h2")
+	controlResp, err := http.DefaultClient.Do(controlReq)
+	if err != nil {
+		t.Fatalf("control attach: %v", err)
+	}
+	defer func() { _ = controlResp.Body.Close() }()
+	clientControl := tunnel.NewLineControl(controlResp.Body, controlWriter, nil, func() error {
+		_ = controlWriter.Close()
+		return controlResp.Body.Close()
+	})
+
+	visitorDone := make(chan struct {
+		status int
+		body   string
+		err    error
+	}, 1)
+	go func() {
+		resp, requestErr := http.Get(srv.URL + "/asset.js") //nolint:noctx // bounded by test server lifetime
+		if requestErr != nil {
+			visitorDone <- struct {
+				status int
+				body   string
+				err    error
+			}{err: requestErr}
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, requestErr := io.ReadAll(resp.Body)
+		visitorDone <- struct {
+			status int
+			body   string
+			err    error
+		}{status: resp.StatusCode, body: string(body), err: requestErr}
+	}()
+
+	open, err := clientControl.Receive()
+	if err != nil || open.Type != "open" {
+		t.Fatalf("control open = %+v, %v", open, err)
+	}
+	dataReader, dataWriter := io.Pipe()
+	streamURL, _ := url.Parse(srv.URL + proxy.IngressAttachPath)
+	dataReq, _ := http.NewRequest(http.MethodPost, streamURL.String(), dataReader)
+	dataReq.Header.Set("Content-Type", tunnel.IngressStreamContentType)
+	dataReq.Header.Set(tunnel.IngressSessionHeader, "sess-http")
+	dataReq.Header.Set(tunnel.IngressStreamHeader, fmt.Sprint(open.ID))
+	dataReq.Header.Set(tunnel.IngressAttachKeyHeader, key)
+	dataResp, err := http.DefaultClient.Do(dataReq)
+	if err != nil {
+		t.Fatalf("data attach: %v", err)
+	}
+	defer func() { _ = dataResp.Body.Close() }()
+
+	reader := bufio.NewReader(dataResp.Body)
+	requestHead, err := reader.ReadString('\n')
+	if err != nil || !strings.HasPrefix(requestHead, "GET /asset.js HTTP/1.1") {
+		t.Fatalf("relayed request line = %q, %v", requestHead, err)
+	}
+	// Drain the remaining request headers before replying as the local app.
+	for {
+		line, readErr := reader.ReadString('\n')
+		if readErr != nil {
+			t.Fatalf("relayed request headers: %v", readErr)
+		}
+		if line == "\r\n" {
+			break
+		}
+	}
+	_, _ = io.WriteString(dataWriter, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+	_ = dataWriter.Close()
+
+	select {
+	case result := <-visitorDone:
+		if result.err != nil || result.status != http.StatusOK || result.body != "ok" {
+			t.Fatalf("visitor = status %d body %q err %v", result.status, result.body, result.err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("visitor request did not cross HTTP v2")
+	}
+	_ = clientControl.Send(context.Background(), tunnel.HTTPControlFrame{Type: "session_close", Reason: "user_close"})
 }
 
 // TestIngressAttachReleasesSlotOnFailedUpgrade pins the reservation cleanup:
@@ -141,6 +270,151 @@ func TestIngressStreamAdmissionLimits(t *testing.T) {
 	if ingressMaxActiveStreams != 32 || ingressMaxQueuedStreams != 512 || ingressStreamQueueWait != 30*time.Second {
 		t.Fatalf("ingress stream admission = active %d, queued %d, wait %s",
 			ingressMaxActiveStreams, ingressMaxQueuedStreams, ingressStreamQueueWait)
+	}
+}
+
+func TestIngressMetricOutcomeHasBoundedValues(t *testing.T) {
+	tests := []struct {
+		err  error
+		want string
+	}{
+		{nil, "ok"},
+		{tunnel.ErrOriginQueueFull, "queue_full"},
+		{tunnel.ErrOriginQueueTimeout, "queue_timeout"},
+		{tunnel.ErrOriginClosed, "closed"},
+		{context.Canceled, "canceled"},
+		{errors.New("network"), "failed"},
+	}
+	for _, tt := range tests {
+		if got := ingressMetricOutcome(tt.err); got != tt.want {
+			t.Fatalf("outcome(%v) = %q, want %q", tt.err, got, tt.want)
+		}
+	}
+}
+
+type countingIngressOpener struct {
+	address string
+	opens   atomic.Int64
+}
+
+func (o *countingIngressOpener) OpenStream(ctx context.Context) (net.Conn, error) {
+	o.opens.Add(1)
+	var dialer net.Dialer
+	return dialer.DialContext(ctx, "tcp", o.address)
+}
+
+func TestIngressRelayReusesConnectionsWithinOneSessionOnly(t *testing.T) {
+	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer dev.Close()
+	devURL, err := url.Parse(dev.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ig := NewIngress(nil)
+	request := func(relay http.Handler) {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "http://dev.example.test/asset.js", nil)
+		relay.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || rec.Body.String() != "ok" {
+			t.Fatalf("relay response = %d %q", rec.Code, rec.Body.String())
+		}
+	}
+
+	first := &countingIngressOpener{address: devURL.Host}
+	firstRelay := ig.newRelay(first)
+	request(firstRelay)
+	request(firstRelay)
+	if got := first.opens.Load(); got != 1 {
+		t.Fatalf("two sequential requests opened %d local connections, want one keep-alive connection", got)
+	}
+
+	second := &countingIngressOpener{address: devURL.Host}
+	request(ig.newRelay(second))
+	if first.opens.Load() != 1 || second.opens.Load() != 1 {
+		t.Fatalf("session pools crossed: first=%d second=%d", first.opens.Load(), second.opens.Load())
+	}
+}
+
+func TestIngressWebSocketV2AttachesFourAuthenticatedLanes(t *testing.T) {
+	ig := NewIngress(nil)
+	srv := httptest.NewServer(ig)
+	defer srv.Close()
+	host := hostname(strings.TrimPrefix(srv.URL, "http://"))
+	ig.SetRoutes([]IngressRoute{{Host: host, EndpointUUID: "ep1"}})
+	armed(ig, "sess-ws-v2", "ep1", "tok", time.Minute)
+	key, err := tunnel.NewIngressAttachKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachURL := "ws" + strings.TrimPrefix(srv.URL, "http") + proxy.IngressAttachPath
+	primaryHeader := make(http.Header)
+	primaryHeader.Set(tunnel.IngressAttachKeyHeader, key)
+	primary, _, err := websocket.Dial(context.Background(), attachURL+"?token=tok", &websocket.DialOptions{
+		Subprotocols: []string{tunnel.IngressWebSocketV2, IngressSubprotocol},
+		HTTPHeader:   primaryHeader,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = primary.CloseNow() }()
+	if primary.Subprotocol() != tunnel.IngressWebSocketV2 {
+		t.Fatalf("primary negotiated %q", primary.Subprotocol())
+	}
+
+	deadline := time.Now().Add(time.Second)
+	var lanes *tunnel.MultiLaneConn
+	for lanes == nil && time.Now().Before(deadline) {
+		ig.mu.Lock()
+		if session := ig.live["ep1"]; session != nil {
+			lanes = session.wsLanes
+		}
+		ig.mu.Unlock()
+		if lanes == nil {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if lanes == nil {
+		t.Fatal("primary v2 lane group was not published")
+	}
+
+	secondary := make([]*websocket.Conn, 0, 3)
+	for lane := 1; lane < 4; lane++ {
+		header := make(http.Header)
+		header.Set(tunnel.IngressSessionHeader, "sess-ws-v2")
+		header.Set(tunnel.IngressAttachKeyHeader, key)
+		header.Set(tunnel.IngressLaneHeader, fmt.Sprint(lane))
+		conn, _, dialErr := websocket.Dial(context.Background(), attachURL, &websocket.DialOptions{
+			Subprotocols: []string{tunnel.IngressWebSocketV2}, HTTPHeader: header,
+		})
+		if dialErr != nil {
+			t.Fatalf("lane %d: %v", lane, dialErr)
+		}
+		secondary = append(secondary, conn)
+	}
+	defer func() {
+		for _, conn := range secondary {
+			_ = conn.CloseNow()
+		}
+	}()
+	if got := lanes.LaneCount(); got != 4 {
+		t.Fatalf("attached lanes = %d, want 4", got)
+	}
+
+	// Let every server-side graceful close complete instead of waiting on a
+	// client that never consumes its close control frame.
+	for _, conn := range secondary {
+		go func() { _, _, _ = conn.Read(context.Background()) }()
+	}
+	if !ig.Cut("sess-ws-v2", "revoked") {
+		t.Fatal("v2 session was not live")
+	}
+	readCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, _, readErr := primary.Read(readCtx); readErr == nil {
+		t.Fatal("primary lane stayed open after session cut")
 	}
 }
 

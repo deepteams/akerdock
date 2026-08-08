@@ -9,6 +9,7 @@ entryPoints:
     address: ":80"
   websecure:
     address: ":443"
+    http3: {}
   tcp-15432:
     address: ":15432"
 
