@@ -11,7 +11,7 @@ internal/dockerruntime	29
 internal/mcp	37
 internal/jobs	40
 internal/handlers	53
-internal/agent	56
+internal/agent	59
 internal/scheduler	58
 internal/hostops	62
 internal/telemetry	80

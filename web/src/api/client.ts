@@ -1819,6 +1819,56 @@ export class AkerDockClient {
     return this.request<void>('DELETE', `/port-forward-sessions/${uuid}`);
   }
 
+  // Ingress endpoints (ADR-060): the mirror of the bastion — a declared,
+  // stable public URL relayed to a developer's machine.
+
+  listIngressEndpoints() {
+    type Response =
+      paths['/ingress-endpoints']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', '/ingress-endpoints');
+  }
+
+  createIngressEndpoint(body: components['schemas']['IngressEndpointCreate']) {
+    type Response =
+      paths['/ingress-endpoints']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', '/ingress-endpoints', { body });
+  }
+
+  getIngressEndpoint(uuid: string) {
+    type Response =
+      paths['/ingress-endpoints/{ingress_endpoint_uuid}']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/ingress-endpoints/${uuid}`);
+  }
+
+  updateIngressEndpoint(uuid: string, body: components['schemas']['IngressEndpointUpdate']) {
+    type Response =
+      paths['/ingress-endpoints/{ingress_endpoint_uuid}']['put']['responses']['200']['content']['application/json'];
+    return this.request<Response>('PUT', `/ingress-endpoints/${uuid}`, { body });
+  }
+
+  deleteIngressEndpoint(uuid: string) {
+    return this.request<void>('DELETE', `/ingress-endpoints/${uuid}`);
+  }
+
+  /**
+   * The ingress attach sessions — who is publishing their machine right now,
+   * on which URL. Defaults to the live ones; `active: false` walks history.
+   */
+  listIngressTunnelSessions(query?: {
+    ingress_endpoint_uuid?: string;
+    active?: boolean;
+    cursor?: string;
+    limit?: number;
+  }) {
+    type Response =
+      paths['/ingress-tunnel-sessions']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', '/ingress-tunnel-sessions', { query });
+  }
+
+  closeIngressTunnelSession(uuid: string) {
+    return this.request<void>('DELETE', `/ingress-tunnel-sessions/${uuid}`);
+  }
+
   /**
    * Server-sent events (ADR-024). Resumption is the point: `lastEventId` picks
    * up exactly where a dropped connection left off, so a reconnect does not

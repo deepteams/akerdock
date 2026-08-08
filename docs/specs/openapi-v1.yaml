@@ -160,6 +160,10 @@ tags:
     description: >-
       Declared bastion targets outside the server (ADR-045) and the access
       grants that gate tunnels to them.
+  - name: Ingress
+    description: >-
+      Declared public URLs relayed to a developer's machine (ADR-060) and
+      their attach sessions.
 
 paths:
   # ---------------------------------------------------------------------------
@@ -8162,6 +8166,253 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /ingress-endpoints:
+    get:
+      tags: [Ingress]
+      operationId: listIngressEndpoints
+      summary: List the team's declared ingress endpoints
+      description: >-
+        Public URLs relayed to a developer's machine (ADR-060): a stable FQDN
+        terminated by one ingress server's proxy, relayed by its agent to
+        whoever holds the attach socket. The hostname is a property of this
+        resource, never of a session — no random per-session hostnames.
+      x-required-permission: ingress-endpoints:read
+      responses:
+        "200":
+          description: The team's ingress endpoints.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/IngressEndpoint"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Ingress]
+      operationId: createIngressEndpoint
+      summary: Declare an ingress endpoint
+      description: >-
+        Declaring an endpoint publishes a hostname onto arbitrary laptop
+        software, so it is an admin-level act, deliberately separate from
+        attaching to one. Declaration pre-provisions the router and the
+        certificate; until a laptop attaches, the URL serves an offline page.
+        Defaults to `access: sso` — reachable by the team's authenticated
+        users and nobody else; `none` is the conscious opt-out for the
+        third-party-webhook case. noindex and forced HTTPS are unconditional.
+      x-required-permission: ingress-endpoints:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngressEndpointCreate"
+      responses:
+        "201":
+          description: Endpoint declared; router deposit is under way.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngressEndpoint"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /ingress-endpoints/{ingress_endpoint_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/IngressEndpointUuid"
+    get:
+      tags: [Ingress]
+      operationId: getIngressEndpoint
+      summary: Read an ingress endpoint
+      x-required-permission: ingress-endpoints:read
+      responses:
+        "200":
+          description: The endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngressEndpoint"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Ingress]
+      operationId: updateIngressEndpoint
+      summary: Update an ingress endpoint
+      description: >-
+        The FQDN and the server are immutable: both are baked into the issued
+        certificate and the deposited router, so changing the URL is a delete
+        and a fresh declaration. The access mode IS mutable here — switching
+        to `none` is the audited admin act ADR-060 §5 describes.
+      x-required-permission: ingress-endpoints:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngressEndpointUpdate"
+      responses:
+        "200":
+          description: Endpoint updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngressEndpoint"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    delete:
+      tags: [Ingress]
+      operationId: deleteIngressEndpoint
+      summary: Delete an ingress endpoint
+      description: >-
+        Removes the router and the hostname registration, and cuts the live
+        attach session if one exists (reported to the CLI as `revoked`).
+      x-required-permission: ingress-endpoints:manage
+      responses:
+        "204":
+          description: Endpoint deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /ingress-endpoints/{ingress_endpoint_uuid}/tunnels:
+    parameters:
+      - $ref: "#/components/parameters/IngressEndpointUuid"
+    post:
+      tags: [Ingress]
+      operationId: createIngressTunnel
+      summary: Attach to an ingress endpoint (mint)
+      description: >-
+        Mints an attach session with an **empty body** — the hostname, the
+        server and the access regime were frozen at declaration; the local
+        port is the laptop's business and never crosses the API. The token is
+        redeemed **agent-side**, at `attach_url` on the endpoint's own FQDN
+        (subprotocol `akerdock-ingress-v1`, outside OpenAPI — ADR-060 §3).
+
+
+        `409` with code `occupied` names the current occupant (one laptop per
+        endpoint); `409` with code `server_agent_unavailable` means the
+        ingress server's agent channel is down and no attach can be expected.
+      x-required-permission: ingress-tunnels:open
+      responses:
+        "201":
+          description: Session created — the token is only visible in this response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngressTunnelSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /ingress-tunnel-sessions:
+    get:
+      tags: [Ingress]
+      operationId: listIngressTunnelSessions
+      summary: List the team's ingress attach sessions
+      description: >-
+        Who is publishing their machine right now, on which URL, since when —
+        and the recent history. Read-only: the attach token is never readable
+        back (§23.2). Defaults to live sessions; `active=false` walks the
+        history, `ingress_endpoint_uuid` narrows to one endpoint.
+      x-required-permission: ingress-endpoints:read
+      parameters:
+        - name: ingress_endpoint_uuid
+          in: query
+          required: false
+          description: Restrict to the sessions of this ingress endpoint.
+          schema:
+            type: string
+        - name: active
+          in: query
+          required: false
+          description: >-
+            `true` (default) lists only the sessions still open. `false` walks
+            the history too.
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page of attach sessions, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/IngressTunnelSessionInfo"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /ingress-tunnel-sessions/{session_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/IngressTunnelSessionUuid"
+    delete:
+      tags: [Ingress]
+      operationId: closeIngressTunnelSession
+      summary: Close an ingress attach session
+      description: >-
+        Cuts a live attach through the ingress server's agent. Closing **your
+        own** session needs nothing more than the permission that opened it;
+        closing **someone else's** requires `ingress-endpoints:manage`. The
+        laptop is told why (`user_close` by the holder, `revoked` by an
+        administrator) and, this being a policy close, does not re-dial
+        (ADR-060 §6). Ending an already-closed session is a no-op.
+      x-required-permission: ingress-tunnels:open
+      responses:
+        "204":
+          description: Session closed (or already was).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 
 # =============================================================================
 # Components
@@ -8345,6 +8596,20 @@ components:
       in: path
       required: true
       description: UUID of the external endpoint.
+      schema:
+        type: string
+    IngressEndpointUuid:
+      name: ingress_endpoint_uuid
+      in: path
+      required: true
+      description: UUID of the ingress endpoint.
+      schema:
+        type: string
+    IngressTunnelSessionUuid:
+      name: session_uuid
+      in: path
+      required: true
+      description: UUID of the ingress attach session.
       schema:
         type: string
     GrantUuid:
@@ -9805,6 +10070,182 @@ components:
         the grant exists, then replays the mint (same choreography as `akerdock
         login`, ADR-031). Telling someone "no" without telling them where to go
         is how a control becomes something people route around.
+
+    IngressEndpoint:
+      type: object
+      required: [uuid, name, fqdn, url, server_uuid, access, occupied, created_at]
+      description: >-
+        A declared public URL relayed to a developer's machine (ADR-060). The
+        FQDN is stable and registered in the routing namespace at declaration;
+        the router and certificate are pre-provisioned, so attaching later is
+        instant. noindex and forced HTTPS are unconditional and therefore not
+        fields.
+      properties:
+        uuid:
+          type: string
+        name:
+          type: string
+          maxLength: 63
+        description:
+          type: string
+          nullable: true
+        fqdn:
+          type: string
+          description: Exact hostname, frozen at declaration — never random.
+        url:
+          type: string
+          description: "`https://<fqdn>` — what a visitor opens."
+        server_uuid:
+          type: string
+          description: >-
+            Ingress server: the vantage point whose proxy terminates the
+            hostname and whose agent relays to the laptop.
+        access:
+          type: string
+          enum: [sso, basic_auth, none]
+          description: >-
+            The ADR-042 wall vocabulary. `sso` (the default) admits the team's
+            authenticated users and nobody else; `none` is the conscious
+            opt-out for third-party webhooks — an admin-level, audited act.
+        occupied:
+          type: boolean
+          description: A live attach session exists (one laptop per endpoint).
+        occupant_email:
+          type: string
+          description: Who holds the live attach, when `occupied`.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    IngressEndpointCreate:
+      type: object
+      required: [name, fqdn, server_uuid]
+      properties:
+        name:
+          type: string
+          maxLength: 63
+        description:
+          type: string
+        fqdn:
+          type: string
+          description: >-
+            Exact hostname — typically under the server's wildcard domain, but
+            any FQDN the operator routes to the server is acceptable. Immutable
+            after declaration.
+        server_uuid:
+          type: string
+          description: Immutable after declaration.
+        access:
+          type: string
+          enum: [sso, basic_auth, none]
+          default: sso
+        basic_auth_password:
+          type: string
+          description: >-
+            Required when `access` is `basic_auth`; hashed at rest, never
+            readable back.
+
+    IngressEndpointUpdate:
+      type: object
+      required: [name]
+      description: >-
+        What may change after declaration: the label, the description and the
+        access regime. The FQDN and the server may not — both are baked into
+        the certificate and the deposited router.
+      properties:
+        name:
+          type: string
+          maxLength: 63
+        description:
+          type: string
+        access:
+          type: string
+          enum: [sso, basic_auth, none]
+        basic_auth_password:
+          type: string
+
+    IngressTunnelSession:
+      type: object
+      required: [uuid, fqdn, url, attach_url, token, token_expires_at]
+      description: >-
+        An ingress attach session (ADR-060 §3). Same token contract as every
+        tunnel: **single-use**, returned once, hash stored — but redeemed
+        **agent-side**, at `attach_url` on the endpoint's own FQDN, never at
+        the control plane. Idle timeout 30 min (visitor silence), ceiling
+        12 h, both enforced by the agent and reported with a reason.
+      properties:
+        uuid:
+          type: string
+        fqdn:
+          type: string
+        url:
+          type: string
+          description: "`https://<fqdn>` — the public URL, to print at attach."
+        attach_url:
+          type: string
+          description: >-
+            Full `wss://` URL to dial, on the endpoint's own FQDN (reserved
+            path, ADR-060 §2), token in the query string. Subprotocol
+            `akerdock-ingress-v1`, outside OpenAPI. This is the one sanctioned
+            non-manager dial of the CLI transport invariant (ADR-060 §4): the
+            hostname was named by the manager inside this authenticated
+            response.
+        token:
+          type: string
+          description: Single-use attach token (`akdi_…`), returned only here.
+        token_expires_at:
+          type: string
+          format: date-time
+          description: Expiration of the attach token, not of the session.
+
+    IngressTunnelSessionInfo:
+      type: object
+      required: [uuid, active, created_at]
+      description: >-
+        An attach session as an operator sees it. Liveness is agent-reported
+        (the socket lives on the ingress server), so `active` reflects the
+        last report, not a control-plane connection.
+      properties:
+        uuid:
+          type: string
+        endpoint_uuid:
+          type: string
+          description: Absent when the endpoint was deleted after the session.
+        endpoint_name:
+          type: string
+        fqdn:
+          type: string
+        user_email:
+          type: string
+        client_ip:
+          type: string
+          description: Address the mint was requested from.
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          description: When the laptop attached — absent while the token is unredeemed.
+        last_seen_at:
+          type: string
+          format: date-time
+          description: Last agent report for this session.
+        ended_at:
+          type: string
+          format: date-time
+        end_reason:
+          type: string
+          enum: [user_close, idle_timeout, max_duration, disconnect, revoked]
+          description: >-
+            Why it closed. `revoked` covers the operator cut and the endpoint's
+            deletion; policy reasons are terminal for the CLI (no re-dial),
+            `disconnect` is the one it recovers from.
 
     AdoptionScanAccepted:
       allOf:

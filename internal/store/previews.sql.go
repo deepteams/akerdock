@@ -75,7 +75,7 @@ func (q *Queries) DeleteExpiredPreviewAccessTokens(ctx context.Context) error {
 }
 
 const getPreviewAccessTokenByHash = `-- name: GetPreviewAccessTokenByHash :one
-SELECT id, token_hash, preview_id, user_id, expires_at, created_at, application_id, resource_id FROM preview_access_tokens WHERE token_hash = $1 AND expires_at > now()
+SELECT id, token_hash, preview_id, user_id, expires_at, created_at, application_id, resource_id, ingress_endpoint_id FROM preview_access_tokens WHERE token_hash = $1 AND expires_at > now()
 `
 
 func (q *Queries) GetPreviewAccessTokenByHash(ctx context.Context, tokenHash string) (PreviewAccessToken, error) {
@@ -90,6 +90,7 @@ func (q *Queries) GetPreviewAccessTokenByHash(ctx context.Context, tokenHash str
 		&i.CreatedAt,
 		&i.ApplicationID,
 		&i.ResourceID,
+		&i.IngressEndpointID,
 	)
 	return i, err
 }

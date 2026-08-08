@@ -689,6 +689,49 @@ func (ns NullGitSourceKind) Value() (driver.Value, error) {
 	return string(ns.GitSourceKind), nil
 }
 
+type IngressAccess string
+
+const (
+	IngressAccessSso       IngressAccess = "sso"
+	IngressAccessBasicAuth IngressAccess = "basic_auth"
+	IngressAccessNone      IngressAccess = "none"
+)
+
+func (e *IngressAccess) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = IngressAccess(s)
+	case string:
+		*e = IngressAccess(s)
+	default:
+		return fmt.Errorf("unsupported scan type for IngressAccess: %T", src)
+	}
+	return nil
+}
+
+type NullIngressAccess struct {
+	IngressAccess IngressAccess
+	Valid         bool // Valid is true if IngressAccess is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullIngressAccess) Scan(value interface{}) error {
+	if value == nil {
+		ns.IngressAccess, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.IngressAccess.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullIngressAccess) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.IngressAccess), nil
+}
+
 type JobStatus string
 
 const (
@@ -2420,6 +2463,7 @@ type Domain struct {
 	CreatedBy          *int64
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
+	IngressEndpointID  *int64
 }
 
 type Environment struct {
@@ -2571,6 +2615,40 @@ type Identity struct {
 	Email           *string
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+}
+
+type IngressEndpoint struct {
+	ID            int64
+	Uuid          pgtype.UUID
+	TeamID        int64
+	Name          string
+	Description   *string
+	Fqdn          string
+	ServerID      int64
+	Access        IngressAccess
+	BasicAuthHash *string
+	CreatedBy     *int64
+	UpdatedBy     *int64
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	Version       int32
+}
+
+type IngressTunnelSession struct {
+	ID             int64
+	Uuid           pgtype.UUID
+	TeamID         int64
+	EndpointID     *int64
+	UserID         *int64
+	ClientIp       *netip.Addr
+	TokenHash      string
+	TokenExpiresAt pgtype.Timestamptz
+	ClaimedAt      pgtype.Timestamptz
+	StartedAt      pgtype.Timestamptz
+	LastSeenAt     pgtype.Timestamptz
+	EndedAt        pgtype.Timestamptz
+	EndReason      *TerminalEndReason
+	CreatedAt      pgtype.Timestamptz
 }
 
 type InstanceSetting struct {
@@ -2887,14 +2965,15 @@ type Preview struct {
 }
 
 type PreviewAccessToken struct {
-	ID            int64
-	TokenHash     string
-	PreviewID     *int64
-	UserID        *int64
-	ExpiresAt     pgtype.Timestamptz
-	CreatedAt     pgtype.Timestamptz
-	ApplicationID *int64
-	ResourceID    *int64
+	ID                int64
+	TokenHash         string
+	PreviewID         *int64
+	UserID            *int64
+	ExpiresAt         pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+	ApplicationID     *int64
+	ResourceID        *int64
+	IngressEndpointID *int64
 }
 
 type PrivateKey struct {

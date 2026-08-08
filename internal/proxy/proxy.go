@@ -30,6 +30,19 @@ type AccessPolicy struct {
 	BasicAuthHash  string
 	ForwardAuthURL string
 	CallbackURL    string
+	// CallbackPath is the reserved path whose reserved router proxies to the
+	// control plane to mint the scoped cookie. Empty defaults to the
+	// application callback (§4.1); an ingress endpoint (ADR-060) sets its own
+	// so its cookie flow never collides with an application's.
+	CallbackPath string
+}
+
+// accessCallbackPath returns the policy's callback path or the default.
+func (p *AccessPolicy) accessCallbackPath() string {
+	if p != nil && p.CallbackPath != "" {
+		return p.CallbackPath
+	}
+	return "/.akerdock/app-callback"
 }
 
 // RouteGroup is the routing of one application (§2.3).
@@ -55,6 +68,12 @@ type RouteGroup struct {
 	// and an indexed copy competes with the original — and on production routes
 	// when the resource asks for it.
 	Noindex bool
+	// IngressAttachPath, when set, emits one reserved high-priority router per
+	// FQDN for the laptop attach WebSocket of an ingress endpoint (ADR-060 §2):
+	// same service target and TLS, but NO access middleware — the attach
+	// authenticates with its own single-use token, and a wall here would block
+	// the CLI along with the visitors.
+	IngressAttachPath string
 }
 
 // Priority implements the §3.1 formula: 1000 × segments(path) + len(path).
@@ -132,6 +151,7 @@ func GenerateDynamic(rg RouteGroup, revision int64) string {
 		}
 	}
 	writeAccessCallbackRouters(&b, rg, routes)
+	writeIngressAttachRouters(&b, rg, routes)
 	if forceHTTPS || rg.Access != nil || rg.Noindex {
 		b.WriteString("  middlewares:\n")
 	}
@@ -185,6 +205,13 @@ const AgentPort = 8080
 const WakeHeader = "X-AkerDock-Wake"
 
 const accessCallbackPriority = 2_000_000
+
+// IngressAttachPath is the reserved path a laptop dials to attach to an
+// ingress endpoint (ADR-060 §2), on the endpoint's own FQDN. Same magnitude as
+// the callback priority: both are exact-path rules that can never overlap.
+const IngressAttachPath = "/.akerdock/ingress"
+
+const ingressAttachPriority = 2_000_000
 
 func publicPriority(basePath string) int {
 	// Win over this route's protected router, but never over a more-specific
@@ -268,12 +295,66 @@ func writeAccessCallbackRouters(b *strings.Builder, rg RouteGroup, routes []Rout
 		seen[route.FQDN] = struct{}{}
 		fmt.Fprintf(b, "    %s-access-callback-%d:\n", rg.AppUUID, callbackN)
 		b.WriteString("      entryPoints: [websecure]\n")
-		fmt.Fprintf(b, "      rule: Host(`%s`) && Path(`/.akerdock/app-callback`)\n", route.FQDN)
+		fmt.Fprintf(b, "      rule: Host(`%s`) && Path(`%s`)\n", route.FQDN, rg.Access.accessCallbackPath())
 		fmt.Fprintf(b, "      priority: %d\n", accessCallbackPriority)
 		fmt.Fprintf(b, "      service: %s-access-callback\n", rg.AppUUID)
 		writeTLS(b, rg, route.FQDN)
 		callbackN++
 	}
+}
+
+// writeIngressAttachRouters emits the reserved attach router of an ingress
+// group: one per distinct FQDN, targeting the same service as that FQDN's
+// first route. Modeled on the callback routers and generated natively by the
+// IR — never spliced into the YAML after the fact.
+func writeIngressAttachRouters(b *strings.Builder, rg RouteGroup, routes []Route) {
+	if rg.IngressAttachPath == "" {
+		return
+	}
+	seen := map[string]struct{}{}
+	attachN := 0
+	for n, route := range routes {
+		if _, ok := seen[route.FQDN]; ok {
+			continue
+		}
+		seen[route.FQDN] = struct{}{}
+		fmt.Fprintf(b, "    %s-ingress-attach-%d:\n", rg.AppUUID, attachN)
+		b.WriteString("      entryPoints: [websecure]\n")
+		fmt.Fprintf(b, "      rule: Host(`%s`) && Path(`%s`)\n", route.FQDN, rg.IngressAttachPath)
+		fmt.Fprintf(b, "      priority: %d\n", ingressAttachPriority)
+		fmt.Fprintf(b, "      service: %s-s%d\n", rg.AppUUID, n)
+		writeTLS(b, rg, route.FQDN)
+		attachN++
+	}
+}
+
+// IngressGroup is the routing of one declared ingress endpoint (ADR-060): a
+// single stable FQDN, permanently pointed at the agent's HTTP front, walled
+// per the endpoint's access mode, noindexed and HTTPS-forced unconditionally.
+type IngressGroup struct {
+	UUID           string
+	FQDN           string
+	WildcardDomain string
+	DNSProvider    string
+	Access         *AccessPolicy
+}
+
+// GenerateIngress renders the dynamic file of an ingress endpoint. The router
+// exists from declaration on — attaching later touches no Traefik file, which
+// is also what lets HTTP-01 issue the certificate while the URL still serves
+// the agent's offline page.
+func GenerateIngress(g IngressGroup, revision int64) string {
+	return GenerateDynamic(RouteGroup{
+		AppUUID:           g.UUID,
+		WildcardDomain:    g.WildcardDomain,
+		DNSProvider:       g.DNSProvider,
+		Endpoint:          AgentContainerName,
+		ForceHTTPS:        true,
+		Noindex:           true,
+		Access:            g.Access,
+		IngressAttachPath: IngressAttachPath,
+		Routes:            []Route{{FQDN: g.FQDN, Path: "/", TargetPort: AgentPort}},
+	}, revision)
 }
 
 func writeAccessCallbackService(b *strings.Builder, rg RouteGroup) {

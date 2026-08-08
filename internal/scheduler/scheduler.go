@@ -150,6 +150,8 @@ type Store interface {
 	PurgeTerminalSessions(context.Context, int32) (int64, error)
 	SweepPortForwardSessions(context.Context) ([]store.SweepPortForwardSessionsRow, error)
 	PurgePortForwardSessions(context.Context, int32) (int64, error)
+	SweepIngressSessions(context.Context) ([]store.IngressTunnelSession, error)
+	PurgeIngressSessions(context.Context) (int64, error)
 	ListServersWithProxy(context.Context) ([]store.Server, error)
 	ListReadyServers(context.Context) ([]store.Server, error)
 	ListAppliedProxyRevisions(context.Context, int64) ([]store.ProxyConfigRevision, error)
@@ -366,6 +368,27 @@ func (s *Scheduler) purgeRetention(ctx context.Context) {
 		s.Logger.Warn("port-forward session purge failed", "error", err)
 	} else if n > 0 {
 		s.Logger.Info("purged port-forward sessions", "count", n)
+	}
+	// Ingress attach sessions (ADR-060): the socket lives on the ingress
+	// server's agent, so liveness is agent-reported. Finalize rows whose token
+	// expired unclaimed, whose agent went silent, or that hit the 12 h ceiling.
+	if rows, err := s.Store.SweepIngressSessions(ctx); err != nil {
+		s.Logger.Warn("ingress session sweep failed", "error", err)
+	} else {
+		if len(rows) > 0 {
+			s.Logger.Info("swept orphaned ingress sessions", "count", len(rows))
+		}
+		if s.Audit != nil && s.Audit.Store != nil {
+			for _, row := range rows {
+				s.Audit.System(ctx, &row.TeamID, "ingress-tunnel.close",
+					"ingress_tunnel_session", row.Uuid, store.AuditResultSuccess)
+			}
+		}
+	}
+	if n, err := s.Store.PurgeIngressSessions(ctx); err != nil {
+		s.Logger.Warn("ingress session purge failed", "error", err)
+	} else if n > 0 {
+		s.Logger.Info("purged ingress sessions", "count", n)
 	}
 }
 

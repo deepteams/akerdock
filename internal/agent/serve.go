@@ -27,6 +27,10 @@ func Serve(ctx context.Context, dir, addr string, rt dockerruntime.Runtime, agen
 	activity := FileActivity{Dir: dir}
 	docker := NewRuntimeDocker(rt)
 
+	// The ingress module (ADR-060) lives as long as the process: a routing
+	// reload updates its host table but must never drop a live tunnel.
+	ingress := NewIngress(logger)
+
 	var agent *Agent
 	if agentCfg.Enabled() {
 		agent = NewAgent(agentCfg, docker, logger)
@@ -37,7 +41,10 @@ func Serve(ctx context.Context, dir, addr string, rt dockerruntime.Runtime, agen
 		if host == nil {
 			logger.Info("agent: no host tree mounted — host-ops disabled until this helper is recreated")
 		}
-		agent.Executor = NewExecutor(rt, host, logger)
+		exec := NewExecutor(rt, host, logger)
+		exec.Ingress = ingress
+		agent.Executor = exec
+		ingress.Notify = agent.Push
 		go agent.Run(ctx)
 	}
 
@@ -58,7 +65,9 @@ func Serve(ctx context.Context, dir, addr string, rt dockerruntime.Runtime, agen
 			}
 		}
 		current.Store(wk)
-		logger.Info("waker: routing config loaded", "routes", len(cfg.Routes), "resources", len(cfg.Resources))
+		ingress.SetRoutes(cfg.Ingress)
+		logger.Info("waker: routing config loaded", "routes", len(cfg.Routes),
+			"resources", len(cfg.Resources), "ingress", len(cfg.Ingress))
 	}
 	load()
 
@@ -83,6 +92,11 @@ func Serve(ctx context.Context, dir, addr string, rt dockerruntime.Runtime, agen
 	}()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Ingress hosts first (ADR-060): they are declared, never scale-to-zero.
+		if ingress.Handles(hostname(r.Host)) {
+			ingress.ServeHTTP(w, r)
+			return
+		}
 		wk := current.Load()
 		if wk == nil {
 			http.Error(w, "waker not configured", http.StatusServiceUnavailable)

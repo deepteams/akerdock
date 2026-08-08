@@ -212,6 +212,11 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 	r.Get("/webhooks/applications/authorize", a.ApplicationAuthorize)
 	r.Get("/.akerdock/app-callback", a.ApplicationCallback)
 
+	// The same ritual for an sso-walled INGRESS endpoint (ADR-060 §5).
+	r.Get("/webhooks/ingress/forward-auth", a.IngressForwardAuth)
+	r.Get("/webhooks/ingress/authorize", a.IngressAuthorize)
+	r.Get("/.akerdock/ingress-callback", a.IngressCallback)
+
 	// Built-in MCP server (ADR-043): its own bearer resolution (API token or
 	// OAuth access token) and its own OAuth endpoints. Outside /api/v1 like
 	// the webhooks — an MCP client is not an API client.

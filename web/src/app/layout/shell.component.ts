@@ -541,6 +541,12 @@ export class ShellComponent {
           icon: 'cable',
           permission: 'external-endpoints:read',
         },
+        {
+          path: '/ingress',
+          label: 'Ingress',
+          icon: 'globe',
+          permission: 'ingress-endpoints:read',
+        },
       ],
     },
     {

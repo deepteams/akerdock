@@ -210,6 +210,10 @@ func (a *API) applyAgentObservation(ctx context.Context, serverID int64, o agent
 	switch o.Type {
 	case "heartbeat":
 		// The touch on the token row already recorded liveness.
+	case "ingress_claimed", "ingress_alive", "ingress_closed":
+		a.applyIngressObservation(ctx, serverID, ingressObservation{
+			Type: o.Type, SessionUUID: o.ResourceUUID, State: o.State,
+		})
 	case "stz_woken":
 		var u pgtype.UUID
 		if err := u.Scan(o.ResourceUUID); err != nil {

@@ -3645,6 +3645,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ingress-endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the team's declared ingress endpoints
+         * @description Public URLs relayed to a developer's machine (ADR-060): a stable FQDN terminated by one ingress server's proxy, relayed by its agent to whoever holds the attach socket. The hostname is a property of this resource, never of a session — no random per-session hostnames.
+         */
+        get: operations["listIngressEndpoints"];
+        put?: never;
+        /**
+         * Declare an ingress endpoint
+         * @description Declaring an endpoint publishes a hostname onto arbitrary laptop software, so it is an admin-level act, deliberately separate from attaching to one. Declaration pre-provisions the router and the certificate; until a laptop attaches, the URL serves an offline page. Defaults to `access: sso` — reachable by the team's authenticated users and nobody else; `none` is the conscious opt-out for the third-party-webhook case. noindex and forced HTTPS are unconditional.
+         */
+        post: operations["createIngressEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ingress-endpoints/{ingress_endpoint_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the ingress endpoint. */
+                ingress_endpoint_uuid: components["parameters"]["IngressEndpointUuid"];
+            };
+            cookie?: never;
+        };
+        /** Read an ingress endpoint */
+        get: operations["getIngressEndpoint"];
+        /**
+         * Update an ingress endpoint
+         * @description The FQDN and the server are immutable: both are baked into the issued certificate and the deposited router, so changing the URL is a delete and a fresh declaration. The access mode IS mutable here — switching to `none` is the audited admin act ADR-060 §5 describes.
+         */
+        put: operations["updateIngressEndpoint"];
+        post?: never;
+        /**
+         * Delete an ingress endpoint
+         * @description Removes the router and the hostname registration, and cuts the live attach session if one exists (reported to the CLI as `revoked`).
+         */
+        delete: operations["deleteIngressEndpoint"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ingress-endpoints/{ingress_endpoint_uuid}/tunnels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the ingress endpoint. */
+                ingress_endpoint_uuid: components["parameters"]["IngressEndpointUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attach to an ingress endpoint (mint)
+         * @description Mints an attach session with an **empty body** — the hostname, the server and the access regime were frozen at declaration; the local port is the laptop's business and never crosses the API. The token is redeemed **agent-side**, at `attach_url` on the endpoint's own FQDN (subprotocol `akerdock-ingress-v1`, outside OpenAPI — ADR-060 §3).
+         *
+         *     `409` with code `occupied` names the current occupant (one laptop per endpoint); `409` with code `server_agent_unavailable` means the ingress server's agent channel is down and no attach can be expected.
+         */
+        post: operations["createIngressTunnel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ingress-tunnel-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the team's ingress attach sessions
+         * @description Who is publishing their machine right now, on which URL, since when — and the recent history. Read-only: the attach token is never readable back (§23.2). Defaults to live sessions; `active=false` walks the history, `ingress_endpoint_uuid` narrows to one endpoint.
+         */
+        get: operations["listIngressTunnelSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ingress-tunnel-sessions/{session_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the ingress attach session. */
+                session_uuid: components["parameters"]["IngressTunnelSessionUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Close an ingress attach session
+         * @description Cuts a live attach through the ingress server's agent. Closing **your own** session needs nothing more than the permission that opened it; closing **someone else's** requires `ingress-endpoints:manage`. The laptop is told why (`user_close` by the holder, `revoked` by an administrator) and, this being a policy close, does not re-dial (ADR-060 §6). Ending an already-closed session is a no-op.
+         */
+        delete: operations["closeIngressTunnelSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4232,6 +4352,101 @@ export interface components {
         AccessRequestRequired: components["schemas"]["Error"] & {
             /** @description Dashboard page where the grant is requested. */
             request_url?: string;
+        };
+        /** @description A declared public URL relayed to a developer's machine (ADR-060). The FQDN is stable and registered in the routing namespace at declaration; the router and certificate are pre-provisioned, so attaching later is instant. noindex and forced HTTPS are unconditional and therefore not fields. */
+        IngressEndpoint: {
+            uuid: string;
+            name: string;
+            description?: string | null;
+            /** @description Exact hostname, frozen at declaration — never random. */
+            fqdn: string;
+            /** @description `https://<fqdn>` — what a visitor opens. */
+            url: string;
+            /** @description Ingress server: the vantage point whose proxy terminates the hostname and whose agent relays to the laptop. */
+            server_uuid: string;
+            /**
+             * @description The ADR-042 wall vocabulary. `sso` (the default) admits the team's authenticated users and nobody else; `none` is the conscious opt-out for third-party webhooks — an admin-level, audited act.
+             * @enum {string}
+             */
+            access: "sso" | "basic_auth" | "none";
+            /** @description A live attach session exists (one laptop per endpoint). */
+            occupied: boolean;
+            /** @description Who holds the live attach, when `occupied`. */
+            occupant_email?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at?: string;
+        };
+        IngressEndpointCreate: {
+            name: string;
+            description?: string;
+            /** @description Exact hostname — typically under the server's wildcard domain, but any FQDN the operator routes to the server is acceptable. Immutable after declaration. */
+            fqdn: string;
+            /** @description Immutable after declaration. */
+            server_uuid: string;
+            /**
+             * @default sso
+             * @enum {string}
+             */
+            access: "sso" | "basic_auth" | "none";
+            /** @description Required when `access` is `basic_auth`; hashed at rest, never readable back. */
+            basic_auth_password?: string;
+        };
+        /** @description What may change after declaration: the label, the description and the access regime. The FQDN and the server may not — both are baked into the certificate and the deposited router. */
+        IngressEndpointUpdate: {
+            name: string;
+            description?: string;
+            /** @enum {string} */
+            access?: "sso" | "basic_auth" | "none";
+            basic_auth_password?: string;
+        };
+        /** @description An ingress attach session (ADR-060 §3). Same token contract as every tunnel: **single-use**, returned once, hash stored — but redeemed **agent-side**, at `attach_url` on the endpoint's own FQDN, never at the control plane. Idle timeout 30 min (visitor silence), ceiling 12 h, both enforced by the agent and reported with a reason. */
+        IngressTunnelSession: {
+            uuid: string;
+            fqdn: string;
+            /** @description `https://<fqdn>` — the public URL, to print at attach. */
+            url: string;
+            /** @description Full `wss://` URL to dial, on the endpoint's own FQDN (reserved path, ADR-060 §2), token in the query string. Subprotocol `akerdock-ingress-v1`, outside OpenAPI. This is the one sanctioned non-manager dial of the CLI transport invariant (ADR-060 §4): the hostname was named by the manager inside this authenticated response. */
+            attach_url: string;
+            /** @description Single-use attach token (`akdi_…`), returned only here. */
+            token: string;
+            /**
+             * Format: date-time
+             * @description Expiration of the attach token, not of the session.
+             */
+            token_expires_at: string;
+        };
+        /** @description An attach session as an operator sees it. Liveness is agent-reported (the socket lives on the ingress server), so `active` reflects the last report, not a control-plane connection. */
+        IngressTunnelSessionInfo: {
+            uuid: string;
+            /** @description Absent when the endpoint was deleted after the session. */
+            endpoint_uuid?: string;
+            endpoint_name?: string;
+            fqdn?: string;
+            user_email?: string;
+            /** @description Address the mint was requested from. */
+            client_ip?: string;
+            active: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description When the laptop attached — absent while the token is unredeemed.
+             */
+            started_at?: string;
+            /**
+             * Format: date-time
+             * @description Last agent report for this session.
+             */
+            last_seen_at?: string;
+            /** Format: date-time */
+            ended_at?: string;
+            /**
+             * @description Why it closed. `revoked` covers the operator cut and the endpoint's deletion; policy reasons are terminal for the CLI (no re-dial), `disconnect` is the one it recovers from.
+             * @enum {string}
+             */
+            end_reason?: "user_close" | "idle_timeout" | "max_duration" | "disconnect" | "revoked";
         };
         /** @description Response of an adoption scan — tracking job + created scan. */
         AdoptionScanAccepted: components["schemas"]["JobAccepted"] & {
@@ -6403,6 +6618,10 @@ export interface components {
         S3StorageUuid: string;
         /** @description UUID of the external endpoint. */
         ExternalEndpointUuid: string;
+        /** @description UUID of the ingress endpoint. */
+        IngressEndpointUuid: string;
+        /** @description UUID of the ingress attach session. */
+        IngressTunnelSessionUuid: string;
         /** @description UUID of the access grant. */
         GrantUuid: string;
         /** @description UUID of the tunnel session. */
@@ -13646,6 +13865,227 @@ export interface operations {
             path: {
                 /** @description UUID of the tunnel session. */
                 session_uuid: components["parameters"]["PortForwardSessionUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session closed (or already was). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listIngressEndpoints: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The team's ingress endpoints. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["IngressEndpoint"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createIngressEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngressEndpointCreate"];
+            };
+        };
+        responses: {
+            /** @description Endpoint declared; router deposit is under way. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngressEndpoint"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getIngressEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the ingress endpoint. */
+                ingress_endpoint_uuid: components["parameters"]["IngressEndpointUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The endpoint. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngressEndpoint"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateIngressEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the ingress endpoint. */
+                ingress_endpoint_uuid: components["parameters"]["IngressEndpointUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IngressEndpointUpdate"];
+            };
+        };
+        responses: {
+            /** @description Endpoint updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngressEndpoint"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    deleteIngressEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the ingress endpoint. */
+                ingress_endpoint_uuid: components["parameters"]["IngressEndpointUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Endpoint deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createIngressTunnel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the ingress endpoint. */
+                ingress_endpoint_uuid: components["parameters"]["IngressEndpointUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session created — the token is only visible in this response. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngressTunnelSession"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listIngressTunnelSessions: {
+        parameters: {
+            query?: {
+                /** @description Restrict to the sessions of this ingress endpoint. */
+                ingress_endpoint_uuid?: string;
+                /** @description `true` (default) lists only the sessions still open. `false` walks the history too. */
+                active?: boolean;
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Maximum number of items per page (1 to 100). */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of attach sessions, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["IngressTunnelSessionInfo"][];
+                        next_cursor?: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    closeIngressTunnelSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the ingress attach session. */
+                session_uuid: components["parameters"]["IngressTunnelSessionUuid"];
             };
             cookie?: never;
         };

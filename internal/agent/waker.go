@@ -98,9 +98,13 @@ func (r Resource) wakeSet() []WakeContainer {
 
 // Config is the routing table the control plane deposits for the waker
 // (/var/lib/akerdock/waker/routes.json). The waker never generates it.
+// Ingress lists the dev ingress endpoints' hosts (ADR-060): persisted here so
+// the agent recognizes them — and serves their offline page — across
+// restarts, before any session control arrives.
 type Config struct {
-	Routes    []Route    `json:"routes"`
-	Resources []Resource `json:"resources"`
+	Routes    []Route        `json:"routes"`
+	Resources []Resource     `json:"resources"`
+	Ingress   []IngressRoute `json:"ingress,omitempty"`
 }
 
 // DefaultListenAddr is the port the waker listens on. It MUST match

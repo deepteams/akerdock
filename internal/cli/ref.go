@@ -20,12 +20,14 @@ var refKinds = map[string]string{
 	"preview": "previews", "pr": "previews",
 	// Declared bastion targets outside the server (ADR-045).
 	"endpoint": "endpoints", "ep": "endpoints",
+	// Declared ingress endpoints (ADR-060).
+	"ingress": "ingress-endpoints",
 }
 
 // pathForKind maps a kind to its API collection path.
 var pathForKind = map[string]string{
 	"apps": "/applications", "databases": "/databases", "services": "/services",
-	"endpoints": "/external-endpoints",
+	"endpoints": "/external-endpoints", "ingress-endpoints": "/ingress-endpoints",
 }
 
 // refFromArgs resolves the REF to act on: the positional argument when present,
