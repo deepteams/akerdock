@@ -98,6 +98,7 @@ func (c *Client) runIngress(ctx context.Context, endpoint string, localPort int)
 				return fmt.Errorf("cannot attach: %s", apiErr.Message)
 			}
 			if ctx.Err() != nil {
+				//nolint:nilerr // Ctrl-C during the mint is a clean exit, not the mint's error.
 				return nil
 			}
 			fmt.Fprintf(os.Stderr, "cannot attach: %v — retrying in %s\n", err, backoff)
@@ -115,6 +116,7 @@ func (c *Client) runIngress(ctx context.Context, endpoint string, localPort int)
 		start := time.Now()
 		reason, err := c.attachIngress(ctx, sess, localPort)
 		if ctx.Err() != nil {
+			//nolint:nilerr // Ctrl-C during a session is a clean exit.
 			return nil
 		}
 		// A policy close is terminal — the CLI never re-dials through a control
@@ -172,10 +174,10 @@ func (c *Client) attachIngress(ctx context.Context, sess ingressMint, localPort 
 }
 
 // nextBackoff doubles up to a cap.
-func nextBackoff(cur, max time.Duration) time.Duration {
+func nextBackoff(cur, maxDelay time.Duration) time.Duration {
 	next := cur * 2
-	if next > max {
-		return max
+	if next > maxDelay {
+		return maxDelay
 	}
 	return next
 }

@@ -52,7 +52,7 @@ func (a *API) ListIngressTunnelSessions(w http.ResponseWriter, r *http.Request, 
 		BeforeID:   before,
 		EndpointID: endpointID,
 		ActiveOnly: params.Active == nil || *params.Active,
-		Limit:      int32(limit) + 1,
+		Limit:      limit + 1,
 	})
 	if err != nil {
 		a.internalError(w, r, "list ingress sessions", err)
