@@ -198,6 +198,12 @@ export const routes: Routes = [
             (m) => m.ExternalEndpointDetailComponent,
           ),
       },
+      // Ingress endpoints (ADR-060): the mirror of the bastion, relaying a
+      // stable public URL to a developer's machine.
+      {
+        path: 'ingress',
+        loadComponent: () => import('./pages/ingress.component').then((m) => m.IngressComponent),
+      },
 
       // Team
       {
