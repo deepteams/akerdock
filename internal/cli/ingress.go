@@ -29,7 +29,10 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 
 // ingressSubprotocol is the attach subprotocol (ADR-060 §3), distinct from the
 // egress tunnel's so a token can never be redeemed on the wrong path.
-const ingressSubprotocol = "akerdock-ingress-v1"
+const (
+	ingressSubprotocol = "akerdock-ingress-v1"
+	ingressMaxBackoff  = 30 * time.Second
+)
 
 func ingressCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -85,7 +88,6 @@ func (c *Client) runIngress(ctx context.Context, endpoint string, localPort int)
 	// Backoff between transport reconnects; reset after a session that ran for
 	// a while, so a stable tunnel that blips once does not inherit a long delay.
 	backoff := time.Second
-	const maxBackoff = 30 * time.Second
 	announced := false
 
 	for {
@@ -105,7 +107,7 @@ func (c *Client) runIngress(ctx context.Context, endpoint string, localPort int)
 			if !sleepCtx(ctx, backoff) {
 				return nil
 			}
-			backoff = nextBackoff(backoff, maxBackoff)
+			backoff = nextBackoff(backoff)
 			continue
 		}
 
@@ -136,7 +138,7 @@ func (c *Client) runIngress(ctx context.Context, endpoint string, localPort int)
 		if !sleepCtx(ctx, backoff) {
 			return nil
 		}
-		backoff = nextBackoff(backoff, maxBackoff)
+		backoff = nextBackoff(backoff)
 	}
 }
 
@@ -174,10 +176,10 @@ func (c *Client) attachIngress(ctx context.Context, sess ingressMint, localPort 
 }
 
 // nextBackoff doubles up to a cap.
-func nextBackoff(cur, maxDelay time.Duration) time.Duration {
+func nextBackoff(cur time.Duration) time.Duration {
 	next := cur * 2
-	if next > maxDelay {
-		return maxDelay
+	if next > ingressMaxBackoff {
+		return ingressMaxBackoff
 	}
 	return next
 }

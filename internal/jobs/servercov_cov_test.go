@@ -2,17 +2,12 @@ package jobs
 
 // Shared steering infrastructure for the servercov coverage suite: a DBTX
 // wrapper that lets one test override individual query results on top of the
-// jobFlowDB defaults, and a scripted loopback SSH server whose per-command
-// outputs (stdout, stderr, exit code) are chosen by the test.
+// jobFlowDB defaults.
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/base64"
-	"io"
-	"net"
-	"strconv"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -20,12 +15,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/store"
-	"log/slog"
 )
 
 // servercovName extracts the sqlc query name from a SQL text.
@@ -134,8 +127,10 @@ func (r *servercovRows) Scan(dest ...any) error {
 	return nil
 }
 
-var _ store.DBTX = (*servercovDB)(nil)
-var _ pgx.Rows = (*servercovRows)(nil)
+var (
+	_ store.DBTX = (*servercovDB)(nil)
+	_ pgx.Rows   = (*servercovRows)(nil)
+)
 
 // servercovFill builds a row-fill: every dest gets the jobFlow default,
 // except the listed indices which are overridden.
@@ -194,164 +189,6 @@ func servercovDeps(t *testing.T) (*store.Queries, *envelope.Keyring, *audit.Reco
 	q := store.New(db)
 	rec := &audit.Recorder{Store: q, Logger: logger}
 	return q, keyring, rec, logger, db
-}
-
-// servercovSSHResponse is one scripted answer of the SSH server.
-type servercovSSHResponse struct {
-	stdout string
-	stderr string
-	exit   uint32
-}
-
-// servercovSSHServer is a scripted loopback SSH server: the test decides,
-// per command, what stdout/stderr/exit code come back. Commands without a
-// script fall back to jobCommandOutput with exit 0.
-type servercovSSHServer struct {
-	listener net.Listener
-	config   *ssh.ServerConfig
-	script   func(cmd string) (servercovSSHResponse, bool)
-	mu       sync.Mutex
-	conns    []net.Conn
-}
-
-func servercovNewSSHServer(t *testing.T, script func(cmd string) (servercovSSHResponse, bool)) *servercovSSHServer {
-	t.Helper()
-	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	signer, err := ssh.NewSignerFromKey(privateKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	config := &ssh.ServerConfig{
-		PublicKeyCallback: func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error) {
-			return nil, nil
-		},
-	}
-	config.AddHostKey(signer)
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := &servercovSSHServer{listener: listener, config: config, script: script}
-	go server.accept()
-	t.Cleanup(server.close)
-	return server
-}
-
-func (s *servercovSSHServer) accept() {
-	for {
-		raw, err := s.listener.Accept()
-		if err != nil {
-			return
-		}
-		s.mu.Lock()
-		s.conns = append(s.conns, raw)
-		s.mu.Unlock()
-		go s.serve(raw)
-	}
-}
-
-func (s *servercovSSHServer) serve(raw net.Conn) {
-	connection, channels, requests, err := ssh.NewServerConn(raw, s.config)
-	if err != nil {
-		_ = raw.Close()
-		return
-	}
-	go ssh.DiscardRequests(requests)
-	for incoming := range channels {
-		go s.handleChannel(incoming)
-	}
-	_ = connection.Close()
-}
-
-func (s *servercovSSHServer) handleChannel(incoming ssh.NewChannel) {
-	if incoming.ChannelType() != "session" {
-		_ = incoming.Reject(ssh.UnknownChannelType, "session only")
-		return
-	}
-	channel, requests, err := incoming.Accept()
-	if err != nil {
-		return
-	}
-	for request := range requests {
-		if request.Type != "exec" {
-			_ = request.Reply(false, nil)
-			continue
-		}
-		var payload struct{ Command string }
-		_ = ssh.Unmarshal(request.Payload, &payload)
-		_ = request.Reply(true, nil)
-		_, _ = io.Copy(io.Discard, channel)
-		resp := servercovSSHResponse{stdout: jobCommandOutput(payload.Command)}
-		if s.script != nil {
-			if scripted, ok := s.script(payload.Command); ok {
-				resp = scripted
-			}
-		}
-		if resp.stdout != "" {
-			_, _ = channel.Write([]byte(resp.stdout))
-		}
-		if resp.stderr != "" {
-			_, _ = channel.Stderr().Write([]byte(resp.stderr))
-		}
-		_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{resp.exit}))
-		_ = channel.Close()
-		return
-	}
-}
-
-func (s *servercovSSHServer) address(t *testing.T) (string, int) {
-	t.Helper()
-	host, rawPort, err := net.SplitHostPort(s.listener.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	port, err := strconv.Atoi(rawPort)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return host, port
-}
-
-func (s *servercovSSHServer) close() {
-	_ = s.listener.Close()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, connection := range s.conns {
-		_ = connection.Close()
-	}
-}
-
-// servercovScript builds a substring-matching script from ordered rules:
-// the first rule whose substring is contained in the command answers it.
-type servercovRule struct {
-	contains string
-	resp     servercovSSHResponse
-}
-
-func servercovScript(rules ...servercovRule) func(string) (servercovSSHResponse, bool) {
-	return func(cmd string) (servercovSSHResponse, bool) {
-		for _, r := range rules {
-			if strings.Contains(cmd, r.contains) {
-				return r.resp, true
-			}
-		}
-		return servercovSSHResponse{}, false
-	}
-}
-
-// servercovClosedPort returns a loopback port with nothing listening on it.
-func servercovClosedPort(t *testing.T) int {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := l.Addr().(*net.TCPAddr).Port
-	_ = l.Close()
-	return port
 }
 
 // servercovEncrypt is keyring.Encrypt bound to the fixture row uuid.

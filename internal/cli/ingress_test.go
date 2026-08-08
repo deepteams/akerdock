@@ -40,10 +40,10 @@ func TestParseLocalPort(t *testing.T) {
 }
 
 func TestNextBackoff(t *testing.T) {
-	if got := nextBackoff(time.Second, 30*time.Second); got != 2*time.Second {
+	if got := nextBackoff(time.Second); got != 2*time.Second {
 		t.Fatalf("got %v", got)
 	}
-	if got := nextBackoff(20*time.Second, 30*time.Second); got != 30*time.Second {
+	if got := nextBackoff(20 * time.Second); got != 30*time.Second {
 		t.Fatalf("cap not applied: %v", got)
 	}
 }
@@ -165,7 +165,7 @@ func TestIngressPolicyCloseEndsTheRelay(t *testing.T) {
 
 func TestIngressOccupiedIsFatal(t *testing.T) {
 	srv := ingressServer(t, func(_ int, w http.ResponseWriter) {
-		w.WriteHeader(409)
+		w.WriteHeader(http.StatusConflict)
 		_, _ = w.Write([]byte(`{"code":"occupied","message":"someone is already attached"}`))
 	}, nil)
 	setupContext(t, srv.URL)
@@ -185,12 +185,12 @@ func TestIngressRetriesThenReconnects(t *testing.T) {
 	srv := ingressServer(t, func(call int, w http.ResponseWriter) {
 		switch call {
 		case 1: // transient mint failure: retry
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(`{"code":"boom","message":"transient"}`))
 		case 2: // session whose attach URL nobody answers: transport drop, reconnect
 			_, _ = fmt.Fprint(w, `{"url":"https://dev.example.com","attach_url":"ws://127.0.0.1:1/attach","token":"tk"}`)
 		default: // stop the loop deterministically
-			w.WriteHeader(409)
+			w.WriteHeader(http.StatusConflict)
 			_, _ = w.Write([]byte(`{"code":"occupied","message":"stop here"}`))
 		}
 	}, nil)
@@ -222,10 +222,10 @@ func TestIngressAttachRefusedWithReason(t *testing.T) {
 			mintSession(t, srvURL)(call, w)
 			return
 		}
-		w.WriteHeader(409)
+		w.WriteHeader(http.StatusConflict)
 		_, _ = w.Write([]byte(`{"code":"occupied","message":"stop here"}`))
 	}, func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(403)
+		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"message":"tunnel sessions are disabled"}`))
 	})
 	srvURL = srv.URL
@@ -250,7 +250,7 @@ func TestIngressCancelDuringMint(t *testing.T) {
 	defer cancel()
 	srv := ingressServer(t, func(_ int, w http.ResponseWriter) {
 		cancel()
-		w.WriteHeader(500)
+		w.WriteHeader(http.StatusInternalServerError)
 	}, nil)
 	setupContext(t, srv.URL)
 	var err error
@@ -266,7 +266,7 @@ func TestIngressCancelDuringBackoff(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	srv := ingressServer(t, func(_ int, w http.ResponseWriter) {
-		w.WriteHeader(500)
+		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(`{"code":"boom","message":"transient"}`))
 		go func() {
 			time.Sleep(100 * time.Millisecond)
@@ -288,7 +288,7 @@ func TestIngressCancelDuringBackoff(t *testing.T) {
 
 func TestIngressResolveError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(500)
+		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 	setupContext(t, srv.URL)

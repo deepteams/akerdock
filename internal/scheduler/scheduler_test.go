@@ -247,6 +247,7 @@ func (f *fakeSchedulerStore) SetPreviewExpiryWarned(_ context.Context, id int64)
 	f.warnedPreviewIDs = append(f.warnedPreviewIDs, id)
 	return f.err("warned")
 }
+
 func (f *fakeSchedulerStore) ListQueuedPreviews(context.Context) ([]store.Preview, error) {
 	return f.queued, f.err("queued")
 }

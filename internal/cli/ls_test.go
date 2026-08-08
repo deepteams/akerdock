@@ -36,7 +36,7 @@ func lsServer(t *testing.T) *httptest.Server {
 		case "/api/v1/services":
 			_ = json.NewEncoder(w).Encode(resourcePage{Data: nil})
 		default:
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = fmt.Fprint(w, `{"code":"boom","message":"unexpected path`+r.URL.Path+`"}`)
 		}
 	}))

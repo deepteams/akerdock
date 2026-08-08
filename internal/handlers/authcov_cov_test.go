@@ -184,8 +184,10 @@ func (r *authcovRows) Scan(dest ...any) error {
 	return nil
 }
 
-var _ store.DBTX = (*authcovDB)(nil)
-var _ pgx.Rows = (*authcovRows)(nil)
+var (
+	_ store.DBTX = (*authcovDB)(nil)
+	_ pgx.Rows   = (*authcovRows)(nil)
+)
 
 // authcovAPI is flowAPI with the steerable database underneath.
 func authcovAPI(t *testing.T, db *authcovDB) *API {
@@ -313,6 +315,7 @@ func (s *authcovStore) RevokeSession(context.Context, int64) error { return nil 
 func (s *authcovStore) SetUserLastTeam(context.Context, store.SetUserLastTeamParams) error {
 	return nil
 }
+
 func (s *authcovStore) SetSessionViewAs(context.Context, store.SetSessionViewAsParams) error {
 	return nil
 }

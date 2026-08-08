@@ -65,9 +65,9 @@ func TestLogoutRevoke(t *testing.T) {
 			_, _ = fmt.Fprintf(w, `{"data":[{"uuid":"tok-other","name":"ci"},{"uuid":"tok-cli","name":%q}]}`, name)
 		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/teams/team-1/tokens/tok-cli":
 			deleted.Add(1)
-			w.WriteHeader(204)
+			w.WriteHeader(http.StatusNoContent)
 		default:
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 		}
 	}))
 	defer srv.Close()
@@ -100,7 +100,7 @@ func TestLogoutRevokeBestEffort(t *testing.T) {
 		},
 		"list fails": func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(500)
+				w.WriteHeader(http.StatusInternalServerError)
 			}))
 			t.Cleanup(srv.Close)
 			setupContext(t, srv.URL)

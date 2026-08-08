@@ -80,7 +80,7 @@ func tunnelServer(t *testing.T) *httptest.Server {
 		_, _ = w.Write([]byte(`{"websocket_path":"/refused","token":"tk"}`))
 	})
 	mux.HandleFunc("/refused", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(409)
+		w.WriteHeader(http.StatusConflict)
 		_, _ = w.Write([]byte(`{"message":"the server is not reachable over SSH right now"}`))
 	})
 	mux.HandleFunc("/tunnel", func(w http.ResponseWriter, r *http.Request) {
@@ -338,7 +338,7 @@ func TestPortForwardMintAccessRequiredWithoutURL(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[{"uuid":"db-1","name":"pg"}]}`))
 	})
 	mux.HandleFunc("/api/v1/databases/db-1/port-forwards", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(403)
+		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"code":"access_request_required","message":"needs an access grant"}`))
 	})
 	srv := httptest.NewServer(mux)

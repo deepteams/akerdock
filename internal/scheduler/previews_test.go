@@ -234,11 +234,15 @@ func TestScaleZeroPreviewsLifecycle(t *testing.T) {
 		ID: 21, Uuid: uuidN(0xaa), ApplicationID: 3, PrID: 5, ScaleToZeroAfterMinutes: 30,
 	}}
 	db.stzSleeping = []store.Preview{
-		{ID: 22, Uuid: uuidN(0xbb), ApplicationID: 3, PrID: 6,
-			UpdatedAt: pgtype.Timestamptz{Time: time.Unix(900_000_000, 0), Valid: true}},
+		{
+			ID: 22, Uuid: uuidN(0xbb), ApplicationID: 3, PrID: 6,
+			UpdatedAt: pgtype.Timestamptz{Time: time.Unix(900_000_000, 0), Valid: true},
+		},
 		// Slept after the last recorded activity: the wake never happened.
-		{ID: 23, Uuid: uuidN(0xcc), ApplicationID: 3, PrID: 7,
-			UpdatedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true}},
+		{
+			ID: 23, Uuid: uuidN(0xcc), ApplicationID: 3, PrID: 7,
+			UpdatedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true},
+		},
 	}
 	fixture := newSTZFixture(t, db)
 	fixture.ops.ReadFileFn = activityFile(oldActivity)

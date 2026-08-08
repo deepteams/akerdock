@@ -316,7 +316,7 @@ func prevjobsEncrypt(t *testing.T, keyring *envelope.Keyring, table, column stri
 var (
 	prevjobsRSAOnce sync.Once
 	prevjobsRSAPEM  []byte
-	prevjobsRSAErr  error
+	prevjobsRSAErr  error //nolint:errname // Coverage-suite globals keep a collision-resistant prefix.
 )
 
 func prevjobsRSAKeyPEM(t *testing.T) []byte {
@@ -826,8 +826,10 @@ func TestPrevjobsPromotePreviewDeployment(t *testing.T) {
 func TestPrevjobsGithubAppPullRequestExecute(t *testing.T) {
 	run := func(t *testing.T, db *prevjobsDB, q *store.Queries, keyring *envelope.Keyring, logger *slog.Logger) (map[string]any, error) {
 		t.Helper()
-		j := store.Job{ID: 21, JobType: TypeGithubAppPullRequest,
-			Payload: []byte(`{"delivery_id":1,"github_app_id":1}`)}
+		j := store.Job{
+			ID: 21, JobType: TypeGithubAppPullRequest,
+			Payload: []byte(`{"delivery_id":1,"github_app_id":1}`),
+		}
 		h := &GithubAppPullRequest{Store: q, Keyring: keyring, Logger: logger}
 		out, err := h.Execute(context.Background(), j, queue.NewStepRecorder(q, j))
 		if out == nil {
@@ -1407,8 +1409,10 @@ func TestPrevjobsPreviewDestroyExecute(t *testing.T) {
 	t.Run("docker channel unavailable records cleanup_failed", func(t *testing.T) {
 		q, keyring, logger, db := prevjobsDeps(t)
 		db.enums["PreviewStatus"] = "active"
-		h := &PreviewDestroy{Store: q, Keyring: keyring, Logger: logger,
-			Docker: unavailableDocker{}, HostOps: fixedHost{ops: &hostopsfake.Ops{}}}
+		h := &PreviewDestroy{
+			Store: q, Keyring: keyring, Logger: logger,
+			Docker: unavailableDocker{}, HostOps: fixedHost{ops: &hostopsfake.Ops{}},
+		}
 		if _, err := h.Execute(context.Background(), job, queue.NewStepRecorder(q, job)); err == nil ||
 			!strings.Contains(err.Error(), "agent channel") {
 			t.Fatalf("err = %v", err)
@@ -1417,8 +1421,10 @@ func TestPrevjobsPreviewDestroyExecute(t *testing.T) {
 	t.Run("host channel unavailable records cleanup_failed", func(t *testing.T) {
 		q, keyring, logger, db := prevjobsDeps(t)
 		db.enums["PreviewStatus"] = "active"
-		h := &PreviewDestroy{Store: q, Keyring: keyring, Logger: logger,
-			Docker: fixedSource{rt: prevjobsDestroyRuntime()}, HostOps: unavailableHost{}}
+		h := &PreviewDestroy{
+			Store: q, Keyring: keyring, Logger: logger,
+			Docker: fixedSource{rt: prevjobsDestroyRuntime()}, HostOps: unavailableHost{},
+		}
 		if _, err := h.Execute(context.Background(), job, queue.NewStepRecorder(q, job)); err == nil ||
 			!strings.Contains(err.Error(), "agent channel") {
 			t.Fatalf("err = %v", err)
@@ -1739,8 +1745,10 @@ func TestPrevjobsNotifyGithubApp(t *testing.T) {
 			a.Application.RepositoryID = ptr(int64(1))
 		})
 	}
-	preview := store.Preview{PrID: 7, Provider: store.GitProviderGithub,
-		HeadSha: ptr("cafe1234"), Fqdn: ptr("pr-7.x")}
+	preview := store.Preview{
+		PrID: 7, Provider: store.GitProviderGithub,
+		HeadSha: ptr("cafe1234"), Fqdn: ptr("pr-7.x"),
+	}
 	_ = preview.Uuid.Scan(jobFixtureUUID)
 
 	// wire prepares a feedback whose GitHub App resolves against srvURL.
@@ -1945,8 +1953,10 @@ func TestPrevjobsDefaultForgeAPIURL(t *testing.T) {
 func TestPrevjobsGithubAppPushExecute(t *testing.T) {
 	run := func(t *testing.T, q *store.Queries, logger *slog.Logger) (map[string]any, error) {
 		t.Helper()
-		j := store.Job{ID: 41, JobType: TypeGithubAppPush,
-			Payload: []byte(`{"delivery_id":1,"github_app_id":1,"repository_external_id":"42"}`)}
+		j := store.Job{
+			ID: 41, JobType: TypeGithubAppPush,
+			Payload: []byte(`{"delivery_id":1,"github_app_id":1,"repository_external_id":"42"}`),
+		}
 		out, err := (&GithubAppPush{Store: q, Logger: logger}).
 			Execute(context.Background(), j, queue.NewStepRecorder(q, j))
 		if out == nil {
@@ -2349,8 +2359,10 @@ func TestPrevjobsEnqueueWebhookDeployment(t *testing.T) {
 func TestPrevjobsGithubAppIssueCommentExecute(t *testing.T) {
 	run := func(t *testing.T, q *store.Queries, keyring *envelope.Keyring, logger *slog.Logger) (map[string]any, error) {
 		t.Helper()
-		j := store.Job{ID: 61, JobType: TypeGithubAppIssueComment,
-			Payload: []byte(`{"delivery_id":1,"github_app_id":1}`)}
+		j := store.Job{
+			ID: 61, JobType: TypeGithubAppIssueComment,
+			Payload: []byte(`{"delivery_id":1,"github_app_id":1}`),
+		}
 		out, err := (&GithubAppIssueComment{Store: q, Keyring: keyring, Logger: logger}).
 			Execute(context.Background(), j, queue.NewStepRecorder(q, j))
 		if out == nil {

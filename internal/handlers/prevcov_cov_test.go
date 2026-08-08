@@ -228,8 +228,10 @@ func prevcovFillFixture(fixture any, dest []any) error {
 	return nil
 }
 
-var _ store.DBTX = (*prevcovDB)(nil)
-var _ pgx.Rows = (*prevcovRows)(nil)
+var (
+	_ store.DBTX = (*prevcovDB)(nil)
+	_ pgx.Rows   = (*prevcovRows)(nil)
+)
 
 // prevcovPool mirrors flowPool over the routing fake so transactional paths
 // stay steerable too.
@@ -255,12 +257,15 @@ func (*prevcovTx) LargeObjects() pgx.LargeObjects                         { retu
 func (*prevcovTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
 	return &pgconn.StatementDescription{}, nil
 }
+
 func (t *prevcovTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	return t.db.Exec(ctx, sql, args...)
 }
+
 func (t *prevcovTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	return t.db.Query(ctx, sql, args...)
 }
+
 func (t *prevcovTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	return t.db.QueryRow(ctx, sql, args...)
 }
@@ -1378,9 +1383,9 @@ func TestPrevcovReceiveGithubAppWebhookEvents(t *testing.T) {
 			r.InstallationID = nil
 		})}}
 		set := &prevcovRule{}
-		clear := &prevcovRule{}
+		clearRule := &prevcovRule{}
 		db.rules["SetGithubAppInstallation"] = set
-		db.rules["ClearGithubAppInstallation"] = clear
+		db.rules["ClearGithubAppInstallation"] = clearRule
 		rec := httptest.NewRecorder()
 		a.ReceiveGithubAppWebhook(rec, prevcovAppHookReq(t, "installation", []byte(tc.action), true))
 		prevcovStatus(t, rec, http.StatusOK, "installation event "+tc.action)
@@ -1390,7 +1395,7 @@ func TestPrevcovReceiveGithubAppWebhookEvents(t *testing.T) {
 				t.Fatalf("installation id not recorded for %s", tc.action)
 			}
 		case "ClearGithubAppInstallation":
-			if clear.called() == 0 {
+			if clearRule.called() == 0 {
 				t.Fatalf("installation not cleared for %s", tc.action)
 			}
 		}

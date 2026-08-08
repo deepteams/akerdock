@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/deepteams/akerdock/security/advisories/new
+    about: Send sensitive security reports privately to the maintainers.
+  - name: Read the documentation
+    url: https://github.com/deepteams/akerdock/tree/main/docs
+    about: Check the product specification, architecture decisions, technical specifications, and runbooks.
+

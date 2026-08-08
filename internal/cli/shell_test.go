@@ -166,7 +166,7 @@ func TestShellErrors(t *testing.T) {
 			_, _ = w.Write([]byte(`{"data":[{"uuid":"app-1","name":"varuna"}]}`))
 		})
 		mux.HandleFunc("/api/v1/applications/app-1/terminal-sessions", func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(403)
+			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"code":"forbidden","message":"no shell for you"}`))
 		})
 		deniedSrv := httptest.NewServer(mux)
@@ -186,7 +186,7 @@ func TestShellErrors(t *testing.T) {
 			_, _ = w.Write([]byte(`{"websocket_path":"/term","token":"tk"}`))
 		})
 		mux.HandleFunc("/term", func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(410)
+			w.WriteHeader(http.StatusGone)
 		})
 		goneSrv := httptest.NewServer(mux)
 		defer goneSrv.Close()

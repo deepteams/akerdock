@@ -561,14 +561,16 @@ func TestOpscovSanitizeKeyError(t *testing.T) {
 	if got := sanitizeKeyError(opscovBoom()); got != "not a valid PEM/OpenSSH private key" {
 		t.Errorf("generic error -> %q", got)
 	}
-	if got := sanitizeKeyError(opscovErrPassphrase{}); !strings.Contains(got, "passphrase") {
+	if got := sanitizeKeyError(opscovPassphraseError{}); !strings.Contains(got, "passphrase") {
 		t.Errorf("passphrase error -> %q", got)
 	}
 }
 
-type opscovErrPassphrase struct{}
+type opscovPassphraseError struct{}
 
-func (opscovErrPassphrase) Error() string { return "sshkey: passphrase-protected keys are not supported" }
+func (opscovPassphraseError) Error() string {
+	return "sshkey: passphrase-protected keys are not supported"
+}
 
 func TestOpscovKeysInUseFailureIsInformational(t *testing.T) {
 	a, db := opscovAPI(t)

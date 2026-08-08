@@ -188,8 +188,10 @@ func TestMiscjobsIngressRoutingFailureVerdicts(t *testing.T) {
 	})
 	t.Run("host ops not connected", func(t *testing.T) {
 		q, _, logger, _ := miscjobsDeps(t)
-		h := &IngressRouting{Store: q, Docker: fixedSource{rt: &fake.Runtime{}},
-			HostOps: fixedHost{err: errors.New("not connected")}, Logger: logger}
+		h := &IngressRouting{
+			Store: q, Docker: fixedSource{rt: &fake.Runtime{}},
+			HostOps: fixedHost{err: errors.New("not connected")}, Logger: logger,
+		}
 		if _, err := h.Execute(ctx, j, queue.NewStepRecorder(q, j)); err == nil {
 			t.Fatal("unavailable host ops must fail")
 		}
@@ -448,8 +450,10 @@ func TestMiscjobsProxyLifecycleStopAndRestart(t *testing.T) {
 	})
 	t.Run("host ops not connected", func(t *testing.T) {
 		q, keyring, logger, _ := miscjobsDeps(t)
-		h := &ProxyLifecycle{Store: q, Keyring: keyring, Docker: fixedSource{rt: &fake.Runtime{}},
-			HostOps: fixedHost{err: errors.New("not connected")}, Logger: logger}
+		h := &ProxyLifecycle{
+			Store: q, Keyring: keyring, Docker: fixedSource{rt: &fake.Runtime{}},
+			HostOps: fixedHost{err: errors.New("not connected")}, Logger: logger,
+		}
 		j := miscjobsProxyJob("stop")
 		if _, err := h.Execute(ctx, j, queue.NewStepRecorder(q, j)); err == nil {
 			t.Fatal("unavailable host ops must fail")
@@ -922,8 +926,10 @@ func TestMiscjobsApplicationLifecycle(t *testing.T) {
 // --- applicationdelete.go ----------------------------------------------------
 
 func miscjobsDeleteJob(deleteVolumes bool) store.Job {
-	return store.Job{ID: 16, JobType: TypeApplicationDelete,
-		Payload: []byte(fmt.Sprintf(`{"resource_id":1,"delete_volumes":%v}`, deleteVolumes))}
+	return store.Job{
+		ID: 16, JobType: TypeApplicationDelete,
+		Payload: []byte(fmt.Sprintf(`{"resource_id":1,"delete_volumes":%v}`, deleteVolumes)),
+	}
 }
 
 // miscjobsDeleteRT answers every read the deletion sweep makes with emptiness.

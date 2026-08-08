@@ -259,16 +259,33 @@ func TestMiscjobsAgentInstanceURL(t *testing.T) {
 		url   string
 		want  string
 	}{
-		{"explicit override wins", &miscjobsEnrollStore{}, store.Server{IsLocalhost: true}, 8080,
-			"https://override.example.test", "https://override.example.test"},
-		{"localhost gateway", &miscjobsEnrollStore{}, store.Server{IsLocalhost: true}, 9080,
-			"", "http://host.docker.internal:9080"},
-		{"instance fqdn", &miscjobsEnrollStore{settings: store.InstanceSetting{Fqdn: &fqdn}},
-			store.Server{}, 0, "", "https://" + fqdn},
-		{"no fqdn", &miscjobsEnrollStore{settings: store.InstanceSetting{Fqdn: &empty}},
-			store.Server{}, 0, "", ""},
-		{"settings error", &miscjobsEnrollStore{settingsErr: errors.New("down")},
-			store.Server{}, 0, "", ""},
+		{
+			"explicit override wins", &miscjobsEnrollStore{},
+			store.Server{IsLocalhost: true},
+			8080,
+			"https://override.example.test", "https://override.example.test",
+		},
+		{
+			"localhost gateway", &miscjobsEnrollStore{},
+			store.Server{IsLocalhost: true},
+			9080,
+			"", "http://host.docker.internal:9080",
+		},
+		{
+			"instance fqdn", &miscjobsEnrollStore{settings: store.InstanceSetting{Fqdn: &fqdn}},
+			store.Server{},
+			0, "", "https://" + fqdn,
+		},
+		{
+			"no fqdn", &miscjobsEnrollStore{settings: store.InstanceSetting{Fqdn: &empty}},
+			store.Server{},
+			0, "", "",
+		},
+		{
+			"settings error", &miscjobsEnrollStore{settingsErr: errors.New("down")},
+			store.Server{},
+			0, "", "",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

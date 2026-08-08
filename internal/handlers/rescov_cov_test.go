@@ -32,10 +32,10 @@ import (
 	"github.com/deepteams/akerdock/internal/store"
 )
 
-var rescovErr = errors.New("rescov: steered failure")
+var rescovErr = errors.New("rescov: steered failure") //nolint:revive,errname,staticcheck // Coverage-suite globals keep a collision-resistant prefix.
 
 // rescovPgUnique is a PostgreSQL unique violation, for the 409 branches.
-var rescovPgUnique = &pgconn.PgError{Code: "23505"}
+var rescovPgUnique = &pgconn.PgError{Code: "23505"} //nolint:errname // Coverage-suite globals keep a collision-resistant prefix.
 
 // rescovDB is a protocol-level pgx fake steerable per sqlc query name.
 type rescovDB struct {

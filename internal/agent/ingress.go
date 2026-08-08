@@ -312,11 +312,12 @@ func (ig *Ingress) newRelay(origin *tunnel.Origin) http.Handler {
 		ResponseHeaderTimeout: 0,
 	}
 	return &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			// The dial ignores the address; req.Host is left as the public
+		Rewrite: func(req *httputil.ProxyRequest) {
+			// The dial ignores the address; Out.Host is left as the public
 			// host, so the developer's app sees the real URL it is served on.
-			req.URL.Scheme = "http"
-			req.URL.Host = "ingress"
+			req.Out.URL.Scheme = "http"
+			req.Out.URL.Host = "ingress"
+			req.Out.Host = req.In.Host
 		},
 		Transport:     transport,
 		FlushInterval: 100 * time.Millisecond,

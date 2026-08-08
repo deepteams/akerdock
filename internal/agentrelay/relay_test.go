@@ -87,10 +87,10 @@ func scriptedRelayServer(t *testing.T, accepts *atomic.Int32) *httptest.Server {
 					attached[cmd.ID] = true
 					result(agentwire.Result{ID: cmd.ID})
 				case "test.junk":
-					_ = ws.Write(ctx, websocket.MessageText, []byte("not json"))    // malformed frame
-					write(agentwire.Frame{Type: agentwire.FrameAck})                // frame type the client does not route
-					write(agentwire.Frame{Type: agentwire.FrameResult})             // result frame with no payload
-					write(agentwire.Frame{Type: agentwire.FrameStream})             // stream frame with no payload
+					_ = ws.Write(ctx, websocket.MessageText, []byte("not json")) // malformed frame
+					write(agentwire.Frame{Type: agentwire.FrameAck})             // frame type the client does not route
+					write(agentwire.Frame{Type: agentwire.FrameResult})          // result frame with no payload
+					write(agentwire.Frame{Type: agentwire.FrameStream})          // stream frame with no payload
 					result(agentwire.Result{ID: cmd.ID, Body: json.RawMessage(`{"ok":true}`)})
 				case "test.close":
 					return

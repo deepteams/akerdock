@@ -27,9 +27,9 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/deepteams/akerdock/internal/compose"
@@ -989,7 +989,8 @@ func TestComposecovContainerConfigState(t *testing.T) {
 	}
 	state := r.containerConfigState(context.Background(), "c")
 	if state.hashV1 != "v1" || state.hashV2 != "2:v2" || !state.running {
-		t.Fatalf("state = %+v", state)	}
+		t.Fatalf("state = %+v", state)
+	}
 }
 
 func TestComposecovPreviewSeedPairs(t *testing.T) {

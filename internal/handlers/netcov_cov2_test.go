@@ -225,12 +225,16 @@ func netcovScriptAgent(agent *websocket.Conn, script func(cmd agentwire.Command)
 					continue
 				}
 				if len(f.Chunk.Data) > 0 {
-					_ = agentWrite(agent, agentwire.Frame{Type: agentwire.FrameStream,
-						Chunk: &agentwire.StreamChunk{ID: f.Chunk.ID, Data: f.Chunk.Data}})
+					_ = agentWrite(agent, agentwire.Frame{
+						Type:  agentwire.FrameStream,
+						Chunk: &agentwire.StreamChunk{ID: f.Chunk.ID, Data: f.Chunk.Data},
+					})
 				}
 				if f.Chunk.EOF {
-					_ = agentWrite(agent, agentwire.Frame{Type: agentwire.FrameStream,
-						Chunk: &agentwire.StreamChunk{ID: f.Chunk.ID, EOF: true}})
+					_ = agentWrite(agent, agentwire.Frame{
+						Type:  agentwire.FrameStream,
+						Chunk: &agentwire.StreamChunk{ID: f.Chunk.ID, EOF: true},
+					})
 				}
 			}
 		}
@@ -308,8 +312,10 @@ func TestNetcovTerminalWebSocketRefusals(t *testing.T) {
 	})
 	t.Run("server row gone", func(t *testing.T) {
 		a, db := netcovAPI(t)
-		netcovTerminalClaim(db, store.TerminalSession{ID: 1, TeamID: 1,
-			TargetKind: store.TerminalTargetServer, ServerID: ptr(int64(1))})
+		netcovTerminalClaim(db, store.TerminalSession{
+			ID: 1, TeamID: 1,
+			TargetKind: store.TerminalTargetServer, ServerID: ptr(int64(1)),
+		})
 		db.rule(netcovRule{match: "-- name: GetServerByID ", err: errors.New("down")})
 		rec := httptest.NewRecorder()
 		a.TerminalWebSocket(rec, httptest.NewRequest(http.MethodGet, "/terminal/ws?token=x", nil))
@@ -318,8 +324,10 @@ func TestNetcovTerminalWebSocketRefusals(t *testing.T) {
 	t.Run("ssh unreachable", func(t *testing.T) {
 		a, db := netcovAPI(t)
 		// The default private-key row does not decrypt: the dial fails fast.
-		netcovTerminalClaim(db, store.TerminalSession{ID: 1, TeamID: 1,
-			TargetKind: store.TerminalTargetServer, ServerID: ptr(int64(1))})
+		netcovTerminalClaim(db, store.TerminalSession{
+			ID: 1, TeamID: 1,
+			TargetKind: store.TerminalTargetServer, ServerID: ptr(int64(1)),
+		})
 		rec := httptest.NewRecorder()
 		a.TerminalWebSocket(rec, httptest.NewRequest(http.MethodGet, "/terminal/ws?token=x", nil))
 		netcovStatus(t, rec, http.StatusConflict)
@@ -330,8 +338,10 @@ func TestNetcovTerminalWebSocketRefusals(t *testing.T) {
 	t.Run("pty refused by the server", func(t *testing.T) {
 		a, db := netcovAPI(t)
 		netcovProvisionSSH(t, a, db, netcovNewSSHServer(t, true))
-		netcovTerminalClaim(db, store.TerminalSession{ID: 1, TeamID: 1,
-			TargetKind: store.TerminalTargetServer, ServerID: ptr(int64(1))})
+		netcovTerminalClaim(db, store.TerminalSession{
+			ID: 1, TeamID: 1,
+			TargetKind: store.TerminalTargetServer, ServerID: ptr(int64(1)),
+		})
 		rec := httptest.NewRecorder()
 		a.TerminalWebSocket(rec, httptest.NewRequest(http.MethodGet, "/terminal/ws?token=x", nil))
 		netcovStatus(t, rec, http.StatusConflict)
@@ -342,8 +352,10 @@ func TestNetcovTerminalWebSocketRefusals(t *testing.T) {
 	t.Run("upgrade failure after a resolvable target", func(t *testing.T) {
 		a, db := netcovAPI(t)
 		netcovProvisionSSH(t, a, db, netcovNewSSHServer(t, false))
-		netcovTerminalClaim(db, store.TerminalSession{ID: 1, TeamID: 1,
-			TargetKind: store.TerminalTargetServer, ServerID: ptr(int64(1))})
+		netcovTerminalClaim(db, store.TerminalSession{
+			ID: 1, TeamID: 1,
+			TargetKind: store.TerminalTargetServer, ServerID: ptr(int64(1)),
+		})
 		rec := httptest.NewRecorder()
 		// A plain GET is not a WebSocket handshake: Accept fails after the PTY
 		// opened, and the session is finalized.
@@ -357,8 +369,10 @@ func TestNetcovTerminalWebSocketRefusals(t *testing.T) {
 func TestNetcovTerminalWebSocketServerShell(t *testing.T) {
 	a, db := netcovAPI(t)
 	netcovProvisionSSH(t, a, db, netcovNewSSHServer(t, false))
-	netcovTerminalClaim(db, store.TerminalSession{ID: 1, TeamID: 1,
-		TargetKind: store.TerminalTargetServer, ServerID: ptr(int64(1))})
+	netcovTerminalClaim(db, store.TerminalSession{
+		ID: 1, TeamID: 1,
+		TargetKind: store.TerminalTargetServer, ServerID: ptr(int64(1)),
+	})
 
 	srv := httptest.NewServer(http.HandlerFunc(a.TerminalWebSocket))
 	defer srv.Close()
@@ -383,8 +397,10 @@ func TestNetcovTerminalWebSocketServerShell(t *testing.T) {
 
 func TestNetcovTerminalWebSocketContainerExec(t *testing.T) {
 	a, db := netcovAPI(t)
-	netcovTerminalClaim(db, store.TerminalSession{ID: 1, TeamID: 1,
-		TargetKind: store.TerminalTargetContainer, ServerID: ptr(int64(1)), ResourceID: ptr(int64(1))})
+	netcovTerminalClaim(db, store.TerminalSession{
+		ID: 1, TeamID: 1,
+		TargetKind: store.TerminalTargetContainer, ServerID: ptr(int64(1)), ResourceID: ptr(int64(1)),
+	})
 	netcovAgent(t, a, func(cmd agentwire.Command) (*agentwire.Result, bool) {
 		switch cmd.Method {
 		case agentwire.MethodContainerExecCreate:
@@ -416,8 +432,10 @@ func TestNetcovTerminalWebSocketContainerExec(t *testing.T) {
 }
 
 func TestNetcovExecTerminalErrors(t *testing.T) {
-	claim := store.TerminalSession{ID: 1, TeamID: 1,
-		TargetKind: store.TerminalTargetContainer, ServerID: ptr(int64(1)), ResourceID: ptr(int64(1))}
+	claim := store.TerminalSession{
+		ID: 1, TeamID: 1,
+		TargetKind: store.TerminalTargetContainer, ServerID: ptr(int64(1)), ResourceID: ptr(int64(1)),
+	}
 
 	redeem := func(t *testing.T, a *API, db *netcovDB) *httptest.ResponseRecorder {
 		t.Helper()
@@ -556,8 +574,10 @@ func TestNetcovTunnelWebSocketRefusals(t *testing.T) {
 	t.Run("unreachable target answers 409", func(t *testing.T) {
 		a, db := netcovAPI(t)
 		// Endpoint target whose SSH key does not decrypt: the dial fails.
-		netcovTunnelClaim(db, store.PortForwardSession{ID: 1, TeamID: 1,
-			ServerID: ptr(int64(1)), ExternalEndpointID: ptr(int64(1)), TargetPort: 5432})
+		netcovTunnelClaim(db, store.PortForwardSession{
+			ID: 1, TeamID: 1,
+			ServerID: ptr(int64(1)), ExternalEndpointID: ptr(int64(1)), TargetPort: 5432,
+		})
 		rec := httptest.NewRecorder()
 		a.TunnelWebSocket(rec, httptest.NewRequest(http.MethodGet, "/tunnel/ws?token=x", nil))
 		netcovStatus(t, rec, http.StatusConflict)
@@ -565,8 +585,10 @@ func TestNetcovTunnelWebSocketRefusals(t *testing.T) {
 	t.Run("upgrade failure after a resolvable target", func(t *testing.T) {
 		a, db := netcovAPI(t)
 		netcovProvisionSSH(t, a, db, netcovNewSSHServer(t, false))
-		netcovTunnelClaim(db, store.PortForwardSession{ID: 1, TeamID: 1,
-			ServerID: ptr(int64(1)), ExternalEndpointID: ptr(int64(1)), TargetPort: 5432})
+		netcovTunnelClaim(db, store.PortForwardSession{
+			ID: 1, TeamID: 1,
+			ServerID: ptr(int64(1)), ExternalEndpointID: ptr(int64(1)), TargetPort: 5432,
+		})
 		rec := httptest.NewRecorder()
 		a.TunnelWebSocket(rec, httptest.NewRequest(http.MethodGet, "/tunnel/ws?token=x", nil))
 		if rec.Code < http.StatusBadRequest {
@@ -578,8 +600,10 @@ func TestNetcovTunnelWebSocketRefusals(t *testing.T) {
 func TestNetcovTunnelWebSocketBridgesTCP(t *testing.T) {
 	a, db := netcovAPI(t)
 	netcovProvisionSSH(t, a, db, netcovNewSSHServer(t, false))
-	netcovTunnelClaim(db, store.PortForwardSession{ID: 1, TeamID: 1,
-		ServerID: ptr(int64(1)), ExternalEndpointID: ptr(int64(1)), TargetPort: 5432})
+	netcovTunnelClaim(db, store.PortForwardSession{
+		ID: 1, TeamID: 1,
+		ServerID: ptr(int64(1)), ExternalEndpointID: ptr(int64(1)), TargetPort: 5432,
+	})
 
 	srv := httptest.NewServer(http.HandlerFunc(a.TunnelWebSocket))
 	defer srv.Close()
@@ -620,7 +644,8 @@ func TestNetcovTunnelWebSocketGrantExpiry(t *testing.T) {
 	netcovProvisionSSH(t, a, db, netcovNewSSHServer(t, false))
 	// The grant lapsed between mint and attach: the bridge gets a millisecond
 	// budget and the close reason must read grant_expired, not max_duration.
-	netcovTunnelClaim(db, store.PortForwardSession{ID: 1, TeamID: 1,
+	netcovTunnelClaim(db, store.PortForwardSession{
+		ID: 1, TeamID: 1,
 		ServerID: ptr(int64(1)), ExternalEndpointID: ptr(int64(1)), GrantID: ptr(int64(9)),
 		TargetPort:      5432,
 		AuthorizedUntil: pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true},
@@ -684,8 +709,10 @@ func TestNetcovTunnelTargetResolution(t *testing.T) {
 	t.Run("destroyed preview", func(t *testing.T) {
 		a, db := netcovAPI(t)
 		db.rule(netcovRule{match: "-- name: GetPreviewByID ", typed: []any{store.PreviewStatusDestroyed}})
-		expectMsg(t, a, store.PortForwardSession{ServerID: ptr(int64(1)), ResourceID: ptr(int64(1)),
-			PreviewID: ptr(int64(2))}, "destroyed")
+		expectMsg(t, a, store.PortForwardSession{
+			ServerID: ptr(int64(1)), ResourceID: ptr(int64(1)),
+			PreviewID: ptr(int64(2)),
+		}, "destroyed")
 	})
 	t.Run("agent disconnected", func(t *testing.T) {
 		a, _ := netcovAPI(t)
@@ -706,8 +733,10 @@ func TestNetcovTunnelTargetResolution(t *testing.T) {
 			return &agentwire.Result{Body: json.RawMessage(
 				`{"NetworkSettings":{"Networks":{"bridge":{"IPAddress":"172.17.0.2"}}}}`)}, false
 		})
-		expectMsg(t, a, store.PortForwardSession{ServerID: ptr(int64(1)), ResourceID: ptr(int64(1)),
-			PreviewID: ptr(int64(2)), TargetComponent: ptr("web"), TargetPort: 3000}, "not reachable")
+		expectMsg(t, a, store.PortForwardSession{
+			ServerID: ptr(int64(1)), ResourceID: ptr(int64(1)),
+			PreviewID: ptr(int64(2)), TargetComponent: ptr("web"), TargetPort: 3000,
+		}, "not reachable")
 	})
 	t.Run("container target fully resolves", func(t *testing.T) {
 		a, db := netcovAPI(t)
@@ -717,7 +746,8 @@ func TestNetcovTunnelTargetResolution(t *testing.T) {
 				`{"NetworkSettings":{"Networks":{"bridge":{"IPAddress":"172.17.0.2"}}}}`)}, false
 		})
 		client, addr, msg := a.tunnelTarget(ctx, store.PortForwardSession{
-			ServerID: ptr(int64(1)), ResourceID: ptr(int64(1)), TargetPort: 3000})
+			ServerID: ptr(int64(1)), ResourceID: ptr(int64(1)), TargetPort: 3000,
+		})
 		if msg != "" || client == nil {
 			t.Fatalf("target = %v, %q", client, msg)
 		}
@@ -938,8 +968,10 @@ func TestNetcovAgentRelayWithoutChannelAnswersUnavailable(t *testing.T) {
 	netcovRelayWrite(t, conn, agentwire.Frame{Type: agentwire.FrameStream, Chunk: &agentwire.StreamChunk{ID: 99, Data: []byte("x")}}) // unknown attach
 	netcovRelayWrite(t, conn, agentwire.Frame{Type: agentwire.FrameCancel, Cancel: 12345})                                            // unknown id
 
-	netcovRelayWrite(t, conn, agentwire.Frame{Type: agentwire.FrameCommand,
-		Cmd: &agentwire.Command{ID: 1, Method: agentwire.MethodPing}})
+	netcovRelayWrite(t, conn, agentwire.Frame{
+		Type: agentwire.FrameCommand,
+		Cmd:  &agentwire.Command{ID: 1, Method: agentwire.MethodPing},
+	})
 	res := netcovRelayRead(t, conn)
 	if res.Res == nil || res.Res.ID != 1 || res.Res.Err == nil {
 		t.Fatalf("frame = %+v, want an unavailable error result", res)
@@ -962,36 +994,46 @@ func TestNetcovAgentRelayBridgesCommandsStreamsAndAttach(t *testing.T) {
 	conn := netcovDialRelay(t, a)
 
 	// Plain command round-trips its body.
-	netcovRelayWrite(t, conn, agentwire.Frame{Type: agentwire.FrameCommand,
-		Cmd: &agentwire.Command{ID: 1, Method: agentwire.MethodPing}})
+	netcovRelayWrite(t, conn, agentwire.Frame{
+		Type: agentwire.FrameCommand,
+		Cmd:  &agentwire.Command{ID: 1, Method: agentwire.MethodPing},
+	})
 	res := netcovRelayRead(t, conn)
 	if res.Res == nil || res.Res.Err != nil || !strings.Contains(string(res.Res.Body), "1.45") {
 		t.Fatalf("command result = %+v", res.Res)
 	}
 
 	// Stream open error is re-flattened intact.
-	netcovRelayWrite(t, conn, agentwire.Frame{Type: agentwire.FrameCommand,
-		Cmd: &agentwire.Command{ID: 2, Method: agentwire.MethodContainerLogs}})
+	netcovRelayWrite(t, conn, agentwire.Frame{
+		Type: agentwire.FrameCommand,
+		Cmd:  &agentwire.Command{ID: 2, Method: agentwire.MethodContainerLogs},
+	})
 	res = netcovRelayRead(t, conn)
 	if res.Res == nil || res.Res.ID != 2 || res.Res.Err == nil || res.Res.Err.Code != agentwire.CodeNotFound {
 		t.Fatalf("stream failure = %+v", res.Res)
 	}
 
 	// Attach: ok result, then input chunks route to the attach and come back.
-	netcovRelayWrite(t, conn, agentwire.Frame{Type: agentwire.FrameCommand,
-		Cmd: &agentwire.Command{ID: 3, Method: agentwire.MethodContainerExecAttach}})
+	netcovRelayWrite(t, conn, agentwire.Frame{
+		Type: agentwire.FrameCommand,
+		Cmd:  &agentwire.Command{ID: 3, Method: agentwire.MethodContainerExecAttach},
+	})
 	res = netcovRelayRead(t, conn)
 	if res.Res == nil || res.Res.ID != 3 || res.Res.Err != nil {
 		t.Fatalf("attach open = %+v", res.Res)
 	}
-	netcovRelayWrite(t, conn, agentwire.Frame{Type: agentwire.FrameStream,
-		Chunk: &agentwire.StreamChunk{ID: 3, Data: []byte("stdin")}})
+	netcovRelayWrite(t, conn, agentwire.Frame{
+		Type:  agentwire.FrameStream,
+		Chunk: &agentwire.StreamChunk{ID: 3, Data: []byte("stdin")},
+	})
 	echo := netcovRelayRead(t, conn)
 	if echo.Chunk == nil || echo.Chunk.ID != 3 || string(echo.Chunk.Data) != "stdin" {
 		t.Fatalf("attach echo = %+v", echo)
 	}
-	netcovRelayWrite(t, conn, agentwire.Frame{Type: agentwire.FrameStream,
-		Chunk: &agentwire.StreamChunk{ID: 3, EOF: true}})
+	netcovRelayWrite(t, conn, agentwire.Frame{
+		Type:  agentwire.FrameStream,
+		Chunk: &agentwire.StreamChunk{ID: 3, EOF: true},
+	})
 	eof := netcovRelayRead(t, conn)
 	if eof.Chunk == nil || !eof.Chunk.EOF {
 		t.Fatalf("attach eof = %+v", eof)
@@ -1008,8 +1050,10 @@ func TestNetcovAgentRelayCancelReachesInflightCommands(t *testing.T) {
 	})
 	conn := netcovDialRelay(t, a)
 
-	netcovRelayWrite(t, conn, agentwire.Frame{Type: agentwire.FrameCommand,
-		Cmd: &agentwire.Command{ID: 7, Method: agentwire.MethodPing}})
+	netcovRelayWrite(t, conn, agentwire.Frame{
+		Type: agentwire.FrameCommand,
+		Cmd:  &agentwire.Command{ID: 7, Method: agentwire.MethodPing},
+	})
 	netcovRelayWrite(t, conn, agentwire.Frame{Type: agentwire.FrameCancel, Cancel: 7})
 	res := netcovRelayRead(t, conn)
 	if res.Res == nil || res.Res.ID != 7 || res.Res.Err == nil {
@@ -1149,8 +1193,10 @@ func TestNetcovUpdateIngressEndpointBranches(t *testing.T) {
 	})
 	t.Run("basic_auth without any password 400s", func(t *testing.T) {
 		a, db := netcovAPI(t)
-		db.rule(netcovRule{match: "-- name: GetIngressEndpointByUUID ",
-			typed: []any{store.IngressAccessSso}, set: map[int]any{8: nil}}) // BasicAuthHash NULL
+		db.rule(netcovRule{
+			match: "-- name: GetIngressEndpointByUUID ",
+			typed: []any{store.IngressAccessSso}, set: map[int]any{8: nil},
+		}) // BasicAuthHash NULL
 		body := valid
 		body.Access = ptr(api.IngressEndpointUpdateAccessBasicAuth)
 		rec := httptest.NewRecorder()

@@ -235,12 +235,15 @@ func (*netcovTx) LargeObjects() pgx.LargeObjects                         { retur
 func (*netcovTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
 	return &pgconn.StatementDescription{}, nil
 }
+
 func (t *netcovTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	return t.db.Exec(ctx, sql, args...)
 }
+
 func (t *netcovTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	return t.db.Query(ctx, sql, args...)
 }
+
 func (t *netcovTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	return t.db.QueryRow(ctx, sql, args...)
 }
@@ -723,8 +726,10 @@ func TestNetcovNotifyGrant(t *testing.T) {
 	r := netcovRequest(t, http.MethodGet, "/x", nil, nil)
 	sensitive := store.ExternalEndpoint{Criticality: store.ExternalEndpointCriticalitySensitive, Name: "prod"}
 	standard := store.ExternalEndpoint{Criticality: store.ExternalEndpointCriticalityStandard}
-	grant := store.ExternalEndpointGrant{Reason: "x", Factor: "passkey",
-		ExpiresAt: pgtype.Timestamptz{Time: time.Now(), Valid: true}}
+	grant := store.ExternalEndpointGrant{
+		Reason: "x", Factor: "passkey",
+		ExpiresAt: pgtype.Timestamptz{Time: time.Now(), Valid: true},
+	}
 
 	a.notifyGrant(r, id, standard, grant, false)  // silent: not sensitive
 	a.notifyGrant(r, id, sensitive, grant, false) // outboxed
@@ -1095,8 +1100,10 @@ func TestNetcovIngressSessionOwnedBy(t *testing.T) {
 
 func TestNetcovCloseIngressSessionBranches(t *testing.T) {
 	liveRow := func(userID int64) map[int]any {
-		row := store.ListIngressSessionsPageRow{ID: 3, TeamID: 1, UserID: &userID,
-			EndpointName: ptr("dev"), EndpointFqdn: ptr("dev.example.test")}
+		row := store.ListIngressSessionsPageRow{
+			ID: 3, TeamID: 1, UserID: &userID,
+			EndpointName: ptr("dev"), EndpointFqdn: ptr("dev.example.test"),
+		}
 		_ = row.Uuid.Scan(fixtureUUID)
 		_ = row.EndpointUuid.Scan(fixtureUUID)
 		return netcovRowOf(row)

@@ -28,7 +28,7 @@ func TestAPIErrorError(t *testing.T) {
 func TestDecodeError(t *testing.T) {
 	t.Run("json envelope", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		rec.WriteHeader(403)
+		rec.WriteHeader(http.StatusForbidden)
 		_, _ = rec.WriteString(`{"code":"forbidden","message":"nope","request_id":"r1","request_url":"https://x/grant"}`)
 		err := decodeError(rec.Result())
 		var apiErr *apiError
@@ -42,7 +42,7 @@ func TestDecodeError(t *testing.T) {
 
 	t.Run("plain text body becomes the message", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		rec.WriteHeader(500)
+		rec.WriteHeader(http.StatusInternalServerError)
 		_, _ = rec.WriteString("  boom  ")
 		err := decodeError(rec.Result())
 		if !strings.Contains(err.Error(), "boom") {
@@ -147,10 +147,10 @@ func TestClientDo(t *testing.T) {
 		case "/api/v1/ok":
 			_ = json.NewEncoder(w).Encode(payload{Name: "varuna"})
 		case "/api/v1/fail":
-			w.WriteHeader(422)
+			w.WriteHeader(http.StatusUnprocessableEntity)
 			_, _ = w.Write([]byte(`{"code":"invalid","message":"bad input"}`))
 		default:
-			w.WriteHeader(204)
+			w.WriteHeader(http.StatusNoContent)
 		}
 	}))
 	defer srv.Close()

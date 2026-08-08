@@ -34,7 +34,7 @@ func teamsServer(t *testing.T, teams []map[string]string, status int) *httptest.
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/teams" {
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		if status >= 400 {
@@ -170,7 +170,7 @@ func cliAuthServer(t *testing.T, startStatus int) (*httptest.Server, *atomic.Int
 				"status": "approved", "token": "akd_browser", "team_uuid": "team-b",
 			})
 		default:
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 		}
 	}))
 	t.Cleanup(srv.Close)
@@ -242,7 +242,7 @@ func TestLoginBrowserCancelled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/auth/cli/start" {
 			t.Errorf("unexpected call to %s after cancellation", r.URL.Path)
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -270,7 +270,7 @@ func TestLoginBrowserPollError(t *testing.T) {
 				"verify_url": "https://x/verify", "interval": 1, "expires_in": 30,
 			})
 		default:
-			w.WriteHeader(403)
+			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"code":"denied","message":"request rejected"}`))
 		}
 	}))
@@ -299,7 +299,7 @@ func TestPostJSONErrors(t *testing.T) {
 	}
 	// A 2xx with no out decodes nothing and succeeds.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(204)
+		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
 	if err := postJSON(ctx, srv.URL, map[string]string{}, nil); err != nil {

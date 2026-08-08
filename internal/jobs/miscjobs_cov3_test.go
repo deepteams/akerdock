@@ -157,8 +157,10 @@ func TestMiscjobsApplyRoutingVerdicts(t *testing.T) {
 	})
 	t.Run("host ops not connected", func(t *testing.T) {
 		q, keyring, logger, _ := miscjobsDeps(t)
-		h := &ApplyRouting{Store: q, Keyring: keyring, Docker: fixedSource{rt: &fake.Runtime{}},
-			HostOps: fixedHost{err: errors.New("not connected")}, Logger: logger}
+		h := &ApplyRouting{
+			Store: q, Keyring: keyring, Docker: fixedSource{rt: &fake.Runtime{}},
+			HostOps: fixedHost{err: errors.New("not connected")}, Logger: logger,
+		}
 		if _, err := h.Execute(ctx, j, queue.NewStepRecorder(q, j)); err == nil {
 			t.Fatal("unavailable host ops must fail")
 		}
@@ -988,8 +990,10 @@ func TestMiscjobsDatabaseWaitHealthyHonorsCancellation(t *testing.T) {
 }
 
 func miscjobsDatabaseJob(action, extra string) store.Job {
-	return store.Job{ID: 18, JobType: "database." + action,
-		Payload: []byte(`{"resource_id":1,"action":"` + action + `"` + extra + `}`)}
+	return store.Job{
+		ID: 18, JobType: "database." + action,
+		Payload: []byte(`{"resource_id":1,"action":"` + action + `"` + extra + `}`),
+	}
 }
 
 func TestMiscjobsDatabaseExecuteVerdicts(t *testing.T) {
@@ -1038,8 +1042,10 @@ func TestMiscjobsDatabaseExecuteVerdicts(t *testing.T) {
 	t.Run("host ops unavailable for provision and delete", func(t *testing.T) {
 		for _, action := range []string{"provision", "delete"} {
 			q, keyring, logger, _ := miscjobsDeps(t)
-			h := &DatabaseRun{Store: q, Keyring: keyring, Docker: fixedSource{rt: &fake.Runtime{}},
-				HostOps: unavailableHost{}, Logger: logger}
+			h := &DatabaseRun{
+				Store: q, Keyring: keyring, Docker: fixedSource{rt: &fake.Runtime{}},
+				HostOps: unavailableHost{}, Logger: logger,
+			}
 			j := miscjobsDatabaseJob(action, "")
 			if _, err := h.Execute(ctx, j, queue.NewStepRecorder(q, j)); err == nil {
 				t.Fatalf("%s without host ops must fail", action)

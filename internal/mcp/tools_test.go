@@ -8,9 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/store"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // fakeStore serves canned rows; failOn names the one method that fails, so a

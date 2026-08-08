@@ -22,7 +22,7 @@ func logsServer(t *testing.T, onPreviewLogs func(poll int)) *httptest.Server {
 			_, _ = w.Write([]byte(`{"data":[{"uuid":"app-1","name":"varuna"}]}`))
 		case "/api/v1/applications/app-1/logs":
 			if got := r.URL.Query().Get("component"); got != "" && got != "web" {
-				w.WriteHeader(500)
+				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 			_, _ = w.Write([]byte(`{"data":[
@@ -49,7 +49,7 @@ func logsServer(t *testing.T, onPreviewLogs func(poll int)) *httptest.Server {
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = fmt.Fprintf(w, "data: {\"message\":\"build log for %s\"}\n\n", strings.Split(r.URL.Path, "/")[4])
 		default:
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = fmt.Fprintf(w, `{"code":"boom","message":"unexpected path %s"}`, r.URL.Path)
 		}
 	}))
@@ -234,7 +234,7 @@ func TestLatestPreviewDeploymentNotFound(t *testing.T) {
 
 func TestStreamSSEBadStatus(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(401)
+		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"code":"unauthorized","message":"token expired"}`))
 	}))
 	defer srv.Close()
@@ -266,7 +266,7 @@ func TestStreamDeploymentLogsNoDeployment(t *testing.T) {
 
 func TestStreamDeploymentLogsListError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(500)
+		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 	c := &Client{base: srv.URL, token: "tok", http: srv.Client()}

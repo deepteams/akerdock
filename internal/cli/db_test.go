@@ -166,10 +166,10 @@ func dbServer(t *testing.T, redacted bool) *httptest.Server {
 			"/api/v1/applications/app-1/port-forwards",
 			"/api/v1/applications/app-1/previews/pv-1/port-forwards":
 			// The mint fails: the test cares about everything before the tunnel.
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(`{"code":"boom","message":"mint refused"}`))
 		default:
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = fmt.Fprintf(w, `{"code":"boom","message":"unexpected path %s"}`, r.URL.Path)
 		}
 	}))

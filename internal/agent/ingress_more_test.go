@@ -91,11 +91,11 @@ func TestIngressExpectPurgesExpiredEntries(t *testing.T) {
 	}
 }
 
-// TestIngressRelayDirectorAndErrorHandler pins the relay proxy's two
-// callbacks without a live tunnel: the director rewrites only the URL (the
+// TestIngressRelayRewriteAndErrorHandler pins the relay proxy's two callbacks
+// without a live tunnel: the rewrite changes only the URL (the
 // public Host survives for the developer's app), and a failed dial answers
 // 502 with a human cause.
-func TestIngressRelayDirectorAndErrorHandler(t *testing.T) {
+func TestIngressRelayRewriteAndErrorHandler(t *testing.T) {
 	ig := NewIngress(nil)
 	rp, ok := ig.newRelay(nil).(*httputil.ReverseProxy)
 	if !ok {
@@ -104,12 +104,13 @@ func TestIngressRelayDirectorAndErrorHandler(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "http://dev.example.com/hook?x=1", nil)
 	req.Host = "dev.example.com"
-	rp.Director(req)
-	if req.URL.Scheme != "http" || req.URL.Host != "ingress" {
-		t.Fatalf("directed URL = %s, want the placeholder target", req.URL)
+	out := req.Clone(req.Context())
+	rp.Rewrite(&httputil.ProxyRequest{In: req, Out: out})
+	if out.URL.Scheme != "http" || out.URL.Host != "ingress" {
+		t.Fatalf("rewritten URL = %s, want the placeholder target", out.URL)
 	}
-	if req.Host != "dev.example.com" {
-		t.Fatalf("req.Host = %q, want the public host preserved", req.Host)
+	if out.Host != "dev.example.com" {
+		t.Fatalf("out.Host = %q, want the public host preserved", out.Host)
 	}
 
 	rec := httptest.NewRecorder()

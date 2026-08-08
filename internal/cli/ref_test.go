@@ -73,7 +73,7 @@ func listServer(t *testing.T, items map[string][]resource) *httptest.Server {
 		path := strings.TrimPrefix(r.URL.Path, "/api/v1")
 		data, ok := items[path]
 		if !ok {
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(`{"code":"boom","message":"list failed"}`))
 			return
 		}
@@ -131,7 +131,7 @@ func TestResolve(t *testing.T) {
 func TestResolvePreview(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/applications/app-1/previews" {
-			w.WriteHeader(500)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		_, _ = w.Write([]byte(`{"data":[

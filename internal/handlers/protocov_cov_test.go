@@ -38,7 +38,7 @@ import (
 
 // --- steerable protocol fake ------------------------------------------------
 
-var protocovErrDB = errors.New("protocov: store failure")
+var protocovErrDB = errors.New("protocov: store failure") //nolint:revive,errname,staticcheck // Coverage-suite globals keep a collision-resistant prefix.
 
 // protocovDB is a flowDB with per-query steering, keyed by the sqlc query
 // name embedded in the SQL text (`-- name: X :kind`). Configure it BEFORE the
@@ -168,8 +168,10 @@ func (r *protocovRows) Scan(dest ...any) error {
 	return nil
 }
 
-var _ store.DBTX = (*protocovDB)(nil)
-var _ pgx.Rows = (*protocovRows)(nil)
+var (
+	_ store.DBTX = (*protocovDB)(nil)
+	_ pgx.Rows   = (*protocovRows)(nil)
+)
 
 func protocovAPI(t *testing.T, db *protocovDB) *API {
 	t.Helper()
@@ -1554,7 +1556,7 @@ func protocovDialAgent(t *testing.T, a *API, subprotocol string) (*websocket.Con
 	return conn, ctx
 }
 
-func protocovWriteWS(t *testing.T, ctx context.Context, conn *websocket.Conn, v any) {
+func protocovWriteWS(ctx context.Context, t *testing.T, conn *websocket.Conn, v any) {
 	t.Helper()
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -1565,7 +1567,7 @@ func protocovWriteWS(t *testing.T, ctx context.Context, conn *websocket.Conn, v 
 	}
 }
 
-func protocovReadAck(t *testing.T, ctx context.Context, conn *websocket.Conn) agentwire.Frame {
+func protocovReadAck(ctx context.Context, t *testing.T, conn *websocket.Conn) agentwire.Frame {
 	t.Helper()
 	for {
 		_, data, err := conn.Read(ctx)
@@ -1611,16 +1613,16 @@ func TestProtocovAgentChannelV1(t *testing.T) {
 	for i := range big {
 		big[i] = agentwire.Observation{Type: "heartbeat"}
 	}
-	protocovWriteWS(t, ctx, conn, agentwire.Frame{Type: agentwire.FrameObservations, Seq: 1, Observations: big})
-	if ack := protocovReadAck(t, ctx, conn); !ack.Denied || ack.Seq != 1 {
+	protocovWriteWS(ctx, t, conn, agentwire.Frame{Type: agentwire.FrameObservations, Seq: 1, Observations: big})
+	if ack := protocovReadAck(ctx, t, conn); !ack.Denied || ack.Seq != 1 {
 		t.Fatalf("oversized batch ack = %+v, want denied seq 1", ack)
 	}
 	// Result/stream frames on a v1 channel are ignored.
-	protocovWriteWS(t, ctx, conn, agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: 9}})
-	protocovWriteWS(t, ctx, conn, agentwire.Frame{Type: agentwire.FrameStream, Chunk: &agentwire.StreamChunk{ID: 9}})
+	protocovWriteWS(ctx, t, conn, agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: 9}})
+	protocovWriteWS(ctx, t, conn, agentwire.Frame{Type: agentwire.FrameStream, Chunk: &agentwire.StreamChunk{ID: 9}})
 	// A normal batch is applied and acked.
-	protocovWriteWS(t, ctx, conn, agentwire.Frame{Type: agentwire.FrameObservations, Seq: 2, Observations: []agentwire.Observation{{Type: "heartbeat"}}})
-	if ack := protocovReadAck(t, ctx, conn); ack.Denied || ack.Seq != 2 {
+	protocovWriteWS(ctx, t, conn, agentwire.Frame{Type: agentwire.FrameObservations, Seq: 2, Observations: []agentwire.Observation{{Type: "heartbeat"}}})
+	if ack := protocovReadAck(ctx, t, conn); ack.Denied || ack.Seq != 2 {
 		t.Fatalf("batch ack = %+v, want accepted seq 2", ack)
 	}
 	if !a.Agents.Connected(1) {
@@ -1633,8 +1635,8 @@ func TestProtocovAgentChannelV2(t *testing.T) {
 	a.AgentRPC = &AgentConns{}
 	conn, ctx := protocovDialAgent(t, a, agentwire.SubprotocolV2)
 
-	protocovWriteWS(t, ctx, conn, agentwire.Frame{Type: agentwire.FrameObservations, Seq: 1, Observations: []agentwire.Observation{{Type: "heartbeat"}}})
-	if ack := protocovReadAck(t, ctx, conn); ack.Denied || ack.Seq != 1 {
+	protocovWriteWS(ctx, t, conn, agentwire.Frame{Type: agentwire.FrameObservations, Seq: 1, Observations: []agentwire.Observation{{Type: "heartbeat"}}})
+	if ack := protocovReadAck(ctx, t, conn); ack.Denied || ack.Seq != 1 {
 		t.Fatalf("batch ack = %+v, want accepted seq 1", ack)
 	}
 	// Registration happened before the read loop: the ack proves it is visible.
@@ -1642,11 +1644,11 @@ func TestProtocovAgentChannelV2(t *testing.T) {
 		t.Fatal("v2 channel not registered in the command registry")
 	}
 	// Unsolicited result/stream frames are delivered (and dropped, no caller).
-	protocovWriteWS(t, ctx, conn, agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: 3}})
-	protocovWriteWS(t, ctx, conn, agentwire.Frame{Type: agentwire.FrameStream, Chunk: &agentwire.StreamChunk{ID: 3, EOF: true}})
+	protocovWriteWS(ctx, t, conn, agentwire.Frame{Type: agentwire.FrameResult, Res: &agentwire.Result{ID: 3}})
+	protocovWriteWS(ctx, t, conn, agentwire.Frame{Type: agentwire.FrameStream, Chunk: &agentwire.StreamChunk{ID: 3, EOF: true}})
 	// One more acked batch AFTER those frames proves the loop processed them.
-	protocovWriteWS(t, ctx, conn, agentwire.Frame{Type: agentwire.FrameObservations, Seq: 2})
-	if ack := protocovReadAck(t, ctx, conn); ack.Seq != 2 {
+	protocovWriteWS(ctx, t, conn, agentwire.Frame{Type: agentwire.FrameObservations, Seq: 2})
+	if ack := protocovReadAck(ctx, t, conn); ack.Seq != 2 {
 		t.Fatalf("ack = %+v, want seq 2", ack)
 	}
 }

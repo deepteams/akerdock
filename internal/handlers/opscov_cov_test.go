@@ -218,12 +218,15 @@ func (*opscovTx) LargeObjects() pgx.LargeObjects                         { retur
 func (*opscovTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
 	return &pgconn.StatementDescription{}, nil
 }
+
 func (t *opscovTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	return t.db.Exec(ctx, sql, args...)
 }
+
 func (t *opscovTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	return t.db.Query(ctx, sql, args...)
 }
+
 func (t *opscovTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	return t.db.QueryRow(ctx, sql, args...)
 }
@@ -617,8 +620,10 @@ func TestOpscovLogLinesDerivation(t *testing.T) {
 	at := pgtype.Timestamptz{Time: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), Valid: true}
 	steps := []store.DeploymentStep{
 		{Name: "clone", Status: store.DeploymentStepStatusSkipped, StartedAt: at},
-		{Name: "build", Status: store.DeploymentStepStatusFailed, StartedAt: at, FinishedAt: at,
-			Log: ptr("line one\n\x1b[31mline two\x1b[0m\n")},
+		{
+			Name: "build", Status: store.DeploymentStepStatusFailed, StartedAt: at, FinishedAt: at,
+			Log: ptr("line one\n\x1b[31mline two\x1b[0m\n"),
+		},
 		{Name: "push", Status: store.DeploymentStepStatusRunning}, // invalid timestamps -> now()
 	}
 	lines := logLines(steps)
@@ -782,15 +787,15 @@ func TestOpscovStreamDeploymentLogs(t *testing.T) {
 
 func TestOpscovBrowsableRepo(t *testing.T) {
 	cases := map[string]string{
-		"":                                   "",
-		"  git@github.com:acme/app.git  ":    "https://github.com/acme/app",
-		"git@github.com:/acme/app":           "https://github.com/acme/app",
-		"git@nowhere":                        "git@nowhere", // scp form without a path stays as-is
-		"ssh://git@forge.example.test/o/r":   "https://forge.example.test/o/r",
-		"ssh://forge.example.test/o/r.git":   "https://forge.example.test/o/r",
-		"ssh://%gh&%ij":                      "ssh://%gh&%ij", // unparsable: unchanged
-		"http://forge.example.test/o/r":      "https://forge.example.test/o/r",
-		"https://forge.example.test/o/r/":    "https://forge.example.test/o/r",
+		"":                                 "",
+		"  git@github.com:acme/app.git  ":  "https://github.com/acme/app",
+		"git@github.com:/acme/app":         "https://github.com/acme/app",
+		"git@nowhere":                      "git@nowhere", // scp form without a path stays as-is
+		"ssh://git@forge.example.test/o/r": "https://forge.example.test/o/r",
+		"ssh://forge.example.test/o/r.git": "https://forge.example.test/o/r",
+		"ssh://%gh&%ij":                    "ssh://%gh&%ij", // unparsable: unchanged
+		"http://forge.example.test/o/r":    "https://forge.example.test/o/r",
+		"https://forge.example.test/o/r/":  "https://forge.example.test/o/r",
 	}
 	for in, want := range cases {
 		if got := browsableRepo(in); got != want {

@@ -65,7 +65,7 @@ func mcpServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/mcp" || r.Header.Get("Authorization") != "Bearer akd_tok" {
-			w.WriteHeader(401)
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		body, _ := io.ReadAll(r.Body)

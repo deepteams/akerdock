@@ -1,0 +1,104 @@
+name: Bug report
+description: Report a reproducible defect in AkerDock
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve AkerDock. Do not include secrets or report security vulnerabilities here; use the private security reporting link in the issue chooser instead.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+      placeholder: Describe the problem and its impact in a few sentences.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - API or control plane
+        - Worker or job queue
+        - CLI
+        - Web UI
+        - Server agent or SSH transport
+        - Proxy, domains, or HTTPS
+        - Backup or restore
+        - Installation or upgrade
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Provide the release, image tag, or commit SHA.
+      placeholder: main@abcdef0
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the deployment mode, operating system and architecture, Docker version, database version, and browser when relevant.
+      placeholder: |
+        Mode: all-in-one
+        Host: Debian 13, amd64
+        Docker: 28.x with Compose v2
+        PostgreSQL: 17.x
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable sequence that demonstrates the problem.
+      placeholder: |
+        1. Configure ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Add relevant logs, screenshots, or configuration after removing all secrets and personal data.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched the existing issues for duplicates.
+          required: true
+        - label: This report does not disclose a security vulnerability.
+          required: true
+        - label: I removed credentials, tokens, private keys, hostnames, and personal data from the report.
+          required: true
+

@@ -147,7 +147,7 @@ type cmdOutcome struct {
 
 // runCommand starts Command in the background so the test goroutine can
 // script the peer (and keep t.Fatal legal).
-func runCommand(tc *testChannel, ctx context.Context, method string, params any) <-chan cmdOutcome {
+func runCommand(ctx context.Context, tc *testChannel, method string, params any) <-chan cmdOutcome {
 	out := make(chan cmdOutcome, 1)
 	go func() {
 		body, err := tc.conn.Command(ctx, method, params)
@@ -197,7 +197,7 @@ func TestCommandRoundTrip(t *testing.T) {
 	obs := make(chan [2]string, 1)
 	tc.conn.Record = func(method, outcome string) { obs <- [2]string{method, outcome} }
 
-	out := runCommand(tc, context.Background(), MethodContainerInspect, NameParams{Name: "web"})
+	out := runCommand(context.Background(), tc, MethodContainerInspect, NameParams{Name: "web"})
 	f := tc.expectFrame(FrameCommand)
 	if f.Cmd == nil || f.Cmd.Method != MethodContainerInspect {
 		t.Fatalf("command frame = %+v", f)
@@ -225,7 +225,7 @@ func TestCommandErrorResultKeepsItsClass(t *testing.T) {
 	obs := make(chan [2]string, 1)
 	tc.conn.Record = func(method, outcome string) { obs <- [2]string{method, outcome} }
 
-	out := runCommand(tc, context.Background(), MethodContainerInspect, NameParams{Name: "gone"})
+	out := runCommand(context.Background(), tc, MethodContainerInspect, NameParams{Name: "gone"})
 	f := tc.expectFrame(FrameCommand)
 	tc.reply(Frame{Type: FrameResult, Res: &Result{ID: f.Cmd.ID, Err: &Error{Code: CodeNotFound, Message: "no such container"}}})
 
@@ -243,7 +243,7 @@ func TestCommandCallerCanceledTellsThePeer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	out := runCommand(tc, ctx, MethodPing, nil)
+	out := runCommand(ctx, tc, MethodPing, nil)
 	f := tc.expectFrame(FrameCommand)
 	cancel()
 
@@ -258,7 +258,7 @@ func TestCommandCallerCanceledTellsThePeer(t *testing.T) {
 
 func TestCommandChannelClosedIsUnavailable(t *testing.T) {
 	tc := newTestChannel(t)
-	out := runCommand(tc, context.Background(), MethodPing, nil)
+	out := runCommand(context.Background(), tc, MethodPing, nil)
 	tc.expectFrame(FrameCommand)
 	tc.cancel()
 
@@ -388,7 +388,7 @@ func TestStreamRoundTrip(t *testing.T) {
 	}
 	// A stream that ended in EOF must NOT cancel the command on Close: the
 	// next frame the peer sees is the next command, not a stray cancel.
-	done := runCommand(tc, context.Background(), MethodPing, nil)
+	done := runCommand(context.Background(), tc, MethodPing, nil)
 	next := tc.expectFrame(FrameCommand)
 	tc.ack(next.Cmd.ID)
 	waitOutcome(t, done)
@@ -447,7 +447,7 @@ func TestStreamCloseBeforeEOFCancelsRemote(t *testing.T) {
 	if err := rc.Close(); err != nil {
 		t.Fatalf("second close: %v", err)
 	}
-	done := runCommand(tc, context.Background(), MethodPing, nil)
+	done := runCommand(context.Background(), tc, MethodPing, nil)
 	next := tc.expectFrame(FrameCommand)
 	tc.ack(next.Cmd.ID)
 	waitOutcome(t, done)

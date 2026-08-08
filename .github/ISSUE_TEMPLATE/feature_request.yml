@@ -1,0 +1,62 @@
+name: Feature request
+description: Propose an improvement to AkerDock
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with the user problem. A clear use case makes it easier to compare the proposal with the product specification and existing architecture decisions.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Who needs this, and what are they unable to do today?
+      placeholder: As a ..., I need ... because ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe the behavior you would like. Implementation details are optional.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe current workarounds or other solutions you considered.
+
+  - type: dropdown
+    id: product_scope
+    attributes:
+      label: Product specification impact
+      description: Indicate whether the request appears to fit the current PRD.
+      options:
+        - Fits an existing requirement
+        - Changes or adds product scope
+        - Unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add examples, screenshots, related issues, or references to relevant PRD or ADR sections.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched the existing issues and product documentation for a similar request.
+          required: true
+        - label: I described the user problem rather than only a preferred implementation.
+          required: true
+

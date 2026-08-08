@@ -68,8 +68,10 @@ func TestDenyErrorNamesTheStatus(t *testing.T) {
 // except 429, and everything else retries.
 func TestAgentPostStatusMapping(t *testing.T) {
 	var mu sync.Mutex
-	codes := []int{http.StatusAccepted, http.StatusBadRequest, http.StatusTooManyRequests,
-		http.StatusInternalServerError, http.StatusOK}
+	codes := []int{
+		http.StatusAccepted, http.StatusBadRequest, http.StatusTooManyRequests,
+		http.StatusInternalServerError, http.StatusOK,
+	}
 	call := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		mu.Lock()

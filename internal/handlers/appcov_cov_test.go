@@ -138,7 +138,7 @@ func (db *appcovDB) setEnum(typeName, value string) {
 	db.enums[typeName] = value
 }
 
-func (db *appcovDB) steer(sql string) (appcovFill, error, bool, bool) {
+func (db *appcovDB) steer(sql string) (appcovFill, bool, bool, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	l := strings.ToLower(sql)
@@ -180,11 +180,11 @@ func (db *appcovDB) steer(sql string) (appcovFill, error, bool, bool) {
 		}
 	}
 	opts.zero = strings.Contains(l, "count(") && !db.countOne
-	return opts, err, noRows, execZero
+	return opts, noRows, execZero, err
 }
 
 func (db *appcovDB) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
-	_, err, _, execZero := db.steer(sql)
+	_, _, execZero, err := db.steer(sql)
 	if err != nil {
 		return pgconn.CommandTag{}, err
 	}
@@ -195,7 +195,7 @@ func (db *appcovDB) Exec(_ context.Context, sql string, _ ...any) (pgconn.Comman
 }
 
 func (db *appcovDB) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
-	opts, err, noRows, _ := db.steer(sql)
+	opts, noRows, _, err := db.steer(sql)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func (db *appcovDB) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, er
 }
 
 func (db *appcovDB) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
-	opts, err, noRows, _ := db.steer(sql)
+	opts, noRows, _, err := db.steer(sql)
 	if err == nil && noRows {
 		err = pgx.ErrNoRows
 	}
