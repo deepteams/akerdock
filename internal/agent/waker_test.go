@@ -25,6 +25,8 @@ type fakeDocker struct {
 	stops      []string // Stop call order, to prove rollback
 	inspects   int32
 	inspectErr error // when set, Inspect fails (e.g. unreachable Docker socket)
+	startErr   error // when set, Start fails (daemon refusing the wake)
+	stopErr    error // when set, Stop fails (rollback best-effort path)
 }
 
 func newFakeDocker() *fakeDocker {
@@ -34,6 +36,9 @@ func newFakeDocker() *fakeDocker {
 func (d *fakeDocker) Start(_ context.Context, c string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.startErr != nil {
+		return d.startErr
+	}
 	d.starts[c]++
 	d.seq = append(d.seq, c)
 	d.running[c] = true
@@ -44,6 +49,9 @@ func (d *fakeDocker) Stop(_ context.Context, c string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.stops = append(d.stops, c)
+	if d.stopErr != nil {
+		return d.stopErr
+	}
 	d.running[c] = false
 	return nil
 }

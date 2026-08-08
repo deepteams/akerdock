@@ -142,3 +142,41 @@ func TestRuntimeDockerStreamEventsSurfacesABrokenStream(t *testing.T) {
 		t.Fatalf("StreamEvents = %v, want the stream error (the agent reconnects on it)", err)
 	}
 }
+
+func TestRuntimeDockerStartDelegates(t *testing.T) {
+	rt := &fake.Runtime{}
+	d := NewRuntimeDocker(rt)
+	if err := d.Start(context.Background(), "akerdock-app"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if calls := rt.CallNames(); len(calls) != 1 || calls[0] != "ContainerStart" {
+		t.Fatalf("calls = %v", calls)
+	}
+}
+
+func TestRuntimeDockerListManagedSurfacesTheDaemonError(t *testing.T) {
+	rt := &fake.Runtime{}
+	rt.ContainerListFn = func(context.Context, container.ListOptions) ([]container.Summary, error) {
+		return nil, errors.New("daemon busy")
+	}
+	d := NewRuntimeDocker(rt)
+	if _, err := d.ListManaged(context.Background()); err == nil {
+		t.Fatal("ListManaged must surface the daemon error")
+	}
+}
+
+func TestRuntimeDockerStreamEventsClosedChannelIsEOF(t *testing.T) {
+	// A daemon hanging up without an error (channel closed): the caller must
+	// see io.EOF and reconnect, never spin on a nil error.
+	msgs := make(chan events.Message)
+	errs := make(chan error)
+	rt := &fake.Runtime{}
+	rt.EventsFn = func(context.Context, events.ListOptions) (<-chan events.Message, <-chan error) {
+		return msgs, errs
+	}
+	close(errs)
+	err := NewRuntimeDocker(rt).StreamEvents(context.Background(), func(ContainerEvent) {})
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("StreamEvents on a closed stream = %v, want io.EOF", err)
+	}
+}

@@ -5,6 +5,16 @@ import (
 	"testing"
 )
 
+func TestNewLocalRejectsAnOversizedSocketPath(t *testing.T) {
+	// A unix socket path longer than sockaddr_un's limit (~104 bytes) is the
+	// one client-construction failure reachable without a daemon.
+	if _, err := NewLocal("/tmp/"+strings.Repeat("a", 200)+".sock", ""); err == nil {
+		t.Fatal("NewLocal accepted a socket path no OS can bind")
+	} else if !strings.Contains(err.Error(), "dockerruntime:") {
+		t.Fatalf("error = %v, want the package's wrap prefix", err)
+	}
+}
+
 func TestNewLocalDefaultsToTheStandardSocket(t *testing.T) {
 	rt, err := NewLocal("", "")
 	if err != nil {

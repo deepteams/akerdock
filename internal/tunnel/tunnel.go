@@ -115,6 +115,11 @@ func Bridge(ctx context.Context, conn Conn, dial Dialer, opts Options) EndReason
 		opts.MaxStreams = defaultMaxStreams
 	}
 
+	// Keep the WebSocket reader on the caller's context. Cancelling the work
+	// context tears down TCP streams when a timer wins, but coder/websocket
+	// treats cancellation of an active Read as a hard connection close. The
+	// handler must still be able to send the protocol close reason afterwards.
+	readCtx := ctx
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -130,7 +135,7 @@ func Bridge(ctx context.Context, conn Conn, dial Dialer, opts Options) EndReason
 	// Reader goroutine turns incoming frames into actions; it signals the end
 	// reason when the client goes away.
 	done := make(chan EndReason, 1)
-	go m.readLoop(ctx, done)
+	go m.readLoop(readCtx, ctx, done)
 
 	idle := time.NewTimer(opts.IdleTimeout)
 	defer idle.Stop()
@@ -203,15 +208,20 @@ func (m *mux) sendData(ctx context.Context, id uint32, p []byte) error {
 	return m.conn.Write(ctx, MessageBinary, frame)
 }
 
-func (m *mux) readLoop(ctx context.Context, done chan<- EndReason) {
+func (m *mux) readLoop(readCtx, workCtx context.Context, done chan<- EndReason) {
 	for {
-		typ, data, err := m.conn.Read(ctx)
+		typ, data, err := m.conn.Read(readCtx)
 		if err != nil {
 			if errors.Is(err, ErrClientClosed) {
 				done <- EndUserClose
 			} else {
 				done <- EndDisconnect
 			}
+			return
+		}
+		// A timer may have ended the bridge while Read was blocked. Leave the
+		// close handshake to the caller and do not start any more stream work.
+		if workCtx.Err() != nil {
 			return
 		}
 		m.touch()
@@ -223,7 +233,7 @@ func (m *mux) readLoop(ctx context.Context, done chan<- EndReason) {
 			}
 			switch c.T {
 			case "open":
-				m.openStream(ctx, c.ID)
+				m.openStream(workCtx, c.ID)
 			case "eof", "close":
 				m.closeStream(c.ID)
 			}

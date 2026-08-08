@@ -267,6 +267,245 @@ func TestOriginIdleTimeout(t *testing.T) {
 	}
 }
 
+// TestOriginRunReportsUserClose checks a clean hangup from the peer surfaces as
+// user_close, not disconnect — the CLI prints this to the developer.
+func TestOriginRunReportsUserClose(t *testing.T) {
+	fc := newFakeConn()
+	origin := NewOrigin(fc)
+	done := make(chan EndReason, 1)
+	go func() { done <- origin.Run(context.Background(), Options{}) }()
+	close(fc.in)
+	select {
+	case r := <-done:
+		if r != EndUserClose {
+			t.Fatalf("end reason = %q, want user_close", r)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Run did not return after the peer hung up")
+	}
+}
+
+func TestOriginMaxDuration(t *testing.T) {
+	fc := newFakeConn()
+	origin := NewOrigin(fc)
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- origin.Run(context.Background(), Options{MaxDuration: 30 * time.Millisecond})
+	}()
+	select {
+	case r := <-done:
+		if r != EndMaxDuration {
+			t.Fatalf("end reason = %q, want max_duration", r)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("max duration timer never fired")
+	}
+}
+
+func TestOriginEndsWhenPingFails(t *testing.T) {
+	fc := newFakeConn()
+	fc.pingErr = errWriteFailed
+	origin := NewOrigin(fc)
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- origin.Run(context.Background(), Options{Heartbeat: 5 * time.Millisecond})
+	}()
+	select {
+	case r := <-done:
+		if r != EndDisconnect {
+			t.Fatalf("end reason = %q, want disconnect after a failed ping", r)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Run survived a dead WebSocket")
+	}
+}
+
+func TestOriginStopsWhenTheDurableSessionWasClosed(t *testing.T) {
+	fc := newFakeConn()
+	origin := NewOrigin(fc)
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- origin.Run(context.Background(), Options{
+			Heartbeat:   5 * time.Millisecond,
+			OnHeartbeat: func(context.Context) bool { return false },
+		})
+	}()
+	select {
+	case r := <-done:
+		if r != EndDisconnect {
+			t.Fatalf("end reason = %q, want disconnect for an already-finalized row", r)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Run remained open after its durable session was finalized")
+	}
+}
+
+// Malformed frames (unparseable control JSON, a binary frame too short to
+// carry a stream id) are ignored but still count as activity; the session then
+// ends on the idle timer as if nothing had been received.
+func TestOriginIdleTimeoutAfterIgnoredJunkFrames(t *testing.T) {
+	fc := newFakeConn()
+	origin := NewOrigin(fc)
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- origin.Run(context.Background(), Options{IdleTimeout: 150 * time.Millisecond})
+	}()
+
+	fc.in <- frame{MessageText, []byte("{not json")}
+	fc.in <- frame{MessageBinary, []byte{0x00, 0x01}}
+
+	select {
+	case r := <-done:
+		if r != EndIdleTimeout {
+			t.Fatalf("end reason = %q, want idle_timeout", r)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("idle timer never fired")
+	}
+}
+
+// TestOriginOpenStreamSurfacesSendFailure checks a dead socket fails the open
+// immediately — the reverse proxy gets an error, not a 15-second stall.
+func TestOriginOpenStreamSurfacesSendFailure(t *testing.T) {
+	fc := newFakeConn()
+	fc.failWrites = make(chan struct{})
+	close(fc.failWrites)
+	origin := NewOrigin(fc)
+	if _, err := origin.OpenStream(context.Background()); err == nil {
+		t.Fatal("OpenStream must fail when the open frame cannot be written")
+	}
+}
+
+// TestOriginOpenStreamUnblocksWhenSessionEnds pins the done-channel arm of
+// OpenStream's wait. Run is deliberately not started and the peer never
+// answers, so closing done — exactly what shutdown does first — is the only
+// way out; going through shutdown itself would also resolve the pending wait
+// and make which arm fires a coin toss.
+func TestOriginOpenStreamUnblocksWhenSessionEnds(t *testing.T) {
+	originConn, peer := newPipe()
+	origin := NewOrigin(originConn)
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := origin.OpenStream(context.Background())
+		errCh <- err
+	}()
+	_ = readCtrl(t, peer) // the open travelled; the peer stays silent
+	origin.doneOnce.Do(func() { close(origin.done) })
+
+	select {
+	case err := <-errCh:
+		if err != ErrOriginClosed {
+			t.Fatalf("got %v, want ErrOriginClosed", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("OpenStream ignored the session ending")
+	}
+}
+
+// TestOriginShutdownTearsDownStreamsAndPendingOpens ends a session that has
+// one live stream and one open still waiting for its answer: the stream's
+// caller must read an error and the waiting open must resolve, not leak.
+func TestOriginShutdownTearsDownStreamsAndPendingOpens(t *testing.T) {
+	fc := newFakeConn()
+	origin := NewOrigin(fc)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan EndReason, 1)
+	go func() { done <- origin.Run(ctx, Options{}) }()
+
+	// First stream opens fully.
+	streamCh := make(chan net.Conn, 1)
+	go func() {
+		s, err := origin.OpenStream(ctx)
+		if err != nil {
+			t.Errorf("OpenStream: %v", err)
+		}
+		streamCh <- s
+	}()
+	open := waitCtrl(t, fc)
+	okMsg, _ := json.Marshal(ctrl{T: "open_ok", ID: open.ID})
+	fc.in <- frame{MessageText, okMsg}
+	stream := <-streamCh
+	if stream == nil {
+		return
+	}
+
+	// Second open goes out but the peer never answers.
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := origin.OpenStream(ctx)
+		errCh <- err
+	}()
+	_ = waitCtrl(t, fc)
+
+	// The peer hangs up: Run returns and shutdown must sweep both.
+	close(fc.in)
+	select {
+	case r := <-done:
+		if r != EndUserClose {
+			t.Fatalf("end reason = %q, want user_close", r)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Run did not return after the peer hung up")
+	}
+
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("the pending open must resolve with an error at shutdown")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the pending open leaked past shutdown")
+	}
+
+	_ = stream.SetReadDeadline(time.Now().Add(3 * time.Second))
+	buf := make([]byte, 1)
+	if _, err := stream.Read(buf); err == nil {
+		t.Fatal("the live stream must be closed at shutdown")
+	}
+}
+
+// When the WebSocket dies mid-relay, the caller→peer pump must stop and tear
+// its stream down instead of spinning on a dead socket.
+func TestOriginStreamTeardownWhenTheSocketDies(t *testing.T) {
+	fc := newFakeConn()
+	fc.failWrites = make(chan struct{})
+	origin := NewOrigin(fc)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go origin.Run(ctx, Options{})
+
+	streamCh := make(chan net.Conn, 1)
+	go func() {
+		s, err := origin.OpenStream(ctx)
+		if err != nil {
+			t.Errorf("OpenStream: %v", err)
+		}
+		streamCh <- s
+	}()
+	open := waitCtrl(t, fc)
+	okMsg, _ := json.Marshal(ctrl{T: "open_ok", ID: open.ID})
+	fc.in <- frame{MessageText, okMsg}
+	stream := <-streamCh
+	if stream == nil {
+		return
+	}
+
+	// The socket dies; the next chunk the caller writes cannot be relayed and
+	// the pump must close the stream, which the caller observes as a failing
+	// read.
+	close(fc.failWrites)
+	if _, err := stream.Write([]byte("x")); err != nil {
+		t.Fatalf("stream write: %v", err)
+	}
+	_ = stream.SetReadDeadline(time.Now().Add(3 * time.Second))
+	buf := make([]byte, 1)
+	if _, err := stream.Read(buf); err == nil {
+		t.Fatal("the stream should be closed once its data cannot be relayed")
+	}
+}
+
 // TestOriginPeerEofClosesStream checks a "close" from the peer tears the stream
 // down so the caller reads EOF, exercising readLoop's eof/close branch.
 func TestOriginPeerEofClosesStream(t *testing.T) {

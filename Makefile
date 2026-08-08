@@ -33,9 +33,8 @@ vet-docker:
 	$(GO) vet -tags dockerintegration $(DOCKER_PKGS)
 
 # Fast coverage gates used on pull requests. Angular enforces 90% on
-# statements, branches, functions and lines; Go enforces 90% per unit package
-# and keeps explicit anti-regression floors for the two orchestration
-# boundaries while they are split into smaller policy modules.
+# statements, branches, functions and lines; Go enforces 90% per handwritten
+# unit package, excluding generated code and deliberately empty test doubles.
 unit-coverage: go-unit-coverage web-unit-coverage
 
 go-unit-coverage:

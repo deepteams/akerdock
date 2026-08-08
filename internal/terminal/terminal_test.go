@@ -363,6 +363,171 @@ func TestBridgeMovesBytesBothWays(t *testing.T) {
 	}
 }
 
+// failWritePTY refuses every write while its embedded fakePTY keeps Read
+// blocking: the keystroke pump hits the write error in isolation.
+type failWritePTY struct {
+	*fakePTY
+}
+
+func (p *failWritePTY) Write([]byte) (int, error) {
+	return 0, errors.New("pty write failed")
+}
+
+func TestBridgePTYWriteErrorIsDisconnect(t *testing.T) {
+	conn, pty := newFakeConn(), newFakePTY()
+	conn.in <- fakeFrame{typ: MessageBinary, data: []byte("k")}
+
+	reason := run(context.Background(), t, conn, &failWritePTY{pty}, Options{IdleTimeout: generous, MaxDuration: generous})
+	if reason != EndDisconnect {
+		t.Fatalf("reason = %q, want %q", reason, EndDisconnect)
+	}
+	if !pty.isClosed() {
+		t.Fatal("pty must be closed when its write path breaks")
+	}
+}
+
+// failBinaryWriteConn drops binary frames on the floor with an error but lets
+// text frames through, so the bridge can still deliver its end message.
+type failBinaryWriteConn struct {
+	*fakeConn
+}
+
+func (c *failBinaryWriteConn) Write(ctx context.Context, typ MessageType, data []byte) error {
+	if typ == MessageBinary {
+		return errors.New("client write failed")
+	}
+	return c.fakeConn.Write(ctx, typ, data)
+}
+
+func TestBridgeClientWriteErrorIsDisconnect(t *testing.T) {
+	conn, pty := newFakeConn(), newFakePTY()
+	pty.out <- []byte("output the client will never get")
+
+	reason := run(context.Background(), t, &failBinaryWriteConn{conn}, pty, Options{IdleTimeout: generous, MaxDuration: generous})
+	if reason != EndDisconnect {
+		t.Fatalf("reason = %q, want %q", reason, EndDisconnect)
+	}
+	if got, ok := conn.endMessage(t); !ok || got != EndDisconnect {
+		t.Fatalf("end message = %q (present=%v), want %q", got, ok, EndDisconnect)
+	}
+}
+
+// errReadPTY fails Read outright — an SSH channel torn down under the bridge,
+// not a shell exiting.
+type errReadPTY struct {
+	*fakePTY
+}
+
+func (p *errReadPTY) Read([]byte) (int, error) {
+	return 0, errors.New("pty read failed")
+}
+
+func TestBridgePTYReadErrorIsDisconnect(t *testing.T) {
+	conn, pty := newFakeConn(), newFakePTY()
+
+	reason := run(context.Background(), t, conn, &errReadPTY{pty}, Options{IdleTimeout: generous, MaxDuration: generous})
+	if reason != EndDisconnect {
+		t.Fatalf("reason = %q, want %q", reason, EndDisconnect)
+	}
+	if !pty.isClosed() {
+		t.Fatal("pty must be closed when its read path breaks")
+	}
+}
+
+// gatedPingConn parks the bridge's control loop inside Ping: started is
+// closed when the first Ping begins, and Ping only returns (with err) once
+// release is closed. That lets a test line up events — a cancellation, an
+// expired timer, a queued keystroke — while the loop provably is not in its
+// select, then observe exactly which case it takes on re-entry.
+type gatedPingConn struct {
+	*fakeConn
+	started   chan struct{}
+	release   chan struct{}
+	err       error
+	startOnce sync.Once
+}
+
+func newGatedPingConn(err error) *gatedPingConn {
+	return &gatedPingConn{
+		fakeConn: newFakeConn(),
+		started:  make(chan struct{}),
+		release:  make(chan struct{}),
+		err:      err,
+	}
+}
+
+func (c *gatedPingConn) Ping(context.Context) error {
+	c.startOnce.Do(func() { close(c.started) })
+	<-c.release
+	return c.err
+}
+
+func TestBridgeDisconnectDuringCancellationIsRevoked(t *testing.T) {
+	// A revocation can surface as an I/O error before the loop ever sees
+	// ctx.Done: here the heartbeat is in flight when the context dies, and
+	// its failure must be arbitrated back to revoked, not disconnect.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	conn := newGatedPingConn(errors.New("peer vanished mid-shutdown"))
+	pty := newFakePTY()
+
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- Bridge(ctx, conn, pty, Options{IdleTimeout: generous, MaxDuration: generous, Heartbeat: time.Millisecond})
+	}()
+
+	<-conn.started      // the loop is inside Ping, not watching ctx.Done
+	cancel()            // the revocation lands while the ping is in flight
+	close(conn.release) // the ping now fails: the loop sees an error first
+
+	select {
+	case reason := <-done:
+		if reason != EndRevoked {
+			t.Fatalf("reason = %q, want %q (disconnect during cancellation is a revocation)", reason, EndRevoked)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Bridge did not terminate")
+	}
+	if !pty.isClosed() {
+		t.Fatal("pty must be closed on revocation")
+	}
+}
+
+func TestBridgeKeystrokeRacingExpiredIdleStillTimesOut(t *testing.T) {
+	// A keystroke consumed after the idle timer has already expired must not
+	// resurrect the session indefinitely: whichever ready case the select
+	// picks, the session still ends in idle_timeout. Note the drain branch
+	// (`if !idle.Stop() { <-idle.C }`) cannot fire on Go >= 1.23: with
+	// synchronous timer channels, Stop on an expired-but-undelivered timer
+	// returns true and removes the pending tick, so the false path is
+	// unreachable — this test pins the behavior, not that branch.
+	const idleTimeout = 10 * time.Millisecond
+	conn := newGatedPingConn(nil)
+	pty := newFakePTY()
+
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- Bridge(context.Background(), conn, pty, Options{IdleTimeout: idleTimeout, MaxDuration: generous, Heartbeat: time.Millisecond})
+	}()
+
+	<-conn.started // the loop is parked inside Ping
+	conn.in <- fakeFrame{typ: MessageBinary, data: []byte("k")}
+	// The pump recording the keystroke proves the activity token was queued
+	// first — the loop, still parked, has not consumed it.
+	waitFor(2*time.Second, func() bool { return pty.writtenBytes() == "k" })
+	time.Sleep(3 * idleTimeout) // the idle timer has certainly expired
+	close(conn.release)         // now the keystroke and the expired timer race
+
+	select {
+	case reason := <-done:
+		if reason != EndIdleTimeout {
+			t.Fatalf("reason = %q, want %q", reason, EndIdleTimeout)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Bridge did not terminate")
+	}
+}
+
 func TestBridgeResizeControl(t *testing.T) {
 	conn, pty := newFakeConn(), newFakePTY()
 	conn.in <- fakeFrame{typ: MessageText, data: []byte(`{"type":"resize","cols":132,"rows":43}`)}

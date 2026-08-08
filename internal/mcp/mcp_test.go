@@ -154,6 +154,55 @@ func TestProtocolErrors(t *testing.T) {
 	}
 }
 
+func TestPingAnswersEmptyResult(t *testing.T) {
+	s := New("test")
+	resp := handle(t, s, `{"jsonrpc":"2.0","id":1,"method":"ping"}`)
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("ping → %+v", resp)
+	}
+	if result, ok := resp.Result.(map[string]any); !ok || len(result) != 0 {
+		t.Fatalf("ping result = %+v, want an empty object", resp.Result)
+	}
+}
+
+// Known methods sent WITHOUT an id are notifications too: none may answer, and
+// a tools/call notification must not even run the tool.
+func TestKnownMethodNotificationsStaySilent(t *testing.T) {
+	s := New("test")
+	called := false
+	s.Register(Tool{Name: "echo", InputSchema: ObjectSchema(nil)},
+		func(context.Context, int64, map[string]any) (any, error) {
+			called = true
+			return map[string]any{}, nil
+		})
+	for _, body := range []string{
+		`{"jsonrpc":"2.0","method":"ping"}`,
+		`{"jsonrpc":"2.0","method":"tools/list"}`,
+		`{"jsonrpc":"2.0","method":"tools/call","params":{"name":"echo"}}`,
+	} {
+		if resp := handle(t, s, body); resp != nil {
+			t.Fatalf("notification %s produced a response: %+v", body, resp)
+		}
+	}
+	if called {
+		t.Fatal("a tools/call notification must not execute the tool")
+	}
+}
+
+// A tool returning a value JSON cannot encode is the one internal error the
+// call path can produce.
+func TestUnencodableToolResultIsInternalError(t *testing.T) {
+	s := New("test")
+	s.Register(Tool{Name: "chan", InputSchema: ObjectSchema(nil)},
+		func(context.Context, int64, map[string]any) (any, error) {
+			return make(chan int), nil // json.Marshal cannot encode a channel
+		})
+	resp := handle(t, s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"chan"}}`)
+	if resp == nil || resp.Error == nil || resp.Error.Code != codeInternalError {
+		t.Fatalf("unencodable result → %+v, want internal error", resp)
+	}
+}
+
 func TestPageSizeBounds(t *testing.T) {
 	if got := PageSize(nil); got != DefaultPageSize {
 		t.Fatalf("no limit → %d, want the default %d", got, DefaultPageSize)
@@ -171,6 +220,48 @@ func TestPageSizeBounds(t *testing.T) {
 	_ = json.Unmarshal([]byte(`{"limit": -3}`), &args)
 	if got := PageSize(args); got != DefaultPageSize {
 		t.Fatalf("negative limit → %d, want the default", got)
+	}
+}
+
+// PageSize accepts the number shapes a caller may hand-build (int and
+// json.Number besides the float64 JSON produces) and ignores everything else.
+func TestPageSizeAcceptsEveryNumberShape(t *testing.T) {
+	cases := []struct {
+		name string
+		args map[string]any
+		want int32
+	}{
+		{"go int", map[string]any{"limit": 9}, 9},
+		{"json.Number", map[string]any{"limit": json.Number("11")}, 11},
+		{"invalid json.Number", map[string]any{"limit": json.Number("x")}, DefaultPageSize},
+		{"not a number", map[string]any{"limit": "twelve"}, DefaultPageSize},
+	}
+	for _, tc := range cases {
+		if got := PageSize(tc.args); got != tc.want {
+			t.Fatalf("%s → %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestStringArg(t *testing.T) {
+	args := map[string]any{"name": "web", "empty": "", "number": 3.0}
+	if v, ok := StringArg(args, "name"); !ok || v != "web" {
+		t.Fatalf("name → (%q, %v)", v, ok)
+	}
+	for _, key := range []string{"absent", "empty", "number"} {
+		if _, ok := StringArg(args, key); ok {
+			t.Fatalf("%s must not read as a usable string", key)
+		}
+	}
+}
+
+func TestRequireUUID(t *testing.T) {
+	if _, err := RequireUUID(map[string]any{}, "uuid"); err == nil || !strings.Contains(err.Error(), "uuid is required") {
+		t.Fatalf("missing uuid → %v", err)
+	}
+	value, err := RequireUUID(map[string]any{"uuid": "abc"}, "uuid")
+	if err != nil || value != "abc" {
+		t.Fatalf("present uuid → (%q, %v)", value, err)
 	}
 }
 

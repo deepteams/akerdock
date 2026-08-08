@@ -186,6 +186,96 @@ func TestLocalEnsureDir(t *testing.T) {
 	}
 }
 
+// TestLocalPathGuardCoversEveryPrimitive extends the guard pin to the rest of
+// the vocabulary: Stat, Chown, CopyFile (either leg), EnsureDir and HashFile
+// refuse an out-of-root path with the same typed cause.
+func TestLocalPathGuardCoversEveryPrimitive(t *testing.T) {
+	l, root := testLocal(t)
+	ctx := context.Background()
+	const bad = "etc/passwd"
+	if _, err := l.Stat(ctx, bad); !cerrdefs.IsInvalidArgument(err) {
+		t.Fatalf("Stat = %v", err)
+	}
+	if err := l.Chown(ctx, agentwire.FileChownParams{Path: bad}); !cerrdefs.IsInvalidArgument(err) {
+		t.Fatalf("Chown = %v", err)
+	}
+	if err := l.CopyFile(ctx, agentwire.FileCopyParams{Src: bad, Dst: root + "/dst"}); !cerrdefs.IsInvalidArgument(err) {
+		t.Fatalf("CopyFile bad src = %v", err)
+	}
+	if err := l.CopyFile(ctx, agentwire.FileCopyParams{Src: root + "/src", Dst: bad}); !cerrdefs.IsInvalidArgument(err) {
+		t.Fatalf("CopyFile bad dst = %v", err)
+	}
+	if err := l.EnsureDir(ctx, agentwire.DirEnsureParams{Path: bad, Mode: 0o700}); !cerrdefs.IsInvalidArgument(err) {
+		t.Fatalf("EnsureDir = %v", err)
+	}
+	if _, err := l.HashFile(ctx, bad); !cerrdefs.IsInvalidArgument(err) {
+		t.Fatalf("HashFile = %v", err)
+	}
+}
+
+// TestLocalFilesystemErrors pins the honest-failure side: a filesystem that
+// refuses (a file squatting a parent, a populated directory, a mode that
+// forbids reading) surfaces its error instead of a silent success.
+func TestLocalFilesystemErrors(t *testing.T) {
+	l, root := testLocal(t)
+	ctx := context.Background()
+	blocker := root + "/blocker"
+	if err := os.WriteFile(blocker, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// MkdirAll through a regular file fails — with the default DirMode taken.
+	if err := l.WriteFile(ctx, agentwire.FileWriteParams{
+		Path: blocker + "/sub/f", Content: []byte("x"), Mode: 0o600, MakeDirs: true,
+	}); err == nil {
+		t.Fatal("WriteFile through a file must fail")
+	}
+	if err := l.EnsureDir(ctx, agentwire.DirEnsureParams{Path: blocker + "/sub", Mode: 0o700}); err == nil {
+		t.Fatal("EnsureDir through a file must fail")
+	}
+
+	// Stat through a regular file is an error, not absence.
+	if _, err := l.Stat(ctx, blocker+"/child"); err == nil {
+		t.Fatal("Stat through a file must fail")
+	}
+
+	// A populated directory refuses a non-recursive removal.
+	dir := root + "/full"
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/kept", []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Remove(ctx, agentwire.FileRemoveParams{Path: dir}); err == nil {
+		t.Fatal("removing a populated directory without Recursive must fail")
+	}
+
+	// Chown on an absent file surfaces the OS error.
+	if err := l.Chown(ctx, agentwire.FileChownParams{Path: root + "/absent", UID: os.Getuid(), GID: os.Getgid()}); err == nil {
+		t.Fatal("Chown on an absent file must fail")
+	}
+
+	// A copy whose destination parent is missing fails on the destination leg.
+	if err := l.CopyFile(ctx, agentwire.FileCopyParams{Src: blocker, Dst: root + "/nodir/copy"}); err == nil {
+		t.Fatal("copying into a missing directory must fail")
+	}
+
+	// An unreadable file fails the read rather than answering absence.
+	if os.Getuid() != 0 {
+		locked := root + "/locked"
+		if err := os.WriteFile(locked, []byte("secret"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(locked, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.ReadFile(ctx, agentwire.FileReadParams{Path: locked}); err == nil {
+			t.Fatal("an unreadable file must fail the read")
+		}
+	}
+}
+
 // TestDetectLocal pins the mount detection: an agent without the host tree
 // answers nil so the executor reports unavailability instead of ENOENT.
 func TestDetectLocal(t *testing.T) {

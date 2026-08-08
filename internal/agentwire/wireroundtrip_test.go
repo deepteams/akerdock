@@ -40,6 +40,14 @@ func TestContainerListFiltersSurviveTheWire(t *testing.T) {
 	}
 }
 
+// TestEncodeFiltersEmptySetEncodesEmpty pins the shortcut: no filters means
+// an empty wire string, never the SDK's `{}` JSON for a zero set.
+func TestEncodeFiltersEmptySetEncodesEmpty(t *testing.T) {
+	if got := EncodeFilters(filters.NewArgs()); got != "" {
+		t.Fatalf("empty set encoded as %q", got)
+	}
+}
+
 // TestPruneFiltersSurviveTheWire pins the same property for the prunes: an
 // unfiltered prune would reclaim FOREIGN volumes and networks.
 func TestPruneFiltersSurviveTheWire(t *testing.T) {

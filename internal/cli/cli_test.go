@@ -41,6 +41,7 @@ func TestParsePorts(t *testing.T) {
 		"6379":       {6379, 6379, true},
 		"x:5432":     {0, 0, false},
 		"5432:y":     {0, 0, false},
+		"abc":        {0, 0, false},
 	}
 	for in, want := range cases {
 		l, rem, err := parsePorts(in)

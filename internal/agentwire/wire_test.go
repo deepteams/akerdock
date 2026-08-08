@@ -1,6 +1,7 @@
 package agentwire
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +21,8 @@ func TestErrorSurvivesTheWire(t *testing.T) {
 		{"not modified", fmt.Errorf("start: %w", cerrdefs.ErrNotModified), cerrdefs.IsNotModified},
 		{"invalid", fmt.Errorf("params: %w", cerrdefs.ErrInvalidArgument), cerrdefs.IsInvalidArgument},
 		{"unimplemented", fmt.Errorf("method: %w", cerrdefs.ErrNotImplemented), cerrdefs.IsNotImplemented},
+		{"unavailable", fmt.Errorf("dial: %w", cerrdefs.ErrUnavailable), cerrdefs.IsUnavailable},
+		{"canceled", fmt.Errorf("op: %w", context.Canceled), cerrdefs.IsCanceled},
 	}
 	for _, tc := range cases {
 		wire := WireError(tc.in)
@@ -35,6 +38,16 @@ func TestErrorSurvivesTheWire(t *testing.T) {
 		if !tc.check(rebuilt) {
 			t.Fatalf("%s: predicate lost across the wire: %v", tc.name, rebuilt)
 		}
+	}
+}
+
+func TestWireErrorUntypedFallsBackToInternal(t *testing.T) {
+	wire := WireError(errors.New("daemon exploded"))
+	if wire.Code != CodeInternal {
+		t.Fatalf("code = %q, want %q", wire.Code, CodeInternal)
+	}
+	if wire.Message != "daemon exploded" {
+		t.Fatalf("message = %q", wire.Message)
 	}
 }
 

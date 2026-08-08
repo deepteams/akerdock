@@ -226,6 +226,314 @@ func TestPipesRefuseWithoutRuntime(t *testing.T) {
 	}
 }
 
+// TestTailBufferKeepsTheTail pins the diagnostic bound: only the LAST
+// tailLimit bytes ride the verdict, however chatty the exec was.
+func TestTailBufferKeepsTheTail(t *testing.T) {
+	tb := &tailBuffer{}
+	if _, err := tb.Write(bytes.Repeat([]byte("x"), tailLimit)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tb.Write([]byte("THE END")); err != nil {
+		t.Fatal(err)
+	}
+	got := tb.String()
+	if len(got) != tailLimit || !strings.HasSuffix(got, "THE END") {
+		t.Fatalf("tail = %d bytes ending %q, want %d ending in the last write", len(got), got[len(got)-8:], tailLimit)
+	}
+}
+
+// TestExecToFileErrors walks the dump pipe's refusals: the path guard, the
+// filesystem in the way, and each daemon call failing in turn.
+func TestExecToFileErrors(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("path guard", func(t *testing.T) {
+		l := &Local{Root: t.TempDir(), RT: &fake.Runtime{}}
+		if _, err := l.ExecToFile(ctx, agentwire.ExecToFileParams{Path: "relative", Container: "db"}); err == nil {
+			t.Fatal("a relative path must be refused")
+		}
+	})
+	t.Run("mkdir through a file", func(t *testing.T) {
+		l := &Local{Root: t.TempDir(), RT: &fake.Runtime{}}
+		if err := os.WriteFile(l.Root+"/blocker", []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.ExecToFile(ctx, agentwire.ExecToFileParams{
+			Path: l.Root + "/blocker/sub/dump", Container: "db", MakeDirs: true,
+		}); err == nil {
+			t.Fatal("MakeDirs through a file must fail")
+		}
+	})
+	t.Run("open without parents", func(t *testing.T) {
+		l := &Local{Root: t.TempDir(), RT: &fake.Runtime{}}
+		if _, err := l.ExecToFile(ctx, agentwire.ExecToFileParams{
+			Path: l.Root + "/nodir/dump", Container: "db",
+		}); err == nil {
+			t.Fatal("a missing parent without MakeDirs must fail")
+		}
+	})
+	t.Run("exec create fails", func(t *testing.T) {
+		rt := &fake.Runtime{}
+		rt.ContainerExecCreateFn = func(context.Context, string, container.ExecOptions) (container.ExecCreateResponse, error) {
+			return container.ExecCreateResponse{}, context.DeadlineExceeded
+		}
+		l := &Local{Root: t.TempDir(), RT: rt}
+		if _, err := l.ExecToFile(ctx, agentwire.ExecToFileParams{Path: l.Root + "/dump", Container: "db"}); err == nil {
+			t.Fatal("the create failure must surface")
+		}
+	})
+	t.Run("exec attach fails", func(t *testing.T) {
+		rt := &fake.Runtime{}
+		rt.ContainerExecCreateFn = func(context.Context, string, container.ExecOptions) (container.ExecCreateResponse, error) {
+			return container.ExecCreateResponse{ID: "e"}, nil
+		}
+		rt.ContainerExecAttachFn = func(context.Context, string, container.ExecAttachOptions) (types.HijackedResponse, error) {
+			return types.HijackedResponse{}, context.DeadlineExceeded
+		}
+		l := &Local{Root: t.TempDir(), RT: rt}
+		if _, err := l.ExecToFile(ctx, agentwire.ExecToFileParams{Path: l.Root + "/dump", Container: "db"}); err == nil {
+			t.Fatal("the attach failure must surface")
+		}
+	})
+	t.Run("broken multiplex stream", func(t *testing.T) {
+		rt, server := execPipeRuntime(t, 0)
+		go func() {
+			// An unrecognized stream id breaks the demux.
+			_, _ = server.Write([]byte{9, 0, 0, 0, 0, 0, 0, 0})
+			_ = server.Close()
+		}()
+		l := &Local{Root: t.TempDir(), RT: rt}
+		if _, err := l.ExecToFile(ctx, agentwire.ExecToFileParams{Path: l.Root + "/dump", Container: "db"}); err == nil || !strings.Contains(err.Error(), "exec stream") {
+			t.Fatalf("demux failure = %v", err)
+		}
+	})
+	t.Run("inspect fails after the stream", func(t *testing.T) {
+		rt, server := execPipeRuntime(t, 0)
+		rt.ContainerExecInspectFn = func(context.Context, string) (container.ExecInspect, error) {
+			return container.ExecInspect{}, context.DeadlineExceeded
+		}
+		go func() {
+			w := stdcopy.NewStdWriter(server, stdcopy.Stdout)
+			_, _ = w.Write([]byte("data"))
+			_ = server.Close()
+		}()
+		l := &Local{Root: t.TempDir(), RT: rt}
+		// Mode 0 also exercises the 0o600 default.
+		if _, err := l.ExecToFile(ctx, agentwire.ExecToFileParams{Path: l.Root + "/dump", Container: "db"}); err == nil {
+			t.Fatal("the inspect failure must surface")
+		}
+	})
+}
+
+// TestFileToExecErrors walks the restore pipe's refusals: guard, absent or
+// corrupt dump, each daemon call, and both stream legs failing.
+func TestFileToExecErrors(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("path guard", func(t *testing.T) {
+		l := &Local{Root: t.TempDir(), RT: &fake.Runtime{}}
+		if _, err := l.FileToExec(ctx, agentwire.FileToExecParams{Path: "relative", Container: "db"}); err == nil {
+			t.Fatal("a relative path must be refused")
+		}
+	})
+	t.Run("absent dump", func(t *testing.T) {
+		l := &Local{Root: t.TempDir(), RT: &fake.Runtime{}}
+		if _, err := l.FileToExec(ctx, agentwire.FileToExecParams{Path: l.Root + "/absent.gz", Container: "db"}); err == nil {
+			t.Fatal("an absent dump must fail")
+		}
+	})
+	t.Run("without runtime", func(t *testing.T) {
+		l := &Local{Root: t.TempDir()}
+		path := l.Root + "/dump"
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.FileToExec(ctx, agentwire.FileToExecParams{Path: path, Container: "db"}); err == nil || !strings.Contains(err.Error(), "unavailable") {
+			t.Fatalf("without runtime = %v", err)
+		}
+	})
+	t.Run("dump is not gzip", func(t *testing.T) {
+		l := &Local{Root: t.TempDir(), RT: &fake.Runtime{}}
+		path := l.Root + "/dump.gz"
+		if err := os.WriteFile(path, []byte("plain text"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.FileToExec(ctx, agentwire.FileToExecParams{Path: path, Gunzip: true, Container: "db"}); err == nil || !strings.Contains(err.Error(), "gzip") {
+			t.Fatalf("bad gzip = %v", err)
+		}
+	})
+	t.Run("exec create fails", func(t *testing.T) {
+		rt := &fake.Runtime{}
+		rt.ContainerExecCreateFn = func(context.Context, string, container.ExecOptions) (container.ExecCreateResponse, error) {
+			return container.ExecCreateResponse{}, context.DeadlineExceeded
+		}
+		l := &Local{Root: t.TempDir(), RT: rt}
+		path := l.Root + "/dump"
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.FileToExec(ctx, agentwire.FileToExecParams{Path: path, Container: "db"}); err == nil {
+			t.Fatal("the create failure must surface")
+		}
+	})
+	t.Run("exec attach fails", func(t *testing.T) {
+		rt := &fake.Runtime{}
+		rt.ContainerExecCreateFn = func(context.Context, string, container.ExecOptions) (container.ExecCreateResponse, error) {
+			return container.ExecCreateResponse{ID: "e"}, nil
+		}
+		rt.ContainerExecAttachFn = func(context.Context, string, container.ExecAttachOptions) (types.HijackedResponse, error) {
+			return types.HijackedResponse{}, context.DeadlineExceeded
+		}
+		l := &Local{Root: t.TempDir(), RT: rt}
+		path := l.Root + "/dump"
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.FileToExec(ctx, agentwire.FileToExecParams{Path: path, Container: "db"}); err == nil {
+			t.Fatal("the attach failure must surface")
+		}
+	})
+	t.Run("feeding a dead exec", func(t *testing.T) {
+		rt, server := execPipeRuntime(t, 0)
+		_ = server.Close() // the exec died before reading anything
+		l := &Local{Root: t.TempDir(), RT: rt}
+		path := l.Root + "/dump"
+		if err := os.WriteFile(path, []byte("payload"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.FileToExec(ctx, agentwire.FileToExecParams{Path: path, Container: "db"}); err == nil || !strings.Contains(err.Error(), "feeding the exec") {
+			t.Fatalf("dead exec = %v", err)
+		}
+	})
+	t.Run("broken multiplex stream", func(t *testing.T) {
+		rt, server := execPipeRuntime(t, 0)
+		go func() {
+			buf := make([]byte, len("payload"))
+			_, _ = io.ReadFull(server, buf)
+			_, _ = server.Write([]byte{9, 0, 0, 0, 0, 0, 0, 0})
+			_ = server.Close()
+		}()
+		l := &Local{Root: t.TempDir(), RT: rt}
+		path := l.Root + "/dump"
+		if err := os.WriteFile(path, []byte("payload"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.FileToExec(ctx, agentwire.FileToExecParams{Path: path, Container: "db"}); err == nil || !strings.Contains(err.Error(), "exec stream") {
+			t.Fatalf("demux failure = %v", err)
+		}
+	})
+	t.Run("inspect fails after the stream", func(t *testing.T) {
+		rt, server := execPipeRuntime(t, 0)
+		rt.ContainerExecInspectFn = func(context.Context, string) (container.ExecInspect, error) {
+			return container.ExecInspect{}, context.DeadlineExceeded
+		}
+		go func() {
+			buf := make([]byte, len("payload"))
+			_, _ = io.ReadFull(server, buf)
+			_ = server.Close()
+		}()
+		l := &Local{Root: t.TempDir(), RT: rt}
+		path := l.Root + "/dump"
+		if err := os.WriteFile(path, []byte("payload"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l.FileToExec(ctx, agentwire.FileToExecParams{Path: path, Container: "db"}); err == nil {
+			t.Fatal("the inspect failure must surface")
+		}
+	})
+}
+
+// TestFileToURLErrors pins the upload's refusals: guard, absent file, an
+// unparseable URL and an unreachable endpoint.
+func TestFileToURLErrors(t *testing.T) {
+	l := &Local{Root: t.TempDir()}
+	ctx := context.Background()
+	if err := l.FileToURL(ctx, agentwire.FileToURLParams{Path: "relative", URL: "https://x"}); err == nil {
+		t.Fatal("a relative path must be refused")
+	}
+	if err := l.FileToURL(ctx, agentwire.FileToURLParams{Path: l.Root + "/absent", URL: "https://x"}); err == nil {
+		t.Fatal("an absent file must fail")
+	}
+	path := l.Root + "/dump"
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.FileToURL(ctx, agentwire.FileToURLParams{Path: path, URL: "http://bad host/"}); err == nil {
+		t.Fatal("an unparseable URL must fail")
+	}
+	gone := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	gone.Close() // nothing listens there anymore
+	if err := l.FileToURL(ctx, agentwire.FileToURLParams{Path: path, URL: gone.URL}); err == nil {
+		t.Fatal("an unreachable endpoint must fail")
+	}
+}
+
+// TestURLToFileErrors pins the download's refusals: guard, a file squatting
+// the parent, an unparseable URL, an unreachable endpoint, a missing parent,
+// and a body cut mid-flight — which must not leave a truncated file behind.
+func TestURLToFileErrors(t *testing.T) {
+	l := &Local{Root: t.TempDir()}
+	ctx := context.Background()
+	if err := l.URLToFile(ctx, agentwire.URLToFileParams{Path: "relative", URL: "https://x"}); err == nil {
+		t.Fatal("a relative path must be refused")
+	}
+	if err := os.WriteFile(l.Root+"/blocker", []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.URLToFile(ctx, agentwire.URLToFileParams{
+		Path: l.Root + "/blocker/sub/f", URL: "https://x", MakeDirs: true,
+	}); err == nil {
+		t.Fatal("MakeDirs through a file must fail")
+	}
+	if err := l.URLToFile(ctx, agentwire.URLToFileParams{Path: l.Root + "/f", URL: "http://bad host/"}); err == nil {
+		t.Fatal("an unparseable URL must fail")
+	}
+	gone := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	gone.Close()
+	if err := l.URLToFile(ctx, agentwire.URLToFileParams{Path: l.Root + "/f", URL: gone.URL}); err == nil {
+		t.Fatal("an unreachable endpoint must fail")
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	if err := l.URLToFile(ctx, agentwire.URLToFileParams{Path: l.Root + "/nodir/f", URL: srv.URL}); err == nil {
+		t.Fatal("a missing parent without MakeDirs must fail")
+	}
+
+	// The body dies mid-flight: the declared length never arrives, and the
+	// partial file must be cleaned up rather than left looking whole.
+	cut := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		_, _ = w.Write([]byte("partial"))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		panic(http.ErrAbortHandler)
+	}))
+	defer cut.Close()
+	err := l.URLToFile(ctx, agentwire.URLToFileParams{Path: l.Root + "/cut.gz", URL: cut.URL})
+	if err == nil {
+		t.Fatal("a truncated body must fail the download")
+	}
+	if _, statErr := os.Stat(l.Root + "/cut.gz"); !os.IsNotExist(statErr) {
+		t.Fatal("a failed download must not leave a file behind")
+	}
+}
+
+// TestHashFileErrors pins the digest's refusals: guard and absent file.
+func TestHashFileErrors(t *testing.T) {
+	l := &Local{Root: t.TempDir()}
+	ctx := context.Background()
+	if _, err := l.HashFile(ctx, "relative"); err == nil {
+		t.Fatal("a relative path must be refused")
+	}
+	if _, err := l.HashFile(ctx, l.Root+"/absent"); err == nil {
+		t.Fatal("an absent file must fail")
+	}
+}
+
 // TestBuildImageGuards pins the ADR-055 preconditions: context inside the
 // root, a relative dockerfile, at least one tag, and a runtime capable of
 // carrying the session — each refused with a typed cause before anything

@@ -4,16 +4,21 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"net"
 	"testing"
 	"time"
 )
 
 // fakeConn is an in-memory Conn: frames written by the bridge land on out,
-// frames the test injects arrive on in.
+// frames the test injects arrive on in. pingErr (set before the session
+// starts) makes every Ping fail; closing failWrites makes every later Write
+// fail, standing in for a socket that died mid-session.
 type fakeConn struct {
-	in  chan frame
-	out chan frame
+	in         chan frame
+	out        chan frame
+	pingErr    error
+	failWrites chan struct{}
 }
 
 type frame struct {
@@ -38,6 +43,13 @@ func (f *fakeConn) Read(ctx context.Context) (MessageType, []byte, error) {
 }
 
 func (f *fakeConn) Write(ctx context.Context, typ MessageType, data []byte) error {
+	if f.failWrites != nil {
+		select {
+		case <-f.failWrites:
+			return errWriteFailed
+		default:
+		}
+	}
 	cp := append([]byte(nil), data...)
 	select {
 	case f.out <- frame{typ, cp}:
@@ -47,7 +59,9 @@ func (f *fakeConn) Write(ctx context.Context, typ MessageType, data []byte) erro
 	}
 }
 
-func (f *fakeConn) Ping(context.Context) error { return nil }
+func (f *fakeConn) Ping(context.Context) error { return f.pingErr }
+
+var errWriteFailed = errors.New("tunnel test: the socket is gone")
 
 // TestBridgeStreamRoundTrip drives one stream through the mux: open → open_ok,
 // bytes to the target and back, then client close.
@@ -219,6 +233,177 @@ func TestBridgePersistsSuccessfulHeartbeats(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("bridge did not stop after cancellation")
 	}
+}
+
+// A session with no traffic must end on the idle timer, and malformed frames
+// (unparseable control JSON, a binary frame too short to carry a stream id)
+// must be ignored rather than kill the session — they still count as activity,
+// which is what resets the idle timer before it finally fires.
+func TestBridgeIdleTimeoutAfterIgnoredJunkFrames(t *testing.T) {
+	fc := newFakeConn()
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- Bridge(context.Background(), fc, nil, Options{IdleTimeout: 150 * time.Millisecond})
+	}()
+
+	fc.in <- frame{MessageText, []byte("{not json")}
+	fc.in <- frame{MessageBinary, []byte{0x00, 0x01}}
+
+	select {
+	case got := <-done:
+		if got != EndIdleTimeout {
+			t.Fatalf("end reason = %q, want idle_timeout", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("idle timer never fired")
+	}
+}
+
+func TestBridgeMaxDuration(t *testing.T) {
+	fc := newFakeConn()
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- Bridge(context.Background(), fc, nil, Options{MaxDuration: 30 * time.Millisecond})
+	}()
+	select {
+	case got := <-done:
+		if got != EndMaxDuration {
+			t.Fatalf("end reason = %q, want max_duration", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("max duration timer never fired")
+	}
+}
+
+func TestBridgeEndsWhenPingFails(t *testing.T) {
+	fc := newFakeConn()
+	fc.pingErr = errors.New("peer gone")
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- Bridge(context.Background(), fc, nil, Options{Heartbeat: 5 * time.Millisecond})
+	}()
+	select {
+	case got := <-done:
+		if got != EndDisconnect {
+			t.Fatalf("end reason = %q, want disconnect after a failed ping", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("bridge survived a dead WebSocket")
+	}
+}
+
+// The stream cap is a hard bound (§24.4): the open above the limit is refused
+// with a code the client can show, and the streams already open keep working.
+func TestBridgeRefusesStreamsAboveTheLimit(t *testing.T) {
+	fc := newFakeConn()
+	serverEnd, _ := net.Pipe()
+	dial := func(context.Context) (net.Conn, error) { return serverEnd, nil }
+
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- Bridge(context.Background(), fc, dial, Options{MaxStreams: 1})
+	}()
+
+	openMsg, _ := json.Marshal(ctrl{T: "open", ID: 1})
+	fc.in <- frame{MessageText, openMsg}
+	if got := waitCtrl(t, fc); got.T != "open_ok" || got.ID != 1 {
+		t.Fatalf("want open_ok id=1, got %+v", got)
+	}
+
+	openMsg2, _ := json.Marshal(ctrl{T: "open", ID: 2})
+	fc.in <- frame{MessageText, openMsg2}
+	if got := waitCtrl(t, fc); got.T != "open_err" || got.ID != 2 || got.Code != "limit" {
+		t.Fatalf("want open_err id=2 code=limit, got %+v", got)
+	}
+
+	close(fc.in)
+	<-done
+}
+
+func TestBridgeReportsDialFailure(t *testing.T) {
+	fc := newFakeConn()
+	dial := func(context.Context) (net.Conn, error) { return nil, errors.New("no route to container") }
+
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- Bridge(context.Background(), fc, dial, Options{})
+	}()
+
+	openMsg, _ := json.Marshal(ctrl{T: "open", ID: 7})
+	fc.in <- frame{MessageText, openMsg}
+	got := waitCtrl(t, fc)
+	if got.T != "open_err" || got.ID != 7 || got.Code != "dial_failed" {
+		t.Fatalf("want open_err id=7 code=dial_failed, got %+v", got)
+	}
+
+	close(fc.in)
+	<-done
+}
+
+// An "eof" from the client must close the target connection, not just forget
+// the id — the container side is what would otherwise leak.
+func TestBridgeClientEofClosesTheTarget(t *testing.T) {
+	fc := newFakeConn()
+	serverEnd, targetEnd := net.Pipe()
+	dial := func(context.Context) (net.Conn, error) { return serverEnd, nil }
+
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- Bridge(context.Background(), fc, dial, Options{})
+	}()
+
+	openMsg, _ := json.Marshal(ctrl{T: "open", ID: 1})
+	fc.in <- frame{MessageText, openMsg}
+	if got := waitCtrl(t, fc); got.T != "open_ok" {
+		t.Fatalf("want open_ok, got %+v", got)
+	}
+
+	eofMsg, _ := json.Marshal(ctrl{T: "eof", ID: 1})
+	fc.in <- frame{MessageText, eofMsg}
+
+	_ = targetEnd.SetReadDeadline(time.Now().Add(3 * time.Second))
+	buf := make([]byte, 1)
+	if _, err := targetEnd.Read(buf); err == nil {
+		t.Fatal("the target end should be closed after the client's eof")
+	}
+
+	close(fc.in)
+	<-done
+}
+
+// When the WebSocket dies mid-relay, the target→client pump must stop and tear
+// its stream down instead of spinning on a dead socket.
+func TestBridgeStreamTeardownWhenTheSocketDies(t *testing.T) {
+	fc := newFakeConn()
+	fc.failWrites = make(chan struct{})
+	serverEnd, targetEnd := net.Pipe()
+	dial := func(context.Context) (net.Conn, error) { return serverEnd, nil }
+
+	done := make(chan EndReason, 1)
+	go func() {
+		done <- Bridge(context.Background(), fc, dial, Options{})
+	}()
+
+	openMsg, _ := json.Marshal(ctrl{T: "open", ID: 1})
+	fc.in <- frame{MessageText, openMsg}
+	if got := waitCtrl(t, fc); got.T != "open_ok" {
+		t.Fatalf("want open_ok, got %+v", got)
+	}
+
+	// The socket dies; the next relayed chunk cannot be written and the pump
+	// must close the target, which the test observes as a failing read.
+	close(fc.failWrites)
+	if _, err := targetEnd.Write([]byte("x")); err != nil {
+		t.Fatalf("target write: %v", err)
+	}
+	_ = targetEnd.SetReadDeadline(time.Now().Add(3 * time.Second))
+	buf := make([]byte, 1)
+	if _, err := targetEnd.Read(buf); err == nil {
+		t.Fatal("the target should be closed once its data cannot be relayed")
+	}
+
+	close(fc.in)
+	<-done
 }
 
 func TestBridgeStopsWhenTheDurableSessionWasClosed(t *testing.T) {

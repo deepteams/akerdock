@@ -44,6 +44,17 @@ func TestCPUPercentIsNilWithoutAPreviousSample(t *testing.T) {
 	}
 }
 
+func TestCPUPercentIsNilWithoutACPUCount(t *testing.T) {
+	s := container.StatsResponse{}
+	s.CPUStats.CPUUsage.TotalUsage = 5
+	s.CPUStats.SystemUsage = 100
+	// Deltas are computable but neither OnlineCPUs nor percpu_usage says how
+	// many CPUs they cover: the figure stays incomputable.
+	if got := CPUPercent(s); got != nil {
+		t.Fatalf("CPUPercent without a cpu count = %v, want nil (never a guessed 0)", got)
+	}
+}
+
 func TestMemoryUsageExcludesReclaimableCache(t *testing.T) {
 	s := container.StatsResponse{}
 	s.MemoryStats.Usage = 100 << 20

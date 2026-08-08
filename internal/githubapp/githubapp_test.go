@@ -115,6 +115,20 @@ func TestAppJWTKeyFormatsAndErrors(t *testing.T) {
 	}
 }
 
+func TestAppJWTSignFailure(t *testing.T) {
+	// A 256-bit modulus parses fine but is too small to hold a PKCS#1 v1.5
+	// SHA-256 signature, forcing the signing branch to fail.
+	t.Setenv("GODEBUG", "rsa1024min=0")
+	key, err := rsa.GenerateKey(rand.Reader, 256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tiny := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	if _, err := AppJWT(1, tiny, time.Now()); err == nil {
+		t.Fatal("signing with an undersized key should fail")
+	}
+}
+
 func TestManifest(t *testing.T) {
 	m := Manifest("https://paas.example.com/", "app-uuid", "akerdock-prod")
 	hook := m["hook_attributes"].(map[string]any)
@@ -406,6 +420,154 @@ func TestHTTPFailureModesAndAPIError(t *testing.T) {
 	}
 	if err := response(http.StatusNoContent, "").do(context.Background(), http.MethodDelete, "/x", "", nil, nil); err != nil {
 		t.Fatalf("bodyless success failed: %v", err)
+	}
+}
+
+func TestClientWithoutInjectedHTTPUsesDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer server.Close()
+	// No HTTP injected: the client must fall back to the process default.
+	client := &Client{APIURL: server.URL}
+	if client.http() != defaultHTTP {
+		t.Fatal("nil HTTP should fall back to defaultHTTP")
+	}
+	if err := client.do(context.Background(), http.MethodGet, "/x", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInstallationTokenScopedToRepositories(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/app/installations/7/access_tokens" {
+			t.Errorf("unexpected call %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"token": "ghs_scoped", "expires_at": time.Now().Add(time.Hour).Format(time.RFC3339),
+		})
+	}))
+	defer server.Close()
+	client := &Client{APIURL: server.URL, HTTP: server.Client()}
+
+	token, err := client.InstallationToken(context.Background(), "jwt", 7, []string{"shop"})
+	if err != nil || token.Token != "ghs_scoped" {
+		t.Fatalf("token = %+v, %v", token, err)
+	}
+	// Least privilege: the repository restriction must reach GitHub (§2.2).
+	repos, ok := body["repositories"].([]any)
+	if !ok || len(repos) != 1 || repos[0] != "shop" {
+		t.Fatalf("repositories not sent: %v", body)
+	}
+}
+
+func TestPullRequestEndpoints(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/shop/pulls":
+			if got := r.URL.Query().Get("state"); got != "open" {
+				t.Errorf("state = %q", got)
+			}
+			_, _ = w.Write([]byte(`[
+				{"number":1,"title":"first","state":"open",
+				 "head":{"ref":"feature","sha":"abc","repo":{"full_name":"acme/shop"}},
+				 "base":{"repo":{"full_name":"acme/shop"}}},
+				{"number":2,"title":"forked","state":"open","draft":true,
+				 "head":{"ref":"patch","sha":"def","repo":{"full_name":"fork/shop"}},
+				 "base":{"repo":{"full_name":"acme/shop"}}}
+			]`))
+		case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/shop/pulls/2":
+			_, _ = w.Write([]byte(`{"number":2,"title":"forked","state":"open","draft":true,
+				"head":{"ref":"patch","sha":"def","repo":{"full_name":"fork/shop"}},
+				"base":{"repo":{"full_name":"acme/shop"}}}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	client := &Client{APIURL: server.URL, HTTP: server.Client()}
+
+	prs, err := client.ListOpenPullRequests(context.Background(), "token", "acme/shop")
+	if err != nil || len(prs) != 2 || prs[0].Number != 1 || prs[1].Head.SHA != "def" {
+		t.Fatalf("prs = %+v, %v", prs, err)
+	}
+	pr, err := client.GetPullRequest(context.Background(), "token", "acme/shop", 2)
+	if err != nil || pr.Number != 2 || !pr.Draft || pr.Head.Ref != "patch" {
+		t.Fatalf("pr = %+v, %v", pr, err)
+	}
+
+	if _, err := client.ListOpenPullRequests(context.Background(), "token", "acme/missing"); err == nil {
+		t.Fatal("listing a missing repo should fail")
+	}
+}
+
+func TestPullRequestIsFork(t *testing.T) {
+	build := func(head, base string) PullRequest {
+		var pr PullRequest
+		pr.Head.Repo.FullName = head
+		pr.Base.Repo.FullName = base
+		return pr
+	}
+	for _, tc := range []struct {
+		name string
+		pr   PullRequest
+		want bool
+	}{
+		{"same repo", build("acme/shop", "acme/shop"), false},
+		{"fork", build("fork/shop", "acme/shop"), true},
+		{"deleted head repo", build("", "acme/shop"), false},
+	} {
+		if got := tc.pr.IsFork(); got != tc.want {
+			t.Errorf("%s: IsFork() = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestServerErrorsPropagate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer server.Close()
+	client := &Client{APIURL: server.URL, HTTP: server.Client()}
+
+	if _, err := client.ListInstallationRepos(context.Background(), "token"); err == nil {
+		t.Fatal("repository listing should surface the 502")
+	}
+	// The comment lookup fails before any create is attempted (§20.4.6).
+	if err := client.UpsertPRComment(context.Background(), "token", "acme/shop", 1, "preview", "body"); err == nil {
+		t.Fatal("comment lookup failure should surface")
+	}
+}
+
+func TestTokenSourceErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"bad credentials"}`))
+	}))
+	defer server.Close()
+	client := &Client{APIURL: server.URL, HTTP: server.Client()}
+
+	// A broken private key fails before any network call.
+	broken := NewTokenSource(client, 1, []byte("not PEM"))
+	if _, err := broken.Token(context.Background(), 9, nil); err == nil {
+		t.Fatal("invalid PEM should fail the mint")
+	}
+
+	// A rejected mint propagates the API error and caches nothing.
+	pemBytes, _ := testKeyPEM(t)
+	rejected := NewTokenSource(client, 1, pemBytes)
+	if _, err := rejected.Token(context.Background(), 9, nil); err == nil {
+		t.Fatal("a 401 mint should surface")
+	}
+	var apiErr *APIError
+	if _, err := rejected.Token(context.Background(), 9, nil); !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized {
+		t.Fatalf("a failed mint must not be cached, got %v", err)
 	}
 }
 

@@ -39,15 +39,23 @@ type fakeSchedulerStore struct {
 	drills       []store.ListDrillablePlansRow
 	localhost    []store.Server
 	expired      []store.Preview
+	toWarn       []store.Preview
 	queued       []store.Preview
+	stzActive    []store.ListPreviewsForScaleToZeroRow
+	stzSleeping  []store.Preview
+	appsToSleep  []store.ListApplicationsToSleepRow
+	appsSleeping []store.ListSleepingApplicationsRow
 	tasks        []store.ListSchedulableTasksRow
 	proxyServers []store.Server
 	revisions    []store.ProxyConfigRevision
 	uptimeChecks []store.UptimeCheck
 	sweptTunnels []store.SweepPortForwardSessionsRow
+	sweptIngress []store.IngressTunnelSession
 
 	application store.GetApplicationByIDRow
 	destination store.Destination
+	defaultDest *store.Destination
+	serverRow   store.Server
 	privateKey  store.PrivateKey
 	team        store.Team
 	deployment  store.Deployment
@@ -65,6 +73,11 @@ type fakeSchedulerStore struct {
 	uptimeStates       []store.SetUptimeCheckStateParams
 	outbox             []store.InsertOutboxEventParams
 	cancelledDeployIDs []int64
+	warnedPreviewIDs   []int64
+	sleptPreviewIDs    []int64
+	wokenPreviewIDs    []int64
+	sleptAppIDs        []int64
+	wokenAppIDs        []int64
 }
 
 func (f *fakeSchedulerStore) err(name string) error {
@@ -136,32 +149,43 @@ func (f *fakeSchedulerStore) SetPreviewStatus(_ context.Context, arg store.SetPr
 }
 
 func (f *fakeSchedulerStore) ListPreviewsForScaleToZero(context.Context) ([]store.ListPreviewsForScaleToZeroRow, error) {
-	return nil, f.err("stzList")
+	return f.stzActive, f.err("stzList")
 }
 
 func (f *fakeSchedulerStore) ListSleepingPreviews(context.Context) ([]store.Preview, error) {
-	return nil, f.err("sleepingList")
+	return f.stzSleeping, f.err("sleepingList")
 }
-func (f *fakeSchedulerStore) SetPreviewSleeping(context.Context, int64) error { return f.err("sleep") }
-func (f *fakeSchedulerStore) SetPreviewAwake(context.Context, int64) error    { return f.err("awake") }
+
+func (f *fakeSchedulerStore) SetPreviewSleeping(_ context.Context, id int64) error {
+	f.sleptPreviewIDs = append(f.sleptPreviewIDs, id)
+	return f.err("sleep")
+}
+
+func (f *fakeSchedulerStore) SetPreviewAwake(_ context.Context, id int64) error {
+	f.wokenPreviewIDs = append(f.wokenPreviewIDs, id)
+	return f.err("awake")
+}
+
 func (f *fakeSchedulerStore) ListApplicationsToSleep(context.Context) ([]store.ListApplicationsToSleepRow, error) {
-	return nil, f.err("appSleepList")
+	return f.appsToSleep, f.err("appSleepList")
 }
 
 func (f *fakeSchedulerStore) ListSleepingApplications(context.Context) ([]store.ListSleepingApplicationsRow, error) {
-	return nil, f.err("appSleepingList")
+	return f.appsSleeping, f.err("appSleepingList")
 }
 
-func (f *fakeSchedulerStore) SetApplicationSlept(context.Context, int64) error {
+func (f *fakeSchedulerStore) SetApplicationSlept(_ context.Context, id int64) error {
+	f.sleptAppIDs = append(f.sleptAppIDs, id)
 	return f.err("appSleep")
 }
 
-func (f *fakeSchedulerStore) SetApplicationAwake(context.Context, int64) error {
+func (f *fakeSchedulerStore) SetApplicationAwake(_ context.Context, id int64) error {
+	f.wokenAppIDs = append(f.wokenAppIDs, id)
 	return f.err("appAwake")
 }
 
 func (f *fakeSchedulerStore) GetServerByID(context.Context, int64) (store.Server, error) {
-	return store.Server{}, f.err("server")
+	return f.serverRow, f.err("server")
 }
 
 func (f *fakeSchedulerStore) InsertOutboxEvent(_ context.Context, arg store.InsertOutboxEventParams) error {
@@ -216,9 +240,13 @@ func (f *fakeSchedulerStore) ListExpiredPreviews(context.Context) ([]store.Previ
 }
 
 func (f *fakeSchedulerStore) ListPreviewsToWarn(context.Context) ([]store.Preview, error) {
-	return nil, nil
+	return f.toWarn, f.err("toWarn")
 }
-func (f *fakeSchedulerStore) SetPreviewExpiryWarned(context.Context, int64) error { return nil }
+
+func (f *fakeSchedulerStore) SetPreviewExpiryWarned(_ context.Context, id int64) error {
+	f.warnedPreviewIDs = append(f.warnedPreviewIDs, id)
+	return f.err("warned")
+}
 func (f *fakeSchedulerStore) ListQueuedPreviews(context.Context) ([]store.Preview, error) {
 	return f.queued, f.err("queued")
 }
@@ -228,6 +256,9 @@ func (f *fakeSchedulerStore) GetApplicationByID(context.Context, int64) (store.G
 }
 
 func (f *fakeSchedulerStore) GetDefaultDestination(context.Context, int64) (store.Destination, error) {
+	if f.defaultDest != nil {
+		return *f.defaultDest, nil
+	}
 	return store.Destination{}, errors.New("no default destination in the fake")
 }
 
@@ -307,7 +338,7 @@ func (f *fakeSchedulerStore) PurgePortForwardSessions(context.Context, int32) (i
 }
 
 func (f *fakeSchedulerStore) SweepIngressSessions(context.Context) ([]store.IngressTunnelSession, error) {
-	return nil, f.err("sweepIngress")
+	return f.sweptIngress, f.err("sweepIngress")
 }
 
 func (f *fakeSchedulerStore) PurgeIngressSessions(context.Context) (int64, error) {
@@ -884,8 +915,12 @@ type fakeLeaderConnection struct {
 	rowErr   error
 	acquired bool
 	closed   bool
-	released bool
-	execs    int
+	// closeAfter, when positive, makes IsClosed answer false that many times
+	// and true afterwards — the lock connection dying mid-lead.
+	closeAfter    int
+	isClosedCalls int
+	released      bool
+	execs         int
 }
 
 func (f *fakeLeaderConnection) QueryRow(context.Context, string, ...any) pgx.Row {
@@ -896,8 +931,15 @@ func (f *fakeLeaderConnection) Exec(context.Context, string, ...any) (pgconn.Com
 	f.execs++
 	return pgconn.CommandTag{}, nil
 }
-func (f *fakeLeaderConnection) IsClosed() bool { return f.closed }
-func (f *fakeLeaderConnection) Release()       { f.released = true }
+
+func (f *fakeLeaderConnection) IsClosed() bool {
+	f.isClosedCalls++
+	if f.closeAfter > 0 {
+		return f.isClosedCalls > f.closeAfter
+	}
+	return f.closed
+}
+func (f *fakeLeaderConnection) Release() { f.released = true }
 
 type fakeBoolRow struct {
 	value bool

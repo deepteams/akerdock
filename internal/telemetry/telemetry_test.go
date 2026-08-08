@@ -163,6 +163,45 @@ func TestInitOTLPHTTP(t *testing.T) {
 	got.Shutdown(ctx)
 }
 
+func TestInitOTLPGRPCWithHeaders(t *testing.T) {
+	preserveProviders(t)
+
+	// gRPC exporters connect lazily, so pointing at a closed local port builds
+	// the providers without any real egress. Headers exercise the grpc option
+	// branch of every exporter constructor.
+	cfg := Config{
+		Endpoint: "http://127.0.0.1:1",
+		Protocol: "grpc",
+		Headers:  map[string]string{"authorization": "Bearer x"},
+		Traces:   true, Metrics: true, Logs: true,
+	}
+	got := Init(context.Background(), "test", cfg, telemetryLogger())
+	if !got.Enabled() || got.Tracer == nil || got.Meter == nil || len(got.shutdown) < 3 {
+		t.Fatalf("OTLP gRPC providers were not built: %+v", got)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got.Shutdown(ctx)
+}
+
+func TestInitOTLPHTTPWithHeaders(t *testing.T) {
+	preserveProviders(t)
+
+	cfg := Config{
+		Endpoint: "http://127.0.0.1:1",
+		Headers:  map[string]string{"x-tenant": "acme"},
+		Traces:   true, Metrics: true, Logs: true,
+	}
+	// Protocol left empty: Init must default it to "http".
+	got := Init(context.Background(), "test", cfg, telemetryLogger())
+	if !got.Enabled() || len(got.shutdown) < 3 {
+		t.Fatalf("OTLP HTTP providers were not built: %+v", got)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got.Shutdown(ctx)
+}
+
 func TestEnvConfig(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://collector.example:4318")
 	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
@@ -181,6 +220,42 @@ func TestEnvConfig(t *testing.T) {
 	}
 	if parseHeaders("") != nil || parseHeaders("nokey") != nil {
 		t.Fatal("expected nil headers for empty/invalid input")
+	}
+}
+
+func TestEnvOrFallsBackToDefault(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "")
+	if got := envOr("OTEL_EXPORTER_OTLP_PROTOCOL", "http"); got != "http" {
+		t.Fatalf("envOr default = %q, want %q", got, "http")
+	}
+	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+	if got := envOr("OTEL_EXPORTER_OTLP_PROTOCOL", "http"); got != "grpc" {
+		t.Fatalf("envOr set = %q, want %q", got, "grpc")
+	}
+}
+
+func TestScopeName(t *testing.T) {
+	if got := ScopeName(); got != "github.com/deepteams/akerdock" {
+		t.Fatalf("ScopeName() = %q", got)
+	}
+}
+
+func TestRecordDockerOp(t *testing.T) {
+	preserveProviders(t)
+
+	got := Init(context.Background(), "test", Config{PromEnabled: true}, telemetryLogger())
+	defer got.Shutdown(context.Background())
+
+	metrics := NewMetrics(got.Meter)
+	metrics.RecordDockerOp(context.Background(), "container.list", "ok")
+	var nilMetrics *Metrics
+	nilMetrics.RecordDockerOp(context.Background(), "ignored", "ignored")
+	(&Metrics{}).RecordDockerOp(context.Background(), "ignored", "ignored")
+
+	rec := httptest.NewRecorder()
+	got.PromHandler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "akerdock_docker_runtime_ops") {
+		t.Fatalf("metrics response = %d %q", rec.Code, rec.Body.String())
 	}
 }
 

@@ -1,27 +1,6 @@
-# Coverage ratchet floors (percent) for packages below the 90% unit target.
-# One "package<TAB>floor" per line. Ratchets only move up: raise a floor as
-# coverage lands, never lower one. Values are the measured coverage the day
-# the gate was wired into CI (2026-07-31); internal/handlers previously
-# claimed an aspirational 60 that was already broken then — 53 is the real
-# anti-regression line. Floor 0 marks deliberately untested test doubles.
-internal/cli	10
-internal/agentwire	12
-internal/agentrelay	25
-internal/dockerruntime	29
-internal/mcp	37
-internal/jobs	40
-internal/handlers	53
-internal/agent	59
-internal/scheduler	58
-internal/hostops	62
-internal/telemetry	80
-internal/accessroute	80
-internal/scim	83
-internal/tunnel	86
-internal/githubapp	87
-# terminal sits at ~93 on a quiet machine but its bridge tests are timing-
-# dependent: on a contended runner some branches do not fire and it reads
-# ~90. The floor absorbs that jitter, not a coverage debt.
-internal/terminal	88
+# Coverage exceptions to the default 90% unit target.
+# These packages are deliberately untested test doubles with no production
+# decisions of their own. Every handwritten production package uses the
+# default floor enforced by check-go-unit-coverage.sh.
 internal/dockerruntime/fake	0
 internal/hostops/fake	0
