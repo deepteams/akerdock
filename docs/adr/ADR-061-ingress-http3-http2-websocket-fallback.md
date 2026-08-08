@@ -85,11 +85,20 @@ the session. The token remains single-use.
 
 ### 3. Connection strategy
 
-- HTTP/3 uses one persistent QUIC connection. Its native independent streams already
-  avoid cross-stream loss blocking and share congestion control intentionally.
+- HTTP/3 uses **four persistent QUIC connections**. Independent streams and shared
+  congestion control would make one connection sufficient against head-of-line blocking,
+  which is what this section first concluded — but a QUIC peer also advertises how many
+  streams it will accept at once, and that ceiling is small: quic-go, which the managed
+  Traefik runs, defaults to 100. One carries the control request, so a single connection
+  leaves 99 for relayed connections while §4 admits 128. Past the ceiling a stream open
+  does not fail, it *blocks* on stream credit — the agent then waits out its open timeout
+  and answers the visitor a `502` fifteen seconds later, having relayed nothing.
 - HTTP/2 uses **four persistent TLS/TCP connections**. Data streams are assigned to the
   least-loaded connection, reducing the blast radius of TCP head-of-line blocking while
   keeping the connection count bounded.
+- Both counts serve the same invariant, stated in §4: a transport must be able to carry
+  what admission accepts. Four is what keeps HTTP/2 (four × the peer's typical 250) and
+  HTTP/3 (four × 99) comfortably above the active bound, with room for the bound to grow.
 - WebSocket v1 remains wire-compatible. Its in-process receive path gains bounded
   per-stream queues so a slow consumer cannot block the socket decoder. New v2 peers
   negotiate four physical WebSocket lanes and pin each logical stream to one lane;
@@ -105,6 +114,19 @@ that keep-alive pool cannot route a request to another endpoint.
 The existing ingress bounds remain: 128 active upstream connections, 512 pending opens,
 30-second queue wait. They are overload protection, not a throughput control. HTTP
 keep-alive commonly serves many sequential requests on one active connection.
+
+The active bound and the transport's stream capacity are **one invariant, not two
+independent numbers**: admission must never accept more concurrent connections than the
+negotiated transport can open streams for. Exceeding a transport's capacity does not
+surface as an overload — Origin's own answer to overload is explicit and immediate (`503`
+with `Retry-After`) — it surfaces as a stall, because a transport out of stream credit
+blocks rather than refusing. Any change to §3's connection counts, to the active bound, or
+to a transport's negotiated limits must be checked against this invariant; the conformance
+of the two is asserted by exercising the full bound concurrently over each HTTP transport.
+For the same reason a data-stream open is bounded on the client: a peer that cannot supply
+a stream reports `open_err` instead of leaving the agent to time out. An idle upstream
+connection kept for reuse also holds its stream, so the agent's keep-alive window is
+bounded well under the session's lifetime rather than hoarding capacity nobody is using.
 
 Every compatibility WebSocket stream has a bounded receive queue. A peer that violates
 the negotiated receive window loses that stream, not the entire tunnel. Control frames
@@ -162,9 +184,10 @@ throughput improvement.
   constant-time rejection, one-use token, stream/session binding, open failure, queue
   bounds, close reason, keep-alive isolation, least-loaded HTTP/2 lane selection and
   WebSocket slow-consumer isolation.
-- Module tests: real HTTP/2 and HTTP/3 servers carry at least 40 concurrent streams, with
-  128 active and the remainder queued, without `502`; a deliberately stalled stream does
-  not block a sibling.
+- Module tests: real HTTP/2 and HTTP/3 servers carry the **whole active bound**
+  concurrently — 128 relayed connections in flight at once, none refused, none stalled —
+  which is what asserts §4's invariant against each transport's real stream ceiling rather
+  than against a sample below it; a deliberately stalled stream does not block a sibling.
 - Proxy conformance: static Traefik output enables HTTP/3 deterministically and deployment
   publishes the HTTPS UDP port.
 - Existing ingress WebSocket tests remain green to prove old CLI compatibility.
