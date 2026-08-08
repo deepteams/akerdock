@@ -27,7 +27,7 @@ import (
 )
 
 func TestIngressHTTPLanePoolChoosesLeastLoaded(t *testing.T) {
-	pool := &ingressHTTPLanePool{lanes: []*ingressHTTPLane{{}, {}, {}, {}}}
+	pool := &httpLanePool{lanes: []*httpLane{{}, {}, {}, {}}}
 	pool.lanes[0].active.Store(3)
 	pool.lanes[1].active.Store(1)
 	pool.lanes[2].active.Store(2)
@@ -38,8 +38,8 @@ func TestIngressHTTPLanePoolChoosesLeastLoaded(t *testing.T) {
 }
 
 func TestIngressTransportPreference(t *testing.T) {
-	want := [3]ingressTransportKind{ingressTransportH3, ingressTransportH2, ingressTransportWS}
-	if got := ingressTransportPreference(); got != want {
+	want := [3]transportKind{transportH3, transportH2, transportWS}
+	if got := transportPreference(); got != want {
 		t.Fatalf("transport preference = %v, want %v", got, want)
 	}
 }
@@ -48,19 +48,19 @@ func TestIngressTransportPreference(t *testing.T) {
 // verdict is remembered, so the handshake timeout is paid once — but not
 // forever: a laptop that changes network may gain HTTP/3.
 func TestIngressTransportRemembersProbeFailureUntilCooldown(t *testing.T) {
-	state := newIngressTransportState()
+	state := newTransportState()
 	now := time.Now()
 	state.now = func() time.Time { return now }
 
-	state.noteProbeFailure(ingressTransportH3)
-	if state.usable(ingressTransportH3) {
+	state.noteProbeFailure(transportH3)
+	if state.usable(transportH3) {
 		t.Fatal("a failed probe must not be retried on the next reconnect")
 	}
-	if !state.usable(ingressTransportH2) {
+	if !state.usable(transportH2) {
 		t.Fatal("one transport's probe failure must not condemn another")
 	}
-	now = now.Add(ingressTransportProbeCooldown)
-	if !state.usable(ingressTransportH3) {
+	now = now.Add(transportProbeCooldown)
+	if !state.usable(transportH3) {
 		t.Fatal("the probe must be retried once the cooldown expired")
 	}
 }
@@ -70,38 +70,38 @@ func TestIngressTransportRemembersProbeFailureUntilCooldown(t *testing.T) {
 // request may last. Re-dialing forever is the wrong answer — fall back, and
 // say why.
 func TestIngressTransportFallsBackAfterRepeatedSessionLoss(t *testing.T) {
-	state := newIngressTransportState()
+	state := newTransportState()
 
-	for i := 1; i < ingressTransportFailureBudget; i++ {
-		if msg := state.noteFailure(ingressTransportH2, time.Minute); msg != "" {
+	for i := 1; i < transportFailureBudget; i++ {
+		if msg := state.noteFailure(transportH2, time.Minute); msg != "" {
 			t.Fatalf("gave up after %d losses: %s", i, msg)
 		}
-		if !state.usable(ingressTransportH2) {
-			t.Fatalf("transport retired after %d losses, budget is %d", i, ingressTransportFailureBudget)
+		if !state.usable(transportH2) {
+			t.Fatalf("transport retired after %d losses, budget is %d", i, transportFailureBudget)
 		}
 	}
-	msg := state.noteFailure(ingressTransportH2, time.Minute)
+	msg := state.noteFailure(transportH2, time.Minute)
 	if msg == "" {
 		t.Fatal("exhausting the budget must be explained, not silent")
 	}
 	if !strings.Contains(msg, "readTimeout") {
 		t.Fatalf("the diagnosis must name the setting to change, got: %s", msg)
 	}
-	if state.usable(ingressTransportH2) {
+	if state.usable(transportH2) {
 		t.Fatal("the transport must be retired once its budget is spent")
 	}
-	if state.usable(ingressTransportH3) {
+	if state.usable(transportH3) {
 		return // h3 shares nothing with h2's budget only if it was never charged
 	}
 	t.Fatal("one transport's budget must not retire another")
 }
 
 func TestIngressTransportSessionThatHeldClearsTheBudget(t *testing.T) {
-	state := newIngressTransportState()
-	state.noteFailure(ingressTransportH2, time.Minute)
-	state.noteSuccess(ingressTransportH2)
-	for i := 1; i < ingressTransportFailureBudget; i++ {
-		if msg := state.noteFailure(ingressTransportH2, time.Minute); msg != "" {
+	state := newTransportState()
+	state.noteFailure(transportH2, time.Minute)
+	state.noteSuccess(transportH2)
+	for i := 1; i < transportFailureBudget; i++ {
+		if msg := state.noteFailure(transportH2, time.Minute); msg != "" {
 			t.Fatalf("a session that held must reset the count: %s", msg)
 		}
 	}
@@ -119,15 +119,15 @@ func TestIngressAttachRejectionOnlyRetiresProtocolRefusals(t *testing.T) {
 		{http.StatusUpgradeRequired, true},
 		{http.StatusHTTPVersionNotSupported, true},
 	} {
-		rejection := &ingressAttachRejection{kind: ingressTransportH2, code: tc.code, status: "x"}
+		rejection := &attachRejection{kind: transportH2, code: tc.code, status: "x"}
 		if got := rejection.transportRefused(); got != tc.want {
 			t.Fatalf("status %d: transportRefused = %v, want %v", tc.code, got, tc.want)
 		}
 	}
 	// The refusal is what the developer reads on stderr: it must carry the
 	// agent's own words, not just a status line.
-	rejection := &ingressAttachRejection{
-		kind: ingressTransportH2, code: 409, status: "409 Conflict",
+	rejection := &attachRejection{
+		kind: transportH2, code: 409, status: "409 Conflict",
 		message: "endpoint occupied — one laptop per endpoint",
 	}
 	got := rejection.Error()
@@ -155,14 +155,14 @@ func TestIngressHTTPURLConversionDoesNotLeakMintTokenIntoProbe(t *testing.T) {
 }
 
 func TestIngressHTTP2AndHTTP3Relay(t *testing.T) {
-	for _, kind := range []ingressTransportKind{ingressTransportH2, ingressTransportH3} {
+	for _, kind := range []transportKind{transportH2, transportH3} {
 		t.Run(string(kind), func(t *testing.T) {
 			testIngressHTTPRelay(t, kind)
 		})
 	}
 }
 
-func testIngressHTTPRelay(t *testing.T, kind ingressTransportKind) {
+func testIngressHTTPRelay(t *testing.T, kind transportKind) {
 	t.Helper()
 	// The tunnel's whole admission bound at once, not a sample of it: the
 	// transport must be able to carry what Origin admits. A QUIC peer
@@ -213,9 +213,9 @@ func testIngressHTTPRelay(t *testing.T, kind ingressTransportKind) {
 	roots.AddCert(web.Certificate())
 	clientTLS := &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
 	attachAuthority := strings.TrimPrefix(web.URL, "https://")
-	var transportPool *ingressHTTPLanePool
+	var transportPool *httpLanePool
 	var closeH3 func()
-	if kind == ingressTransportH3 {
+	if kind == transportH3 {
 		packetConn, err := net.ListenPacket("udp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
@@ -232,9 +232,9 @@ func testIngressHTTPRelay(t *testing.T, kind ingressTransportKind) {
 			}
 		}
 		attachAuthority = packetConn.LocalAddr().String()
-		transportPool = newIngressH3PoolWithTLS(clientTLS)
+		transportPool = newH3PoolWithTLS(clientTLS)
 	} else {
-		transportPool = newIngressH2PoolWithTLS(clientTLS)
+		transportPool = newH2PoolWithTLS(clientTLS)
 	}
 	if closeH3 != nil {
 		defer closeH3()

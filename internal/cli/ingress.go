@@ -93,7 +93,7 @@ func (c *Client) runIngress(ctx context.Context, endpoint string, localPort int)
 	// a while, so a stable tunnel that blips once does not inherit a long delay.
 	backoff := time.Second
 	announced := false
-	transportState := newIngressTransportState()
+	transportState := newTransportState()
 
 	for {
 		var sess ingressMint
@@ -166,20 +166,20 @@ func (c *Client) attachIngress(
 	ctx context.Context,
 	sess ingressMint,
 	localPort int,
-	state *ingressTransportState,
-) (string, ingressTransportKind, error) {
+	state *transportState,
+) (string, transportKind, error) {
 	httpAttach, httpErr := ingressHTTPURL(sess)
 	if httpErr == nil {
-		preference := ingressTransportPreference()
+		preference := transportPreference()
 		for _, kind := range preference[:len(preference)-1] {
 			if !state.usable(kind) {
 				continue
 			}
-			var pool *ingressHTTPLanePool
-			if kind == ingressTransportH3 {
-				pool = newIngressH3Pool()
+			var pool *httpLanePool
+			if kind == transportH3 {
+				pool = newH3Pool()
 			} else {
-				pool = newIngressH2Pool()
+				pool = newH2Pool()
 			}
 			if err := probeIngressHTTP(ctx, pool, httpAttach, kind); err != nil {
 				// Remembered, not just skipped: re-probing a network that
@@ -201,7 +201,7 @@ func (c *Client) attachIngress(
 				// endpoint still occupied by the session being replaced — says
 				// nothing about the transport: retiring it there would silently
 				// downgrade the tunnel for the rest of the process.
-				var rejection *ingressAttachRejection
+				var rejection *attachRejection
 				switch {
 				case errors.As(err, &rejection) && rejection.transportRefused():
 					state.disable(kind)
@@ -234,11 +234,11 @@ func (c *Client) attachIngress(
 		}
 	}
 	reason, err := c.attachIngressWebSocket(ctx, sess, localPort)
-	if state.announced != ingressTransportWS && err == nil {
-		fmt.Fprintf(os.Stderr, "tunnel transport: %s\n", ingressTransportWS.label())
-		state.announced = ingressTransportWS
+	if state.announced != transportWS && err == nil {
+		fmt.Fprintf(os.Stderr, "tunnel transport: %s\n", transportWS.label())
+		state.announced = transportWS
 	}
-	return reason, ingressTransportWS, err
+	return reason, transportWS, err
 }
 
 func (c *Client) attachIngressWebSocket(ctx context.Context, sess ingressMint, localPort int) (string, error) {

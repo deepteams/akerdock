@@ -30,6 +30,38 @@ const (
 	IngressStreamContentType  = "application/vnd.akerdock.ingress-stream.v2"
 )
 
+// HTTPAttachProtocol names one access path's HTTP v2 attach wire. ADR-027's
+// standing rule is a distinct name per access path, and it is load-bearing: an
+// attach token minted for one path must never be redeemable on another, and a
+// control request offered to the wrong endpoint must be refused on its content
+// type alone. Sharing the transport machinery across paths therefore means
+// PARAMETERISING these identifiers — never pooling them.
+type HTTPAttachProtocol struct {
+	Name               string
+	CapabilitiesHeader string
+	ProtocolHeader     string
+	AttachKeyHeader    string
+	SessionHeader      string
+	StreamHeader       string
+	TransportHeader    string
+	ControlContentType string
+	StreamContentType  string
+}
+
+// IngressHTTP is the ingress access path's wire (ADR-060/061): a laptop
+// attaching to the agent that serves its declared public URL.
+var IngressHTTP = HTTPAttachProtocol{
+	Name:               IngressHTTPProtocol,
+	CapabilitiesHeader: IngressCapabilitiesHeader,
+	ProtocolHeader:     IngressProtocolHeader,
+	AttachKeyHeader:    IngressAttachKeyHeader,
+	SessionHeader:      IngressSessionHeader,
+	StreamHeader:       IngressStreamHeader,
+	TransportHeader:    IngressTransportHeader,
+	ControlContentType: IngressControlContentType,
+	StreamContentType:  IngressStreamContentType,
+}
+
 // HTTPControlFrame is one newline-delimited control message on an HTTP v2
 // ingress session. Data never uses this framing; every data flow has its own
 // HTTP stream.
