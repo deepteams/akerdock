@@ -5,6 +5,10 @@
 package handlers
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -50,6 +54,30 @@ func (a *API) ProxyLifecycle(w http.ResponseWriter, r *http.Request, serverUuid 
 		return
 	}
 
+	// Stopping the proxy that serves the dashboard is the one lifecycle action
+	// with no way back from inside the product (ADR-062).
+	if action == "stop" {
+		acknowledged, ok := proxyLockoutAcknowledged(w, r)
+		if !ok {
+			return
+		}
+		if !acknowledged {
+			servesDashboard, err := a.proxyServesTheDashboard(r.Context(), server.ID)
+			if err != nil {
+				a.internalError(w, r, "proxy lifecycle", err)
+				return
+			}
+			if servesDashboard {
+				httpapi.WriteError(w, r, http.StatusConflict, "dashboard_lockout",
+					"this proxy routes this instance's own dashboard: stopping it takes down the page you would "+
+						"use to start it again, and passkey and OIDC sign-in are bound to that address, so a port-forward "+
+						"to the control plane cannot authenticate you. Recovery is `docker start "+proxy.ContainerName+
+						"` on the server, or `akerdock proxy repair`. Resend with {\"acknowledge_lockout\": true} to proceed.")
+				return
+			}
+		}
+	}
+
 	// One proxy action at a time per server: two concurrent converges would
 	// race on the same container.
 	lockKey := "proxy:" + uuidString(server.Uuid)
@@ -77,6 +105,48 @@ func (a *API) ProxyLifecycle(w http.ResponseWriter, r *http.Request, serverUuid 
 		JobUuid:   uuidString(job.Uuid),
 		StatusUrl: "/jobs/" + uuidString(job.Uuid),
 	})
+}
+
+// proxyLockoutAcknowledged reads the optional body of a lifecycle action. The
+// body is optional on purpose: every proxy but one keeps its one-click stop,
+// and a client that sends nothing is the normal case, not an error.
+func proxyLockoutAcknowledged(w http.ResponseWriter, r *http.Request) (bool, bool) {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 4<<10))
+	if err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "unreadable body")
+		return false, false
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return false, true
+	}
+	var body api.ProxyLifecycleRequest
+	if err := json.Unmarshal(raw, &body); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "invalid JSON body")
+		return false, false
+	}
+	return body.AcknowledgeLockout != nil && *body.AcknowledgeLockout, true
+}
+
+// proxyServesTheDashboard reports whether this server's proxy routes the
+// instance FQDN (PRD §14.2). The reserved scope is the authority: it is
+// written by the control-plane route generator and by nothing else, so its
+// presence among the applied revisions IS the fact, with no second source to
+// drift from.
+func (a *API) proxyServesTheDashboard(ctx context.Context, serverID int64) (bool, error) {
+	revisions, err := a.Store.ListAppliedProxyRevisions(ctx, serverID)
+	if err != nil {
+		return false, err
+	}
+	return revisionsRouteTheDashboard(revisions), nil
+}
+
+func revisionsRouteTheDashboard(revisions []store.ProxyConfigRevision) bool {
+	for _, revision := range revisions {
+		if revision.Scope == proxy.ControlPlaneScope {
+			return true
+		}
+	}
+	return false
 }
 
 // GetProxyLogs implements GET /servers/{server_uuid}/proxy/logs (permission:

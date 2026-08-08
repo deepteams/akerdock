@@ -4638,6 +4638,12 @@ type ProjectUpdate struct {
 	Name        *string `json:"name,omitempty"`
 }
 
+// ProxyLifecycleRequest Optional body of a proxy lifecycle action. Only needed to stop the proxy that routes this instance's own dashboard (ADR-062).
+type ProxyLifecycleRequest struct {
+	// AcknowledgeLockout Acknowledges that stopping this proxy makes the dashboard unreachable, including the page that would start it again. Ignored on every other proxy and on `start`/`restart`.
+	AcknowledgeLockout *bool `json:"acknowledge_lockout,omitempty"`
+}
+
 // PushoverConfig defines model for PushoverConfig.
 type PushoverConfig struct {
 	Token   string `json:"token"`
@@ -6788,6 +6794,9 @@ type CreateServerJSONRequestBody = ServerCreate
 
 // UpdateServerJSONRequestBody defines body for UpdateServer for application/json ContentType.
 type UpdateServerJSONRequestBody = ServerUpdate
+
+// ProxyLifecycleJSONRequestBody defines body for ProxyLifecycle for application/json ContentType.
+type ProxyLifecycleJSONRequestBody = ProxyLifecycleRequest
 
 // CreateComponentBackupPlanJSONRequestBody defines body for CreateComponentBackupPlan for application/json ContentType.
 type CreateComponentBackupPlanJSONRequestBody = BackupPlanCreate
@@ -35751,6 +35760,7 @@ func (response GetProxyLogs429JSONResponse) VisitGetProxyLogsResponse(w http.Res
 type ProxyLifecycleRequestObject struct {
 	ServerUuid ServerUuid `json:"server_uuid"`
 	Action     string     `json:"action"`
+	Body       *ProxyLifecycleJSONRequestBody
 }
 
 type ProxyLifecycleResponseObject interface {
@@ -48175,6 +48185,16 @@ func (sh *strictHandler) ProxyLifecycle(w http.ResponseWriter, r *http.Request, 
 
 	request.ServerUuid = serverUuid
 	request.Action = action
+
+	var body ProxyLifecycleJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ProxyLifecycle(ctx, request.(ProxyLifecycleRequestObject))

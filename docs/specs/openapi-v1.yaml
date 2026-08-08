@@ -2807,9 +2807,25 @@ paths:
       description: >-
         Long-running action → `202` + job (§4.2). The proxy's desired state is
         persisted: an explicit `stop` is not "repaired" by
-        reconciliation. `409` if the server has no managed proxy
-        (`proxy_type: none`).
+        reconciliation — while an intent left at `running` is converged back
+        (ADR-062). `409` if the server has no managed proxy
+        (`proxy_type: none`), or if a proxy action is already running.
+
+
+        Stopping the proxy that routes this instance's own dashboard answers
+        `409 dashboard_lockout` unless the request acknowledges it: that proxy
+        serves the page you would use to start it again, and passkey and OIDC
+        sign-in are both bound to its origin, so an SSH port-forward to the
+        control plane cannot authenticate anyone. Recovery is
+        `docker start akerdock-proxy` on the server, or
+        `akerdock proxy repair`.
       x-required-permission: servers:proxy
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProxyLifecycleRequest"
       responses:
         "202":
           description: Action accepted — track the job.
@@ -8957,6 +8973,19 @@ components:
           type: string
           description: Tracking URL of the job (relative to /api/v1).
           example: /jobs/jb9x2mc
+
+    ProxyLifecycleRequest:
+      type: object
+      description: >-
+        Optional body of a proxy lifecycle action. Only needed to stop the
+        proxy that routes this instance's own dashboard (ADR-062).
+      properties:
+        acknowledge_lockout:
+          type: boolean
+          description: >-
+            Acknowledges that stopping this proxy makes the dashboard
+            unreachable, including the page that would start it again. Ignored
+            on every other proxy and on `start`/`restart`.
 
     DeploymentAccepted:
       type: object

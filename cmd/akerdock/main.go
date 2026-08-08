@@ -148,7 +148,7 @@ func rootCommand() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(serve, healthcheckCmd, versionCmd, agentCmd)
+	root.AddCommand(serve, healthcheckCmd, versionCmd, agentCmd, proxyCommand())
 	cli.AddCommands(root, version)
 	return root
 }

@@ -1172,7 +1172,25 @@ export class ServerDetailComponent {
     this.error.set(null);
     this.notice.set(null);
     try {
-      await this.api.client().proxyLifecycle(this.uuid(), action);
+      try {
+        await this.api.client().proxyLifecycle(this.uuid(), action);
+      } catch (err) {
+        // Only the server knows which proxy routes this dashboard (ADR-062),
+        // so it is the one that raises the alarm — and its message carries the
+        // recovery command, which is the part worth reading twice.
+        if (!(err instanceof ApiError) || !err.isDashboardLockout) throw err;
+        if (
+          !(await this.confirm.ask({
+            title: 'This proxy serves this dashboard',
+            message: err.message,
+            confirmLabel: 'Stop anyway',
+            danger: true,
+          }))
+        ) {
+          return;
+        }
+        await this.api.client().proxyLifecycle(this.uuid(), action, { acknowledge_lockout: true });
+      }
       this.notice.set(`Proxy ${action} queued — the status updates when the job completes.`);
       await this.load(this.uuid());
     } catch (err) {

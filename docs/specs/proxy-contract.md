@@ -17,7 +17,8 @@ Contract operations (normative semantics, Go signatures not prescribed):
 | Operation | Role | Reference |
 |---|---|---|
 | `DeployProxy(server)` | Create and start the proxy container on a server — only if the intent is `running`; a server is born with the intent `stopped` and the first start goes through `StartProxy` (onboarding §20.1 step 5) | §1.3 |
-| `StartProxy` / `StopProxy` / `RestartProxy` | Lifecycle from the UI; `StartProxy` converges config **and** container from scratch (it is the nominal first start); stopping cuts all of the server's inbound traffic (explicit warning, PRD §4.1) | §1.3 |
+| `StartProxy` / `StopProxy` / `RestartProxy` | Lifecycle from the UI; `StartProxy` converges config **and** container from scratch (it is the nominal first start); stopping cuts all of the server's inbound traffic (explicit warning, PRD §4.1). Stopping the proxy that routes the instance FQDN additionally requires an explicit acknowledgement (ADR-062): it serves the page that would start it again, and passkey/OIDC sign-in are bound to its origin | §1.3 |
+| `ConvergeProxy(server)` | While the intent is `running`, reconciliation restores the container as well as the files (ADR-062): absent → re-bootstrap, stopped → start, with exponential backoff and `proxy_observed_status = unhealthy` past a failure threshold. An explicit `stopped` is never repaired. `akerdock proxy repair` runs the same convergence from the host, over SSH alone, when the dashboard is unreachable | §1.4, §6.2.4 |
 | `UpgradeProxy(server, image)` | Recreation of the container with the new pinned image; "proxy outdated" notification (PRD §4.1, §11) | §1.4 |
 | `GenerateStatic(ir) → files` | Static proxy configuration (entrypoints, ACME resolvers) from the server IR | §5.2 |
 | `GenerateApp(ir, app, endpoint) → file` | Dynamic configuration file of an application; `endpoint` = candidate IP (transient form) or container name (stable form) — deployment-engine §7.2 | §5.3 |

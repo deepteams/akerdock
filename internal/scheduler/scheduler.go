@@ -58,6 +58,9 @@ type Scheduler struct {
 	// thresholdProbes throttles the §3.7 disk probes (leader-local state:
 	// only the elected leader schedules).
 	thresholdProbes map[int64]time.Time
+	// proxyConverge backs off the ADR-062 proxy convergence per server, same
+	// leader-local rule as the probes above.
+	proxyConverge map[int64]proxyConvergeState
 	// uptimeInflight prevents uptime passes from piling up when targets are
 	// slow (ADR-017): the pass runs in the background, one at a time.
 	uptimeInflight atomic.Bool
@@ -156,6 +159,7 @@ type Store interface {
 	ListIngressEndpoints(context.Context, int64) ([]store.ListIngressEndpointsRow, error)
 	ListReadyServers(context.Context) ([]store.Server, error)
 	ListAppliedProxyRevisions(context.Context, int64) ([]store.ProxyConfigRevision, error)
+	SetProxyObservedStatus(context.Context, store.SetProxyObservedStatusParams) error
 	GetPrivateKeyByID(context.Context, int64) (store.PrivateKey, error)
 	ListDueUptimeChecks(context.Context) ([]store.UptimeCheck, error)
 	RecordUptimeResult(context.Context, store.RecordUptimeResultParams) error
@@ -402,7 +406,14 @@ func (s *Scheduler) reconcileProxyDrift(ctx context.Context) {
 		s.Logger.Warn("drift reconciliation: cannot list servers", "error", err)
 		return
 	}
+	now := time.Now()
 	for _, server := range servers {
+		// The container first: re-applying a routing file into a proxy that is
+		// not running fixes nothing, and the file check would fail anyway on a
+		// server whose agent is up but whose proxy is gone.
+		if err := s.convergeProxyContainer(ctx, server, now); err != nil && ctx.Err() == nil {
+			s.Logger.Warn("proxy convergence failed", "server_id", server.ID, "error", err)
+		}
 		if err := s.reconcileServer(ctx, server); err != nil && ctx.Err() == nil {
 			s.Logger.Warn("drift reconciliation failed", "server_id", server.ID, "error", err)
 		}

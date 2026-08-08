@@ -37,6 +37,15 @@ export class ApiError extends globalThis.Error {
   get hasRemnants(): boolean {
     return this.status === 409 && this.code === 'remnants_present';
   }
+
+  /**
+   * True when stopping this proxy would take down the dashboard itself, and
+   * the caller has not acknowledged it (ADR-062). The server owns the verdict:
+   * only it knows which proxy routes the instance FQDN.
+   */
+  get isDashboardLockout(): boolean {
+    return this.status === 409 && this.code === 'dashboard_lockout';
+  }
 }
 
 export interface ClientOptions {
@@ -379,10 +388,14 @@ export class AkerDockClient {
   // --- server proxy (PRD §3) -------------------------------------------------------
 
   /** start | stop | restart of the server's managed proxy — 202 + job. */
-  proxyLifecycle(serverUuid: string, action: 'start' | 'stop' | 'restart') {
+  proxyLifecycle(
+    serverUuid: string,
+    action: 'start' | 'stop' | 'restart',
+    body?: { acknowledge_lockout?: boolean },
+  ) {
     type Response =
       paths['/servers/{server_uuid}/proxy/{action}']['post']['responses']['202']['content']['application/json'];
-    return this.request<Response>('POST', `/servers/${serverUuid}/proxy/${action}`);
+    return this.request<Response>('POST', `/servers/${serverUuid}/proxy/${action}`, { body });
   }
 
   getProxyLogs(serverUuid: string, query?: { lines?: number }) {

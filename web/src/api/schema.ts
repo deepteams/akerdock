@@ -1153,7 +1153,9 @@ export interface paths {
         put?: never;
         /**
          * Start, stop or restart a server's proxy
-         * @description Long-running action → `202` + job (§4.2). The proxy's desired state is persisted: an explicit `stop` is not "repaired" by reconciliation. `409` if the server has no managed proxy (`proxy_type: none`).
+         * @description Long-running action → `202` + job (§4.2). The proxy's desired state is persisted: an explicit `stop` is not "repaired" by reconciliation — while an intent left at `running` is converged back (ADR-062). `409` if the server has no managed proxy (`proxy_type: none`), or if a proxy action is already running.
+         *
+         *     Stopping the proxy that routes this instance's own dashboard answers `409 dashboard_lockout` unless the request acknowledges it: that proxy serves the page you would use to start it again, and passkey and OIDC sign-in are both bound to its origin, so an SSH port-forward to the control plane cannot authenticate anyone. Recovery is `docker start akerdock-proxy` on the server, or `akerdock proxy repair`.
          */
         post: operations["proxyLifecycle"];
         delete?: never;
@@ -3806,6 +3808,11 @@ export interface components {
              * @example /jobs/jb9x2mc
              */
             status_url: string;
+        };
+        /** @description Optional body of a proxy lifecycle action. Only needed to stop the proxy that routes this instance's own dashboard (ADR-062). */
+        ProxyLifecycleRequest: {
+            /** @description Acknowledges that stopping this proxy makes the dashboard unreachable, including the page that would start it again. Ignored on every other proxy and on `start`/`restart`. */
+            acknowledge_lockout?: boolean;
         };
         /** @description Response of a deployment trigger — the deployment is the main tracking object. */
         DeploymentAccepted: {
@@ -9119,7 +9126,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProxyLifecycleRequest"];
+            };
+        };
         responses: {
             /** @description Action accepted — track the job. */
             202: {

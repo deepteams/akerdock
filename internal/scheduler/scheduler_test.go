@@ -71,6 +71,7 @@ type fakeSchedulerStore struct {
 	previewStatuses    []store.SetPreviewStatusParams
 	uptimeResults      []store.RecordUptimeResultParams
 	uptimeStates       []store.SetUptimeCheckStateParams
+	proxyStatuses      []store.SetProxyObservedStatusParams
 	outbox             []store.InsertOutboxEventParams
 	cancelledDeployIDs []int64
 	warnedPreviewIDs   []int64
@@ -360,6 +361,13 @@ func (f *fakeSchedulerStore) ListReadyServers(context.Context) ([]store.Server, 
 
 func (f *fakeSchedulerStore) ListAppliedProxyRevisions(context.Context, int64) ([]store.ProxyConfigRevision, error) {
 	return f.revisions, f.err("revisions")
+}
+
+func (f *fakeSchedulerStore) SetProxyObservedStatus(_ context.Context, arg store.SetProxyObservedStatusParams) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.proxyStatuses = append(f.proxyStatuses, arg)
+	return f.err("proxyStatus")
 }
 
 func (f *fakeSchedulerStore) GetPrivateKeyByID(context.Context, int64) (store.PrivateKey, error) {

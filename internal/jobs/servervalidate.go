@@ -594,6 +594,13 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 	case lastErr != nil && content == "":
 		return nil // never routed, nothing to withdraw
 	}
+	if rt == nil || ops == nil {
+		// The break-glass path (ADR-062 §3) runs outside the control plane and
+		// therefore has no agent channel. The container is back, which is what
+		// it was called for, and the routing files it mounts are already on
+		// disk; the control-plane route reconverges on the next validation.
+		return nil
+	}
 	applier := &ProxyApplier{Store: q, Docker: rt, Host: ops, Server: server, Network: dest.Network}
 	if err := applier.Apply(ctx, proxy.ControlPlaneScope, content, ""); err != nil {
 		return fmt.Errorf("instance FQDN routing (%s): %w", proxy.ControlPlaneScope, err)
@@ -609,6 +616,19 @@ const (
 	proxyStaticBeginMarker = "<<<akerdock-static-begin>>>"
 	proxyStaticEndMarker   = "<<<akerdock-static-end>>>"
 )
+
+// RepairProxy converges a server's managed proxy over SSH alone, with no API
+// session and no agent channel (ADR-062 §3). It is the way back when the
+// dashboard is unreachable *because* the proxy is down — the case where every
+// in-product path is, by construction, closed.
+//
+// It runs the same convergence as a proxy start: render the static
+// configuration, replace the container when what is deployed drifted, and
+// start what it finds. Its authority is possession of the host and of the
+// instance's own configuration, never a credential of its own.
+func RepairProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring, client *sshexec.Client, server store.Server, cpPort int) error {
+	return bootstrapProxy(ctx, q, kr, client, nil, nil, server, false, cpPort)
+}
 
 // proxyStaticDrifted compares the static configuration deployed on the server
 // with the one this release renders. Drift means the running container was
