@@ -33,6 +33,24 @@ const (
 	ingressTransportAttachTimeout = 5 * time.Second
 	ingressHTTP2Lanes             = 4
 
+	// ingressHTTP3Lanes is why HTTP/3 gets several QUIC connections rather than
+	// the single one an http3.Transport would pool per authority. A QUIC peer
+	// advertises how many streams it will accept, and quic-go — which is what
+	// the managed Traefik runs — defaults to 100 (protocol.DefaultMaxIncomingStreams).
+	// One of those carries the control request, leaving 99 for relayed
+	// connections while the tunnel admits tunnel.IngressMaxStreams of them.
+	// Past the ceiling a stream open does not fail, it BLOCKS on stream credit,
+	// so the agent's open timeout fires and the visitor waits it out for a 502.
+	// Four connections keep the transport's capacity comfortably above the
+	// admission bound, which is the invariant that must hold.
+	ingressHTTP3Lanes = 4
+
+	// ingressDataOpenTimeout bounds the wait for a data stream's response
+	// headers — not the stream's life, which is the relayed connection's. The
+	// agent gives up on an unanswered open after its own timeout; refusing
+	// sooner turns a silent stall into an answer the visitor gets at once.
+	ingressDataOpenTimeout = 5 * time.Second
+
 	// ingressTransportFailureBudget is how many consecutive lost sessions a
 	// transport gets before the CLI falls back to the next one. A transport
 	// whose every attach succeeds and whose every session then dies is not a
@@ -168,18 +186,22 @@ func newIngressH3Pool() *ingressHTTPLanePool {
 }
 
 func newIngressH3PoolWithTLS(tlsConfig *tls.Config) *ingressHTTPLanePool {
-	transport := &http3.Transport{
-		TLSClientConfig: tlsConfig,
-		QUICConfig: &quic.Config{
-			HandshakeIdleTimeout: ingressTransportProbeTimeout,
-			MaxIdleTimeout:       90 * time.Second,
-			KeepAlivePeriod:      20 * time.Second,
-		},
+	pool := &ingressHTTPLanePool{lanes: make([]*ingressHTTPLane, 0, ingressHTTP3Lanes)}
+	for range ingressHTTP3Lanes {
+		transport := &http3.Transport{
+			TLSClientConfig: tlsConfig,
+			QUICConfig: &quic.Config{
+				HandshakeIdleTimeout: ingressTransportProbeTimeout,
+				MaxIdleTimeout:       90 * time.Second,
+				KeepAlivePeriod:      20 * time.Second,
+			},
+		}
+		pool.lanes = append(pool.lanes, &ingressHTTPLane{
+			roundTripper: transport,
+			close:        transport.Close,
+		})
 	}
-	return &ingressHTTPLanePool{lanes: []*ingressHTTPLane{{
-		roundTripper: transport,
-		close:        transport.Close,
-	}}}
+	return pool
 }
 
 func newIngressH2Pool() *ingressHTTPLanePool {
@@ -426,11 +448,40 @@ func openIngressHTTPData(
 	req.Header.Set(tun.IngressSessionHeader, sessionUUID)
 	req.Header.Set(tun.IngressStreamHeader, strconv.FormatUint(uint64(id), 10))
 	req.Header.Set(tun.IngressAttachKeyHeader, key)
-	resp, err := pool.RoundTrip(req)
-	if err != nil {
+
+	// The open is bounded, the stream is not: a transport out of stream credit
+	// blocks here instead of failing (QUIC advertises a stream ceiling), and a
+	// silent block is the worst of both worlds — the agent waits out its own
+	// timeout while the visitor's request hangs. Refuse, and the bridge reports
+	// open_err so the agent answers the visitor immediately.
+	type result struct {
+		resp *http.Response
+		err  error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		resp, roundTripErr := pool.RoundTrip(req)
+		resultCh <- result{resp: resp, err: roundTripErr}
+	}()
+	timer := time.NewTimer(ingressDataOpenTimeout)
+	defer timer.Stop()
+	var resp *http.Response
+	select {
+	case got := <-resultCh:
+		if got.err != nil {
+			cancel()
+			_ = bodyWriter.CloseWithError(got.err)
+			return nil, got.err
+		}
+		resp = got.resp
+	case <-timer.C:
 		cancel()
-		_ = bodyWriter.CloseWithError(err)
-		return nil, err
+		_ = bodyWriter.CloseWithError(context.DeadlineExceeded)
+		return nil, fmt.Errorf("stream %d: no transport capacity within %s", id, ingressDataOpenTimeout)
+	case <-ctx.Done():
+		cancel()
+		_ = bodyWriter.CloseWithError(ctx.Err())
+		return nil, ctx.Err()
 	}
 	if resp.StatusCode != http.StatusOK {
 		message, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))

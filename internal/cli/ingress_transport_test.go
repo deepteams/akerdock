@@ -164,7 +164,12 @@ func TestIngressHTTP2AndHTTP3Relay(t *testing.T) {
 
 func testIngressHTTPRelay(t *testing.T, kind ingressTransportKind) {
 	t.Helper()
-	const requestCount = 40
+	// The tunnel's whole admission bound at once, not a sample of it: the
+	// transport must be able to carry what Origin admits. A QUIC peer
+	// advertises a stream ceiling (quic-go defaults to 100) and a single
+	// connection would silently block past it — the agent would then wait out
+	// its open timeout and answer the visitor a 502 fifteen seconds later.
+	requestCount := tun.IngressMaxStreams
 	started := make(chan struct{}, requestCount)
 	release := make(chan struct{})
 	var releaseOnce sync.Once

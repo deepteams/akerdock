@@ -631,7 +631,12 @@ func (ig *Ingress) newRelay(origin ingressStreamOpener, transports ...string) ht
 		// here would create an opaque, unbounded net/http wait in front of it.
 		MaxIdleConns:        ingressMaxActiveStreams,
 		MaxIdleConnsPerHost: ingressMaxActiveStreams,
-		IdleConnTimeout:     90 * time.Second,
+		// An idle pooled connection is a tunnel stream still open, and on a
+		// QUIC transport that stream still holds one of the peer's finite
+		// stream credits (ADR-061). Ninety seconds of hoarding after a page
+		// load could starve the next one; half a minute keeps the reuse that
+		// makes a page load cheap without pinning capacity nobody is using.
+		IdleConnTimeout: 30 * time.Second,
 		// SSE and long-polls must not buffer server-side.
 		ResponseHeaderTimeout: 0,
 	}
