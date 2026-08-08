@@ -56,8 +56,8 @@ const (
 
 	// HTTP/2 can fan one page load into hundreds of requests at once. Keep the
 	// laptop's actual TCP fan-out bounded while absorbing that burst ahead of
-	// the mux instead of turning its 33rd request into a 502.
-	ingressMaxActiveStreams = 32
+	// the mux instead of turning its 129th request into an overload response.
+	ingressMaxActiveStreams = tunnel.IngressMaxStreams
 	ingressMaxQueuedStreams = 512
 	ingressStreamQueueWait  = 30 * time.Second
 )
@@ -626,7 +626,7 @@ func (ig *Ingress) newRelay(origin ingressStreamOpener, transports ...string) ht
 			}
 			return ig.metrics.wrapStream(ctx, transportName, conn), nil
 		},
-		// Admission belongs to Origin: it owns the 32 active + 512 pending
+		// Admission belongs to Origin: it owns the 128 active + 512 pending
 		// bound and can return the explicit 30-second overload error. Capping
 		// here would create an opaque, unbounded net/http wait in front of it.
 		MaxIdleConns:        ingressMaxActiveStreams,

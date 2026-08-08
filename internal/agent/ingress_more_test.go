@@ -267,7 +267,7 @@ func TestIngressRelayRewriteAndErrorHandler(t *testing.T) {
 }
 
 func TestIngressStreamAdmissionLimits(t *testing.T) {
-	if ingressMaxActiveStreams != 32 || ingressMaxQueuedStreams != 512 || ingressStreamQueueWait != 30*time.Second {
+	if ingressMaxActiveStreams != 128 || ingressMaxQueuedStreams != 512 || ingressStreamQueueWait != 30*time.Second {
 		t.Fatalf("ingress stream admission = active %d, queued %d, wait %s",
 			ingressMaxActiveStreams, ingressMaxQueuedStreams, ingressStreamQueueWait)
 	}

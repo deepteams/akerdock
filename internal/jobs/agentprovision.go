@@ -235,7 +235,10 @@ func AgentEnvForServer(ctx context.Context, q AgentEnrollmentStore, keyring *env
 // 10: ingress uses an independent, content-watched routing table and the
 // transport stack supports HTTP/3, HTTP/2 and multi-lane WebSocket. Recreate
 // reused image tags so every server actually runs the compatible agent.
-const agentSpec = "10"
+// 11: ingress admits 128 active streams and a broken established command
+// channel retries after the short backoff instead of remaining offline for a
+// full minute.
+const agentSpec = "11"
 
 // AgentEnsureCommand is the idempotent deploy of the agent helper. It
 // recreates the container when the running image OR the run spec differs (or

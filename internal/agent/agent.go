@@ -106,8 +106,11 @@ type Agent struct {
 	Heartbeat time.Duration
 	Flush     time.Duration
 	Backoff   time.Duration
-	// WSCooldown is how long the agent stays on the POST fallback after a
-	// WebSocket failure before re-dialing (ADR-041 §4).
+	// WSCooldown is how long the agent stays on the POST fallback when a new
+	// WebSocket cannot be established before re-dialing (ADR-041 §4). A channel
+	// that was already healthy and then breaks uses Backoff instead: keeping the
+	// command path offline for a full minute would turn a transient reset into
+	// an avoidable server_agent_unavailable outage.
 	WSCooldown time.Duration
 	// DisableWS forces the POST fallback (tests, or an egress known to break
 	// WebSockets).
@@ -413,7 +416,7 @@ func (a *Agent) send(ctx context.Context, batch []Observation) error {
 				return err
 			}
 			a.closeWS()
-			a.wsRetryAt = a.now().Add(a.WSCooldown)
+			a.wsRetryAt = a.now().Add(a.Backoff)
 			a.logger.Warn("agent: channel broke — POST fallback", "error", err)
 		}
 	}

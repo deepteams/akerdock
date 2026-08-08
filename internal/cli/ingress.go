@@ -288,6 +288,7 @@ func (c *Client) attachIngressWebSocket(ctx context.Context, sess ingressMint, l
 		// timers only need not fire first.
 		IdleTimeout: 24 * time.Hour,
 		MaxDuration: 24 * time.Hour,
+		MaxStreams:  tun.IngressMaxStreams,
 	})
 	_ = reason
 	return closeReason.get(), nil

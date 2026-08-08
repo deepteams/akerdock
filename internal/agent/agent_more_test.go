@@ -287,6 +287,10 @@ func TestAgentSendWSDeadChannelFallsBackToPost(t *testing.T) {
 	if a.ws != nil {
 		t.Fatal("a dead channel must be torn down")
 	}
+	remaining := time.Until(a.wsRetryAt)
+	if remaining <= 0 || remaining > a.Backoff {
+		t.Fatalf("dead channel retry delay = %s, want the short backoff %s", remaining, a.Backoff)
+	}
 }
 
 // TestAgentHeartbeatLoopTicks pins the periodic heartbeat.

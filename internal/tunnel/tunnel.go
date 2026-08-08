@@ -96,8 +96,12 @@ type Options struct {
 const (
 	DefaultIdleTimeout = 30 * time.Minute
 	DefaultMaxDuration = 4 * time.Hour
-	defaultHeartbeat   = 20 * time.Second
-	defaultMaxStreams  = 32
+	// IngressMaxStreams is shared by the ingress origin and WebSocket bridge so
+	// one side cannot silently become the lower concurrency ceiling. Generic
+	// port-forward tunnels keep the smaller defaultMaxStreams bound.
+	IngressMaxStreams = 128
+	defaultHeartbeat  = 20 * time.Second
+	defaultMaxStreams = 32
 )
 
 type ctrl struct {

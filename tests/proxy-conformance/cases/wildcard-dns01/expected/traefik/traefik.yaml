@@ -9,6 +9,11 @@ entryPoints:
     address: ":80"
   websecure:
     address: ":443"
+    transport:
+      respondingTimeouts:
+        # Ingress HTTP/2 control and data requests are long-lived full-duplex
+        # streams. Traefik's 60 s default read timeout resets the whole tunnel.
+        readTimeout: 0s
     http3: {}
 
 providers:

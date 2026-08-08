@@ -102,7 +102,7 @@ that keep-alive pool cannot route a request to another endpoint.
 
 ### 4. Bounds and overload
 
-The existing ingress bounds remain: 32 active upstream connections, 512 pending opens,
+The existing ingress bounds remain: 128 active upstream connections, 512 pending opens,
 30-second queue wait. They are overload protection, not a throughput control. HTTP
 keep-alive commonly serves many sequential requests on one active connection.
 
@@ -163,7 +163,7 @@ throughput improvement.
   bounds, close reason, keep-alive isolation, least-loaded HTTP/2 lane selection and
   WebSocket slow-consumer isolation.
 - Module tests: real HTTP/2 and HTTP/3 servers carry at least 40 concurrent streams, with
-  32 active and the remainder queued, without `502`; a deliberately stalled stream does
+  128 active and the remainder queued, without `502`; a deliberately stalled stream does
   not block a sibling.
 - Proxy conformance: static Traefik output enables HTTP/3 deterministically and deployment
   publishes the HTTPS UDP port.

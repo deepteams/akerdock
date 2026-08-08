@@ -291,7 +291,7 @@ func TestIngressEndToEndRelay(t *testing.T) {
 		tunnel.Bridge(ctx, tunnelWSConn{conn}, func(dialCtx context.Context) (net.Conn, error) {
 			var d net.Dialer
 			return d.DialContext(dialCtx, "tcp", devAddr)
-		}, tunnel.Options{})
+		}, tunnel.Options{MaxStreams: tunnel.IngressMaxStreams})
 	}()
 
 	// Wait for the session to register before sending a visitor request.
@@ -319,7 +319,7 @@ func TestIngressEndToEndRelay(t *testing.T) {
 }
 
 // A browser can fan one HTTP/2 page load into far more requests than the
-// laptop stream bound. Hold all 32 active requests open, prove the excess does
+// laptop stream bound. Hold all 128 active requests open, prove the excess does
 // not fail early, then release the app and require every queued request to
 // complete successfully.
 func TestIngressBurstQueuesBeyondActiveLimit(t *testing.T) {
@@ -358,7 +358,7 @@ func TestIngressBurstQueuesBeyondActiveLimit(t *testing.T) {
 		tunnel.Bridge(ctx, tunnelWSConn{conn}, func(dialCtx context.Context) (net.Conn, error) {
 			var d net.Dialer
 			return d.DialContext(dialCtx, "tcp", devAddr)
-		}, tunnel.Options{})
+		}, tunnel.Options{MaxStreams: tunnel.IngressMaxStreams})
 	}()
 	if !waitFor(2*time.Second, func() bool {
 		ig.mu.Lock()
