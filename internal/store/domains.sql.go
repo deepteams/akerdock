@@ -15,7 +15,7 @@ const createComponentDomain = `-- name: CreateComponentDomain :one
 INSERT INTO domains (uuid, service_component_id, fqdn, path, target_port, is_generated)
 VALUES ($1, $2, $3, '/', $4, true)
 ON CONFLICT (fqdn, path) DO NOTHING
-RETURNING id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at
+RETURNING id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at, ingress_endpoint_id
 `
 
 type CreateComponentDomainParams struct {
@@ -48,6 +48,7 @@ func (q *Queries) CreateComponentDomain(ctx context.Context, arg CreateComponent
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IngressEndpointID,
 	)
 	return i, err
 }
@@ -56,7 +57,7 @@ const createDomain = `-- name: CreateDomain :one
 
 INSERT INTO domains (uuid, application_id, fqdn, path, target_port, is_generated)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at
+RETURNING id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at, ingress_endpoint_id
 `
 
 type CreateDomainParams struct {
@@ -91,12 +92,13 @@ func (q *Queries) CreateDomain(ctx context.Context, arg CreateDomainParams) (Dom
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IngressEndpointID,
 	)
 	return i, err
 }
 
 const listDomainsForApplication = `-- name: ListDomainsForApplication :many
-SELECT id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at FROM domains WHERE application_id = $1 ORDER BY fqdn, path
+SELECT id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at, ingress_endpoint_id FROM domains WHERE application_id = $1 ORDER BY fqdn, path
 `
 
 func (q *Queries) ListDomainsForApplication(ctx context.Context, applicationID *int64) ([]Domain, error) {
@@ -120,6 +122,7 @@ func (q *Queries) ListDomainsForApplication(ctx context.Context, applicationID *
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.IngressEndpointID,
 		); err != nil {
 			return nil, err
 		}

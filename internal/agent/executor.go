@@ -31,6 +31,9 @@ type Executor struct {
 	// when this helper predates the mount (spec < 7), in which case host-ops
 	// answer unavailable until the control plane recreates the container.
 	host *hostops.Local
+	// Ingress executes the ADR-060 session-control commands; nil on an
+	// un-enrolled helper, where no command arrives anyway.
+	Ingress *Ingress
 
 	mu       sync.Mutex
 	inflight map[int64]context.CancelFunc
@@ -548,6 +551,26 @@ func (e *Executor) executeUnary(ctx context.Context, cmd agentwire.Command) (any
 		agentwire.MethodDirEnsure, agentwire.MethodExecToFile, agentwire.MethodFileToExec,
 		agentwire.MethodFileToURL, agentwire.MethodURLToFile, agentwire.MethodFileHash:
 		return e.executeHostOp(ctx, cmd)
+	case agentwire.MethodIngressExpect:
+		if e.Ingress == nil {
+			return nil, fmt.Errorf("ingress: %w", cerrdefs.ErrUnavailable)
+		}
+		var p agentwire.IngressExpectParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		e.Ingress.Expect(p)
+		return nil, nil
+	case agentwire.MethodIngressCut:
+		if e.Ingress == nil {
+			return nil, fmt.Errorf("ingress: %w", cerrdefs.ErrUnavailable)
+		}
+		var p agentwire.IngressCutParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		e.Ingress.Cut(p.SessionUUID, p.Reason)
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("method %q: %w", cmd.Method, cerrdefs.ErrNotImplemented)
 	}

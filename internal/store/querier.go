@@ -105,6 +105,7 @@ type Querier interface {
 	CountDNSCredentialUsage(ctx context.Context, dnsCredentialID *int64) (int64, error)
 	// The concurrency cap (§20.4.3) counts everything that consumes the server.
 	CountLivePreviewsForApplication(ctx context.Context, applicationID int64) (int64, error)
+	CountOpenIngressSessions(ctx context.Context, teamID int64) (int64, error)
 	CountOpenPortForwardSessions(ctx context.Context, teamID int64) (int64, error)
 	// Live sessions plus still-claimable tokens: both hold a slot of the per-team
 	// cap, otherwise issuing tokens in a burst would bypass it.
@@ -216,6 +217,14 @@ type Querier interface {
 	// One git source per converted app: what applications reference (INV-002).
 	CreateGithubAppSource(ctx context.Context, arg CreateGithubAppSourceParams) (GitSource, error)
 	CreateIdentity(ctx context.Context, arg CreateIdentityParams) (Identity, error)
+	CreateIngressAccessToken(ctx context.Context, arg CreateIngressAccessTokenParams) error
+	CreateIngressDomain(ctx context.Context, arg CreateIngressDomainParams) (Domain, error)
+	// Ingress endpoints and their attach sessions (ADR-060). The mint/claim
+	// discipline mirrors portforwardsessions.sql, but the claim happens agent-side
+	// (the control plane only records what the agent reports), so there is no
+	// ClaimIngressSession here: the row is stamped from observations.
+	CreateIngressEndpoint(ctx context.Context, arg CreateIngressEndpointParams) (IngressEndpoint, error)
+	CreateIngressSession(ctx context.Context, arg CreateIngressSessionParams) (IngressTunnelSession, error)
 	// Invitations (§10.1). The link token is hashed like any credential; the
 	// clear value is returned only once, at creation.
 	CreateInvitation(ctx context.Context, arg CreateInvitationParams) (Invitation, error)
@@ -318,6 +327,7 @@ type Querier interface {
 	DeleteGithubApp(ctx context.Context, id int64) (int64, error)
 	// Scoped by user: a session must never unlink someone else's identity.
 	DeleteIdentityForUser(ctx context.Context, arg DeleteIdentityForUserParams) (int64, error)
+	DeleteIngressEndpoint(ctx context.Context, arg DeleteIngressEndpointParams) (IngressEndpoint, error)
 	DeleteMfaFactorForUser(ctx context.Context, userID int64) (int64, error)
 	DeleteNotificationChannel(ctx context.Context, id int64) (int64, error)
 	DeleteNotificationRule(ctx context.Context, id int64) (int64, error)
@@ -337,6 +347,8 @@ type Querier interface {
 	// Envelope-encryption inventory (ADR-003, data-dictionary §12). The first
 	// 4 bytes of every *_enc column carry the key version that encrypted it.
 	EncryptionKeyVersionHistogram(ctx context.Context) ([]EncryptionKeyVersionHistogramRow, error)
+	EndIngressSession(ctx context.Context, arg EndIngressSessionParams) (int64, error)
+	EndIngressSessionByUUID(ctx context.Context, arg EndIngressSessionByUUIDParams) (IngressTunnelSession, error)
 	EndPortForwardSession(ctx context.Context, arg EndPortForwardSessionParams) (int64, error)
 	// Idempotent: only the first close wins, so end_reason keeps the true cause
 	// when the WS teardown and a timeout race each other.
@@ -442,6 +454,14 @@ type Querier interface {
 	GetGithubAppByUUIDAny(ctx context.Context, uuid pgtype.UUID) (GithubApp, error)
 	GetHealthCheck(ctx context.Context, resourceID int64) (HealthCheck, error)
 	GetIdentity(ctx context.Context, arg GetIdentityParams) (Identity, error)
+	// The authorize step resolves the redirect host to a declared endpoint — the
+	// sole anti-open-redirect rule, same as GetResourceByRoutedHost.
+	GetIngressEndpointByFQDN(ctx context.Context, fqdn string) (IngressEndpoint, error)
+	GetIngressEndpointByID(ctx context.Context, id int64) (IngressEndpoint, error)
+	GetIngressEndpointByUUID(ctx context.Context, arg GetIngressEndpointByUUIDParams) (IngressEndpoint, error)
+	// Unscoped by design: the SSO wall's forward-auth is called by Traefik, which
+	// has no team — the reference travels in the middleware address (ADR-030).
+	GetIngressEndpointByUUIDGlobal(ctx context.Context, uuid pgtype.UUID) (IngressEndpoint, error)
 	GetInstancePrivateKey(ctx context.Context) (PrivateKey, error)
 	GetInstanceSettings(ctx context.Context) (InstanceSetting, error)
 	GetJobByIdempotencyKey(ctx context.Context, idempotencyKey *string) (Job, error)
@@ -481,6 +501,10 @@ type Querier interface {
 	// The localhost server lands in the first team of the instance — the root
 	// user's, by construction (§6.2).
 	GetOldestTeamID(ctx context.Context) (int64, error)
+	GetOpenIngressSessionByUUID(ctx context.Context, uuid pgtype.UUID) (IngressTunnelSession, error)
+	// The occupancy probe (ADR-060 §6): the partial unique index makes at most one
+	// row match. "Open" means not ended — an unclaimed, unexpired mint occupies.
+	GetOpenIngressSessionForEndpoint(ctx context.Context, endpointID *int64) (GetOpenIngressSessionForEndpointRow, error)
 	// The login ceremony starts from the credential: the authenticator presents a
 	// credential id, and the user is whoever enrolled it. A deleted user's
 	// passkeys must not open sessions, hence the join.
@@ -704,6 +728,8 @@ type Querier interface {
 	ListExternalEndpointsPage(ctx context.Context, arg ListExternalEndpointsPageParams) ([]ExternalEndpoint, error)
 	ListGithubAppsPage(ctx context.Context, arg ListGithubAppsPageParams) ([]GithubApp, error)
 	ListIdentitiesForUser(ctx context.Context, userID int64) ([]Identity, error)
+	ListIngressEndpoints(ctx context.Context, teamID int64) ([]ListIngressEndpointsRow, error)
+	ListIngressSessionsPage(ctx context.Context, arg ListIngressSessionsPageParams) ([]ListIngressSessionsPageRow, error)
 	// Instance-wide audit (reserved to the instance root): every team AND the
 	// system/instance actions that have no team_id (encryption rotation, instance
 	// settings…), which no team-scoped view can show. Same optional filters.
@@ -850,6 +876,9 @@ type Querier interface {
 	MarkCertificateAlerted(ctx context.Context, arg MarkCertificateAlertedParams) error
 	MarkDigestDeliveriesFailed(ctx context.Context, arg MarkDigestDeliveriesFailedParams) error
 	MarkDigestDeliveriesSent(ctx context.Context, deliveryIds []int64) error
+	// Stamped from the agent's claim observation, never from an HTTP redeem: the
+	// socket lives agent-side. Idempotent against replayed observations.
+	MarkIngressSessionClaimed(ctx context.Context, uuid pgtype.UUID) (int64, error)
 	MarkJobRunning(ctx context.Context, arg MarkJobRunningParams) (int64, error)
 	// Records an explicit human deploy order (/deploy, /rebuild, the Previews
 	// tab, a fork approval): under the manual-first policy the capacity queue
@@ -884,6 +913,7 @@ type Querier interface {
 	PurgeExpiredPasskeyCeremonies(ctx context.Context) (int64, error)
 	PurgeExpiredSessions(ctx context.Context) (int64, error)
 	PurgeIdempotencyKeys(ctx context.Context) error
+	PurgeIngressSessions(ctx context.Context) (int64, error)
 	PurgePortForwardSessions(ctx context.Context, retentionDays int32) (int64, error)
 	// Never purge past the notification cursor: an event the dispatcher has not
 	// read yet would be a notification silently lost (the 7-day window makes this
@@ -1108,6 +1138,11 @@ type Querier interface {
 	// is superseded by a newer one; an already leased/running deployment is
 	// never coalesced.
 	SupersedeQueuedDeployments(ctx context.Context, arg SupersedeQueuedDeploymentsParams) ([]int64, error)
+	// Leader-side finalization of rows whose socket can no longer answer for
+	// itself: an unclaimed token past its TTL, a claimed session whose agent went
+	// silent (no report for 90 s), or one past the 12 h ceiling (ADR-060 §6).
+	// The derived reason keeps the audit line and the CLI message coherent.
+	SweepIngressSessions(ctx context.Context) ([]IngressTunnelSession, error)
 	// Finalize rows whose socket cannot still be alive. A non-NULL heartbeat names
 	// a bridge from this release or later; legacy NULL rows are left alone until
 	// the protocol's hard four-hour ceiling so an N-1 replica remains compatible.
@@ -1121,6 +1156,9 @@ type Querier interface {
 	TakeMcpOauthCode(ctx context.Context, codeHash string) (McpOauthCode, error)
 	TouchAgentTokenSeen(ctx context.Context, id int64) error
 	TouchApiTokenLastUsed(ctx context.Context, id int64) error
+	// Agent-reported liveness. Zero rows means the durable session was finalized
+	// (operator close, sweep) and the caller must cut the socket.
+	TouchIngressSession(ctx context.Context, uuid pgtype.UUID) (int64, error)
 	TouchMcpAccessToken(ctx context.Context, id int64) error
 	// The anti-replay gate (data-dictionary §4.3): last_used_at holds the start
 	// of the last accepted TOTP step, and only a strictly later step may pass.
@@ -1150,6 +1188,10 @@ type Querier interface {
 	UpdateEnvVar(ctx context.Context, arg UpdateEnvVarParams) (EnvironmentVariable, error)
 	UpdateEnvironment(ctx context.Context, arg UpdateEnvironmentParams) (int64, error)
 	UpdateExternalEndpoint(ctx context.Context, arg UpdateExternalEndpointParams) (ExternalEndpoint, error)
+	// The FQDN and the server are immutable after declaration: both are baked into
+	// the issued certificate and the deposited router. Renaming the URL is a
+	// delete + declare, which is what it costs everywhere else in the product.
+	UpdateIngressEndpoint(ctx context.Context, arg UpdateIngressEndpointParams) (IngressEndpoint, error)
 	UpdateJobSteps(ctx context.Context, arg UpdateJobStepsParams) error
 	UpdateNotificationChannel(ctx context.Context, arg UpdateNotificationChannelParams) (int64, error)
 	// Called after every successful assertion: the sign counter moved, and the

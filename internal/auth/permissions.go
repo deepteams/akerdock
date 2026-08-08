@@ -113,6 +113,13 @@ const (
 	PermExternalEndpointsRead   Permission = "external-endpoints:read"
 	PermExternalEndpointsManage Permission = "external-endpoints:manage"
 
+	// Ingress endpoints (ADR-060): the mirror of the bastion — declaring one
+	// publishes a hostname onto laptop software (admin), attaching to one
+	// exposes your own machine (member, separately grantable/revocable).
+	PermIngressEndpointsRead   Permission = "ingress-endpoints:read"
+	PermIngressEndpointsManage Permission = "ingress-endpoints:manage"
+	PermIngressTunnelsOpen     Permission = "ingress-tunnels:open"
+
 	PermAuditRead    Permission = "audit:read"
 	PermUptimeRead   Permission = "uptime:read"
 	PermUptimeManage Permission = "uptime:manage"
@@ -173,6 +180,9 @@ var Catalog = map[string]Permission{
 	"port-forwards:open": PermWrite,
 	// External endpoints (bastion targets, ADR-045)
 	"external-endpoints:read": PermRead, "external-endpoints:manage": PermWrite,
+	// Ingress endpoints (ADR-060)
+	"ingress-endpoints:read": PermRead, "ingress-endpoints:manage": PermWrite,
+	"ingress-tunnels:open": PermWrite,
 	// Observability
 	"logs:read": PermRead, "logs:manage": PermWrite,
 	"metrics:read": PermRead, "audit:read": PermRead,
@@ -187,13 +197,14 @@ var Catalog = map[string]Permission{
 // extraPrerequisites are the cross-domain dependencies that the generic
 // "mutation implies the domain's :read" rule (see Prerequisites) cannot derive.
 var extraPrerequisites = map[string][]string{
-	"invitations:manage":  {"members:read"},
-	"config:apply":        {"config:export"},
-	"environments:deploy": {"resources:read", "environments:read"},
-	"terminal:root":       {"terminal:open"},
-	"registries:manage":   {"sources:read"},
-	"storages:manage":     {"applications:read"},
-	"jobs:manage":         {"deployments:read"},
+	"invitations:manage":   {"members:read"},
+	"config:apply":         {"config:export"},
+	"environments:deploy":  {"resources:read", "environments:read"},
+	"terminal:root":        {"terminal:open"},
+	"registries:manage":    {"sources:read"},
+	"storages:manage":      {"applications:read"},
+	"jobs:manage":          {"deployments:read"},
+	"ingress-tunnels:open": {"ingress-endpoints:read"},
 }
 
 // Prerequisites returns the permissions that `perm` directly implies: the

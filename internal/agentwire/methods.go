@@ -99,6 +99,15 @@ const (
 // daemon's store, and only the progress stream crosses the channel. Streamed.
 const MethodImageBuild = "ImageBuild"
 
+// Ingress vocabulary (ADR-060): session control of the agent's ingress
+// module. The DATA path never rides this channel — visitor bytes go
+// Traefik → agent → laptop on the server itself; these commands only arm and
+// cut sessions, and the agent reports their lifecycle as observations.
+const (
+	MethodIngressExpect = "IngressExpect"
+	MethodIngressCut    = "IngressCut"
+)
+
 // Params structs, one per method. Fields are the SDK types — the Engine API's
 // own wire representations. Methods without params (Info, Ping, …) send none.
 //
@@ -412,6 +421,28 @@ type ImageBuildParams struct {
 	Labels     map[string]string `json:"labels,omitempty"`
 	Target     string            `json:"target,omitempty"`
 	NoCache    bool              `json:"no_cache,omitempty"`
+}
+
+// IngressExpectParams arms a single-use attach expectation (ADR-060 §3): the
+// laptop will redeem this token hash at the agent within the TTL. In-memory
+// only, as befits a 60-second secret — an agent restart simply refuses the
+// attach and the CLI re-mints.
+type IngressExpectParams struct {
+	SessionUUID  string `json:"session_uuid"`
+	EndpointUUID string `json:"endpoint_uuid"`
+	// TokenSHA256 is the hex SHA-256 of the akdi_ token; the clear token never
+	// rides this channel.
+	TokenSHA256 string `json:"token_sha256"`
+	// ExpiresAtUnix is the expectation's deadline (epoch seconds).
+	ExpiresAtUnix int64 `json:"expires_at_unix"`
+}
+
+// IngressCutParams cuts a live session, or disarms a pending expectation. The
+// reason reaches the laptop in the close frame — a policy close, which the
+// CLI does not re-dial through.
+type IngressCutParams struct {
+	SessionUUID string `json:"session_uuid"`
+	Reason      string `json:"reason"`
 }
 
 type FileHashParams struct {

@@ -46,6 +46,7 @@ var memberPermissions = []string{
 	string(PermPreviewsRead), string(PermPreviewsManage),
 	string(PermTerminalOpen), string(PermPortForwardsOpen),
 	string(PermExternalEndpointsRead),
+	string(PermIngressEndpointsRead), string(PermIngressTunnelsOpen),
 	string(PermLogsRead), string(PermMetricsRead),
 	string(PermNotificationsRead), string(PermNotificationsManage),
 	string(PermUptimeRead), string(PermUptimeManage),

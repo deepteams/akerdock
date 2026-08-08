@@ -128,6 +128,7 @@ func TestGranularConstantsInCatalog(t *testing.T) {
 		PermSourcesRead, PermSourcesManage, PermRegistriesManage,
 		PermTerminalOpen, PermTerminalRoot, PermPortForwardsOpen,
 		PermExternalEndpointsRead, PermExternalEndpointsManage,
+		PermIngressEndpointsRead, PermIngressEndpointsManage, PermIngressTunnelsOpen,
 		PermAuditRead, PermUptimeRead, PermUptimeManage,
 		PermInstanceManage, PermInstanceAudit, PermInstanceEncryption,
 	} {

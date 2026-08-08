@@ -306,6 +306,14 @@ func (f *fakeSchedulerStore) PurgePortForwardSessions(context.Context, int32) (i
 	return f.number("purgeTunnels"), f.err("purgeTunnels")
 }
 
+func (f *fakeSchedulerStore) SweepIngressSessions(context.Context) ([]store.IngressTunnelSession, error) {
+	return nil, f.err("sweepIngress")
+}
+
+func (f *fakeSchedulerStore) PurgeIngressSessions(context.Context) (int64, error) {
+	return f.number("purgeIngress"), f.err("purgeIngress")
+}
+
 func (f *fakeSchedulerStore) ListServersWithProxy(context.Context) ([]store.Server, error) {
 	return f.proxyServers, f.err("proxyServers")
 }

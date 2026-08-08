@@ -886,6 +886,96 @@ func (e HealthStatusStatus) Valid() bool {
 	}
 }
 
+// Defines values for IngressEndpointAccess.
+const (
+	IngressEndpointAccessBasicAuth IngressEndpointAccess = "basic_auth"
+	IngressEndpointAccessNone      IngressEndpointAccess = "none"
+	IngressEndpointAccessSso       IngressEndpointAccess = "sso"
+)
+
+// Valid indicates whether the value is a known member of the IngressEndpointAccess enum.
+func (e IngressEndpointAccess) Valid() bool {
+	switch e {
+	case IngressEndpointAccessBasicAuth:
+		return true
+	case IngressEndpointAccessNone:
+		return true
+	case IngressEndpointAccessSso:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IngressEndpointCreateAccess.
+const (
+	IngressEndpointCreateAccessBasicAuth IngressEndpointCreateAccess = "basic_auth"
+	IngressEndpointCreateAccessNone      IngressEndpointCreateAccess = "none"
+	IngressEndpointCreateAccessSso       IngressEndpointCreateAccess = "sso"
+)
+
+// Valid indicates whether the value is a known member of the IngressEndpointCreateAccess enum.
+func (e IngressEndpointCreateAccess) Valid() bool {
+	switch e {
+	case IngressEndpointCreateAccessBasicAuth:
+		return true
+	case IngressEndpointCreateAccessNone:
+		return true
+	case IngressEndpointCreateAccessSso:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IngressEndpointUpdateAccess.
+const (
+	IngressEndpointUpdateAccessBasicAuth IngressEndpointUpdateAccess = "basic_auth"
+	IngressEndpointUpdateAccessNone      IngressEndpointUpdateAccess = "none"
+	IngressEndpointUpdateAccessSso       IngressEndpointUpdateAccess = "sso"
+)
+
+// Valid indicates whether the value is a known member of the IngressEndpointUpdateAccess enum.
+func (e IngressEndpointUpdateAccess) Valid() bool {
+	switch e {
+	case IngressEndpointUpdateAccessBasicAuth:
+		return true
+	case IngressEndpointUpdateAccessNone:
+		return true
+	case IngressEndpointUpdateAccessSso:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IngressTunnelSessionInfoEndReason.
+const (
+	IngressTunnelSessionInfoEndReasonDisconnect  IngressTunnelSessionInfoEndReason = "disconnect"
+	IngressTunnelSessionInfoEndReasonIdleTimeout IngressTunnelSessionInfoEndReason = "idle_timeout"
+	IngressTunnelSessionInfoEndReasonMaxDuration IngressTunnelSessionInfoEndReason = "max_duration"
+	IngressTunnelSessionInfoEndReasonRevoked     IngressTunnelSessionInfoEndReason = "revoked"
+	IngressTunnelSessionInfoEndReasonUserClose   IngressTunnelSessionInfoEndReason = "user_close"
+)
+
+// Valid indicates whether the value is a known member of the IngressTunnelSessionInfoEndReason enum.
+func (e IngressTunnelSessionInfoEndReason) Valid() bool {
+	switch e {
+	case IngressTunnelSessionInfoEndReasonDisconnect:
+		return true
+	case IngressTunnelSessionInfoEndReasonIdleTimeout:
+		return true
+	case IngressTunnelSessionInfoEndReasonMaxDuration:
+		return true
+	case IngressTunnelSessionInfoEndReasonRevoked:
+		return true
+	case IngressTunnelSessionInfoEndReasonUserClose:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for InvitationRole.
 const (
 	InvitationRoleAdmin    InvitationRole = "admin"
@@ -1821,19 +1911,19 @@ func (e SharedVariableCreateScope) Valid() bool {
 
 // Defines values for SmtpConfigEncryption.
 const (
-	None     SmtpConfigEncryption = "none"
-	Starttls SmtpConfigEncryption = "starttls"
-	Tls      SmtpConfigEncryption = "tls"
+	SmtpConfigEncryptionNone     SmtpConfigEncryption = "none"
+	SmtpConfigEncryptionStarttls SmtpConfigEncryption = "starttls"
+	SmtpConfigEncryptionTls      SmtpConfigEncryption = "tls"
 )
 
 // Valid indicates whether the value is a known member of the SmtpConfigEncryption enum.
 func (e SmtpConfigEncryption) Valid() bool {
 	switch e {
-	case None:
+	case SmtpConfigEncryptionNone:
 		return true
-	case Starttls:
+	case SmtpConfigEncryptionStarttls:
 		return true
-	case Tls:
+	case SmtpConfigEncryptionTls:
 		return true
 	default:
 		return false
@@ -1842,22 +1932,22 @@ func (e SmtpConfigEncryption) Valid() bool {
 
 // Defines values for TaskExecutionStatus.
 const (
-	TaskExecutionStatusFailed    TaskExecutionStatus = "failed"
-	TaskExecutionStatusRunning   TaskExecutionStatus = "running"
-	TaskExecutionStatusSkipped   TaskExecutionStatus = "skipped"
-	TaskExecutionStatusSucceeded TaskExecutionStatus = "succeeded"
+	Failed    TaskExecutionStatus = "failed"
+	Running   TaskExecutionStatus = "running"
+	Skipped   TaskExecutionStatus = "skipped"
+	Succeeded TaskExecutionStatus = "succeeded"
 )
 
 // Valid indicates whether the value is a known member of the TaskExecutionStatus enum.
 func (e TaskExecutionStatus) Valid() bool {
 	switch e {
-	case TaskExecutionStatusFailed:
+	case Failed:
 		return true
-	case TaskExecutionStatusRunning:
+	case Running:
 		return true
-	case TaskExecutionStatusSkipped:
+	case Skipped:
 		return true
-	case TaskExecutionStatusSucceeded:
+	case Succeeded:
 		return true
 	default:
 		return false
@@ -3890,6 +3980,111 @@ type HealthStatus struct {
 // HealthStatusStatus Always `ok` if the control plane responds.
 type HealthStatusStatus string
 
+// IngressEndpoint A declared public URL relayed to a developer's machine (ADR-060). The FQDN is stable and registered in the routing namespace at declaration; the router and certificate are pre-provisioned, so attaching later is instant. noindex and forced HTTPS are unconditional and therefore not fields.
+type IngressEndpoint struct {
+	// Access The ADR-042 wall vocabulary. `sso` (the default) admits the team's authenticated users and nobody else; `none` is the conscious opt-out for third-party webhooks — an admin-level, audited act.
+	Access      IngressEndpointAccess `json:"access"`
+	CreatedAt   time.Time             `json:"created_at"`
+	Description *string               `json:"description,omitempty"`
+
+	// Fqdn Exact hostname, frozen at declaration — never random.
+	Fqdn string `json:"fqdn"`
+	Name string `json:"name"`
+
+	// OccupantEmail Who holds the live attach, when `occupied`.
+	OccupantEmail *string `json:"occupant_email,omitempty"`
+
+	// Occupied A live attach session exists (one laptop per endpoint).
+	Occupied bool `json:"occupied"`
+
+	// ServerUuid Ingress server: the vantage point whose proxy terminates the hostname and whose agent relays to the laptop.
+	ServerUuid string     `json:"server_uuid"`
+	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
+
+	// Url `https://<fqdn>` — what a visitor opens.
+	Url  string `json:"url"`
+	Uuid string `json:"uuid"`
+}
+
+// IngressEndpointAccess The ADR-042 wall vocabulary. `sso` (the default) admits the team's authenticated users and nobody else; `none` is the conscious opt-out for third-party webhooks — an admin-level, audited act.
+type IngressEndpointAccess string
+
+// IngressEndpointCreate defines model for IngressEndpointCreate.
+type IngressEndpointCreate struct {
+	Access *IngressEndpointCreateAccess `json:"access,omitempty"`
+
+	// BasicAuthPassword Required when `access` is `basic_auth`; hashed at rest, never readable back.
+	BasicAuthPassword *string `json:"basic_auth_password,omitempty"`
+	Description       *string `json:"description,omitempty"`
+
+	// Fqdn Exact hostname — typically under the server's wildcard domain, but any FQDN the operator routes to the server is acceptable. Immutable after declaration.
+	Fqdn string `json:"fqdn"`
+	Name string `json:"name"`
+
+	// ServerUuid Immutable after declaration.
+	ServerUuid string `json:"server_uuid"`
+}
+
+// IngressEndpointCreateAccess defines model for IngressEndpointCreate.Access.
+type IngressEndpointCreateAccess string
+
+// IngressEndpointUpdate What may change after declaration: the label, the description and the access regime. The FQDN and the server may not — both are baked into the certificate and the deposited router.
+type IngressEndpointUpdate struct {
+	Access            *IngressEndpointUpdateAccess `json:"access,omitempty"`
+	BasicAuthPassword *string                      `json:"basic_auth_password,omitempty"`
+	Description       *string                      `json:"description,omitempty"`
+	Name              string                       `json:"name"`
+}
+
+// IngressEndpointUpdateAccess defines model for IngressEndpointUpdate.Access.
+type IngressEndpointUpdateAccess string
+
+// IngressTunnelSession An ingress attach session (ADR-060 §3). Same token contract as every tunnel: **single-use**, returned once, hash stored — but redeemed **agent-side**, at `attach_url` on the endpoint's own FQDN, never at the control plane. Idle timeout 30 min (visitor silence), ceiling 12 h, both enforced by the agent and reported with a reason.
+type IngressTunnelSession struct {
+	// AttachUrl Full `wss://` URL to dial, on the endpoint's own FQDN (reserved path, ADR-060 §2), token in the query string. Subprotocol `akerdock-ingress-v1`, outside OpenAPI. This is the one sanctioned non-manager dial of the CLI transport invariant (ADR-060 §4): the hostname was named by the manager inside this authenticated response.
+	AttachUrl string `json:"attach_url"`
+	Fqdn      string `json:"fqdn"`
+
+	// Token Single-use attach token (`akdi_…`), returned only here.
+	Token string `json:"token"`
+
+	// TokenExpiresAt Expiration of the attach token, not of the session.
+	TokenExpiresAt time.Time `json:"token_expires_at"`
+
+	// Url `https://<fqdn>` — the public URL, to print at attach.
+	Url  string `json:"url"`
+	Uuid string `json:"uuid"`
+}
+
+// IngressTunnelSessionInfo An attach session as an operator sees it. Liveness is agent-reported (the socket lives on the ingress server), so `active` reflects the last report, not a control-plane connection.
+type IngressTunnelSessionInfo struct {
+	Active bool `json:"active"`
+
+	// ClientIp Address the mint was requested from.
+	ClientIp  *string   `json:"client_ip,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// EndReason Why it closed. `revoked` covers the operator cut and the endpoint's deletion; policy reasons are terminal for the CLI (no re-dial), `disconnect` is the one it recovers from.
+	EndReason    *IngressTunnelSessionInfoEndReason `json:"end_reason,omitempty"`
+	EndedAt      *time.Time                         `json:"ended_at,omitempty"`
+	EndpointName *string                            `json:"endpoint_name,omitempty"`
+
+	// EndpointUuid Absent when the endpoint was deleted after the session.
+	EndpointUuid *string `json:"endpoint_uuid,omitempty"`
+	Fqdn         *string `json:"fqdn,omitempty"`
+
+	// LastSeenAt Last agent report for this session.
+	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+
+	// StartedAt When the laptop attached — absent while the token is unredeemed.
+	StartedAt *time.Time `json:"started_at,omitempty"`
+	UserEmail *string    `json:"user_email,omitempty"`
+	Uuid      string     `json:"uuid"`
+}
+
+// IngressTunnelSessionInfoEndReason Why it closed. `revoked` covers the operator cut and the endpoint's deletion; policy reasons are terminal for the CLI (no re-dial), `disconnect` is the one it recovers from.
+type IngressTunnelSessionInfoEndReason string
+
 // InstanceIdentity defines model for InstanceIdentity.
 type InstanceIdentity struct {
 	// AcmeEmail Let's Encrypt contact (§4.3). Without it, no certificate is issued.
@@ -5387,6 +5582,12 @@ type IdempotencyKey = string
 // IfMatch defines model for IfMatch.
 type IfMatch = string
 
+// IngressEndpointUuid defines model for IngressEndpointUuid.
+type IngressEndpointUuid = string
+
+// IngressTunnelSessionUuid defines model for IngressTunnelSessionUuid.
+type IngressTunnelSessionUuid = string
+
 // InvitationUuid defines model for InvitationUuid.
 type InvitationUuid = string
 
@@ -5888,6 +6089,21 @@ type ListGithubAppsParams struct {
 // ListGithubAppRepositoriesParams defines parameters for ListGithubAppRepositories.
 type ListGithubAppRepositoriesParams struct {
 	Refresh *bool `form:"refresh,omitempty" json:"refresh,omitempty"`
+}
+
+// ListIngressTunnelSessionsParams defines parameters for ListIngressTunnelSessions.
+type ListIngressTunnelSessionsParams struct {
+	// IngressEndpointUuid Restrict to the sessions of this ingress endpoint.
+	IngressEndpointUuid *string `form:"ingress_endpoint_uuid,omitempty" json:"ingress_endpoint_uuid,omitempty"`
+
+	// Active `true` (default) lists only the sessions still open. `false` walks the history too.
+	Active *bool `form:"active,omitempty" json:"active,omitempty"`
+
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of items per page (1 to 100).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListJobsParams defines parameters for ListJobs.
@@ -6516,6 +6732,12 @@ type RequestExternalEndpointGrantJSONRequestBody = ExternalEndpointGrantCreate
 // CreateGithubAppJSONRequestBody defines body for CreateGithubApp for application/json ContentType.
 type CreateGithubAppJSONRequestBody = GithubAppCreateRequest
 
+// CreateIngressEndpointJSONRequestBody defines body for CreateIngressEndpoint for application/json ContentType.
+type CreateIngressEndpointJSONRequestBody = IngressEndpointCreate
+
+// UpdateIngressEndpointJSONRequestBody defines body for UpdateIngressEndpoint for application/json ContentType.
+type UpdateIngressEndpointJSONRequestBody = IngressEndpointUpdate
+
 // ForgetJobJSONRequestBody defines body for ForgetJob for application/json ContentType.
 type ForgetJobJSONRequestBody = JobForgetRequest
 
@@ -7033,6 +7255,30 @@ type ServerInterface interface {
 	// Liveness check
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// List the team's declared ingress endpoints
+	// (GET /ingress-endpoints)
+	ListIngressEndpoints(w http.ResponseWriter, r *http.Request)
+	// Declare an ingress endpoint
+	// (POST /ingress-endpoints)
+	CreateIngressEndpoint(w http.ResponseWriter, r *http.Request)
+	// Delete an ingress endpoint
+	// (DELETE /ingress-endpoints/{ingress_endpoint_uuid})
+	DeleteIngressEndpoint(w http.ResponseWriter, r *http.Request, ingressEndpointUuid IngressEndpointUuid)
+	// Read an ingress endpoint
+	// (GET /ingress-endpoints/{ingress_endpoint_uuid})
+	GetIngressEndpoint(w http.ResponseWriter, r *http.Request, ingressEndpointUuid IngressEndpointUuid)
+	// Update an ingress endpoint
+	// (PUT /ingress-endpoints/{ingress_endpoint_uuid})
+	UpdateIngressEndpoint(w http.ResponseWriter, r *http.Request, ingressEndpointUuid IngressEndpointUuid)
+	// Attach to an ingress endpoint (mint)
+	// (POST /ingress-endpoints/{ingress_endpoint_uuid}/tunnels)
+	CreateIngressTunnel(w http.ResponseWriter, r *http.Request, ingressEndpointUuid IngressEndpointUuid)
+	// List the team's ingress attach sessions
+	// (GET /ingress-tunnel-sessions)
+	ListIngressTunnelSessions(w http.ResponseWriter, r *http.Request, params ListIngressTunnelSessionsParams)
+	// Close an ingress attach session
+	// (DELETE /ingress-tunnel-sessions/{session_uuid})
+	CloseIngressTunnelSession(w http.ResponseWriter, r *http.Request, sessionUuid IngressTunnelSessionUuid)
 	// List jobs
 	// (GET /jobs)
 	ListJobs(w http.ResponseWriter, r *http.Request, params ListJobsParams)
@@ -7996,6 +8242,54 @@ func (_ Unimplemented) ListGithubAppRepositories(w http.ResponseWriter, r *http.
 // Liveness check
 // (GET /health)
 func (_ Unimplemented) GetHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the team's declared ingress endpoints
+// (GET /ingress-endpoints)
+func (_ Unimplemented) ListIngressEndpoints(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Declare an ingress endpoint
+// (POST /ingress-endpoints)
+func (_ Unimplemented) CreateIngressEndpoint(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete an ingress endpoint
+// (DELETE /ingress-endpoints/{ingress_endpoint_uuid})
+func (_ Unimplemented) DeleteIngressEndpoint(w http.ResponseWriter, r *http.Request, ingressEndpointUuid IngressEndpointUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read an ingress endpoint
+// (GET /ingress-endpoints/{ingress_endpoint_uuid})
+func (_ Unimplemented) GetIngressEndpoint(w http.ResponseWriter, r *http.Request, ingressEndpointUuid IngressEndpointUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update an ingress endpoint
+// (PUT /ingress-endpoints/{ingress_endpoint_uuid})
+func (_ Unimplemented) UpdateIngressEndpoint(w http.ResponseWriter, r *http.Request, ingressEndpointUuid IngressEndpointUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Attach to an ingress endpoint (mint)
+// (POST /ingress-endpoints/{ingress_endpoint_uuid}/tunnels)
+func (_ Unimplemented) CreateIngressTunnel(w http.ResponseWriter, r *http.Request, ingressEndpointUuid IngressEndpointUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the team's ingress attach sessions
+// (GET /ingress-tunnel-sessions)
+func (_ Unimplemented) ListIngressTunnelSessions(w http.ResponseWriter, r *http.Request, params ListIngressTunnelSessionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Close an ingress attach session
+// (DELETE /ingress-tunnel-sessions/{session_uuid})
+func (_ Unimplemented) CloseIngressTunnelSession(w http.ResponseWriter, r *http.Request, sessionUuid IngressTunnelSessionUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -13138,6 +13432,284 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListIngressEndpoints operation middleware
+func (siw *ServerInterfaceWrapper) ListIngressEndpoints(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListIngressEndpoints(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateIngressEndpoint operation middleware
+func (siw *ServerInterfaceWrapper) CreateIngressEndpoint(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateIngressEndpoint(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteIngressEndpoint operation middleware
+func (siw *ServerInterfaceWrapper) DeleteIngressEndpoint(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "ingress_endpoint_uuid" -------------
+	var ingressEndpointUuid IngressEndpointUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ingress_endpoint_uuid", chi.URLParam(r, "ingress_endpoint_uuid"), &ingressEndpointUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ingress_endpoint_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteIngressEndpoint(w, r, ingressEndpointUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetIngressEndpoint operation middleware
+func (siw *ServerInterfaceWrapper) GetIngressEndpoint(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "ingress_endpoint_uuid" -------------
+	var ingressEndpointUuid IngressEndpointUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ingress_endpoint_uuid", chi.URLParam(r, "ingress_endpoint_uuid"), &ingressEndpointUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ingress_endpoint_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetIngressEndpoint(w, r, ingressEndpointUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateIngressEndpoint operation middleware
+func (siw *ServerInterfaceWrapper) UpdateIngressEndpoint(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "ingress_endpoint_uuid" -------------
+	var ingressEndpointUuid IngressEndpointUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ingress_endpoint_uuid", chi.URLParam(r, "ingress_endpoint_uuid"), &ingressEndpointUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ingress_endpoint_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateIngressEndpoint(w, r, ingressEndpointUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateIngressTunnel operation middleware
+func (siw *ServerInterfaceWrapper) CreateIngressTunnel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "ingress_endpoint_uuid" -------------
+	var ingressEndpointUuid IngressEndpointUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ingress_endpoint_uuid", chi.URLParam(r, "ingress_endpoint_uuid"), &ingressEndpointUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ingress_endpoint_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateIngressTunnel(w, r, ingressEndpointUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListIngressTunnelSessions operation middleware
+func (siw *ServerInterfaceWrapper) ListIngressTunnelSessions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListIngressTunnelSessionsParams
+
+	// ------------- Optional query parameter "ingress_endpoint_uuid" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "ingress_endpoint_uuid", r.URL.Query(), &params.IngressEndpointUuid, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "ingress_endpoint_uuid"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ingress_endpoint_uuid", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "active" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "active", r.URL.Query(), &params.Active, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "active"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "active", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListIngressTunnelSessions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CloseIngressTunnelSession operation middleware
+func (siw *ServerInterfaceWrapper) CloseIngressTunnelSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "session_uuid" -------------
+	var sessionUuid IngressTunnelSessionUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "session_uuid", chi.URLParam(r, "session_uuid"), &sessionUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CloseIngressTunnelSession(w, r, sessionUuid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -19730,6 +20302,30 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/health", wrapper.GetHealth)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/ingress-endpoints", wrapper.ListIngressEndpoints)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/ingress-endpoints", wrapper.CreateIngressEndpoint)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/ingress-endpoints/{ingress_endpoint_uuid}", wrapper.DeleteIngressEndpoint)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/ingress-endpoints/{ingress_endpoint_uuid}", wrapper.GetIngressEndpoint)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/ingress-endpoints/{ingress_endpoint_uuid}", wrapper.UpdateIngressEndpoint)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/ingress-endpoints/{ingress_endpoint_uuid}/tunnels", wrapper.CreateIngressTunnel)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/ingress-tunnel-sessions", wrapper.ListIngressTunnelSessions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/ingress-tunnel-sessions/{session_uuid}", wrapper.CloseIngressTunnelSession)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/jobs", wrapper.ListJobs)
@@ -29007,6 +29603,569 @@ func (response GetHealth200JSONResponse) VisitGetHealthResponse(w http.ResponseW
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIngressEndpointsRequestObject struct {
+}
+
+type ListIngressEndpointsResponseObject interface {
+	VisitListIngressEndpointsResponse(w http.ResponseWriter) error
+}
+
+type ListIngressEndpoints200JSONResponse struct {
+	Data []IngressEndpoint `json:"data"`
+}
+
+func (response ListIngressEndpoints200JSONResponse) VisitListIngressEndpointsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIngressEndpoints401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListIngressEndpoints401JSONResponse) VisitListIngressEndpointsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIngressEndpoints403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListIngressEndpoints403JSONResponse) VisitListIngressEndpointsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIngressEndpointRequestObject struct {
+	Body *CreateIngressEndpointJSONRequestBody
+}
+
+type CreateIngressEndpointResponseObject interface {
+	VisitCreateIngressEndpointResponse(w http.ResponseWriter) error
+}
+
+type CreateIngressEndpoint201JSONResponse IngressEndpoint
+
+func (response CreateIngressEndpoint201JSONResponse) VisitCreateIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIngressEndpoint400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateIngressEndpoint400JSONResponse) VisitCreateIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIngressEndpoint401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateIngressEndpoint401JSONResponse) VisitCreateIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIngressEndpoint403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateIngressEndpoint403JSONResponse) VisitCreateIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIngressEndpoint404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateIngressEndpoint404JSONResponse) VisitCreateIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIngressEndpoint409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateIngressEndpoint409JSONResponse) VisitCreateIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIngressEndpointRequestObject struct {
+	IngressEndpointUuid IngressEndpointUuid `json:"ingress_endpoint_uuid"`
+}
+
+type DeleteIngressEndpointResponseObject interface {
+	VisitDeleteIngressEndpointResponse(w http.ResponseWriter) error
+}
+
+type DeleteIngressEndpoint204Response struct {
+}
+
+func (response DeleteIngressEndpoint204Response) VisitDeleteIngressEndpointResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteIngressEndpoint401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteIngressEndpoint401JSONResponse) VisitDeleteIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIngressEndpoint403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteIngressEndpoint403JSONResponse) VisitDeleteIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIngressEndpoint404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteIngressEndpoint404JSONResponse) VisitDeleteIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetIngressEndpointRequestObject struct {
+	IngressEndpointUuid IngressEndpointUuid `json:"ingress_endpoint_uuid"`
+}
+
+type GetIngressEndpointResponseObject interface {
+	VisitGetIngressEndpointResponse(w http.ResponseWriter) error
+}
+
+type GetIngressEndpoint200JSONResponse IngressEndpoint
+
+func (response GetIngressEndpoint200JSONResponse) VisitGetIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetIngressEndpoint401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetIngressEndpoint401JSONResponse) VisitGetIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetIngressEndpoint403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetIngressEndpoint403JSONResponse) VisitGetIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetIngressEndpoint404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetIngressEndpoint404JSONResponse) VisitGetIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateIngressEndpointRequestObject struct {
+	IngressEndpointUuid IngressEndpointUuid `json:"ingress_endpoint_uuid"`
+	Body                *UpdateIngressEndpointJSONRequestBody
+}
+
+type UpdateIngressEndpointResponseObject interface {
+	VisitUpdateIngressEndpointResponse(w http.ResponseWriter) error
+}
+
+type UpdateIngressEndpoint200JSONResponse IngressEndpoint
+
+func (response UpdateIngressEndpoint200JSONResponse) VisitUpdateIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateIngressEndpoint400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateIngressEndpoint400JSONResponse) VisitUpdateIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateIngressEndpoint401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateIngressEndpoint401JSONResponse) VisitUpdateIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateIngressEndpoint403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateIngressEndpoint403JSONResponse) VisitUpdateIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateIngressEndpoint404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateIngressEndpoint404JSONResponse) VisitUpdateIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateIngressEndpoint409JSONResponse struct{ ConflictJSONResponse }
+
+func (response UpdateIngressEndpoint409JSONResponse) VisitUpdateIngressEndpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIngressTunnelRequestObject struct {
+	IngressEndpointUuid IngressEndpointUuid `json:"ingress_endpoint_uuid"`
+}
+
+type CreateIngressTunnelResponseObject interface {
+	VisitCreateIngressTunnelResponse(w http.ResponseWriter) error
+}
+
+type CreateIngressTunnel201JSONResponse IngressTunnelSession
+
+func (response CreateIngressTunnel201JSONResponse) VisitCreateIngressTunnelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIngressTunnel401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateIngressTunnel401JSONResponse) VisitCreateIngressTunnelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIngressTunnel403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateIngressTunnel403JSONResponse) VisitCreateIngressTunnelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIngressTunnel404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateIngressTunnel404JSONResponse) VisitCreateIngressTunnelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateIngressTunnel409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateIngressTunnel409JSONResponse) VisitCreateIngressTunnelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIngressTunnelSessionsRequestObject struct {
+	Params ListIngressTunnelSessionsParams
+}
+
+type ListIngressTunnelSessionsResponseObject interface {
+	VisitListIngressTunnelSessionsResponse(w http.ResponseWriter) error
+}
+
+type ListIngressTunnelSessions200JSONResponse struct {
+	Data []IngressTunnelSessionInfo `json:"data"`
+
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListIngressTunnelSessions200JSONResponse) VisitListIngressTunnelSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIngressTunnelSessions400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListIngressTunnelSessions400JSONResponse) VisitListIngressTunnelSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIngressTunnelSessions401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListIngressTunnelSessions401JSONResponse) VisitListIngressTunnelSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIngressTunnelSessions403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListIngressTunnelSessions403JSONResponse) VisitListIngressTunnelSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloseIngressTunnelSessionRequestObject struct {
+	SessionUuid IngressTunnelSessionUuid `json:"session_uuid"`
+}
+
+type CloseIngressTunnelSessionResponseObject interface {
+	VisitCloseIngressTunnelSessionResponse(w http.ResponseWriter) error
+}
+
+type CloseIngressTunnelSession204Response struct {
+}
+
+func (response CloseIngressTunnelSession204Response) VisitCloseIngressTunnelSessionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type CloseIngressTunnelSession401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CloseIngressTunnelSession401JSONResponse) VisitCloseIngressTunnelSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloseIngressTunnelSession403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CloseIngressTunnelSession403JSONResponse) VisitCloseIngressTunnelSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CloseIngressTunnelSession404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CloseIngressTunnelSession404JSONResponse) VisitCloseIngressTunnelSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -42013,6 +43172,30 @@ type StrictServerInterface interface {
 	// Liveness check
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// List the team's declared ingress endpoints
+	// (GET /ingress-endpoints)
+	ListIngressEndpoints(ctx context.Context, request ListIngressEndpointsRequestObject) (ListIngressEndpointsResponseObject, error)
+	// Declare an ingress endpoint
+	// (POST /ingress-endpoints)
+	CreateIngressEndpoint(ctx context.Context, request CreateIngressEndpointRequestObject) (CreateIngressEndpointResponseObject, error)
+	// Delete an ingress endpoint
+	// (DELETE /ingress-endpoints/{ingress_endpoint_uuid})
+	DeleteIngressEndpoint(ctx context.Context, request DeleteIngressEndpointRequestObject) (DeleteIngressEndpointResponseObject, error)
+	// Read an ingress endpoint
+	// (GET /ingress-endpoints/{ingress_endpoint_uuid})
+	GetIngressEndpoint(ctx context.Context, request GetIngressEndpointRequestObject) (GetIngressEndpointResponseObject, error)
+	// Update an ingress endpoint
+	// (PUT /ingress-endpoints/{ingress_endpoint_uuid})
+	UpdateIngressEndpoint(ctx context.Context, request UpdateIngressEndpointRequestObject) (UpdateIngressEndpointResponseObject, error)
+	// Attach to an ingress endpoint (mint)
+	// (POST /ingress-endpoints/{ingress_endpoint_uuid}/tunnels)
+	CreateIngressTunnel(ctx context.Context, request CreateIngressTunnelRequestObject) (CreateIngressTunnelResponseObject, error)
+	// List the team's ingress attach sessions
+	// (GET /ingress-tunnel-sessions)
+	ListIngressTunnelSessions(ctx context.Context, request ListIngressTunnelSessionsRequestObject) (ListIngressTunnelSessionsResponseObject, error)
+	// Close an ingress attach session
+	// (DELETE /ingress-tunnel-sessions/{session_uuid})
+	CloseIngressTunnelSession(ctx context.Context, request CloseIngressTunnelSessionRequestObject) (CloseIngressTunnelSessionResponseObject, error)
 	// List jobs
 	// (GET /jobs)
 	ListJobs(ctx context.Context, request ListJobsRequestObject) (ListJobsResponseObject, error)
@@ -45086,6 +46269,224 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetHealthResponseObject); ok {
 		if err := validResponse.VisitGetHealthResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListIngressEndpoints operation middleware
+func (sh *strictHandler) ListIngressEndpoints(w http.ResponseWriter, r *http.Request) {
+	var request ListIngressEndpointsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListIngressEndpoints(ctx, request.(ListIngressEndpointsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListIngressEndpoints")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListIngressEndpointsResponseObject); ok {
+		if err := validResponse.VisitListIngressEndpointsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateIngressEndpoint operation middleware
+func (sh *strictHandler) CreateIngressEndpoint(w http.ResponseWriter, r *http.Request) {
+	var request CreateIngressEndpointRequestObject
+
+	var body CreateIngressEndpointJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateIngressEndpoint(ctx, request.(CreateIngressEndpointRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateIngressEndpoint")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateIngressEndpointResponseObject); ok {
+		if err := validResponse.VisitCreateIngressEndpointResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteIngressEndpoint operation middleware
+func (sh *strictHandler) DeleteIngressEndpoint(w http.ResponseWriter, r *http.Request, ingressEndpointUuid IngressEndpointUuid) {
+	var request DeleteIngressEndpointRequestObject
+
+	request.IngressEndpointUuid = ingressEndpointUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteIngressEndpoint(ctx, request.(DeleteIngressEndpointRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteIngressEndpoint")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteIngressEndpointResponseObject); ok {
+		if err := validResponse.VisitDeleteIngressEndpointResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetIngressEndpoint operation middleware
+func (sh *strictHandler) GetIngressEndpoint(w http.ResponseWriter, r *http.Request, ingressEndpointUuid IngressEndpointUuid) {
+	var request GetIngressEndpointRequestObject
+
+	request.IngressEndpointUuid = ingressEndpointUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetIngressEndpoint(ctx, request.(GetIngressEndpointRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetIngressEndpoint")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetIngressEndpointResponseObject); ok {
+		if err := validResponse.VisitGetIngressEndpointResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateIngressEndpoint operation middleware
+func (sh *strictHandler) UpdateIngressEndpoint(w http.ResponseWriter, r *http.Request, ingressEndpointUuid IngressEndpointUuid) {
+	var request UpdateIngressEndpointRequestObject
+
+	request.IngressEndpointUuid = ingressEndpointUuid
+
+	var body UpdateIngressEndpointJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateIngressEndpoint(ctx, request.(UpdateIngressEndpointRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateIngressEndpoint")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateIngressEndpointResponseObject); ok {
+		if err := validResponse.VisitUpdateIngressEndpointResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateIngressTunnel operation middleware
+func (sh *strictHandler) CreateIngressTunnel(w http.ResponseWriter, r *http.Request, ingressEndpointUuid IngressEndpointUuid) {
+	var request CreateIngressTunnelRequestObject
+
+	request.IngressEndpointUuid = ingressEndpointUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateIngressTunnel(ctx, request.(CreateIngressTunnelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateIngressTunnel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateIngressTunnelResponseObject); ok {
+		if err := validResponse.VisitCreateIngressTunnelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListIngressTunnelSessions operation middleware
+func (sh *strictHandler) ListIngressTunnelSessions(w http.ResponseWriter, r *http.Request, params ListIngressTunnelSessionsParams) {
+	var request ListIngressTunnelSessionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListIngressTunnelSessions(ctx, request.(ListIngressTunnelSessionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListIngressTunnelSessions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListIngressTunnelSessionsResponseObject); ok {
+		if err := validResponse.VisitListIngressTunnelSessionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CloseIngressTunnelSession operation middleware
+func (sh *strictHandler) CloseIngressTunnelSession(w http.ResponseWriter, r *http.Request, sessionUuid IngressTunnelSessionUuid) {
+	var request CloseIngressTunnelSessionRequestObject
+
+	request.SessionUuid = sessionUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CloseIngressTunnelSession(ctx, request.(CloseIngressTunnelSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CloseIngressTunnelSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CloseIngressTunnelSessionResponseObject); ok {
+		if err := validResponse.VisitCloseIngressTunnelSessionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
