@@ -150,8 +150,9 @@ func GenerateDynamic(rg RouteGroup, revision int64) string {
 			}
 		}
 	}
+	attach := ingressAttachTargets(rg, routes)
 	writeAccessCallbackRouters(&b, rg, routes)
-	writeIngressAttachRouters(&b, rg, routes)
+	writeIngressAttachRouters(&b, rg, attach)
 	if forceHTTPS || rg.Access != nil || rg.Noindex {
 		b.WriteString("  middlewares:\n")
 	}
@@ -164,20 +165,13 @@ func GenerateDynamic(rg RouteGroup, revision int64) string {
 	// One service per distinct target port. The contract's single-service
 	// form (§5.1) holds when every route targets the same port; per-route
 	// services keep domain:port targeting correct in the meantime.
-	endpoint := rg.Endpoint
-	if endpoint == "" {
-		endpoint = rg.AppUUID
-	}
 	b.WriteString("  services:\n")
 	for n, route := range routes {
-		target := endpoint
-		if route.Endpoint != "" {
-			target = route.Endpoint
-		}
 		fmt.Fprintf(&b, "    %s-s%d:\n", rg.AppUUID, n)
 		b.WriteString("      loadBalancer:\n        servers:\n")
-		fmt.Fprintf(&b, "          - url: \"http://%s:%d\"\n", target, route.TargetPort)
+		fmt.Fprintf(&b, "          - url: \"http://%s:%d\"\n", routeTarget(rg, route), route.TargetPort)
 	}
+	writeIngressAttachServices(&b, rg, attach)
 	writeAccessCallbackService(&b, rg)
 	return b.String()
 }
@@ -303,28 +297,81 @@ func writeAccessCallbackRouters(b *strings.Builder, rg RouteGroup, routes []Rout
 	}
 }
 
-// writeIngressAttachRouters emits the reserved attach router of an ingress
-// group: one per distinct FQDN, targeting the same service as that FQDN's
-// first route. Modeled on the callback routers and generated natively by the
-// IR — never spliced into the YAML after the fact.
-func writeIngressAttachRouters(b *strings.Builder, rg RouteGroup, routes []Route) {
+// ingressAttachTarget is one reserved attach router and the backend it serves:
+// the FQDN it answers on, and the agent front that FQDN's first route points
+// at. Computed once so the router and its service cannot disagree.
+type ingressAttachTarget struct {
+	fqdn     string
+	endpoint string
+	port     int
+}
+
+// ingressAttachTargets resolves one target per distinct FQDN, in the order of
+// the already-sorted routes. The map is a dedupe set only — never iterated —
+// so the output stays byte-stable across runs, which is what the checksum-based
+// apply and the drift detection rest on (§6.2).
+func ingressAttachTargets(rg RouteGroup, routes []Route) []ingressAttachTarget {
 	if rg.IngressAttachPath == "" {
-		return
+		return nil
 	}
-	seen := map[string]struct{}{}
-	attachN := 0
-	for n, route := range routes {
+	seen := make(map[string]struct{}, len(routes))
+	targets := make([]ingressAttachTarget, 0, len(routes))
+	for _, route := range routes {
 		if _, ok := seen[route.FQDN]; ok {
 			continue
 		}
 		seen[route.FQDN] = struct{}{}
-		fmt.Fprintf(b, "    %s-ingress-attach-%d:\n", rg.AppUUID, attachN)
+		targets = append(targets, ingressAttachTarget{
+			fqdn: route.FQDN, endpoint: routeTarget(rg, route), port: route.TargetPort,
+		})
+	}
+	return targets
+}
+
+// writeIngressAttachRouters emits the reserved attach router of an ingress
+// group: one per distinct FQDN, on its own h2c service. Modeled on the callback
+// routers and generated natively by the IR — never spliced into the YAML after
+// the fact.
+func writeIngressAttachRouters(b *strings.Builder, rg RouteGroup, targets []ingressAttachTarget) {
+	for n, target := range targets {
+		fmt.Fprintf(b, "    %s-ingress-attach-%d:\n", rg.AppUUID, n)
 		b.WriteString("      entryPoints: [websecure]\n")
-		fmt.Fprintf(b, "      rule: Host(`%s`) && Path(`%s`)\n", route.FQDN, rg.IngressAttachPath)
+		fmt.Fprintf(b, "      rule: Host(`%s`) && Path(`%s`)\n", target.fqdn, rg.IngressAttachPath)
 		fmt.Fprintf(b, "      priority: %d\n", ingressAttachPriority)
-		fmt.Fprintf(b, "      service: %s-s%d\n", rg.AppUUID, n)
-		writeTLS(b, rg, route.FQDN)
-		attachN++
+		fmt.Fprintf(b, "      service: %s-ingress-attach-%d\n", rg.AppUUID, n)
+		writeTLS(b, rg, target.fqdn)
+	}
+}
+
+// writeIngressAttachServices emits the attach path's own service, pointed at
+// the same agent front as the visitor route but over **h2c** (ADR-063): the
+// laptop's control and data requests then stay multiplexed on one connection
+// all the way to the agent, with native full duplex, instead of being
+// downgraded to one HTTP/1.1 connection per relayed stream.
+//
+// It is a separate service on purpose. The visitor routers keep their plain
+// `http://` service, because `Connection` and `Upgrade` are invalid HTTP/2
+// request headers (RFC 7540 §8.1.2.2) and Traefik performs no RFC 8441
+// translation — an h2c backend hop would break every relayed WebSocket upgrade.
+func writeIngressAttachServices(b *strings.Builder, rg RouteGroup, targets []ingressAttachTarget) {
+	for n, target := range targets {
+		fmt.Fprintf(b, "    %s-ingress-attach-%d:\n", rg.AppUUID, n)
+		b.WriteString("      loadBalancer:\n        servers:\n")
+		fmt.Fprintf(b, "          - url: \"h2c://%s:%d\"\n", target.endpoint, target.port)
+	}
+}
+
+// routeTarget is the backend a route forwards to: its own endpoint (one
+// compose component), else the group's, else the container named after the
+// resource.
+func routeTarget(rg RouteGroup, route Route) string {
+	switch {
+	case route.Endpoint != "":
+		return route.Endpoint
+	case rg.Endpoint != "":
+		return rg.Endpoint
+	default:
+		return rg.AppUUID
 	}
 }
 

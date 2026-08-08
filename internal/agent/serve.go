@@ -131,7 +131,7 @@ func ServeWithTelemetry(ctx context.Context, dir, addr string, rt dockerruntime.
 		wk.ServeHTTP(w, r)
 	})
 
-	srv := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	srv := newFront(addr, handler)
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -143,6 +143,47 @@ func ServeWithTelemetry(ctx context.Context, dir, addr string, rt dockerruntime.
 		return err
 	}
 	return nil
+}
+
+// frontMaxConcurrentStreams is what the h2c front advertises to Traefik in its
+// SETTINGS frame. The tunnel admits ingressMaxActiveStreams relayed connections
+// and queues ingressMaxQueuedStreams more, and every one of them is a request
+// the laptop opens toward this front — plus the control request. Go's default
+// 250 would rebuild, inside HTTP/2, the very queue this hop exists to remove;
+// the bound that must do the admission work is the tunnel's, which answers
+// explicitly (503 + Retry-After) instead of stalling a stream invisibly.
+const frontMaxConcurrentStreams = 1024
+
+// newFront builds the agent's HTTP front (ADR-063).
+//
+// h2c is enabled on the whole front rather than on a scoped handler because
+// the protocol is chosen by the connection preface, before any request line
+// exists to route on: there is no path at which a handler could switch. That
+// costs nothing — an HTTP/1.1 peer is served exactly as before — and the actual
+// scoping lives one hop up, in the proxy IR: only the reserved attach router
+// gets an `h2c://` service, so only the laptop's attach connections ever arrive
+// here as HTTP/2. Visitor traffic, the waker's pages and /metrics keep reaching
+// this front over HTTP/1.1, which is required, not incidental: `Connection` and
+// `Upgrade` are invalid HTTP/2 request headers (RFC 7540 §8.1.2.2), so a
+// relayed WebSocket upgrade could not survive an h2c hop.
+func newFront(addr string, handler http.Handler) *http.Server {
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+	return &http.Server{
+		Addr:      addr,
+		Handler:   handler,
+		Protocols: protocols,
+		HTTP2:     &http.HTTP2Config{MaxConcurrentStreams: frontMaxConcurrentStreams},
+		// ReadHeaderTimeout bounds a stalled request head, and must never be
+		// promoted to ReadTimeout: Go's HTTP/2 server arms ReadTimeout as a
+		// per-stream deadline on the REQUEST BODY (net/http h2_bundle.go,
+		// processHeaders), and the ingress control and data requests are
+		// long-lived full-duplex bodies. That is the exact cut ADR-061 removed
+		// at the Traefik level (readTimeout: 0s, proxy-contract §5.2); setting
+		// it here would restore it one hop later.
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 }
 
 func routingFilesFingerprint(dir string) [sha256.Size]byte {

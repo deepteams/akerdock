@@ -62,6 +62,13 @@ type fixture struct {
 		TargetPort   int    `json:"target_port"`
 		Revision     int64  `json:"revision"`
 	} `json:"tcp_routes"`
+	Ingress []struct {
+		UUID           string `json:"uuid"`
+		FQDN           string `json:"fqdn"`
+		WildcardDomain string `json:"wildcard_domain"`
+		DNSProvider    string `json:"dns_provider"`
+		Revision       int64  `json:"revision"`
+	} `json:"ingress"`
 }
 
 func TestTraefikConformance(t *testing.T) {
@@ -115,6 +122,25 @@ func TestTraefikConformance(t *testing.T) {
 					t.Fatal("the TCP generator is not deterministic")
 				}
 				compare(t, filepath.Join(dir, "expected", "traefik", "dynamic", tr.ResourceUUID+".yaml"), got)
+			}
+
+			// Ingress endpoints (ADR-060): a declared FQDN permanently pointed
+			// at the agent, plus the reserved high-priority attach router the
+			// laptop dials. The router is part of the routing contract, not an
+			// implementation detail of the tunnel — a change to how the attach
+			// path is served shows up here as a reviewable diff.
+			for _, ing := range fx.Ingress {
+				group := proxy.IngressGroup{
+					UUID:           ing.UUID,
+					FQDN:           ing.FQDN,
+					WildcardDomain: ing.WildcardDomain,
+					DNSProvider:    ing.DNSProvider,
+				}
+				got := proxy.GenerateIngress(group, ing.Revision)
+				if again := proxy.GenerateIngress(group, ing.Revision); again != got {
+					t.Fatal("the ingress generator is not deterministic")
+				}
+				compare(t, filepath.Join(dir, "expected", "traefik", "dynamic", ing.UUID+".yaml"), got)
 			}
 
 			// Caddy (P2): an absent expectation is reported, never silently

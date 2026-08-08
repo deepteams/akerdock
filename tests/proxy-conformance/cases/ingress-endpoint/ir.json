@@ -1,0 +1,13 @@
+{
+  "ir_version": 1,
+  "description": "A declared ingress endpoint (ADR-060): one stable FQDN permanently pointed at the agent's HTTP front, plus the reserved high-priority router the laptop dials to attach. Covers the routing contract of the tunnel — how the attach path is served is part of the contract, not an internal detail.",
+  "ingress": [
+    {
+      "uuid": "5c6d7e8f-9a0b-4c1d-8e2f-3a4b5c6d7e8f",
+      "fqdn": "dev-kedric.example.test",
+      "wildcard_domain": "example.test",
+      "dns_provider": "cloudflare",
+      "revision": 12
+    }
+  ]
+}
