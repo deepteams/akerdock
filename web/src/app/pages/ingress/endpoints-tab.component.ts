@@ -13,6 +13,12 @@ type IngressEndpoint = components['schemas']['IngressEndpoint'];
 type Server = components['schemas']['Server'];
 type IngressAccess = 'sso' | 'basic_auth' | 'none';
 
+/** The base domain of a server wildcard: `*.ad.kedric.fr` → `ad.kedric.fr`.
+ * The `*` (or a bare leading dot) is the slot the subdomain fills. */
+function baseDomain(wildcard: string | null | undefined): string {
+  return (wildcard ?? '').trim().replace(/^\*?\.?/, '');
+}
+
 /**
  * The declared ingress endpoints (ADR-060) — the mirror of the bastion. Each is
  * a stable public URL relayed to whoever runs `akerdock ingress <name> <port>`
@@ -365,10 +371,12 @@ export class IngressEndpointsTabComponent {
   }
 
   /** The wildcard suffixes offered for the chosen server (one per server
-   * today, but a list keeps the dropdown honest if that ever changes). */
+   * today, but a list keeps the dropdown honest if that ever changes). The
+   * stored wildcard may carry a leading `*.` (that is where the subdomain
+   * goes) — strip it so the dropdown reads `.ad.kedric.fr`, not `.*.ad…`. */
   protected wildcards(): string[] {
     const server = this.servers().find((s) => s.uuid === this.serverUuid);
-    const w = server?.wildcard_domain?.trim();
+    const w = baseDomain(server?.wildcard_domain);
     return w ? [w] : [];
   }
 
