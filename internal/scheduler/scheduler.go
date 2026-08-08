@@ -153,6 +153,7 @@ type Store interface {
 	SweepIngressSessions(context.Context) ([]store.IngressTunnelSession, error)
 	PurgeIngressSessions(context.Context) (int64, error)
 	ListServersWithProxy(context.Context) ([]store.Server, error)
+	ListIngressEndpoints(context.Context, int64) ([]store.ListIngressEndpointsRow, error)
 	ListReadyServers(context.Context) ([]store.Server, error)
 	ListAppliedProxyRevisions(context.Context, int64) ([]store.ProxyConfigRevision, error)
 	GetPrivateKeyByID(context.Context, int64) (store.PrivateKey, error)

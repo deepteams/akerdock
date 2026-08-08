@@ -147,6 +147,18 @@ func (h *ServerValidate) Execute(ctx context.Context, job store.Job, rec *queue.
 	}
 	rec.Succeed(ctx, "agent connected — the command channel answers")
 
+	// Endpoint declarations can be created while a server is validating, and
+	// an earlier routing job may have failed after Traefik was written. Rebuild
+	// the agent's authoritative ingress table before the proxy is exposed.
+	if server.ProxyType == store.ProxyTypeTraefik {
+		rec.Start(ctx, "sync_ingress_routes")
+		if err := ReconcileIngressRoutes(ctx, h.Store, ops, server); err != nil {
+			rec.Fail(ctx, firstLine(err.Error()))
+			return nil, err
+		}
+		rec.Succeed(ctx, "ingress host table synchronized")
+	}
+
 	// Step 5 — proxy bootstrap (proxy-contract §1.3): static config +
 	// managed Traefik container, when the operator's intent asks for it.
 	if run, reason := proxyBootstrapDecision(server); !run {

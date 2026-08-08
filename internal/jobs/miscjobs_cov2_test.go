@@ -19,6 +19,7 @@ import (
 	networktypes "github.com/docker/docker/api/types/network"
 	volumetypes "github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/deepteams/akerdock/internal/agent"
 	"github.com/deepteams/akerdock/internal/agentwire"
@@ -61,6 +62,39 @@ func miscjobsIngressJob(payload string) store.Job {
 	return store.Job{ID: 11, JobType: TypeIngressRouting, Payload: []byte(payload)}
 }
 
+type ingressEndpointListerStub struct {
+	rows []store.ListIngressEndpointsRow
+	err  error
+}
+
+func (s ingressEndpointListerStub) ListIngressEndpoints(context.Context, int64) ([]store.ListIngressEndpointsRow, error) {
+	return s.rows, s.err
+}
+
+func TestReconcileIngressRoutesRebuildsServerTable(t *testing.T) {
+	ops := &hostfake.Ops{}
+	err := ReconcileIngressRoutes(context.Background(), ingressEndpointListerStub{rows: []store.ListIngressEndpointsRow{
+		{Uuid: mustUUID(t, jobFixtureUUID), Fqdn: "keep.example.test", ServerID: 7},
+		{Uuid: mustUUID(t, "44444444-4444-4444-8444-444444444444"), Fqdn: "other.example.test", ServerID: 8},
+	}}, ops, store.Server{ID: 7, TeamID: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writes := ops.CallsTo(agentwire.MethodFileWrite)
+	if len(writes) != 1 {
+		t.Fatalf("writes = %v", writes)
+	}
+	p := writes[0].(agentwire.FileWriteParams)
+	if p.Path != wakerDir+"/"+agent.IngressRoutesFile ||
+		!strings.Contains(string(p.Content), "keep.example.test") ||
+		strings.Contains(string(p.Content), "other.example.test") {
+		t.Fatalf("ingress table = %s at %s", p.Content, p.Path)
+	}
+	if err := ReconcileIngressRoutes(context.Background(), ingressEndpointListerStub{err: errors.New("db down")}, ops, store.Server{}); err == nil || !strings.Contains(err.Error(), "list ingress endpoints") {
+		t.Fatalf("list error = %v", err)
+	}
+}
+
 func TestMiscjobsIngressRoutingConverges(t *testing.T) {
 	q, _, logger, db := miscjobsDeps(t)
 	miscjobsEnum(t, "IngressAccess", string(store.IngressAccessNone))
@@ -100,7 +134,7 @@ func TestMiscjobsIngressRoutingConverges(t *testing.T) {
 				!strings.Contains(strings.ToLower(string(p.Content)), "unit") {
 				t.Fatalf("routing content = %s", p.Content)
 			}
-		case p.Path == wakerDir+"/"+agent.RoutesFile:
+		case p.Path == wakerDir+"/"+agent.IngressRoutesFile:
 			sawTable = true
 			if !strings.Contains(string(p.Content), jobFixtureUUID) {
 				t.Fatalf("host table = %s", p.Content)
@@ -115,6 +149,12 @@ func TestMiscjobsIngressRoutingConverges(t *testing.T) {
 func TestMiscjobsIngressRoutingRemovesAfterDeletion(t *testing.T) {
 	q, _, logger, db := miscjobsDeps(t)
 	db.rowErr = miscjobsFailOn(errors.New("no rows"), "GetIngressEndpointByID")
+	db.rows = func(sql string) pgx.Rows {
+		if strings.Contains(sql, "-- name: ListIngressEndpoints ") {
+			return &jobFlowRows{}
+		}
+		return nil
+	}
 	ops := &hostfake.Ops{ReadFileFn: func(context.Context, agentwire.FileReadParams) (agentwire.FileReadResult, error) {
 		raw, _ := agent.MarshalConfig(agent.Config{Ingress: []agent.IngressRoute{
 			{Host: "keep.example.test", EndpointUUID: "other"},
@@ -136,7 +176,7 @@ func TestMiscjobsIngressRoutingRemovesAfterDeletion(t *testing.T) {
 		t.Fatalf("writes = %v", writes)
 	}
 	table := string(writes[0].(agentwire.FileWriteParams).Content)
-	if strings.Contains(table, jobFixtureUUID) || !strings.Contains(table, "other") {
+	if strings.Contains(table, jobFixtureUUID) {
 		t.Fatalf("host table after removal = %s", table)
 	}
 }
@@ -221,22 +261,22 @@ func TestMiscjobsIngressRoutingFailureVerdicts(t *testing.T) {
 		q, _, logger, db := miscjobsDeps(t)
 		db.rowErr = miscjobsFailOn(errors.New("no rows"), "GetIngressEndpointByID")
 		ops := &hostfake.Ops{WriteFileFn: func(_ context.Context, p agentwire.FileWriteParams) error {
-			if p.Path == wakerDir+"/"+agent.RoutesFile {
+			if p.Path == wakerDir+"/"+agent.IngressRoutesFile {
 				return errors.New("agent tree read-only")
 			}
 			return nil
 		}}
 		h := &IngressRouting{Store: q, Docker: fixedSource{rt: verifyRuntime("")}, HostOps: fixedHost{ops: ops}, Logger: logger}
 		if _, err := h.Execute(ctx, j, queue.NewStepRecorder(q, j)); err == nil ||
-			!strings.Contains(err.Error(), "waker routes deposit failed") {
+			!strings.Contains(err.Error(), "ingress routes deposit failed") {
 			t.Fatalf("err = %v", err)
 		}
 	})
-	t.Run("deposit failure after apply", func(t *testing.T) {
+	t.Run("deposit failure before apply", func(t *testing.T) {
 		q, _, logger, _ := miscjobsDeps(t)
 		miscjobsEnum(t, "IngressAccess", string(store.IngressAccessNone))
 		ops := &hostfake.Ops{WriteFileFn: func(_ context.Context, p agentwire.FileWriteParams) error {
-			if p.Path == wakerDir+"/"+agent.RoutesFile {
+			if p.Path == wakerDir+"/"+agent.IngressRoutesFile {
 				return errors.New("agent tree read-only")
 			}
 			return nil
@@ -244,8 +284,13 @@ func TestMiscjobsIngressRoutingFailureVerdicts(t *testing.T) {
 		rt := verifyRuntime(jobFixtureUUID + " http://" + proxy.AgentContainerName + ":8080")
 		h := &IngressRouting{Store: q, Docker: fixedSource{rt: rt}, HostOps: fixedHost{ops: ops}, Logger: logger}
 		if _, err := h.Execute(ctx, j, queue.NewStepRecorder(q, j)); err == nil ||
-			!strings.Contains(err.Error(), "waker routes deposit failed") {
+			!strings.Contains(err.Error(), "ingress routes deposit failed") {
 			t.Fatalf("err = %v", err)
+		}
+		for _, call := range ops.CallsTo(agentwire.MethodFileWrite) {
+			if strings.HasPrefix(call.(agentwire.FileWriteParams).Path, "/var/lib/akerdock/proxy/dynamic/") {
+				t.Fatal("Traefik route was published after the ingress table deposit failed")
+			}
 		}
 	})
 }
@@ -297,21 +342,6 @@ func TestMiscjobsIngressAccessPolicy(t *testing.T) {
 	if _, err := ingressAccessPolicy(ctx, q, sso, store.Server{}, 0); err == nil ||
 		!strings.Contains(err.Error(), "settings down") {
 		t.Fatalf("settings error = %v", err)
-	}
-}
-
-func TestMiscjobsIngressRouteEntryMergeAndRemove(t *testing.T) {
-	base := agent.Config{
-		Routes:  []agent.Route{{Host: "app.example.test", ResourceUUID: "res"}},
-		Ingress: []agent.IngressRoute{{Host: "old.example.test", EndpointUUID: "e1"}, {Host: "other", EndpointUUID: "e2"}},
-	}
-	merged := mergeIngressRouteEntry(base, "new.example.test", "e1")
-	if len(merged.Ingress) != 2 || merged.Ingress[1].Host != "new.example.test" || len(merged.Routes) != 1 {
-		t.Fatalf("merged = %#v", merged)
-	}
-	removed := removeIngressRouteEntry(merged, "e2")
-	if len(removed.Ingress) != 1 || removed.Ingress[0].EndpointUUID != "e1" {
-		t.Fatalf("removed = %#v", removed)
 	}
 }
 

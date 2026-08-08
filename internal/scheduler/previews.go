@@ -465,6 +465,14 @@ func (w *agentScan) reconcile(server store.Server, network string, client remote
 		return
 	}
 	w.reconciled[server.ID] = true
+	// Deposit the authoritative host table through the currently connected
+	// agent before a spec/image upgrade replaces it. The new process then sees
+	// the file on its very first load instead of waiting for the next pass.
+	if ops := w.hostOps(server); ops != nil {
+		if err := jobs.ReconcileIngressRoutes(w.ctx, w.s.Store, ops, server); err != nil {
+			w.s.Logger.Warn("ingress route reconcile failed", "server_id", server.ID, "error", err)
+		}
+	}
 	env := jobs.AgentEnvForServer(w.ctx, w.s.Store, w.s.Keyring, w.s.Logger, server, w.s.InstancePort, w.s.InstanceURL)
 	if _, err := client.Run(w.ctx, jobs.AgentEnsureCommand(network, w.s.AgentImage, env)); err != nil {
 		w.s.Logger.Warn("waker image reconcile failed", "server_id", server.ID, "error", err)

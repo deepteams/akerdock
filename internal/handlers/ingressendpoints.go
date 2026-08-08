@@ -17,6 +17,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -509,21 +510,24 @@ func ingressEndReason(reason tunnel.EndReason) *store.TerminalEndReason {
 func (a *API) enqueueIngressRouting(r *http.Request, row store.IngressEndpoint, serverID int64) {
 	a.enqueueIngressRoutingPayload(r, jobs.IngressRoutingPayload{
 		EndpointID: row.ID, EndpointUUID: uuidString(row.Uuid), ServerID: serverID,
-	}, uuidString(row.Uuid))
+	})
 }
 
 func (a *API) enqueueIngressRoutingRemoval(r *http.Request, endpointUUID pgtype.UUID, serverID int64) {
 	a.enqueueIngressRoutingPayload(r, jobs.IngressRoutingPayload{
 		EndpointID: 0, EndpointUUID: uuidString(endpointUUID), ServerID: serverID,
-	}, uuidString(endpointUUID))
+	})
 }
 
-func (a *API) enqueueIngressRoutingPayload(r *http.Request, payload jobs.IngressRoutingPayload, scope string) {
+func (a *API) enqueueIngressRoutingPayload(r *http.Request, payload jobs.IngressRoutingPayload) {
 	server, err := a.Store.GetServerByID(r.Context(), payload.ServerID)
 	if err != nil || server.ProxyType != store.ProxyTypeTraefik || server.Status != store.ServerStatusReady {
 		return
 	}
-	lockKey := "deploy:ingress:" + scope
+	// Every ingress mutation on a server edits the same ingress-routes.json;
+	// serialize them under one server lock so two endpoint jobs cannot lose an
+	// entry through concurrent read/modify/write cycles.
+	lockKey := fmt.Sprintf("deploy:ingress-server:%d", payload.ServerID)
 	if _, err := queue.Enqueue(r.Context(), a.Store, queue.EnqueueOptions{
 		Queue: "deploy", Type: jobs.TypeIngressRouting, Payload: payload, LockKey: &lockKey,
 	}); err != nil {

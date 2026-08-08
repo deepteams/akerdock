@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,10 +15,10 @@ import (
 	"github.com/deepteams/akerdock/internal/proxy"
 )
 
-// Serve runs the waker HTTP server on addr, forwarding for the routing table in
-// dir/routes.json and waking targets on demand. The routing file is reloaded
-// when its modification time changes, so the control plane can add or remove
-// scale-to-zero resources without restarting the container. agent, when
+// Serve runs the waker HTTP server on addr, forwarding for the routing tables
+// in dir and waking targets on demand. Deposited content is reloaded when it
+// changes, so the control plane can add or remove scale-to-zero resources and
+// ingress endpoints without restarting the container. agent, when
 // enabled (ADR-040 enrollment injected at container creation), pushes
 // outbound observations alongside — its failure modes never touch the wake
 // path.
@@ -63,27 +64,39 @@ func ServeWithTelemetry(ctx context.Context, dir, addr string, rt dockerruntime.
 			if !os.IsNotExist(err) {
 				logger.Warn("waker: routing config unreadable", "error", err)
 			}
-			return
-		}
-		wk := New(cfg, docker, activity, nil)
-		wk.Logger = logger
-		if agent != nil {
-			wk.OnWake = func(resourceUUID string) {
-				agent.Push(Observation{Type: "stz_woken", At: time.Now(), ResourceUUID: resourceUUID})
+		} else {
+			wk := New(cfg, docker, activity, nil)
+			wk.Logger = logger
+			if agent != nil {
+				wk.OnWake = func(resourceUUID string) {
+					agent.Push(Observation{Type: "stz_woken", At: time.Now(), ResourceUUID: resourceUUID})
+				}
 			}
+			current.Store(wk)
 		}
-		current.Store(wk)
-		ingress.SetRoutes(cfg.Ingress)
+
+		ingressRoutes, ingressErr := LoadIngressRoutes(dir)
+		switch {
+		case ingressErr == nil:
+			ingress.SetRoutes(ingressRoutes)
+		case os.IsNotExist(ingressErr) && err == nil:
+			// Backward-compatible migration path for routes.json written before
+			// the ingress table became an independent document.
+			ingressRoutes = cfg.Ingress
+			ingress.SetRoutes(ingressRoutes)
+		case !os.IsNotExist(ingressErr):
+			logger.Warn("agent: ingress routing config unreadable", "error", ingressErr)
+		}
 		logger.Info("waker: routing config loaded", "routes", len(cfg.Routes),
-			"resources", len(cfg.Resources), "ingress", len(cfg.Ingress))
+			"resources", len(cfg.Resources), "ingress", len(ingressRoutes))
 	}
 	load()
 
-	// Reload on mtime change (§8.2: the control plane deposits the file; the
-	// waker never generates it).
+	// Reload when either deposited document changes (§8.2). A content digest is
+	// used instead of a strictly increasing mtime: atomic replacement can keep
+	// the same timestamp on coarse filesystems and previously missed a reload.
 	go func() {
-		routes := filepath.Join(dir, RoutesFile)
-		var last time.Time
+		last := routingFilesFingerprint(dir)
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -91,8 +104,9 @@ func ServeWithTelemetry(ctx context.Context, dir, addr string, rt dockerruntime.
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if info, err := os.Stat(routes); err == nil && info.ModTime().After(last) {
-					last = info.ModTime()
+				next := routingFilesFingerprint(dir)
+				if next != last {
+					last = next
 					load()
 				}
 			}
@@ -129,6 +143,22 @@ func ServeWithTelemetry(ctx context.Context, dir, addr string, rt dockerruntime.
 		return err
 	}
 	return nil
+}
+
+func routingFilesFingerprint(dir string) [sha256.Size]byte {
+	h := sha256.New()
+	for _, name := range []string{RoutesFile, IngressRoutesFile} {
+		_, _ = h.Write([]byte(name))
+		raw, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			_, _ = h.Write([]byte(err.Error()))
+			continue
+		}
+		_, _ = h.Write(raw)
+	}
+	var out [sha256.Size]byte
+	copy(out[:], h.Sum(nil))
+	return out
 }
 
 func isAgentMetricsHost(host string) bool {

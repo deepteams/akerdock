@@ -17,6 +17,13 @@ const DefaultDir = "/var/lib/akerdock/waker"
 // RoutesFile is the routing table filename inside the waker directory.
 const RoutesFile = "routes.json"
 
+// IngressRoutesFile is kept separate from RoutesFile because application
+// deployments and ingress declarations are independent job streams. Sharing
+// one read/modify/write document allowed concurrent jobs to lose each other's
+// entries. The agent still reads the legacy embedded Config.Ingress field when
+// this file is absent, so existing servers migrate without downtime.
+const IngressRoutesFile = "ingress-routes.json"
+
 // FileActivity records last-activity timestamps as one file per resource,
 // written atomically (write-temp + rename) so the control plane's SSH read
 // never sees a half-written value.
@@ -64,6 +71,28 @@ func LoadConfig(dir string) (Config, error) {
 		return cfg, fmt.Errorf("waker: invalid routes file: %w", err)
 	}
 	return cfg, nil
+}
+
+// LoadIngressRoutes reads the independently deposited ingress host table.
+func LoadIngressRoutes(dir string) ([]IngressRoute, error) {
+	var cfg struct {
+		Ingress []IngressRoute `json:"ingress"`
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, IngressRoutesFile))
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return nil, fmt.Errorf("agent: invalid ingress routes file: %w", err)
+	}
+	return cfg.Ingress, nil
+}
+
+// MarshalIngressRoutes renders the ingress-only routing document.
+func MarshalIngressRoutes(routes []IngressRoute) ([]byte, error) {
+	return json.MarshalIndent(struct {
+		Ingress []IngressRoute `json:"ingress"`
+	}{Ingress: routes}, "", "  ")
 }
 
 // MarshalConfig renders a routing table for the control plane to deposit.

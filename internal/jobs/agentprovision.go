@@ -232,7 +232,10 @@ func AgentEnvForServer(ctx context.Context, q AgentEnrollmentStore, keyring *env
 // 9: the rename (ADR-056) — the container becomes akerdock-agent (label
 // akerdock.agent_spec), carrying the legacy name as a network alias so
 // pre-rename scale-to-zero route files keep resolving.
-const agentSpec = "9"
+// 10: ingress uses an independent, content-watched routing table and the
+// transport stack supports HTTP/3, HTTP/2 and multi-lane WebSocket. Recreate
+// reused image tags so every server actually runs the compatible agent.
+const agentSpec = "10"
 
 // AgentEnsureCommand is the idempotent deploy of the agent helper. It
 // recreates the container when the running image OR the run spec differs (or

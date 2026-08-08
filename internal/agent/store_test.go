@@ -85,6 +85,25 @@ func TestConfigMarshalLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestIngressRoutesMarshalLoadRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	routes := []IngressRoute{{Host: "dev.example.com", EndpointUUID: "ep1"}}
+	raw, err := MarshalIngressRoutes(routes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, IngressRoutesFile), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadIngressRoutes(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != routes[0] {
+		t.Fatalf("ingress routes = %#v", got)
+	}
+}
+
 // TestLoadConfigErrors distinguishes the two failure modes: a missing file
 // (the control plane has not deposited yet — os.IsNotExist for the caller)
 // and a corrupt one (a real error worth logging).

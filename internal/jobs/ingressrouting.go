@@ -11,6 +11,7 @@ import (
 	"log/slog"
 
 	"github.com/deepteams/akerdock/internal/agent"
+	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/hostops"
 	"github.com/deepteams/akerdock/internal/pguuid"
@@ -40,6 +41,30 @@ type IngressRouting struct {
 	HostOps          hostops.Source
 	Logger           *slog.Logger
 	ControlPlanePort int
+}
+
+type ingressEndpointLister interface {
+	ListIngressEndpoints(context.Context, int64) ([]store.ListIngressEndpointsRow, error)
+}
+
+// ReconcileIngressRoutes rebuilds the server's ingress-only host table from
+// the database. It is used by validation and the periodic agent convergence,
+// so a failed or lost declaration job heals without operator file surgery.
+func ReconcileIngressRoutes(ctx context.Context, q ingressEndpointLister, ops hostops.Ops, server store.Server) error {
+	endpoints, err := q.ListIngressEndpoints(ctx, server.TeamID)
+	if err != nil {
+		return fmt.Errorf("list ingress endpoints: %w", err)
+	}
+	routes := make([]agent.IngressRoute, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		if endpoint.ServerID != server.ID {
+			continue
+		}
+		routes = append(routes, agent.IngressRoute{
+			Host: endpoint.Fqdn, EndpointUUID: pguuid.String(endpoint.Uuid),
+		})
+	}
+	return depositIngressRoutes(ctx, ops, routes)
 }
 
 // Execute converges the endpoint's routing with its current declaration.
@@ -81,8 +106,7 @@ func (h *IngressRouting) Execute(ctx context.Context, job store.Job, rec *queue.
 			rec.Fail(ctx, err.Error())
 			return nil, err
 		}
-		cfg := removeIngressRouteEntry(readWakerConfig(ctx, ops), payload.EndpointUUID)
-		if err := depositWakerRoutes(ctx, ops, cfg); err != nil {
+		if err := ReconcileIngressRoutes(ctx, h.Store, ops, server); err != nil {
 			rec.Fail(ctx, err.Error())
 			return nil, err
 		}
@@ -107,19 +131,35 @@ func (h *IngressRouting) Execute(ctx context.Context, job store.Job, rec *queue.
 			group.WildcardDomain, group.DNSProvider = *server.WildcardDomain, cred.Provider
 		}
 	}
+	// Arm the agent before publishing the Traefik router. The inverse order
+	// exposes a public attach URL that can only answer `404 unknown host` when
+	// the second write fails.
+	if err := ReconcileIngressRoutes(ctx, h.Store, ops, server); err != nil {
+		rec.Fail(ctx, err.Error())
+		return nil, err
+	}
 	content := proxy.GenerateIngress(group, int64(endpoint.Version))
 	expect := fmt.Sprintf("http://%s:%d", proxy.AgentContainerName, proxy.AgentPort)
 	if err := applier.Apply(ctx, group.UUID, content, expect); err != nil {
 		rec.Fail(ctx, err.Error())
 		return nil, err
 	}
-	cfg := mergeIngressRouteEntry(readWakerConfig(ctx, ops), endpoint.Fqdn, group.UUID)
-	if err := depositWakerRoutes(ctx, ops, cfg); err != nil {
-		rec.Fail(ctx, err.Error())
-		return nil, err
-	}
 	rec.Succeed(ctx, "ingress routing converged")
 	return map[string]any{"endpoint_uuid": group.UUID, "fqdn": endpoint.Fqdn}, nil
+}
+
+func depositIngressRoutes(ctx context.Context, ops hostops.Ops, routes []agent.IngressRoute) error {
+	raw, err := agent.MarshalIngressRoutes(routes)
+	if err != nil {
+		return err
+	}
+	if err := ops.WriteFile(ctx, agentwire.FileWriteParams{
+		Path: wakerDir + "/" + agent.IngressRoutesFile, Content: raw,
+		Mode: 0o600, MakeDirs: true, DirMode: 0o755, Atomic: true,
+	}); err != nil {
+		return fmt.Errorf("ingress routes deposit failed: %s", firstLine(err.Error()))
+	}
+	return nil
 }
 
 // ingressAccessPolicy resolves the endpoint's wall into the proxy IR
@@ -155,24 +195,4 @@ func ingressAccessPolicy(ctx context.Context, q *store.Queries, e store.IngressE
 	default:
 		return nil, fmt.Errorf("unsupported ingress access %q", e.Access)
 	}
-}
-
-// mergeIngressRouteEntry replaces the endpoint's entry in the shared table.
-func mergeIngressRouteEntry(base agent.Config, host, endpointUUID string) agent.Config {
-	out := removeIngressRouteEntry(base, endpointUUID)
-	out.Ingress = append(out.Ingress, agent.IngressRoute{Host: host, EndpointUUID: endpointUUID})
-	return out
-}
-
-// removeIngressRouteEntry drops the endpoint's entry, leaving the waker's own
-// routes and the other endpoints intact.
-func removeIngressRouteEntry(base agent.Config, endpointUUID string) agent.Config {
-	out := base
-	out.Ingress = nil
-	for _, r := range base.Ingress {
-		if r.EndpointUUID != endpointUUID {
-			out.Ingress = append(out.Ingress, r)
-		}
-	}
-	return out
 }
