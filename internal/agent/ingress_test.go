@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -310,6 +312,113 @@ func TestIngressEndToEndRelay(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if !contains(string(body), "hello from the laptop") {
 		t.Fatalf("visitor got %q, want the app's response", body)
+	}
+
+	cancel()
+	<-bridgeDone
+}
+
+// A browser can fan one HTTP/2 page load into far more requests than the
+// laptop stream bound. Hold all 32 active requests open, prove the excess does
+// not fail early, then release the app and require every queued request to
+// complete successfully.
+func TestIngressBurstQueuesBeyondActiveLimit(t *testing.T) {
+	var active atomic.Int32
+	releaseApp := make(chan struct{})
+	devApp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		active.Add(1)
+		defer active.Add(-1)
+		<-releaseApp
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer devApp.Close()
+	devAddr := devApp.Listener.Addr().String()
+
+	ig := NewIngress(nil)
+	igSrv := httptest.NewServer(ig)
+	defer igSrv.Close()
+	host := hostname(strings.TrimPrefix(igSrv.URL, "http://"))
+	ig.SetRoutes([]IngressRoute{{Host: host, EndpointUUID: "ep1"}})
+	armed(ig, "sess1", "ep1", "tok", time.Minute)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(igSrv.URL, "http") + "/.akerdock/ingress?token=tok"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		Subprotocols: []string{IngressSubprotocol},
+	})
+	if err != nil {
+		t.Fatalf("attach dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+	conn.SetReadLimit(-1)
+	bridgeDone := make(chan struct{})
+	go func() {
+		defer close(bridgeDone)
+		tunnel.Bridge(ctx, tunnelWSConn{conn}, func(dialCtx context.Context) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(dialCtx, "tcp", devAddr)
+		}, tunnel.Options{})
+	}()
+	if !waitFor(2*time.Second, func() bool {
+		ig.mu.Lock()
+		defer ig.mu.Unlock()
+		return ig.live["ep1"] != nil
+	}) {
+		close(releaseApp)
+		t.Fatal("the attach never became a live session")
+	}
+
+	const queuedBeyondLimit = 8
+	requestCount := ingressMaxActiveStreams + queuedBeyondLimit
+	visitorTransport := &http.Transport{DisableKeepAlives: true, MaxConnsPerHost: requestCount}
+	visitorClient := &http.Client{Transport: visitorTransport}
+	defer visitorTransport.CloseIdleConnections()
+	results := make(chan error, requestCount)
+	start := make(chan struct{})
+	for i := range requestCount {
+		go func(id int) {
+			<-start
+			req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/chunk-%d.js", igSrv.URL, id), nil)
+			if reqErr != nil {
+				results <- reqErr
+				return
+			}
+			resp, reqErr := visitorClient.Do(req)
+			if reqErr != nil {
+				results <- reqErr
+				return
+			}
+			defer func() { _ = resp.Body.Close() }()
+			_, _ = io.Copy(io.Discard, resp.Body)
+			if resp.StatusCode != http.StatusOK {
+				results <- fmt.Errorf("request %d returned %d", id, resp.StatusCode)
+				return
+			}
+			results <- nil
+		}(i)
+	}
+	close(start)
+	if !waitFor(3*time.Second, func() bool { return active.Load() == ingressMaxActiveStreams }) {
+		close(releaseApp)
+		t.Fatalf("active local requests = %d, want %d", active.Load(), ingressMaxActiveStreams)
+	}
+	select {
+	case early := <-results:
+		close(releaseApp)
+		t.Fatalf("a request completed before an active slot was released: %v", early)
+	default:
+	}
+	close(releaseApp)
+	for range requestCount {
+		select {
+		case result := <-results:
+			if result != nil {
+				t.Fatal(result)
+			}
+		case <-ctx.Done():
+			t.Fatal("burst did not drain before its deadline")
+		}
 	}
 
 	cancel()

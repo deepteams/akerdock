@@ -60,7 +60,12 @@ type Options struct {
 	IdleTimeout time.Duration
 	MaxDuration time.Duration
 	Heartbeat   time.Duration
-	MaxStreams  int
+	// MaxStreams bounds target connections that may be active at once.
+	MaxStreams int
+	// MaxPendingStreams bounds opens waiting for an active slot at Origin.
+	MaxPendingStreams int
+	// StreamQueueTimeout bounds that wait without changing the session timers.
+	StreamQueueTimeout time.Duration
 	// OnHeartbeat persists liveness after a successful WebSocket ping. It is
 	// best-effort on storage errors (the caller returns true), but returning
 	// false means the durable session has already been closed and cuts the
@@ -283,8 +288,11 @@ func (m *mux) openStream(ctx context.Context, id uint32) {
 				break
 			}
 		}
-		_ = m.sendCtrl(ctx, ctrl{T: "close", ID: id})
+		// Remove the stream before announcing its close. Origin may admit a
+		// queued replacement as soon as it receives this frame, so the slot must
+		// already be absent when the replacement's open arrives.
 		m.closeStream(id)
+		_ = m.sendCtrl(ctx, ctrl{T: "close", ID: id})
 	}()
 }
 

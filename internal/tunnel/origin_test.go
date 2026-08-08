@@ -3,6 +3,7 @@ package tunnel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"testing"
@@ -54,6 +55,46 @@ func (p *pipeConn) Write(ctx context.Context, typ MessageType, data []byte) erro
 }
 
 func (p *pipeConn) Ping(context.Context) error { return nil }
+
+type originOpenResult struct {
+	conn net.Conn
+	err  error
+}
+
+func openOriginTestStream(ctx context.Context, t *testing.T, origin *Origin, fc *fakeConn) (net.Conn, ctrl) {
+	t.Helper()
+	result := make(chan originOpenResult, 1)
+	go func() {
+		conn, err := origin.OpenStream(ctx)
+		result <- originOpenResult{conn: conn, err: err}
+	}()
+	open := waitCtrl(t, fc)
+	if open.T != "open" {
+		t.Fatalf("control = %+v, want open", open)
+	}
+	ok, _ := json.Marshal(ctrl{T: "open_ok", ID: open.ID})
+	fc.in <- frame{MessageText, ok}
+	got := <-result
+	if got.err != nil {
+		t.Fatalf("OpenStream: %v", got.err)
+	}
+	return got.conn, open
+}
+
+func waitOriginQueued(t *testing.T, origin *Origin, want int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		origin.admissionMu.Lock()
+		got := origin.queued
+		origin.admissionMu.Unlock()
+		if got == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("queued streams did not reach %d", want)
+}
 
 // TestOriginBridgeRoundTrip wires an Origin (agent side) to a Bridge (laptop
 // side) through the pipe, then opens a stream and checks bytes flow both ways
@@ -126,6 +167,96 @@ func TestOriginBridgeRoundTrip(t *testing.T) {
 	if string(got) != "HELLO" {
 		t.Fatalf("round trip got %q, want HELLO", got)
 	}
+}
+
+// A burst beyond the active-stream bound waits locally at Origin. Closing an
+// active stream sends its EOF before admitting the replacement, so Bridge has
+// released the matching target by the time the next open arrives.
+func TestOriginQueuesUntilAnActiveStreamCloses(t *testing.T) {
+	fc := newFakeConn()
+	origin := NewOriginWithOptions(fc, Options{
+		MaxStreams: 1, MaxPendingStreams: 1, StreamQueueTimeout: time.Second,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go origin.Run(ctx, Options{})
+
+	first, firstOpen := openOriginTestStream(ctx, t, origin, fc)
+	secondResult := make(chan originOpenResult, 1)
+	go func() {
+		conn, err := origin.OpenStream(ctx)
+		secondResult <- originOpenResult{conn: conn, err: err}
+	}()
+	waitOriginQueued(t, origin, 1)
+	select {
+	case unexpected := <-fc.out:
+		t.Fatalf("queued stream wrote frame before a slot opened: %+v", unexpected)
+	default:
+	}
+
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if eof := waitCtrl(t, fc); eof.T != "eof" || eof.ID != firstOpen.ID {
+		t.Fatalf("first close = %+v, want eof for %d", eof, firstOpen.ID)
+	}
+	secondOpen := waitCtrl(t, fc)
+	if secondOpen.T != "open" {
+		t.Fatalf("queued control = %+v, want open", secondOpen)
+	}
+	ok, _ := json.Marshal(ctrl{T: "open_ok", ID: secondOpen.ID})
+	fc.in <- frame{MessageText, ok}
+	second := <-secondResult
+	if second.err != nil {
+		t.Fatalf("queued OpenStream: %v", second.err)
+	}
+	_ = second.conn.Close()
+}
+
+func TestOriginQueueBoundAndCancellation(t *testing.T) {
+	fc := newFakeConn()
+	origin := NewOriginWithOptions(fc, Options{
+		MaxStreams: 1, MaxPendingStreams: 1, StreamQueueTimeout: time.Second,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go origin.Run(ctx, Options{})
+
+	first, _ := openOriginTestStream(ctx, t, origin, fc)
+	queuedCtx, cancelQueued := context.WithCancel(ctx)
+	queuedResult := make(chan error, 1)
+	go func() {
+		_, err := origin.OpenStream(queuedCtx)
+		queuedResult <- err
+	}()
+	waitOriginQueued(t, origin, 1)
+	if _, err := origin.OpenStream(ctx); !errors.Is(err, ErrOriginQueueFull) {
+		t.Fatalf("open beyond queue bound = %v, want ErrOriginQueueFull", err)
+	}
+
+	cancelQueued()
+	if err := <-queuedResult; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled queued open = %v, want context.Canceled", err)
+	}
+	waitOriginQueued(t, origin, 0)
+	_ = first.Close()
+}
+
+func TestOriginQueueTimeout(t *testing.T) {
+	fc := newFakeConn()
+	origin := NewOriginWithOptions(fc, Options{
+		MaxStreams: 1, MaxPendingStreams: 1, StreamQueueTimeout: 20 * time.Millisecond,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go origin.Run(ctx, Options{})
+
+	first, _ := openOriginTestStream(ctx, t, origin, fc)
+	if _, err := origin.OpenStream(ctx); !errors.Is(err, ErrOriginQueueTimeout) {
+		t.Fatalf("timed-out queued open = %v, want ErrOriginQueueTimeout", err)
+	}
+	waitOriginQueued(t, origin, 0)
+	_ = first.Close()
 }
 
 // TestOriginOpenStreamAfterClose ensures OpenStream fails once the session ends

@@ -29,12 +29,19 @@ type Origin struct {
 	nextID  uint32
 	streams map[uint32]*originStream
 	pending map[uint32]chan error
+	closed  bool
 
 	writeMu  sync.Mutex
 	activity chan struct{}
 
 	done     chan struct{} // closed when Run returns; OpenStream fails after
 	doneOnce sync.Once
+
+	admissionMu sync.Mutex
+	streamSlots chan struct{}
+	maxQueued   int
+	queued      int
+	queueWait   time.Duration
 }
 
 // originStream pairs the caller-facing net.Conn with the pipe end the read
@@ -45,23 +52,50 @@ type originStream struct {
 	remote net.Conn // fed by the read loop, drained by the pump
 }
 
-// NewOrigin wraps an established, already-authenticated connection.
+// NewOrigin wraps an established, already-authenticated connection with the
+// default active-stream bound and no waiting queue.
 func NewOrigin(conn Conn) *Origin {
+	return NewOriginWithOptions(conn, Options{})
+}
+
+// NewOriginWithOptions wraps a connection and configures admission before the
+// first stream can be opened. MaxStreams bounds active streams;
+// MaxPendingStreams bounds callers waiting for one of those slots.
+func NewOriginWithOptions(conn Conn, opts Options) *Origin {
+	if opts.MaxStreams <= 0 {
+		opts.MaxStreams = defaultMaxStreams
+	}
+	if opts.StreamQueueTimeout <= 0 {
+		opts.StreamQueueTimeout = defaultStreamQueueTimeout
+	}
 	return &Origin{
-		conn:     conn,
-		streams:  map[uint32]*originStream{},
-		pending:  map[uint32]chan error{},
-		activity: make(chan struct{}, 1),
-		done:     make(chan struct{}),
+		conn:        conn,
+		streams:     map[uint32]*originStream{},
+		pending:     map[uint32]chan error{},
+		activity:    make(chan struct{}, 1),
+		done:        make(chan struct{}),
+		streamSlots: make(chan struct{}, opts.MaxStreams),
+		maxQueued:   max(opts.MaxPendingStreams, 0),
+		queueWait:   opts.StreamQueueTimeout,
 	}
 }
 
 // openTimeout bounds the wait for the peer's open_ok — the peer only has a
 // loopback dial to perform.
-const openTimeout = 15 * time.Second
+const (
+	openTimeout               = 15 * time.Second
+	defaultStreamQueueTimeout = 30 * time.Second
+)
 
-// ErrOriginClosed is what OpenStream returns once the session ended.
-var ErrOriginClosed = errors.New("tunnel: session closed")
+var (
+	// ErrOriginClosed is what OpenStream returns once the session ended.
+	ErrOriginClosed = errors.New("tunnel: session closed")
+	// ErrOriginQueueFull refuses work beyond the configured pending bound.
+	ErrOriginQueueFull = errors.New("tunnel: stream queue full")
+	// ErrOriginQueueTimeout reports a request that could not acquire an active
+	// stream slot before its queue deadline.
+	ErrOriginQueueTimeout = errors.New("tunnel: stream queue timeout")
+)
 
 // Run pumps the connection until it dies or a bound is hit, then tears every
 // stream down and reports why. It mirrors Bridge's loop; the read side is
@@ -131,10 +165,28 @@ func (o *Origin) OpenStream(ctx context.Context) (net.Conn, error) {
 		return nil, ErrOriginClosed
 	default:
 	}
+	if err := o.acquireStream(ctx); err != nil {
+		return nil, err
+	}
+	// A slot and session shutdown may become ready together. Never register
+	// new work after shutdown won the race.
+	select {
+	case <-o.done:
+		o.releaseStream()
+		return nil, ErrOriginClosed
+	default:
+	}
 
 	local, remote := net.Pipe()
 	wait := make(chan error, 1)
 	o.mu.Lock()
+	if o.closed {
+		o.mu.Unlock()
+		_ = remote.Close()
+		_ = local.Close()
+		o.releaseStream()
+		return nil, ErrOriginClosed
+	}
 	o.nextID++
 	id := o.nextID
 	o.streams[id] = &originStream{local: local, remote: remote}
@@ -185,6 +237,47 @@ func (o *Origin) OpenStream(ctx context.Context) (net.Conn, error) {
 	}()
 	return local, nil
 }
+
+// acquireStream either takes an active slot immediately or joins the bounded
+// wait set. New arrivals cannot bypass existing waiters, which keeps a burst
+// from starving its oldest requests.
+func (o *Origin) acquireStream(ctx context.Context) error {
+	o.admissionMu.Lock()
+	if o.queued == 0 {
+		select {
+		case o.streamSlots <- struct{}{}:
+			o.admissionMu.Unlock()
+			return nil
+		default:
+		}
+	}
+	if o.queued >= o.maxQueued {
+		o.admissionMu.Unlock()
+		return ErrOriginQueueFull
+	}
+	o.queued++
+	o.admissionMu.Unlock()
+
+	defer func() {
+		o.admissionMu.Lock()
+		o.queued--
+		o.admissionMu.Unlock()
+	}()
+	timer := time.NewTimer(o.queueWait)
+	defer timer.Stop()
+	select {
+	case o.streamSlots <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-o.done:
+		return ErrOriginClosed
+	case <-timer.C:
+		return ErrOriginQueueTimeout
+	}
+}
+
+func (o *Origin) releaseStream() { <-o.streamSlots }
 
 func (o *Origin) touch() {
 	select {
@@ -270,6 +363,7 @@ func (o *Origin) closeStream(id uint32) {
 	if s != nil {
 		_ = s.remote.Close()
 		_ = s.local.Close()
+		o.releaseStream()
 	}
 }
 
@@ -279,6 +373,7 @@ func (o *Origin) dropStream(id uint32) { o.closeStream(id) }
 func (o *Origin) shutdown() {
 	o.doneOnce.Do(func() { close(o.done) })
 	o.mu.Lock()
+	o.closed = true
 	streams := o.streams
 	o.streams = map[uint32]*originStream{}
 	pending := o.pending
@@ -287,6 +382,7 @@ func (o *Origin) shutdown() {
 	for _, s := range streams {
 		_ = s.remote.Close()
 		_ = s.local.Close()
+		o.releaseStream()
 	}
 	for _, wait := range pending {
 		select {

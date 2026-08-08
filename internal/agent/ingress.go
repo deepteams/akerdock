@@ -13,6 +13,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -44,11 +45,19 @@ type IngressRoute struct {
 // egress tunnel or vice versa.
 const IngressSubprotocol = "akerdock-ingress-v1"
 
-// ingressMaxDuration is the session ceiling (ADR-060 §6): ADR-032's 4 h was
-// calibrated on interactive egress sessions; an ingress tunnel's typical day
-// is a webhook target exercised irregularly until evening. 12 h still
-// guarantees nothing survives an unattended night.
-const ingressMaxDuration = 12 * time.Hour
+const (
+	// ingressMaxDuration is the session ceiling (ADR-060 §6): ADR-032's 4 h
+	// was calibrated on interactive egress sessions; an ingress tunnel's
+	// typical day is a webhook target exercised irregularly until evening.
+	ingressMaxDuration = 12 * time.Hour
+
+	// HTTP/2 can fan one page load into hundreds of requests at once. Keep the
+	// laptop's actual TCP fan-out bounded while absorbing that burst ahead of
+	// the mux instead of turning its 33rd request into a 502.
+	ingressMaxActiveStreams = 32
+	ingressMaxQueuedStreams = 512
+	ingressStreamQueueWait  = 30 * time.Second
+)
 
 // endReasonRevoked mirrors the terminal_end_reason value used for an operator
 // cut or an endpoint deletion — a policy close the CLI does not re-dial
@@ -255,23 +264,27 @@ func (ig *Ingress) attach(w http.ResponseWriter, r *http.Request, endpointUUID s
 	// first large one.
 	conn.SetReadLimit(-1)
 
-	origin := tunnel.NewOrigin(tunnelWSConn{conn})
-	placeholder.origin = origin
 	placeholder.cancel = make(chan tunnel.EndReason, 1)
+	streamOpts := tunnel.Options{
+		IdleTimeout:        tunnel.DefaultIdleTimeout,
+		MaxDuration:        ingressMaxDuration,
+		MaxStreams:         ingressMaxActiveStreams,
+		MaxPendingStreams:  ingressMaxQueuedStreams,
+		StreamQueueTimeout: ingressStreamQueueWait,
+		Cancel:             placeholder.cancel,
+		OnHeartbeat: func(context.Context) bool {
+			ig.notify(Observation{Type: "ingress_alive", At: time.Now(), ResourceUUID: expect.sessionUUID})
+			return true
+		},
+	}
+	origin := tunnel.NewOriginWithOptions(tunnelWSConn{conn}, streamOpts)
+	placeholder.origin = origin
 	placeholder.relay = ig.newRelay(origin)
 
 	ig.notify(Observation{Type: "ingress_claimed", At: time.Now(), ResourceUUID: expect.sessionUUID})
 	ig.Logger.Info("ingress: laptop attached", "endpoint", endpointUUID, "session", expect.sessionUUID)
 
-	reason := origin.Run(r.Context(), tunnel.Options{
-		IdleTimeout: tunnel.DefaultIdleTimeout,
-		MaxDuration: ingressMaxDuration,
-		Cancel:      placeholder.cancel,
-		OnHeartbeat: func(context.Context) bool {
-			ig.notify(Observation{Type: "ingress_alive", At: time.Now(), ResourceUUID: expect.sessionUUID})
-			return true
-		},
-	})
+	reason := origin.Run(r.Context(), streamOpts)
 
 	ig.release(endpointUUID, placeholder)
 	ig.notify(Observation{Type: "ingress_closed", At: time.Now(), ResourceUUID: expect.sessionUUID, State: string(reason)})
@@ -323,6 +336,11 @@ func (ig *Ingress) newRelay(origin *tunnel.Origin) http.Handler {
 		FlushInterval: 100 * time.Millisecond,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			ig.Logger.Warn("ingress: relay failed", "host", hostname(r.Host), "error", err)
+			if errors.Is(err, tunnel.ErrOriginQueueFull) || errors.Is(err, tunnel.ErrOriginQueueTimeout) {
+				w.Header().Set("Retry-After", "1")
+				http.Error(w, "the ingress tunnel is busy — retry shortly", http.StatusServiceUnavailable)
+				return
+			}
 			http.Error(w, "the developer's machine did not answer", http.StatusBadGateway)
 		},
 	}

@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -450,11 +451,15 @@ func (a *API) CreateIngressTunnel(w http.ResponseWriter, r *http.Request, endpoi
 	a.recordAudit(r, id, "ingress-tunnel.open", "ingress_tunnel_session", row.Uuid)
 
 	fqdn := endpoint.Fqdn
+	attachURL := url.URL{Scheme: "wss", Host: fqdn, Path: proxy.IngressAttachPath}
+	query := attachURL.Query()
+	query.Set("token", token)
+	attachURL.RawQuery = query.Encode()
 	httpapi.WriteJSON(w, http.StatusCreated, api.IngressTunnelSession{
 		Uuid:           uuidString(row.Uuid),
 		Fqdn:           fqdn,
 		Url:            "https://" + fqdn,
-		AttachUrl:      "wss://" + fqdn + proxy.IngressAttachPath,
+		AttachUrl:      attachURL.String(),
 		Token:          token,
 		TokenExpiresAt: expiresAt,
 	})

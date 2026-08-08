@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -103,7 +104,7 @@ func TestIngressCmdArgumentErrors(t *testing.T) {
 
 // ingressServer fakes the resolve + mint + attach choreography. mint decides
 // per call what to answer; attach handles the websocket side.
-func ingressServer(t *testing.T, mint func(call int, w http.ResponseWriter), attach http.HandlerFunc) *httptest.Server {
+func ingressServer(t *testing.T, mint func(call int, w http.ResponseWriter), attach http.HandlerFunc, closeSession ...http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	calls := 0
 	mux := http.NewServeMux()
@@ -117,6 +118,9 @@ func ingressServer(t *testing.T, mint func(call int, w http.ResponseWriter), att
 	if attach != nil {
 		mux.HandleFunc("/attach", attach)
 	}
+	if len(closeSession) > 0 {
+		mux.HandleFunc("/api/v1/ingress-tunnel-sessions/", closeSession[0])
+	}
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
@@ -126,7 +130,7 @@ func mintSession(t *testing.T, srvURL string) func(int, http.ResponseWriter) {
 	t.Helper()
 	return func(_ int, w http.ResponseWriter) {
 		attachURL := "ws" + strings.TrimPrefix(srvURL, "http") + "/attach"
-		_, _ = fmt.Fprintf(w, `{"url":"https://dev.example.com","attach_url":%q,"token":"tk"}`, attachURL)
+		_, _ = fmt.Fprintf(w, `{"uuid":"ig-session-1","url":"https://dev.example.com","attach_url":%q,"token":"tk"}`, attachURL)
 	}
 }
 
@@ -135,6 +139,9 @@ func mintSession(t *testing.T, srvURL string) func(int, http.ResponseWriter) {
 func TestIngressPolicyCloseEndsTheRelay(t *testing.T) {
 	var srvURL string
 	attach := func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("token"); got != "tk" {
+			t.Errorf("attach token = %q, want tk", got)
+		}
 		if !strings.Contains(r.Header.Get("Sec-WebSocket-Protocol"), ingressSubprotocol) {
 			t.Errorf("attach without the ingress subprotocol: %q", r.Header.Get("Sec-WebSocket-Protocol"))
 		}
@@ -160,6 +167,65 @@ func TestIngressPolicyCloseEndsTheRelay(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "administrator closed it") {
 		t.Fatalf("stderr misses the close reason: %q", errOut)
+	}
+}
+
+// A failed WebSocket handshake must release the just-minted durable session
+// before the reconnect mints another one. Otherwise the CLI rejects itself as
+// the endpoint's occupant.
+func TestIngressFailedAttachClosesMintBeforeReconnect(t *testing.T) {
+	var srvURL string
+	var attachCalls atomic.Int32
+	var closedFirst atomic.Bool
+	srv := ingressServer(t, func(call int, w http.ResponseWriter) {
+		if call == 2 && !closedFirst.Load() {
+			t.Error("second mint arrived before the failed first mint was closed")
+		}
+		attachURL := "ws" + strings.TrimPrefix(srvURL, "http") + "/attach"
+		_, _ = fmt.Fprintf(w,
+			`{"uuid":"ig-session-%d","url":"https://dev.example.com","attach_url":%q,"token":"tk-%d"}`,
+			call, attachURL, call)
+	}, func(w http.ResponseWriter, r *http.Request) {
+		switch attachCalls.Add(1) {
+		case 1:
+			http.Error(w, "temporary attach failure", http.StatusUnauthorized)
+		case 2:
+			if got := r.URL.Query().Get("token"); got != "tk-2" {
+				t.Errorf("reconnect token = %q, want tk-2", got)
+			}
+			conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{ingressSubprotocol}})
+			if err != nil {
+				return
+			}
+			_ = conn.Close(websocket.StatusNormalClosure, "revoked")
+		default:
+			t.Error("unexpected extra attach")
+		}
+	}, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("cleanup method = %s, want DELETE", r.Method)
+		}
+		if r.URL.Path != "/api/v1/ingress-tunnel-sessions/ig-session-1" {
+			t.Errorf("cleanup path = %q", r.URL.Path)
+		}
+		closedFirst.Store(true)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srvURL = srv.URL
+	setupContext(t, srv.URL)
+
+	var err error
+	_, errOut := captureOutput(t, func() {
+		err = runCmd(ingressCmd(), "dev-kedric", "3000")
+	})
+	if err != nil {
+		t.Fatalf("ingress: %v", err)
+	}
+	if !closedFirst.Load() {
+		t.Fatal("failed mint was not closed")
+	}
+	if !strings.Contains(errOut, "tunnel dropped") {
+		t.Fatalf("stderr misses the reconnect notice: %q", errOut)
 	}
 }
 

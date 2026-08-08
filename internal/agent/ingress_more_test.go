@@ -121,6 +121,27 @@ func TestIngressRelayRewriteAndErrorHandler(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "did not answer") {
 		t.Fatalf("relay failure body = %q", rec.Body.String())
 	}
+
+	for _, queueErr := range []error{tunnel.ErrOriginQueueFull, tunnel.ErrOriginQueueTimeout} {
+		rec = httptest.NewRecorder()
+		rp.ErrorHandler(rec, req, queueErr)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("queue failure = %d, want 503", rec.Code)
+		}
+		if rec.Header().Get("Retry-After") != "1" {
+			t.Fatalf("queue failure Retry-After = %q", rec.Header().Get("Retry-After"))
+		}
+		if !strings.Contains(rec.Body.String(), "busy") {
+			t.Fatalf("queue failure body = %q", rec.Body.String())
+		}
+	}
+}
+
+func TestIngressStreamAdmissionLimits(t *testing.T) {
+	if ingressMaxActiveStreams != 32 || ingressMaxQueuedStreams != 512 || ingressStreamQueueWait != 30*time.Second {
+		t.Fatalf("ingress stream admission = active %d, queued %d, wait %s",
+			ingressMaxActiveStreams, ingressMaxQueuedStreams, ingressStreamQueueWait)
+	}
 }
 
 // TestIngressOfflinePageHeadHasNoBody pins the HEAD arm of the offline page.

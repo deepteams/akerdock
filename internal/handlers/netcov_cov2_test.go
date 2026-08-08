@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -1367,6 +1368,13 @@ func TestNetcovCreateIngressTunnelBranches(t *testing.T) {
 		}
 		if !strings.HasPrefix(out.AttachUrl, "wss://") || !strings.HasPrefix(out.Token, "akdi_") {
 			t.Fatalf("mint = %+v", out)
+		}
+		attachURL, err := url.Parse(out.AttachUrl)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := attachURL.Query().Get("token"); got != out.Token {
+			t.Fatalf("attach URL token = %q, want the minted token", got)
 		}
 	})
 	t.Run("an agent that refuses the expectation fails the mint", func(t *testing.T) {
