@@ -179,17 +179,7 @@ function baseDomain(wildcard: string | null | undefined): string {
           @if (serverUuid) {
             <div class="akd-field">
               <label class="akd-field__label" for="in-subdomain">Public hostname</label>
-              @if (wildcardSuffix === CUSTOM) {
-                <input
-                  id="in-subdomain"
-                  name="fqdn"
-                  class="akd-input akd-input--mono"
-                  placeholder="e.g. hooks.example.com"
-                  [(ngModel)]="customFqdn"
-                  [disabled]="busy()"
-                  required
-                />
-              } @else {
+              @if (wildcards().length) {
                 <div class="subdomain">
                   <input
                     id="in-subdomain"
@@ -210,21 +200,23 @@ function baseDomain(wildcard: string | null | undefined): string {
                       @for (w of wildcards(); track w) {
                         <option [value]="w">.{{ w }}</option>
                       }
-                      <option [value]="CUSTOM">Other domain…</option>
                     </select>
                   </div>
                 </div>
+                <span class="akd-field__hint">
+                  @if (subdomain.trim()) {
+                    Your URL will be <strong class="akd-mono">{{ composedFqdn() }}</strong>.
+                    Immutable after declaration.
+                  } @else {
+                    A subdomain under the server's wildcard. Immutable after declaration.
+                  }
+                </span>
+              } @else {
+                <p class="akd-muted">
+                  This server has no wildcard domain configured, so it cannot host an ingress
+                  endpoint. Set one on the server first.
+                </p>
               }
-              <span class="akd-field__hint">
-                @if (wildcardSuffix === CUSTOM) {
-                  A full hostname you route to this server yourself. Immutable after declaration.
-                } @else if (subdomain.trim()) {
-                  Your URL will be <strong class="akd-mono">{{ composedFqdn() }}</strong>. Immutable
-                  after declaration.
-                } @else {
-                  A subdomain under the server's wildcard. Immutable after declaration.
-                }
-              </span>
             </div>
           }
         }
@@ -327,16 +319,11 @@ export class IngressEndpointsTabComponent {
   protected readonly editing = signal<IngressEndpoint | null>(null);
   protected readonly error = signal<string | null>(null);
 
-  /** Sentinel suffix value that switches the hostname field to a free-text
-   * full FQDN — for a domain routed to the server outside its wildcard. */
-  protected readonly CUSTOM = '__custom__';
-
   protected name = '';
   protected description = '';
   protected serverUuid = '';
   protected subdomain = '';
   protected wildcardSuffix = '';
-  protected customFqdn = '';
   protected access: IngressAccess = 'sso';
   protected basicAuthPassword = '';
 
@@ -380,23 +367,19 @@ export class IngressEndpointsTabComponent {
     return w ? [w] : [];
   }
 
-  /** The FQDN the form will submit: subdomain + wildcard, or the free-text
-   * full hostname when the "Other domain…" option is chosen. */
+  /** The FQDN the form will submit: subdomain + the server's wildcard. */
   protected composedFqdn(): string {
-    if (this.wildcardSuffix === this.CUSTOM) return this.customFqdn.trim();
     const sub = this.subdomain.trim().replace(/\.+$/, '');
     if (!sub || !this.wildcardSuffix) return '';
     return `${sub}.${this.wildcardSuffix}`;
   }
 
-  /** Picking a server seeds the suffix with its wildcard, or drops straight to
-   * the free-text hostname when the server has none. */
+  /** Picking a server seeds the suffix with its wildcard. */
   protected onServerChange(uuid: string): void {
     this.serverUuid = uuid;
     const wildcards = this.wildcards();
-    this.wildcardSuffix = wildcards.length ? wildcards[0] : this.CUSTOM;
+    this.wildcardSuffix = wildcards.length ? wildcards[0] : '';
     this.subdomain = '';
-    this.customFqdn = '';
   }
 
   protected openNew(): void {
@@ -427,7 +410,6 @@ export class IngressEndpointsTabComponent {
     this.serverUuid = '';
     this.subdomain = '';
     this.wildcardSuffix = '';
-    this.customFqdn = '';
     this.access = 'sso';
     this.basicAuthPassword = '';
   }
