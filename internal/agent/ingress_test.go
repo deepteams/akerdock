@@ -1,12 +1,18 @@
 package agent
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 
 	"github.com/deepteams/akerdock/internal/agentwire"
 	"github.com/deepteams/akerdock/internal/tunnel"
@@ -237,6 +243,88 @@ func TestIngressNotify(t *testing.T) {
 	default:
 		t.Fatal("notify did not call the hook")
 	}
+}
+
+// TestIngressEndToEndRelay drives a full attach + relay: a real WebSocket
+// stands in for the laptop (running tunnel.Bridge, dialing a fake local app),
+// and a visitor request to the ingress host must come back with the app's
+// response — exercising attach, newRelay, the mux and the tunnelWSConn
+// adapters together, the way the CLI and a browser actually use them.
+func TestIngressEndToEndRelay(t *testing.T) {
+	// The developer's local app.
+	devApp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("hello from the laptop"))
+	}))
+	defer devApp.Close()
+	devAddr := devApp.Listener.Addr().String()
+
+	ig := NewIngress(nil)
+	igSrv := httptest.NewServer(ig)
+	defer igSrv.Close()
+
+	// The httptest server answers on 127.0.0.1; that is the host the module
+	// sees, so route and arm against it.
+	host := hostname(strings.TrimPrefix(igSrv.URL, "http://"))
+	ig.SetRoutes([]IngressRoute{{Host: host, EndpointUUID: "ep1"}})
+	armed(ig, "sess1", "ep1", "tok", time.Minute)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Attach as the laptop would: dial the reserved path, then run Bridge with a
+	// dialer pointing at the local app (roles mirrored from the CLI).
+	wsURL := "ws" + strings.TrimPrefix(igSrv.URL, "http") + "/.akerdock/ingress?token=tok"
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		Subprotocols: []string{IngressSubprotocol},
+	})
+	if err != nil {
+		t.Fatalf("attach dial: %v", err)
+	}
+	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+	conn.SetReadLimit(-1)
+
+	bridgeDone := make(chan struct{})
+	go func() {
+		defer close(bridgeDone)
+		tunnel.Bridge(ctx, tunnelWSConn{conn}, func(dialCtx context.Context) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(dialCtx, "tcp", devAddr)
+		}, tunnel.Options{})
+	}()
+
+	// Wait for the session to register before sending a visitor request.
+	if !waitFor(2*time.Second, func() bool {
+		ig.mu.Lock()
+		defer ig.mu.Unlock()
+		return ig.live["ep1"] != nil
+	}) {
+		t.Fatal("the attach never became a live session")
+	}
+
+	// A visitor hits the ingress host; the response must be the app's.
+	resp, err := http.Get(igSrv.URL + "/") //nolint:noctx // short-lived test request
+	if err != nil {
+		t.Fatalf("visitor request: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if !contains(string(body), "hello from the laptop") {
+		t.Fatalf("visitor got %q, want the app's response", body)
+	}
+
+	cancel()
+	<-bridgeDone
+}
+
+func waitFor(d time.Duration, cond func() bool) bool {
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return false
 }
 
 func contains(s, sub string) bool {
