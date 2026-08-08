@@ -44,6 +44,98 @@ func TestIngressTransportPreference(t *testing.T) {
 	}
 }
 
+// A network that cannot carry QUIC fails the probe on every reconnect. The
+// verdict is remembered, so the handshake timeout is paid once — but not
+// forever: a laptop that changes network may gain HTTP/3.
+func TestIngressTransportRemembersProbeFailureUntilCooldown(t *testing.T) {
+	state := newIngressTransportState()
+	now := time.Now()
+	state.now = func() time.Time { return now }
+
+	state.noteProbeFailure(ingressTransportH3)
+	if state.usable(ingressTransportH3) {
+		t.Fatal("a failed probe must not be retried on the next reconnect")
+	}
+	if !state.usable(ingressTransportH2) {
+		t.Fatal("one transport's probe failure must not condemn another")
+	}
+	now = now.Add(ingressTransportProbeCooldown)
+	if !state.usable(ingressTransportH3) {
+		t.Fatal("the probe must be retried once the cooldown expired")
+	}
+}
+
+// The field failure this exists for: every attach succeeds, every session then
+// dies on a regular schedule because something on the path bounds how long a
+// request may last. Re-dialing forever is the wrong answer — fall back, and
+// say why.
+func TestIngressTransportFallsBackAfterRepeatedSessionLoss(t *testing.T) {
+	state := newIngressTransportState()
+
+	for i := 1; i < ingressTransportFailureBudget; i++ {
+		if msg := state.noteFailure(ingressTransportH2, time.Minute); msg != "" {
+			t.Fatalf("gave up after %d losses: %s", i, msg)
+		}
+		if !state.usable(ingressTransportH2) {
+			t.Fatalf("transport retired after %d losses, budget is %d", i, ingressTransportFailureBudget)
+		}
+	}
+	msg := state.noteFailure(ingressTransportH2, time.Minute)
+	if msg == "" {
+		t.Fatal("exhausting the budget must be explained, not silent")
+	}
+	if !strings.Contains(msg, "readTimeout") {
+		t.Fatalf("the diagnosis must name the setting to change, got: %s", msg)
+	}
+	if state.usable(ingressTransportH2) {
+		t.Fatal("the transport must be retired once its budget is spent")
+	}
+	if state.usable(ingressTransportH3) {
+		return // h3 shares nothing with h2's budget only if it was never charged
+	}
+	t.Fatal("one transport's budget must not retire another")
+}
+
+func TestIngressTransportSessionThatHeldClearsTheBudget(t *testing.T) {
+	state := newIngressTransportState()
+	state.noteFailure(ingressTransportH2, time.Minute)
+	state.noteSuccess(ingressTransportH2)
+	for i := 1; i < ingressTransportFailureBudget; i++ {
+		if msg := state.noteFailure(ingressTransportH2, time.Minute); msg != "" {
+			t.Fatalf("a session that held must reset the count: %s", msg)
+		}
+	}
+}
+
+// A refused attach is a verdict about the session, not about the protocol —
+// except for the two statuses that say "not over this protocol".
+func TestIngressAttachRejectionOnlyRetiresProtocolRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		code int
+		want bool
+	}{
+		{http.StatusUnauthorized, false},
+		{http.StatusConflict, false},
+		{http.StatusUpgradeRequired, true},
+		{http.StatusHTTPVersionNotSupported, true},
+	} {
+		rejection := &ingressAttachRejection{kind: ingressTransportH2, code: tc.code, status: "x"}
+		if got := rejection.transportRefused(); got != tc.want {
+			t.Fatalf("status %d: transportRefused = %v, want %v", tc.code, got, tc.want)
+		}
+	}
+	// The refusal is what the developer reads on stderr: it must carry the
+	// agent's own words, not just a status line.
+	rejection := &ingressAttachRejection{
+		kind: ingressTransportH2, code: 409, status: "409 Conflict",
+		message: "endpoint occupied — one laptop per endpoint",
+	}
+	got := rejection.Error()
+	if !strings.Contains(got, "HTTP/2") || !strings.Contains(got, "409") || !strings.Contains(got, "one laptop") {
+		t.Fatalf("rejection message = %q", got)
+	}
+}
+
 func TestIngressHTTPURLConversionDoesNotLeakMintTokenIntoProbe(t *testing.T) {
 	sess := ingressMint{AttachUrl: "wss://dev.example.com/.akerdock/ingress?token=stale&x=1", Token: "fresh"}
 	probe, err := ingressHTTPURL(sess)
@@ -76,13 +168,11 @@ func testIngressHTTPRelay(t *testing.T, kind ingressTransportKind) {
 	started := make(chan struct{}, requestCount)
 	release := make(chan struct{})
 	var releaseOnce sync.Once
-	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started <- struct{}{}
 		<-release
 		_, _ = fmt.Fprintf(w, "local:%s", r.URL.Path)
 	}))
-	defer dev.Close()
 	devURL, _ := url.Parse(dev.URL)
 	_, portText, _ := net.SplitHostPort(devURL.Host)
 	localPort, _ := strconv.Atoi(portText)
@@ -91,7 +181,19 @@ func testIngressHTTPRelay(t *testing.T, kind ingressTransportKind) {
 	web := httptest.NewUnstartedServer(ingress)
 	web.EnableHTTP2 = true
 	web.StartTLS()
-	defer web.Close()
+	// Teardown order matters and cannot be expressed with defer, which runs
+	// before cleanups: httptest.Close waits for outstanding requests, and both
+	// servers hold requests that only something else can end — the blocked dev
+	// handlers, and the control request that lives until the session is cut.
+	// Cleanups run LIFO, so this registers the reverse of the order needed:
+	// unblock the handlers, close the dev server, cut the session, close the
+	// ingress server. Get it wrong and any t.Fatal wedges the whole package
+	// until the test binary times out, which is how a stale assertion in here
+	// used to take four minutes to report itself.
+	t.Cleanup(web.Close)
+	t.Cleanup(func() { ingress.Cut("session-http", "revoked") })
+	t.Cleanup(dev.Close)
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
 	ingress.SetRoutes([]agent.IngressRoute{{Host: "127.0.0.1", EndpointUUID: "ep1"}})
 	token := "http-transport-token"
 	tokenSum := sha256.Sum256([]byte(token))
@@ -195,21 +297,18 @@ func testIngressHTTPRelay(t *testing.T, kind ingressTransportKind) {
 			visitorResults <- visitorResult{index: i, status: visitor.StatusCode, body: string(body), err: readErr}
 		}()
 	}
-	for i := 0; i < 32; i++ {
+	// Every request must be in flight AT ONCE: a page load fans out into far
+	// more parallel requests than the old 32-stream ceiling allowed, and the
+	// ceiling is what this asserts (tunnel.IngressMaxStreams, 128 active).
+	// None of them may answer before the burst is admitted in full.
+	for i := range requestCount {
 		select {
 		case <-started:
 		case result := <-visitorResults:
 			t.Fatalf("%s visitor %d finished before admission filled: status %d err %v", kind, result.index, result.status, result.err)
 		case <-ctx.Done():
-			t.Fatalf("%s admitted only %d concurrent streams", kind, i)
+			t.Fatalf("%s admitted only %d concurrent streams, want %d", kind, i, requestCount)
 		}
-	}
-	// Keep the first 32 handlers blocked long enough for the remaining eight
-	// requests to reach Origin's bounded pending queue. None may become the
-	// 33rd active local connection.
-	time.Sleep(50 * time.Millisecond)
-	if extra := len(started); extra != 0 {
-		t.Fatalf("%s admitted %d streams beyond the active limit", kind, extra)
 	}
 	releaseOnce.Do(func() { close(release) })
 	for range requestCount {

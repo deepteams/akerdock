@@ -396,6 +396,17 @@ entryPoints:
     address: ":80"        # = servers.proxy_http_port (§27.1) — ":8080" if 8080 configured
   websecure:
     address: ":443"       # = servers.proxy_https_port — ":8443" if 8443 configured
+    transport:
+      respondingTimeouts:
+        readTimeout: 0s   # MANDATORY (ADR-061). Traefik defaults to 60 s, and Go arms
+                          # that as a per-stream deadline on the REQUEST BODY: the ingress
+                          # control and data requests are long-lived full-duplex streams,
+                          # so the default cuts the tunnel — and every relayed WebSocket
+                          # with it — exactly every 60 s. WebSocket transports are immune
+                          # (a hijacked connection leaves the deadline behind), HTTP/2 and
+                          # HTTP/3 are not. Any HTTP proxy placed in front of this one
+                          # needs the same treatment (nginx: proxy_request_buffering off,
+                          # proxy_read_timeout 0, client_body_timeout 0).
     http3: {}              # HTTP/3 over QUIC on the same HTTPS port (UDP)
   tcp-15432:              # one entrypoint per active TCPRoute (§2.6)
     address: ":15432/tcp"

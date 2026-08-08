@@ -469,6 +469,23 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 		"   [ -e \"/var/lib/akerdock/$(basename \"$e\")\" ] || mv \"$e\" /var/lib/akerdock/;" +
 		" done;" +
 		" rmdir /data/akerdock 2>/dev/null || true; fi && "
+	// A static config change only takes effect on a NEW container (§1.4), and
+	// nothing else in the product ever notices one: the run below is idempotent
+	// on the container name, so a proxy created before the change would keep
+	// its old entrypoints, timeouts and published ports forever. Read what is
+	// deployed BEFORE overwriting it, and recreate when it drifted. A missing
+	// file (first bootstrap, pruned host) also counts as drift — the recreate
+	// is then a no-op `docker rm -f || true`.
+	if !recreate {
+		deployed, readErr := client.Run(ctx,
+			"printf '%s' '"+proxyStaticBeginMarker+"'; cat /var/lib/akerdock/proxy/traefik.yaml 2>/dev/null;"+
+				" printf '%s' '"+proxyStaticEndMarker+"'")
+		if readErr != nil {
+			return readErr
+		}
+		recreate = proxyStaticDrifted(deployed, static)
+	}
+
 	res, err := client.RunInput(ctx,
 		legacyMove+
 			"mkdir -p /var/lib/akerdock/proxy/dynamic /var/lib/akerdock/proxy/certs /var/lib/akerdock/proxy/auth"+
@@ -500,7 +517,8 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 	portPublish := proxyPortPublishArgs(int(server.ProxyHttpPort), int(server.ProxyHttpsPort), ports)
 	if recreate {
 		// Removed, not restarted: a static config change only takes effect on a
-		// new container (§1.4).
+		// new container (§1.4) — and a published port (the HTTP/3 UDP listener,
+		// a database's TCP entrypoint) only on a new `docker run`.
 		if _, err := client.Run(ctx, "docker rm -f "+proxy.ContainerName+" >/dev/null 2>&1 || true"); err != nil {
 			return err
 		}
@@ -581,6 +599,38 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 		return fmt.Errorf("instance FQDN routing (%s): %w", proxy.ControlPlaneScope, err)
 	}
 	return nil
+}
+
+// The deployed static config is read between markers rather than raw: a login
+// shell that prints anything of its own (a MOTD echoed from .bashrc, a version
+// manager's banner) would otherwise look like drift forever, and drift means
+// recreating the proxy — every single validation would cut the traffic.
+const (
+	proxyStaticBeginMarker = "<<<akerdock-static-begin>>>"
+	proxyStaticEndMarker   = "<<<akerdock-static-end>>>"
+)
+
+// proxyStaticDrifted compares the static configuration deployed on the server
+// with the one this release renders. Drift means the running container was
+// created against different entrypoints, timeouts or published ports than the
+// ones it is supposed to have — and since Traefik reads its static file once,
+// at startup, and `docker run` publishes ports once, at creation, the only way
+// to converge is to replace the container. An empty or unreadable file (first
+// bootstrap, pruned host) counts as drift: the recreate is then a no-op.
+func proxyStaticDrifted(deployed *sshexec.Result, static string) bool {
+	if deployed == nil {
+		return true
+	}
+	_, rest, found := strings.Cut(deployed.Stdout, proxyStaticBeginMarker)
+	if !found {
+		return true
+	}
+	body, _, found := strings.Cut(rest, proxyStaticEndMarker)
+	if !found {
+		return true
+	}
+	body = strings.TrimSpace(body)
+	return body == "" || body != strings.TrimSpace(static)
 }
 
 func proxyPortPublishArgs(httpPort, httpsPort int, tcpPorts []int) string {

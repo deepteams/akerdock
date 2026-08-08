@@ -43,8 +43,8 @@ func ingressCmd() *cobra.Command {
 		Short: "Relay a declared public URL to a local port on your machine",
 		Long: "Relay an ingress endpoint's stable public URL to a port on your machine " +
 			"(ADR-060). Visitors reach the URL; their requests are relayed to " +
-			"127.0.0.1:LOCAL_PORT. The tunnel reconnects by itself if the network " +
-			"drops, and exits when access ends.",
+			"localhost:LOCAL_PORT, over IPv4 or IPv6. The tunnel reconnects by " +
+			"itself if the network drops, and exits when access ends.",
 		Example: "  akerdock ingress dev-kedric 3000        # serve localhost:3000 at the endpoint's URL",
 		Args:    usageArgs(2, "ingress ENDPOINT LOCAL_PORT", "ingress dev-kedric 3000"),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -117,7 +117,7 @@ func (c *Client) runIngress(ctx context.Context, endpoint string, localPort int)
 		}
 
 		if !announced {
-			fmt.Fprintf(os.Stderr, "relaying %s -> 127.0.0.1:%d (Ctrl-C to stop)\n", sess.Url, localPort)
+			fmt.Fprintf(os.Stderr, "relaying %s -> localhost:%d (Ctrl-C to stop)\n", sess.Url, localPort)
 			announced = true
 		}
 		start := time.Now()
@@ -171,8 +171,8 @@ func (c *Client) attachIngress(
 	httpAttach, httpErr := ingressHTTPURL(sess)
 	if httpErr == nil {
 		preference := ingressTransportPreference()
-		for _, kind := range preference[:2] {
-			if state.disabled[kind] {
+		for _, kind := range preference[:len(preference)-1] {
+			if !state.usable(kind) {
 				continue
 			}
 			var pool *ingressHTTPLanePool
@@ -182,6 +182,10 @@ func (c *Client) attachIngress(
 				pool = newIngressH2Pool()
 			}
 			if err := probeIngressHTTP(ctx, pool, httpAttach, kind); err != nil {
+				// Remembered, not just skipped: re-probing a network that
+				// blocks this protocol costs a handshake timeout on every
+				// reconnect, and reconnects are what a broken path produces.
+				state.noteProbeFailure(kind)
 				_ = pool.Close()
 				continue
 			}
@@ -190,9 +194,23 @@ func (c *Client) attachIngress(
 				_ = pool.Close()
 				return "", kind, err
 			}
+			attachStarted := time.Now()
 			control, err := openIngressHTTPControl(ctx, pool, sess, key, kind)
 			if err != nil {
-				state.disabled[kind] = true
+				// An attach refused on policy grounds — an expired mint, an
+				// endpoint still occupied by the session being replaced — says
+				// nothing about the transport: retiring it there would silently
+				// downgrade the tunnel for the rest of the process.
+				var rejection *ingressAttachRejection
+				switch {
+				case errors.As(err, &rejection) && rejection.transportRefused():
+					state.disable(kind)
+				case errors.As(err, &rejection):
+				default:
+					if msg := state.noteFailure(kind, time.Since(attachStarted)); msg != "" {
+						fmt.Fprintln(os.Stderr, msg)
+					}
+				}
 				_ = pool.Close()
 				return "", kind, err
 			}
@@ -202,8 +220,12 @@ func (c *Client) attachIngress(
 			}
 			started := time.Now()
 			reason, runErr := runIngressHTTPBridge(ctx, control.control, pool, httpAttach, sess.Uuid, key, localPort)
-			if runErr != nil && time.Since(started) < ingressTransportAttachTimeout {
-				state.disabled[kind] = true
+			if runErr != nil {
+				if msg := state.noteFailure(kind, time.Since(started)); msg != "" {
+					fmt.Fprintln(os.Stderr, msg)
+				}
+			} else {
+				state.noteSuccess(kind)
 			}
 			_ = control.control.Close()
 			control.cancel()
@@ -280,8 +302,7 @@ func (c *Client) attachIngressWebSocket(ctx context.Context, sess ingressMint, l
 	}
 
 	dial := func(dialCtx context.Context) (net.Conn, error) {
-		var d net.Dialer
-		return d.DialContext(dialCtx, "tcp", fmt.Sprintf("127.0.0.1:%d", localPort))
+		return dialIngressLocal(dialCtx, localPort)
 	}
 	reason := tun.Bridge(ctx, bridgeConn, dial, tun.Options{
 		// The agent enforces the real idle/ceiling bounds; the client's own

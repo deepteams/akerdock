@@ -162,7 +162,7 @@ func TestIngressPolicyCloseEndsTheRelay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ingress: %v", err)
 	}
-	if !strings.Contains(errOut, "relaying https://dev.example.com -> 127.0.0.1:3000") {
+	if !strings.Contains(errOut, "relaying https://dev.example.com -> localhost:3000") {
 		t.Fatalf("stderr = %q", errOut)
 	}
 	if !strings.Contains(errOut, "administrator closed it") {

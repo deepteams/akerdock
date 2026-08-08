@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
@@ -97,6 +98,41 @@ func TestProxyPortPublishArgsIncludesHTTPSUDP(t *testing.T) {
 	want := "-p 8080:8080 -p 8443:8443 -p 8443:8443/udp -p 15432:15432 "
 	if got != want {
 		t.Fatalf("publish args = %q, want %q", got, want)
+	}
+}
+
+// Traefik reads its static file once, at startup, and `docker run` publishes
+// its ports once, at creation: a proxy created before an AkerDock upgrade
+// keeps the old entrypoints, timeouts and ports until something replaces the
+// container. Drift is what decides that, so it must not be silent — and must
+// not fire on a file that already matches, or every validation would recreate
+// the proxy.
+func TestProxyStaticDriftDecidesRecreation(t *testing.T) {
+	static := proxy.GenerateStatic(80, 443, "ops@example.com", "", nil, 7)
+	read := func(fileContent string) *sshexec.Result {
+		return &sshexec.Result{Stdout: proxyStaticBeginMarker + fileContent + proxyStaticEndMarker}
+	}
+	if proxyStaticDrifted(read(static), static) {
+		t.Fatal("an identical deployed config must not recreate the proxy")
+	}
+	// A chatty login shell is not drift: recreating on it would cut the
+	// traffic of every server on every validation.
+	noisy := &sshexec.Result{Stdout: "Welcome to Ubuntu\n" + proxyStaticBeginMarker + static + proxyStaticEndMarker + "\nbye"}
+	if proxyStaticDrifted(noisy, static) {
+		t.Fatal("shell noise around the markers must not count as drift")
+	}
+	stale := read(strings.ReplaceAll(static, "readTimeout: 0s", "readTimeout: 60s"))
+	if !proxyStaticDrifted(stale, static) {
+		t.Fatal("a deployed config that drifted must recreate the proxy")
+	}
+	if !proxyStaticDrifted(read(""), static) {
+		t.Fatal("a missing config file must recreate the proxy")
+	}
+	if !proxyStaticDrifted(&sshexec.Result{Stdout: "connection reset"}, static) {
+		t.Fatal("an unreadable config must recreate the proxy")
+	}
+	if !proxyStaticDrifted(nil, static) {
+		t.Fatal("a missing result must recreate the proxy")
 	}
 }
 

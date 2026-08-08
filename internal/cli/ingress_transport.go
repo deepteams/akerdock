@@ -32,6 +32,24 @@ const (
 	ingressTransportProbeTimeout  = 3 * time.Second
 	ingressTransportAttachTimeout = 5 * time.Second
 	ingressHTTP2Lanes             = 4
+
+	// ingressTransportFailureBudget is how many consecutive lost sessions a
+	// transport gets before the CLI falls back to the next one. A transport
+	// whose every attach succeeds and whose every session then dies is not a
+	// transport this path can carry: an HTTP front that bounds how long a
+	// request may last (Traefik's respondingTimeouts.readTimeout, 60 s by
+	// default) cuts the control request on a perfectly regular schedule, and
+	// every relayed connection with it. WebSocket transports are immune —
+	// hijacked connections leave the server's read deadline behind — so the
+	// fallback is the answer, not an eleventh re-dial.
+	ingressTransportFailureBudget = 3
+
+	// ingressTransportProbeCooldown is how long a failed capability probe is
+	// remembered. A network that blocks UDP fails the HTTP/3 probe on every
+	// single reconnect, and paying a QUIC handshake timeout each time is pure
+	// downtime; a cooldown rather than a permanent verdict because a laptop
+	// that changes network may well gain QUIC.
+	ingressTransportProbeCooldown = 5 * time.Minute
 )
 
 func (k ingressTransportKind) label() string {
@@ -45,13 +63,90 @@ func (k ingressTransportKind) label() string {
 	}
 }
 
+// ingressTransportState is the per-process memory of what this network can
+// actually carry. It outlives one session on purpose: the reconnect loop would
+// otherwise re-learn the same verdict every minute.
 type ingressTransportState struct {
-	disabled  map[ingressTransportKind]bool
-	announced ingressTransportKind
+	now         func() time.Time
+	disabled    map[ingressTransportKind]bool
+	probeFailed map[ingressTransportKind]time.Time
+	failures    map[ingressTransportKind]int
+	announced   ingressTransportKind
 }
 
 func newIngressTransportState() *ingressTransportState {
-	return &ingressTransportState{disabled: make(map[ingressTransportKind]bool)}
+	return &ingressTransportState{
+		now:         time.Now,
+		disabled:    make(map[ingressTransportKind]bool),
+		probeFailed: make(map[ingressTransportKind]time.Time),
+		failures:    make(map[ingressTransportKind]int),
+	}
+}
+
+// usable reports whether kind is worth another attempt right now.
+func (s *ingressTransportState) usable(kind ingressTransportKind) bool {
+	if s.disabled[kind] {
+		return false
+	}
+	failed, ok := s.probeFailed[kind]
+	return !ok || s.now().Sub(failed) >= ingressTransportProbeCooldown
+}
+
+// noteProbeFailure remembers that kind could not even be negotiated.
+func (s *ingressTransportState) noteProbeFailure(kind ingressTransportKind) {
+	s.probeFailed[kind] = s.now()
+}
+
+// disable retires a transport for the rest of the process.
+func (s *ingressTransportState) disable(kind ingressTransportKind) {
+	s.disabled[kind] = true
+}
+
+// noteFailure charges one lost attempt to kind's budget and returns the
+// operator-facing diagnosis when the budget runs out. lifetime is how long
+// the attempt held, which is the single most diagnostic number here: a tunnel
+// that dies after the same suspiciously round duration, over and over, is a
+// tunnel someone is cutting on a timer.
+func (s *ingressTransportState) noteFailure(kind ingressTransportKind, lifetime time.Duration) string {
+	s.failures[kind]++
+	if s.failures[kind] < ingressTransportFailureBudget {
+		return ""
+	}
+	s.disable(kind)
+	return fmt.Sprintf(
+		"%s keeps dropping (%d attempts in a row, the last after %s) — falling back to the next transport.\n"+
+			"Something on the path cuts long-lived HTTP requests. On the AkerDock proxy that setting is\n"+
+			"entryPoints.websecure.transport.respondingTimeouts.readTimeout (Traefik defaults to 60s; it must be 0s);\n"+
+			"any HTTP proxy in front of it needs the same treatment.",
+		kind.label(), s.failures[kind], lifetime.Round(time.Second))
+}
+
+// noteSuccess clears the budget: whatever happened before, this transport did
+// carry the tunnel, so the next drop starts from zero rather than inheriting
+// a count from an outage half a day ago.
+func (s *ingressTransportState) noteSuccess(kind ingressTransportKind) {
+	delete(s.failures, kind)
+}
+
+// ingressAttachRejection is an attach the agent refused with an HTTP status.
+// It is a policy or authentication verdict — an expired mint, an endpoint
+// still occupied by the very session being replaced — and says nothing about
+// the transport, except for the two statuses that do.
+type ingressAttachRejection struct {
+	kind    ingressTransportKind
+	status  string
+	code    int
+	message string
+}
+
+func (e *ingressAttachRejection) Error() string {
+	return fmt.Sprintf("%s attach returned %s: %s", e.kind.label(), e.status, e.message)
+}
+
+// transportRefused reports whether the peer answered "not over this protocol",
+// which is the only rejection worth retiring the transport for.
+func (e *ingressAttachRejection) transportRefused() bool {
+	return e.code == http.StatusUpgradeRequired || e.code == http.StatusHTTPVersionNotSupported
 }
 
 func ingressTransportPreference() [3]ingressTransportKind {
@@ -298,7 +393,12 @@ func openIngressHTTPControl(
 		message, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
 		cancel()
 		_ = bodyWriter.Close()
-		return nil, fmt.Errorf("%s attach returned %s: %s", kind.label(), resp.Status, strings.TrimSpace(string(message)))
+		return nil, &ingressAttachRejection{
+			kind:    kind,
+			status:  resp.Status,
+			code:    resp.StatusCode,
+			message: strings.TrimSpace(string(message)),
+		}
 	}
 	control := tun.NewLineControl(resp.Body, bodyWriter, nil, func() error {
 		cancel()
@@ -369,8 +469,7 @@ func runIngressHTTPBridge(
 			streams.Add(1)
 			go func(id uint32) {
 				defer streams.Done()
-				var dialer net.Dialer
-				local, dialErr := dialer.DialContext(workCtx, "tcp", fmt.Sprintf("127.0.0.1:%d", localPort))
+				local, dialErr := dialIngressLocal(workCtx, localPort)
 				if dialErr != nil {
 					_ = control.Send(workCtx, tun.HTTPControlFrame{Type: "open_err", ID: id, Code: "dial_failed", Msg: dialErr.Error()})
 					return
@@ -391,6 +490,16 @@ func runIngressHTTPBridge(
 			return frame.Reason, nil
 		}
 	}
+}
+
+// dialIngressLocal reaches the developer's app on the loopback. It resolves
+// "localhost" rather than dialing 127.0.0.1 outright: a dev server bound to
+// ::1 only (the default of more than one framework) is on the loopback too,
+// and a tunnel that answers "connection refused" on it is a tunnel the
+// developer cannot debug. Go's dual-stack dial tries both families.
+func dialIngressLocal(ctx context.Context, port int) (net.Conn, error) {
+	var dialer net.Dialer
+	return dialer.DialContext(ctx, "tcp", net.JoinHostPort("localhost", strconv.Itoa(port)))
 }
 
 func bridgeIngressConns(a, b net.Conn) {
