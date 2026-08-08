@@ -148,29 +148,14 @@ type IngressAccess = 'sso' | 'basic_auth' | 'none';
         </div>
         @if (!editing()) {
           <div class="akd-field">
-            <label class="akd-field__label" for="in-fqdn">Public hostname</label>
-            <input
-              id="in-fqdn"
-              name="fqdn"
-              class="akd-input akd-input--mono"
-              placeholder="e.g. dev-kedric.apps.example.com"
-              [(ngModel)]="fqdn"
-              [disabled]="busy()"
-              required
-            />
-            <span class="akd-field__hint">
-              Exact hostname — typically under a server's wildcard domain. Immutable after
-              declaration.
-            </span>
-          </div>
-          <div class="akd-field">
             <label class="akd-field__label" for="in-server">Ingress server</label>
             <div class="akd-select">
               <select
                 id="in-server"
                 name="server"
                 class="akd-input"
-                [(ngModel)]="serverUuid"
+                [ngModel]="serverUuid"
+                (ngModelChange)="onServerChange($event)"
                 [disabled]="busy()"
                 required
               >
@@ -184,6 +169,58 @@ type IngressAccess = 'sso' | 'basic_auth' | 'none';
               The server whose proxy terminates the hostname and relays to the laptop.
             </span>
           </div>
+
+          @if (serverUuid) {
+            <div class="akd-field">
+              <label class="akd-field__label" for="in-subdomain">Public hostname</label>
+              @if (wildcardSuffix === CUSTOM) {
+                <input
+                  id="in-subdomain"
+                  name="fqdn"
+                  class="akd-input akd-input--mono"
+                  placeholder="e.g. hooks.example.com"
+                  [(ngModel)]="customFqdn"
+                  [disabled]="busy()"
+                  required
+                />
+              } @else {
+                <div class="subdomain">
+                  <input
+                    id="in-subdomain"
+                    name="subdomain"
+                    class="akd-input akd-input--mono"
+                    placeholder="dev-kedric"
+                    [(ngModel)]="subdomain"
+                    [disabled]="busy()"
+                    required
+                  />
+                  <div class="akd-select suffix">
+                    <select
+                      name="wildcard"
+                      class="akd-input akd-input--mono"
+                      [(ngModel)]="wildcardSuffix"
+                      [disabled]="busy()"
+                    >
+                      @for (w of wildcards(); track w) {
+                        <option [value]="w">.{{ w }}</option>
+                      }
+                      <option [value]="CUSTOM">Other domain…</option>
+                    </select>
+                  </div>
+                </div>
+              }
+              <span class="akd-field__hint">
+                @if (wildcardSuffix === CUSTOM) {
+                  A full hostname you route to this server yourself. Immutable after declaration.
+                } @else if (subdomain.trim()) {
+                  Your URL will be <strong class="akd-mono">{{ composedFqdn() }}</strong>. Immutable
+                  after declaration.
+                } @else {
+                  A subdomain under the server's wildcard. Immutable after declaration.
+                }
+              </span>
+            </div>
+          }
         }
         <div class="akd-field">
           <label class="akd-field__label" for="in-access">Access</label>
@@ -257,6 +294,18 @@ type IngressAccess = 'sso' | 'basic_auth' | 'none';
         text-align: right;
         white-space: nowrap;
       }
+      .subdomain {
+        display: flex;
+        align-items: stretch;
+        gap: var(--space-2);
+      }
+      .subdomain input {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      .subdomain .suffix {
+        flex: 0 0 auto;
+      }
     `,
   ],
 })
@@ -272,10 +321,16 @@ export class IngressEndpointsTabComponent {
   protected readonly editing = signal<IngressEndpoint | null>(null);
   protected readonly error = signal<string | null>(null);
 
+  /** Sentinel suffix value that switches the hostname field to a free-text
+   * full FQDN — for a domain routed to the server outside its wildcard. */
+  protected readonly CUSTOM = '__custom__';
+
   protected name = '';
   protected description = '';
-  protected fqdn = '';
   protected serverUuid = '';
+  protected subdomain = '';
+  protected wildcardSuffix = '';
+  protected customFqdn = '';
   protected access: IngressAccess = 'sso';
   protected basicAuthPassword = '';
 
@@ -309,6 +364,33 @@ export class IngressEndpointsTabComponent {
     }
   }
 
+  /** The wildcard suffixes offered for the chosen server (one per server
+   * today, but a list keeps the dropdown honest if that ever changes). */
+  protected wildcards(): string[] {
+    const server = this.servers().find((s) => s.uuid === this.serverUuid);
+    const w = server?.wildcard_domain?.trim();
+    return w ? [w] : [];
+  }
+
+  /** The FQDN the form will submit: subdomain + wildcard, or the free-text
+   * full hostname when the "Other domain…" option is chosen. */
+  protected composedFqdn(): string {
+    if (this.wildcardSuffix === this.CUSTOM) return this.customFqdn.trim();
+    const sub = this.subdomain.trim().replace(/\.+$/, '');
+    if (!sub || !this.wildcardSuffix) return '';
+    return `${sub}.${this.wildcardSuffix}`;
+  }
+
+  /** Picking a server seeds the suffix with its wildcard, or drops straight to
+   * the free-text hostname when the server has none. */
+  protected onServerChange(uuid: string): void {
+    this.serverUuid = uuid;
+    const wildcards = this.wildcards();
+    this.wildcardSuffix = wildcards.length ? wildcards[0] : this.CUSTOM;
+    this.subdomain = '';
+    this.customFqdn = '';
+  }
+
   protected openNew(): void {
     this.editing.set(null);
     this.resetForm();
@@ -334,15 +416,17 @@ export class IngressEndpointsTabComponent {
   private resetForm(): void {
     this.name = '';
     this.description = '';
-    this.fqdn = '';
     this.serverUuid = '';
+    this.subdomain = '';
+    this.wildcardSuffix = '';
+    this.customFqdn = '';
     this.access = 'sso';
     this.basicAuthPassword = '';
   }
 
   protected valid(): boolean {
     if (!this.name.trim()) return false;
-    if (!this.editing() && (!this.fqdn.trim() || !this.serverUuid)) return false;
+    if (!this.editing() && (!this.composedFqdn() || !this.serverUuid)) return false;
     // basic_auth needs a password on creation; on edit, blank keeps the old one.
     if (this.access === 'basic_auth' && !this.editing() && !this.basicAuthPassword) return false;
     return true;
@@ -365,7 +449,7 @@ export class IngressEndpointsTabComponent {
         await this.api.client().createIngressEndpoint({
           name: this.name.trim(),
           description: this.description.trim() || undefined,
-          fqdn: this.fqdn.trim(),
+          fqdn: this.composedFqdn(),
           server_uuid: this.serverUuid,
           access: this.access,
           basic_auth_password: this.basicAuthPassword || undefined,
