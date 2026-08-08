@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -54,6 +55,11 @@ type API struct {
 	// instead of hairpinning through the relay. Nil-safe: absent, every
 	// resolution answers unavailable.
 	AgentRPC *AgentConns
+	// Agent observation queues keep best-effort database updates off the
+	// bidirectional command reader. One ordered worker per server means a slow
+	// observation can neither withhold its ACK nor block command results.
+	agentObservationMu     sync.Mutex
+	agentObservationQueues map[int64]chan agentObservationBatch
 	// Tunnels tracks the bridges this process runs (ADR-032/ADR-045), so a
 	// revoked grant or a closed session cuts the socket instead of merely
 	// recording that it should be gone. Zero value ready.

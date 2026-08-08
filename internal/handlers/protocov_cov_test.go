@@ -1653,6 +1653,50 @@ func TestProtocovAgentChannelV2(t *testing.T) {
 	}
 }
 
+// Observation persistence is deliberately outside the channel reader. A
+// locked database row must not withhold ACKs or command results until the
+// agent's 10-second transport budget tears down an otherwise healthy socket.
+func TestProtocovAgentChannelAcknowledgesWhileObservationStoreIsBlocked(t *testing.T) {
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	defer close(release)
+	db := &protocovDB{override: map[string]func([]any){
+		"GetSleepingPreviewForServer": func([]any) {
+			entered <- struct{}{}
+			<-release
+		},
+	}}
+	a := protocovAPI(t, db)
+	a.AgentRPC = &AgentConns{}
+	conn, ctx := protocovDialAgent(t, a, agentwire.SubprotocolV2)
+
+	protocovWriteWS(ctx, t, conn, agentwire.Frame{
+		Type: agentwire.FrameObservations,
+		Seq:  1,
+		Observations: []agentwire.Observation{{
+			Type: "stz_woken", ResourceUUID: fixtureUUID,
+		}},
+	})
+	if ack := protocovReadAck(ctx, t, conn); ack.Denied || ack.Seq != 1 {
+		t.Fatalf("first ack = %+v, want accepted seq 1", ack)
+	}
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("the observation worker never reached the blocking query")
+	}
+
+	// The ordered worker is still blocked above. The channel reader must keep
+	// accepting and acknowledging frames instead of waiting behind it.
+	protocovWriteWS(ctx, t, conn, agentwire.Frame{
+		Type: agentwire.FrameObservations, Seq: 2,
+		Observations: []agentwire.Observation{{Type: "heartbeat"}},
+	})
+	if ack := protocovReadAck(ctx, t, conn); ack.Denied || ack.Seq != 2 {
+		t.Fatalf("second ack behind blocked persistence = %+v, want accepted seq 2", ack)
+	}
+}
+
 // --- CLI auth ---------------------------------------------------------------
 
 func TestProtocovCliAuthStart(t *testing.T) {

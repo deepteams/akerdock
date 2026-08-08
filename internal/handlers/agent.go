@@ -27,6 +27,65 @@ import (
 // leaves headroom without letting a broken sender stuff megabytes of hints.
 const agentBatchMax = 500
 
+const (
+	agentObservationQueueCap     = 32
+	agentObservationApplyTimeout = 5 * time.Second
+)
+
+type agentObservationBatch struct {
+	tokenID      int64
+	observations []agentwire.Observation
+}
+
+// enqueueAgentObservations transfers best-effort hints to one ordered worker
+// per server. The command WebSocket must remain a transport, not become a
+// synchronous database worker: otherwise one locked observation query keeps
+// the handler from reading command results and makes the agent tear down an
+// otherwise healthy channel when its 10-second ACK budget expires.
+func (a *API) enqueueAgentObservations(serverID, tokenID int64, observations []agentwire.Observation) {
+	batch := agentObservationBatch{
+		tokenID:      tokenID,
+		observations: append([]agentwire.Observation(nil), observations...),
+	}
+	a.agentObservationMu.Lock()
+	if a.agentObservationQueues == nil {
+		a.agentObservationQueues = make(map[int64]chan agentObservationBatch)
+	}
+	queue := a.agentObservationQueues[serverID]
+	if queue == nil {
+		queue = make(chan agentObservationBatch, agentObservationQueueCap)
+		a.agentObservationQueues[serverID] = queue
+		go a.runAgentObservationQueue(serverID, queue)
+	}
+	select {
+	case queue <- batch:
+	default:
+		if a.Logger != nil {
+			a.Logger.Warn("agent observation queue full — dropping best-effort hints",
+				"server_id", serverID, "count", len(observations))
+		}
+	}
+	a.agentObservationMu.Unlock()
+}
+
+func (a *API) runAgentObservationQueue(serverID int64, queue <-chan agentObservationBatch) {
+	for batch := range queue {
+		ctx, cancel := context.WithTimeout(context.Background(), agentObservationApplyTimeout)
+		_ = a.Store.TouchAgentTokenSeen(ctx, batch.tokenID)
+		for _, observation := range batch.observations {
+			if ctx.Err() != nil {
+				break
+			}
+			a.applyAgentObservation(ctx, serverID, observation)
+		}
+		if err := ctx.Err(); err != nil && a.Logger != nil {
+			a.Logger.Warn("agent observation apply timed out — reconciliation will retry",
+				"server_id", serverID, "count", len(batch.observations), "error", err)
+		}
+		cancel()
+	}
+}
+
 // authAgentToken resolves the per-server token of an agent request; ok=false
 // means the 401 was already written.
 func (a *API) authAgentToken(w http.ResponseWriter, r *http.Request) (store.AgentToken, bool) {
@@ -53,7 +112,6 @@ func (a *API) AgentObservations(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	_ = a.Store.TouchAgentTokenSeen(r.Context(), token.ID)
 
 	var payload struct {
 		Observations []agentwire.Observation `json:"observations"`
@@ -67,9 +125,7 @@ func (a *API) AgentObservations(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "observation batch too large")
 		return
 	}
-	for _, o := range payload.Observations {
-		a.applyAgentObservation(r.Context(), token.ServerID, o)
-	}
+	a.enqueueAgentObservations(token.ServerID, token.ID, payload.Observations)
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -128,7 +184,7 @@ func (a *API) AgentChannel(w http.ResponseWriter, r *http.Request) {
 
 	a.Agents.connect(token.ServerID)
 	defer a.Agents.disconnect(token.ServerID)
-	_ = a.Store.TouchAgentTokenSeen(r.Context(), token.ID)
+	a.enqueueAgentObservations(token.ServerID, token.ID, nil)
 	a.Logger.Info("agent channel connected", "server_id", token.ServerID)
 	defer a.Logger.Info("agent channel closed", "server_id", token.ServerID)
 
@@ -184,10 +240,7 @@ func (a *API) AgentChannel(w http.ResponseWriter, r *http.Request) {
 				}
 				continue
 			}
-			for _, o := range f.Observations {
-				a.applyAgentObservation(ctx, token.ServerID, o)
-			}
-			_ = a.Store.TouchAgentTokenSeen(ctx, token.ID)
+			a.enqueueAgentObservations(token.ServerID, token.ID, f.Observations)
 			if ac.WriteFrame(agentwire.Frame{Type: agentwire.FrameAck, Seq: f.Seq}) != nil {
 				return
 			}
