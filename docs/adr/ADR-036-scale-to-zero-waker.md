@@ -1,8 +1,11 @@
 # ADR-036 — Scale-to-zero via an in-path waker
 
-## Status
+- **Status**: Accepted
+- **Date**: 2026-07-26
 
-Accepted — pins down the **proposed defaults** of
+## Relation to other decisions
+
+Pins down the **proposed defaults** of
 [proxy-contract §8](../specs/proxy-contract.md) (Scale-to-zero, SHOULD), which
 it locks in; complements [ADR-011](ADR-011-enriched-previews-from-delivery.md)
 (preview lifecycle) and [ADR-024](ADR-024-realtime-sse-websocket-terminal.md) without

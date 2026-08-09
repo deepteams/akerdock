@@ -1,8 +1,11 @@
 # ADR-034 — On-demand live metrics via the runtime connection
 
-## Status
+- **Status**: Accepted
+- **Date**: 2026-07-27
 
-Accepted — complements (does not supersede) [ADR-008](ADR-008-observability-otlp-everywhere.md).
+## Relation to other decisions
+
+Complements (does not supersede) [ADR-008](ADR-008-observability-otlp-everywhere.md).
 
 ## Context
 

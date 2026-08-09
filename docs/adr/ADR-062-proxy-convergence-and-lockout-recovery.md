@@ -1,6 +1,6 @@
 # ADR-062 — The managed proxy converges to its intent, and never traps the operator
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-08-08
 - **Extends**: [ADR-009](ADR-009-proxy-intermediate-representation.md) — the IR and the
   dynamic-file reconciliation stand unchanged; this extends what is reconciled to the

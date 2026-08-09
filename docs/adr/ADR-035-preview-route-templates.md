@@ -1,8 +1,11 @@
 # ADR-035 — Preview routes via a template table
 
-## Status
+- **Status**: Accepted
+- **Date**: 2026-07-26
 
-Accepted — revises the "single `preview_url_template`" wording of §5.6 (PRD)
+## Relation to other decisions
+
+Revises the "single `preview_url_template`" wording of §5.6 (PRD)
 without touching the rest of the preview scope (ADR-011).
 
 ## Context

@@ -7,7 +7,7 @@ Self-hosted PaaS in Go: deployment of applications, databases and compose stacks
 ## Sources of truth
 
 - `docs/PRD.md` — product specification. Sections 1–14 describe the functional scope; sections 16+ are the verifiable requirements (normative keywords MUST / MUST NOT / SHOULD / MAY).
-- `docs/adr/` — 48 accepted ADRs (index: `docs/adr/README.md`). **An accepted ADR is immutable**: any revision of the DECISION goes through a new ADR that supersedes the old one. (The wording itself may be fixed in place — rephrasing is not deciding.) Any structural decision requires an ADR + an entry in the tracking grid (PRD §26).
+- `docs/adr/` — the architecture decision records; the index `docs/adr/README.md` lists them with their status and is the count that matters (a number repeated here goes stale at the next ADR, and did: it said 48 for 64). **An accepted ADR is immutable**: any revision of the DECISION goes through a new ADR that supersedes the old one. (The wording itself may be fixed in place — rephrasing is not deciding.) Any structural decision requires an ADR + an entry in the tracking grid (PRD §26).
 - `docs/specs/openapi-v1.yaml` — API contract. **Spec-first**: Go handlers and the TypeScript client are generated from this file (oapi-codegen), never written by hand and documented after the fact. The spec stays on **OpenAPI 3.0.3** (oapi-codegen does not support 3.1). After any change: `make generate` and commit the generated code (CI checks the synchronization).
 
 ## Mandated stack (ADR-025, ADR-021)
@@ -20,5 +20,5 @@ Self-hosted PaaS in Go: deployment of applications, databases and compose stacks
 
 - Documentation in **English**; code, identifiers and commit messages follow standard Go usage.
 - Predefined variables prefixed `AKERDOCK_*` — never an alias under another brand (ADR-022). The project's former name was "dockerbox": do not reintroduce that name.
-- Real time: SSE with `Last-Event-ID` resumption; WebSocket reserved for the terminal (ADR-024).
+- Real time: SSE with `Last-Event-ID` resumption (ADR-024). Bidirectional CLI tunnels — terminal included — share one transport ladder, HTTP/3 → HTTP/2 → WebSocket (ADR-064 revised ADR-024's "WebSocket reserved for the terminal" clause; the SSE half stands).
 - Tests: most of the coverage is **unit-level** (any new logic MUST be unit-tested); there is exactly **one E2E journey**, Docker-in-Docker, run post-merge and pre-release, never sharded and no nightly catalog (ADR-026/028, test plan §2).

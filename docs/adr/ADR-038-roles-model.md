@@ -1,8 +1,11 @@
 # ADR-038 — Role model: admin/member/reviewer + custom roles
 
-## Status
+- **Status**: Accepted
+- **Date**: 2026-07-27
 
-Accepted — the `reviewer` permission set is **amended by
+## Relation to other decisions
+
+The `reviewer` permission set is **amended by
 [ADR-059](ADR-059-reviewer-inventory-read-access.md)** (read-only path to previews);
 the rest stands. **Supersedes the "roles" part of [ADR-007](ADR-007-fine-grained-rbac-project-environment.md)**
 (the set of system roles and the degree of granularity) and updates

@@ -1,6 +1,6 @@
 # ADR-064 — One transport ladder for every CLI-to-server tunnel
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-08-08
 - **Extends**: [ADR-061](ADR-061-ingress-http3-http2-websocket-fallback.md) — its ladder,
   its wire and its bounds stand; this makes them the transport of every CLI tunnel rather

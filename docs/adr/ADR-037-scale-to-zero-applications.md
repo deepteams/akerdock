@@ -1,8 +1,11 @@
 # ADR-037 — Scale-to-zero for production applications
 
-## Status
+- **Status**: Accepted
+- **Date**: 2026-07-26
 
-Accepted — **extends** [ADR-036](ADR-036-scale-to-zero-waker.md) (in-path
+## Relation to other decisions
+
+**extends** [ADR-036](ADR-036-scale-to-zero-waker.md) (in-path
 waker) to production applications, beyond previews. Does not change the waker
 mechanism; adds an opt-in and guardrails specific to production.
 
