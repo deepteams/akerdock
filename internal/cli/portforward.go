@@ -22,101 +22,57 @@ import (
 	tun "github.com/deepteams/akerdock/internal/tunnel"
 )
 
-// mint path per resource kind (ADR-032).
-var forwardPath = map[string]string{
-	"apps": "/applications", "databases": "/databases", "services": "/services",
-}
-
-func portForwardCmd() *cobra.Command {
+// portForwardCmd forwards a local port to a container of one kind (ADR-032).
+// Mounted on the groups whose type has a port-forwards endpoint — applications
+// and databases; a compose stack forwards through its application (ADR-070 §1).
+//
+// The ports argument comes first and the name last, so the two positionals are
+// told apart by their place rather than by their shape: with the type carried by
+// the group, `15432:5432` can no longer be confused with a target.
+func portForwardCmd(k resourceKind) *cobra.Command {
 	var component string
 	var pr int
 	cmd := &cobra.Command{
-		Use:   "port-forward [REF] [[LOCAL:]REMOTE]",
-		Short: "Tunnel a local port to a port of a container AkerDock deploys",
-		Long: "Forwards a local port to a port of an application, database, service or " +
-			"preview container (ADR-032). For a target AkerDock does not run — a managed " +
-			"database, an internal API declared as an external endpoint — use " +
-			"`akerdock tunnel open` (ADR-069).",
-		Example: "  akerdock port-forward db/pg 15432:5432\n" +
-			"  akerdock port-forward app/varuna 15432:5432 -c postgres\n" +
-			"  akerdock port-forward app/varuna 15432:5432 -c postgres --pr 8   # a PR preview",
+		Use:   "port-forward [LOCAL:]REMOTE [NAME]",
+		Short: "Tunnel a local port to a port of the container",
+		Long: "Forwards a local port to a port of the container (ADR-032). For a target " +
+			"AkerDock does not run — a managed database, an internal API declared as an " +
+			"external endpoint — use `akerdock tunnel open` (ADR-069).",
+		Example: "  akerdock db port-forward 15432:5432 pg\n" +
+			"  akerdock app port-forward 15432:5432 varuna -c postgres\n" +
+			"  akerdock app port-forward 15432:5432 varuna -c postgres --pr 8   # a PR preview",
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := newClient(flags.context)
 			if err != nil {
 				return err
 			}
-			refArg, portsArg := splitForwardArgs(args)
-			var refArgs []string
-			if refArg != "" {
-				refArgs = []string{refArg}
-			}
-			r, err := refFromArgs(refArgs)
+			localPort, remotePort, err := parsePorts(args[0])
 			if err != nil {
 				return err
 			}
-			// The bastion left this command with its own verb (ADR-069). Say
-			// which one rather than let the endpoint fail to resolve as an
-			// application three calls later.
-			if r.kind == "endpoints" {
-				return fmt.Errorf("an external endpoint is not a container — use: akerdock tunnel open %s", r.name)
-			}
-			var localPort, remotePort int
-			if portsArg == "" {
-				return fmt.Errorf("no port given — pass the container port to forward (e.g. %s 15432:5432)", refArg)
-			}
-			if localPort, remotePort, err = parsePorts(portsArg); err != nil {
-				return err
-			}
 			component = defaultComponent(component)
-			res, err := c.resolve(cmd.Context(), r)
+			res, err := c.target(cmd.Context(), k, args[1:])
 			if err != nil {
 				return err
 			}
 			// A PR preview: the tunnel targets the preview instance's container.
 			if pr > 0 {
-				if r.kind != "apps" {
-					return fmt.Errorf("--pr only applies to an app/… reference")
-				}
 				preview, err := c.resolvePreview(cmd.Context(), res.Uuid, pr)
 				if err != nil {
 					return err
 				}
-				mint := "/applications/" + res.Uuid + "/previews/" + preview.Uuid + "/port-forwards"
+				mint := k.path + "/" + res.Uuid + "/previews/" + preview.Uuid + "/port-forwards"
 				return c.runPortForward(cmd.Context(), mint, component, localPort, remotePort)
 			}
-			basePath, ok := forwardPath[r.kind]
-			if !ok {
-				return fmt.Errorf("port-forward does not support %q", r.kind)
-			}
-			return c.runPortForward(cmd.Context(), basePath+"/"+res.Uuid+"/port-forwards", component, localPort, remotePort)
+			return c.runPortForward(cmd.Context(), k.path+"/"+res.Uuid+"/port-forwards", component, localPort, remotePort)
 		},
 	}
-	cmd.Flags().StringVarP(&component, "component", "c", "", "compose service to target")
-	cmd.Flags().IntVar(&pr, "pr", 0, "target the preview of this PR number instead of production")
+	if k.group == "app" {
+		cmd.Flags().StringVarP(&component, "component", "c", "", "compose service to target")
+		cmd.Flags().IntVar(&pr, "pr", 0, "target the preview of this PR number instead of production")
+	}
 	return cmd
-}
-
-// splitForwardArgs tells the optional REF from the optional ports, because both
-// are positional and either may be omitted:
-//
-//	port-forward db/pg 15432:5432    → ref + ports
-//	port-forward 15432:5432          → ports only (default app from .akerdock)
-//
-// A REF always contains a slash and a ports argument never does, so a lone
-// argument is never ambiguous. Reading it by POSITION alone would make
-// `port-forward 15432:5432` complain about an unknown resource type.
-func splitForwardArgs(args []string) (refArg, portsArg string) {
-	if len(args) == 2 {
-		return args[0], args[1]
-	}
-	if len(args) == 1 && strings.Contains(args[0], "/") {
-		return args[0], ""
-	}
-	if len(args) == 1 {
-		return "", args[0]
-	}
-	return "", ""
 }
 
 // handshakeReason extracts the API error message from a refused WebSocket

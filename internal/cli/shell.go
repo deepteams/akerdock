@@ -22,27 +22,23 @@ import (
 	tun "github.com/deepteams/akerdock/internal/tunnel"
 )
 
-func shellCmd() *cobra.Command {
+// shellCmd is the container terminal of one kind. Only applications and
+// databases have a terminal-sessions endpoint, so only those two groups mount
+// it (ADR-070 §1).
+func shellCmd(k resourceKind) *cobra.Command {
 	var component string
 	cmd := &cobra.Command{
-		Use:     "shell [REF]",
-		Short:   "Open an interactive shell in a container",
-		Example: "  akerdock shell app/varuna\n  akerdock shell -c postgres   # default app from .akerdock",
-		Args:    cobra.MaximumNArgs(1),
+		Use:     "shell [NAME]",
+		Short:   "Open an interactive shell in the container",
+		Example: "  akerdock " + k.group + " shell varuna\n  akerdock " + k.group + " shell -c postgres   # default from .akerdock",
+		Args:    targetArgs(k),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := newClient(flags.context)
 			if err != nil {
 				return err
 			}
-			r, err := refFromArgs(args)
-			if err != nil {
-				return err
-			}
-			if r.kind != "apps" {
-				return fmt.Errorf("shell currently supports app/… references")
-			}
 			component = defaultComponent(component)
-			res, err := c.resolve(cmd.Context(), r)
+			res, err := c.target(cmd.Context(), k, args)
 			if err != nil {
 				return err
 			}
@@ -60,14 +56,16 @@ func shellCmd() *cobra.Command {
 				State string `json:"state"`
 			}
 			if err := c.do(cmd.Context(), http.MethodPost,
-				"/applications/"+res.Uuid+"/terminal-sessions", q, struct{}{}, &sess); err != nil {
+				k.path+"/"+res.Uuid+"/terminal-sessions", q, struct{}{}, &sess); err != nil {
 				return err
 			}
 			return c.attachTerminal(cmd.Context(), sess.WebsocketPath, sess.Token,
 				sess.State == mintStateWaking)
 		},
 	}
-	cmd.Flags().StringVarP(&component, "component", "c", "", "compose service to open the shell in")
+	if k.group == "app" {
+		cmd.Flags().StringVarP(&component, "component", "c", "", "compose service to open the shell in")
+	}
 	return cmd
 }
 

@@ -38,8 +38,11 @@ for bootstrap, repair, git clones and Nixpacks builds only.
   ([ADR-036](docs/adr/ADR-036-scale-to-zero-waker.md)).
 - **Bastion**: declared external endpoints and audited TCP tunnels to them
   ([ADR-045](docs/adr/ADR-045-external-endpoint-port-forwards.md)).
-- **Local CLI** for day-to-day debugging: logs, shell, TCP port-forward and typed
-  DB consoles — see [Using the CLI](#using-the-cli).
+- **Local CLI** for the daily loop: logs, shell, TCP port-forward, typed DB
+  consoles — and, since
+  [ADR-070](docs/adr/ADR-070-cli-typed-command-groups.md), environment variables,
+  deployments, rollback, lifecycle and previews — see
+  [Using the CLI](#using-the-cli).
 - **MCP server** (read-only, opt-in) so an assistant can inspect the instance —
   `akerdock mcp` ([ADR-043](docs/adr/ADR-043-mcp-server-oauth-and-cli.md)).
 
@@ -83,7 +86,9 @@ migration over the public API (dry-run by default).
 `akerdock` is the same binary as the server (Cobra subcommands). It talks **only
 to your instance over HTTPS**, opens **no local port**, and works from anywhere —
 behind a proxy, over SSH, in a container. This is what team members use to debug
-a resource without a manual SSH tunnel.
+a resource without a manual SSH tunnel — and, since
+[ADR-070](docs/adr/ADR-070-cli-typed-command-groups.md), to set a variable, ship
+a deployment or roll one back without opening the dashboard.
 
 ### Get the CLI
 
@@ -121,38 +126,94 @@ akerdock login --url https://manager.example.com --no-browser
 
 ### Everyday commands
 
-A resource is addressed by a `REF` of the form `type/name`, where the name is the
-resource's name or its UUID: `app/…`, `db/…`, `svc/…`, `preview/…`, and
-`endpoint/…` for a declared external target.
+The tree is **typed** ([ADR-070](docs/adr/ADR-070-cli-typed-command-groups.md)):
+`akerdock <type> <verb> [NAME]`, with `app`, `db` and `svc` as the three groups
+and the resource **name last** — its name or its UUID, and omitted altogether for
+an `app` verb when a [`.akerdock`](#per-directory-defaults-akerdock) names the
+default application. Each group offers the verbs its type actually has, so
+`akerdock db --help` is the authoritative list of what a database can do. The old
+`type/name` REF is gone: `akerdock logs app/varuna` is refused, with the command
+that replaced it.
 
 ```sh
-akerdock ls                              # apps, databases and services in the team
-akerdock ls servers                      # or one kind: apps|databases|services|servers
-akerdock logs app/varuna -f              # follow container logs
-akerdock logs app/varuna -n 500          # snapshot, last N lines (default 200)
-akerdock logs app/varuna --deployment    # logs of the latest build/deploy
-akerdock shell app/varuna                # interactive shell in the container
-akerdock shell app/varuna -c postgres    # a specific compose service
+akerdock list                            # apps, databases and services in the team
+akerdock list servers                    # or one kind: apps|databases|services|servers
+akerdock whoami                          # where this terminal points, and as whom
 
-# Tunnel a container port to localhost through the manager (never exposes it):
-akerdock port-forward db/pg 15432:5432
-akerdock port-forward app/varuna 15432:5432 -c postgres --pr 8   # a PR preview
+akerdock app info varuna                 # status, health, components, last deployment
+akerdock app logs varuna -f              # follow container logs
+akerdock app logs varuna -n 500          # snapshot, last N lines (default 200)
+akerdock app logs varuna --deployment    # logs of the latest build/deploy
+akerdock app shell varuna                # interactive shell in the container
+akerdock app shell varuna -c postgres    # a specific compose service
+akerdock app restart varuna              # …and start | stop
+akerdock app open varuna                 # the public URL (--dashboard for its page)
+
+# Ship, and go back:
+akerdock app deploy run varuna -f        # trigger and follow the build
+akerdock app deploy list varuna          # history
+akerdock app deploy rollback varuna      # back to the previous image
+akerdock app deploy cancel <deployment-uuid>
+
+# Variables — the server decides what a value looks like (masked without
+# read:sensitive); --apply redeploys without rebuilding (ADR-048):
+akerdock app env list varuna
+akerdock app env set API_URL=https://api.example.com varuna --apply
+akerdock app env unset LEGACY_FLAG varuna
+akerdock app env list --pr 8 varuna      # the previews set of PR 8
+
+# PR previews (no `approve`: authorising a fork stays in the dashboard):
+akerdock app preview list varuna
+akerdock app preview redeploy --pr 8 varuna
+akerdock app preview keep --pr 8 varuna
+
+# Scheduled tasks:
+akerdock app tasks list varuna
+akerdock app tasks run nightly-sync varuna
+
+# Databases — and `svc`, which carries the same lifecycle, deploy and env verbs
+# for compose stacks (no logs, no shell, no port-forward: a stack has none):
+akerdock db list
+akerdock db console pg                   # forward + the right client
+akerdock db shell pg                     # a shell in the container
+akerdock db backups list pg              # plans and their executions
+akerdock db backups run pg               # back up now — there is no `restore`
+
+# Tunnel a container port to localhost through the manager (never exposes it).
+# The ports come first, the name last:
+akerdock db port-forward 15432:5432 pg
+akerdock app port-forward 15432:5432 varuna -c postgres --pr 8   # a PR preview
 
 # A declared external endpoint — a managed DB, an internal API — is its own
 # command (ADR-045/070). No remote port to give: the endpoint froze its own host
 # and port. Without a local port either, the OS picks a free one and prints it.
 akerdock tunnel open prod-replica
 akerdock tunnel open prod-replica 15432   # …on a chosen local port
-akerdock tunnel ls                        # every tunnel open in the team
+akerdock tunnel list                      # every tunnel open in the team
 akerdock tunnel close <session-uuid>
 
-# Typed console: opens a forward + the right client
-# (psql / mysql / redis-cli / mongosh, picked from the engine):
-akerdock db db/pg
+# The mirror image: a declared public URL relayed onto a port of this machine.
+akerdock ingress dev-kedric 3000
 ```
+
+`list` is the spelling everywhere (`app list`, `db backups list`, `tunnel list`);
+`ls` stays an accepted alias. `-a`, `-e` and `-p` are the short forms of
+`--application`, `--environment` and `--project`, and a positional name always
+wins over `-a`.
+
+The typed console opens a forward and launches the engine's own client
+(`psql` / `mysql` / `redis-cli` / `mongosh`) — on a standalone database
+(`akerdock db console pg`) or on a database service of a compose stack
+(`akerdock db console --app varuna -c postgres`).
 
 Output is human tables by default; add `-o json` for scripting, `--quiet` for
 bare output. Exit codes: `0` success, `1` error, `2` usage.
+
+Two things stay in the dashboard **by decision, not by omission**: restoring a
+backup (a production overwrite does not belong behind a one-line terminal
+confirmation) and approving a fork's preview (project governance, not runtime).
+Deploying a local folder is gone with `akerdock up` — a deployment starts from a
+source the platform can fetch again.
 
 ### Give a local assistant read-only access (MCP)
 
@@ -190,7 +251,7 @@ walking up, like `.git`; it never holds secrets):
 ```yaml
 # .akerdock — every field optional
 context: prod          # a context created by `akerdock login`
-application: varuna    # default target for logs / shell
+application: varuna    # the app every `app` verb targets by default
 component: web         # default compose service
 project: platform
 environment: production
@@ -199,9 +260,14 @@ environment: production
 Then, from that repo:
 
 ```sh
-akerdock logs -f          # follows the default app on the configured instance
-akerdock shell            # shell into it
+akerdock app logs -f      # follows the default app on the configured instance
+akerdock app shell        # shell into it
+akerdock app deploy run   # ship what is on the configured branch
 ```
+
+Only the **application** has such a default — a repository declares the app it
+deploys, never the database it talks to — so `db` and `svc` verbs always take a
+name.
 
 Resolution precedence (most specific wins):
 `flags > AKERDOCK_* env vars > .akerdock > ~/.akerdock (global)` — with

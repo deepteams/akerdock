@@ -195,7 +195,7 @@ func TestTunnelLsShowsEveryTargetKind(t *testing.T) {
 	setupContext(t, srv.URL)
 
 	var err error
-	out, _ := captureOutput(t, func() { err = runCmd(tunnelCmd(), "ls") })
+	out, _ := captureOutput(t, func() { err = runCmd(tunnelCmd(), "list") })
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -215,7 +215,7 @@ func TestTunnelLsFilters(t *testing.T) {
 		srv := tunnelSessionsServer(t, &query)
 		setupContext(t, srv.URL)
 		var err error
-		_, _ = captureOutput(t, func() { err = runCmd(tunnelCmd(), "ls", "--endpoint", "replica") })
+		_, _ = captureOutput(t, func() { err = runCmd(tunnelCmd(), "list", "--endpoint", "replica") })
 		if err != nil {
 			t.Fatalf("err = %v", err)
 		}
@@ -229,7 +229,7 @@ func TestTunnelLsFilters(t *testing.T) {
 		srv := tunnelSessionsServer(t, &query)
 		setupContext(t, srv.URL)
 		var err error
-		_, _ = captureOutput(t, func() { err = runCmd(tunnelCmd(), "ls", "--all") })
+		_, _ = captureOutput(t, func() { err = runCmd(tunnelCmd(), "list", "--all") })
 		if err != nil {
 			t.Fatalf("err = %v", err)
 		}
@@ -245,7 +245,7 @@ func TestTunnelLsFilters(t *testing.T) {
 		flags.output = "json"
 		t.Cleanup(func() { flags.output = "table" })
 		var err error
-		out, _ := captureOutput(t, func() { err = runCmd(tunnelCmd(), "ls") })
+		out, _ := captureOutput(t, func() { err = runCmd(tunnelCmd(), "list") })
 		if err != nil {
 			t.Fatalf("err = %v", err)
 		}

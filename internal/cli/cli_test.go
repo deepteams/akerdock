@@ -6,32 +6,6 @@ import (
 	"testing"
 )
 
-func TestParseRef(t *testing.T) {
-	cases := map[string]struct {
-		kind, name string
-		ok         bool
-	}{
-		"app/varuna": {"apps", "varuna", true},
-		"db/pg":      {"databases", "pg", true},
-		"svc/stack":  {"services", "stack", true},
-		"preview/12": {"previews", "12", true},
-		"database/x": {"databases", "x", true},
-		"nope/x":     {"", "", false},
-		"varuna":     {"", "", false},
-		"app/":       {"", "", false},
-	}
-	for in, want := range cases {
-		r, err := parseRef(in)
-		if want.ok != (err == nil) {
-			t.Errorf("parseRef(%q) ok=%v, want %v (err=%v)", in, err == nil, want.ok, err)
-			continue
-		}
-		if want.ok && (r.kind != want.kind || r.name != want.name) {
-			t.Errorf("parseRef(%q) = %+v, want kind=%s name=%s", in, r, want.kind, want.name)
-		}
-	}
-}
-
 func TestParsePorts(t *testing.T) {
 	cases := map[string]struct {
 		local, remote int
@@ -55,31 +29,6 @@ func TestParsePorts(t *testing.T) {
 	}
 }
 
-// `port-forward` takes two optional positional arguments, so telling them apart
-// by POSITION is wrong: read positionally, `port-forward 15432:5432` would be
-// taken for a REF and complain about an unknown resource type. A REF always
-// contains a slash; a ports argument never does.
-func TestSplitForwardArgs(t *testing.T) {
-	cases := []struct {
-		args       []string
-		ref, ports string
-	}{
-		{[]string{"db/pg", "15432:5432"}, "db/pg", "15432:5432"},
-		{[]string{"15432:5432"}, "", "15432:5432"},
-		{[]string{"5432"}, "", "5432"},
-		{[]string{"app/varuna"}, "app/varuna", ""},
-		{nil, "", ""},
-	}
-	for _, tc := range cases {
-		ref, ports := splitForwardArgs(tc.args)
-		if ref != tc.ref || ports != tc.ports {
-			t.Errorf("splitForwardArgs(%q) = (%q, %q), want (%q, %q)", tc.args, ref, ports, tc.ref, tc.ports)
-		}
-	}
-}
-
-// pkcePair must produce challenge = base64url(sha256(verifier)) — the exact
-// relation the server verifies (ADR-031).
 func TestPKCEPair(t *testing.T) {
 	verifier, challenge, err := pkcePair()
 	if err != nil {

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/url"
 
@@ -24,19 +23,22 @@ type resourcePage struct {
 	NextCursor *string    `json:"next_cursor"`
 }
 
-// listKinds maps the `ls <kind>` argument to its API path.
+// listKinds maps the transversal `list <kind>` argument to its API path.
 var listKinds = map[string]string{
 	"apps":      "/applications",
 	"databases": "/databases",
 	"services":  "/services",
-	"previews":  "", // handled specially (per-application), not in v1 transversal
 	"servers":   "/servers",
 }
 
-func lsCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:       "ls [apps|databases|services|servers]",
-		Short:     "List resources (default: applications, databases and services)",
+// listCmd is the one listing that belongs to no group (ADR-070 §1): its subject
+// is the team, not a kind. `akerdock list` with no argument walks applications,
+// databases and services at once — the question "what do I have here".
+func listCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:       "list [apps|databases|services|servers]",
+		Aliases:   listAliases(),
+		Short:     "List resources across kinds (default: applications, databases and services)",
 		ValidArgs: []string{"apps", "databases", "services", "servers"},
 		Args:      cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -56,8 +58,8 @@ func lsCmd() *cobra.Command {
 			var all []row
 			for _, kind := range kinds {
 				path, ok := listKinds[kind]
-				if !ok || path == "" {
-					return fmt.Errorf("cannot list %q", kind)
+				if !ok {
+					return usageErrorf("cannot list %q — expected one of apps, databases, services, servers", kind)
 				}
 				items, err := c.listAll(cmd.Context(), path)
 				if err != nil {
@@ -73,17 +75,52 @@ func lsCmd() *cobra.Command {
 			}
 			rows := make([][]string, 0, len(all))
 			for _, r := range all {
-				typ := r.SourceType
-				if typ == "" {
-					typ = r.Engine
-				}
-				rows = append(rows, []string{r.Kind, r.Name, typ, r.DesiredStatus, r.ObservedStatus, r.Uuid})
+				rows = append(rows, []string{r.Kind, r.Name, resourceType(r.resource), r.DesiredStatus, r.ObservedStatus, r.Uuid})
 			}
 			table([]string{"KIND", "NAME", "TYPE", "DESIRED", "OBSERVED", "UUID"}, rows)
 			return nil
 		},
 	}
-	return cmd
+}
+
+// listGroupCmd is the same listing narrowed to one group, so `akerdock db list`
+// answers without making the reader translate the type into an argument of
+// another command.
+func listGroupCmd(k resourceKind) *cobra.Command {
+	return &cobra.Command{
+		Use:     "list",
+		Aliases: listAliases(),
+		Short:   "List the team's " + k.plural,
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, err := newClient(flags.context)
+			if err != nil {
+				return err
+			}
+			items, err := c.listAll(cmd.Context(), k.path)
+			if err != nil {
+				return err
+			}
+			if flags.output == "json" {
+				return printJSON(items)
+			}
+			rows := make([][]string, 0, len(items))
+			for _, it := range items {
+				rows = append(rows, []string{it.Name, resourceType(it), it.DesiredStatus, it.ObservedStatus, it.Uuid})
+			}
+			table([]string{"NAME", "TYPE", "DESIRED", "OBSERVED", "UUID"}, rows)
+			return nil
+		},
+	}
+}
+
+// resourceType renders the column that means a different thing per kind — the
+// source of an application, the engine of a database.
+func resourceType(r resource) string {
+	if r.SourceType != "" {
+		return r.SourceType
+	}
+	return r.Engine
 }
 
 // listAll follows the cursor pagination of a list endpoint.

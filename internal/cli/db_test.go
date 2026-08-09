@@ -189,12 +189,12 @@ func fakeClientBin(t *testing.T, bin string) {
 	t.Setenv("PATH", dir)
 }
 
-func TestDbErrors(t *testing.T) {
+func TestDbConsoleErrors(t *testing.T) {
 	srv := dbServer(t, false)
 
 	t.Run("without a client", func(t *testing.T) {
 		setupHome(t)
-		if err := runCmd(dbCmd(), "db/pg"); err == nil {
+		if err := runCmd(consoleCmd(), "pg"); err == nil {
 			t.Fatal("expected a client error")
 		}
 	})
@@ -202,56 +202,60 @@ func TestDbErrors(t *testing.T) {
 	run := func(t *testing.T, args ...string) error {
 		t.Helper()
 		setupContext(t, srv.URL)
-		return runCmd(dbCmd(), args...)
+		return runCmd(consoleCmd(), args...)
 	}
 
-	t.Run("bad ref", func(t *testing.T) {
+	t.Run("unknown database", func(t *testing.T) {
 		if err := run(t, "nope"); err == nil {
-			t.Fatal("expected a ref error")
+			t.Fatal("expected a resolve error")
 		}
 	})
-	t.Run("pr on a database ref", func(t *testing.T) {
-		if err := run(t, "db/pg", "--pr", "8"); err == nil || !strings.Contains(err.Error(), "--pr only applies") {
+	// --pr targets a preview, which belongs to an application: asking for one
+	// without naming the application is a usage error, not a resolve failure.
+	t.Run("pr without an application", func(t *testing.T) {
+		if err := run(t, "pg", "--pr", "8"); err == nil || !strings.Contains(err.Error(), "--pr targets a preview") {
 			t.Fatalf("err = %v", err)
 		}
 	})
-	t.Run("service ref unsupported", func(t *testing.T) {
-		if err := run(t, "svc/stack"); err == nil || !strings.Contains(err.Error(), "db expects") {
+	// A compose stack is not a console target: it is named through the
+	// application that owns the service, which is what --app expresses.
+	t.Run("a stack is not a console target", func(t *testing.T) {
+		if err := run(t, "stack"); err == nil || !strings.Contains(err.Error(), "no databases named") {
 			t.Fatalf("err = %v", err)
 		}
 	})
 	t.Run("app without component", func(t *testing.T) {
-		if err := run(t, "app/varuna"); err == nil || !strings.Contains(err.Error(), "name the database with -c") {
+		if err := run(t, "--app", "varuna"); err == nil || !strings.Contains(err.Error(), "name the database with -c") {
 			t.Fatalf("err = %v", err)
 		}
 	})
-	t.Run("unknown database", func(t *testing.T) {
-		if err := run(t, "db/ghost"); err == nil {
+	t.Run("unknown database name", func(t *testing.T) {
+		if err := run(t, "ghost"); err == nil {
 			t.Fatal("expected a resolve error")
 		}
 	})
 	t.Run("unknown app", func(t *testing.T) {
-		if err := run(t, "app/ghost", "-c", "postgres"); err == nil {
+		if err := run(t, "--app", "ghost", "-c", "postgres"); err == nil {
 			t.Fatal("expected a resolve error")
 		}
 	})
 	t.Run("unsupported engine", func(t *testing.T) {
-		if err := run(t, "db/weird"); err == nil || !strings.Contains(err.Error(), `unsupported engine "sqlite"`) {
+		if err := run(t, "weird"); err == nil || !strings.Contains(err.Error(), `unsupported engine "sqlite"`) {
 			t.Fatalf("err = %v", err)
 		}
 	})
 	t.Run("unknown preview", func(t *testing.T) {
-		if err := run(t, "app/varuna", "-c", "postgres", "--pr", "99"); err == nil || !strings.Contains(err.Error(), "no preview") {
+		if err := run(t, "--app", "varuna", "-c", "postgres", "--pr", "99"); err == nil || !strings.Contains(err.Error(), "no preview") {
 			t.Fatalf("err = %v", err)
 		}
 	})
 	t.Run("component is not a database", func(t *testing.T) {
-		if err := run(t, "app/varuna", "-c", "web"); err == nil || !strings.Contains(err.Error(), "not a database") {
+		if err := run(t, "--app", "varuna", "-c", "web"); err == nil || !strings.Contains(err.Error(), "not a database") {
 			t.Fatalf("err = %v", err)
 		}
 	})
 	t.Run("component missing", func(t *testing.T) {
-		if err := run(t, "app/varuna", "-c", "ghost"); err == nil || !strings.Contains(err.Error(), `no service "ghost"`) {
+		if err := run(t, "--app", "varuna", "-c", "ghost"); err == nil || !strings.Contains(err.Error(), `no service "ghost"`) {
 			t.Fatalf("err = %v", err)
 		}
 	})
@@ -264,7 +268,7 @@ func TestDbRedactedCredentialsForwardsOnly(t *testing.T) {
 	setupContext(t, srv.URL)
 	var err error
 	_, errOut := captureOutput(t, func() {
-		err = runCmd(dbCmd(), "db/pg")
+		err = runCmd(consoleCmd(), "pg")
 	})
 	// The port-forward mint fails in this fake, and that error is the outcome;
 	// the redaction notice must have been printed before it.
@@ -283,7 +287,7 @@ func TestDbMissingClientBinaryForwardsOnly(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // empty PATH dir: redis-cli is nowhere
 	var err error
 	_, errOut := captureOutput(t, func() {
-		err = runCmd(dbCmd(), "db/cache")
+		err = runCmd(consoleCmd(), "cache")
 	})
 	if err == nil || !strings.Contains(err.Error(), "mint refused") {
 		t.Fatalf("err = %v", err)
@@ -302,7 +306,7 @@ func TestDbLaunchesTheClient(t *testing.T) {
 	fakeClientBin(t, "psql")
 	var err error
 	_, _ = captureOutput(t, func() {
-		err = runCmd(dbCmd(), "db/pg")
+		err = runCmd(consoleCmd(), "pg")
 	})
 	if err != nil {
 		t.Fatalf("err = %v", err)
@@ -317,7 +321,7 @@ func TestDbComposeServiceInPreview(t *testing.T) {
 	fakeClientBin(t, "psql")
 	var err error
 	_, _ = captureOutput(t, func() {
-		err = runCmd(dbCmd(), "app/varuna", "-c", "postgres", "--pr", "8")
+		err = runCmd(consoleCmd(), "--app", "varuna", "-c", "postgres", "--pr", "8")
 	})
 	if err != nil {
 		t.Fatalf("err = %v", err)

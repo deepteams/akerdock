@@ -48,7 +48,7 @@ func TestLsDefaultKinds(t *testing.T) {
 	srv := lsServer(t)
 	setupContext(t, srv.URL)
 	out, _ := captureOutput(t, func() {
-		if err := runCmd(lsCmd()); err != nil {
+		if err := runCmd(listCmd()); err != nil {
 			t.Errorf("ls: %v", err)
 		}
 	})
@@ -65,7 +65,7 @@ func TestLsSingleKindJSON(t *testing.T) {
 	setupContext(t, srv.URL)
 	flags.output = "json"
 	out, _ := captureOutput(t, func() {
-		if err := runCmd(lsCmd(), "databases"); err != nil {
+		if err := runCmd(listCmd(), "databases"); err != nil {
 			t.Errorf("ls databases: %v", err)
 		}
 	})
@@ -78,7 +78,7 @@ func TestLsUnknownKind(t *testing.T) {
 	srv := lsServer(t)
 	setupContext(t, srv.URL)
 	// `previews` is declared but has no transversal list endpoint.
-	if err := runCmd(lsCmd(), "previews"); err == nil || !strings.Contains(err.Error(), `cannot list "previews"`) {
+	if err := runCmd(listCmd(), "previews"); err == nil || !strings.Contains(err.Error(), `cannot list "previews"`) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -86,14 +86,81 @@ func TestLsUnknownKind(t *testing.T) {
 func TestLsListError(t *testing.T) {
 	srv := lsServer(t)
 	setupContext(t, srv.URL)
-	if err := runCmd(lsCmd(), "servers"); err == nil {
+	if err := runCmd(listCmd(), "servers"); err == nil {
 		t.Fatal("expected the API error to surface")
 	}
 }
 
 func TestLsWithoutClient(t *testing.T) {
 	setupHome(t)
-	if err := runCmd(lsCmd()); err == nil || !strings.Contains(err.Error(), "no context selected") {
+	if err := runCmd(listCmd()); err == nil || !strings.Contains(err.Error(), "no context selected") {
 		t.Fatalf("err = %v", err)
 	}
+}
+
+// Each group lists its own kind (ADR-070 §1), so `akerdock db list` answers
+// without making the reader translate the type into an argument of another
+// command. The transversal KIND column disappears: the group already said it.
+func TestListGroupCmd(t *testing.T) {
+	srv := lsServer(t)
+
+	t.Run("renders the kind's own listing", func(t *testing.T) {
+		setupContext(t, srv.URL)
+		out, _ := captureOutput(t, func() {
+			if err := runCmd(listGroupCmd(kindDB)); err != nil {
+				t.Errorf("db list: %v", err)
+			}
+		})
+		if !strings.Contains(out, "pg") || !strings.Contains(out, "postgres") {
+			t.Fatalf("output = %q", out)
+		}
+		if strings.Contains(out, "KIND") {
+			t.Fatalf("the group already names the kind: %q", out)
+		}
+	})
+
+	t.Run("follows the cursor", func(t *testing.T) {
+		setupContext(t, srv.URL)
+		out, _ := captureOutput(t, func() {
+			if err := runCmd(listGroupCmd(kindApp)); err != nil {
+				t.Errorf("app list: %v", err)
+			}
+		})
+		// varuna is on the first page, helios behind the cursor.
+		if !strings.Contains(out, "varuna") || !strings.Contains(out, "helios") {
+			t.Fatalf("output = %q", out)
+		}
+	})
+
+	t.Run("-o json passes the API objects through", func(t *testing.T) {
+		setupContext(t, srv.URL)
+		flags.output = "json"
+		t.Cleanup(func() { flags.output = "table" })
+		out, _ := captureOutput(t, func() {
+			if err := runCmd(listGroupCmd(kindDB)); err != nil {
+				t.Errorf("db list -o json: %v", err)
+			}
+		})
+		var items []resource
+		if err := json.Unmarshal([]byte(out), &items); err != nil {
+			t.Fatalf("stdout is not JSON: %v (%q)", err, out)
+		}
+		if len(items) != 1 || items[0].Name != "pg" {
+			t.Fatalf("items = %+v", items)
+		}
+	})
+
+	// An empty collection is an answer, not a failure: the header alone tells
+	// the reader they have no stack, which is what they asked.
+	t.Run("an empty kind renders its header", func(t *testing.T) {
+		setupContext(t, srv.URL)
+		out, _ := captureOutput(t, func() {
+			if err := runCmd(listGroupCmd(kindSvc)); err != nil {
+				t.Errorf("svc list: %v", err)
+			}
+		})
+		if !strings.Contains(out, "NAME") {
+			t.Fatalf("output = %q", out)
+		}
+	})
 }

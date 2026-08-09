@@ -83,7 +83,7 @@ type ingressMint struct {
 // runIngress mints, attaches, and relays visitor connections to the local
 // port — reconnecting on a transport drop, exiting on a policy close.
 func (c *Client) runIngress(ctx context.Context, endpoint string, localPort int) error {
-	res, err := c.resolve(ctx, ref{kind: "ingress-endpoints", name: endpoint})
+	res, err := c.resolveNamed(ctx, kindIngress, endpoint)
 	if err != nil {
 		return err
 	}

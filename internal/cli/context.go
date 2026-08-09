@@ -14,8 +14,9 @@ func contextCmd() *cobra.Command {
 	}
 	cmd.AddCommand(
 		&cobra.Command{
-			Use:   "list",
-			Short: "List configured contexts",
+			Use:     "list",
+			Aliases: listAliases(),
+			Short:   "List configured contexts",
 			RunE: func(_ *cobra.Command, _ []string) error {
 				cfg, err := LoadConfig()
 				if err != nil {

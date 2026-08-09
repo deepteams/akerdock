@@ -59,7 +59,7 @@ func tunnelOpenCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			res, err := c.resolve(cmd.Context(), ref{kind: "endpoints", name: name})
+			res, err := c.resolveNamed(cmd.Context(), kindEndpoint, name)
 			if err != nil {
 				return err
 			}
@@ -77,10 +77,13 @@ func endpointName(arg string) (string, error) {
 	if !ok {
 		return arg, nil
 	}
-	if kind := refKinds[strings.ToLower(prefix)]; kind == "endpoints" && name != "" {
-		return "", fmt.Errorf("name the endpoint alone: akerdock tunnel open %s", name)
+	switch strings.ToLower(prefix) {
+	case "endpoint", "ep":
+		if name != "" {
+			return "", usageErrorf("name the endpoint alone: akerdock tunnel open %s", name)
+		}
 	}
-	return "", fmt.Errorf("invalid endpoint name %q — pass the endpoint's name (e.g. prod-replica)", arg)
+	return "", usageErrorf("invalid endpoint name %q — pass the endpoint's name (e.g. prod-replica)", arg)
 }
 
 // runBastionTunnel opens the session ADR-045 mints with an empty body: the
@@ -111,14 +114,15 @@ func tunnelLsCmd() *cobra.Command {
 	var endpoint string
 	var all bool
 	cmd := &cobra.Command{
-		Use:   "ls",
-		Short: "List the team's tunnel sessions",
+		Use:     "list",
+		Aliases: listAliases(),
+		Short:   "List the team's tunnel sessions",
 		Long: "Every tunnel currently forwarded out of this team, whatever it targets — " +
 			"application, database, service, preview or external endpoint. The operational " +
 			"question is what is open right now, not what is open on one endpoint (ADR-045).",
-		Example: "  akerdock tunnel ls\n" +
-			"  akerdock tunnel ls --endpoint prod-replica\n" +
-			"  akerdock tunnel ls --all                    # closed sessions too",
+		Example: "  akerdock tunnel list\n" +
+			"  akerdock tunnel list --endpoint prod-replica\n" +
+			"  akerdock tunnel list --all                    # closed sessions too",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, err := newClient(flags.context)
@@ -130,7 +134,7 @@ func tunnelLsCmd() *cobra.Command {
 				q.Set("active", "false")
 			}
 			if endpoint != "" {
-				res, err := c.resolve(cmd.Context(), ref{kind: "endpoints", name: endpoint})
+				res, err := c.resolveNamed(cmd.Context(), kindEndpoint, endpoint)
 				if err != nil {
 					return err
 				}
@@ -229,7 +233,7 @@ func tunnelCloseCmd() *cobra.Command {
 		Long: "Cuts a tunnel, wherever it was opened from. Closing your own needs nothing " +
 			"more than the permission that opened it; closing someone else's is an " +
 			"administrative act. Closing an already-closed session is a no-op.",
-		Example: "  akerdock tunnel ls\n  akerdock tunnel close 3f2b1c8e-…",
+		Example: "  akerdock tunnel list\n  akerdock tunnel close 3f2b1c8e-…",
 		Args:    usageArgs(1, "tunnel close SESSION_UUID", "tunnel close 3f2b1c8e-0000-4000-8000-000000000000"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := newClient(flags.context)

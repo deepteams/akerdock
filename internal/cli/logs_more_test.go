@@ -61,7 +61,7 @@ func TestLogsSnapshot(t *testing.T) {
 	srv := logsServer(t, nil)
 	setupContext(t, srv.URL)
 	out, errOut := captureOutput(t, func() {
-		if err := runCmd(logsCmd(), "app/varuna", "-c", "web"); err != nil {
+		if err := runCmd(logsCmd(kindApp), "varuna", "-c", "web"); err != nil {
 			t.Errorf("logs: %v", err)
 		}
 	})
@@ -79,7 +79,7 @@ func TestLogsSnapshotJSON(t *testing.T) {
 	setupContext(t, srv.URL)
 	flags.output = "json"
 	out, _ := captureOutput(t, func() {
-		if err := runCmd(logsCmd(), "app/varuna"); err != nil {
+		if err := runCmd(logsCmd(kindApp), "varuna"); err != nil {
 			t.Errorf("logs: %v", err)
 		}
 	})
@@ -92,7 +92,7 @@ func TestLogsFollowStream(t *testing.T) {
 	srv := logsServer(t, nil)
 	setupContext(t, srv.URL)
 	out, _ := captureOutput(t, func() {
-		if err := runCmd(logsCmd(), "app/varuna", "-f"); err != nil {
+		if err := runCmd(logsCmd(kindApp), "varuna", "-f"); err != nil {
 			t.Errorf("logs -f: %v", err)
 		}
 	})
@@ -107,7 +107,7 @@ func TestLogsDeployment(t *testing.T) {
 
 	t.Run("latest", func(t *testing.T) {
 		out, _ := captureOutput(t, func() {
-			if err := runCmd(logsCmd(), "app/varuna", "--deployment"); err != nil {
+			if err := runCmd(logsCmd(kindApp), "varuna", "--deployment"); err != nil {
 				t.Errorf("logs --deployment: %v", err)
 			}
 		})
@@ -119,7 +119,7 @@ func TestLogsDeployment(t *testing.T) {
 	t.Run("explicit uuid", func(t *testing.T) {
 		out, _ := captureOutput(t, func() {
 			// NoOptDefVal flags take their value with `=`.
-			if err := runCmd(logsCmd(), "app/varuna", "--deployment=dep-x"); err != nil {
+			if err := runCmd(logsCmd(kindApp), "varuna", "--deployment=dep-x"); err != nil {
 				t.Errorf("logs --deployment=dep-x: %v", err)
 			}
 		})
@@ -130,7 +130,7 @@ func TestLogsDeployment(t *testing.T) {
 
 	t.Run("preview latest", func(t *testing.T) {
 		out, _ := captureOutput(t, func() {
-			if err := runCmd(logsCmd(), "app/varuna", "--pr", "42", "--deployment"); err != nil {
+			if err := runCmd(logsCmd(kindApp), "varuna", "--pr", "42", "--deployment"); err != nil {
 				t.Errorf("logs --pr --deployment: %v", err)
 			}
 		})
@@ -145,7 +145,7 @@ func TestLogsPreviewSnapshot(t *testing.T) {
 	srv := logsServer(t, nil)
 	setupContext(t, srv.URL)
 	out, _ := captureOutput(t, func() {
-		if err := runCmd(logsCmd(), "app/varuna", "--pr", "42"); err != nil {
+		if err := runCmd(logsCmd(kindApp), "varuna", "--pr", "42"); err != nil {
 			t.Errorf("logs --pr: %v", err)
 		}
 	})
@@ -169,7 +169,7 @@ func TestLogsPreviewFollowStopsOnCancel(t *testing.T) {
 	})
 	setupContext(t, srv.URL)
 	out, _ := captureOutput(t, func() {
-		if err := runCmdCtx(ctx, logsCmd(), "app/varuna", "--pr", "42", "-f"); err != nil {
+		if err := runCmdCtx(ctx, logsCmd(kindApp), "varuna", "--pr", "42", "-f"); err != nil {
 			t.Errorf("logs --pr -f: %v", err)
 		}
 	})
@@ -183,35 +183,38 @@ func TestLogsErrors(t *testing.T) {
 
 	t.Run("without a client", func(t *testing.T) {
 		setupHome(t)
-		if err := runCmd(logsCmd(), "app/varuna"); err == nil {
+		if err := runCmd(logsCmd(kindApp), "varuna"); err == nil {
 			t.Fatal("expected a client error")
 		}
 	})
 
-	t.Run("non-app ref", func(t *testing.T) {
+	// The type/name form is gone (ADR-070 §5) and must be refused by naming the
+	// spelling that replaced it — never resolved as a literal name.
+	t.Run("the old REF form is refused by name", func(t *testing.T) {
 		setupContext(t, srv.URL)
-		if err := runCmd(logsCmd(), "db/pg"); err == nil || !strings.Contains(err.Error(), "app/…") {
+		err := runCmd(logsCmd(kindApp), "db/pg")
+		if err == nil || !strings.Contains(err.Error(), "akerdock db <verb> pg") {
 			t.Fatalf("err = %v", err)
 		}
 	})
 
 	t.Run("bad ref", func(t *testing.T) {
 		setupContext(t, srv.URL)
-		if err := runCmd(logsCmd(), "nope"); err == nil {
+		if err := runCmd(logsCmd(kindApp), "nope"); err == nil {
 			t.Fatal("expected a ref error")
 		}
 	})
 
 	t.Run("unknown app", func(t *testing.T) {
 		setupContext(t, srv.URL)
-		if err := runCmd(logsCmd(), "app/ghost"); err == nil {
+		if err := runCmd(logsCmd(kindApp), "ghost"); err == nil {
 			t.Fatal("expected a resolve error")
 		}
 	})
 
 	t.Run("unknown preview", func(t *testing.T) {
 		setupContext(t, srv.URL)
-		if err := runCmd(logsCmd(), "app/varuna", "--pr", "99"); err == nil || !strings.Contains(err.Error(), "no preview") {
+		if err := runCmd(logsCmd(kindApp), "varuna", "--pr", "99"); err == nil || !strings.Contains(err.Error(), "no preview") {
 			t.Fatalf("err = %v", err)
 		}
 	})

@@ -63,14 +63,24 @@ akerdock app  [NAME] …   list · info · logs · shell · port-forward · open
                          env list|get|set|unset
                          preview list|redeploy|keep
                          tasks list|run
-akerdock db   [NAME] …   list · info · logs · shell · console · port-forward
+akerdock db   [NAME] …   list · info · shell · console · port-forward
                          restart · start · stop
-                         backups list|run|download
-akerdock svc  [NAME] …   list · info · logs · shell · port-forward
+                         backups list|run
+akerdock svc  [NAME] …   list · info
                          restart · start · stop
-                         deploy run|list|cancel|rollback
+                         deploy run|list|cancel
                          env list|get|set|unset
 ```
+
+**A group offers the verbs its type actually has, and not one more.** The asymmetry above is
+the API's, not a design choice of this ADR, and inventing client-side verbs on top of missing
+endpoints would only move the failure from `--help` to runtime — which is the very thing §1
+sets out to fix. What is missing today, recorded so the gaps are visible rather than
+mysterious: a database and a compose stack have **no logs endpoint** (the dashboard has no such
+view either), a compose stack has **no terminal and no port-forward** (only its parent
+application does), only an application has **`rollback`**, and a backup execution exposes its
+filename, size and checksum but **no download**. Each of those is a candidate for its own
+decision; none is a reason to delay the tree.
 
 The name is the **last positional and optional**: `akerdock app logs varuna -f`, and
 `akerdock app logs -f` inside a repository whose `.akerdock` names a default application. Verb
@@ -82,7 +92,7 @@ choosing; a name-first form (`app varuna logs`) reads well only when the name is
 argument still walks applications, databases and services at once — it is the one listing whose
 subject is the team, not a kind.
 
-The container terminal keeps one spelling per type (`app shell`, `db shell`, `svc shell`) and
+The container terminal keeps one spelling per type that has one (`app shell`, `db shell`) and
 the **server** shell stays out: it is an SSH PTY on a host, with its own permission and step-up
 (ADR-067 §Scope), and it will get a `server` group when it gets a decision.
 
@@ -97,8 +107,13 @@ Everything below calls an endpoint that already exists. **No OpenAPI change, no 
   redeployment, because a variable that is set and never applied is a bug the developer writes
   by hand today.
 - **`deploy run|list|cancel|rollback`** — a group rather than four top-level verbs: the
-  deployment *history* is as often consulted as the deployment is triggered, and `deploy ls`
-  next to `deploy run` says that in the help. `-f` follows the build.
+  deployment *history* is as often consulted as the deployment is triggered, and `deploy list`
+  next to `deploy run` says that in the help. `-f` follows the build. The flags are exactly
+  the two the mint body defines, `--skip-build` and `--force-rebuild`, mutually exclusive as
+  the spec says; **there is no `--branch`** — no deploy body carries a ref, and a flag the
+  server would silently drop is worse than its absence. `--skip-build` exists on `app` only,
+  because `POST /services/{uuid}/deploy` takes no body at all: the same asymmetry as
+  `rollback`, expressed in flags.
 - **`restart|start|stop`** — the same three endpoints exist for the three types, and they are
   spelled the same way under each group.
 - **`info`** — desired and observed status, health, components, URL, last deployment. `list`
@@ -109,10 +124,11 @@ Everything below calls an endpoint that already exists. **No OpenAPI change, no 
   you debug on it *is* debugging.
 - **`db console`** — today's `akerdock db <REF>`, moved under the group that now owns the verb
   space of a database. Precedent: `scalingo pgsql-console`, `heroku pg:psql`.
-- **`db backups list|run|download`** — **no `restore`**. Overwriting a production database from
+- **`db backups list|run`** — **no `restore`**. Overwriting a production database from
   a one-line command is the one act in this list whose blast radius does not fit in a terminal
   confirmation; it keeps the dashboard's context. Stated as a decision so nobody adds it as an
-  oversight.
+  oversight. `download` is absent for a different reason — no endpoint serves the file —
+  and belongs to the gap list in §1.
 - **`app tasks list|run`** — running a scheduled task on demand is how you find out why it
   fails.
 - **`whoami`** — context, instance, team and token scopes, with no network call and no new
@@ -214,7 +230,7 @@ Unit tests, per the pyramid (ADR-026/028):
 - Lifecycle: the three verbs under each of the three groups reach the right path.
 - `preview keep`/`redeploy` reach the preview endpoints; **no `approve` verb exists** in the
   tree (asserted, because its absence is a decision).
-- `db backups`: `list`/`run`/`download`; **no `restore` verb exists** (same reason).
+- `db backups`: `list`/`run`; **no `restore` and no `download` verb exists** (the first by decision, the second for want of an endpoint).
 - `whoami` performs no HTTP request.
 - Contract: an unknown command, an unknown flag and a missing argument all exit `2`; an
   invalid `-o` value is refused with the accepted values named.

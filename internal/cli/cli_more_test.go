@@ -26,7 +26,7 @@ func TestAddCommandsRegistersEverySubcommand(t *testing.T) {
 	resetFlags(t)
 	root := &cobra.Command{Use: "akerdock"}
 	AddCommands(root, "test")
-	want := []string{"login", "logout", "context", "ls", "logs", "shell", "port-forward", "ingress", "db", "mcp"}
+	want := []string{"login", "logout", "context", "whoami", "list", "app", "db", "svc", "tunnel", "ingress", "mcp"}
 	for _, name := range want {
 		found := false
 		for _, c := range root.Commands() {

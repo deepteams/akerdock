@@ -85,6 +85,13 @@ func main() {
 		// SilenceErrors keeps Cobra from double-printing usage on a runtime
 		// failure; we print the error ourselves so it is never swallowed.
 		fmt.Fprintln(os.Stderr, "error:", err)
+		// The spec (cli.md §3.2) promises `2` for a usage failure and `1` for
+		// everything else. Until now every failure exited `1`, so a script could
+		// not tell a misspelled command from a deployment that actually failed —
+		// which is the only reason an exit code carries more than one value.
+		if cli.IsUsageError(err) {
+			os.Exit(2)
+		}
 		os.Exit(1)
 	}
 }

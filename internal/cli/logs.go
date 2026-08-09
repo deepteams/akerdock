@@ -23,7 +23,9 @@ type logLine struct {
 	Message   string `json:"message"`
 }
 
-func logsCmd() *cobra.Command {
+// logsCmd reads the container logs of one kind. Mounted on the app group only:
+// no other type has a logs endpoint (ADR-070 §1).
+func logsCmd(k resourceKind) *cobra.Command {
 	var (
 		component  string
 		lines      int
@@ -33,27 +35,20 @@ func logsCmd() *cobra.Command {
 		pr         int
 	)
 	cmd := &cobra.Command{
-		Use:   "logs [REF]",
+		Use:   "logs [NAME]",
 		Short: "Show container logs (snapshot or -f), or a deployment's logs",
-		Example: "  akerdock logs app/varuna\n" +
-			"  akerdock logs -f -c postgres        # default app from .akerdock\n" +
-			"  akerdock logs app/varuna --pr 42    # the PR #42 preview instance\n" +
-			"  akerdock logs app/varuna --pr 42 --deployment",
-		Args: cobra.MaximumNArgs(1),
+		Example: "  akerdock app logs varuna\n" +
+			"  akerdock app logs -f -c postgres        # default app from .akerdock\n" +
+			"  akerdock app logs varuna --pr 42        # the PR #42 preview instance\n" +
+			"  akerdock app logs varuna --pr 42 --deployment",
+		Args: targetArgs(k),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := newClient(flags.context)
 			if err != nil {
 				return err
 			}
-			r, err := refFromArgs(args)
-			if err != nil {
-				return err
-			}
-			if r.kind != "apps" {
-				return fmt.Errorf("logs currently support app/… references")
-			}
 			component = defaultComponent(component)
-			res, err := c.resolve(cmd.Context(), r)
+			res, err := c.target(cmd.Context(), k, args)
 			if err != nil {
 				return err
 			}

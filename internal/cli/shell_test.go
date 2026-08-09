@@ -114,7 +114,7 @@ func TestShellSessionEndsWithReason(t *testing.T) {
 		t.Fatal(werr)
 	}
 	out, errOut = captureOutput(t, func() {
-		err = runCmd(shellCmd(), "app/varuna", "-c", "web")
+		err = runCmd(shellCmd(kindApp), "varuna", "-c", "web")
 	})
 	if err != nil {
 		t.Fatalf("shell: %v", err)
@@ -137,7 +137,7 @@ func TestShellReportsAnUnreachableTargetInWords(t *testing.T) {
 	installShellStdin(t)
 	var err error
 	_, errOut := captureOutput(t, func() {
-		err = runCmd(shellCmd(), "app/varuna", "-c", "web")
+		err = runCmd(shellCmd(kindApp), "varuna", "-c", "web")
 	})
 	if err != nil {
 		t.Fatalf("shell: %v", err)
@@ -157,7 +157,7 @@ func TestShellUserCloseIsSilent(t *testing.T) {
 	var errOut string
 	installShellStdin(t)
 	_, errOut = captureOutput(t, func() {
-		err = runCmd(shellCmd(), "app/varuna", "-c", "web")
+		err = runCmd(shellCmd(kindApp), "varuna", "-c", "web")
 	})
 	if err != nil {
 		t.Fatalf("shell: %v", err)
@@ -170,30 +170,33 @@ func TestShellUserCloseIsSilent(t *testing.T) {
 func TestShellErrors(t *testing.T) {
 	t.Run("without a client", func(t *testing.T) {
 		setupHome(t)
-		if err := runCmd(shellCmd(), "app/varuna"); err == nil {
+		if err := runCmd(shellCmd(kindApp), "varuna"); err == nil {
 			t.Fatal("expected a client error")
 		}
 	})
 
 	srv := terminalServer(t, `{"type":"end"}`)
 
-	t.Run("non-app ref", func(t *testing.T) {
+	// The type/name form is gone (ADR-070 §5) and must be refused by naming the
+	// spelling that replaced it — never resolved as a literal name.
+	t.Run("the old REF form is refused by name", func(t *testing.T) {
 		setupContext(t, srv.URL)
-		if err := runCmd(shellCmd(), "db/pg"); err == nil || !strings.Contains(err.Error(), "app/…") {
+		err := runCmd(shellCmd(kindApp), "db/pg")
+		if err == nil || !strings.Contains(err.Error(), "akerdock db <verb> pg") {
 			t.Fatalf("err = %v", err)
 		}
 	})
 
 	t.Run("bad ref", func(t *testing.T) {
 		setupContext(t, srv.URL)
-		if err := runCmd(shellCmd(), "nope"); err == nil {
+		if err := runCmd(shellCmd(kindApp), "nope"); err == nil {
 			t.Fatal("expected a ref error")
 		}
 	})
 
 	t.Run("unknown app", func(t *testing.T) {
 		setupContext(t, srv.URL)
-		if err := runCmd(shellCmd(), "app/ghost"); err == nil {
+		if err := runCmd(shellCmd(kindApp), "ghost"); err == nil {
 			t.Fatal("expected a resolve error")
 		}
 	})
@@ -210,7 +213,7 @@ func TestShellErrors(t *testing.T) {
 		deniedSrv := httptest.NewServer(mux)
 		defer deniedSrv.Close()
 		setupContext(t, deniedSrv.URL)
-		if err := runCmd(shellCmd(), "app/varuna"); err == nil || !strings.Contains(err.Error(), "no shell for you") {
+		if err := runCmd(shellCmd(kindApp), "varuna"); err == nil || !strings.Contains(err.Error(), "no shell for you") {
 			t.Fatalf("err = %v", err)
 		}
 	})
@@ -231,7 +234,7 @@ func TestShellErrors(t *testing.T) {
 		setupContext(t, goneSrv.URL)
 		var err error
 		installShellStdin(t)
-		err = runCmd(shellCmd(), "app/varuna")
+		err = runCmd(shellCmd(kindApp), "varuna")
 		if err == nil || !strings.Contains(err.Error(), "cannot open terminal") {
 			t.Fatalf("err = %v", err)
 		}

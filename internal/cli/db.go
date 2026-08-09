@@ -86,53 +86,44 @@ func engineRecipe(engine string) (engineClient, bool) {
 	}
 }
 
-func dbCmd() *cobra.Command {
+// consoleCmd opens the typed console of a database: an ephemeral port-forward
+// plus the engine's own local client. It lives under `db` because that is the
+// group that owns a database's verbs (ADR-070 §2); the compose-service form
+// (`--component`) still targets an application, which is why it takes the app
+// name and reads the engine off the component.
+func consoleCmd() *cobra.Command {
 	var component string
 	var pr int
+	var appName string
 	cmd := &cobra.Command{
-		Use:   "db REF",
+		Use:   "console [NAME]",
 		Short: "Open a database console (port-forward + local client)",
-		Example: "  akerdock db db/pg\n" +
-			"  akerdock db app/varuna -c postgres          # a compose db service\n" +
-			"  akerdock db app/varuna -c postgres --pr 8   # in a PR preview",
-		Args: usageArgs(1, "db <ref>", "db db/pg"),
+		Example: "  akerdock db console pg\n" +
+			"  akerdock db console --app varuna -c postgres          # a compose db service\n" +
+			"  akerdock db console --app varuna -c postgres --pr 8   # in a PR preview",
+		Args: targetArgs(kindDB),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := newClient(flags.context)
 			if err != nil {
 				return err
 			}
 			// Same default as logs/shell/port-forward: a `.akerdock` naming a
-			// component applies here too. Without this, `db` was the one command
-			// that ignored it — an exception nobody could have guessed.
+			// component applies here too. Without this, the console was the one
+			// command that ignored it — an exception nobody could have guessed.
 			component = defaultComponent(component)
-			r, err := parseRef(args[0])
-			if err != nil {
-				return err
-			}
 
 			// Resolve the engine, the port-forward mint path and (best-effort)
-			// the connection detail for the target — a standalone database or a
-			// database service inside a compose stack (optionally a PR preview).
+			// the connection detail for the target — a standalone database, or a
+			// database service inside a compose stack (optionally a PR preview),
+			// which is named with --app since the container belongs to the app.
 			var engineName, mintPath string
 			var detail map[string]any
-			switch r.kind {
-			case "databases":
-				if pr > 0 {
-					return fmt.Errorf("--pr only applies to an app/… reference")
-				}
-				res, err := c.resolve(cmd.Context(), r)
-				if err != nil {
-					return err
-				}
-				engineName = res.Engine
-				mintPath = "/databases/" + res.Uuid + "/port-forwards"
-				detail = map[string]any{}
-				_ = c.do(cmd.Context(), http.MethodGet, "/databases/"+res.Uuid, nil, nil, &detail)
-			case "apps":
+			switch {
+			case appName != "":
 				if component == "" {
-					return fmt.Errorf("a compose stack has several services — name the database with -c (e.g. -c postgres)")
+					return usageErrorf("a compose stack has several services — name the database with -c (e.g. -c postgres)")
 				}
-				res, err := c.resolve(cmd.Context(), r)
+				res, err := c.target(cmd.Context(), kindApp, []string{appName})
 				if err != nil {
 					return err
 				}
@@ -153,12 +144,22 @@ func dbCmd() *cobra.Command {
 				}
 				detail = c.componentCreds(cmd.Context(), res.Uuid, component, preview)
 			default:
-				return fmt.Errorf("db expects a db/… or app/… reference")
+				if pr > 0 {
+					return usageErrorf("--pr targets a preview of an application — name it with --app")
+				}
+				res, err := c.target(cmd.Context(), kindDB, args)
+				if err != nil {
+					return err
+				}
+				engineName = res.Engine
+				mintPath = "/databases/" + res.Uuid + "/port-forwards"
+				detail = map[string]any{}
+				_ = c.do(cmd.Context(), http.MethodGet, "/databases/"+res.Uuid, nil, nil, &detail)
 			}
 
 			eng, ok := engineRecipe(engineName)
 			if !ok {
-				return fmt.Errorf("unsupported engine %q — use `akerdock port-forward` instead", engineName)
+				return fmt.Errorf("unsupported engine %q — use `akerdock db port-forward` instead", engineName)
 			}
 
 			// Pick a free local port and forward it to the engine port.
@@ -197,8 +198,9 @@ func dbCmd() *cobra.Command {
 			return runErr
 		},
 	}
-	cmd.Flags().StringVarP(&component, "component", "c", "", "compose service to target")
-	cmd.Flags().IntVar(&pr, "pr", 0, "target the preview of this PR number instead of production")
+	cmd.Flags().StringVar(&appName, "app", "", "open the console on a database service of this compose application (with -c)")
+	cmd.Flags().StringVarP(&component, "component", "c", "", "compose service to target, with --app")
+	cmd.Flags().IntVar(&pr, "pr", 0, "target the preview of this PR number instead of production (with --app)")
 	return cmd
 }
 

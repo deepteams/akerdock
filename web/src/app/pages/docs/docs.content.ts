@@ -294,6 +294,17 @@ export const DOC_TOPICS: readonly DocTopic[] = [
             kind: 'warn',
             text: '**Restart does not pick up a new environment variable.** A container freezes its environment at creation; restarting hands the process back the values it already had. **Recreate (apply config)** is the one that applies an edited variable without a rebuild.',
           },
+          {
+            kind: 'code',
+            caption: 'The same actions from your shell',
+            code: `akerdock app info api                  # status, health, components, last deploy
+akerdock app restart api               # …and start | stop
+akerdock app deploy run api -f         # deploy, following the build
+akerdock app deploy run api --skip-build     # Recreate (apply config)
+akerdock app deploy run api --force-rebuild  # Rebuild (no cache)
+akerdock app deploy rollback api
+akerdock app open api                  # the public URL (--dashboard for this page)`,
+          },
         ],
       },
       {
@@ -409,6 +420,19 @@ CORS_ORIGIN={{deployment.url}}`,
             kind: 'p',
             text: 'Saving a variable does not touch the running container. Use **Recreate (apply config)** to apply it without rebuilding, or deploy if you were shipping code anyway.',
           },
+          {
+            kind: 'code',
+            caption: 'From your shell — `--apply` is the recreate, in the same command',
+            code: `akerdock app env list api
+akerdock app env get DATABASE_URL api
+akerdock app env set API_URL=https://api.example.com LOG_LEVEL=debug api --apply
+akerdock app env unset LEGACY_FLAG api
+akerdock app env list --pr 42 api    # the previews set of PR 42`,
+          },
+          {
+            kind: 'note',
+            text: 'A compose stack has the same four verbs under `akerdock svc env`. Masking is the server’s answer, not the client’s: a value you cannot reveal here — `secrets:reveal`, and a token carrying `read:sensitive` — comes back redacted in the terminal too. Without `--apply`, `set` writes and stops there: a variable set and never applied is the mistake the flag exists to prevent.',
+          },
         ],
       },
     ],
@@ -485,7 +509,7 @@ example.com/checkout         # path-based route, most specific wins`,
           {
             kind: 'ul',
             items: [
-              'The **Deploy** button, or the CLI and API.',
+              'The **Deploy** button, `akerdock app deploy run`, or the API.',
               'A **push** on the configured branch, when auto-deploy is on — through the GitHub App or the application’s own webhook endpoint.',
               'A **pull request** event, when previews are on.',
               'A **scheduled** or external call to the deploy webhook from your CI.',
@@ -514,6 +538,19 @@ example.com/checkout         # path-based route, most specific wins`,
             ],
             permission: 'deployments:cancel',
           },
+          {
+            kind: 'code',
+            caption: 'Trigger, follow and cancel without leaving the terminal',
+            code: `akerdock app deploy run api -f     # trigger, and follow the build log
+akerdock app deploy run api --skip-build   # apply the config, no rebuild
+akerdock app deploy list api       # the history, newest first
+akerdock app deploy cancel <deployment-uuid>`,
+            permission: 'applications:deploy',
+          },
+          {
+            kind: 'note',
+            text: 'A compose stack deploys the same way — `akerdock svc deploy run|list|cancel`. `-f` rides the same stream the Deployments tab reads, so the terminal and the browser show the same lines.',
+          },
         ],
       },
       {
@@ -524,6 +561,15 @@ example.com/checkout         # path-based route, most specific wins`,
           {
             kind: 'p',
             text: 'Rollback redeploys a previously deployed image by its digest, from the deployment history. It is the fast path back; the durable fix is still a commit.',
+          },
+          {
+            kind: 'code',
+            code: `akerdock app deploy rollback api            # the previous deployment
+akerdock app deploy rollback api --to <uuid>  # a chosen one`,
+          },
+          {
+            kind: 'note',
+            text: 'Rollback is an **application** verb only: no such endpoint exists for a compose stack, which is why `akerdock svc deploy` stops at `run`, `list` and `cancel`.',
           },
         ],
       },
@@ -598,6 +644,25 @@ curl -X POST "https://<instance>/api/v1/deploy?uuid=<a>,<b>&force=true" \\
               'Its URL is never indexable by search engines.',
             ],
           },
+          {
+            kind: 'code',
+            caption: 'Which PRs are live, and where — without opening the dashboard',
+            code: `akerdock app preview list api`,
+          },
+          {
+            kind: 'code',
+            caption: 'Driving one — `--pr` carries the PR number everywhere',
+            code: `akerdock app logs api --pr 42        # its logs
+akerdock app env list --pr 42 api    # its own set of variables
+akerdock app preview redeploy --pr 42 api
+akerdock app preview keep --pr 42 api    # re-arm the TTL while you debug`,
+            permission: 'previews:manage',
+          },
+          {
+            kind: 'note',
+            text: 'Approving a fork’s preview is **not** a CLI verb: authorising code you have not written to run is project governance, and it stays here where the context is. `keep` is on the other side of that line — holding a preview alive while you debug on it is debugging.',
+            permission: 'previews:manage',
+          },
         ],
       },
       {
@@ -621,7 +686,7 @@ curl -X POST "https://<instance>/api/v1/deploy?uuid=<a>,<b>&force=true" \\
         blocks: [
           {
             kind: 'p',
-            text: 'The **reviewer** role exists for exactly this: someone invited as a reviewer sees the path down to the previews and their URLs, and nothing else — no logs, no variables, no deploy buttons.',
+            text: 'The **reviewer** role exists for exactly this: someone invited as a reviewer sees the path down to the previews and their URLs, and nothing else — no logs, no variables, no deploy buttons. The same list answers in a terminal, `akerdock app preview list <app>`, with the same narrow reach.',
           },
         ],
       },
@@ -663,6 +728,19 @@ curl -X POST "https://<instance>/api/v1/deploy?uuid=<a>,<b>&force=true" \\
               'Deploy, Start, Stop and Restart act on the whole stack.',
               'A stack’s internal database can carry its own **backup plan**, like a managed database.',
             ],
+          },
+          {
+            kind: 'code',
+            caption: 'The stack group in the CLI — the verbs a stack actually has',
+            code: `akerdock svc list
+akerdock svc info shop           # the stack and its components
+akerdock svc restart shop        # …and start | stop
+akerdock svc deploy run shop -f  # …and deploy list | cancel
+akerdock svc env list shop       # …and env get | set | unset, with --apply`,
+          },
+          {
+            kind: 'note',
+            text: 'A stack has **no `logs`, `shell` or `port-forward` of its own**, and no `rollback`: those endpoints exist for applications and databases only. Debug a stack’s container through the application that owns it, or from the Components tab above — each card carries the exact command to copy.',
           },
           {
             kind: 'note',
@@ -746,6 +824,12 @@ daily         rails db:sessions:trim`,
               'A task does not run while the container is stopped — a scale-to-zero app is not a scheduler.',
             ],
           },
+          {
+            kind: 'code',
+            caption: 'Run one on demand from your shell — the fastest way to find out why it fails',
+            code: `akerdock app tasks list api
+akerdock app tasks run backup-clean api`,
+          },
         ],
       },
     ],
@@ -771,10 +855,14 @@ daily         rails db:sessions:trim`,
           {
             kind: 'code',
             caption: 'The same thing from your shell',
-            code: `akerdock logs api -f            # follow
-akerdock logs api -n 500        # last 500 lines
-akerdock logs api --pr 42       # the preview of PR 42
-akerdock logs api --deployment  # the latest build log instead`,
+            code: `akerdock app logs api -f            # follow
+akerdock app logs api -n 500        # last 500 lines
+akerdock app logs api --pr 42       # the preview of PR 42
+akerdock app logs api --deployment  # the latest build log instead`,
+          },
+          {
+            kind: 'note',
+            text: 'Logs are an **application** verb: there is no `akerdock db logs` or `akerdock svc logs`, because no endpoint serves them — a stack’s container is read through the application that owns it, or from the Components tab here.',
           },
         ],
       },
@@ -820,9 +908,9 @@ akerdock logs api --deployment  # the latest build log instead`,
           },
           {
             kind: 'code',
-            code: `akerdock shell api                 # the application's container
-akerdock shell api -c worker       # a component of a compose stack
-akerdock shell db/main             # a managed database`,
+            code: `akerdock app shell api             # the application's container
+akerdock app shell api -c worker   # a component of a compose stack
+akerdock db shell main             # a managed database`,
           },
           {
             kind: 'note',
@@ -850,17 +938,18 @@ akerdock shell db/main             # a managed database`,
           },
           {
             kind: 'code',
-            code: `akerdock port-forward db/main 15432:5432
+            code: `akerdock db port-forward 15432:5432 main
 psql postgres://user@127.0.0.1:15432/app
 
-akerdock port-forward api 8080:3000 --pr 42   # into a PR preview
-akerdock db db/main                            # forward + launch psql`,
+akerdock app port-forward 8080:3000 api --pr 42   # into a PR preview
+akerdock db console main                          # forward + launch psql`,
           },
           {
             kind: 'ul',
             items: [
+              'The **ports come first and the name last** — one look tells the two positionals apart, and the group already said which kind of resource you are aiming at.',
               'The tunnel rides HTTP/3, falls back to HTTP/2, then to WebSocket — it only ever needs 80/443, so a corporate proxy does not break it.',
-              'Open sessions are listed in the dashboard and can be closed from there.',
+              'Open sessions are listed in the dashboard, and from your shell with `akerdock tunnel list`; either surface can close one.',
               'Sessions are audited: who opened what, towards which target, and for how long.',
             ],
           },
@@ -880,12 +969,12 @@ akerdock db db/main                            # forward + launch psql`,
             code: `akerdock tunnel open prod-replica         # on a port the OS picks
 akerdock tunnel open prod-replica 15432   # on a port you choose
 
-akerdock tunnel ls                        # every tunnel open in the team
+akerdock tunnel list                      # every tunnel open in the team
 akerdock tunnel close <session-uuid>`,
           },
           {
             kind: 'p',
-            text: 'The remote port is not yours to choose: the endpoint froze its host and port when it was declared — which is why this is `akerdock tunnel`, not `akerdock port-forward`, whose targets are the containers the platform deploys. If the endpoint requires an approval, the CLI answers `access_request_required` and hands you the link to **request access**; a granted access has an expiry and can be revoked.',
+            text: 'The remote port is not yours to choose: the endpoint froze its host and port when it was declared — which is why this is `akerdock tunnel`, its own top-level command, and not a `port-forward`, whose targets are the containers the platform deploys and which therefore lives under `app` and `db`. If the endpoint requires an approval, the CLI answers `access_request_required` and hands you the link to **request access**; a granted access has an expiry and can be revoked.',
           },
         ],
       },
@@ -943,8 +1032,8 @@ akerdock tunnel close <session-uuid>`,
             kind: 'ul',
             items: [
               '**From an application on the same network** — use the database UUID as hostname; nothing needs to be exposed.',
-              '**From your machine** — `akerdock db db/<name>` opens a tunnel and launches `psql`, or use `akerdock port-forward` with your own client.',
-              '**From the dashboard** — the Database shell card opens `psql` in the container.',
+              '**From your machine** — `akerdock db console <name>` opens a tunnel and launches `psql`; `akerdock db port-forward 15432:5432 <name>` leaves the tunnel open for your own client. For a database service inside a compose stack, name the application instead: `akerdock db console --app <app> -c <service>`.',
+              '**From the dashboard** — the Database shell card opens `psql` in the container; `akerdock db shell <name>` is the same shell from your terminal.',
             ],
           },
           {
@@ -960,7 +1049,7 @@ akerdock tunnel close <session-uuid>`,
         blocks: [
           {
             kind: 'p',
-            text: 'Start, stop and restart from the detail page. Stopping a database stops everything that depends on it — check the environment before you do it on a shared instance.',
+            text: 'Start, stop and restart from the detail page, or from your shell — `akerdock db restart <name>`, and `start` / `stop` alongside it. Stopping a database stops everything that depends on it — check the environment before you do it on a shared instance. There is no confirmation prompt in the terminal: the platform can start it again.',
           },
         ],
       },
@@ -992,6 +1081,17 @@ akerdock tunnel close <session-uuid>`,
               'Each run is recorded with its status, size and upload result, and can be downloaded or deleted.',
             ],
           },
+          {
+            kind: 'code',
+            caption: 'The same two questions from your shell',
+            code: `akerdock db backups list main          # the plans and their executions
+akerdock db backups run main           # back up now
+akerdock db backups run main --plan nightly`,
+          },
+          {
+            kind: 'note',
+            text: 'The CLI stops there: **no `restore`** — overwriting a production database is not an act for a one-line terminal confirmation, so it keeps the dashboard’s context — and no download, because no endpoint serves the file.',
+          },
         ],
       },
       {
@@ -1001,7 +1101,7 @@ akerdock tunnel close <session-uuid>`,
         blocks: [
           {
             kind: 'p',
-            text: 'Restore a database from any recorded execution, straight from its backup list. It is a destructive operation on the target — the dashboard asks you to confirm what you are overwriting.',
+            text: 'Restore a database from any recorded execution, straight from its backup list. It is a destructive operation on the target — the dashboard asks you to confirm what you are overwriting, and it is the only surface that offers it: the CLI has no `restore`, by decision.',
           },
         ],
       },
@@ -1102,11 +1202,58 @@ akerdock tunnel close <session-uuid>`,
             kind: 'code',
             code: `akerdock login --url https://akerdock.example.com
 akerdock context list          # several instances
-akerdock context use staging`,
+akerdock context use staging
+akerdock whoami                # where you point, and as whom`,
           },
           {
             kind: 'p',
             text: 'Login opens your browser, works with SSO, and needs no open port on your machine. The credential lands in `~/.akerdock/credentials.yaml` (mode `0600`), separate from the configuration so the latter stays shareable.',
+          },
+          {
+            kind: 'p',
+            text: '`whoami` answers from that file alone — context, instance, team and the scopes your token carries, with no network call and never the token itself. It is the question worth asking before a command that stops something.',
+          },
+        ],
+      },
+      {
+        id: 'shape',
+        title: 'How a command is spelled',
+        blocks: [
+          {
+            kind: 'p',
+            text: 'The tree is typed: **`akerdock <type> <verb> [NAME]`**. Every verb that acts on one kind of resource lives under that kind’s group, and the name comes last.',
+          },
+          {
+            kind: 'code',
+            caption: 'What each group offers — `--help` on any of them is the authoritative list',
+            code: `akerdock app   list · info · logs · shell · port-forward · open
+               restart · start · stop
+               deploy run|list|cancel|rollback
+               env list|get|set|unset
+               preview list|redeploy|keep
+               tasks list|run
+akerdock db    list · info · shell · console · port-forward
+               restart · start · stop
+               backups list|run
+akerdock svc   list · info · restart · start · stop
+               deploy run|list|cancel
+               env list|get|set|unset
+
+akerdock login · logout · context · whoami · list
+               tunnel · ingress · mcp · version`,
+          },
+          {
+            kind: 'ul',
+            items: [
+              'A group offers **the verbs its type actually has**, and not one more — a database has no `deploy`, an application has no `console`, a stack has neither `logs` nor `shell`. The asymmetry is the API’s, and stating it in `--help` beats discovering it at runtime.',
+              '`list` is the spelling everywhere — `app list`, `db backups list`, `tunnel list`; `ls` stays an accepted alias.',
+              '`-a`, `-e`, `-p` are the short forms of `--application`, `--environment`, `--project`. A positional name always wins over `-a`, which carries the default rather than the target.',
+              'Output is a table; `-o json` returns the API objects unaltered, for scripting. Exit codes: `0` success, `1` error, `2` usage — a typo and a failed deployment are told apart.',
+            ],
+          },
+          {
+            kind: 'note',
+            text: 'The old `type/name` form is gone. `akerdock logs app/api` is refused rather than translated, with the command that replaced it — `akerdock app logs api`.',
           },
         ],
       },
@@ -1130,6 +1277,10 @@ component: web       # default compose service for logs/shell/port-forward`,
             kind: 'p',
             text: 'Precedence, strongest first: a CLI flag, then an `AKERDOCK_*` variable, then this file, then your global configuration.',
           },
+          {
+            kind: 'note',
+            text: 'Only the **application** has such a default — a repository declares the app it deploys, never the database it talks to — so `akerdock app logs -f` works from that directory with no name, while `db` and `svc` verbs always take one.',
+          },
         ],
       },
       {
@@ -1138,17 +1289,33 @@ component: web       # default compose service for logs/shell/port-forward`,
         blocks: [
           {
             kind: 'code',
-            code: `akerdock ls                        # apps, databases, stacks
-akerdock logs -f                   # the default app of this directory
-akerdock shell                     # a shell in its container
-akerdock port-forward db/main 15432:5432
-akerdock db db/main                # forward + local client
+            code: `akerdock list                      # apps, databases, stacks
+akerdock app logs -f               # the default app of this directory
+akerdock app shell                 # a shell in its container
+akerdock app info                  # status, health, components, last deploy
+
+akerdock app env set FEATURE_X=on --apply   # write it, and apply it
+akerdock app deploy run -f                  # ship, and watch the build
+akerdock app deploy rollback                # …or take it back
+akerdock app restart                        # start | stop alongside it
+
+akerdock app preview list          # the live PR instances
+akerdock app tasks run migrate     # a scheduled task, right now
+
+akerdock db console main           # forward + local client
+akerdock db port-forward 15432:5432 main
+akerdock db backups run main       # back up before you break something
+
 akerdock tunnel open prod-replica  # a declared external endpoint
 akerdock ingress dev 3000          # public URL onto localhost:3000`,
           },
           {
             kind: 'note',
             text: 'The CLI holds your permissions, not more: what the dashboard hides, it refuses too.',
+          },
+          {
+            kind: 'note',
+            text: 'Two things stay in the dashboard by decision, not by omission: **restoring a backup** and **approving a fork’s preview**. And a deployment always starts from a source the platform can fetch again — a Git ref or an image — never from a local folder.',
           },
         ],
       },

@@ -19,14 +19,20 @@
 
 ## 1. Scope and non-goals
 
-**v1 goals.** Give a developer, from their workstation, debug access to their resources
-without exposing them: authenticate (including via SSO/OIDC), list resources, read
-logs (snapshot and streaming), open a shell in a container, establish a TCP tunnel to
-a service (database, redis, …), and a typed console for convenience.
+**v1 goals.** Let a developer work from their workstation without opening the dashboard:
+authenticate (including via SSO/OIDC), inspect what the team runs, read logs (snapshot and
+streaming), open a shell or a typed console in a container, tunnel a TCP port without
+exposing it — and, since ADR-070, **set variables, deploy, roll back, restart, and drive
+previews, scheduled tasks and backups**. The split that used to run between "debug from the
+terminal" and "everything else from the browser" is gone; what remains in the dashboard is
+what belongs there.
 
-**v1 non-goals.** Deployment (`up`, rollback, `deploy`), management of env variables,
-domains, keys, backups, members. The CLI **NEVER reimplements** business logic:
-it consumes the public API (PRD §18.2), nothing else.
+**v1 non-goals.** Deploying a **local folder** (`akerdock up` is withdrawn, ADR-070 §3 — a
+deployment starts from a source the platform can fetch again), managing domains, keys and
+members, restoring a backup, and approving a fork preview: the last two stay in the dashboard
+by decision, not by omission. A one-off non-interactive command (`run`) is owed and waits on
+an endpoint that does not exist yet. The CLI **NEVER reimplements** business logic: it
+consumes the public API (PRD §18.2), nothing else.
 
 ## 2. Transport invariant
 
@@ -41,9 +47,19 @@ it consumes the public API (PRD §18.2), nothing else.
 
 ## 3. Commands
 
-`REF` designates a resource: `app/<name|uuid>`, `db/<name|uuid>`, `svc/<name|uuid>`,
-`preview/<pr|uuid>`. A declared external endpoint is **not** a REF: `akerdock tunnel open`
-accepts exactly one kind of target and names it bare (ADR-069, §7.1). **The team is the
+The tree is **typed** (ADR-070): `akerdock <type> <verb> [NAME]`. A verb that acts on one
+kind of resource lives under that kind's group — `app`, `db`, `svc` — and the **NAME is the
+last positional argument**, optional wherever a default can stand in for it (an
+application's `.akerdock`, §4). The `type/name` REF of earlier versions is **gone**: the old
+spelling is refused with the command that replaced it, never resolved as a literal name.
+
+A group offers **the verbs its type actually has**, and the API is not symmetric: a database
+and a compose stack have no logs endpoint, a stack has neither terminal nor port-forward,
+only an application has `rollback`, and a backup execution has no download. Each group's
+`--help` is the authoritative list.
+
+Commands that target no type stay at the top level: `login`, `logout`, `context`,
+`whoami`, `list`, `tunnel`, `ingress`, `mcp`, `version`, `completion`. **The team is the
 token's**, not a per-command choice — see the note under the global flags.
 
 ### 3.1 Server modes (this binary, not the client)
@@ -62,19 +78,65 @@ token's**, not a per-command choice — see the note under the global flags.
 | `akerdock login [--url URL] [--context NAME] [--scopes read,write] [--with-token] [--no-browser]` | Authentication (§5). |
 | `akerdock logout [--context NAME] [--revoke]` | Clears the local credential; `--revoke` also deletes the token server-side (needs a resolvable team — see below). |
 | `akerdock context list \| current \| use NAME \| remove NAME` | Multi-instances. |
-| `akerdock ls [apps\|databases\|services\|servers]` | Listing; default: applications + databases + services. `previews` is **not** a transversal listing in v1 (previews are read per application). |
-| `akerdock logs [REF] [--component C] [-n LINES] [-f] [--deployment [UUID]] [--pr N]` | Container logs (snapshot or `-f` streaming) or logs of a deployment. `REF` is optional when `.akerdock` names a default application. `--pr N` reads the preview instance of PR N instead of production — its containers with `-f`, its latest build with `--deployment`. |
-| `akerdock shell [REF] [--component C]` | Interactive shell in the container (§6). `REF` optional, as for `logs`. |
-| `akerdock port-forward [REF] [[LOCAL:]REMOTE] [--component C] [--pr N]` | TCP tunnel to a **container AkerDock deploys** (§7); `--pr N` targets the preview instance of PR N instead of production. `REF` may be omitted when `.akerdock` names a default application. An `endpoint/…` REF is refused here and named to §7.1's command (ADR-069). |
-| `akerdock tunnel open ENDPOINT [LOCAL_PORT]` | TCP tunnel to a **declared external endpoint** — a target AkerDock does not run (§7.1). The endpoint froze its host and port at declaration, so only the local port is the caller's, and omitting it lets the OS pick one. |
-| `akerdock tunnel ls [--endpoint NAME] [--all]` | The team's tunnel sessions, **every target kind** — application, database, service, preview, external endpoint (§7.2). `--endpoint` narrows to one declared endpoint, `--all` walks the history instead of the live sessions. |
-| `akerdock tunnel close SESSION_UUID` | Cuts a live tunnel session (§7.2). Yours needs only the permission that opened it; someone else's is an administrative act. |
-| `akerdock db REF [--component C] [--pr N]` | Convenience: opens a forward and launches the local client of the detected engine (§8); accepts a standalone database (`db/…`) or a **database service of a compose stack** (`app/… -c C`), with `--pr N` targeting the preview. |
+| `akerdock whoami` | Where this terminal is pointed and as whom: context, instance, team, stored scopes. **No network call**, and the token is never printed — the question is worth answering before a command that changes something. |
+| `akerdock list [apps\|databases\|services\|servers]` | The one listing whose subject is the team rather than a kind: applications + databases + services by default. `ls` is an accepted alias, here and on every other `list` (§3). |
+| `akerdock tunnel open ENDPOINT [LOCAL_PORT]` | TCP tunnel to a **declared external endpoint** — a target AkerDock does not run (§7.1). |
+| `akerdock tunnel list [--endpoint NAME] [--all]` | The team's tunnel sessions, every target kind (§7.2). |
+| `akerdock tunnel close SESSION_UUID` | Cuts a live tunnel session (§7.2). |
+| `akerdock ingress ENDPOINT LOCAL_PORT` | Relays a declared public URL to a port on this machine (ADR-060). |
 | `akerdock mcp [--url URL] [--token T]` | Runs the built-in MCP server over **stdio** for a local assistant (ADR-043): a bridge to this instance's `/mcp` endpoint, read-only tools, credentials from the current context by default. The instance-side surface is off unless enabled there. |
+
+#### The `app` group
+
+| Command | Role |
+|---|---|
+| `akerdock app list` | The team's applications. |
+| `akerdock app info [NAME]` | One application: desired/observed status, health, components, last deployment (§9). |
+| `akerdock app logs [NAME] [-c C] [-n LINES] [-f] [--deployment [UUID]] [--pr N]` | Container logs (snapshot or `-f`) or a deployment's build log. `--pr N` reads the preview instance of PR N instead of production. |
+| `akerdock app shell [NAME] [-c C]` | Interactive shell in the container (§6). |
+| `akerdock app port-forward [LOCAL:]REMOTE [NAME] [-c C] [--pr N]` | TCP tunnel to a container port (§7). The ports come first, the name last. |
+| `akerdock app open [NAME] [--dashboard]` | Opens the public URL, or the resource's dashboard page. |
+| `akerdock app restart\|start\|stop [NAME]` | Lifecycle (§10). |
+| `akerdock app deploy run [NAME] [--skip-build\|--force-rebuild] [-f]` | Triggers a deployment; `--skip-build` applies the configuration without rebuilding (ADR-048), `--force-rebuild` is its opposite and the two are mutually exclusive; `-f` follows the build log. No `--branch`: no deploy body carries a ref. |
+| `akerdock app deploy list [NAME]` | Deployment history. |
+| `akerdock app deploy cancel DEPLOYMENT_UUID` | Cancels a running deployment. |
+| `akerdock app deploy rollback [NAME] [--to UUID]` | Rolls back to a previous deployment. **Applications only** — no such endpoint exists for a stack. |
+| `akerdock app env list\|get\|set\|unset KEY… [NAME] [--pr N] [--apply]` | Environment variables (§11). The keys come first, the application name last; `--apply` redeploys without rebuilding. |
+| `akerdock app preview list [NAME]` | The application's PR previews. |
+| `akerdock app preview redeploy\|keep --pr N [NAME]` | Redeploys a preview, or holds it against automatic destruction. **No `approve`**: authorizing a fork to run is project governance and stays in the dashboard (ADR-070 §2). |
+| `akerdock app tasks list [NAME]` / `akerdock app tasks run TASK [NAME]` | Scheduled tasks, and running one on demand. |
+
+#### The `db` group
+
+| Command | Role |
+|---|---|
+| `akerdock db list` / `akerdock db info [NAME]` | The team's databases; one database. |
+| `akerdock db console [NAME] [--app A -c C] [--pr N]` | Opens the engine's own client over an ephemeral forward (§8). With `--app`/`-c`, a database **service of a compose stack**. |
+| `akerdock db shell [NAME]` | Interactive shell in the database container (§6). |
+| `akerdock db port-forward [LOCAL:]REMOTE [NAME]` | TCP tunnel to the database port (§7). |
+| `akerdock db restart\|start\|stop [NAME]` | Lifecycle (§10). |
+| `akerdock db backups list [NAME]` / `akerdock db backups run [NAME] [--plan P]` | Backup plans and their executions; triggers one now. **No `restore`** (a production overwrite does not belong behind a one-line terminal confirmation) and no `download` (no endpoint serves the file). |
+
+#### The `svc` group (compose stacks)
+
+| Command | Role |
+|---|---|
+| `akerdock svc list` / `akerdock svc info [NAME]` | The team's stacks; one stack and its components. |
+| `akerdock svc restart\|start\|stop [NAME]` | Lifecycle (§10). |
+| `akerdock svc deploy run\|list\|cancel [NAME]` | Deployment and history. No `rollback` (the endpoint exists for applications only) and no `--skip-build` (`POST /services/{uuid}/deploy` takes no body). |
+| `akerdock svc env list\|get\|set\|unset KEY… [NAME] [--apply]` | Environment variables (§11). `--apply` redeploys the stack in full: `POST /services/{uuid}/deploy` takes no body, so there is no `skip_build` to send. |
+
+> A stack has **no `logs`, `shell` or `port-forward`** of its own: those endpoints exist for
+> applications and databases only. Debugging a stack's container goes through the
+> application that owns it.
 
 **Global (persistent) flags.** `--context NAME`, `--team`, `--project`, `--application`,
 `--environment`, `-o table|json` (`json` = raw API objects, for scripting), `--quiet`.
-`NO_COLOR` honored. **Exit codes**: `0` success, `1` error, `2` usage.
+`NO_COLOR` honored. **Exit codes**: `0` success, `1` error, `2` usage — a usage failure is an
+unknown command, an unknown or malformed flag, a missing or excess argument, or a flag value
+outside its enumerated set (`-o` accepts `table` and `json`, and refuses anything else instead
+of falling back). The distinction is what lets a script tell a typo from a deployment that
+actually failed.
 
 > **`logs --pr N -f` polls, it does not stream.** The API exposes a live stream for an
 > application's containers (`/logs/stream`) but only a snapshot for a preview's
@@ -105,8 +167,11 @@ the tree from the current directory, `.git`-style (a `.akerdock` directory, like
 global `~/.akerdock`, is ignored: only a **file** counts). It **never contains a
 token** (those stay in `~/.akerdock/credentials.yaml`), so it is committable. Fields,
 all optional: `context` (name of a global context), `team`, `project`, `application`
-(default target), `environment`, `component` (default compose service for `logs`,
-`shell`, `port-forward` and `db`).
+(the default an `app` verb uses when no name is typed), `environment`, `component` (default
+compose service for `logs`, `shell`, `port-forward` and the console).
+
+Only the **application** has such a default: a repository declares the app it deploys, never
+the database it talks to, so `db` and `svc` verbs always take a name.
 
 **Precedence (MUST).** Each parameter resolves in this order, from strongest to weakest:
 
@@ -116,9 +181,13 @@ CLI flag  >  AKERDOCK_* env variable  >  .akerdock (directory)  >  ~/.akerdock (
 
 Env variables: `AKERDOCK_CONTEXT`, `AKERDOCK_TEAM`, `AKERDOCK_PROJECT`,
 `AKERDOCK_APPLICATION`, `AKERDOCK_ENVIRONMENT`, `AKERDOCK_COMPONENT`. Thus, from a repository
-with a `.akerdock` that points to `context:` and `application:`, `akerdock logs` (without REF, without
-`--context`) targets the default app of the configured instance; an explicit `--context`/`REF`
-always wins.
+with a `.akerdock` that points to `context:` and `application:`, `akerdock app logs` (no name,
+no `--context`) targets the default app of the configured instance. **A positional name always
+wins over `-a/--application`**, which carries the default rather than the target;
+`--context` likewise overrides the file.
+
+Short forms: `-a` (application), `-e` (environment), `-p` (project) — the spellings every CLI
+of the domain uses (ADR-070 §4).
 
 ## 5. Login (ADR-031)
 
@@ -141,8 +210,10 @@ default `read,write`, never `root`/`deploy`/`read:sensitive` by default; everyth
 
 ## 6. Shell
 
-**Full** reuse of the existing terminal sessions (§5.7, §24.4, ADR-024): `POST
-/applications/{uuid}/terminal-sessions` (+ `component`) mints a single-use attach
+`akerdock app shell [NAME]` and `akerdock db shell [NAME]` — the two types whose API has a
+`terminal-sessions` endpoint. **Full** reuse of the existing terminal sessions (§5.7,
+§24.4, ADR-024): `POST /{applications|databases}/{uuid}/terminal-sessions` (+ `component`
+for an application) mints a single-use attach
 token, the CLI opens `wss://<manager>/terminal/ws?token=…&cols=&rows=`, puts the local TTY in
 raw mode and bridges the binary stream ↔ PTY, forwarding window size
 changes. Idle timeout, max duration, heartbeat and guaranteed kill apply unchanged. The CLI
@@ -150,11 +221,14 @@ changes. Idle timeout, max duration, heartbeat and guaranteed kill apply unchang
 
 ## 7. Port-forward (ADR-032)
 
-`akerdock port-forward db/varuna 15432:5432` establishes a tunnel from `127.0.0.1:15432` **local
+`akerdock db port-forward 15432:5432 varuna` establishes a tunnel from `127.0.0.1:15432` **local
 to the CLI process** (CLI loopback listener, outside the §2 invariant which only concerns
 outbound network connections) to port `5432` of the target container, via the manager.
 
-- **Mint**: `POST /{applications|databases|services}/{uuid}/port-forwards` (+ previews),
+- **Positional order**: the ports come first and the resource name last, so the two
+  optional positionals are told apart by their place. With the type carried by the group,
+  `15432:5432` can no longer be mistaken for a target (ADR-070 §1).
+- **Mint**: `POST /{applications|databases}/{uuid}/port-forwards` (+ previews),
   `x-required-permission: write`, body `{port}`, target frozen and authorized at mint time, cap
   `port_forward_limit` (default **10**) → `PortForwardSession{uuid, token akdp_, websocket_path
   "/tunnel/ws", expires_at}`.
@@ -203,13 +277,13 @@ differences with a container forward:
   and an automatic close reports its reason (`grant_expired` among them) instead of a bare
   disconnection.
 
-### 7.2 Seeing and cutting sessions (`akerdock tunnel ls|close`)
+### 7.2 Seeing and cutting sessions (`akerdock tunnel list|close`)
 
 `GET /port-forward-sessions` and `DELETE /port-forward-sessions/{uuid}` shipped with
 ADR-045 and, until ADR-069, had no CLI client: a tunnel could be opened from the terminal
 but only seen or closed from a browser. Both are now reachable.
 
-- **`akerdock tunnel ls`** lists the team's sessions — **every target kind**, application
+- **`akerdock tunnel list`** lists the team's sessions — **every target kind**, application
   and database and preview included, because "what is currently forwarded out of this
   team" is the operational question and hiding the container forwards would answer a
   different one invisibly (ADR-045's own reasoning for the dashboard view). Columns:
@@ -225,14 +299,15 @@ but only seen or closed from a browser. Both are now reachable.
 
 No token is readable back from either surface (§23.2), here as anywhere else.
 
-## 8. Typed console (`akerdock db`)
+## 8. Typed console (`akerdock db console`)
 
-Convenience on top of §7. `akerdock db REF` detects the resource's engine (postgres /
+Convenience on top of §7. `akerdock db console [NAME]` detects the resource's engine (postgres /
 mysql / redis / mongo), opens an ephemeral port-forward and launches the corresponding local client
 (`psql`, `mysql`, `redis-cli`, `mongosh`) preconfigured with the resource's credentials.
 
-**Targets.** A standalone database (`db/<name>`) **or** a database service of a compose stack
-(`app/<name> -c <service>`, engine read from the component, §9.2); `--pr N` targets the service of
+**Targets.** A standalone database (the positional name) **or** a database service of a compose
+stack (`--app <name> -c <service>`, engine read from the component, §9.2 of the compose spec) —
+the compose form names the application because the container belongs to it; `--pr N` targets the service of
 the preview instance of PR N. For a compose service, credentials are read on a best-effort basis
 from the **generated magic variables** (`SERVICE_USER_<ID>` / `SERVICE_PASSWORD_<ID>`,
 §5.4): without `read:sensitive` they are redacted (`value: null`), in which case the CLI prints the
@@ -240,7 +315,76 @@ connection command and leaves the forward open rather than launching a client wi
 credentials. If the local client is missing, same fallback. The CLI **neither stores nor relays** a
 cleartext password beyond launching the child process.
 
-## 9. Security (delta to the threat model)
+## 9. Inspecting one resource (`info`)
+
+`akerdock <type> info [NAME]` answers "what is this one doing", which `list` never did:
+desired and observed status, health, the components of an application or a stack, and the
+last deployment. Read-only, `GET` on the resource (plus `/components` where the type has
+them). `-o json` returns the API objects unaltered, so a script never parses the table.
+
+A field the API does not serve is **left out**, never filled with a placeholder: an
+application's public URL, for instance, lives on `GET /servers/{uuid}/domains` and is
+resolved through it or omitted.
+
+## 10. Lifecycle (`restart` / `start` / `stop`)
+
+`POST /{applications|databases|services}/{uuid}/{restart,start,stop}` — the three verbs
+exist for the three types and are spelled identically under each group. No confirmation
+prompt: stopping a resource the platform can start again is an ordinary act, and scale-to-zero
+already stops containers on its own (ADR-036).
+
+**No `-c` and no `--pr`**: the nine endpoints take no body, no query and no component, and
+there is no preview lifecycle endpoint at all. A flag the server ignores would let the caller
+believe one container — or the PR instance — had been restarted when the whole resource was.
+
+The answer is a job, not a result: the API replies `202` with a job uuid, so the CLI says
+`accepted`, never `restarted`.
+
+Interaction with scale-to-zero is unchanged: an explicit `stop` sets the desired status, which
+is exactly the gate ADR-037 §3 checks before waking anything.
+
+## 11. Environment variables (`env`)
+
+`akerdock <app|svc> env list|get|set|unset [--pr N] [--apply]` over
+`/{applications|services}/{uuid}/envs` (and the preview collection with `--pr`).
+
+- **The masking policy is the server's.** Without `read:sensitive` a value comes back masked,
+  and an `is_locked` variable never reveals its value at all (§20.4.4 of the PRD). The client
+  prints what it is given and re-implements none of that.
+- **`--apply`** redeploys **without rebuilding** (`skip_build`, ADR-048) once the variables are
+  written. Without it, `set` writes and says nothing further: a variable that is set and never
+  applied is the mistake this flag exists to prevent, not a state the CLI hides.
+- `set` accepts several `KEY=VALUE` pairs in one call; a malformed pair is refused **before**
+  any request is sent (exit code 2). `--secret` marks them as **build
+  secrets**: mounted by BuildKit for one `RUN` rather than passed as a build ARG, which
+  `docker history` would expose (§5.2). `KEY=` (an empty value) is refused and points at `unset`, which also means the empty
+  string is not expressible from the CLI: the shell strips the quotes of `KEY=""` before the
+  process sees them, so the two are indistinguishable.
+- With `--pr N` the collection is the preview's **effective** set. Setting an inherited key
+  creates an override for that preview; **unsetting one is refused**, because the API has no
+  per-preview delete and removing it would change every open PR.
+
+## 12. Deployments (`deploy`)
+
+`akerdock <app|svc> deploy run|list|cancel` and, for an application only,
+`deploy rollback`. A group rather than four top-level verbs, because the history is consulted
+about as often as a deployment is triggered.
+
+- **`run`** — `POST /{applications|services}/{uuid}/deploy`. On an application the body takes
+  `skip_build` (apply the configuration without rebuilding, ADR-048) or `force_rebuild`,
+  never both; on a **service the endpoint takes no body**, so neither flag is offered there.
+  `-f` follows the build log of the deployment the mint just returned, through the same SSE
+  stream `app logs --deployment` reads, rather than polling. There is **no `--branch`**: no
+  deploy body carries a ref, and a flag the server drops would be a lie in the help.
+- **`list`** is bounded (`-n`, default 20): the history is unbounded server-side and walking
+  it whole is not a default anyone asked for.
+- **`list`** — the paginated history: status, trigger, commit or image, timings.
+- **`cancel`** — `POST /deployments/{uuid}/cancel`, transversal because a deployment uuid
+  identifies itself without its parent.
+- **`rollback`** — `POST /applications/{uuid}/rollback`. Absent from the `svc` group because
+  the endpoint does not exist there, not as a policy.
+
+## 13. Security (delta to the threat model)
 
 - **T — loopback interception**: neutralized by PKCE (the `verifier` never leaves the CLI),
   cf. ADR-031.
@@ -253,16 +397,20 @@ cleartext password beyond launching the child process.
 - **Storage**: `akd_` token at rest with `0600`, TTL 30 d, revocable (accepted keychain gap,
   ADR-031).
 
-## 10. Audit and observability
+## 14. Audit and observability
 
 Every action with a remote effect is audited with actor/token, IP, timestamp (§23.4): login
 (success/failure), terminal session and port-forward open/close, revocation.
 Shell keystrokes and tunnel bytes are **never** logged (§24.4).
 
-## 11. Tests
+## 15. Tests
 
 In accordance with the test pyramid (ADR-026/028, test plan §2): deterministic logic
-is proven with **unit/module tests** — `REF` parsing, context resolution, login state
+is proven with **unit/module tests** — target resolution (positional name, directory default,
+and the refusal of the removed `type/name` form), the shape of the command tree itself (each
+group exposing exactly the verbs its type has, so a verb cannot silently appear on another
+type — and so the two decided absences, `preview approve` and `backups restore`, stay
+absences), context resolution, login state
 machine (start/poll/approve/exchange, PKCE verification), tunnel multiplexing
 (`open`/`eof`/`close` framing, stream cap, buffer), overlap detection between two
 preview log snapshots (`logs --pr -f`). End-to-end shell and port-forward

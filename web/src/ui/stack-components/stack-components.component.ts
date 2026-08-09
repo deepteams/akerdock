@@ -403,7 +403,7 @@ function enginePort(engine: string | null | undefined): number | null {
 })
 export class StackComponentsComponent {
   readonly components = input.required<ServiceComponent[]>();
-  /** CLI reference base: commands target `app/<appName>` (name or UUID). */
+  /** CLI target: the application's name (or UUID), typed under the `app` group. */
   readonly appName = input<string>('');
   /** When set, the target is a PR preview: commands carry `--pr N`. */
   readonly pr = input<number | undefined>(undefined);
@@ -490,10 +490,6 @@ export class StackComponentsComponent {
     return m.memory_limit_bytes ? `${used} / ${fmtBytes(m.memory_limit_bytes)}${pct}` : used;
   }
 
-  private appRef(): string {
-    return 'app/' + this.appName();
-  }
-
   private prSuffix(): string {
     const pr = this.pr();
     return pr ? ` --pr ${pr}` : '';
@@ -509,15 +505,17 @@ export class StackComponentsComponent {
     return this.single() ? '' : c.name;
   }
 
-  /** Confort console for a database service (cli.md §8). */
+  /** Confort console for a database service (cli.md §8) — the compose form names
+   *  the application because the container belongs to it. */
   protected dbConsoleCmd(c: ServiceComponent): string {
-    return `akerdock db ${this.appRef()}${this.componentFlag(c)}${this.prSuffix()}`;
+    return `akerdock db console --app ${this.appName()}${this.componentFlag(c)}${this.prSuffix()}`;
   }
 
-  /** TCP tunnel through the manager to this service (cli.md §7). */
+  /** TCP tunnel through the manager to this service (cli.md §7): the ports come
+   *  first, the resource name last (ADR-070 §1). */
   protected portForwardCmd(c: ServiceComponent): string {
     const port = enginePort(c.database_engine) ?? '<PORT>';
-    return `akerdock port-forward ${this.appRef()} ${port}:${port}${this.componentFlag(c)}${this.prSuffix()}`;
+    return `akerdock app port-forward ${port}:${port} ${this.appName()}${this.componentFlag(c)}${this.prSuffix()}`;
   }
 
   protected async copy(value: string): Promise<void> {

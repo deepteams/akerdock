@@ -171,7 +171,7 @@ func TestPortForwardRelaysAndExplainsClose(t *testing.T) {
 	_, errOut := captureOutput(t, func() {
 		done := make(chan error, 1)
 		go func() {
-			done <- runCmd(portForwardCmd(), "db/pg", fmt.Sprintf("%d:5432", localPort))
+			done <- runCmd(portForwardCmd(kindDB), fmt.Sprintf("%d:5432", localPort), "pg")
 		}()
 		conn := dialRetry(t, localPort)
 		defer func() { _ = conn.Close() }()
@@ -233,7 +233,7 @@ func TestPortForwardDoesNotRemintOnARefusedToken(t *testing.T) {
 
 	var err error
 	_, _ = captureOutput(t, func() {
-		err = runCmd(portForwardCmd(), "db/pg", "15432:5432")
+		err = runCmd(portForwardCmd(kindDB), "15432:5432", "pg")
 	})
 	if got := mints.Load(); got != 1 {
 		t.Fatalf("mints = %d, want exactly one — a refusal is not a reason to spend another slot", got)
@@ -251,7 +251,7 @@ func TestPortForwardHandshakeRefused(t *testing.T) {
 	setupContext(t, srv.URL)
 	var err error
 	_, _ = captureOutput(t, func() {
-		err = runCmd(portForwardCmd(), "db/refused", "15432:5432")
+		err = runCmd(portForwardCmd(kindDB), "15432:5432", "refused")
 	})
 	if err == nil || !strings.Contains(err.Error(), "not reachable over SSH") {
 		t.Fatalf("err = %v", err)
@@ -266,10 +266,10 @@ func TestPortForwardRefusesAnExternalEndpoint(t *testing.T) {
 	setupContext(t, srv.URL)
 	var err error
 	_, _ = captureOutput(t, func() {
-		err = runCmd(portForwardCmd(), "endpoint/replica")
+		err = runCmd(portForwardCmd(kindDB), "15432:5432", "endpoint/replica")
 	})
-	if err == nil || !strings.Contains(err.Error(), "akerdock tunnel open replica") {
-		t.Fatalf("err = %v — the refusal must name the command that replaced it", err)
+	if err == nil || !strings.Contains(err.Error(), "the type/name form is gone") {
+		t.Fatalf("err = %v — the refusal must name the spelling that replaced it", err)
 	}
 }
 
@@ -278,7 +278,7 @@ func TestPortForwardPreview(t *testing.T) {
 	setupContext(t, srv.URL)
 	var err error
 	_, _ = captureOutput(t, func() {
-		err = runCmd(portForwardCmd(), "app/varuna", "15432:5432", "--pr", "8")
+		err = runCmd(portForwardCmd(kindApp), "15432:5432", "varuna", "--pr", "8")
 	})
 	if err == nil || !strings.Contains(err.Error(), "not reachable over SSH") {
 		t.Fatalf("err = %v", err)
@@ -290,7 +290,7 @@ func TestPortForwardArgumentErrors(t *testing.T) {
 
 	t.Run("without a client", func(t *testing.T) {
 		setupHome(t)
-		if err := runCmd(portForwardCmd(), "db/pg", "1:2"); err == nil {
+		if err := runCmd(portForwardCmd(kindDB), "1:2", "pg"); err == nil {
 			t.Fatal("expected a client error")
 		}
 	})
@@ -298,36 +298,38 @@ func TestPortForwardArgumentErrors(t *testing.T) {
 	run := func(t *testing.T, args ...string) error {
 		t.Helper()
 		setupContext(t, srv.URL)
-		return runCmd(portForwardCmd(), args...)
+		return runCmd(portForwardCmd(kindDB), args...)
 	}
 
-	t.Run("no port for a container target", func(t *testing.T) {
-		if err := run(t, "db/pg"); err == nil || !strings.Contains(err.Error(), "no port given") {
-			t.Fatalf("err = %v", err)
+	// The ports are the FIRST positional now (ADR-070 §1), so a missing ports
+	// argument is Cobra's arity error and a malformed one is caught before any
+	// resolution — neither can be confused with a target any more.
+	t.Run("no arguments at all", func(t *testing.T) {
+		if err := run(t); err == nil {
+			t.Fatal("expected an arity error")
 		}
 	})
 	t.Run("bad ports", func(t *testing.T) {
-		if err := run(t, "db/pg", "x:y"); err == nil {
-			t.Fatal("expected a ports error")
+		if err := run(t, "x:y", "pg"); err == nil || !strings.Contains(err.Error(), "invalid local port") {
+			t.Fatalf("err = %v", err)
 		}
 	})
-	t.Run("bad ref", func(t *testing.T) {
-		if err := run(t, "nope/x", "1:2"); err == nil {
-			t.Fatal("expected a ref error")
+	t.Run("the old REF form is refused by name", func(t *testing.T) {
+		if err := run(t, "1:2", "db/pg"); err == nil || !strings.Contains(err.Error(), "the type/name form is gone") {
+			t.Fatalf("err = %v", err)
 		}
 	})
-	t.Run("pr on a database", func(t *testing.T) {
-		if err := run(t, "db/pg", "1:2", "--pr", "8"); err == nil || !strings.Contains(err.Error(), "--pr only applies") {
+	// --pr belongs to the app group: a database has no previews, so the flag is
+	// not registered there at all rather than registered and refused.
+	t.Run("pr is not a database flag", func(t *testing.T) {
+		if err := run(t, "1:2", "pg", "--pr", "8"); err == nil || !strings.Contains(err.Error(), "unknown flag: --pr") {
 			t.Fatalf("err = %v", err)
 		}
 	})
 	t.Run("unknown preview", func(t *testing.T) {
-		if err := run(t, "app/varuna", "1:2", "--pr", "99"); err == nil || !strings.Contains(err.Error(), "no preview") {
-			t.Fatalf("err = %v", err)
-		}
-	})
-	t.Run("unsupported kind", func(t *testing.T) {
-		if err := run(t, "ingress/dev", "1:2"); err == nil || !strings.Contains(err.Error(), "does not support") {
+		setupContext(t, srv.URL)
+		err := runCmd(portForwardCmd(kindApp), "1:2", "varuna", "--pr", "99")
+		if err == nil || !strings.Contains(err.Error(), "no preview") {
 			t.Fatalf("err = %v", err)
 		}
 	})
@@ -346,7 +348,7 @@ func TestPortForwardListenFailure(t *testing.T) {
 
 	var cmdErr error
 	_, _ = captureOutput(t, func() {
-		cmdErr = runCmd(portForwardCmd(), "db/pg", fmt.Sprintf("%d:5432", port))
+		cmdErr = runCmd(portForwardCmd(kindDB), fmt.Sprintf("%d:5432", port), "pg")
 	})
 	if cmdErr == nil || !strings.Contains(cmdErr.Error(), "cannot listen") {
 		t.Fatalf("err = %v", cmdErr)
@@ -367,7 +369,7 @@ func TestPortForwardMintAccessRequiredWithoutURL(t *testing.T) {
 	setupContext(t, srv.URL)
 	var err error
 	_, _ = captureOutput(t, func() {
-		err = runCmd(portForwardCmd(), "db/pg", "1:5432")
+		err = runCmd(portForwardCmd(kindDB), "1:5432", "pg")
 	})
 	// No request_url configured: fail with instructions instead of spinning.
 	if err == nil || !strings.Contains(err.Error(), "request access from the dashboard") {
