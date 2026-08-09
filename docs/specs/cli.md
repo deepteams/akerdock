@@ -8,7 +8,8 @@
 > `docs/specs/rbac-matrix.md`. Threats: `docs/specs/threat-model.md`.
 >
 > Scope: **v1 "debug"** — `login`, contexts, listing, logs (including `-f`), shell,
-> TCP port-forward, basic typed console, and the local MCP bridge (`mcp`, ADR-043).
+> TCP port-forward, bastion tunnels (`tunnel`), basic typed console, and the local MCP
+> bridge (`mcp`, ADR-043).
 > Deployment from the workstation (`akerdock up`, ADR-018) and env/domains/keys
 > management belong to **v2** and are not specified here.
 >
@@ -32,7 +33,7 @@ it consumes the public API (PRD §18.2), nothing else.
 - The CLI **only connects to** the manager FQDN of the active context, **on 443** (80
   only for a possible redirect→HTTPS). No other network destination.
 - The CLI **opens no** inbound or loopback port — only outbound requests.
-- `shell` and `port-forward` open a `wss://<manager>/…` on 443 (standard WebSocket
+- `shell`, `port-forward` and `tunnel open` open a `wss://<manager>/…` on 443 (standard WebSocket
   Upgrade headers, like the web terminal, which already traverses proxies and load-balancers).
   The tunnel to the **target server** is established on the manager side (SSH) — never on the client side.
 - Everything **MUST** work through an intermediate proxy/LB; heartbeats (20 s)
@@ -41,8 +42,8 @@ it consumes the public API (PRD §18.2), nothing else.
 ## 3. Commands
 
 `REF` designates a resource: `app/<name|uuid>`, `db/<name|uuid>`, `svc/<name|uuid>`,
-`preview/<pr|uuid>`, and — for `port-forward` only — `endpoint/<name|uuid>`, a declared
-external endpoint (ADR-045, §7.1). Short forms are accepted (`ep/…`). **The team is the
+`preview/<pr|uuid>`. A declared external endpoint is **not** a REF: `akerdock tunnel open`
+accepts exactly one kind of target and names it bare (ADR-069, §7.1). **The team is the
 token's**, not a per-command choice — see the note under the global flags.
 
 ### 3.1 Server modes (this binary, not the client)
@@ -64,7 +65,10 @@ token's**, not a per-command choice — see the note under the global flags.
 | `akerdock ls [apps\|databases\|services\|servers]` | Listing; default: applications + databases + services. `previews` is **not** a transversal listing in v1 (previews are read per application). |
 | `akerdock logs [REF] [--component C] [-n LINES] [-f] [--deployment [UUID]] [--pr N]` | Container logs (snapshot or `-f` streaming) or logs of a deployment. `REF` is optional when `.akerdock` names a default application. `--pr N` reads the preview instance of PR N instead of production — its containers with `-f`, its latest build with `--deployment`. |
 | `akerdock shell [REF] [--component C]` | Interactive shell in the container (§6). `REF` optional, as for `logs`. |
-| `akerdock port-forward [REF] [[LOCAL:]REMOTE] [--component C] [--pr N]` | TCP tunnel (§7); `--pr N` targets the preview instance of PR N instead of production. `REF` may be omitted when `.akerdock` names a default application; the remote port is omitted for an `endpoint/…`, which froze its own host and port at declaration (§7.1). |
+| `akerdock port-forward [REF] [[LOCAL:]REMOTE] [--component C] [--pr N]` | TCP tunnel to a **container AkerDock deploys** (§7); `--pr N` targets the preview instance of PR N instead of production. `REF` may be omitted when `.akerdock` names a default application. An `endpoint/…` REF is refused here and named to §7.1's command (ADR-069). |
+| `akerdock tunnel open ENDPOINT [LOCAL_PORT]` | TCP tunnel to a **declared external endpoint** — a target AkerDock does not run (§7.1). The endpoint froze its host and port at declaration, so only the local port is the caller's, and omitting it lets the OS pick one. |
+| `akerdock tunnel ls [--endpoint NAME] [--all]` | The team's tunnel sessions, **every target kind** — application, database, service, preview, external endpoint (§7.2). `--endpoint` narrows to one declared endpoint, `--all` walks the history instead of the live sessions. |
+| `akerdock tunnel close SESSION_UUID` | Cuts a live tunnel session (§7.2). Yours needs only the permission that opened it; someone else's is an administrative act. |
 | `akerdock db REF [--component C] [--pr N]` | Convenience: opens a forward and launches the local client of the detected engine (§8); accepts a standalone database (`db/…`) or a **database service of a compose stack** (`app/… -c C`), with `--pr N` targeting the preview. |
 | `akerdock mcp [--url URL] [--token T]` | Runs the built-in MCP server over **stdio** for a local assistant (ADR-043): a bridge to this instance's `/mcp` endpoint, read-only tools, credentials from the current context by default. The instance-side surface is off unless enabled there. |
 
@@ -164,18 +168,22 @@ outbound network connections) to port `5432` of the target container, via the ma
   host→container), just as `shell` gives the whole container. Stated, not hidden.
 - **Servers excluded**: no server-level `port-forward` (= `ssh -L`).
 
-### 7.1 External endpoints (bastion, ADR-045)
+### 7.1 External endpoints (bastion, ADR-045) — `akerdock tunnel open`
 
-`akerdock port-forward endpoint/prod-replica` tunnels to a target **outside** the
+`akerdock tunnel open prod-replica` tunnels to a target **outside** the
 server — a managed database, an internal API — that an admin declared as an
-`external_endpoint`. Three differences with a container forward:
+`external_endpoint`. It is its own command, not a `port-forward` target (ADR-069): the two
+share the transport ladder (ADR-064) and the session table, and nothing else.
+`port-forward endpoint/…` is **refused**, with an error naming this command. Three
+differences with a container forward:
 
 - **No remote port argument, and no body on the mint**: the endpoint froze its host and
   port at declaration, so the client cannot name an address. Only the local port is the
   caller's to choose — and it may be omitted too, in which case the OS picks a free port
-  and the CLI announces it. `akerdock port-forward endpoint/<name>` is therefore a
-  complete command, which is why the REF/ports arguments are told apart by shape (a REF
-  contains a slash) rather than by position.
+  and the CLI announces it. The endpoint is named **bare** (`prod-replica`, not
+  `endpoint/prod-replica`): a `type/` prefix disambiguates a target among the kinds a
+  command accepts several of, and this one accepts exactly one — the same reasoning that
+  gives `akerdock ingress dev-kedric 3000` a bare name.
 - **`sensitive` endpoints require a live access grant**. The mint answers
   `access_request_required`; the CLI then opens the dashboard page that issues the grant
   (reason + fresh second factor) and **keeps replaying the mint** every 2 s until it goes
@@ -194,6 +202,28 @@ server — a managed database, an internal API — that an admin declared as an
 - **The grant's expiry is the session deadline**: `authorized_until` is announced at open,
   and an automatic close reports its reason (`grant_expired` among them) instead of a bare
   disconnection.
+
+### 7.2 Seeing and cutting sessions (`akerdock tunnel ls|close`)
+
+`GET /port-forward-sessions` and `DELETE /port-forward-sessions/{uuid}` shipped with
+ADR-045 and, until ADR-069, had no CLI client: a tunnel could be opened from the terminal
+but only seen or closed from a browser. Both are now reachable.
+
+- **`akerdock tunnel ls`** lists the team's sessions — **every target kind**, application
+  and database and preview included, because "what is currently forwarded out of this
+  team" is the operational question and hiding the container forwards would answer a
+  different one invisibly (ADR-045's own reasoning for the dashboard view). Columns:
+  target (`kind/name[:component]`), remote port (`-` for an endpoint, which named none),
+  user, state, opened-at, UUID. State folds three fields into one word: `pending` (minted,
+  not yet attached), `attached`, or the end reason (`idle_timeout`, `grant_expired`,
+  `target_stopped`, …). `--endpoint NAME` sends the API's `external_endpoint_uuid` filter,
+  `--all` its `active=false`; `-o json` emits the API objects unaltered.
+- **`akerdock tunnel close SESSION_UUID`** issues the `DELETE`. The rule is the endpoint's,
+  not the CLI's: your own session needs only the permission that opened it, someone
+  else's is an administrative act (ADR-068 decides which permission). Closing an
+  already-closed session is a no-op.
+
+No token is readable back from either surface (§23.2), here as anywhere else.
 
 ## 8. Typed console (`akerdock db`)
 

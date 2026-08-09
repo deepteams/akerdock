@@ -32,12 +32,14 @@ func portForwardCmd() *cobra.Command {
 	var pr int
 	cmd := &cobra.Command{
 		Use:   "port-forward [REF] [[LOCAL:]REMOTE]",
-		Short: "Tunnel a local port to a container port, or to a declared external endpoint",
+		Short: "Tunnel a local port to a port of a container AkerDock deploys",
+		Long: "Forwards a local port to a port of an application, database, service or " +
+			"preview container (ADR-032). For a target AkerDock does not run — a managed " +
+			"database, an internal API declared as an external endpoint — use " +
+			"`akerdock tunnel open` (ADR-069).",
 		Example: "  akerdock port-forward db/pg 15432:5432\n" +
 			"  akerdock port-forward app/varuna 15432:5432 -c postgres\n" +
-			"  akerdock port-forward app/varuna 15432:5432 -c postgres --pr 8   # a PR preview\n" +
-			"  akerdock port-forward endpoint/prod-replica                      # a declared external endpoint\n" +
-			"  akerdock port-forward endpoint/prod-replica 15432                # …on a chosen local port",
+			"  akerdock port-forward app/varuna 15432:5432 -c postgres --pr 8   # a PR preview",
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := newClient(flags.context)
@@ -53,19 +55,18 @@ func portForwardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// An external endpoint declared its own host and port (ADR-045), so
-			// there is no remote port to name: the ports argument becomes
-			// optional, and without it the OS picks the local port.
+			// The bastion left this command with its own verb (ADR-069). Say
+			// which one rather than let the endpoint fail to resolve as an
+			// application three calls later.
+			if r.kind == "endpoints" {
+				return fmt.Errorf("an external endpoint is not a container — use: akerdock tunnel open %s", r.name)
+			}
 			var localPort, remotePort int
-			switch {
-			case portsArg != "":
-				if localPort, remotePort, err = parsePorts(portsArg); err != nil {
-					return err
-				}
-			case r.kind == "endpoints":
-				localPort, remotePort = 0, 0
-			default:
+			if portsArg == "" {
 				return fmt.Errorf("no port given — pass the container port to forward (e.g. %s 15432:5432)", refArg)
+			}
+			if localPort, remotePort, err = parsePorts(portsArg); err != nil {
+				return err
 			}
 			component = defaultComponent(component)
 			res, err := c.resolve(cmd.Context(), r)
@@ -84,13 +85,6 @@ func portForwardCmd() *cobra.Command {
 				mint := "/applications/" + res.Uuid + "/previews/" + preview.Uuid + "/port-forwards"
 				return c.runPortForward(cmd.Context(), mint, component, localPort, remotePort)
 			}
-			// An external endpoint (ADR-045) froze its own host and port at
-			// declaration: the mint takes no body, and the remote port in the
-			// argument is only there to name the local one.
-			if r.kind == "endpoints" {
-				return c.runPortForward(cmd.Context(),
-					"/external-endpoints/"+res.Uuid+"/port-forwards", "", localPort, remotePort)
-			}
 			basePath, ok := forwardPath[r.kind]
 			if !ok {
 				return fmt.Errorf("port-forward does not support %q", r.kind)
@@ -108,11 +102,10 @@ func portForwardCmd() *cobra.Command {
 //
 //	port-forward db/pg 15432:5432    → ref + ports
 //	port-forward 15432:5432          → ports only (default app from .akerdock)
-//	port-forward endpoint/replica    → ref only (an endpoint names no port)
 //
-// A REF always contains a slash and a ports argument never does, so one
-// argument is never ambiguous — reading it by POSITION alone is what made
-// `port-forward endpoint/x` complain about a missing default application.
+// A REF always contains a slash and a ports argument never does, so a lone
+// argument is never ambiguous. Reading it by POSITION alone would make
+// `port-forward 15432:5432` complain about an unknown resource type.
 func splitForwardArgs(args []string) (refArg, portsArg string) {
 	if len(args) == 2 {
 		return args[0], args[1]
@@ -164,14 +157,32 @@ func parsePorts(s string) (local, remote int, err error) {
 	return remote, remote, nil
 }
 
-// runPortForward mints a session, opens the tunnel WebSocket, and serves a
-// local loopback listener multiplexing every accepted TCP connection over it
-// (akerdock-tunnel-v1, ADR-032).
+// runPortForward mints a container session and serves it: the ADR-032 mints
+// name a port in the body, and only they do.
 func (c *Client) runPortForward(ctx context.Context, mintPath, component string, localPort, remotePort int) error {
 	q := url.Values{}
 	if component != "" {
 		q.Set("component", component)
 	}
+	return c.openTunnelSession(ctx, mintPath, q, map[string]int{"port": remotePort}, localPort, remotePort)
+}
+
+// openTunnelSession mints one session, honours the grant ceremony a `sensitive`
+// endpoint answers with, then opens the tunnel WebSocket and serves a local
+// loopback listener multiplexing every accepted TCP connection over it
+// (akerdock-tunnel-v1, ADR-032).
+//
+// body is nil for a mint that takes none — an external endpoint froze its host
+// and port at declaration (ADR-045 §2), which is stricter than the ADR-032
+// mints. Each caller states its own protocol; this function no longer infers it
+// from the shape of the path (ADR-069 §Context).
+func (c *Client) openTunnelSession(
+	ctx context.Context,
+	mintPath string,
+	q url.Values,
+	body any,
+	localPort, remotePort int,
+) error {
 	var sess struct {
 		WebsocketPath   string     `json:"websocket_path"`
 		Token           string     `json:"token"`
@@ -180,13 +191,6 @@ func (c *Client) runPortForward(ctx context.Context, mintPath, component string,
 		// "the target was up" and "this manager predates the field" — the same
 		// nil, deliberately, so no client has to tell those two apart.
 		State string `json:"state"`
-	}
-	// An external endpoint froze its host and port at declaration, so its mint
-	// takes no body at all (ADR-045 §2) — stricter than the ADR-032 mints,
-	// which still name a port.
-	var body any
-	if !strings.HasPrefix(mintPath, "/external-endpoints/") {
-		body = map[string]int{"port": remotePort}
 	}
 	mint := func() error { return c.do(ctx, http.MethodPost, mintPath, q, body, &sess) }
 	if err := mint(); err != nil {

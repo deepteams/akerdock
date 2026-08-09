@@ -138,11 +138,13 @@ akerdock shell app/varuna -c postgres    # a specific compose service
 akerdock port-forward db/pg 15432:5432
 akerdock port-forward app/varuna 15432:5432 -c postgres --pr 8   # a PR preview
 
-# …or to a declared external endpoint — a managed DB, an internal API (ADR-045).
-# No remote port to give: the endpoint froze its own host and port. Without a
-# local port either, the OS picks a free one and the CLI prints it.
-akerdock port-forward endpoint/prod-replica
-akerdock port-forward endpoint/prod-replica 15432   # …on a chosen local port
+# A declared external endpoint — a managed DB, an internal API — is its own
+# command (ADR-045/070). No remote port to give: the endpoint froze its own host
+# and port. Without a local port either, the OS picks a free one and prints it.
+akerdock tunnel open prod-replica
+akerdock tunnel open prod-replica 15432   # …on a chosen local port
+akerdock tunnel ls                        # every tunnel open in the team
+akerdock tunnel close <session-uuid>
 
 # Typed console: opens a forward + the right client
 # (psql / mysql / redis-cli / mongosh, picked from the engine):

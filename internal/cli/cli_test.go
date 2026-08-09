@@ -56,9 +56,9 @@ func TestParsePorts(t *testing.T) {
 }
 
 // `port-forward` takes two optional positional arguments, so telling them apart
-// by POSITION is wrong: `port-forward endpoint/replica` used to be read as a
-// ports argument and complained about a missing default application. A REF
-// always contains a slash; a ports argument never does.
+// by POSITION is wrong: read positionally, `port-forward 15432:5432` would be
+// taken for a REF and complain about an unknown resource type. A REF always
+// contains a slash; a ports argument never does.
 func TestSplitForwardArgs(t *testing.T) {
 	cases := []struct {
 		args       []string
@@ -67,7 +67,6 @@ func TestSplitForwardArgs(t *testing.T) {
 		{[]string{"db/pg", "15432:5432"}, "db/pg", "15432:5432"},
 		{[]string{"15432:5432"}, "", "15432:5432"},
 		{[]string{"5432"}, "", "5432"},
-		{[]string{"endpoint/prod-replica"}, "endpoint/prod-replica", ""},
 		{[]string{"app/varuna"}, "app/varuna", ""},
 		{nil, "", ""},
 	}

@@ -204,40 +204,6 @@ func TestPortForwardRelaysAndExplainsClose(t *testing.T) {
 	}
 }
 
-// An endpoint forward with no ports argument: the OS picks the local port and
-// the announcement names the endpoint's declared target instead of a number.
-func TestPortForwardEndpointPicksLocalPort(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/external-endpoints", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"data":[{"uuid":"ep-1","name":"replica"}]}`))
-	})
-	mux.HandleFunc("/api/v1/external-endpoints/ep-1/port-forwards", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"websocket_path":"/quick","token":"tk"}`))
-	})
-	mux.HandleFunc("/quick", func(w http.ResponseWriter, r *http.Request) {
-		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"akerdock-tunnel-v1"}})
-		if err != nil {
-			return
-		}
-		// A deliberate user_close right away: the client exits silently.
-		_ = conn.Close(websocket.StatusNormalClosure, "user_close")
-	})
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	setupContext(t, srv.URL)
-
-	var err error
-	_, errOut := captureOutput(t, func() {
-		err = runCmd(portForwardCmd(), "endpoint/replica")
-	})
-	if err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if !strings.Contains(errOut, "the endpoint's declared target") {
-		t.Fatalf("stderr = %q", errOut)
-	}
-}
-
 // The bug as the developer met it was that the CLI's own first attempt burnt
 // the token and every rung under it then collected "invalid, expired or already
 // used tunnel token". ADR-065 fixes that at the claim, so the client's part is
@@ -292,17 +258,18 @@ func TestPortForwardHandshakeRefused(t *testing.T) {
 	}
 }
 
-func TestPortForwardEndpointNeedsNoPorts(t *testing.T) {
+// The bastion left this command for its own verb (ADR-069 §3): no alias, and a
+// refusal that names the replacement — the endpoint must never be resolved as
+// an application, which is what "no apps named prod-replica" would have said.
+func TestPortForwardRefusesAnExternalEndpoint(t *testing.T) {
 	srv := tunnelServer(t)
 	setupContext(t, srv.URL)
 	var err error
 	_, _ = captureOutput(t, func() {
 		err = runCmd(portForwardCmd(), "endpoint/replica")
 	})
-	// The mint (asserted body-less server-side) succeeds; the refused upgrade
-	// ends the run with the server's sentence.
-	if err == nil || !strings.Contains(err.Error(), "not reachable over SSH") {
-		t.Fatalf("err = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "akerdock tunnel open replica") {
+		t.Fatalf("err = %v — the refusal must name the command that replaced it", err)
 	}
 }
 

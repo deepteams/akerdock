@@ -877,11 +877,15 @@ akerdock db db/main                            # forward + launch psql`,
           },
           {
             kind: 'code',
-            code: `akerdock port-forward endpoint/prod-replica`,
+            code: `akerdock tunnel open prod-replica         # on a port the OS picks
+akerdock tunnel open prod-replica 15432   # on a port you choose
+
+akerdock tunnel ls                        # every tunnel open in the team
+akerdock tunnel close <session-uuid>`,
           },
           {
             kind: 'p',
-            text: 'The remote port is not yours to choose: the endpoint froze its host and port when it was declared. If it requires an approval, the CLI answers `access_request_required` and hands you the link to **request access**; a granted access has an expiry and can be revoked.',
+            text: 'The remote port is not yours to choose: the endpoint froze its host and port when it was declared — which is why this is `akerdock tunnel`, not `akerdock port-forward`, whose targets are the containers the platform deploys. If the endpoint requires an approval, the CLI answers `access_request_required` and hands you the link to **request access**; a granted access has an expiry and can be revoked.',
           },
         ],
       },
@@ -1139,6 +1143,7 @@ akerdock logs -f                   # the default app of this directory
 akerdock shell                     # a shell in its container
 akerdock port-forward db/main 15432:5432
 akerdock db db/main                # forward + local client
+akerdock tunnel open prod-replica  # a declared external endpoint
 akerdock ingress dev 3000          # public URL onto localhost:3000`,
           },
           {
