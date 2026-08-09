@@ -344,9 +344,15 @@ type Querier interface {
 	DeleteVanishedServiceComponents(ctx context.Context, arg DeleteVanishedServiceComponentsParams) (int64, error)
 	DeleteWebhookEndpoint(ctx context.Context, id int64) (int64, error)
 	DequeueJob(ctx context.Context, arg DequeueJobParams) (Job, error)
-	// Envelope-encryption inventory (ADR-003, data-dictionary §12). The first
-	// 4 bytes of every *_enc column carry the key version that encrypted it.
-	EncryptionKeyVersionHistogram(ctx context.Context) ([]EncryptionKeyVersionHistogramRow, error)
+	// [{"tbl","col","key_version","row_count"}, ...] over the WHOLE inventory. A
+	// rotation has converged once the active version is the only one left -- a claim
+	// that only holds because the inventory is exhaustive by construction.
+	EncryptionKeyVersionHistogram(ctx context.Context) ([]byte, error)
+	// Writes back one re-encrypted value, ciphertext only; returns rows written.
+	EncryptionRotationApply(ctx context.Context, arg EncryptionRotationApplyParams) (int64, error)
+	// One batch of rows still on another key version, with the row identity bound
+	// into their AAD so the caller can decrypt and re-encrypt them.
+	EncryptionRotationCandidates(ctx context.Context, arg EncryptionRotationCandidatesParams) ([]byte, error)
 	EndIngressSession(ctx context.Context, arg EndIngressSessionParams) (int64, error)
 	EndIngressSessionByUUID(ctx context.Context, arg EndIngressSessionByUUIDParams) (IngressTunnelSession, error)
 	EndPortForwardSession(ctx context.Context, arg EndPortForwardSessionParams) (int64, error)
@@ -494,7 +500,6 @@ type Querier interface {
 	GetMfaFactorForUser(ctx context.Context, userID int64) (MfaFactor, error)
 	GetNotificationChannelByID(ctx context.Context, id int64) (NotificationChannel, error)
 	GetNotificationChannelByUUID(ctx context.Context, arg GetNotificationChannelByUUIDParams) (NotificationChannel, error)
-	// --- dispatcher --------------------------------------------------------------
 	GetNotificationCursor(ctx context.Context) (int64, error)
 	GetNotificationRuleByUUID(ctx context.Context, arg GetNotificationRuleByUUIDParams) (NotificationRule, error)
 	GetOauthProviderConfig(ctx context.Context, provider OauthProvider) (OauthProviderConfig, error)
@@ -684,7 +689,6 @@ type Querier interface {
 	ListCleanupSchedulableServers(ctx context.Context) ([]Server, error)
 	ListCustomRolesPage(ctx context.Context, arg ListCustomRolesPageParams) ([]CustomRole, error)
 	ListDNSCredentialsPage(ctx context.Context, arg ListDNSCredentialsPageParams) ([]CloudCredential, error)
-	ListDatabaseCredentialsToRotate(ctx context.Context, arg ListDatabaseCredentialsToRotateParams) ([]ListDatabaseCredentialsToRotateRow, error)
 	ListDatabasesPage(ctx context.Context, arg ListDatabasesPageParams) ([]ListDatabasesPageRow, error)
 	ListDeploymentSteps(ctx context.Context, deploymentID int64) ([]DeploymentStep, error)
 	// The preview's PR number (NULL for a production deployment) rides along so the
@@ -705,12 +709,22 @@ type Querier interface {
 	ListDueUptimeChecks(ctx context.Context) ([]UptimeCheck, error)
 	// What the sign-in page shows: enabled providers only, and nothing secret.
 	ListEnabledOauthProviderConfigs(ctx context.Context) ([]ListEnabledOauthProviderConfigsRow, error)
+	// Envelope-encryption inventory (ADR-003, data-dictionary §12). The first
+	// 4 bytes of every *_enc column carry the key version that encrypted it.
+	//
+	// Nothing here names a table. The inventory is derived from the schema by
+	// `encryption_inventory()` (migration 00093) and everything below reads it, so
+	// a new *_enc column is rotated and observed without touching this file. A
+	// hand-kept list is what let the histogram report a converged rotation while
+	// 16 columns still held the old key.
+	// The inventory itself: [{"tbl","col"}, ...] over every encrypted column of the
+	// schema. Drives the rotation loop, so what gets rewritten IS what exists.
+	ListEncryptedColumns(ctx context.Context) ([]byte, error)
 	ListEnvVarsForDeploy(ctx context.Context, resourceID int64) ([]EnvironmentVariable, error)
 	// The production set by default; the dedicated preview set on demand (§5.6):
 	// the platform-generated preview credentials live there, and an operator who
 	// cannot read them cannot open their own protected preview.
 	ListEnvVarsPage(ctx context.Context, arg ListEnvVarsPageParams) ([]EnvironmentVariable, error)
-	ListEnvVarsToRotate(ctx context.Context, arg ListEnvVarsToRotateParams) ([]ListEnvVarsToRotateRow, error)
 	ListEnvironmentsPage(ctx context.Context, arg ListEnvironmentsPageParams) ([]Environment, error)
 	ListEnvironmentsSummary(ctx context.Context, projectID int64) ([]Environment, error)
 	// Retention (§7.2): the count and age rules are cumulative — a backup expires
@@ -749,7 +763,6 @@ type Querier interface {
 	ListMcpAccessTokensForTeam(ctx context.Context, teamID int64) ([]McpAccessToken, error)
 	// Notifications (§11, ADR-019).
 	ListNotificationChannelsPage(ctx context.Context, arg ListNotificationChannelsPageParams) ([]NotificationChannel, error)
-	ListNotificationChannelsToRotate(ctx context.Context, arg ListNotificationChannelsToRotateParams) ([]ListNotificationChannelsToRotateRow, error)
 	ListNotificationRules(ctx context.Context, channelID int64) ([]NotificationRule, error)
 	// OAuth/OIDC dashboard login (PRD §10.2, §23.3): provider credentials,
 	// in-flight login states, and the identities an account is linked to.
@@ -790,7 +803,6 @@ type Querier interface {
 	// not fan out into one query per row.
 	ListPrivateKeyIDsInUse(ctx context.Context, keyIds []int64) ([]int64, error)
 	ListPrivateKeysPage(ctx context.Context, arg ListPrivateKeysPageParams) ([]PrivateKey, error)
-	ListPrivateKeysToRotate(ctx context.Context, arg ListPrivateKeysToRotateParams) ([]ListPrivateKeysToRotateRow, error)
 	ListProjectsPage(ctx context.Context, arg ListProjectsPageParams) ([]Project, error)
 	// Promoted by the scheduler when capacity frees up (§20.4.3).
 	ListQueuedPreviews(ctx context.Context) ([]Preview, error)
@@ -808,9 +820,6 @@ type Querier interface {
 	// S3 storages (§7.2, data-dictionary §6.6). Credentials are envelope-encrypted
 	// and never leave the instance (INV-003).
 	ListS3StoragesPage(ctx context.Context, arg ListS3StoragesPageParams) ([]S3Storage, error)
-	// Rows still encrypted with an older master key version (ADR-003, §23.2). The
-	// key version is the first 4 bytes of the ciphertext.
-	ListS3StoragesToRotate(ctx context.Context, arg ListS3StoragesToRotateParams) ([]ListS3StoragesToRotateRow, error)
 	// Enabled plans of non-deleted targets — managed databases AND stack
 	// components (compose-spec §10). The scheduler owns the cron: it seeds
 	// next_run_at when it is NULL and fires the plans that are due.
@@ -870,7 +879,6 @@ type Querier interface {
 	ListUnvalidatedLocalhostServers(ctx context.Context) ([]Server, error)
 	ListUptimeChecksPage(ctx context.Context, arg ListUptimeChecksPageParams) ([]UptimeCheck, error)
 	ListUptimeResultsPage(ctx context.Context, arg ListUptimeResultsPageParams) ([]UptimeCheckResult, error)
-	ListWebhookEndpointsToRotate(ctx context.Context, arg ListWebhookEndpointsToRotateParams) ([]ListWebhookEndpointsToRotateRow, error)
 	MarkBackupLocalDeleted(ctx context.Context, id int64) error
 	MarkBackupS3Deleted(ctx context.Context, id int64) error
 	MarkCertificateAlerted(ctx context.Context, arg MarkCertificateAlertedParams) error
@@ -977,15 +985,9 @@ type Querier interface {
 	RevokeMcpAccessToken(ctx context.Context, arg RevokeMcpAccessTokenParams) (int64, error)
 	RevokeScimToken(ctx context.Context, arg RevokeScimTokenParams) (int64, error)
 	RevokeSession(ctx context.Context, id int64) error
-	RotateDatabaseCredentialEnc(ctx context.Context, arg RotateDatabaseCredentialEncParams) error
-	RotateEnvVarEnc(ctx context.Context, arg RotateEnvVarEncParams) error
 	// Regenerate the link of a still-pending invitation: rotate the token hash and
 	// push the expiry out. Returns nothing if the invitation is not pending.
 	RotateInvitation(ctx context.Context, arg RotateInvitationParams) (Invitation, error)
-	RotateNotificationChannelEnc(ctx context.Context, arg RotateNotificationChannelEncParams) error
-	RotatePrivateKeyEnc(ctx context.Context, arg RotatePrivateKeyEncParams) error
-	RotateS3StorageEnc(ctx context.Context, arg RotateS3StorageEncParams) error
-	RotateWebhookEndpointEnc(ctx context.Context, arg RotateWebhookEndpointEncParams) error
 	// Seeds the ACME contact on an instance that predates the setting. The database
 	// stays authoritative: an existing value is never overwritten by the variable.
 	SetAcmeEmailIfAbsent(ctx context.Context, acmeEmail *string) (int64, error)

@@ -7,229 +7,93 @@ package store
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const encryptionKeyVersionHistogram = `-- name: EncryptionKeyVersionHistogram :many
-
-SELECT 'private_keys.private_key_enc' AS column_name,
-       (get_byte(private_key_enc, 0) << 24 | get_byte(private_key_enc, 1) << 16 | get_byte(private_key_enc, 2) << 8 | get_byte(private_key_enc, 3)) AS key_version,
-       count(*) AS rows
-FROM private_keys GROUP BY 1, 2
-UNION ALL
-SELECT 'environment_variables.value_enc',
-       (get_byte(value_enc, 0) << 24 | get_byte(value_enc, 1) << 16 | get_byte(value_enc, 2) << 8 | get_byte(value_enc, 3)),
-       count(*)
-FROM environment_variables GROUP BY 1, 2
-UNION ALL
-SELECT 'database_credentials.password_enc',
-       (get_byte(password_enc, 0) << 24 | get_byte(password_enc, 1) << 16 | get_byte(password_enc, 2) << 8 | get_byte(password_enc, 3)),
-       count(*)
-FROM database_credentials GROUP BY 1, 2
-UNION ALL
-SELECT 's3_storages.access_key_enc',
-       (get_byte(access_key_enc, 0) << 24 | get_byte(access_key_enc, 1) << 16 | get_byte(access_key_enc, 2) << 8 | get_byte(access_key_enc, 3)),
-       count(*)
-FROM s3_storages GROUP BY 1, 2
-UNION ALL
-SELECT 's3_storages.secret_key_enc',
-       (get_byte(secret_key_enc, 0) << 24 | get_byte(secret_key_enc, 1) << 16 | get_byte(secret_key_enc, 2) << 8 | get_byte(secret_key_enc, 3)),
-       count(*)
-FROM s3_storages GROUP BY 1, 2
-UNION ALL
-SELECT 'notification_channels.config_enc',
-       (get_byte(config_enc, 0) << 24 | get_byte(config_enc, 1) << 16 | get_byte(config_enc, 2) << 8 | get_byte(config_enc, 3)),
-       count(*)
-FROM notification_channels GROUP BY 1, 2
-UNION ALL
-SELECT 'webhook_endpoints.secret_enc',
-       (get_byte(secret_enc, 0) << 24 | get_byte(secret_enc, 1) << 16 | get_byte(secret_enc, 2) << 8 | get_byte(secret_enc, 3)),
-       count(*)
-FROM webhook_endpoints GROUP BY 1, 2
-ORDER BY 2, 1
+const encryptionKeyVersionHistogram = `-- name: EncryptionKeyVersionHistogram :one
+SELECT encryption_key_histogram()
 `
 
-type EncryptionKeyVersionHistogramRow struct {
-	ColumnName string
-	KeyVersion int32
-	Rows       int64
+// [{"tbl","col","key_version","row_count"}, ...] over the WHOLE inventory. A
+// rotation has converged once the active version is the only one left -- a claim
+// that only holds because the inventory is exhaustive by construction.
+func (q *Queries) EncryptionKeyVersionHistogram(ctx context.Context) ([]byte, error) {
+	row := q.db.QueryRow(ctx, encryptionKeyVersionHistogram)
+	var encryption_key_histogram []byte
+	err := row.Scan(&encryption_key_histogram)
+	return encryption_key_histogram, err
 }
+
+const encryptionRotationApply = `-- name: EncryptionRotationApply :one
+SELECT encryption_rotation_apply(
+    $1::text, $2::text,
+    $3::bigint, $4::bytea)
+`
+
+type EncryptionRotationApplyParams struct {
+	TableName  string
+	ColumnName string
+	RowID      int64
+	Value      []byte
+}
+
+// Writes back one re-encrypted value, ciphertext only; returns rows written.
+func (q *Queries) EncryptionRotationApply(ctx context.Context, arg EncryptionRotationApplyParams) (int64, error) {
+	row := q.db.QueryRow(ctx, encryptionRotationApply,
+		arg.TableName,
+		arg.ColumnName,
+		arg.RowID,
+		arg.Value,
+	)
+	var encryption_rotation_apply int64
+	err := row.Scan(&encryption_rotation_apply)
+	return encryption_rotation_apply, err
+}
+
+const encryptionRotationCandidates = `-- name: EncryptionRotationCandidates :one
+SELECT encryption_rotation_candidates(
+    $1::text, $2::text,
+    $3::int, $4::int)
+`
+
+type EncryptionRotationCandidatesParams struct {
+	TableName     string
+	ColumnName    string
+	ActiveVersion int32
+	RowLimit      int32
+}
+
+// One batch of rows still on another key version, with the row identity bound
+// into their AAD so the caller can decrypt and re-encrypt them.
+func (q *Queries) EncryptionRotationCandidates(ctx context.Context, arg EncryptionRotationCandidatesParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, encryptionRotationCandidates,
+		arg.TableName,
+		arg.ColumnName,
+		arg.ActiveVersion,
+		arg.RowLimit,
+	)
+	var encryption_rotation_candidates []byte
+	err := row.Scan(&encryption_rotation_candidates)
+	return encryption_rotation_candidates, err
+}
+
+const listEncryptedColumns = `-- name: ListEncryptedColumns :one
+
+SELECT encryption_inventory_json()
+`
 
 // Envelope-encryption inventory (ADR-003, data-dictionary §12). The first
 // 4 bytes of every *_enc column carry the key version that encrypted it.
-func (q *Queries) EncryptionKeyVersionHistogram(ctx context.Context) ([]EncryptionKeyVersionHistogramRow, error) {
-	rows, err := q.db.Query(ctx, encryptionKeyVersionHistogram)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []EncryptionKeyVersionHistogramRow
-	for rows.Next() {
-		var i EncryptionKeyVersionHistogramRow
-		if err := rows.Scan(&i.ColumnName, &i.KeyVersion, &i.Rows); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listDatabaseCredentialsToRotate = `-- name: ListDatabaseCredentialsToRotate :many
-SELECT id, uuid, password_enc FROM database_credentials
-WHERE (get_byte(password_enc, 0) << 24 | get_byte(password_enc, 1) << 16 | get_byte(password_enc, 2) << 8 | get_byte(password_enc, 3)) <> $2::int
-ORDER BY id
-LIMIT $1
-`
-
-type ListDatabaseCredentialsToRotateParams struct {
-	Limit         int32
-	ActiveVersion int32
-}
-
-type ListDatabaseCredentialsToRotateRow struct {
-	ID          int64
-	Uuid        pgtype.UUID
-	PasswordEnc []byte
-}
-
-func (q *Queries) ListDatabaseCredentialsToRotate(ctx context.Context, arg ListDatabaseCredentialsToRotateParams) ([]ListDatabaseCredentialsToRotateRow, error) {
-	rows, err := q.db.Query(ctx, listDatabaseCredentialsToRotate, arg.Limit, arg.ActiveVersion)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListDatabaseCredentialsToRotateRow
-	for rows.Next() {
-		var i ListDatabaseCredentialsToRotateRow
-		if err := rows.Scan(&i.ID, &i.Uuid, &i.PasswordEnc); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listEnvVarsToRotate = `-- name: ListEnvVarsToRotate :many
-SELECT id, uuid, value_enc FROM environment_variables
-WHERE (get_byte(value_enc, 0) << 24 | get_byte(value_enc, 1) << 16 | get_byte(value_enc, 2) << 8 | get_byte(value_enc, 3)) <> $2::int
-ORDER BY id
-LIMIT $1
-`
-
-type ListEnvVarsToRotateParams struct {
-	Limit         int32
-	ActiveVersion int32
-}
-
-type ListEnvVarsToRotateRow struct {
-	ID       int64
-	Uuid     pgtype.UUID
-	ValueEnc []byte
-}
-
-func (q *Queries) ListEnvVarsToRotate(ctx context.Context, arg ListEnvVarsToRotateParams) ([]ListEnvVarsToRotateRow, error) {
-	rows, err := q.db.Query(ctx, listEnvVarsToRotate, arg.Limit, arg.ActiveVersion)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListEnvVarsToRotateRow
-	for rows.Next() {
-		var i ListEnvVarsToRotateRow
-		if err := rows.Scan(&i.ID, &i.Uuid, &i.ValueEnc); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listPrivateKeysToRotate = `-- name: ListPrivateKeysToRotate :many
-SELECT id, uuid, private_key_enc FROM private_keys
-WHERE (get_byte(private_key_enc, 0) << 24 | get_byte(private_key_enc, 1) << 16 | get_byte(private_key_enc, 2) << 8 | get_byte(private_key_enc, 3)) <> $2::int
-ORDER BY id
-LIMIT $1
-`
-
-type ListPrivateKeysToRotateParams struct {
-	Limit         int32
-	ActiveVersion int32
-}
-
-type ListPrivateKeysToRotateRow struct {
-	ID            int64
-	Uuid          pgtype.UUID
-	PrivateKeyEnc []byte
-}
-
-func (q *Queries) ListPrivateKeysToRotate(ctx context.Context, arg ListPrivateKeysToRotateParams) ([]ListPrivateKeysToRotateRow, error) {
-	rows, err := q.db.Query(ctx, listPrivateKeysToRotate, arg.Limit, arg.ActiveVersion)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListPrivateKeysToRotateRow
-	for rows.Next() {
-		var i ListPrivateKeysToRotateRow
-		if err := rows.Scan(&i.ID, &i.Uuid, &i.PrivateKeyEnc); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const rotateDatabaseCredentialEnc = `-- name: RotateDatabaseCredentialEnc :exec
-UPDATE database_credentials SET password_enc = $2, updated_at = now() WHERE id = $1
-`
-
-type RotateDatabaseCredentialEncParams struct {
-	ID          int64
-	PasswordEnc []byte
-}
-
-func (q *Queries) RotateDatabaseCredentialEnc(ctx context.Context, arg RotateDatabaseCredentialEncParams) error {
-	_, err := q.db.Exec(ctx, rotateDatabaseCredentialEnc, arg.ID, arg.PasswordEnc)
-	return err
-}
-
-const rotateEnvVarEnc = `-- name: RotateEnvVarEnc :exec
-UPDATE environment_variables SET value_enc = $2, updated_at = now() WHERE id = $1
-`
-
-type RotateEnvVarEncParams struct {
-	ID       int64
-	ValueEnc []byte
-}
-
-func (q *Queries) RotateEnvVarEnc(ctx context.Context, arg RotateEnvVarEncParams) error {
-	_, err := q.db.Exec(ctx, rotateEnvVarEnc, arg.ID, arg.ValueEnc)
-	return err
-}
-
-const rotatePrivateKeyEnc = `-- name: RotatePrivateKeyEnc :exec
-UPDATE private_keys SET private_key_enc = $2, updated_at = now() WHERE id = $1
-`
-
-type RotatePrivateKeyEncParams struct {
-	ID            int64
-	PrivateKeyEnc []byte
-}
-
-func (q *Queries) RotatePrivateKeyEnc(ctx context.Context, arg RotatePrivateKeyEncParams) error {
-	_, err := q.db.Exec(ctx, rotatePrivateKeyEnc, arg.ID, arg.PrivateKeyEnc)
-	return err
+//
+// Nothing here names a table. The inventory is derived from the schema by
+// `encryption_inventory()` (migration 00093) and everything below reads it, so
+// a new *_enc column is rotated and observed without touching this file. A
+// hand-kept list is what let the histogram report a converged rotation while
+// 16 columns still held the old key.
+// The inventory itself: [{"tbl","col"}, ...] over every encrypted column of the
+// schema. Drives the rotation loop, so what gets rewritten IS what exists.
+func (q *Queries) ListEncryptedColumns(ctx context.Context) ([]byte, error) {
+	row := q.db.QueryRow(ctx, listEncryptedColumns)
+	var encryption_inventory_json []byte
+	err := row.Scan(&encryption_inventory_json)
+	return encryption_inventory_json, err
 }

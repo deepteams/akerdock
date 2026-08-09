@@ -38,15 +38,6 @@ WHERE id = $1;
 -- name: GetWebhookDeliveryByID :one
 SELECT * FROM webhook_deliveries WHERE id = $1;
 
--- name: ListWebhookEndpointsToRotate :many
-SELECT id, uuid, secret_enc FROM webhook_endpoints
-WHERE (get_byte(secret_enc, 0) << 24 | get_byte(secret_enc, 1) << 16 | get_byte(secret_enc, 2) << 8 | get_byte(secret_enc, 3)) <> sqlc.arg(active_version)::int
-ORDER BY id
-LIMIT $1;
-
--- name: RotateWebhookEndpointEnc :exec
-UPDATE webhook_endpoints SET secret_enc = $2 WHERE id = $1;
-
 -- name: PurgeWebhookDeliveries :execrows
 -- Retention bounds the dedup window: purging too aggressively would reopen the
 -- replay window (INV-009), hence 30 days minimum.

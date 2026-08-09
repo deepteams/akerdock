@@ -18,18 +18,20 @@ Overview via the API (`root` permission): `GET /system/encryption` — active ke
 
 Format reminder (data dictionary §2.7): each `*_enc` column is `key_version (4 bytes big-endian) || nonce (12) || ciphertext AES-256-GCM`. The key version is therefore readable in SQL. Histogram of versions in use (equivalent SQL fallback):
 
+The same histogram in SQL, over **every** encrypted column of the schema — the
+function enumerates the inventory itself (migration 00093), so no column can be
+left out of the check by being left out of a list:
+
 ```sql
--- example on private_keys; repeat on each encrypted column (list in data dictionary §12):
--- private_keys.private_key_enc, mfa_factors.secret_enc, cloud_credentials.config_enc,
--- registry_credentials.password_enc, s3_storages.access_key_enc + secret_key_enc,
--- github_apps.client_secret_enc + webhook_secret_enc + app_private_key_enc,
--- webhook_endpoints.secret_enc, environment_variables.value_enc, shared_variables.value_enc,
--- database_credentials.password_enc, servers.ca_key_enc + log_drain_config_enc,
--- notification_channels.config_enc, instance_settings.transactional_email_config_enc
-SELECT (get_byte(private_key_enc,0)<<24) | (get_byte(private_key_enc,1)<<16)
-     | (get_byte(private_key_enc,2)<<8)  |  get_byte(private_key_enc,3) AS key_version,
-       count(*)
-FROM private_keys GROUP BY 1 ORDER BY 1;
+SELECT * FROM jsonb_to_recordset(encryption_key_histogram())
+     AS h(tbl text, col text, key_version int, row_count bigint)
+ORDER BY key_version, tbl, col;
+```
+
+The inventory being consulted, should you want to see it:
+
+```sql
+SELECT * FROM encryption_inventory();
 ```
 
 Servers sharing the same SSH key (to know before any revocation):
@@ -60,7 +62,9 @@ GROUP BY 1,2 ORDER BY 3 DESC;
    # 202 + audited job; batched rewrite, non-blocking; 409 if a re-encryption is already running
    ```
    Track progress with `GET /system/encryption` (row counters per key version and per column); the Diagnosis SQL histogram remains the fallback, column by column.
-5. When **no row at all** carries the old version anymore (`GET /system/encryption`: version 2 is the only one referenced — or SQL histogram = version 2 only, across the 16 columns of the §12 list): remove the `1:` line from `master.key`, reload, re-back up off the machine.
+5. When **no row at all** carries the old version anymore (`GET /system/encryption`: version 2 is the only one referenced — or the SQL histogram above returns version 2 only): remove the `1:` line from `master.key`, reload, re-back up off the machine.
+
+   This step is only safe because the histogram enumerates the encrypted columns of the schema rather than a list kept in the code (migration 00093, data dictionary §12). It did not always: a hand-kept list covered 7 columns out of 23, so the API could report a converged rotation while sixteen columns still held the old key — and following this step then destroyed them, since decryption under a removed key version fails by design. If you operate an instance predating that migration, check the histogram column by column against §12 before removing anything.
 
 ⚠️ **Confirmed master key leak case**: rotation is not enough if the attacker also has a database dump (they can read everything that was encrypted with the old version). Then treat every secret as compromised: rotation **at the source** (DB passwords, DNS/registry/S3 tokens, webhook secrets, SSH keys — see sections B/C/D), not just re-encryption.
 

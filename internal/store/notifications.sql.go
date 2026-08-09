@@ -295,11 +295,9 @@ func (q *Queries) GetNotificationChannelByUUID(ctx context.Context, arg GetNotif
 }
 
 const getNotificationCursor = `-- name: GetNotificationCursor :one
-
 SELECT last_outbox_event_id FROM notification_cursor WHERE id
 `
 
-// --- dispatcher --------------------------------------------------------------
 func (q *Queries) GetNotificationCursor(ctx context.Context) (int64, error) {
 	row := q.db.QueryRow(ctx, getNotificationCursor)
 	var last_outbox_event_id int64
@@ -493,44 +491,6 @@ func (q *Queries) ListNotificationChannelsPage(ctx context.Context, arg ListNoti
 			&i.UpdatedAt,
 			&i.Version,
 		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listNotificationChannelsToRotate = `-- name: ListNotificationChannelsToRotate :many
-SELECT id, uuid, config_enc FROM notification_channels
-WHERE (get_byte(config_enc, 0) << 24 | get_byte(config_enc, 1) << 16 | get_byte(config_enc, 2) << 8 | get_byte(config_enc, 3)) <> $2::int
-ORDER BY id
-LIMIT $1
-`
-
-type ListNotificationChannelsToRotateParams struct {
-	Limit         int32
-	ActiveVersion int32
-}
-
-type ListNotificationChannelsToRotateRow struct {
-	ID        int64
-	Uuid      pgtype.UUID
-	ConfigEnc []byte
-}
-
-func (q *Queries) ListNotificationChannelsToRotate(ctx context.Context, arg ListNotificationChannelsToRotateParams) ([]ListNotificationChannelsToRotateRow, error) {
-	rows, err := q.db.Query(ctx, listNotificationChannelsToRotate, arg.Limit, arg.ActiveVersion)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListNotificationChannelsToRotateRow
-	for rows.Next() {
-		var i ListNotificationChannelsToRotateRow
-		if err := rows.Scan(&i.ID, &i.Uuid, &i.ConfigEnc); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -803,20 +763,6 @@ func (q *Queries) ResolveProjectEnvironmentOfResource(ctx context.Context, uuid 
 	var i ResolveProjectEnvironmentOfResourceRow
 	err := row.Scan(&i.EnvironmentID, &i.ProjectID)
 	return i, err
-}
-
-const rotateNotificationChannelEnc = `-- name: RotateNotificationChannelEnc :exec
-UPDATE notification_channels SET config_enc = $2 WHERE id = $1
-`
-
-type RotateNotificationChannelEncParams struct {
-	ID        int64
-	ConfigEnc []byte
-}
-
-func (q *Queries) RotateNotificationChannelEnc(ctx context.Context, arg RotateNotificationChannelEncParams) error {
-	_, err := q.db.Exec(ctx, rotateNotificationChannelEnc, arg.ID, arg.ConfigEnc)
-	return err
 }
 
 const setNotificationCursor = `-- name: SetNotificationCursor :exec

@@ -38,15 +38,3 @@ DELETE FROM s3_storages WHERE id = $1;
 -- name: CountBackupPlansUsingS3Storage :one
 SELECT count(*) FROM database_backup_plans
 WHERE s3_storage_id = $1 AND deleted_at IS NULL;
-
--- name: RotateS3StorageEnc :exec
-UPDATE s3_storages SET access_key_enc = $2, secret_key_enc = $3 WHERE id = $1;
-
--- name: ListS3StoragesToRotate :many
--- Rows still encrypted with an older master key version (ADR-003, §23.2). The
--- key version is the first 4 bytes of the ciphertext.
-SELECT id, uuid, access_key_enc, secret_key_enc FROM s3_storages
-WHERE (get_byte(access_key_enc, 0) << 24 | get_byte(access_key_enc, 1) << 16 | get_byte(access_key_enc, 2) << 8 | get_byte(access_key_enc, 3)) <> sqlc.arg(active_version)::int
-   OR (get_byte(secret_key_enc, 0) << 24 | get_byte(secret_key_enc, 1) << 16 | get_byte(secret_key_enc, 2) << 8 | get_byte(secret_key_enc, 3)) <> sqlc.arg(active_version)::int
-ORDER BY id
-LIMIT $1;

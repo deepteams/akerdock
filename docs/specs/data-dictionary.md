@@ -1494,22 +1494,40 @@ Durable PostgreSQL queue (decision §27.2), state machine §21.3: lease with exp
 
 ## 12. Summary of sensitive data (envelope encryption §23.2, §27.3)
 
+**The normative inventory is computed, not this table.** `encryption_inventory()`
+(migration 00093) derives it from the schema: every `bytea` column whose name
+ends in `_enc`, together with the row identity each one binds into its AAD. The
+key rotation and the `GET /system/encryption` histogram both read that function,
+so a new `*_enc` column is rotated and observed the day it is created. The table
+below documents what those columns hold; it is a reading aid, and it cannot make
+a column invisible to the rotation by omitting it — which is exactly what a
+hand-kept list did before (7 columns covered out of 23).
+
 | Table.column | Contents |
 |---|---|
 | `private_keys.private_key_enc` | Private SSH keys |
 | `mfa_factors.secret_enc` | TOTP secrets |
-| `cloud_credentials.token_enc` | Cloud provider tokens |
+| `cloud_credentials.config_enc` | Cloud provider tokens |
 | `registry_credentials.password_enc` | Registry credentials |
 | `s3_storages.access_key_enc`, `s3_storages.secret_key_enc` | S3 credentials |
 | `github_apps.client_secret_enc`, `webhook_secret_enc`, `app_private_key_enc` | GitHub App secrets |
+| `oauth_provider_configs.client_secret_enc` | OIDC/OAuth provider secrets |
+| `git_sources.api_token_enc` | Git provider API tokens |
 | `webhook_endpoints.secret_enc` | HMAC secrets of inbound webhooks |
 | `environment_variables.value_enc`, `shared_variables.value_enc` | Variable values (secret or not) |
 | `database_credentials.password_enc` | Passwords of managed databases |
 | `servers.ca_key_enc` | Private key of the database SSL CA |
 | `servers.log_drain_config_enc` | Log drain tokens |
+| `agent_tokens.token_enc` | Server agent tokens |
+| `applications.access_basic_auth_enc`, `services.access_basic_auth_enc` | Basic-auth credentials protecting an access route |
 | `notification_channels.config_enc` | Channel tokens/credentials |
 | `instance_settings.transactional_email_config_enc` | Instance SMTP/Resend |
 | `instance_settings.otlp_config_enc` | Endpoint + auth headers of the OTLP export |
+
+Row identity in the AAD has three shapes, all read off the schema: the table's
+own `uuid`; the uuid of the `resources` row whose primary key it shares
+(`applications`, `services`); or the row id, for the `instance_settings`
+singleton.
 
 Hashed (irreversible, never encrypted because never returned): `users.password_hash` (Argon2id), `api_tokens.token_hash`, `sessions.token_hash`, `invitations.token_hash`, `servers.sentinel_token_hash`, `mfa_factors.recovery_code_hashes` (SHA-256, with an identification prefix for API tokens — §23.2).
 

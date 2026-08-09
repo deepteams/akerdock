@@ -260,7 +260,7 @@ The helper (waker mode) POSTs observation batches to `/agent/v1/observations`, a
 | **S** | A fork PR impersonates a trusted contributor | Scoped deployments (members/collaborators by default), forks ignored by default (§5.6, INV-010) | — (compliant) |
 | **T** | PR code modifies the production config | Separate preview variables, per-instance isolated network/volumes (§20.4, §5.6) | — (compliant) |
 | **R** | Preview triggered without an approval trace | Manual maintainer approval for forks, audited (§20.4.8, §23.4) | Explicit logging of the approving actor **to be confirmed** |
-| **I** | **Fork PR exfiltrating production secrets** | INV-010 (no prod secrets), dedicated preview variable set, isolated builder with no secret injected (§20.4.8) | Rootless builder/microVM mandatory for approved forks (ADR-005) — **to be implemented** |
+| **I** | **Fork PR exfiltrating production secrets** | INV-010 (no prod secrets), dedicated preview variable set selected in ONE place, so build, runtime and compose interpolation cannot diverge; no production value reaches a build arg, a BuildKit secret or the nixpacks `build.env`, which is removed once its build ends (§20.4.8) | Rootless builder/microVM mandatory for approved forks (ADR-005) — **to be implemented** |
 | **D** | Massive PR opening creating previews without limit | Preview cap per app/server + queue, inactivity TTL, scale-to-zero (§20.4.3) | Effective application of the caps **to be implemented** (P2 divergence) |
 | **E** | Public preview indexed/accessible without control | Protection by default (basic auth/signed link) + `X-Robots-Tag: noindex` (§20.4.4) | Public exposure = explicit per-app choice (compliant) |
 
@@ -305,7 +305,7 @@ The helper (waker mode) POSTs observation batches to `/agent/v1/observations`, a
 
 ### AB-01 — Fork PR exfiltrating production secrets
 **Kill chain**: external contributor opens a PR from a fork → CI/preview builds the untrusted code → the code reads `env` and POSTs to an external server.
-**Mitigation**: forks ignored by default (INV-010, §5.6); fork preview only on maintainer approval, isolated rootless builder, **no prod secrets injected** (§20.4.8, ADR-005); dedicated preview variable set (§20.4).
+**Mitigation**: forks ignored by default (INV-010, §5.6); fork preview only on maintainer approval, isolated rootless builder, **no prod secrets injected** (§20.4.8, ADR-005); dedicated preview variable set (§20.4), selected in a single place so that the build inputs and the runtime environment cannot diverge, and no env file is left on the host after the build.
 **Status**: mandatory rootless builder = **to be implemented** (ADR-005); otherwise compliant by default.
 
 ### AB-02 — Access to another team's resource via a valid UUID

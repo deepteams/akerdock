@@ -42,17 +42,6 @@ RETURNING *;
 -- name: DeleteNotificationRule :execrows
 DELETE FROM notification_rules WHERE id = $1;
 
--- name: ListNotificationChannelsToRotate :many
-SELECT id, uuid, config_enc FROM notification_channels
-WHERE (get_byte(config_enc, 0) << 24 | get_byte(config_enc, 1) << 16 | get_byte(config_enc, 2) << 8 | get_byte(config_enc, 3)) <> sqlc.arg(active_version)::int
-ORDER BY id
-LIMIT $1;
-
--- name: RotateNotificationChannelEnc :exec
-UPDATE notification_channels SET config_enc = $2 WHERE id = $1;
-
--- --- dispatcher --------------------------------------------------------------
-
 -- name: GetNotificationCursor :one
 SELECT last_outbox_event_id FROM notification_cursor WHERE id;
 

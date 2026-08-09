@@ -2,9 +2,10 @@ package handlers
 
 import (
 	"net/http"
-	"strings"
+	"sort"
 
 	"github.com/deepteams/akerdock/internal/api"
+	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/jobs"
 	"github.com/deepteams/akerdock/internal/queue"
@@ -19,7 +20,17 @@ func (a *API) GetEncryptionStatus(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := a.Store.EncryptionKeyVersionHistogram(r.Context())
+	raw, err := a.Store.EncryptionKeyVersionHistogram(r.Context())
+	if err != nil {
+		a.internalError(w, r, "encryption status", err)
+		return
+	}
+	// The histogram enumerates the schema's encrypted columns rather than a
+	// list kept here (ADR-003, migration 00093). That is what makes "only the
+	// active version remains" safe to act on: the runbook turns that signal
+	// into deleting the previous key, and a column missing from the histogram
+	// would be a column silently left behind on a key about to disappear.
+	rows, err := envelope.DecodeHistogram(raw)
 	if err != nil {
 		a.internalError(w, r, "encryption status", err)
 		return
@@ -32,24 +43,27 @@ func (a *API) GetEncryptionStatus(w http.ResponseWriter, r *http.Request) {
 	versions := map[int]*agg{}
 	order := make([]int, 0, 2)
 	for _, row := range rows {
-		if row.Rows == 0 {
+		if row.RowCount == 0 {
 			continue
 		}
-		v := int(row.KeyVersion)
+		v := row.KeyVersion
 		a, ok := versions[v]
 		if !ok {
 			a = &agg{}
 			versions[v] = a
 			order = append(order, v)
 		}
-		a.total += int(row.Rows)
-		table, column, _ := strings.Cut(row.ColumnName, ".")
+		a.total += int(row.RowCount)
 		a.columns = append(a.columns, api.EncryptionColumnCount{
-			Table:  table,
-			Column: column,
-			Rows:   int(row.Rows),
+			Table:  row.Table,
+			Column: row.Column,
+			Rows:   int(row.RowCount),
 		})
 	}
+	// The database returns the histogram column by column, so versions appear
+	// in inventory order; operators read it as a convergence indicator, and an
+	// ascending key version is what that reading expects.
+	sort.Ints(order)
 
 	data := make([]api.EncryptionKeyVersion, 0, len(order))
 	for _, v := range order {

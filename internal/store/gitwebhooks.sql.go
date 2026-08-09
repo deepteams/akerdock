@@ -229,44 +229,6 @@ func (q *Queries) GetWebhookEndpointForApplication(ctx context.Context, arg GetW
 	return i, err
 }
 
-const listWebhookEndpointsToRotate = `-- name: ListWebhookEndpointsToRotate :many
-SELECT id, uuid, secret_enc FROM webhook_endpoints
-WHERE (get_byte(secret_enc, 0) << 24 | get_byte(secret_enc, 1) << 16 | get_byte(secret_enc, 2) << 8 | get_byte(secret_enc, 3)) <> $2::int
-ORDER BY id
-LIMIT $1
-`
-
-type ListWebhookEndpointsToRotateParams struct {
-	Limit         int32
-	ActiveVersion int32
-}
-
-type ListWebhookEndpointsToRotateRow struct {
-	ID        int64
-	Uuid      pgtype.UUID
-	SecretEnc []byte
-}
-
-func (q *Queries) ListWebhookEndpointsToRotate(ctx context.Context, arg ListWebhookEndpointsToRotateParams) ([]ListWebhookEndpointsToRotateRow, error) {
-	rows, err := q.db.Query(ctx, listWebhookEndpointsToRotate, arg.Limit, arg.ActiveVersion)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListWebhookEndpointsToRotateRow
-	for rows.Next() {
-		var i ListWebhookEndpointsToRotateRow
-		if err := rows.Scan(&i.ID, &i.Uuid, &i.SecretEnc); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const purgeWebhookDeliveries = `-- name: PurgeWebhookDeliveries :execrows
 DELETE FROM webhook_deliveries WHERE received_at < now() - interval '30 days'
 `
@@ -279,18 +241,4 @@ func (q *Queries) PurgeWebhookDeliveries(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const rotateWebhookEndpointEnc = `-- name: RotateWebhookEndpointEnc :exec
-UPDATE webhook_endpoints SET secret_enc = $2 WHERE id = $1
-`
-
-type RotateWebhookEndpointEncParams struct {
-	ID        int64
-	SecretEnc []byte
-}
-
-func (q *Queries) RotateWebhookEndpointEnc(ctx context.Context, arg RotateWebhookEndpointEncParams) error {
-	_, err := q.db.Exec(ctx, rotateWebhookEndpointEnc, arg.ID, arg.SecretEnc)
-	return err
 }

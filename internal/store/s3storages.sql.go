@@ -212,68 +212,6 @@ func (q *Queries) ListS3StoragesPage(ctx context.Context, arg ListS3StoragesPage
 	return items, nil
 }
 
-const listS3StoragesToRotate = `-- name: ListS3StoragesToRotate :many
-SELECT id, uuid, access_key_enc, secret_key_enc FROM s3_storages
-WHERE (get_byte(access_key_enc, 0) << 24 | get_byte(access_key_enc, 1) << 16 | get_byte(access_key_enc, 2) << 8 | get_byte(access_key_enc, 3)) <> $2::int
-   OR (get_byte(secret_key_enc, 0) << 24 | get_byte(secret_key_enc, 1) << 16 | get_byte(secret_key_enc, 2) << 8 | get_byte(secret_key_enc, 3)) <> $2::int
-ORDER BY id
-LIMIT $1
-`
-
-type ListS3StoragesToRotateParams struct {
-	Limit         int32
-	ActiveVersion int32
-}
-
-type ListS3StoragesToRotateRow struct {
-	ID           int64
-	Uuid         pgtype.UUID
-	AccessKeyEnc []byte
-	SecretKeyEnc []byte
-}
-
-// Rows still encrypted with an older master key version (ADR-003, §23.2). The
-// key version is the first 4 bytes of the ciphertext.
-func (q *Queries) ListS3StoragesToRotate(ctx context.Context, arg ListS3StoragesToRotateParams) ([]ListS3StoragesToRotateRow, error) {
-	rows, err := q.db.Query(ctx, listS3StoragesToRotate, arg.Limit, arg.ActiveVersion)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListS3StoragesToRotateRow
-	for rows.Next() {
-		var i ListS3StoragesToRotateRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Uuid,
-			&i.AccessKeyEnc,
-			&i.SecretKeyEnc,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const rotateS3StorageEnc = `-- name: RotateS3StorageEnc :exec
-UPDATE s3_storages SET access_key_enc = $2, secret_key_enc = $3 WHERE id = $1
-`
-
-type RotateS3StorageEncParams struct {
-	ID           int64
-	AccessKeyEnc []byte
-	SecretKeyEnc []byte
-}
-
-func (q *Queries) RotateS3StorageEnc(ctx context.Context, arg RotateS3StorageEncParams) error {
-	_, err := q.db.Exec(ctx, rotateS3StorageEnc, arg.ID, arg.AccessKeyEnc, arg.SecretKeyEnc)
-	return err
-}
-
 const setS3StorageCheck = `-- name: SetS3StorageCheck :exec
 UPDATE s3_storages
 SET is_usable = $2, last_check_error = $3, updated_at = now()
