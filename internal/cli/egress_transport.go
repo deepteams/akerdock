@@ -300,14 +300,22 @@ func serveForwardSession(
 	authorizedUntil *time.Time,
 	localPort, remotePort int,
 ) error {
+	// Derived BEFORE the listener exists, because the listener is what watches
+	// it: listenAndAnnounce closes the socket when the context it was handed is
+	// done, and the session ending is the whole of what has to reach it. Given
+	// the caller's context instead, the accept below would keep blocking after
+	// the server closed the tunnel — the command would hold a local port open,
+	// print no reason, and only stop on Ctrl-C. The WebSocket rung derives it in
+	// this order for the same reason.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	ln, err := listenAndAnnounce(ctx, localPort, remotePort, authorizedUntil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = ln.Close() }()
 
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	ended := make(chan sessionEnd, 1)
 	go func() {
 		end, runErr := session.run(ctx)

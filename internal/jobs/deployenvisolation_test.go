@@ -26,8 +26,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deepteams/akerdock/internal/store"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/deepteams/akerdock/internal/store"
 )
 
 // The two sets share their keys — an override of DATABASE_URL is the realistic
@@ -104,12 +105,10 @@ func deployEnvSurfaces(t *testing.T, r *deploymentRun) map[string][]string {
 		surfaces["compose interpolation map"] = append(surfaces["compose interpolation map"], k+"="+v)
 	}
 	for k, v := range inputs.argValues {
-		surfaces["build args (baked into image metadata)"] =
-			append(surfaces["build args (baked into image metadata)"], k+"="+v)
+		surfaces["build args (baked into image metadata)"] = append(surfaces["build args (baked into image metadata)"], k+"="+v)
 	}
 	for k, v := range inputs.secretValues {
-		surfaces["BuildKit secrets (mounted into RUN)"] =
-			append(surfaces["BuildKit secrets (mounted into RUN)"], k+"="+string(v))
+		surfaces["BuildKit secrets (mounted into RUN)"] = append(surfaces["BuildKit secrets (mounted into RUN)"], k+"="+string(v))
 	}
 	return surfaces
 }

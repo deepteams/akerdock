@@ -6,7 +6,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # empty (scale-to-zero then needs AKERDOCK_IMAGE, or stays inert).
 IMAGE   ?=
 
-.PHONY: all build test test-docker vet-docker unit-coverage go-unit-coverage web-unit-coverage lint generate api-gen sqlc-gen openapi-validate migrate-status e2e clean web
+.PHONY: all build test test-docker vet-docker test-db unit-coverage go-unit-coverage web-unit-coverage lint generate api-gen sqlc-gen openapi-validate migrate-status e2e clean web
 
 all: generate build test
 
@@ -31,6 +31,28 @@ test-docker:
 # test files too, so PRs catch bit-rot without driving Docker.
 vet-docker:
 	$(GO) vet -tags dockerintegration $(DOCKER_PKGS)
+
+# The tests whose subject is the SQL rather than the Go around it: the queue's
+# SKIP LOCKED hand-off, the audit trail's append-only trigger, and ADR-065's
+# idempotent attach claim, whose whole correctness is one UPDATE's WHERE clause
+# per family. They skip without a database, so `make test` stays green on a
+# laptop; this target is how you opt in. Migrations are applied by the test
+# binary itself, so a bare instance is enough:
+#
+#   docker run -d --rm --name akd-test -e POSTGRES_PASSWORD=test \
+#     -e POSTGRES_DB=akerdock -p 15432:5432 postgres:18-alpine
+#   AKERDOCK_TEST_DATABASE_URL='postgres://postgres:test@127.0.0.1:15432/akerdock?sslmode=disable' make test-db
+# internal/store goes first, alone: it is the package that applies the
+# migrations, and the others expect the schema to already be there. `go test`
+# runs packages in parallel, so on a cold database the two lines are the
+# ordering guarantee.
+DB_PKGS = ./internal/queue/... ./internal/session/...
+
+test-db:
+	@test -n "$$AKERDOCK_TEST_DATABASE_URL" || \
+	  { echo "AKERDOCK_TEST_DATABASE_URL is not set — see the comment above this target"; exit 1; }
+	$(GO) test -race -count=1 ./internal/store/...
+	$(GO) test -race -count=1 $(DB_PKGS)
 
 # Fast coverage gates used on pull requests. Angular enforces 90% on
 # statements, branches, functions and lines; Go enforces 90% per handwritten
