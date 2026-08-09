@@ -1,10 +1,15 @@
-// Package terminal bridges a WebSocket connection to a remote PTY (§24.4,
+// Package terminal bridges a client connection to a remote PTY (§24.4,
 // ADR-024). The wire protocol is deliberately tiny:
 //
 //   - binary frames carry raw bytes, both ways (keystrokes in, output out);
 //   - text frames carry JSON control messages: the client sends
 //     {"type":"resize","cols":N,"rows":N}; the server sends
 //     {"type":"end","reason":"..."} just before closing.
+//
+// A frame kind is what the WebSocket rung has; the HTTP rungs of ADR-064 §3
+// carry the same two kinds on two wires — the session request and one data
+// stream — and HTTPConn presents that pair as the same Conn. The bridge below
+// never learns which one carried it.
 //
 // Keystrokes are never recorded (§24.4): the bridge moves bytes, it does not
 // retain them.

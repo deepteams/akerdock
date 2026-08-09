@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +12,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/deepteams/akerdock/internal/terminal"
 )
 
 func TestToWS(t *testing.T) {
@@ -198,4 +202,140 @@ func TestShellErrors(t *testing.T) {
 			t.Fatalf("err = %v", err)
 		}
 	})
+}
+
+// fakeTerminalConn scripts what the transport hands the pump.
+type fakeTerminalConn struct{ in chan fakeTerminalMessage }
+
+type fakeTerminalMessage struct {
+	typ  terminal.MessageType
+	data []byte
+	err  error
+}
+
+func (c *fakeTerminalConn) Read(ctx context.Context) (terminal.MessageType, []byte, error) {
+	select {
+	case msg := <-c.in:
+		return msg.typ, msg.data, msg.err
+	case <-ctx.Done():
+		return 0, nil, ctx.Err()
+	}
+}
+
+func (c *fakeTerminalConn) Write(context.Context, terminal.MessageType, []byte) error { return nil }
+func (c *fakeTerminalConn) Ping(context.Context) error                                { return nil }
+
+// The server writes its end message and then lets the transport close. Over
+// two wires those two events race, so a stream that died is not the end of the
+// story: the reason still has to reach the developer.
+func TestDrainTerminalEndPicksUpAReasonStillInFlight(t *testing.T) {
+	conn := &fakeTerminalConn{in: make(chan fakeTerminalMessage, 4)}
+	conn.in <- fakeTerminalMessage{typ: terminal.MessageBinary, data: []byte("trailing output")}
+	conn.in <- fakeTerminalMessage{typ: terminal.MessageText, data: []byte(`{"type":"noise"}`)}
+	conn.in <- fakeTerminalMessage{typ: terminal.MessageText, data: []byte(`{"type":"end","reason":"max_duration"}`)}
+	if got := drainTerminalEnd(conn); got != "max_duration" {
+		t.Fatalf("reason = %q", got)
+	}
+
+	// Nothing in flight: the drain is bounded and says nothing rather than
+	// waiting on a transport that is already gone.
+	silent := &fakeTerminalConn{in: make(chan fakeTerminalMessage, 1)}
+	silent.in <- fakeTerminalMessage{err: terminal.ErrClientClosed}
+	start := time.Now()
+	if got := drainTerminalEnd(silent); got != "" {
+		t.Fatalf("reason = %q", got)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("the drain took %s — it must be bounded", elapsed)
+	}
+}
+
+// The WebSocket rung's adapter: the pump reads terminal messages, whatever
+// carried them. A clean close is a wanted close, not a vanished peer.
+func TestWebSocketTerminalConnAdaptsBothDirections(t *testing.T) {
+	received := make(chan string, 2)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		ctx := r.Context()
+		_ = conn.Write(ctx, websocket.MessageText, []byte(`{"type":"end","reason":"revoked"}`))
+		_ = conn.Write(ctx, websocket.MessageBinary, []byte("motd"))
+		// Read to the end: coder/websocket answers a ping from its read loop,
+		// so a server that stopped reading would time the ping out.
+		for {
+			_, data, readErr := conn.Read(ctx)
+			if readErr != nil {
+				return
+			}
+			if string(data) == "bye" {
+				_ = conn.Close(websocket.StatusNormalClosure, "")
+				return
+			}
+			received <- string(data)
+		}
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	raw, _, err := websocket.Dial(ctx, toWS(srv.URL), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := wsTerminalConn{raw}
+
+	typ, data, err := conn.Read(ctx)
+	if err != nil || typ != terminal.MessageText || !strings.Contains(string(data), "revoked") {
+		t.Fatalf("read = %d, %q, %v", typ, data, err)
+	}
+	typ, data, err = conn.Read(ctx)
+	if err != nil || typ != terminal.MessageBinary || string(data) != "motd" {
+		t.Fatalf("read = %d, %q, %v", typ, data, err)
+	}
+
+	if err := conn.Write(ctx, terminal.MessageText, []byte(`{"type":"resize","cols":90,"rows":30}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Write(ctx, terminal.MessageBinary, []byte("ls\n")); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-received; !strings.Contains(got, "resize") {
+		t.Fatalf("the server received %q", got)
+	}
+	if got := <-received; got != "ls\n" {
+		t.Fatalf("the server received %q", got)
+	}
+	// The pong is processed by whoever is reading — which in production is the
+	// pump, running concurrently with the bridge's heartbeat.
+	closed := make(chan error, 1)
+	go func() {
+		_, _, readErr := conn.Read(ctx)
+		closed <- readErr
+	}()
+	if err := conn.Ping(ctx); err != nil {
+		t.Fatalf("ping: %v", err)
+	}
+	if err := conn.Write(ctx, terminal.MessageBinary, []byte("bye")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-closed:
+		if !errors.Is(err, terminal.ErrClientClosed) {
+			t.Fatalf("a normal closure must read as a wanted close: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the close never reached the pump")
+	}
+}
+
+// The geometry the session opens with: the local window when there is one,
+// and what a terminal that will not say is assumed to be otherwise. The test
+// binary's stdin is a pipe, which is the second case.
+func TestTerminalSizeFallsBackToEightyByTwentyFour(t *testing.T) {
+	installShellStdin(t)
+	if cols, rows := terminalSize(); cols != 80 || rows != 24 {
+		t.Fatalf("size = %dx%d", cols, rows)
+	}
 }

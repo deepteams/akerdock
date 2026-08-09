@@ -32,8 +32,10 @@ import (
 //
 //   - the contract operations POST .../terminal-sessions mint a short-lived
 //     single-use attach token (only its hash is stored, §23.2);
-//   - GET /terminal/ws — outside the contract, like /auth — redeems that
-//     token, upgrades to WebSocket and bridges to an SSH PTY on the server.
+//   - the attach path — outside the contract, like /auth — redeems that
+//     token and bridges to a PTY on the server. GET upgrades to WebSocket,
+//     which is the ladder's bottom rung; POST attaches over HTTP/2 or HTTP/3
+//     (ADR-064 §3, terminalattach.go).
 //
 // The session is bounded (idle timeout, max duration), audited at open and
 // close, and killed with the socket (§24.4). Keystrokes are never recorded.
@@ -49,8 +51,15 @@ const (
 	// called out by the threat model (§3.3 D), sized from the 50-session
 	// instance target of §22.2.
 	terminalTeamCap = 20
-	// terminalWebsocketPath is where the attach token is redeemed.
-	terminalWebsocketPath = "/terminal/ws"
+	// terminalAttachPath is where the attach token is redeemed. It stopped
+	// naming a protocol when ADR-064 put three of them on it: OPTIONS probes,
+	// POST attaches over HTTP/2 or HTTP/3, GET upgrades to the WebSocket that
+	// remains the ladder's bottom rung. The mint response hands this value to
+	// its client, so the rename needs no flag day — and
+	// terminalLegacyWebsocketPath keeps answering for tokens minted by an
+	// older release and clients that pinned the old spelling.
+	terminalAttachPath          = "/terminal/attach"
+	terminalLegacyWebsocketPath = "/terminal/ws"
 )
 
 // CreateApplicationTerminalSession implements
@@ -241,7 +250,7 @@ func (a *API) createTerminalSession(w http.ResponseWriter, r *http.Request, id *
 		Uuid:               uuidString(row.Uuid),
 		TargetKind:         api.TerminalSessionTargetKind(target.kind),
 		TargetName:         target.name,
-		WebsocketPath:      terminalWebsocketPath,
+		WebsocketPath:      terminalAttachPath,
 		Token:              token,
 		TokenExpiresAt:     row.TokenExpiresAt.Time,
 		IdleTimeoutSeconds: int(a.terminalIdleTimeout().Seconds()),

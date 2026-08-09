@@ -132,6 +132,12 @@ type HTTPControlFrame struct {
 	Code   string `json:"code,omitempty"`
 	Msg    string `json:"msg,omitempty"`
 	Reason string `json:"reason,omitempty"`
+	// Cols and Rows carry a terminal window size (ADR-064 §3). The WebSocket
+	// rung types a resize by sending it as a text frame, and an HTTP data
+	// stream has no frames to be typed by — so the resize travels here, on the
+	// control wire the session request already holds open.
+	Cols int `json:"cols,omitempty"`
+	Rows int `json:"rows,omitempty"`
 }
 
 // LineControl is a concurrent-safe writer and single-reader for the HTTP v2

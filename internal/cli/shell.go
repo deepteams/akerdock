@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,10 +12,13 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+
+	"github.com/deepteams/akerdock/internal/terminal"
 )
 
 func shellCmd() *cobra.Command {
@@ -61,18 +65,21 @@ func shellCmd() *cobra.Command {
 	return cmd
 }
 
-// attachTerminal bridges the local TTY to the terminal WebSocket: raw mode,
-// binary frames both ways, resize on SIGWINCH, `end` control message.
-func (c *Client) attachTerminal(ctx context.Context, wsPath, token string) error {
-	fd := int(os.Stdin.Fd())
-	cols, rows := 80, 24
-	if term.IsTerminal(fd) {
-		if w, h, err := term.GetSize(fd); err == nil {
-			cols, rows = w, h
-		}
+// attachTerminal bridges the local TTY to the remote PTY. ADR-064's ladder
+// first — HTTP/3, then HTTP/2, where the resize travels on the session
+// request and the keystrokes on their own stream — then the WebSocket, which
+// stays the bottom rung and answers whenever a rung above fails or the server
+// predates the ladder.
+func (c *Client) attachTerminal(ctx context.Context, attachPath, token string) error {
+	switch err := c.shellOverHTTP(ctx, attachPath, token); {
+	case err == nil:
+		return nil
+	case !errors.Is(err, errNoHTTPTransport):
+		return err
 	}
 
-	wsURL := toWS(c.base) + wsPath + "?" + url.Values{
+	cols, rows := terminalSize()
+	wsURL := toWS(c.base) + attachPath + "?" + url.Values{
 		"token": {token}, "cols": {strconv.Itoa(cols)}, "rows": {strconv.Itoa(rows)},
 	}.Encode()
 
@@ -82,7 +89,29 @@ func (c *Client) attachTerminal(ctx context.Context, wsPath, token string) error
 	}
 	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
 	conn.SetReadLimit(-1)
+	return runTerminalPumps(ctx, wsTerminalConn{conn})
+}
 
+// terminalSize reads the local window, falling back to what a terminal that
+// will not say is assumed to be.
+func terminalSize() (cols, rows int) {
+	cols, rows = 80, 24
+	fd := int(os.Stdin.Fd())
+	if term.IsTerminal(fd) {
+		if w, h, err := term.GetSize(fd); err == nil {
+			cols, rows = w, h
+		}
+	}
+	return cols, rows
+}
+
+// runTerminalPumps drives the session: raw mode, keystrokes as binary
+// messages, SIGWINCH as a resize control message, output to stdout, and the
+// server's `end` message as the reason the session stopped. It reads the
+// transport through terminal.Conn alone, so the WebSocket rung and the HTTP
+// rungs run this exact code.
+func runTerminalPumps(ctx context.Context, conn terminal.Conn) error {
+	fd := int(os.Stdin.Fd())
 	if term.IsTerminal(fd) {
 		state, err := term.MakeRaw(fd)
 		if err == nil {
@@ -105,19 +134,19 @@ func (c *Client) attachTerminal(ctx context.Context, wsPath, token string) error
 			case <-winch:
 				if w, h, err := term.GetSize(fd); err == nil {
 					msg, _ := json.Marshal(map[string]any{"type": "resize", "cols": w, "rows": h})
-					_ = conn.Write(ctx, websocket.MessageText, msg)
+					_ = conn.Write(ctx, terminal.MessageText, msg)
 				}
 			}
 		}
 	}()
 
-	// Keystrokes → binary frames.
+	// Keystrokes → binary messages.
 	go func() {
 		buf := make([]byte, 4096)
 		for {
 			n, err := os.Stdin.Read(buf)
 			if n > 0 {
-				if werr := conn.Write(ctx, websocket.MessageBinary, buf[:n]); werr != nil {
+				if werr := conn.Write(ctx, terminal.MessageBinary, buf[:n]); werr != nil {
 					cancel()
 					return
 				}
@@ -129,20 +158,19 @@ func (c *Client) attachTerminal(ctx context.Context, wsPath, token string) error
 		}
 	}()
 
-	// Server frames → stdout; a text frame is the `end` control message.
+	// Server messages → stdout; a text message is the `end` control message.
 	for {
 		typ, data, err := conn.Read(ctx)
 		if err != nil {
+			// The server sends its end message and then lets the transport
+			// close; over two wires those two events race, so a dead stream is
+			// not necessarily the end of the story.
+			reportTerminalEnd(drainTerminalEnd(conn))
 			return nil
 		}
-		if typ == websocket.MessageText {
-			var end struct {
-				Type, Reason string
-			}
-			if json.Unmarshal(data, &end) == nil && end.Type == "end" {
-				if end.Reason != "" && end.Reason != "user_close" {
-					fmt.Fprintf(os.Stderr, "\r\nsession ended: %s\r\n", end.Reason)
-				}
+		if typ == terminal.MessageText {
+			if reason, ok := terminalEndReason(data); ok {
+				reportTerminalEnd(reason)
 				return nil
 			}
 			continue
@@ -150,6 +178,74 @@ func (c *Client) attachTerminal(ctx context.Context, wsPath, token string) error
 		_, _ = os.Stdout.Write(data)
 	}
 }
+
+// terminalEndReason reads the `end` control message, ignoring anything else.
+func terminalEndReason(data []byte) (string, bool) {
+	var end struct {
+		Type, Reason string
+	}
+	if json.Unmarshal(data, &end) != nil || end.Type != "end" {
+		return "", false
+	}
+	return end.Reason, true
+}
+
+// drainTerminalEnd gives an end message already in flight a bounded chance to
+// land after the read loop was ended by the other half closing.
+func drainTerminalEnd(conn terminal.Conn) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	for {
+		typ, data, err := conn.Read(ctx)
+		if err != nil {
+			return ""
+		}
+		if typ != terminal.MessageText {
+			continue
+		}
+		if reason, ok := terminalEndReason(data); ok {
+			return reason
+		}
+	}
+}
+
+// reportTerminalEnd tells the developer why the session stopped — unless they
+// stopped it themselves, which needs no explanation.
+func reportTerminalEnd(reason string) {
+	if reason == "" || reason == "user_close" {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "\r\nsession ended: %s\r\n", reason)
+}
+
+// wsTerminalConn adapts coder/websocket to the bridge's Conn — the client-side
+// twin of the server's adapter, so the pump above cannot tell the rungs apart.
+type wsTerminalConn struct{ c *websocket.Conn }
+
+func (w wsTerminalConn) Read(ctx context.Context) (terminal.MessageType, []byte, error) {
+	typ, data, err := w.c.Read(ctx)
+	if err != nil {
+		switch websocket.CloseStatus(err) {
+		case websocket.StatusNormalClosure, websocket.StatusGoingAway:
+			return 0, nil, terminal.ErrClientClosed
+		}
+		return 0, nil, err
+	}
+	if typ == websocket.MessageText {
+		return terminal.MessageText, data, nil
+	}
+	return terminal.MessageBinary, data, nil
+}
+
+func (w wsTerminalConn) Write(ctx context.Context, typ terminal.MessageType, data []byte) error {
+	kind := websocket.MessageBinary
+	if typ == terminal.MessageText {
+		kind = websocket.MessageText
+	}
+	return w.c.Write(ctx, kind, data)
+}
+
+func (w wsTerminalConn) Ping(ctx context.Context) error { return w.c.Ping(ctx) }
 
 // toWS converts an http(s) base URL to its ws(s) form.
 func toWS(base string) string {

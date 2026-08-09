@@ -69,6 +69,11 @@ type API struct {
 	// goroutine: the durable row records the session, this records the socket.
 	egressMu   sync.Mutex
 	egressLive map[string]*egressAttach
+	// terminalLive is the same register for HTTP-attached terminals (ADR-064
+	// §3): the session request holds the control wire, and the data stream
+	// that joins it finds its session here.
+	terminalMu   sync.Mutex
+	terminalLive map[string]*terminalAttach
 	// MCP is the built-in Model Context Protocol server (ADR-043). Nil
 	// disables the surface entirely, whatever the instance setting.
 	MCP *mcp.Server
@@ -342,7 +347,15 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 		r.Get("/scim/v2/Groups/{id}", a.ScimGetGroup)
 		r.Patch("/scim/v2/Groups/{id}", a.ScimPatchGroup)
 
-		r.Get("/terminal/ws", a.TerminalWebSocket)
+		// The terminal (§24.4, ADR-024), on the same ladder since ADR-064 §3:
+		// OPTIONS probes what this server can carry, POST attaches over
+		// HTTP/2 or HTTP/3 — the session request plus its one data stream —
+		// and GET keeps the WebSocket that remains the bottom rung.
+		for _, path := range []string{terminalAttachPath, terminalLegacyWebsocketPath} {
+			r.Options(path, a.TerminalAttachOptions)
+			r.Post(path, a.TerminalAttach)
+			r.Get(path, a.TerminalWebSocket)
+		}
 		// The CLI TCP tunnel (ADR-032), same contract as the terminal:
 		// single-use attach token minted by POST .../port-forwards. One path,
 		// three protocols since ADR-064 — OPTIONS probes what this server can
