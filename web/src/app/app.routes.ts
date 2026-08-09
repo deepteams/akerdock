@@ -205,6 +205,18 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/ingress.component').then((m) => m.IngressComponent),
       },
 
+      // Documentation — the manual, filtered to what the session may do. Not
+      // guarded by a permission: the page IS the permission filter, and the
+      // reader who has nothing but previews still gets the previews page.
+      {
+        path: 'docs',
+        loadComponent: () => import('./pages/docs/docs.component').then((m) => m.DocsComponent),
+      },
+      {
+        path: 'docs/:topic',
+        loadComponent: () => import('./pages/docs/docs.component').then((m) => m.DocsComponent),
+      },
+
       // Team
       {
         path: 'team',

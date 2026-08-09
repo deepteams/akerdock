@@ -794,6 +794,7 @@ Minimal envelope:
 | Database | Internal/external URLs, masked credentials, SSL, config, volumes, health, backups/restores and data warnings |
 | Compose service | Validated editor, diff, component list, domains/env/storage/health/logs per component |
 | Security | Members/roles, invitations, tokens, sessions, MFA/SSO, keys/credentials and audit |
+| Documentation | In-app manual of every capability, reachable from the sidebar, searchable, and **filtered to the reader's permissions** (§25.4) |
 
 Forms systematically distinguish: saved value, inherited value, generated value, locked secret and not-yet-deployed change.
 
@@ -815,6 +816,14 @@ Forms systematically distinguish: saved value, inherited value, generated value,
 - Consistent iconography and vocabulary; every destructive action follows the same confirmation pattern (§22.5).
 - Browsable component catalog (Storybook-like or equivalent) serving as the single reference; a component only enters the UI if it is in the catalog.
 - The design system meets the accessibility requirements of §22.5 (keyboard, focus, WCAG 2.1 AA contrast) from component design onward, not as a retrofit.
+
+### 25.4 In-app documentation
+
+- The dashboard ships its own **manual**: one page per capability, grouped by task (start here, ship code, run and debug, automate, account and team, instance administration), reachable from the sidebar and from the topbar on every screen.
+- The manual is written for the **daily user** — the developer who deploys, reads logs, opens a shell and forwards a port — not for the operator who installed the instance. Instance administration is documented, at the end, and never first.
+- **The manual MUST be filtered by the reader's permissions**, at topic, section and paragraph level, with the same predicate that filters the navigation (rbac-matrix §2): documenting an action the role cannot take turns the manual into something the reader must diff against their own dashboard. A reader MAY opt into the whole manual, in which case what is beyond their role is **marked as such** rather than silently mixed in.
+- Documentation content is **structured data rendered as text** (no HTML, no markdown-to-innerHTML): what the page can render is a closed vocabulary — paragraphs, lists, steps, tables, snippets, callouts, inline `code` and emphasis.
+- Content invariants are unit-tested: unique identifiers, icons that ship, links that resolve to declared routes, permission gates that exist in the catalogue, and a manual that still covers the daily surface for a plain `member`.
 
 ## 26. Delivery strategy and tracking matrix
 

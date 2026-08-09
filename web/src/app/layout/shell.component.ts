@@ -235,6 +235,9 @@ interface NavSection {
           @if (version()) {
             <span class="akd-badge akd-badge--accent akd-badge--mono">v{{ version() }}</span>
           }
+          <a class="akd-iconbtn" routerLink="/docs" aria-label="Documentation">
+            <akd-icon name="book-open" [size]="16" />
+          </a>
           <a class="akd-iconbtn" routerLink="/notifications" aria-label="Notification channels">
             <akd-icon name="bell" [size]="16" />
           </a>
@@ -569,6 +572,13 @@ export class ShellComponent {
         { path: '/settings', label: 'Settings', icon: 'settings', permission: 'team:read' },
       ],
     },
+    {
+      // No permission: the manual filters itself on the reader's role, so it
+      // has something to say to everyone the sidebar shows anything to — a
+      // reviewer included, who gets the previews page and little else.
+      title: 'Help',
+      items: [{ path: '/docs', label: 'Documentation', icon: 'book-open' }],
+    },
   ];
 
   /**
@@ -602,6 +612,7 @@ export class ShellComponent {
     settings: 'team settings',
     system: 'global settings',
     security: 'personal settings',
+    docs: 'documentation',
   };
 
   protected readonly rail = signal(localStorage.getItem('akd.rail') === '1');
