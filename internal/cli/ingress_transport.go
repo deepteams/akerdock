@@ -92,6 +92,7 @@ func openIngressHTTPData(
 	attach *url.URL,
 	sessionUUID, key string,
 	id uint32,
+	kind transportKind,
 ) (net.Conn, error) {
 	headers := http.Header{}
 	headers.Set("Content-Type", tun.IngressHTTP.StreamContentType)
@@ -99,7 +100,7 @@ func openIngressHTTPData(
 	headers.Set(tun.IngressHTTP.StreamHeader, strconv.FormatUint(uint64(id), 10))
 	headers.Set(tun.IngressHTTP.AttachKeyHeader, key)
 
-	stream, err := openAttachStream(ctx, pool, -1, attach.String(), headers, transportH2, transportDataOpenTimeout)
+	stream, err := openAttachStream(ctx, pool, -1, attach.String(), headers, kind, ingressDataOpenTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("stream %d: %w", id, err)
 	}
@@ -115,6 +116,7 @@ func runIngressHTTPBridge(
 	attach *url.URL,
 	sessionUUID, key string,
 	localPort int,
+	kind transportKind,
 ) (string, error) {
 	workCtx, cancel := context.WithCancel(ctx)
 	var streams sync.WaitGroup
@@ -140,7 +142,7 @@ func runIngressHTTPBridge(
 					_ = control.Send(workCtx, tun.HTTPControlFrame{Type: "open_err", ID: id, Code: "dial_failed", Msg: dialErr.Error()})
 					return
 				}
-				remote, openErr := openIngressHTTPData(workCtx, pool, attach, sessionUUID, key, id)
+				remote, openErr := openIngressHTTPData(workCtx, pool, attach, sessionUUID, key, id, kind)
 				if openErr != nil {
 					_ = local.Close()
 					_ = control.Send(workCtx, tun.HTTPControlFrame{Type: "open_err", ID: id, Code: "stream_failed", Msg: openErr.Error()})

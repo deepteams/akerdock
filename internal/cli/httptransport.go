@@ -52,11 +52,23 @@ const (
 	transportHTTP2Lanes = 4
 	transportHTTP3Lanes = 4
 
-	// transportDataOpenTimeout bounds the wait for a data stream's response
-	// headers — not the stream's life, which belongs to what it carries. The
-	// peer gives up on an unanswered open after its own timeout; refusing
-	// sooner turns a silent stall into an answer the caller gets at once.
-	transportDataOpenTimeout = 5 * time.Second
+	// The data-stream open budget bounds the wait for a stream's response
+	// headers — not the stream's life, which belongs to what it carries.
+	// Refusing an unanswered open turns a silent stall into an answer the
+	// caller gets at once.
+	//
+	// It is per access path and not one shared constant, because what happens
+	// before the response head differs per path and that is the whole of what
+	// this waits for. On ingress the peer only has to admit the stream; on
+	// egress the control plane must first dial the target THROUGH SSH, and it
+	// bounds that dial at tun.EgressDialTimeout. A client budget shorter than
+	// the server's dial makes the two deadlines race, and when the client wins
+	// it blames the transport for a target that never answered — so the egress
+	// budget is that dial plus the room a WAN round trip and the SSH channel
+	// setup need.
+	ingressDataOpenTimeout  = 5 * time.Second
+	terminalDataOpenTimeout = 5 * time.Second
+	egressDataOpenTimeout   = tun.EgressDialTimeout + 5*time.Second
 
 	// transportFailureBudget is how many consecutive lost sessions a transport
 	// gets before the CLI falls back to the next one. A transport whose every
@@ -425,7 +437,13 @@ func openAttachStream(
 	case <-timer.C:
 		cancel()
 		_ = bodyWriter.CloseWithError(context.DeadlineExceeded)
-		return nil, fmt.Errorf("%s attach: no transport capacity within %s", kind.label(), openTimeout)
+		// Only what was observed. The causes are several — the peer still busy
+		// reaching whatever it must reach before answering, a front holding the
+		// request, a transport out of stream credit (which blocks rather than
+		// failing) — and naming one of them here turns a guess into a verdict
+		// the developer then chases. The status the peer eventually sends is
+		// the diagnosis; this timer exists so the wait for it is not endless.
+		return nil, fmt.Errorf("%s attach: the peer sent no response headers within %s", kind.label(), openTimeout)
 	case <-ctx.Done():
 		cancel()
 		_ = bodyWriter.CloseWithError(ctx.Err())

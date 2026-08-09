@@ -29,11 +29,6 @@ import (
 	"github.com/deepteams/akerdock/internal/tunnel"
 )
 
-// egressDialTimeout bounds the SSH channel open plus the TCP connect to the
-// target. It stays under the CLI's data-stream open budget so a target that
-// never answers produces an answer, not a stall.
-const egressDialTimeout = 5 * time.Second
-
 // egressAttach is one live HTTP-attached port-forward. It lives in this
 // process only, like the WebSocket bridge it replaces: the durable row records
 // the session, this records the socket serving it.
@@ -193,12 +188,14 @@ func (a *API) tunnelAttachStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Bounded, and bounded SHORTER than the CLI's own open budget: this dial
-	// happens BEFORE the response head, so an unbounded one — ssh.Client.Dial
-	// takes no context — spends the client's patience and surfaces there as a
-	// transport timeout, blaming the tunnel for a target that never answered.
-	// A 502 carrying the dial's own words is what makes it diagnosable.
-	dialCtx, cancelDial := context.WithTimeout(r.Context(), egressDialTimeout)
+	// Bounded, and bounded SHORTER than the CLI's own open budget — which is
+	// why the bound is tunnel.EgressDialTimeout, the value both sides derive
+	// from. This dial happens BEFORE the response head, so an unbounded one —
+	// ssh.Client.Dial takes no context — spends the client's patience and
+	// surfaces there as a transport timeout, blaming the tunnel for a target
+	// that never answered. A 502 carrying the dial's own words is what makes it
+	// diagnosable.
+	dialCtx, cancelDial := context.WithTimeout(r.Context(), tunnel.EgressDialTimeout)
 	target, err := attach.dial(dialCtx)
 	cancelDial()
 	if err != nil {
@@ -319,10 +316,20 @@ type responseWriter struct{ io.Writer }
 
 func (responseWriter) Close() error { return nil }
 
+// tcpDialer is the one method this file needs of an SSH client. It is an
+// interface so the abandonment path below can be exercised without a server:
+// what it does with a connection that arrives after the caller gave up is the
+// difference between a bounded dial and a channel leak per attempt.
+type tcpDialer interface {
+	DialTCP(addr string) (net.Conn, error)
+}
+
+var _ tcpDialer = (*sshexec.Client)(nil)
+
 // dialTCPContext gives ssh.Client.Dial the context it does not take. A hung
 // dial is abandoned by the caller, and the goroutine closes whatever arrives
 // late so a slow target cannot leak one channel per attempt.
-func dialTCPContext(ctx context.Context, client *sshexec.Client, addr string) (net.Conn, error) {
+func dialTCPContext(ctx context.Context, client tcpDialer, addr string) (net.Conn, error) {
 	type result struct {
 		conn net.Conn
 		err  error

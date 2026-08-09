@@ -219,7 +219,7 @@ func (c *Client) attachIngress(
 				state.announced = kind
 			}
 			started := time.Now()
-			reason, runErr := runIngressHTTPBridge(ctx, control.control, pool, httpAttach, sess.Uuid, key, localPort)
+			reason, runErr := runIngressHTTPBridge(ctx, control.control, pool, httpAttach, sess.Uuid, key, localPort, kind)
 			if runErr != nil {
 				if msg := state.noteFailure(kind, time.Since(started)); msg != "" {
 					fmt.Fprintln(os.Stderr, msg)

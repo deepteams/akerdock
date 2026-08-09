@@ -97,7 +97,7 @@ func openTerminalSession(
 	dataHeaders.Set("Content-Type", tun.TerminalHTTP.StreamContentType)
 	dataHeaders.Set(tun.TerminalHTTP.SessionHeader, sessionUUID)
 	dataHeaders.Set(tun.TerminalHTTP.AttachKeyHeader, key)
-	data, err := openAttachStream(ctx, pool, -1, attach.String(), dataHeaders, kind, transportDataOpenTimeout)
+	data, err := openAttachStream(ctx, pool, -1, attach.String(), dataHeaders, kind, terminalDataOpenTimeout)
 	if err != nil {
 		closeControl()
 		return nil, err

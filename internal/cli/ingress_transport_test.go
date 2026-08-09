@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -154,6 +155,35 @@ func TestIngressHTTPURLConversionDoesNotLeakMintTokenIntoProbe(t *testing.T) {
 	}
 }
 
+// Same hardcode as egress had, same consequence: a data stream refused on an
+// HTTP/3 session must say HTTP/3. The developer reading it goes and looks at
+// whatever protocol the message names.
+func TestIngressDataStreamErrorNamesTheRealTransport(t *testing.T) {
+	for _, kind := range []transportKind{transportH2, transportH3} {
+		t.Run(string(kind), func(t *testing.T) {
+			plane := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte("the session has ended"))
+			})
+			attach, pool := attachToFakeControlPlane(t, plane, kind)
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+
+			_, err := openIngressHTTPData(ctx, pool, attach, "session-1", "key-1", 7, kind)
+			var rejection *attachRejection
+			if !errors.As(err, &rejection) {
+				t.Fatalf("want the peer's verdict, got: %v", err)
+			}
+			if rejection.kind != kind {
+				t.Fatalf("the error blames %s on a %s session", rejection.kind, kind)
+			}
+			if !strings.Contains(err.Error(), "stream 7") {
+				t.Fatalf("the error must still name the stream it belongs to, got: %v", err)
+			}
+		})
+	}
+}
+
 func TestIngressHTTP2AndHTTP3Relay(t *testing.T) {
 	for _, kind := range []transportKind{transportH2, transportH3} {
 		t.Run(string(kind), func(t *testing.T) {
@@ -270,7 +300,7 @@ func testIngressHTTPRelay(t *testing.T, kind transportKind) {
 		err    error
 	}, 1)
 	go func() {
-		reason, bridgeErr := runIngressHTTPBridge(ctx, control.control, transportPool, attach, sess.Uuid, key, localPort)
+		reason, bridgeErr := runIngressHTTPBridge(ctx, control.control, transportPool, attach, sess.Uuid, key, localPort, kind)
 		bridgeDone <- struct {
 			reason string
 			err    error

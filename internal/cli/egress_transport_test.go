@@ -1,0 +1,165 @@
+package cli
+
+import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/quic-go/quic-go/http3"
+
+	tun "github.com/deepteams/akerdock/internal/tunnel"
+)
+
+// The two deadlines must not race. The control plane dials the forward target
+// BEFORE writing the response head, and bounds that dial at
+// tun.EgressDialTimeout; a client that gives up first turns a target that never
+// answered into a transport fault, which is the wrong thing to go and debug.
+func TestEgressDataOpenBudgetOutlastsTheServersDial(t *testing.T) {
+	if egressDataOpenTimeout <= tun.EgressDialTimeout {
+		t.Fatalf("egress open budget %s must outlast the server's dial budget %s",
+			egressDataOpenTimeout, tun.EgressDialTimeout)
+	}
+	// Ingress is the other half of the reason this is not one shared constant:
+	// its dial is to the developer's own loopback and has no business waiting
+	// out a WAN round trip.
+	if ingressDataOpenTimeout >= egressDataOpenTimeout {
+		t.Fatalf("ingress budget %s should stay tighter than egress's %s — its dial is local",
+			ingressDataOpenTimeout, egressDataOpenTimeout)
+	}
+}
+
+// The open timer fires for any slow answer, not only for a transport out of
+// stream credit. It must therefore report what was seen — no headers, this
+// long — and leave the diagnosis to the status the peer eventually sends.
+func TestAttachStreamOpenTimeoutStatesWhatWasObserved(t *testing.T) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	defer server.Close()
+
+	pool := newH2PoolWithTLS(clientTLSFor(t, server))
+	defer func() { _ = pool.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := openAttachStream(ctx, pool, -1, server.URL, http.Header{}, transportH3, 100*time.Millisecond)
+	if err == nil {
+		t.Fatal("a peer that never answers must not be waited on forever")
+	}
+	if !strings.Contains(err.Error(), "no response headers within") {
+		t.Fatalf("the timeout must state what was observed, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "capacity") {
+		t.Fatalf("the timeout must not name one cause among several, got: %v", err)
+	}
+	// And it must name the transport actually in use, since that is the first
+	// thing anyone reading it will go and look at.
+	if !strings.Contains(err.Error(), transportH3.label()) {
+		t.Fatalf("the timeout must name the transport it was waiting on, got: %v", err)
+	}
+}
+
+// The bug as the developer met it: psql died, and the CLI said "HTTP/2 attach:
+// no transport capacity" on a session that was HTTP/3 and had plenty. A target
+// the control plane cannot reach must surface as the server's own 502, labelled
+// with the transport the session really runs on.
+func TestEgressStreamSurfacesTheServersDiagnosis(t *testing.T) {
+	for _, kind := range []transportKind{transportH2, transportH3} {
+		t.Run(string(kind), func(t *testing.T) {
+			const refusal = "the target did not accept the connection: dial 10.1.2.3:5432: connect: connection refused"
+			plane := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadGateway)
+				_, _ = w.Write([]byte(`{"code":"target_unreachable","message":"` + refusal + `"}`))
+			})
+			attach, pool := attachToFakeControlPlane(t, plane, kind)
+			session := &egressSession{attach: attach, pool: pool, kind: kind, uuid: "session-1", key: "key-1"}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			conn, err := session.openStream(ctx)
+			if err == nil {
+				_ = conn.Close()
+				t.Fatal("an unreachable target must not yield a usable stream")
+			}
+			var rejection *attachRejection
+			if !errors.As(err, &rejection) {
+				t.Fatalf("want the server's verdict, got a bare transport error: %v", err)
+			}
+			if rejection.code != http.StatusBadGateway {
+				t.Fatalf("status = %d, want %d", rejection.code, http.StatusBadGateway)
+			}
+			if !strings.Contains(rejection.message, "connection refused") {
+				t.Fatalf("the refusal must reach the developer intact, got: %s", rejection.message)
+			}
+			if rejection.kind != kind {
+				t.Fatalf("the error blames %s on a %s session", rejection.kind, kind)
+			}
+			if !strings.Contains(err.Error(), kind.label()) {
+				t.Fatalf("the message must name the transport in use, got: %v", err)
+			}
+		})
+	}
+}
+
+// clientTLSFor trusts the test server's own certificate and nothing else.
+func clientTLSFor(t *testing.T, server *httptest.Server) *tls.Config {
+	t.Helper()
+	roots := x509.NewCertPool()
+	roots.AddCert(server.Certificate())
+	return &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
+}
+
+// attachToFakeControlPlane serves handler over the given rung and returns the
+// attach URL and a matching pool. HTTP/3 needs its own listener: the point of
+// the h3 case is that the session really runs on QUIC, so a downgraded client
+// would prove nothing.
+func attachToFakeControlPlane(t *testing.T, handler http.Handler, kind transportKind) (*url.URL, *httpLanePool) {
+	t.Helper()
+	server := httptest.NewUnstartedServer(handler)
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	clientTLS := clientTLSFor(t, server)
+
+	authority := strings.TrimPrefix(server.URL, "https://")
+	var pool *httpLanePool
+	if kind == transportH3 {
+		packetConn, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		h3 := &http3.Server{Handler: handler, TLSConfig: server.TLS.Clone()}
+		served := make(chan error, 1)
+		go func() { served <- h3.Serve(packetConn) }()
+		t.Cleanup(func() {
+			_ = h3.Close()
+			_ = packetConn.Close()
+			select {
+			case <-served:
+			case <-time.After(time.Second):
+			}
+		})
+		authority = packetConn.LocalAddr().String()
+		pool = newH3PoolWithTLS(clientTLS)
+	} else {
+		pool = newH2PoolWithTLS(clientTLS)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+
+	attach, err := attachURL("https://" + authority + "/tunnel/attach")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return attach, pool
+}

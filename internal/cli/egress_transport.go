@@ -30,6 +30,11 @@ type egressSession struct {
 	key     string
 	uuid    string
 	pool    *httpLanePool
+	// kind is the rung the ladder actually settled on. It is carried rather
+	// than assumed because every error a data stream produces is labelled with
+	// it, and a label that lies about the transport sends the reader looking
+	// at the wrong protocol.
+	kind transportKind
 }
 
 // openEgressSession claims the mint token on lane 0 and holds that request open
@@ -75,7 +80,7 @@ func openEgressSession(
 	})
 	return &egressSession{
 		control: control, cancel: stream.cancel, attach: attach,
-		key: key, uuid: sessionUUID, pool: pool,
+		key: key, uuid: sessionUUID, pool: pool, kind: kind,
 	}, nil
 }
 
@@ -87,7 +92,7 @@ func (s *egressSession) openStream(ctx context.Context) (net.Conn, error) {
 	headers.Set(tun.EgressHTTP.SessionHeader, s.uuid)
 	headers.Set(tun.EgressHTTP.AttachKeyHeader, s.key)
 
-	stream, err := openAttachStream(ctx, s.pool, -1, s.attach.String(), headers, transportH2, transportDataOpenTimeout)
+	stream, err := openAttachStream(ctx, s.pool, -1, s.attach.String(), headers, s.kind, egressDataOpenTimeout)
 	if err != nil {
 		return nil, err
 	}

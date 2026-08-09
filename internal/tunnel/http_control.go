@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 )
 
 // HTTP ingress v2 protocol identifiers and headers (ADR-061). The attach key
@@ -79,6 +80,16 @@ const (
 	EgressControlContentType = "application/vnd.akerdock.egress-control.v1+json"
 	EgressStreamContentType  = "application/vnd.akerdock.egress-stream.v1"
 )
+
+// EgressDialTimeout bounds the control plane's dial to the forward target — the
+// SSH channel open plus the TCP connect — and it lives here because it is half
+// of a contract between two processes. That dial happens BEFORE the response
+// head of a data stream, so it is spent out of the CLI's patience for that
+// stream: the client's open budget must OUTLAST this, or the two deadlines race
+// and the loser reports a transport fault for a target that simply never
+// answered. The CLI derives its egress budget from this value; see
+// internal/cli/httptransport.go.
+const EgressDialTimeout = 5 * time.Second
 
 // EgressHTTP is the egress access path's wire: a CLI attaching to the control
 // plane, which brokers the SSH channel to the target.

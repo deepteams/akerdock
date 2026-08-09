@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -142,6 +144,132 @@ func TestBaseContentTypeIgnoresParameters(t *testing.T) {
 		}
 	}
 }
+
+// The field failure this exists for: psql printed "server closed the connection
+// unexpectedly" and the CLI blamed its own transport, because the dial to the
+// target ran unbounded BEFORE the response head and its error was thrown away.
+// A target that refuses must produce a 502 carrying the dial's own words —
+// early enough that the CLI still has a request to read it on.
+func TestTunnelAttachStreamAnswersBadGatewayWhenTheTargetIsUnreachable(t *testing.T) {
+	encodedKey, key := freshAttachKey(t)
+	api := &API{}
+	var dialDeadline time.Time
+	var dialed bool
+	api.egressRegister("session-1", &egressAttach{
+		key: key,
+		dial: func(ctx context.Context) (net.Conn, error) {
+			dialed = true
+			dialDeadline, _ = ctx.Deadline()
+			return nil, errors.New("dial 10.1.2.3:5432: connect: connection refused")
+		},
+		// Left nil on purpose: a dial that fails must be answered before the
+		// session is ever asked to admit anything.
+		session: nil,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, tunnelAttachPath, strings.NewReader(""))
+	request.Header.Set("Content-Type", tunnel.EgressHTTP.StreamContentType)
+	request.Header.Set(tunnel.EgressHTTP.AttachKeyHeader, encodedKey)
+	request.Header.Set(tunnel.EgressHTTP.SessionHeader, "session-1")
+	api.tunnelAttachStream(recorder, request)
+
+	if !dialed {
+		t.Fatal("the stream did not even dial the target")
+	}
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d — a target that refuses is not a transport fault", recorder.Code, http.StatusBadGateway)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "connection refused") || !strings.Contains(body, "10.1.2.3:5432") {
+		t.Fatalf("the 502 must carry the dial's own words, got: %s", body)
+	}
+	if !strings.Contains(body, "target_unreachable") {
+		t.Fatalf("the 502 must be typed so the CLI can tell it apart, got: %s", body)
+	}
+	// Bounded, and bounded by the value the CLI derives its own patience from:
+	// an unbounded dial is what spent the client's budget in the first place.
+	if dialDeadline.IsZero() {
+		t.Fatal("the dial ran unbounded — it must not outlast the client's open budget")
+	}
+	if remaining := time.Until(dialDeadline); remaining > tunnel.EgressDialTimeout {
+		t.Fatalf("dial budget = %s, want at most %s", remaining, tunnel.EgressDialTimeout)
+	}
+}
+
+// A target that never answers must not hold the stream open past the request:
+// the dial follows the request's context, so a client that walks away frees it.
+func TestTunnelAttachStreamAnswersWhenTheTargetNeverReplies(t *testing.T) {
+	encodedKey, key := freshAttachKey(t)
+	api := &API{}
+	api.egressRegister("session-1", &egressAttach{
+		key: key,
+		dial: func(ctx context.Context) (net.Conn, error) {
+			<-ctx.Done()
+			return nil, fmt.Errorf("dial 10.1.2.3:5432: %w", ctx.Err())
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, tunnelAttachPath, strings.NewReader("")).WithContext(ctx)
+	request.Header.Set("Content-Type", tunnel.EgressHTTP.StreamContentType)
+	request.Header.Set(tunnel.EgressHTTP.AttachKeyHeader, encodedKey)
+	request.Header.Set(tunnel.EgressHTTP.SessionHeader, "session-1")
+
+	answered := make(chan struct{})
+	go func() {
+		api.tunnelAttachStream(recorder, request)
+		close(answered)
+	}()
+	select {
+	case <-answered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a target that never answers stalled the stream instead of failing it")
+	}
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadGateway)
+	}
+	if body := recorder.Body.String(); !strings.Contains(body, "10.1.2.3:5432") {
+		t.Fatalf("the 502 must name what could not be reached, got: %s", body)
+	}
+}
+
+// The whole point of wrapping ssh.Client.Dial: the caller stops waiting, and
+// the connection that turns up afterwards is closed rather than leaked — one
+// abandoned SSH channel per attempt is how a slow target exhausts a session.
+func TestDialTCPContextAbandonsAndClosesALateConnection(t *testing.T) {
+	release := make(chan struct{})
+	late, peer := net.Pipe()
+	defer func() { _ = peer.Close() }()
+	dialer := dialerFunc(func(addr string) (net.Conn, error) {
+		<-release
+		return late, nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	conn, err := dialTCPContext(ctx, dialer, "10.1.2.3:5432")
+	if conn != nil || err == nil {
+		t.Fatalf("dial = %v, %v — an expired context must abandon the dial", conn, err)
+	}
+	if !strings.Contains(err.Error(), "10.1.2.3:5432") {
+		t.Fatalf("the abandonment must name the target, got: %v", err)
+	}
+
+	close(release)
+	// The connection the goroutine finally receives belongs to nobody: it must
+	// be closed, which the peer sees as its own read failing.
+	_ = peer.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, readErr := peer.Read(make([]byte, 1)); readErr == nil {
+		t.Fatal("the late connection was left open")
+	}
+}
+
+type dialerFunc func(addr string) (net.Conn, error)
+
+func (f dialerFunc) DialTCP(addr string) (net.Conn, error) { return f(addr) }
 
 // A forwarded connection must not outlive the session that authorized it
 // (§24.4): the splice watches the session's end, not only its two conns.
