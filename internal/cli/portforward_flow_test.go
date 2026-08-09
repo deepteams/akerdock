@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	tun "github.com/deepteams/akerdock/internal/tunnel"
 )
 
 func TestHandshakeReason(t *testing.T) {
@@ -85,6 +87,15 @@ func tunnelServer(t *testing.T) *httptest.Server {
 		_, _ = w.Write([]byte(`{"message":"the server is not reachable over SSH right now"}`))
 	})
 	mux.HandleFunc("/tunnel", func(w http.ResponseWriter, r *http.Request) {
+		// ADR-065 §7: the bottom rung carries the per-mint attach key in the
+		// egress path's own header — never in the query string, where an
+		// intermediary's access log would keep it.
+		if r.Header.Get(tun.EgressHTTP.AttachKeyHeader) == "" {
+			t.Error("the WebSocket rung must present the attach key that binds the claim to this attacher")
+		}
+		if r.URL.Query().Get("key") != "" {
+			t.Errorf("the attach key must not travel in the query string: %q", r.URL.RawQuery)
+		}
 		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"akerdock-tunnel-v1"}})
 		if err != nil {
 			return
@@ -227,14 +238,13 @@ func TestPortForwardEndpointPicksLocalPort(t *testing.T) {
 	}
 }
 
-// The bug as the developer met it: the attach reached the server, the server
-// claimed the single-use token and then spent longer than the CLI's patience
-// resolving the target, so every attempt afterwards — lower rung, WebSocket,
-// next run — collected "invalid, expired or already used tunnel token". A spent
-// token is worth exactly ONE fresh session: each mint writes an audit row and
-// takes one of the team's ten concurrent slots (ADR-032), so a target that is
-// genuinely broken must not be able to spend them in a loop.
-func TestPortForwardRemintsOnceOnASpentToken(t *testing.T) {
+// The bug as the developer met it was that the CLI's own first attempt burnt
+// the token and every rung under it then collected "invalid, expired or already
+// used tunnel token". ADR-065 fixes that at the claim, so the client's part is
+// to stop papering over it: one developer intent is ONE mint, one row, one cap
+// slot and one audit pair (§8). A 401 that arrives anyway is now true, and it is
+// reported in the server's own words rather than re-minted around.
+func TestPortForwardDoesNotRemintOnARefusedToken(t *testing.T) {
 	var mints, attaches atomic.Int32
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/databases", func(w http.ResponseWriter, _ *http.Request) {
@@ -243,8 +253,11 @@ func TestPortForwardRemintsOnceOnASpentToken(t *testing.T) {
 	mux.HandleFunc("/api/v1/databases/db-1/port-forwards", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprintf(w, `{"websocket_path":"/spent","token":"tk%d"}`, mints.Add(1))
 	})
-	mux.HandleFunc("/spent", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/spent", func(w http.ResponseWriter, r *http.Request) {
 		attaches.Add(1)
+		if r.Header.Get(tun.EgressHTTP.AttachKeyHeader) == "" {
+			t.Error("even a refused WebSocket attach identifies its attacher (ADR-065 §7)")
+		}
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"message":"invalid, expired or already used tunnel token"}`))
 	})
@@ -256,16 +269,14 @@ func TestPortForwardRemintsOnceOnASpentToken(t *testing.T) {
 	_, _ = captureOutput(t, func() {
 		err = runCmd(portForwardCmd(), "db/pg", "15432:5432")
 	})
-	if got := mints.Load(); got != 2 {
-		t.Fatalf("mints = %d, want exactly one retry (2)", got)
+	if got := mints.Load(); got != 1 {
+		t.Fatalf("mints = %d, want exactly one — a refusal is not a reason to spend another slot", got)
 	}
-	if got := attaches.Load(); got != 2 {
-		t.Fatalf("attaches = %d, want the retry to attach once with the fresh token", got)
+	if got := attaches.Load(); got != 1 {
+		t.Fatalf("attaches = %d, want one", got)
 	}
-	// And what the developer is left with says who burnt the token, not the
-	// server's sentence about an expiry that never happened.
-	if err == nil || !strings.Contains(err.Error(), "already spent") {
-		t.Fatalf("err = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "already used tunnel token") {
+		t.Fatalf("err = %v — the server's sentence is now the true one and is what the developer reads", err)
 	}
 }
 

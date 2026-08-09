@@ -502,37 +502,37 @@ func TestNetcovTerminalContainerNaming(t *testing.T) {
 
 	t.Run("no resource", func(t *testing.T) {
 		a, _ := netcovAPI(t)
-		if _, msg := a.terminalContainer(ctx, store.TerminalSession{}); msg == "" {
+		if _, _, msg := a.resolveTerminalTargetRef(ctx, store.TerminalSession{}); msg == "" {
 			t.Fatal("a session without a resource must not resolve")
 		}
 	})
 	t.Run("resource gone", func(t *testing.T) {
 		a, db := netcovAPI(t)
 		db.rule(netcovRule{match: "-- name: GetResourceByID ", err: errors.New("down")})
-		if _, msg := a.terminalContainer(ctx, store.TerminalSession{ResourceID: ptr(int64(1))}); msg == "" {
+		if _, _, msg := a.resolveTerminalTargetRef(ctx, store.TerminalSession{ResourceID: ptr(int64(1))}); msg == "" {
 			t.Fatal("a vanished resource must not resolve")
 		}
 	})
 	t.Run("resource uuid names the container", func(t *testing.T) {
 		a, _ := netcovAPI(t)
-		name, msg := a.terminalContainer(ctx, store.TerminalSession{ResourceID: ptr(int64(1))})
-		if msg != "" || name != fixtureUUID {
-			t.Fatalf("container = %q, %q", name, msg)
+		ref, _, msg := a.resolveTerminalTargetRef(ctx, store.TerminalSession{ResourceID: ptr(int64(1))})
+		if msg != "" || ref.container != fixtureUUID {
+			t.Fatalf("container = %q, %q", ref.container, msg)
 		}
 	})
 	t.Run("preview uuid wins", func(t *testing.T) {
 		a, _ := netcovAPI(t)
-		name, msg := a.terminalContainer(ctx, store.TerminalSession{
+		ref, _, msg := a.resolveTerminalTargetRef(ctx, store.TerminalSession{
 			ResourceID: ptr(int64(1)), PreviewID: ptr(int64(2)),
 		})
-		if msg != "" || name != fixtureUUID {
-			t.Fatalf("container = %q, %q", name, msg)
+		if msg != "" || ref.container != fixtureUUID {
+			t.Fatalf("container = %q, %q", ref.container, msg)
 		}
 	})
 	t.Run("destroyed preview refuses", func(t *testing.T) {
 		a, db := netcovAPI(t)
 		db.rule(netcovRule{match: "-- name: GetPreviewByID ", typed: []any{store.PreviewStatusDestroyed}})
-		if _, msg := a.terminalContainer(ctx, store.TerminalSession{
+		if _, _, msg := a.resolveTerminalTargetRef(ctx, store.TerminalSession{
 			ResourceID: ptr(int64(1)), PreviewID: ptr(int64(2)),
 		}); !strings.Contains(msg, "destroyed") {
 			t.Fatalf("msg = %q", msg)
@@ -540,11 +540,11 @@ func TestNetcovTerminalContainerNaming(t *testing.T) {
 	})
 	t.Run("component suffixes the base", func(t *testing.T) {
 		a, _ := netcovAPI(t)
-		name, msg := a.terminalContainer(ctx, store.TerminalSession{
+		ref, _, msg := a.resolveTerminalTargetRef(ctx, store.TerminalSession{
 			ResourceID: ptr(int64(1)), TargetComponent: ptr("web"),
 		})
-		if msg != "" || name != fixtureUUID+"-web" {
-			t.Fatalf("container = %q, %q", name, msg)
+		if msg != "" || ref.container != fixtureUUID+"-web" {
+			t.Fatalf("container = %q, %q", ref.container, msg)
 		}
 	})
 }
@@ -673,7 +673,7 @@ func TestNetcovTunnelTargetResolution(t *testing.T) {
 
 	expectMsg := func(t *testing.T, a *API, row store.PortForwardSession, fragment string) {
 		t.Helper()
-		client, _, msg := a.tunnelTarget(ctx, row)
+		client, _, msg := a.tunnelTarget(ctx, nil, row)
 		if client != nil {
 			_ = client.Close()
 		}
@@ -746,7 +746,7 @@ func TestNetcovTunnelTargetResolution(t *testing.T) {
 			return &agentwire.Result{Body: json.RawMessage(
 				`{"NetworkSettings":{"Networks":{"bridge":{"IPAddress":"172.17.0.2"}}}}`)}, false
 		})
-		client, addr, msg := a.tunnelTarget(ctx, store.PortForwardSession{
+		client, addr, msg := a.tunnelTarget(ctx, nil, store.PortForwardSession{
 			ServerID: ptr(int64(1)), ResourceID: ptr(int64(1)), TargetPort: 3000,
 		})
 		if msg != "" || client == nil {

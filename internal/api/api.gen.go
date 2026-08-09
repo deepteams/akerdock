@@ -1417,15 +1417,35 @@ func (e PersistentStorageCreateKind) Valid() bool {
 	}
 }
 
+// Defines values for PortForwardSessionState.
+const (
+	PortForwardSessionStateReady  PortForwardSessionState = "ready"
+	PortForwardSessionStateWaking PortForwardSessionState = "waking"
+)
+
+// Valid indicates whether the value is a known member of the PortForwardSessionState enum.
+func (e PortForwardSessionState) Valid() bool {
+	switch e {
+	case PortForwardSessionStateReady:
+		return true
+	case PortForwardSessionStateWaking:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PortForwardSessionInfoEndReason.
 const (
-	Disconnect    PortForwardSessionInfoEndReason = "disconnect"
-	GrantExpired  PortForwardSessionInfoEndReason = "grant_expired"
-	IdleTimeout   PortForwardSessionInfoEndReason = "idle_timeout"
-	MaxDuration   PortForwardSessionInfoEndReason = "max_duration"
-	Revoked       PortForwardSessionInfoEndReason = "revoked"
-	TargetStopped PortForwardSessionInfoEndReason = "target_stopped"
-	UserClose     PortForwardSessionInfoEndReason = "user_close"
+	Disconnect        PortForwardSessionInfoEndReason = "disconnect"
+	GrantExpired      PortForwardSessionInfoEndReason = "grant_expired"
+	IdleTimeout       PortForwardSessionInfoEndReason = "idle_timeout"
+	MaxDuration       PortForwardSessionInfoEndReason = "max_duration"
+	Revoked           PortForwardSessionInfoEndReason = "revoked"
+	TargetStopped     PortForwardSessionInfoEndReason = "target_stopped"
+	TargetUnreachable PortForwardSessionInfoEndReason = "target_unreachable"
+	UserClose         PortForwardSessionInfoEndReason = "user_close"
+	WakeFailed        PortForwardSessionInfoEndReason = "wake_failed"
 )
 
 // Valid indicates whether the value is a known member of the PortForwardSessionInfoEndReason enum.
@@ -1443,7 +1463,11 @@ func (e PortForwardSessionInfoEndReason) Valid() bool {
 		return true
 	case TargetStopped:
 		return true
+	case TargetUnreachable:
+		return true
 	case UserClose:
+		return true
+	case WakeFailed:
 		return true
 	default:
 		return false
@@ -1662,28 +1686,28 @@ func (e ServerProxyType) Valid() bool {
 
 // Defines values for ServerStatus.
 const (
-	Deleting    ServerStatus = "deleting"
-	Maintenance ServerStatus = "maintenance"
-	Pending     ServerStatus = "pending"
-	Ready       ServerStatus = "ready"
-	Unreachable ServerStatus = "unreachable"
-	Validating  ServerStatus = "validating"
+	ServerStatusDeleting    ServerStatus = "deleting"
+	ServerStatusMaintenance ServerStatus = "maintenance"
+	ServerStatusPending     ServerStatus = "pending"
+	ServerStatusReady       ServerStatus = "ready"
+	ServerStatusUnreachable ServerStatus = "unreachable"
+	ServerStatusValidating  ServerStatus = "validating"
 )
 
 // Valid indicates whether the value is a known member of the ServerStatus enum.
 func (e ServerStatus) Valid() bool {
 	switch e {
-	case Deleting:
+	case ServerStatusDeleting:
 		return true
-	case Maintenance:
+	case ServerStatusMaintenance:
 		return true
-	case Pending:
+	case ServerStatusPending:
 		return true
-	case Ready:
+	case ServerStatusReady:
 		return true
-	case Unreachable:
+	case ServerStatusUnreachable:
 		return true
-	case Validating:
+	case ServerStatusValidating:
 		return true
 	default:
 		return false
@@ -2050,6 +2074,24 @@ func (e TelemetryConfigSetProtocol) Valid() bool {
 	case TelemetryConfigSetProtocolGrpc:
 		return true
 	case TelemetryConfigSetProtocolHttp:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TerminalSessionState.
+const (
+	Ready  TerminalSessionState = "ready"
+	Waking TerminalSessionState = "waking"
+)
+
+// Valid indicates whether the value is a known member of the TerminalSessionState enum.
+func (e TerminalSessionState) Valid() bool {
+	switch e {
+	case Ready:
+		return true
+	case Waking:
 		return true
 	default:
 		return false
@@ -4484,6 +4526,9 @@ type PortForwardSession struct {
 	// Port Internal port of the target container, frozen at creation.
 	Port int `json:"port"`
 
+	// State Whether the target was already up when this session was minted, or is being started for it (ADR-067 §3/§6). `waking` means the mint asked the server's waker for a cold start and did **not** wait for it: the tunnel opens as usual and the wait is paid on the first forwarded connection, which is why the client is told here — it prints the notice, and widens the budget that first connection may spend, **before** the local listener is announced rather than learning it from a control frame afterwards, with a developer already typing `psql` into what looks like a hung tunnel. Absent means `ready`: an older manager sends nothing, and a session whose target was already running has nothing to announce. A `waking` session can still end with the `wake_failed` reason — this field states what the mint asked for, not how it turned out.
+	State *PortForwardSessionState `json:"state,omitempty"`
+
 	// Token Single-use attach token, returned only here, never read back — only its hash is stored (§23.2, §24.4).
 	Token string `json:"token"`
 
@@ -4494,6 +4539,9 @@ type PortForwardSession struct {
 	// WebsocketPath Path of the WebSocket to open on the **same origin** as the API, token in the query string (`?token=…`). Subprotocol `akerdock-tunnel-v1`, outside OpenAPI (§27.24, ADR-032).
 	WebsocketPath string `json:"websocket_path"`
 }
+
+// PortForwardSessionState Whether the target was already up when this session was minted, or is being started for it (ADR-067 §3/§6). `waking` means the mint asked the server's waker for a cold start and did **not** wait for it: the tunnel opens as usual and the wait is paid on the first forwarded connection, which is why the client is told here — it prints the notice, and widens the budget that first connection may spend, **before** the local listener is announced rather than learning it from a control frame afterwards, with a developer already typing `psql` into what looks like a hung tunnel. Absent means `ready`: an older manager sends nothing, and a session whose target was already running has nothing to announce. A `waking` session can still end with the `wake_failed` reason — this field states what the mint asked for, not how it turned out.
+type PortForwardSessionState string
 
 // PortForwardSessionInfo A tunnel session as an operator sees it — who opened it, onto what, from where, and until when. Deliberately NOT the mint response: no token is readable back, so this schema carries none.
 type PortForwardSessionInfo struct {
@@ -4507,7 +4555,7 @@ type PortForwardSessionInfo struct {
 	ClientIp  *string   `json:"client_ip,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 
-	// EndReason Why it closed. `grant_expired` is an ADR-045 session that reached its authorization's deadline, distinct from the ADR-032 ceiling. `target_stopped` is the target container disappearing under the tunnel — a redeploy, a manual stop, a scale-to-zero sleep — which would otherwise leave the forwarded connection hanging with no RST and no FIN until the idle timeout.
+	// EndReason Why it closed. `grant_expired` is an ADR-045 session that reached its authorization's deadline, distinct from the ADR-032 ceiling. `target_stopped` is the target container disappearing under the tunnel — a redeploy, a manual stop, a scale-to-zero sleep — which would otherwise leave the forwarded connection hanging with no RST and no FIN until the idle timeout. `target_unreachable` (ADR-066) is a target the session never reached at all: the attach now answers before it dials, so a failure belonging to no particular stream arrives as a session close rather than as an error at open — `disconnect` would have sent the developer to check their own network. `wake_failed` (ADR-067) is a scale-to-zero wake that did not come up inside its budget.
 	EndReason *PortForwardSessionInfoEndReason `json:"end_reason,omitempty"`
 	EndedAt   *time.Time                       `json:"ended_at,omitempty"`
 
@@ -4532,7 +4580,7 @@ type PortForwardSessionInfo struct {
 	Uuid      string  `json:"uuid"`
 }
 
-// PortForwardSessionInfoEndReason Why it closed. `grant_expired` is an ADR-045 session that reached its authorization's deadline, distinct from the ADR-032 ceiling. `target_stopped` is the target container disappearing under the tunnel — a redeploy, a manual stop, a scale-to-zero sleep — which would otherwise leave the forwarded connection hanging with no RST and no FIN until the idle timeout.
+// PortForwardSessionInfoEndReason Why it closed. `grant_expired` is an ADR-045 session that reached its authorization's deadline, distinct from the ADR-032 ceiling. `target_stopped` is the target container disappearing under the tunnel — a redeploy, a manual stop, a scale-to-zero sleep — which would otherwise leave the forwarded connection hanging with no RST and no FIN until the idle timeout. `target_unreachable` (ADR-066) is a target the session never reached at all: the attach now answers before it dials, so a failure belonging to no particular stream arrives as a session close rather than as an error at open — `disconnect` would have sent the developer to check their own network. `wake_failed` (ADR-067) is a scale-to-zero wake that did not come up inside its budget.
 type PortForwardSessionInfoEndReason string
 
 // PortForwardSessionInfoTargetKind What the tunnel points at. `unknown` is a session whose target was deleted after it opened — the row outlives the resource so the audit trail stays complete.
@@ -5377,6 +5425,9 @@ type TerminalSession struct {
 	// MaxDurationSeconds Maximum duration of a session, regardless of activity.
 	MaxDurationSeconds int `json:"max_duration_seconds"`
 
+	// State Whether the target was already up when this session was minted, or is being started for it (ADR-067 §3/§6). `waking` means the mint asked the server's waker for a cold start and did **not** wait for it: the shell opens as usual and the wait is paid inside the session, which is why the client is told here — it prints the notice, and sizes its patience, **before** the terminal window appears rather than learning it from a control frame once the session is already open and apparently frozen. Absent means `ready`: an older manager sends nothing, and a session whose target was already running has nothing to announce. A `waking` session can still end with the `wake_failed` reason — this field states what the mint asked for, not how it turned out.
+	State *TerminalSessionState `json:"state,omitempty"`
+
 	// TargetKind Server (SSH shell) or container (`docker exec`) — §5.7.
 	TargetKind TerminalSessionTargetKind `json:"target_kind"`
 
@@ -5393,6 +5444,9 @@ type TerminalSession struct {
 	// WebsocketPath Path of the WebSocket to open on the **same origin** as the API (`ws://` or `wss://` depending on the page's scheme), with the token in the query string (`?token=…`). The stream protocol is outside OpenAPI (§27.24).
 	WebsocketPath string `json:"websocket_path"`
 }
+
+// TerminalSessionState Whether the target was already up when this session was minted, or is being started for it (ADR-067 §3/§6). `waking` means the mint asked the server's waker for a cold start and did **not** wait for it: the shell opens as usual and the wait is paid inside the session, which is why the client is told here — it prints the notice, and sizes its patience, **before** the terminal window appears rather than learning it from a control frame once the session is already open and apparently frozen. Absent means `ready`: an older manager sends nothing, and a session whose target was already running has nothing to announce. A `waking` session can still end with the `wake_failed` reason — this field states what the mint asked for, not how it turned out.
+type TerminalSessionState string
 
 // TerminalSessionTargetKind Server (SSH shell) or container (`docker exec`) — §5.7.
 type TerminalSessionTargetKind string

@@ -1837,13 +1837,15 @@ func (ns NullTeamRole) Value() (driver.Value, error) {
 type TerminalEndReason string
 
 const (
-	TerminalEndReasonUserClose     TerminalEndReason = "user_close"
-	TerminalEndReasonIdleTimeout   TerminalEndReason = "idle_timeout"
-	TerminalEndReasonMaxDuration   TerminalEndReason = "max_duration"
-	TerminalEndReasonDisconnect    TerminalEndReason = "disconnect"
-	TerminalEndReasonRevoked       TerminalEndReason = "revoked"
-	TerminalEndReasonGrantExpired  TerminalEndReason = "grant_expired"
-	TerminalEndReasonTargetStopped TerminalEndReason = "target_stopped"
+	TerminalEndReasonUserClose         TerminalEndReason = "user_close"
+	TerminalEndReasonIdleTimeout       TerminalEndReason = "idle_timeout"
+	TerminalEndReasonMaxDuration       TerminalEndReason = "max_duration"
+	TerminalEndReasonDisconnect        TerminalEndReason = "disconnect"
+	TerminalEndReasonRevoked           TerminalEndReason = "revoked"
+	TerminalEndReasonGrantExpired      TerminalEndReason = "grant_expired"
+	TerminalEndReasonTargetStopped     TerminalEndReason = "target_stopped"
+	TerminalEndReasonTargetUnreachable TerminalEndReason = "target_unreachable"
+	TerminalEndReasonWakeFailed        TerminalEndReason = "wake_failed"
 )
 
 func (e *TerminalEndReason) Scan(src interface{}) error {
@@ -2939,6 +2941,8 @@ type PortForwardSession struct {
 	GrantID            *int64
 	AuthorizedUntil    pgtype.Timestamptz
 	LastHeartbeatAt    pgtype.Timestamptz
+	AttachKeyHash      []byte
+	AttachSeq          int64
 }
 
 type Preview struct {
@@ -3367,6 +3371,10 @@ type TerminalSession struct {
 	CreatedAt       pgtype.Timestamptz
 	TargetComponent *string
 	PreviewID       *int64
+	AttachKeyHash   []byte
+	AttachSeq       int64
+	StreamedAt      pgtype.Timestamptz
+	LastHeartbeatAt pgtype.Timestamptz
 }
 
 type UptimeCheck struct {

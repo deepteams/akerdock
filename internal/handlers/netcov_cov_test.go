@@ -890,13 +890,13 @@ func TestNetcovIntOrDefaultTreatsZeroAsAbsent(t *testing.T) {
 
 func TestNetcovTunnelPresenceWaitExpires(t *testing.T) {
 	var p TunnelPresence
-	_ = p.register(1)
+	bridge := p.register(1)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if p.Wait(ctx) {
 		t.Fatal("Wait must report failure when the context expires with live bridges")
 	}
-	p.unregister(1)
+	p.unregister(1, bridge)
 	if !p.Wait(context.Background()) {
 		t.Fatal("Wait must succeed once every bridge unregistered")
 	}

@@ -40,6 +40,13 @@ func ServeWithTelemetry(ctx context.Context, dir, addr string, rt dockerruntime.
 	// reload updates its host table but must never drop a live tunnel.
 	ingress := NewIngress(logger)
 
+	// The live waker, republished on every routing reload. Declared before the
+	// command channel because the executor's WakeResource (ADR-067) resolves it
+	// through this very pointer: the wake a session asks for must land on the
+	// instance serving HTTP at that moment, or the two paths would not share a
+	// single-flight gate.
+	var current atomic.Pointer[Waker]
+
 	var agent *Agent
 	if agentCfg.Enabled() {
 		agent = NewAgent(agentCfg, docker, logger)
@@ -52,12 +59,12 @@ func ServeWithTelemetry(ctx context.Context, dir, addr string, rt dockerruntime.
 		}
 		exec := NewExecutor(rt, host, logger)
 		exec.Ingress = ingress
+		exec.Waker = current.Load
 		agent.Executor = exec
 		ingress.Notify = agent.Push
 		go agent.Run(ctx)
 	}
 
-	var current atomic.Pointer[Waker]
 	load := func() {
 		cfg, err := LoadConfig(dir)
 		if err != nil {

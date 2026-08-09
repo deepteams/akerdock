@@ -52,6 +52,10 @@ type httpControlPayload struct {
 	Cols   int    `json:"cols,omitempty"`
 	Rows   int    `json:"rows,omitempty"`
 	Reason string `json:"reason,omitempty"`
+	// Msg carries the operator sentence of an end frame (ADR-066 §3). The
+	// control wire has always had the field; dropping it here is what made the
+	// terminal print a bare reason where the port-forward prints a sentence.
+	Msg string `json:"msg,omitempty"`
 }
 
 // Liveness frames. They are the transport's business, not the session's: a
@@ -101,7 +105,7 @@ func (c *HTTPConn) readControl() {
 			continue
 		}
 		payload, err := json.Marshal(httpControlPayload{
-			Type: frame.Type, Cols: frame.Cols, Rows: frame.Rows, Reason: frame.Reason,
+			Type: frame.Type, Cols: frame.Cols, Rows: frame.Rows, Reason: frame.Reason, Msg: frame.Msg,
 		})
 		if err != nil {
 			continue
@@ -179,7 +183,7 @@ func (c *HTTPConn) Write(ctx context.Context, typ MessageType, data []byte) erro
 		return fmt.Errorf("terminal: control message is not JSON: %w", err)
 	}
 	return c.control.Send(ctx, tunnel.HTTPControlFrame{
-		Type: payload.Type, Cols: payload.Cols, Rows: payload.Rows, Reason: payload.Reason,
+		Type: payload.Type, Cols: payload.Cols, Rows: payload.Rows, Reason: payload.Reason, Msg: payload.Msg,
 	})
 }
 

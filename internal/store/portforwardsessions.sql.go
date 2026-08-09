@@ -14,17 +14,41 @@ import (
 
 const claimPortForwardSession = `-- name: ClaimPortForwardSession :one
 UPDATE port_forward_sessions
-SET claimed_at = now(), started_at = now(), last_heartbeat_at = now()
+SET claimed_at        = coalesce(claimed_at, now()),
+    started_at        = CASE WHEN attach_seq = 0 THEN now() ELSE started_at END,
+    last_heartbeat_at = now(),
+    attach_key_hash   = $2,
+    attach_seq        = attach_seq + 1
 WHERE token_hash = $1
-  AND claimed_at IS NULL
   AND ended_at IS NULL
   AND token_expires_at > now()
-RETURNING id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until, last_heartbeat_at
+  AND (attach_key_hash IS NULL OR attach_key_hash = $2)
+  AND (authorized_until IS NULL OR authorized_until > now())
+RETURNING id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until, last_heartbeat_at, attach_key_hash, attach_seq
 `
 
-// Single-use attach: consumes the token atomically (a replay matches zero rows).
-func (q *Queries) ClaimPortForwardSession(ctx context.Context, tokenHash string) (PortForwardSession, error) {
-	row := q.db.QueryRow(ctx, claimPortForwardSession, tokenHash)
+type ClaimPortForwardSessionParams struct {
+	TokenHash     string
+	AttachKeyHash []byte
+}
+
+// Idempotent within the TTL, bound to the attacher (ADR-065): a first claim
+// stamps the attacher's key hash, a re-claim must present the same one, and a
+// different one matches zero rows — which is the replay the rule exists to
+// stop. What one mint authorizes is one live SESSION, not one HTTP request; the
+// ladder above this statement (ADR-064) retries, and a rung that gave up must
+// not have destroyed what it was trying to open.
+//
+// The right-hand sides read pre-update values, so claimed_at and started_at are
+// pinned to the FIRST claim: a retry loop must not be able to buy itself extra
+// duration by restarting the max-duration ceiling.
+//
+// authorized_until is checked here as well as at mint (ADR-045). A grant revoked
+// between two rungs already ends the row, so `ended_at IS NULL` catches it; this
+// is the belt to that brace, because a re-claim is the one path that can arrive
+// after an authorization changed.
+func (q *Queries) ClaimPortForwardSession(ctx context.Context, arg ClaimPortForwardSessionParams) (PortForwardSession, error) {
+	row := q.db.QueryRow(ctx, claimPortForwardSession, arg.TokenHash, arg.AttachKeyHash)
 	var i PortForwardSession
 	err := row.Scan(
 		&i.ID,
@@ -49,6 +73,8 @@ func (q *Queries) ClaimPortForwardSession(ctx context.Context, tokenHash string)
 		&i.GrantID,
 		&i.AuthorizedUntil,
 		&i.LastHeartbeatAt,
+		&i.AttachKeyHash,
+		&i.AttachSeq,
 	)
 	return i, err
 }
@@ -87,7 +113,7 @@ INSERT INTO port_forward_sessions (
     $9, $2, $10, $3,
     $11, $4, $5
 )
-RETURNING id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until, last_heartbeat_at
+RETURNING id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until, last_heartbeat_at, attach_key_hash, attach_seq
 `
 
 type CreatePortForwardSessionParams struct {
@@ -144,6 +170,8 @@ func (q *Queries) CreatePortForwardSession(ctx context.Context, arg CreatePortFo
 		&i.GrantID,
 		&i.AuthorizedUntil,
 		&i.LastHeartbeatAt,
+		&i.AttachKeyHash,
+		&i.AttachSeq,
 	)
 	return i, err
 }
@@ -151,16 +179,24 @@ func (q *Queries) CreatePortForwardSession(ctx context.Context, arg CreatePortFo
 const endPortForwardSession = `-- name: EndPortForwardSession :execrows
 UPDATE port_forward_sessions
 SET ended_at = now(), end_reason = $2
-WHERE id = $1 AND ended_at IS NULL
+WHERE id = $1
+  AND ended_at IS NULL
+  AND ($3::bigint IS NULL OR attach_seq = $3::bigint)
 `
 
 type EndPortForwardSessionParams struct {
 	ID        int64
 	EndReason *TerminalEndReason
+	AttachSeq *int64
 }
 
+// The optional generation is ADR-065 §5: an attach finalizes the session only
+// while it is still THE attach, so a socket that lost a re-claim cannot close
+// the row its successor is using. Revocation, the operator's close and the
+// sweep pass NULL, because their verdict is about the session and not about
+// whichever socket happens to hold it.
 func (q *Queries) EndPortForwardSession(ctx context.Context, arg EndPortForwardSessionParams) (int64, error) {
-	result, err := q.db.Exec(ctx, endPortForwardSession, arg.ID, arg.EndReason)
+	result, err := q.db.Exec(ctx, endPortForwardSession, arg.ID, arg.EndReason, arg.AttachSeq)
 	if err != nil {
 		return 0, err
 	}
@@ -168,7 +204,7 @@ func (q *Queries) EndPortForwardSession(ctx context.Context, arg EndPortForwardS
 }
 
 const getPortForwardSessionByUUID = `-- name: GetPortForwardSessionByUUID :one
-SELECT id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until, last_heartbeat_at FROM port_forward_sessions WHERE uuid = $1 AND team_id = $2
+SELECT id, uuid, team_id, user_id, server_id, resource_id, preview_id, target_name, target_component, target_port, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, external_endpoint_id, grant_id, authorized_until, last_heartbeat_at, attach_key_hash, attach_seq FROM port_forward_sessions WHERE uuid = $1 AND team_id = $2
 `
 
 type GetPortForwardSessionByUUIDParams struct {
@@ -202,6 +238,8 @@ func (q *Queries) GetPortForwardSessionByUUID(ctx context.Context, arg GetPortFo
 		&i.GrantID,
 		&i.AuthorizedUntil,
 		&i.LastHeartbeatAt,
+		&i.AttachKeyHash,
+		&i.AttachSeq,
 	)
 	return i, err
 }
@@ -210,14 +248,25 @@ const heartbeatPortForwardSession = `-- name: HeartbeatPortForwardSession :execr
 UPDATE port_forward_sessions
 SET last_heartbeat_at = now()
 WHERE id = $1
+  AND attach_seq = $2
   AND claimed_at IS NOT NULL
   AND ended_at IS NULL
 `
 
+type HeartbeatPortForwardSessionParams struct {
+	ID        int64
+	AttachSeq int64
+}
+
 // The WebSocket already pings every 20 s. Persisting one successful beat lets
 // another replica, or the process that starts after a crash, reject a ghost.
-func (q *Queries) HeartbeatPortForwardSession(ctx context.Context, id int64) (int64, error) {
-	result, err := q.db.Exec(ctx, heartbeatPortForwardSession, id)
+//
+// Generation-aware since ADR-065 §5: the bridge already ends itself when this
+// updates zero rows — "another replica or the scheduler finalized this" — and
+// "another attach superseded me" is the same sentence. It is how supersession
+// converges across replicas, within one beat, with no new mechanism.
+func (q *Queries) HeartbeatPortForwardSession(ctx context.Context, arg HeartbeatPortForwardSessionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, heartbeatPortForwardSession, arg.ID, arg.AttachSeq)
 	if err != nil {
 		return 0, err
 	}
@@ -225,7 +274,7 @@ func (q *Queries) HeartbeatPortForwardSession(ctx context.Context, id int64) (in
 }
 
 const listPortForwardSessionsPage = `-- name: ListPortForwardSessionsPage :many
-SELECT s.id, s.uuid, s.team_id, s.user_id, s.server_id, s.resource_id, s.preview_id, s.target_name, s.target_component, s.target_port, s.client_ip, s.token_hash, s.token_expires_at, s.claimed_at, s.started_at, s.ended_at, s.end_reason, s.created_at, s.external_endpoint_id, s.grant_id, s.authorized_until, s.last_heartbeat_at, u.email AS user_email, e.uuid AS endpoint_uuid
+SELECT s.id, s.uuid, s.team_id, s.user_id, s.server_id, s.resource_id, s.preview_id, s.target_name, s.target_component, s.target_port, s.client_ip, s.token_hash, s.token_expires_at, s.claimed_at, s.started_at, s.ended_at, s.end_reason, s.created_at, s.external_endpoint_id, s.grant_id, s.authorized_until, s.last_heartbeat_at, s.attach_key_hash, s.attach_seq, u.email AS user_email, e.uuid AS endpoint_uuid
 FROM port_forward_sessions s
 LEFT JOIN users u ON u.id = s.user_id
 LEFT JOIN external_endpoints e ON e.id = s.external_endpoint_id
@@ -282,6 +331,8 @@ type ListPortForwardSessionsPageRow struct {
 	GrantID            *int64
 	AuthorizedUntil    pgtype.Timestamptz
 	LastHeartbeatAt    pgtype.Timestamptz
+	AttachKeyHash      []byte
+	AttachSeq          int64
 	UserEmail          *string
 	EndpointUuid       pgtype.UUID
 }
@@ -329,6 +380,8 @@ func (q *Queries) ListPortForwardSessionsPage(ctx context.Context, arg ListPortF
 			&i.GrantID,
 			&i.AuthorizedUntil,
 			&i.LastHeartbeatAt,
+			&i.AttachKeyHash,
+			&i.AttachSeq,
 			&i.UserEmail,
 			&i.EndpointUuid,
 		); err != nil {

@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -71,20 +72,11 @@ type portForwardSpec struct {
 	name       string
 	component  *string
 	port       int
-	// application marks a resourceID that names an APPLICATION row, the only
-	// resource kind with a scale-to-zero clock to stamp (ADR-037). The
-	// database mint leaves it false rather than have the mint re-read the
-	// resource it just resolved to learn its own kind.
-	application bool
-}
-
-// applicationID is the resource whose application row carries the scale-to-zero
-// clock, or nil when the target has none — a database, a Compose stack.
-func (s portForwardSpec) applicationID() *int64 {
-	if !s.application {
-		return nil
-	}
-	return s.resourceID
+	// wake is what the mint resolved about the target's scale-to-zero state
+	// (ADR-067 §8): which clock to stamp, and whether this session may — and
+	// must — ask for a wake before it answers. The zero value is a target with
+	// neither, which is what the database mint leaves it as.
+	wake sessionWakeSpec
 }
 
 // CreateApplicationPortForward implements POST /applications/{uuid}/port-forwards.
@@ -103,7 +95,7 @@ func (a *API) CreateApplicationPortForward(w http.ResponseWriter, r *http.Reques
 	}
 	spec := portForwardSpec{
 		serverID: row.ServerRowID, resourceID: &row.Resource.ID, name: row.Resource.Name,
-		port: body.Port, application: true,
+		port: body.Port, wake: applicationWakeSpec(row),
 	}
 	if params.Component != nil && *params.Component != "" {
 		if !a.componentExists(w, r, row.Resource.ID, *params.Component) {
@@ -166,7 +158,7 @@ func (a *API) CreatePreviewPortForward(w http.ResponseWriter, r *http.Request, a
 	spec := portForwardSpec{
 		serverID: row.ServerRowID, resourceID: &row.Resource.ID, previewID: &preview.ID,
 		name: fmt.Sprintf("%s · PR #%d", row.Resource.Name, preview.PrID), port: body.Port,
-		application: true,
+		wake: previewWakeSpec(row, preview),
 	}
 	if params.Component != nil && *params.Component != "" {
 		if !a.componentExists(w, r, row.Resource.ID, *params.Component) {
@@ -216,6 +208,14 @@ func (a *API) createPortForward(w http.ResponseWriter, r *http.Request, id *auth
 			fmt.Sprintf("this team already has %d open port-forward sessions", open))
 		return
 	}
+	// ADR-067 §3: a sleeping target is woken by the MINT, which is the only step
+	// carrying the caller's identity — the attach holds a one-shot token and
+	// nothing else, so it can neither authorize a state change nor attribute one
+	// to a person. Before the row, because every refusal here must leave none.
+	wake, ok := a.wakeForSession(w, r, id, spec.wake, portForwardFamily)
+	if !ok {
+		return
+	}
 	token, err := newPortForwardToken()
 	if err != nil {
 		a.internalError(w, r, "port-forward", err)
@@ -245,6 +245,10 @@ func (a *API) createPortForward(w http.ResponseWriter, r *http.Request, id *auth
 		return
 	}
 	a.recordAudit(r, id, "port-forward.open", "port_forward_session", row.Uuid)
+	// The wake is now findable by the attach that follows (ADR-067 §5): the
+	// session uuid only reaches a client through the response below, so no
+	// attach can have raced this.
+	a.rememberWake(uuidString(row.Uuid), wake)
 	// Stamp the target's activity clock HERE, not at the first heartbeat
 	// twenty seconds from now (ADR-067 §1). A tunnel is typically opened
 	// precisely because nothing has touched the resource in a while, so the
@@ -253,35 +257,63 @@ func (a *API) createPortForward(w http.ResponseWriter, r *http.Request, id *auth
 	// attach, which then fails with "the target container is not running" — or
 	// the session dies one beat later with target_stopped. It self-corrects on
 	// a retry, and it still makes the tunnel the one door that appears to
-	// break, which is the complaint this whole change answers.
-	a.recordTunnelActivity(r.Context(), spec.previewID, spec.applicationID(), uuidString(row.Uuid))
+	// break, which is the complaint this whole change answers. ADR-067 §1 keeps
+	// it on both branches — necessarily on the wake path, where the resource has
+	// just been started and would otherwise be a candidate for the very next
+	// pass.
+	a.stampSessionActivity(r.Context(), spec.wake, uuidString(row.Uuid))
 	httpapi.WriteJSON(w, http.StatusCreated, api.PortForwardSession{
 		Uuid:           uuidString(row.Uuid),
 		Port:           spec.port,
 		WebsocketPath:  tunnelAttachPath,
 		Token:          token,
 		TokenExpiresAt: row.TokenExpiresAt.Time,
+		// ADR-067 §6: the CLI prints the cold-start notice and widens its first
+		// connection's budget from THIS, before it announces the listener — the
+		// control frame arrives afterwards, with a developer already typing into
+		// what looks like a hung tunnel.
+		State: wakeMintState(wake, api.PortForwardSessionStateWaking),
 	})
 }
 
 // TunnelWebSocket implements GET on the attach path (?token=…) — outside the contract
-// (ADR-032, like /terminal/ws), mounted next to /auth. The one-time token is
-// the sole credential; the SQL claim consumes it atomically.
+// (ADR-032, like /terminal/ws), mounted next to /auth. The token is the sole
+// credential in the query string; the attach key, when the CLI sends one, rides
+// the same header the HTTP rungs use (ADR-065 §7).
+//
+// This rung deliberately keeps resolving the target BEFORE the upgrade, which
+// ADR-066 §5 decided rather than overlooked: the defect answer-first removes is
+// manufactured by a BOUNDED open, and websocket.Dial has none — the server may
+// take its whole handshake and still answer, and the CLI renders the 409's body
+// verbatim. There is no bet to lose here, so the best diagnosis on the ladder
+// stays where it is.
 func (a *API) TunnelWebSocket(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	if token == "" {
 		httpapi.WriteError(w, r, http.StatusUnauthorized, httpapi.CodeUnauthorized, "missing tunnel token")
 		return
 	}
-	row, err := a.Store.ClaimPortForwardSession(r.Context(), hashPortForwardToken(token))
+	key, err := attachClaimKey(r.Header.Get(tunnel.EgressHTTP.AttachKeyHeader))
+	if err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "invalid attach key")
+		return
+	}
+	row, err := a.claimPortForwardSession(r.Context(), token, key)
 	if err != nil {
 		httpapi.WriteError(w, r, http.StatusUnauthorized, httpapi.CodeUnauthorized, "invalid, expired or already used tunnel token")
 		return
 	}
+	a.supersedePortForwardAttach(row)
 
-	client, addr, errMsg := a.tunnelTarget(r.Context(), row)
+	wake := a.lookupWake(uuidString(row.Uuid))
+	client, addr, errMsg := a.tunnelTarget(r.Context(), wake, row)
 	if errMsg != "" {
-		a.endPortForwardSession(row, tunnel.EndDisconnect)
+		// Refused on its merits (ADR-065 §6): a re-claim would only reproduce the
+		// same verdict, so the row is finalized rather than left re-claimable.
+		// A target that never came up ends as wake_failed rather than
+		// target_unreachable, so the audit row and the sentence the developer
+		// reads come from the same value (ADR-067 §6).
+		a.endPortForwardAttach(row, sessionEndReason(wake))
 		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, errMsg)
 		return
 	}
@@ -289,7 +321,10 @@ func (a *API) TunnelWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"akerdock-tunnel-v1"}})
 	if err != nil {
-		a.endPortForwardSession(row, tunnel.EndDisconnect)
+		// Nothing was ever served and the upgrade never committed: this is the
+		// client going away, not a verdict on the session (ADR-065 §6). Leaving
+		// the row claimed and un-ended is what lets the next rung take it.
+		a.endAbandonedPortForwardAttach(row)
 		return
 	}
 	// The client frames raw TCP into binary messages whose size follows the
@@ -305,29 +340,110 @@ func (a *API) TunnelWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Registered BEFORE the heartbeat is installed: the beat cuts the session
 	// through this same channel when the target is gone, and a beat that fired
 	// against an unregistered bridge would have nowhere to report it.
-	bounds.Cancel = a.Tunnels.register(row.ID)
+	cancel := a.Tunnels.register(row.ID)
+	bounds.Cancel = cancel
 	bounds.OnHeartbeat = a.portForwardHeartbeat(row)
-	defer a.Tunnels.unregister(row.ID)
+	defer a.Tunnels.unregister(row.ID, cancel)
 	reason := tunnel.Bridge(r.Context(), tunnelConn{conn}, dial, bounds)
 	// A session cut by its grant running out is neither an idle timeout nor a
 	// revocation, and the CLI says exactly that to the developer (ADR-045 §5).
 	if reason == tunnel.EndMaxDuration && row.GrantID != nil {
 		reason = endReasonGrantExpired
 	}
-	a.endPortForwardSession(row, reason)
+	if reason == tunnel.EndDisconnect && r.Context().Err() != nil {
+		a.endAbandonedPortForwardAttach(row)
+	} else {
+		a.endPortForwardAttach(row, reason)
+	}
 	_ = conn.Close(websocket.StatusNormalClosure, string(reason))
 }
 
-// tunnelTarget dials the session's server and resolves the address to connect
-// to: a declared external endpoint's own host:port (ADR-045), or the container's
-// IP on its Docker network — both reachable from the host over SSH.
-func (a *API) tunnelTarget(ctx context.Context, row store.PortForwardSession) (*sshexec.Client, string, string) {
+// attachClaimKey turns the attach key a request presents into what the claim
+// stores as the attacher's identity (ADR-065 §3). The value is a hash: the
+// plaintext key lives only in the request headers, exactly like the token.
+//
+// An attach that presents NO key — an N-1 CLI during a rolling upgrade, the
+// dashboard's browser terminal, which is not on the ladder and has no retry to
+// rescue — gets server-generated random bytes rather than a NULL or a fixed
+// sentinel. No presentable key hashes to those, so such a session stays strictly
+// single-use, exactly as before. This is the part worth stating plainly: a
+// column left in a state that matches ANYTHING would turn the compatibility
+// shim into the replay hole the single-use rule exists to keep shut (§7).
+func attachClaimKey(header string) ([sha256.Size]byte, error) {
+	if header == "" {
+		var hash [sha256.Size]byte
+		if _, err := rand.Read(hash[:]); err != nil {
+			return hash, err
+		}
+		return hash, nil
+	}
+	return decodeAttachKey(header)
+}
+
+// claimPortForwardSession redeems the mint token on behalf of one attacher. The
+// idempotence lives in the statement's WHERE and not here, because a
+// read-then-write would race two rungs of the same ladder against each other and
+// produce two attaches that both believe they own the session — the one failure
+// mode strict single-use never had (ADR-065 §4).
+func (a *API) claimPortForwardSession(ctx context.Context, token string, key [sha256.Size]byte) (store.PortForwardSession, error) {
+	return a.Store.ClaimPortForwardSession(ctx, store.ClaimPortForwardSessionParams{
+		TokenHash:     hashPortForwardToken(token),
+		AttachKeyHash: key[:],
+	})
+}
+
+// supersedePortForwardAttach cuts the attach this claim displaced. A successful
+// re-claim means the previous one lost, and two live attaches on one session is
+// exactly what the mint's authorization forbids — it would also mean two SSH
+// clients against the same target (ADR-065 §5).
+//
+// The generation is what makes this decidable rather than a guess: anything
+// above the first claim is a re-claim. The cut travels the registry a revocation
+// uses, which is keyed on the session row rather than on a transport, so it
+// reaches an incumbent on either rung of the ladder. Across replicas the same
+// generation converges through the heartbeat instead, within one beat.
+func (a *API) supersedePortForwardAttach(row store.PortForwardSession) {
+	if row.AttachSeq <= 1 {
+		return
+	}
+	if a.Tunnels.Cut(row.ID, endReasonSuperseded) {
+		a.Logger.Info("port-forward attach superseded",
+			"session", uuidString(row.Uuid), "attach", row.AttachSeq)
+	}
+}
+
+// portForwardTarget is what the LOCAL half of an attach resolves (ADR-066 §1):
+// the server to reach the target through, and either an external endpoint's
+// frozen host:port (ADR-045) or the name of the container whose IP the remote
+// half will look up. It is a NAME, not a connection — every field comes from an
+// indexed read on a pooled Postgres connection, which is what makes it cheap
+// and certain enough to answer before the response head.
+type portForwardTarget struct {
+	server store.Server
+	// addr is set for an external endpoint, whose address was frozen at
+	// declaration; container is set for everything else, and the port comes off
+	// the session row.
+	addr      string
+	container string
+	port      int32
+}
+
+// tunnelTargetSpec is the local half: the store lookups that resolve WHAT the
+// session names. Its refusals are the actionable ones — the target server no
+// longer exists, the resource no longer exists, the preview was destroyed — and
+// they keep their 409 and their prose because a fact the control plane holds
+// locally can be stated in microseconds.
+//
+// Everything that crosses the network to a machine we do not own — the agent
+// ContainerInspect, the SSH handshake — is resolveTunnelTarget's, and lands
+// behind the response head on the HTTP rungs.
+func (a *API) tunnelTargetSpec(ctx context.Context, row store.PortForwardSession) (portForwardTarget, string) {
 	if row.ServerID == nil {
-		return nil, "", "the target no longer exists"
+		return portForwardTarget{}, "the target no longer exists"
 	}
 	server, err := a.Store.GetServerByID(ctx, *row.ServerID)
 	if err != nil {
-		return nil, "", "the target server no longer exists"
+		return portForwardTarget{}, "the target server no longer exists"
 	}
 
 	// External endpoint (ADR-045): the address was frozen at declaration, so
@@ -335,35 +451,110 @@ func (a *API) tunnelTarget(ctx context.Context, row store.PortForwardSession) (*
 	if row.ExternalEndpointID != nil {
 		endpoint, err := a.Store.GetExternalEndpointByID(ctx, *row.ExternalEndpointID)
 		if err != nil {
-			return nil, "", "the target endpoint no longer exists"
+			return portForwardTarget{}, "the target endpoint no longer exists"
 		}
-		client, msg := a.dialSessionServer(ctx, server)
-		if msg != "" {
-			return nil, "", msg
-		}
-		return client, net.JoinHostPort(endpoint.Host, strconv.Itoa(int(endpoint.Port))), ""
+		return portForwardTarget{
+			server: server,
+			addr:   net.JoinHostPort(endpoint.Host, strconv.Itoa(int(endpoint.Port))),
+		}, ""
 	}
 
 	ref, _, msg := a.resolveTunnelTargetRef(ctx, row)
 	if msg != "" {
-		return nil, "", msg
+		return portForwardTarget{}, msg
 	}
+	return portForwardTarget{server: server, container: ref.container, port: row.TargetPort}, ""
+}
 
-	// The container's IP on its Docker network — reachable host→container even
-	// without a published port. First network wins (INV-011 naming); read
-	// through the agent channel (ADR-052) before paying the SSH dial.
-	ip, err := a.containerIP(ctx, server.ID, ref.container)
-	if err != nil {
-		if dockerruntime.IsUnavailable(err) {
-			return nil, "", "the server's agent is not connected right now"
+// resolveTunnelTarget is the remote half: an agent RPC and a full SSH handshake,
+// each bounded by what it already carries (the RPC's own timeout, and the
+// server's ssh_timeout_seconds — 30 s by default). No new tunable, and no bet on
+// how long someone else's network takes, because nothing is waiting on a
+// response head for it any more (ADR-066 §2).
+//
+// Returns a user-facing message (not an error) on failure: on the WebSocket rung
+// it is written straight into the 409, and on the HTTP rungs it travels beside
+// the session's `target_unreachable`.
+func (a *API) resolveTunnelTarget(ctx context.Context, target portForwardTarget) (*sshexec.Client, string, string) {
+	addr := target.addr
+	if addr == "" {
+		// The container's IP on its Docker network — reachable host→container
+		// even without a published port. First network wins (INV-011 naming);
+		// read through the agent channel (ADR-052) before paying the SSH dial.
+		ip, err := a.containerIP(ctx, target.server.ID, target.container)
+		if err != nil {
+			if dockerruntime.IsUnavailable(err) {
+				return nil, "", "the server's agent is not connected right now"
+			}
+			return nil, "", "the target container is not running"
 		}
-		return nil, "", "the target container is not running"
+		addr = fmt.Sprintf("%s:%d", ip, target.port)
 	}
-	client, msg := a.dialSessionServer(ctx, server)
+	client, msg := a.dialSessionServer(ctx, target.server)
 	if msg != "" {
 		return nil, "", msg
 	}
-	return client, fmt.Sprintf("%s:%d", ip, row.TargetPort), ""
+	return client, addr, ""
+}
+
+// resolveTunnelTargetAfterWake is the remote half with ADR-067's two gates in
+// front of it, and it is what every rung resolves through once a session may
+// have been minted over a wake.
+//
+// Gate 1 is the wake's own answer: until it lands, there is nothing to inspect —
+// the container the IP would come from has not been started yet — so the
+// session's operation is not attempted at all while the wake is in flight.
+//
+// Gate 2 is the TCP dial itself, retried. `running` is a fact about a container,
+// not about a listener: a healthcheck may not be declared, and when it is, it
+// says nothing about THIS port. So the readiness of the port is decided by
+// dialing it over the very SSH path the tunnel will carry bytes on — the
+// connection is completed and then closed, which is a connect the target may log
+// but never a half-open probe, and it needs no protocol knowledge at all
+// (ADR-032's tunnel is protocol-blind and stays so).
+func (a *API) resolveTunnelTargetAfterWake(ctx context.Context, wake *sessionWake, target portForwardTarget) (*sshexec.Client, string, string) {
+	if msg, ok := wake.await(ctx); !ok {
+		return nil, "", msg
+	}
+	client, addr, msg := a.resolveTunnelTarget(ctx, target)
+	if msg != "" || wake == nil {
+		return client, addr, msg
+	}
+	if msg := retryUntilReady(ctx, func(ctx context.Context) string {
+		// One attempt is bounded like any other dial on this path. The budget
+		// cannot be imposed by the retry loop itself, because the SAME loop
+		// serves the terminal, where the context that opens the exec is the one
+		// the shell then lives on — a timeout there would kill the session it
+		// just established, fifteen seconds in.
+		probeCtx, cancelProbe := context.WithTimeout(ctx, tunnel.EgressDialTimeout)
+		defer cancelProbe()
+		conn, err := dialTCPContext(probeCtx, client, addr)
+		if err != nil {
+			return "the target woke but is not accepting connections on " + addr +
+				" yet: " + strings.SplitN(err.Error(), "\n", 2)[0]
+		}
+		_ = conn.Close()
+		return ""
+	}); msg != "" {
+		wake.gateFailed.Store(true)
+		_ = client.Close()
+		return nil, "", msg
+	}
+	return client, addr, ""
+}
+
+// tunnelTarget is the two halves run back to back, gates included — what the
+// WebSocket rung still does before it upgrades (ADR-066 §5). That rung pays the
+// whole cold start in front of its handshake, which is the right place for it
+// here: websocket.Dial carries no open budget to lose, and a refusal is a 409
+// whose body the CLI prints verbatim — a better report than any frame on a
+// socket that was never upgraded.
+func (a *API) tunnelTarget(ctx context.Context, wake *sessionWake, row store.PortForwardSession) (*sshexec.Client, string, string) {
+	target, msg := a.tunnelTargetSpec(ctx, row)
+	if msg != "" {
+		return nil, "", msg
+	}
+	return a.resolveTunnelTargetAfterWake(ctx, wake, target)
 }
 
 // tunnelTargetRef is what a resource-backed session points at: the resource
@@ -427,6 +618,26 @@ func (a *API) resolveTunnelTargetRef(ctx context.Context, row store.PortForwardS
 // with a reason the CLI can print turns that silence into an error within one
 // beat.
 const endReasonTargetStopped tunnel.EndReason = "target_stopped"
+
+// endReasonTargetUnreachable is what a session whose target could not be
+// reached reports (ADR-066 §3). Since the attach answers before it dials, an
+// agent that is not connected, a container that is not running or a server that
+// refuses SSH are no longer a 409 at redeem: they are discovered while the
+// session is already open, and the developer learns them on the session stream.
+//
+// It exists because the value is PERSISTED, and the members that carried it
+// until now were wrong: `disconnect` means "the peer vanished" and the CLI
+// renders it as the connection to the manager having dropped, which sends a
+// developer to inspect their own network for a preview that was destroyed on the
+// server. The operator sentence rides beside it in the frame's msg, so the row
+// and the message read the same.
+const endReasonTargetUnreachable tunnel.EndReason = "target_unreachable"
+
+// endReasonSuperseded is the reason a displaced attach is cut with when a
+// re-claim takes its session (ADR-065 §5). It is deliberately WIRE-ONLY and is
+// never persisted: it is a fact about a socket, not about the session, and the
+// session it names is still open — for the attach that won.
+const endReasonSuperseded tunnel.EndReason = "superseded"
 
 // endReasonGrantExpired is the ADR-045 close reason: the tunnel outlived
 // nothing — its authorization ran out. It mirrors the enum value added to
@@ -510,14 +721,17 @@ func (a *API) portForwardHeartbeat(row store.PortForwardSession) func(context.Co
 	return func(parent context.Context) bool {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), portForwardBeatBudget)
 		defer cancel()
-		n, err := a.Store.HeartbeatPortForwardSession(ctx, row.ID)
+		n, err := a.Store.HeartbeatPortForwardSession(ctx, store.HeartbeatPortForwardSessionParams{
+			ID: row.ID, AttachSeq: row.AttachSeq,
+		})
 		if err != nil {
 			a.Logger.Warn("port-forward heartbeat failed", "session", uuidString(row.Uuid), "error", err)
 			return true
 		}
-		// Zero means another replica or the scheduler has finalized the row.
-		// Do not leave the actual socket alive after its durable authorization
-		// is gone.
+		// Zero means another replica or the scheduler has finalized the row — or,
+		// since ADR-065 §5, that another attach superseded this one, which is the
+		// same sentence and the same conclusion. Do not leave the actual socket
+		// alive after its durable authorization is gone.
 		if n == 0 {
 			return false
 		}
@@ -572,12 +786,14 @@ func (a *API) cutOnStoppedTarget(row store.PortForwardSession, why string) {
 	}
 }
 
-// recordTunnelActivity feeds scale-to-zero the one signal it structurally
+// recordSessionActivity feeds scale-to-zero the one signal it structurally
 // cannot see. Its only source is the waker's per-resource activity file, which
 // moves when the waker serves a PROXIED HTTP request (ADR-036/037); a tunnel
-// goes control plane → SSH → container IP and never crosses the proxy, so a
-// tunnelled session reads as perfect idleness — and the scheduler stops the
-// very container the developer is connected to.
+// goes control plane → SSH → container IP and never crosses the proxy, and a
+// terminal crosses the agent as an opaque exec attach the waker is in no
+// position to attribute to a resource — so an attached session reads as perfect
+// idleness, and the scheduler stops the very container the developer is
+// connected to (ADR-067 §1).
 //
 // A preview instance carries its own row and wins over the application it
 // belongs to; both nil is a target with no clock at all — a database, a
@@ -587,7 +803,7 @@ func (a *API) cutOnStoppedTarget(row store.PortForwardSession, why string) {
 // A failure is logged and dropped, at the mint as at every beat: this is a
 // timestamp, and no tunnel should ever fail to open, or be dropped, because one
 // did not land.
-func (a *API) recordTunnelActivity(ctx context.Context, previewID, applicationID *int64, session string) {
+func (a *API) recordSessionActivity(ctx context.Context, previewID, applicationID *int64, session string) {
 	var err error
 	switch {
 	case previewID != nil:
@@ -598,7 +814,10 @@ func (a *API) recordTunnelActivity(ctx context.Context, previewID, applicationID
 		return
 	}
 	if err != nil {
-		a.Logger.Warn("port-forward activity not recorded", "session", session, "error", err)
+		// Not "port-forward": since ADR-067 §1 the terminal's beat and mint
+		// write through this same function, and a shell logging a tunnel's noun
+		// is the kind of small lie an operator wastes an hour on.
+		a.Logger.Warn("session activity not recorded", "session", session, "error", err)
 	}
 }
 
@@ -609,7 +828,7 @@ func (a *API) recordPortForwardActivity(ctx context.Context, row store.PortForwa
 	if ref.resource.ResourceType == store.ResourceTypeApplication {
 		applicationID = &ref.resource.ID
 	}
-	a.recordTunnelActivity(ctx, row.PreviewID, applicationID, uuidString(row.Uuid))
+	a.recordSessionActivity(ctx, row.PreviewID, applicationID, uuidString(row.Uuid))
 }
 
 // targetContainerStopped reports a container the agent DEFINITELY says is not
@@ -629,15 +848,63 @@ func (a *API) targetContainerStopped(ctx context.Context, serverID int64, contai
 		return dockerruntime.IsNotFound(err)
 	}
 	// A nil State is an answer we cannot read: only an explicit "not running"
-	// counts.
-	return resp.State != nil && !resp.State.Running
+	// counts. The embedded ContainerJSONBase is checked first and not for
+	// tidiness — State lives on it, so an inspect that decoded into a response
+	// with no container body at all (a truncated answer, a daemon shape we do
+	// not know) dereferences nil and panics the beat's goroutine, which takes
+	// the control plane with it. "We cannot read this state" is the same verdict
+	// here as everywhere else in this function: not an absence.
+	return resp.ContainerJSONBase != nil && resp.State != nil && !resp.State.Running
 }
 
+// endPortForwardSession finalizes the row unconditionally: the verdict of a
+// revocation, an operator's close or the sweep is about the session, not about
+// whichever socket happens to hold it (ADR-065 §5).
 func (a *API) endPortForwardSession(row store.PortForwardSession, reason tunnel.EndReason) {
+	a.finalizePortForwardSession(row, reason, nil)
+}
+
+// endPortForwardAttach finalizes on the way out of ONE attach, and only while
+// that attach is still THE attach: the generation guard makes a socket that lost
+// a re-claim update zero rows, so the row stays open for the winner and no close
+// audit is emitted for the loser (ADR-065 §5).
+//
+// `superseded` is never written, for the reason its constant gives: the session
+// did not end, this socket did.
+func (a *API) endPortForwardAttach(row store.PortForwardSession, reason tunnel.EndReason) {
+	if reason == endReasonSuperseded {
+		return
+	}
+	a.finalizePortForwardSession(row, reason, &row.AttachSeq)
+}
+
+// endAbandonedPortForwardAttach is the other half of ADR-065 §6, and the half
+// that makes the whole decision worth taking: a client that went away before
+// anything was served must not have its row killed on the way out, or the next
+// rung of the ladder is refused by `ended_at IS NULL` having gained nothing.
+//
+// The row is left claimed, un-ended and re-claimable for the remainder of its
+// TTL. Nobody is told anything, because nobody is listening. Past the TTL there
+// is nothing left to rescue — no key can re-claim an expired token — so the row
+// is finalized as the disconnect it was, rather than left for the sweep.
+//
+// The cost is a row that is claimed, unattached and still counted as open. It is
+// bounded at 90 s by the sweep's existing heartbeat floor: precisely the state a
+// crashed CLI already leaves behind, on machinery that already exists.
+func (a *API) endAbandonedPortForwardAttach(row store.PortForwardSession) {
+	if row.TokenExpiresAt.Time.After(time.Now()) {
+		return
+	}
+	a.endPortForwardAttach(row, tunnel.EndDisconnect)
+}
+
+func (a *API) finalizePortForwardSession(row store.PortForwardSession, reason tunnel.EndReason, attachSeq *int64) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	endReason := store.TerminalEndReason(reason)
-	n, err := a.Store.EndPortForwardSession(ctx, store.EndPortForwardSessionParams{ID: row.ID, EndReason: &endReason})
+	n, err := a.Store.EndPortForwardSession(ctx, store.EndPortForwardSessionParams{
+		ID: row.ID, EndReason: &endReason, AttachSeq: attachSeq,
+	})
 	if err != nil {
 		a.Logger.Warn("port-forward close failed", "session", uuidString(row.Uuid), "error", err)
 	}

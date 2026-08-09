@@ -331,6 +331,7 @@ func (a *API) CreatePreviewTerminalSession(w http.ResponseWriter, r *http.Reques
 		resourceID: &row.Resource.ID,
 		previewID:  &preview.ID,
 		name:       fmt.Sprintf("%s · PR #%d", row.Resource.Name, preview.PrID),
+		wake:       previewWakeSpec(row, preview),
 	}
 	if params.Component != nil && *params.Component != "" {
 		components, err := a.Store.ListServiceComponents(r.Context(), row.Resource.ID)

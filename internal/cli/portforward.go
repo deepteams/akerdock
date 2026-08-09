@@ -18,6 +18,8 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/spf13/cobra"
+
+	tun "github.com/deepteams/akerdock/internal/tunnel"
 )
 
 // mint path per resource kind (ADR-032).
@@ -174,6 +176,10 @@ func (c *Client) runPortForward(ctx context.Context, mintPath, component string,
 		WebsocketPath   string     `json:"websocket_path"`
 		Token           string     `json:"token"`
 		AuthorizedUntil *time.Time `json:"authorized_until"`
+		// State is ADR-067 §6's first channel. Absent is `ready`, which is both
+		// "the target was up" and "this manager predates the field" — the same
+		// nil, deliberately, so no client has to tell those two apart.
+		State string `json:"state"`
 	}
 	// An external endpoint froze its host and port at declaration, so its mint
 	// takes no body at all (ADR-045 §2) — stricter than the ADR-032 mints,
@@ -197,34 +203,26 @@ func (c *Client) runPortForward(ctx context.Context, mintPath, component string,
 		}
 	}
 
-	// The ladder's memory outlives the re-mint below, so a rung already known to
-	// refuse this path is not tried a second time on the fresh token.
-	state := newTransportState()
+	return c.forwardSession(ctx, mintedTunnel{
+		attachPath:      sess.WebsocketPath,
+		token:           sess.Token,
+		authorizedUntil: sess.AuthorizedUntil,
+		waking:          sess.State == mintStateWaking,
+	}, localPort, remotePort)
+}
 
-	// The mint token is single-use and the server claims it at the very top of
-	// the attach handler, BEFORE it inspects the container and dials SSH. An
-	// attach that reaches the server and then gives up waiting therefore leaves
-	// a burnt token behind, and every later attempt — any rung, WebSocket
-	// included — answers 401. One fresh session and one retry is the whole
-	// remedy, and it is capped at one on purpose: each mint writes an audit row
-	// and takes one of the team's ten concurrent slots (ADR-032), so a target
-	// that is genuinely broken must not be able to spend them in a loop.
-	//
-	// TRANSITIONAL (ADR-065): a retry is what a single-use token forces on a
-	// client that cannot tell "the server never saw this" from "the server saw
-	// it and is still working". Once a token re-presented by the same attach key
-	// within its TTL is accepted, the attempt stops burning anything and this
-	// loop has nothing left to remedy.
-	for attempt := 0; ; attempt++ {
-		err := c.forwardSession(ctx, state, sess.WebsocketPath, sess.Token, sess.AuthorizedUntil, localPort, remotePort)
-		var spent *tokenSpentError
-		if !errors.As(err, &spent) || attempt > 0 {
-			return err
-		}
-		if err := mint(); err != nil {
-			return err
-		}
-	}
+// mintedTunnel is what one mint handed back: where to attach, with what, until
+// when, and whether the target is being started for this session.
+type mintedTunnel struct {
+	attachPath      string
+	token           string
+	authorizedUntil *time.Time
+	// waking is the mint's own answer (ADR-067 §6), and it is the FIRST thing
+	// the developer is told — before the listener is announced, because after
+	// that they are already typing into what looks like a hung tunnel. The
+	// control frame that follows on the session's wire says the same thing, for
+	// a session whose server is newer than this field or older than it.
+	waking bool
 }
 
 // forwardSession runs one attempt on one minted token: ADR-064's ladder first —
@@ -233,12 +231,28 @@ func (c *Client) runPortForward(ctx context.Context, mintPath, component string,
 // negotiated or the server predates the ladder.
 func (c *Client) forwardSession(
 	ctx context.Context,
-	state *transportState,
-	attachPath, token string,
-	authorizedUntil *time.Time,
+	minted mintedTunnel,
 	localPort, remotePort int,
 ) error {
-	switch err := c.forwardOverHTTP(ctx, state, attachPath, token, authorizedUntil, localPort, remotePort); {
+	attachPath, token, authorizedUntil := minted.attachPath, minted.token, minted.authorizedUntil
+	// Before anything is opened, and once: the wait this session is about to
+	// make the developer sit through is the platform's doing, and a tunnel that
+	// takes a silent minute to serve its first connection reads as the bug this
+	// whole decision fixes.
+	if minted.waking {
+		fmt.Fprintln(os.Stderr, wakeColdStartNotice)
+	}
+	// One attach key per mint, generated HERE and not inside the ladder loop
+	// (ADR-065 §3): it is what identifies the attacher, so a key per rung would
+	// make every step down a stranger presenting someone else's token — which is
+	// precisely the replay the server is right to refuse. Generated once, it
+	// turns a step-down into the same attacher retrying, and the claim it
+	// re-presents is idempotent for the token's TTL.
+	key, err := tun.NewIngressAttachKey()
+	if err != nil {
+		return err
+	}
+	switch err := c.forwardOverHTTP(ctx, minted, key, localPort, remotePort); {
 	case err == nil:
 		return nil
 	case !errors.Is(err, errNoHTTPTransport):
@@ -246,17 +260,19 @@ func (c *Client) forwardSession(
 	}
 
 	wsURL := toWS(c.base) + attachPath + "?" + url.Values{"token": {token}}.Encode()
-	conn, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{Subprotocols: []string{"akerdock-tunnel-v1"}})
+	// The bottom rung carries the same key as the rungs above it, in the header
+	// the path already uses rather than in the query string (ADR-065 §7): a
+	// WebSocket dial from a CLI can set arbitrary headers, and a claim credential
+	// has no business landing in an intermediary's access log. Without it, the
+	// WebSocket would be the one rung a step-down could not be rescued on — which
+	// is exactly where the reported failure landed.
+	wsHeaders := http.Header{}
+	wsHeaders.Set(tun.EgressHTTP.AttachKeyHeader, key)
+	conn, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		Subprotocols: []string{"akerdock-tunnel-v1"},
+		HTTPHeader:   wsHeaders,
+	})
 	if err != nil {
-		// The bottom rung burns the token exactly like the others, so a 401 here
-		// is classified rather than reported: it means an earlier attempt got to
-		// the server first, and only a fresh mint can follow it.
-		if resp != nil && resp.StatusCode == http.StatusUnauthorized {
-			return spentToken(&attachRejection{
-				kind: transportWS, status: resp.Status, code: resp.StatusCode,
-				message: handshakeReason(resp),
-			})
-		}
 		// The refusal carries a reason the operator can act on — "the server is
 		// not reachable over SSH right now" beats "expected handshake response
 		// status code 101 but got 409", which describes only our disappointment.
@@ -559,6 +575,15 @@ func closeMessage(reason string) string {
 		return "tunnel closed: maximum session duration reached — rerun the command to reopen it"
 	case "disconnect":
 		return "tunnel closed: the connection to the manager dropped"
+	case "target_unreachable":
+		// ADR-066. The close frame of the WebSocket rung carries a reason and
+		// nothing else, so unlike the HTTP rungs there is no operator sentence to
+		// prefer here — which is one more reason this rung is the compatibility
+		// floor rather than the one to keep.
+		return "tunnel closed: the target could not be reached — check the server, its agent and the target container"
+	case "wake_failed":
+		return "tunnel closed: the target was asleep (scale-to-zero) and could not be woken — " +
+			"rerun the command to retry"
 	case "target_stopped":
 		return "tunnel closed: the target container stopped (it may have been put to sleep by scale-to-zero) — " +
 			"rerun the command to reopen it"

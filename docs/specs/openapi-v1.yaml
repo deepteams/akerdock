@@ -9819,6 +9819,22 @@ components:
         max_duration_seconds:
           type: integer
           description: Maximum duration of a session, regardless of activity.
+        state:
+          type: string
+          enum: [ready, waking]
+          description: >-
+            Whether the target was already up when this session was minted, or
+            is being started for it (ADR-067 §3/§6). `waking` means the mint
+            asked the server's waker for a cold start and did **not** wait for
+            it: the shell opens as usual and the wait is paid inside the
+            session, which is why the client is told here — it prints the
+            notice, and sizes its patience, **before** the terminal window
+            appears rather than learning it from a control frame once the
+            session is already open and apparently frozen. Absent means
+            `ready`: an older manager sends nothing, and a session whose target
+            was already running has nothing to announce. A `waking` session can
+            still end with the `wake_failed` reason — this field states what the
+            mint asked for, not how it turned out.
 
     PortForwardCreate:
       type: object
@@ -9875,6 +9891,23 @@ components:
             on a `sensitive` external endpoint, the ADR-032 maximum duration
             otherwise. The CLI announces it when the listener comes up and warns
             before it lands, so a deadline never arrives unannounced.
+        state:
+          type: string
+          enum: [ready, waking]
+          description: >-
+            Whether the target was already up when this session was minted, or
+            is being started for it (ADR-067 §3/§6). `waking` means the mint
+            asked the server's waker for a cold start and did **not** wait for
+            it: the tunnel opens as usual and the wait is paid on the first
+            forwarded connection, which is why the client is told here — it
+            prints the notice, and widens the budget that first connection may
+            spend, **before** the local listener is announced rather than
+            learning it from a control frame afterwards, with a developer
+            already typing `psql` into what looks like a hung tunnel. Absent
+            means `ready`: an older manager sends nothing, and a session whose
+            target was already running has nothing to announce. A `waking`
+            session can still end with the `wake_failed` reason — this field
+            states what the mint asked for, not how it turned out.
 
     PortForwardSessionInfo:
       type: object
@@ -9929,14 +9962,20 @@ components:
           format: date-time
         end_reason:
           type: string
-          enum: [user_close, idle_timeout, max_duration, disconnect, revoked, grant_expired, target_stopped]
+          enum: [user_close, idle_timeout, max_duration, disconnect, revoked, grant_expired, target_stopped, target_unreachable, wake_failed]
           description: >-
             Why it closed. `grant_expired` is an ADR-045 session that reached
             its authorization's deadline, distinct from the ADR-032 ceiling.
             `target_stopped` is the target container disappearing under the
             tunnel — a redeploy, a manual stop, a scale-to-zero sleep — which
             would otherwise leave the forwarded connection hanging with no RST
-            and no FIN until the idle timeout.
+            and no FIN until the idle timeout. `target_unreachable` (ADR-066) is
+            a target the session never reached at all: the attach now answers
+            before it dials, so a failure belonging to no particular stream
+            arrives as a session close rather than as an error at open —
+            `disconnect` would have sent the developer to check their own
+            network. `wake_failed` (ADR-067) is a scale-to-zero wake that did
+            not come up inside its budget.
         authorized_until:
           type: string
           format: date-time

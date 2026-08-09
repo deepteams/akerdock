@@ -44,12 +44,12 @@ func TestShellOverHTTPStepsDownToTheWebSocket(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	if err := client.shellOverHTTP(ctx, "/terminal/attach", "tk"); !errors.Is(err, errNoHTTPTransport) {
+	if err := client.shellOverHTTP(ctx, "/terminal/attach", "tk", "key", false); !errors.Is(err, errNoHTTPTransport) {
 		t.Fatalf("err = %v, want errNoHTTPTransport", err)
 	}
 	// A mint with no attach path has nothing to probe, and steps down the same
 	// way rather than failing the shell.
-	if err := client.shellOverHTTP(ctx, "", "tk"); !errors.Is(err, errNoHTTPTransport) {
+	if err := client.shellOverHTTP(ctx, "", "tk", "key", false); !errors.Is(err, errNoHTTPTransport) {
 		t.Fatalf("err = %v, want errNoHTTPTransport", err)
 	}
 }
@@ -190,7 +190,7 @@ func TestTerminalOverHTTP2(t *testing.T) {
 	defer session.close()
 
 	var pumpErr error
-	out, errOut := captureOutput(t, func() { pumpErr = runTerminalPumps(ctx, session.conn) })
+	out, errOut := captureOutput(t, func() { pumpErr = runTerminalPumps(ctx, session.conn, false) })
 	if pumpErr != nil {
 		t.Fatalf("pump: %v", pumpErr)
 	}

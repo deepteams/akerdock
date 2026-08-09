@@ -74,6 +74,14 @@ type API struct {
 	// that joins it finds its session here.
 	terminalMu   sync.Mutex
 	terminalLive map[string]*terminalAttach
+	// wakesLive holds the scale-to-zero wakes this process asked for at a mint
+	// (ADR-067 §3), keyed by session uuid, so that the attach which follows
+	// pays gate 1's wait instead of dialing a container still coming up. In
+	// memory like the two registers above and for the same reason: it records a
+	// promise held by one process, not a fact about the session — an attach
+	// landing on another replica finds none and proceeds as it did before.
+	wakeMu    sync.Mutex
+	wakesLive map[string]*sessionWake
 	// MCP is the built-in Model Context Protocol server (ADR-043). Nil
 	// disables the surface entirely, whatever the instance setting.
 	MCP *mcp.Server

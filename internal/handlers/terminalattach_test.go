@@ -109,7 +109,7 @@ func TestTerminalAttachSessionRefusalsBeforeTheClaim(t *testing.T) {
 func TestTerminalAttachStreamAuthenticationAndSingleness(t *testing.T) {
 	api := &API{}
 	key, keyHash := freshAttachKey(t)
-	attach := newTerminalAttach(keyHash)
+	attach := newTerminalAttach(keyHash, nil)
 	api.terminalRegister("session-1", attach)
 
 	stream := func(sessionUUID, attachKey string) *httptest.ResponseRecorder {
@@ -149,7 +149,7 @@ func TestTerminalAttachStreamAuthenticationAndSingleness(t *testing.T) {
 func TestTerminalLookupRequiresTheRightKey(t *testing.T) {
 	api := &API{}
 	_, keyHash := freshAttachKey(t)
-	attach := newTerminalAttach(keyHash)
+	attach := newTerminalAttach(keyHash, nil)
 	api.terminalRegister("session-1", attach)
 
 	if got := api.terminalLookup("session-1", keyHash); got != attach {
@@ -168,7 +168,7 @@ func TestTerminalLookupRequiresTheRightKey(t *testing.T) {
 		t.Fatal("a released session must not resolve")
 	}
 	// Releasing an attach that was replaced must not evict the replacement.
-	replacement := newTerminalAttach(keyHash)
+	replacement := newTerminalAttach(keyHash, nil)
 	api.terminalRegister("session-1", replacement)
 	api.terminalRelease("session-1", attach)
 	if got := api.terminalLookup("session-1", keyHash); got != replacement {
@@ -180,7 +180,7 @@ func TestTerminalLookupRequiresTheRightKey(t *testing.T) {
 // the wait is bounded, and a client that vanished between the two requests
 // ends the session rather than leaking it.
 func TestAwaitTerminalStreamGivesUpWithItsRequest(t *testing.T) {
-	attach := newTerminalAttach([32]byte{})
+	attach := newTerminalAttach([32]byte{}, nil)
 	local, remote := net.Pipe()
 	defer func() { _ = local.Close(); _ = remote.Close() }()
 	attach.stream <- local
@@ -188,7 +188,7 @@ func TestAwaitTerminalStreamGivesUpWithItsRequest(t *testing.T) {
 		t.Fatalf("the session must take the stream that joined it (ok=%v)", ok)
 	}
 
-	empty := newTerminalAttach([32]byte{})
+	empty := newTerminalAttach([32]byte{}, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	start := time.Now()
@@ -203,7 +203,7 @@ func TestAwaitTerminalStreamGivesUpWithItsRequest(t *testing.T) {
 // finish is what releases the data request's handler; it is called from a
 // defer and possibly twice.
 func TestTerminalAttachFinishIsIdempotent(t *testing.T) {
-	attach := newTerminalAttach([32]byte{})
+	attach := newTerminalAttach([32]byte{}, nil)
 	attach.finish()
 	attach.finish()
 	select {

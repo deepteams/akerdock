@@ -115,7 +115,7 @@ func pfbeatInspect(t *testing.T, a *API, body string, failure *agentwire.Error) 
 func pfbeatRun(t *testing.T, a *API, row store.PortForwardSession) (bool, tunnel.EndReason) {
 	t.Helper()
 	cancel := a.Tunnels.register(row.ID)
-	defer a.Tunnels.unregister(row.ID)
+	defer a.Tunnels.unregister(row.ID, cancel)
 	alive := a.portForwardHeartbeat(row)(context.Background())
 	select {
 	case reason := <-cancel:

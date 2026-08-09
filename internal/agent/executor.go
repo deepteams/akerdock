@@ -9,6 +9,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -34,6 +35,13 @@ type Executor struct {
 	// Ingress executes the ADR-060 session-control commands; nil on an
 	// un-enrolled helper, where no command arrives anyway.
 	Ingress *Ingress
+	// Waker resolves the waker module ADR-067's WakeResource runs on. It is a
+	// getter and not a pointer because a routing reload rebuilds the Waker
+	// (serve.go): resolving per command is what guarantees the wake joins the
+	// same single-flight gate as the HTTP requests being served right now,
+	// rather than one a stale pointer captured. nil, or a nil answer before the
+	// first routing table lands, means no wake is possible here.
+	Waker func() *Waker
 
 	mu       sync.Mutex
 	inflight map[int64]context.CancelFunc
@@ -571,9 +579,72 @@ func (e *Executor) executeUnary(ctx context.Context, cmd agentwire.Command) (any
 		}
 		e.Ingress.Cut(p.SessionUUID, p.Reason)
 		return nil, nil
+	case agentwire.MethodWakeResource:
+		var p agentwire.WakeResourceParams
+		if err := json.Unmarshal(cmd.Params, &p); err != nil {
+			return nil, invalidParams(err)
+		}
+		return e.wakeResource(ctx, p)
 	default:
 		return nil, fmt.Errorf("method %q: %w", cmd.Method, cerrdefs.ErrNotImplemented)
 	}
+}
+
+// wakeResource performs ADR-067 §4: the control plane asks for a resource to be
+// woken and the agent runs the waker module's own wake — the same wake-set
+// graph, the same depends_on ordering, the same per-resource single-flight
+// gate, the same readiness rule, the same rollback. Not a reimplementation
+// beside it: Waker.WakeResource IS what an HTTP hit runs, on the instance that
+// is serving HTTP right now, which is the only thing that makes two mints and a
+// browser hit converge on one wake instead of three.
+//
+// Answering without an error is gate 1's verdict (§5): every container of the
+// wake set is ready in the waker's sense. Gate 2 — the TCP dial of a tunnel or
+// the exec attach of a terminal, retried rather than probed — is the control
+// plane's and never runs here.
+//
+// The error vocabulary, which is what the mint and the session read:
+//
+//   - unimplemented — never produced here; it is what an agent predating this
+//     ADR answers from the dispatch default below, and the mint reads it as
+//     "cannot wake" and refuses rather than minting a doomed session.
+//   - not_found — this waker has no such resource. The routing deposit is
+//     missing or stale; a session's timescale will not fix it, so this too is
+//     "cannot wake" rather than a failed cold start.
+//   - unavailable — this agent runs no waker, or has not loaded a routing table
+//     yet. Nothing was started; a retry may well succeed.
+//   - canceled — the cancel frame arrived (the developer abandoned the session),
+//     and whatever this attempt had started is already rolled back.
+//   - internal — the wake ran and did not get there: the budget expired, or
+//     Docker refused. The message is the waker's own and names the container it
+//     stalled on, which is the text §6 puts in the wake_failed frame.
+//
+// The rules that decide whether a wake may happen at all — the scale-to-zero
+// flag, `desired_status = running` (§8), the caller's permission (§7) — are the
+// mint's, upstream of this command. They read control-plane state the agent
+// does not have: the deposited routing table carries a wake set and nothing
+// else, so no amount of agent-side care could enforce them. What the agent does
+// enforce is the boundary that is genuinely its own — it starts containers of a
+// resource the control plane itself deposited, and nothing else.
+func (e *Executor) wakeResource(ctx context.Context, p agentwire.WakeResourceParams) (any, error) {
+	if p.ResourceUUID == "" {
+		return nil, invalidParams(errors.New("resource_uuid is required"))
+	}
+	var wk *Waker
+	if e.Waker != nil {
+		wk = e.Waker()
+	}
+	if wk == nil {
+		return nil, agentwire.Unavailable("has no waker routing table")
+	}
+	started, err := wk.WakeResource(ctx, p.ResourceUUID)
+	if errors.Is(err, errUnknownResource) {
+		return nil, fmt.Errorf("%s: %w", err, cerrdefs.ErrNotFound)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return agentwire.WakeResourceResult{Started: started}, nil
 }
 
 // executeHostOp dispatches the ADR-054 file primitives onto the mounted host

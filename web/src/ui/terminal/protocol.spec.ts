@@ -1,5 +1,5 @@
 import { attachUrl, describeEnd, parseEndMessage, resizeMessage } from './protocol';
-import type { TerminalSessionInfo } from './protocol';
+import type { EndReason, TerminalSessionInfo } from './protocol';
 
 function session(overrides: Partial<TerminalSessionInfo> = {}): TerminalSessionInfo {
   return {
@@ -62,13 +62,22 @@ describe('terminal protocol', () => {
   });
 
   it('explains every end reason in words', () => {
-    for (const reason of [
-      'user_close',
-      'idle_timeout',
-      'max_duration',
-      'disconnect',
-      'revoked',
-    ] as const) {
+    // Keyed by the union rather than listed by hand: a reason added to
+    // EndReason without a sentence here stops COMPILING. The loose list this
+    // replaces let three reasons ship unphrased, and describeEnd returned
+    // undefined for each — the operator saw nothing at all, which is worse
+    // than the bare enum value the function exists to avoid.
+    const reasons: Record<EndReason, true> = {
+      user_close: true,
+      idle_timeout: true,
+      max_duration: true,
+      disconnect: true,
+      revoked: true,
+      target_unreachable: true,
+      target_stopped: true,
+      wake_failed: true,
+    };
+    for (const reason of Object.keys(reasons) as EndReason[]) {
       expect(describeEnd(reason).length).toBeGreaterThan(0);
     }
   });

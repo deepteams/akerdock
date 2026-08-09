@@ -118,7 +118,11 @@ func openTerminalSession(
 // shellOverHTTP runs one terminal over the best HTTP transport available. It
 // returns errNoHTTPTransport when no rung could be negotiated, leaving the
 // WebSocket path — the bottom rung, not a failure — to take over.
-func (c *Client) shellOverHTTP(ctx context.Context, attachPath, token string) error {
+//
+// key is the caller's per-mint attach key (ADR-065 §3), shared with the
+// WebSocket rung below: one attacher for the whole climb, so a step-down
+// re-takes the session rather than being refused as a replay.
+func (c *Client) shellOverHTTP(ctx context.Context, attachPath, token, key string, waking bool) error {
 	attach, err := terminalAttachURL(c.base, attachPath)
 	if err != nil {
 		return errNoHTTPTransport
@@ -136,11 +140,6 @@ func (c *Client) shellOverHTTP(ctx context.Context, attachPath, token string) er
 			_ = pool.Close()
 			continue
 		}
-		key, err := tun.NewIngressAttachKey()
-		if err != nil {
-			_ = pool.Close()
-			return err
-		}
 		session, err := openTerminalSession(ctx, pool, attach, token, key, kind, cols, rows)
 		if err != nil {
 			_ = pool.Close()
@@ -155,7 +154,7 @@ func (c *Client) shellOverHTTP(ctx context.Context, attachPath, token string) er
 			continue
 		}
 		fmt.Fprintf(os.Stderr, "terminal transport: %s\r\n", kind.label())
-		err = runTerminalPumps(ctx, session.conn)
+		err = runTerminalPumps(ctx, session.conn, waking)
 		session.close()
 		_ = pool.Close()
 		return err

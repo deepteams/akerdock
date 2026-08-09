@@ -14,6 +14,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/deepteams/akerdock/internal/terminal"
+	tun "github.com/deepteams/akerdock/internal/tunnel"
 )
 
 func TestToWS(t *testing.T) {
@@ -43,6 +44,16 @@ func terminalServer(t *testing.T, endPayload string) *httptest.Server {
 	mux.HandleFunc("/term", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("token") != "tk" || r.URL.Query().Get("cols") == "" {
 			t.Errorf("terminal query = %q", r.URL.RawQuery)
+		}
+		// ADR-065 §7: the bottom rung identifies its attacher in the terminal
+		// path's own header, so a step-down onto it is a retry and not a replay.
+		// The token stays in the query string, where ADR-024 put it; the key
+		// does not join it there.
+		if r.Header.Get(tun.TerminalHTTP.AttachKeyHeader) == "" {
+			t.Error("the WebSocket rung must present the per-mint attach key")
+		}
+		if r.URL.Query().Get("key") != "" {
+			t.Errorf("the attach key must not travel in the query string: %q", r.URL.RawQuery)
 		}
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
@@ -113,6 +124,29 @@ func TestShellSessionEndsWithReason(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "session ended: container stopped") {
 		t.Fatalf("stderr = %q", errOut)
+	}
+}
+
+// ADR-066: the shell that never appeared is explained on the end message and
+// nowhere else, so the operator sentence the server sends beside the reason is
+// what the developer must read — not `session ended: target_unreachable`.
+func TestShellReportsAnUnreachableTargetInWords(t *testing.T) {
+	srv := terminalServer(t,
+		`{"type":"end","reason":"target_unreachable","msg":"the container is not running — start it first"}`)
+	setupContext(t, srv.URL)
+	installShellStdin(t)
+	var err error
+	_, errOut := captureOutput(t, func() {
+		err = runCmd(shellCmd(), "app/varuna", "-c", "web")
+	})
+	if err != nil {
+		t.Fatalf("shell: %v", err)
+	}
+	if !strings.Contains(errOut, "the container is not running") {
+		t.Fatalf("stderr = %q — the server's sentence is the whole diagnosis", errOut)
+	}
+	if strings.Contains(errOut, "target_unreachable") {
+		t.Fatalf("stderr = %q — the enum value is not a sentence", errOut)
 	}
 }
 
@@ -233,8 +267,18 @@ func TestDrainTerminalEndPicksUpAReasonStillInFlight(t *testing.T) {
 	conn.in <- fakeTerminalMessage{typ: terminal.MessageBinary, data: []byte("trailing output")}
 	conn.in <- fakeTerminalMessage{typ: terminal.MessageText, data: []byte(`{"type":"noise"}`)}
 	conn.in <- fakeTerminalMessage{typ: terminal.MessageText, data: []byte(`{"type":"end","reason":"max_duration"}`)}
-	if got := drainTerminalEnd(conn); got != "max_duration" {
-		t.Fatalf("reason = %q", got)
+	if got := drainTerminalEnd(conn); got.reason != "max_duration" {
+		t.Fatalf("reason = %q", got.reason)
+	}
+
+	// The operator sentence travels beside the reason (ADR-066 §3) and must
+	// survive the drain too — it is the half that names the machine.
+	spoken := &fakeTerminalConn{in: make(chan fakeTerminalMessage, 1)}
+	spoken.in <- fakeTerminalMessage{typ: terminal.MessageText,
+		data: []byte(`{"type":"end","reason":"target_unreachable","msg":"the container is not running"}`)}
+	got := drainTerminalEnd(spoken)
+	if got.reason != "target_unreachable" || got.message != "the container is not running" {
+		t.Fatalf("end = %+v", got)
 	}
 
 	// Nothing in flight: the drain is bounded and says nothing rather than
@@ -242,11 +286,44 @@ func TestDrainTerminalEndPicksUpAReasonStillInFlight(t *testing.T) {
 	silent := &fakeTerminalConn{in: make(chan fakeTerminalMessage, 1)}
 	silent.in <- fakeTerminalMessage{err: terminal.ErrClientClosed}
 	start := time.Now()
-	if got := drainTerminalEnd(silent); got != "" {
-		t.Fatalf("reason = %q", got)
+	if got := drainTerminalEnd(silent); got.reason != "" || got.message != "" {
+		t.Fatalf("end = %+v", got)
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("the drain took %s — it must be bounded", elapsed)
+	}
+}
+
+// The terminal's one data stream carries the PTY, so it has nothing to answer a
+// 502 on: this line is the ONLY channel a reachability failure reaches the
+// developer through (ADR-066 §3), and a bare enum value there is a dead end.
+func TestTerminalEndMessagePrefersTheServersSentence(t *testing.T) {
+	if got := terminalEndMessage("user_close", ""); got != "" {
+		t.Fatalf("a deliberate close should stay silent, got %q", got)
+	}
+	if got := terminalEndMessage("", ""); got != "" {
+		t.Fatalf("no reason at all should stay silent, got %q", got)
+	}
+	got := terminalEndMessage("target_unreachable", "the server's agent is not connected right now")
+	if !strings.Contains(got, "agent is not connected") {
+		t.Fatalf("the server's own words must reach the developer, got %q", got)
+	}
+	if strings.Contains(got, "target_unreachable") {
+		t.Fatalf("the enum value is not a sentence, got %q", got)
+	}
+	if got := terminalEndMessage("target_unreachable", ""); !strings.Contains(got, "could not be reached") {
+		t.Fatalf("a bare reason needs a phrased fallback, got %q", got)
+	}
+	// ADR-067's wake: the developer stopped nothing, so scale-to-zero is named.
+	if got := terminalEndMessage("wake_failed", ""); !strings.Contains(got, "scale-to-zero") {
+		t.Fatalf("a failed wake must name the mechanism, got %q", got)
+	}
+	// Anything else still surfaces, and a sentence beside it still wins.
+	if got := terminalEndMessage("idle_timeout", ""); !strings.Contains(got, "idle_timeout") {
+		t.Fatalf("an unphrased reason must still be reported, got %q", got)
+	}
+	if got := terminalEndMessage("idle_timeout", "no keystroke for 30 minutes"); !strings.Contains(got, "30 minutes") {
+		t.Fatalf("a sentence beside the reason wins, got %q", got)
 	}
 }
 

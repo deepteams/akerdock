@@ -59,9 +59,21 @@ func (p *TunnelPresence) register(sessionID int64) <-chan tunnel.EndReason {
 	return ch
 }
 
-func (p *TunnelPresence) unregister(sessionID int64) {
+// unregister removes an attach, and removes only its OWN entry. The pointer
+// comparison is what ADR-065 §5 costs here: a re-claim registers a second attach
+// under the same session id and cuts the first, so the loser leaves while the
+// winner is already registered — and an unconditional delete would take the
+// winner's channel with it, leaving a live tunnel that a revocation can no
+// longer reach and a shutdown no longer waits for.
+//
+// A nil own is the caller saying "whatever is there", which the tests that only
+// need the map populated rely on.
+func (p *TunnelPresence) unregister(sessionID int64, own <-chan tunnel.EndReason) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if own != nil && (<-chan tunnel.EndReason)(p.live[sessionID]) != own {
+		return
+	}
 	delete(p.live, sessionID)
 }
 

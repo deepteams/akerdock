@@ -86,8 +86,9 @@ func (a *fakeActivity) Record(uuid string, at time.Time) error {
 }
 
 // newTestWakerRes wires a Waker with an explicit wake resource to a backend
-// httptest server and fast timings.
-func newTestWakerRes(t *testing.T, d *fakeDocker, act Activity, res Resource) (*Waker, *int32, func()) {
+// httptest server and fast timings. The Docker is the interface and not the
+// fake, so a test can wrap it — the wake-gate tests interpose on Inspect.
+func newTestWakerRes(t *testing.T, d Docker, act Activity, res Resource) (*Waker, *int32, func()) {
 	t.Helper()
 	var hits int32
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -107,7 +108,7 @@ func newTestWakerRes(t *testing.T, d *fakeDocker, act Activity, res Resource) (*
 }
 
 // newTestWaker is newTestWakerRes with the default two-container flat resource.
-func newTestWaker(t *testing.T, d *fakeDocker, act Activity) (*Waker, *int32, func()) {
+func newTestWaker(t *testing.T, d Docker, act Activity) (*Waker, *int32, func()) {
 	t.Helper()
 	return newTestWakerRes(t, d, act, Resource{UUID: "res-1", Containers: []string{"c1", "c2"}})
 }

@@ -108,6 +108,55 @@ const (
 	MethodIngressCut    = "IngressCut"
 )
 
+// MethodWakeResource (ADR-067 §4) asks the agent's waker module to wake one
+// scale-to-zero resource on behalf of an attached session — a CLI tunnel or a
+// terminal, neither of which crosses the proxy the waker sits in and neither of
+// which could therefore ask for a wake before.
+//
+// The control plane deliberately does NOT drive this with the ContainerStart
+// and ContainerInspect it already has: that would re-implement the wake-set
+// graph and the readiness rule behind a chatty poll, and — the load-bearing
+// reason — it would be a second starter for one resource with no shared gate,
+// so a browser hit and two session mints arriving together would each start
+// their own half of a compose stack in their own order. One command through the
+// module means they all join the same in-flight wake.
+//
+// Like the host-ops and pipe families above, this sits outside the
+// dockerruntime.Runtime enumeration ADR-052 §2 closes: a fourth vocabulary of
+// one method, not a novelty.
+const MethodWakeResource = "WakeResource"
+
+// WakeResourceParams names the resource to wake — the same uuid the routing
+// table the control plane deposits keys its wake set by. Nothing here says
+// which door asked: the wake is identical for a tunnel, a terminal and a
+// browser, and the agent has no business knowing.
+//
+// What is NOT here is as deliberate: no desired-state, no permission, no
+// container list. Whether the resource may be woken at all (§7, §8 — the
+// scale-to-zero flag, `desired_status = running`, the caller's
+// `applications:lifecycle`) is decided at the mint, before this command is
+// sent, because the agent holds none of the state those rules read.
+type WakeResourceParams struct {
+	ResourceUUID string `json:"resource_uuid"`
+}
+
+// WakeResourceResult is gate 1's verdict (§5). A result at all means ready:
+// every container of the wake set passed the waker's own readiness rule —
+// healthy where a healthcheck exists, otherwise running-stable. A wake that did
+// not get there answers with an Error, never with a result saying so, so the
+// control plane's success test is the absence of an error and nothing subtler.
+//
+// Gate 2 — the TCP dial or the exec attach the session is about to perform — is
+// the control plane's and is not reported here; the agent is not guaranteed to
+// be on a compose stack's own network and a probe from it would prove something
+// other than what the developer is about to do.
+type WakeResourceResult struct {
+	// Started names the containers this wake actually started, in start order.
+	// Empty means the resource was already awake and the command was a no-op —
+	// the state a second mint joining an in-flight wake also observes.
+	Started []string `json:"started,omitempty"`
+}
+
 // Params structs, one per method. Fields are the SDK types — the Engine API's
 // own wire representations. Methods without params (Info, Ping, …) send none.
 //

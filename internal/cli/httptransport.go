@@ -39,11 +39,15 @@ const (
 
 	transportProbeTimeout = 3 * time.Second
 
-	// transportAttachTimeout is the DEFAULT session-attach budget: what a peer
-	// that answers the attach out of its own memory can reasonably take — the
-	// ingress server looking a token up in a map, and nothing more. Access
-	// paths whose server does real work before the response head carry their
-	// own budget instead; see egressAttachTimeout.
+	// transportAttachTimeout is the session-attach budget, and since ADR-066 it
+	// is one constant for every access path again. A session attach now answers
+	// on what the control plane holds locally — the token claim and a handful of
+	// indexed reads — because everything that crosses the network to another
+	// machine (the agent RPC, the SSH handshake, the PTY, and under ADR-067 the
+	// wake) runs BEHIND the response head. So this is no longer a bet on how
+	// long someone else's SSH handshake takes: a peer that has not answered in
+	// 5 s is not busy resolving, it is stalled, which is the one thing this
+	// timer exists to detect.
 	transportAttachTimeout = 5 * time.Second
 
 	// transportHTTP2Lanes and transportHTTP3Lanes exist for the same reason: a
@@ -76,38 +80,20 @@ const (
 	terminalDataOpenTimeout = 5 * time.Second
 	egressDataOpenTimeout   = tun.EgressDialTimeout + 5*time.Second
 
-	// The SESSION attach needs the same treatment, and on egress it is the more
-	// expensive of the two: the control plane CLAIMS the single-use mint token
-	// at the very top of the attach handler and only THEN resolves the target —
-	// an agent ContainerInspect round trip, then a full SSH handshake, because
-	// nothing pools SSH connections and every attach pays a fresh one. All of
-	// that is spent before the response head. A client budget shorter than the
-	// server's own dial makes the two deadlines race, and when the client wins
-	// it blames the transport for a slow SSH handshake — while the token is
-	// already burnt, so no lower rung and no WebSocket fallback can redeem it
-	// either. That is the whole failure the developer met as "invalid, expired
-	// or already used tunnel token".
+	// egressWakeOpenTimeout replaces the budget above for as long as the server
+	// says the target is cold-starting (ADR-067 §6's `waking` frame). The
+	// platform's promise there is that the local accept() succeeds at once and
+	// the operation behind it waits — up to §5's ceiling of 75 s — so a client
+	// budget of ten seconds would refuse the very first connection while the
+	// server was doing exactly what it announced. Same reasoning as the line
+	// above, one order of magnitude out: the client's budget must outlast the
+	// server's, or the two deadlines race and the loser blames the transport.
 	//
-	// So the budget is what the server can ACTUALLY spend, plus room for a WAN
-	// round trip. A server configured with a larger ssh_timeout_seconds still
-	// outlasts it; that residue is what the single re-mint in runPortForward
-	// covers.
-	//
-	// egressAttachSSHBudget is the default of servers.ssh_timeout_seconds
-	// (db/migrations/00006_servers.sql). It is a per-server column, so there is
-	// no constant to import — only its default to mirror.
-	egressAttachSSHBudget = 30 * time.Second
-	// egressAttachAgentRound is the container inspect that precedes the dial,
-	// bounded by the agent relay's own dial budget (internal/agentrelay).
-	egressAttachAgentRound = 10 * time.Second
-	egressAttachTimeout    = egressAttachSSHBudget + egressAttachAgentRound + 5*time.Second
-	// TRANSITIONAL (ADR-065/ADR-066). This budget buys correctness with
-	// patience: a genuinely hung transport is now detected in 45 s rather than
-	// 5, because a bigger bet is still a bet. ADR-066 removes the reason to bet
-	// at all — the attach answers before it dials, so the head no longer waits
-	// on someone else's SSH handshake — and ADR-065 makes an abandoned attempt
-	// stop burning the token. When either lands, this collapses back toward
-	// transportAttachTimeout and the re-mint in runPortForward goes with it.
+	// The 75 s is stated on both sides (sessionWakeCeiling,
+	// internal/handlers/sessionwake.go) because the two processes are versioned
+	// independently; the frame is what synchronises them in practice, not the
+	// constant.
+	egressWakeOpenTimeout = 75*time.Second + egressDataOpenTimeout
 
 	// transportFailureBudget is how many consecutive lost sessions a transport
 	// gets before the CLI falls back to the next one. A transport whose every
@@ -223,6 +209,21 @@ func (e *attachRejection) Error() string {
 // which is the only rejection worth retiring the transport for.
 func (e *attachRejection) transportRefused() bool {
 	return e.code == http.StatusUpgradeRequired || e.code == http.StatusHTTPVersionNotSupported
+}
+
+// sessionEnd is the mirror of attachRejection: not why a session never opened,
+// but why one that did has stopped. It is shared by the egress and terminal
+// paths because their end reasons are one enum on the server, and since ADR-066
+// they also share the reason a session can now end for something that would
+// once have been refused at open — a target that was never reached.
+//
+// The reason is the persisted value; the message is the operator-facing sentence
+// the server sends beside it when it has one. It carries what the reason cannot:
+// a reason names a category, and the sentence names which machine, on a failure
+// whose cause is by definition not on this one.
+type sessionEnd struct {
+	reason  string
+	message string
 }
 
 type httpLane struct {

@@ -809,6 +809,12 @@ func (a *API) CreateExternalEndpointPortForward(w http.ResponseWriter, r *http.R
 		a.internalError(w, r, "port-forward", err)
 		return
 	}
+	// No wake and no activity stamp here, and the exclusion is STRUCTURAL rather
+	// than a rule this mint applies (ADR-067 §8): a declared endpoint's address
+	// was frozen at declaration and belongs to somebody else's infrastructure, so
+	// there is nothing of ours to start and no clock of ours to reset. This mint
+	// deliberately does not go through createPortForward, which is where both
+	// live — the thing to preserve if these two paths are ever merged.
 	row, err := a.Store.CreateEndpointPortForwardSession(r.Context(), store.CreateEndpointPortForwardSessionParams{
 		TeamID:             id.TeamID,
 		UserID:             actingUserID(id),

@@ -153,8 +153,15 @@ func (s *HTTPSession) Done() <-chan struct{} { return s.done }
 // SendClose delivers the end reason before the session request ends. It is the
 // HTTP equivalent of the WebSocket close frame's Reason, and the only way the
 // developer learns why a tunnel they were not using disappeared (ADR-045 §5).
-func (s *HTTPSession) SendClose(ctx context.Context, reason EndReason) error {
-	return s.control.Send(ctx, HTTPControlFrame{Type: "session_close", Reason: string(reason)})
+//
+// msg carries the operator sentence beside the reason (ADR-066 §3). Since the
+// attach answers before it dials, the failures that used to be a 409 at redeem
+// — the agent is not connected, the container is not running, the server is not
+// reachable over SSH — now arrive here instead, and a bare `target_unreachable`
+// would tell the developer that something is unreachable without saying what.
+// The frame already had the field; only this signature was in the way.
+func (s *HTTPSession) SendClose(ctx context.Context, reason EndReason, msg string) error {
+	return s.control.Send(ctx, HTTPControlFrame{Type: "session_close", Reason: string(reason), Msg: msg})
 }
 
 // Close ends the session request after its terminal reason was flushed.

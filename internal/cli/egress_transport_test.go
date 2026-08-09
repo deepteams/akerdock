@@ -36,99 +36,77 @@ func TestEgressDataOpenBudgetOutlastsTheServersDial(t *testing.T) {
 	}
 }
 
-// The SESSION attach pays for work no transport knows about: the control plane
-// claims the single-use mint token, then inspects the container over the agent
-// channel and dials a FRESH SSH connection — nothing pools them — all before it
-// writes the response head. A budget shorter than that makes the two deadlines
-// race, and the loser is the developer: the CLI walks away, the token stays
-// burnt, and every later attempt is refused.
-func TestEgressAttachBudgetOutlastsTheServersResolution(t *testing.T) {
-	if egressAttachTimeout <= egressAttachSSHBudget+egressAttachAgentRound {
-		t.Fatalf("egress attach budget %s leaves no WAN margin over the server's %s of work",
-			egressAttachTimeout, egressAttachSSHBudget+egressAttachAgentRound)
-	}
-	// The whole point of a per-access-path budget: the shared one is what made
-	// the two deadlines race, and it must stay visibly too small to be reused
-	// here by accident.
-	if transportAttachTimeout >= egressAttachSSHBudget {
-		t.Fatalf("the shared attach budget %s would still race the server's %s SSH dial",
-			transportAttachTimeout, egressAttachSSHBudget)
-	}
-	// …and it stays the default for the paths whose peer answers out of its own
-	// memory, where waiting out a WAN SSH handshake would only delay the truth.
+// The SESSION attach no longer pays for anything the client cannot predict:
+// since ADR-066 the head is written from local state alone — a token claim and
+// a few indexed reads — and every remote leg runs behind it. So the one shared
+// budget is right again for every access path, and the per-path budget that
+// covered someone else's SSH handshake is gone. What stays derived from a real
+// server-side bound is the DATA open, because that dial is still in front of
+// its own response head.
+func TestSessionAttachBudgetIsSharedAgainAndDataBudgetIsNot(t *testing.T) {
 	if transportAttachTimeout != 5*time.Second {
-		t.Fatalf("the default attach budget moved to %s — check what else pays it", transportAttachTimeout)
+		t.Fatalf("the session attach budget moved to %s — check what else pays it", transportAttachTimeout)
+	}
+	// A session budget wider than the data budget would be the old bet coming
+	// back: it can only be justified by work the server does before the head,
+	// and ADR-066 moved all of that behind it.
+	if transportAttachTimeout >= egressDataOpenTimeout {
+		t.Fatalf("the session budget %s is as patient as the data budget %s — nothing before the head justifies that",
+			transportAttachTimeout, egressDataOpenTimeout)
 	}
 }
 
-// Once the attach request has gone out, the token is presented and the server
-// claims it before resolving anything. What the failure means for the ladder is
-// therefore never "the transport failed, step down" by default: descending on a
-// burnt token wastes the two lower rungs and ends on a 401 whose sentence blames
-// the developer for the ladder's own impatience.
-func TestAttachFailureClassification(t *testing.T) {
+// Once the attach request has gone out, the token is presented — and since
+// ADR-065 that is no longer fatal: the same token re-presented with the same
+// attach key re-takes the session. So a rung that fails to answer is a plain
+// transport verdict again, and only what the server says ABOUT THE SESSION ends
+// the command.
+func TestOnlyATransportRefusalStepsDownTheLadder(t *testing.T) {
 	cases := []struct {
-		name string
-		err  error
-		want attachVerdict
+		name    string
+		err     error
+		refused bool
 	}{
-		{
-			"the open timed out",
-			errors.New("HTTP/2 attach: the peer sent no response headers within 45s"),
-			attachSpent,
-		},
-		{
-			"the server says the token is already used",
-			&attachRejection{kind: transportH3, code: http.StatusUnauthorized,
-				message: "invalid, expired or already used tunnel token"},
-			attachSpent,
-		},
 		{
 			"the peer does not speak the protocol",
 			&attachRejection{kind: transportH3, code: http.StatusUpgradeRequired},
-			attachDescend,
+			true,
 		},
 		{
 			"the rung cannot do full duplex",
 			&attachRejection{kind: transportH2, code: http.StatusHTTPVersionNotSupported},
-			attachRetireRung,
+			true,
+		},
+		{
+			"the token is refused",
+			&attachRejection{kind: transportH3, code: http.StatusUnauthorized,
+				message: "invalid, expired or already used tunnel token"},
+			false,
 		},
 		{
 			"the target is unreachable",
 			&attachRejection{kind: transportH2, code: http.StatusConflict,
 				message: "the server is not reachable over SSH right now"},
-			attachFinal,
+			false,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := classifyAttachFailure(tc.err); got != tc.want {
-				t.Fatalf("classifyAttachFailure = %d, want %d", got, tc.want)
+			var rejection *attachRejection
+			if !errors.As(tc.err, &rejection) {
+				t.Fatal("the fixture is not a rejection")
+			}
+			if got := rejection.transportRefused(); got != tc.refused {
+				t.Fatalf("transportRefused = %v, want %v", got, tc.refused)
 			}
 		})
 	}
-}
-
-// A spent token must be said in terms of what happened, not in the server's own
-// words: "invalid, expired or already used" sends the developer looking for an
-// expiry that never occurred.
-func TestSpentTokenExplainsWhoBurntIt(t *testing.T) {
-	refused := &attachRejection{kind: transportH2, status: "401 Unauthorized",
-		code: http.StatusUnauthorized, message: "invalid, expired or already used tunnel token"}
-	got := spentToken(refused).Error()
-	if !strings.Contains(got, "already spent") || !strings.Contains(got, "timed out") {
-		t.Fatalf("the message must say the token was spent by an earlier attempt, got: %s", got)
-	}
-	if strings.Contains(got, "invalid, expired") {
-		t.Fatalf("the server's sentence blames the developer and must not be the whole message, got: %s", got)
-	}
-	if !errors.Is(spentToken(refused), refused) {
-		t.Fatal("the underlying rejection must stay reachable")
-	}
-	// Anything else keeps what was actually observed — that IS the diagnosis.
-	timeout := errors.New("HTTP/3 (QUIC) attach: the peer sent no response headers within 45s")
-	if !strings.Contains(spentToken(timeout).Error(), "no response headers") {
-		t.Fatalf("a timed-out open must surface as itself, got: %s", spentToken(timeout))
+	// And an open that simply never answered is not a rejection at all, so it
+	// steps down instead of ending the command — the step-down ADR-064 always
+	// intended and could not have while it burnt the token.
+	var rejection *attachRejection
+	if errors.As(errors.New("HTTP/2 attach: the peer sent no response headers within 5s"), &rejection) {
+		t.Fatal("a silent peer must not be read as the server's verdict on the session")
 	}
 }
 
@@ -143,7 +121,7 @@ func TestForwardCloseMessageIsActionable(t *testing.T) {
 		"revoked":        "administrator",
 		"target_stopped": "scale-to-zero",
 	} {
-		got := forwardCloseMessage(reason)
+		got := forwardCloseMessage(reason, "")
 		if got == "" {
 			t.Errorf("%q produced no message at all", reason)
 			continue
@@ -152,14 +130,44 @@ func TestForwardCloseMessageIsActionable(t *testing.T) {
 			t.Errorf("forwardCloseMessage(%q) = %q, want it to mention %q", reason, got, want)
 		}
 	}
-	if got := forwardCloseMessage("target_stopped"); !strings.Contains(got, "run the command again") {
+	if got := forwardCloseMessage("target_stopped", ""); !strings.Contains(got, "run the command again") {
 		t.Errorf("a stopped target must say what to do next, got %q", got)
 	}
-	if got := forwardCloseMessage("user_close"); got != "" {
+	if got := forwardCloseMessage("user_close", ""); got != "" {
 		t.Errorf("a deliberate close should stay silent, got %q", got)
 	}
-	if got := forwardCloseMessage("something_new"); got == "" {
+	if got := forwardCloseMessage("something_new", ""); got == "" {
 		t.Error("an unrecognised reason must still be reported")
+	}
+}
+
+// ADR-066: the listener opens before the target has been reached, so the
+// failures that used to be a 409 at open now arrive on the session's close —
+// and the server sends the sentence beside the reason precisely because the
+// reason alone names a category, not a machine.
+func TestForwardCloseMessageCarriesTheServersSentence(t *testing.T) {
+	const sentence = "the server's agent is not connected right now"
+	got := forwardCloseMessage("target_unreachable", sentence)
+	if !strings.Contains(got, sentence) {
+		t.Fatalf("the server's own words must reach the developer, got %q", got)
+	}
+	// Without one — an older control plane, or a reason sent bare — the CLI
+	// still has to say something better than the enum value.
+	got = forwardCloseMessage("target_unreachable", "")
+	if got == "" || strings.Contains(got, "target_unreachable") {
+		t.Fatalf("a bare reason needs a phrased fallback, got %q", got)
+	}
+	if !strings.Contains(got, "could not be reached") {
+		t.Fatalf("the fallback must say what happened, got %q", got)
+	}
+	// ADR-067's wake: the developer stopped nothing, so scale-to-zero has to be
+	// named or the failure looks like the platform breaking by itself.
+	got = forwardCloseMessage("wake_failed", "")
+	if !strings.Contains(got, "scale-to-zero") || !strings.Contains(got, "run the command again") {
+		t.Fatalf("a failed wake must name the mechanism and the next move, got %q", got)
+	}
+	if got := forwardCloseMessage("wake_failed", "the resource did not become ready in time"); !strings.Contains(got, "did not become ready") {
+		t.Fatalf("the server's sentence wins when it has one, got %q", got)
 	}
 }
 

@@ -17,9 +17,34 @@ import (
 	"net/url"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tun "github.com/deepteams/akerdock/internal/tunnel"
+)
+
+// ADR-067 §6's progress vocabulary, as this client reads it. Both families
+// carry the same two values on their own wires — the frame is added to each
+// access path's vocabulary and never pooled (ADR-064 §1) — and an older server
+// sends neither, which is why nothing here is required for a session to work.
+const (
+	wakeControlFrame   = "waking"
+	wakeFrameColdStart = "cold_start"
+	wakeFrameReady     = "ready"
+
+	// mintStateWaking is the same news on the mint response, one step earlier
+	// (ADR-067 §6). Any other value — including the empty string an older
+	// manager leaves — is `ready`, so no client has to tell "the target was up"
+	// apart from "this server predates the field".
+	mintStateWaking = "waking"
+
+	// wakeColdStartNotice is what the developer reads. It names scale-to-zero,
+	// because they did nothing to stop the target and have no reason to suspect
+	// it, and it names the ceiling, because the only thing worse than a
+	// 75-second wait is an unbounded-looking one. Deliberately the same sentence
+	// the server puts in its cold-start frame: the two channels report one
+	// event, and a developer who somehow saw both must not read two.
+	wakeColdStartNotice = "the target is asleep (scale-to-zero) — starting it, this can take up to 75 s"
 )
 
 // egressSession is one attached port-forward over an HTTP transport.
@@ -35,6 +60,17 @@ type egressSession struct {
 	// it, and a label that lies about the transport sends the reader looking
 	// at the wrong protocol.
 	kind transportKind
+	// waking is set while the target is cold-starting (ADR-067 §6) — from the
+	// mint's own state, and then kept by the control frame. It changes one thing
+	// on this side, how long the first connection may wait to be served, and it
+	// is cleared as soon as the server says the target is up, so a session that
+	// woke something does not keep an 85-second budget for the rest of its life.
+	waking atomic.Bool
+	// announced records that the cold start was already reported to the
+	// developer — from the mint, before the listener was opened. The frame that
+	// follows is the SAME event on a second channel, not a second event, and
+	// printing it again would read as two wakes.
+	announced atomic.Bool
 }
 
 // openEgressSession claims the mint token on lane 0 and holds that request open
@@ -44,10 +80,11 @@ func openEgressSession(
 	ctx context.Context,
 	pool *httpLanePool,
 	attach *url.URL,
-	token, key string,
+	minted mintedTunnel,
+	key string,
 	kind transportKind,
 ) (*egressSession, error) {
-	sessionURL, err := withToken(attach, token)
+	sessionURL, err := withToken(attach, minted.token)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +94,7 @@ func openEgressSession(
 	headers.Set(tun.EgressHTTP.AttachKeyHeader, key)
 	headers.Set(tun.EgressHTTP.TransportHeader, string(kind))
 
-	stream, err := openAttachStream(ctx, pool, 0, sessionURL.String(), headers, kind, egressAttachTimeout)
+	stream, err := openAttachStream(ctx, pool, 0, sessionURL.String(), headers, kind, transportAttachTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -78,10 +115,16 @@ func openEgressSession(
 		_ = stream.writer.Close()
 		return stream.resp.Body.Close()
 	})
-	return &egressSession{
+	session := &egressSession{
 		control: control, cancel: stream.cancel, attach: attach,
 		key: key, uuid: sessionUUID, pool: pool, kind: kind,
-	}, nil
+	}
+	// The mint already told us, and already told the developer: carry both facts
+	// in rather than waiting for the frame that repeats them, so the very first
+	// connection gets the wider budget even if it beats the frame to the wire.
+	session.waking.Store(minted.waking)
+	session.announced.Store(minted.waking)
+	return session, nil
 }
 
 // openStream carries one accepted local connection. It is spread over the pool:
@@ -92,31 +135,67 @@ func (s *egressSession) openStream(ctx context.Context) (net.Conn, error) {
 	headers.Set(tun.EgressHTTP.SessionHeader, s.uuid)
 	headers.Set(tun.EgressHTTP.AttachKeyHeader, s.key)
 
-	stream, err := openAttachStream(ctx, s.pool, -1, s.attach.String(), headers, s.kind, egressDataOpenTimeout)
+	stream, err := openAttachStream(ctx, s.pool, -1, s.attach.String(), headers, s.kind, s.openTimeout())
 	if err != nil {
 		return nil, err
 	}
 	return tun.NewDuplexConn(stream.resp.Body, stream.writer, nil, stream.cancel), nil
 }
 
+// openTimeout is how long this stream may wait for its response head. A target
+// the server told us is still cold-starting gets ADR-067's ceiling instead of
+// the ordinary dial budget, because that is precisely the wait the server
+// announced it was going to make us do.
+func (s *egressSession) openTimeout() time.Duration {
+	if s.waking.Load() {
+		return egressWakeOpenTimeout
+	}
+	return egressDataOpenTimeout
+}
+
+// noteWaking renders ADR-067's progress frame and adjusts the one budget it
+// affects.
+//
+// The cold-start notice is printed AT MOST ONCE per session, whichever channel
+// carried it first: the mint's `state` and this frame are the same event seen
+// twice, and both exist because either can be missing — an older manager sends
+// no state, and a client that never read one still learns from the wire. Every
+// other code is printed as it arrives, including one this build does not know:
+// the sentence is the server's, and it is the whole point of the frame.
+func (s *egressSession) noteWaking(code, msg string) {
+	s.waking.Store(code != wakeFrameReady)
+	if code == wakeFrameColdStart && s.announced.Swap(true) {
+		return
+	}
+	if msg != "" {
+		fmt.Fprintln(os.Stderr, msg)
+	}
+}
+
 // run answers the server's liveness checks until the session ends, and reports
 // the terminal reason the CLI decides re-dial versus exit on.
-func (s *egressSession) run(ctx context.Context) (string, error) {
+func (s *egressSession) run(ctx context.Context) (sessionEnd, error) {
 	for {
 		frame, err := s.control.Receive()
 		if err != nil {
 			if ctx.Err() != nil {
-				return "user_close", nil
+				return sessionEnd{reason: "user_close"}, nil
 			}
-			return "", err
+			return sessionEnd{}, err
 		}
 		switch frame.Type {
 		case "ping":
 			if err := s.control.Send(ctx, tun.HTTPControlFrame{Type: "pong"}); err != nil {
-				return "", err
+				return sessionEnd{}, err
 			}
+		case wakeControlFrame:
+			// ADR-067 §6. A minute of apparent silence on a tunnel reads as the
+			// bug this whole decision fixes, so the news is printed the moment it
+			// arrives rather than folded into the close message that may never
+			// come.
+			s.noteWaking(frame.Code, frame.Msg)
 		case "session_close":
-			return frame.Reason, nil
+			return sessionEnd{reason: frame.Reason, message: frame.Msg}, nil
 		}
 	}
 }
@@ -145,119 +224,31 @@ func egressAttachURL(base, path string) (*url.URL, error) {
 // failure.
 var errNoHTTPTransport = errors.New("no HTTP transport available")
 
-// tokenSpentError says the attach request DID reach the server carrying the
-// mint token, and still came back a failure. The token is single-use and the
-// server claims it before it resolves anything (ADR-032's attach handler), so
-// it is burnt whatever the outcome — a lower rung, or the WebSocket underneath,
-// would only present a spent token and collect a 401 that reads as the
-// developer's fault. The only move left is a FRESH mint, which is
-// runPortForward's business and is bounded there to exactly one.
-type tokenSpentError struct {
-	// reason is what the developer is told. It is set at classification time
-	// rather than derived here, because the server's own 401 sentence describes
-	// the symptom and not the cause.
-	reason string
-	// cause is kept for the reader of a wrapped error: it is the only evidence
-	// of what the attempt actually observed.
-	cause error
-}
-
-func (e *tokenSpentError) Error() string { return "cannot open tunnel: " + e.reason }
-func (e *tokenSpentError) Unwrap() error { return e.cause }
-
-// spentToken classifies a failed attach whose request went out. A 401 is the
-// server telling us the token was already claimed — by a previous attempt that
-// reached it and then gave up waiting — and repeating its sentence verbatim
-// sends the developer looking for an expiry that never happened.
-func spentToken(err error) *tokenSpentError {
-	var rejection *attachRejection
-	if errors.As(err, &rejection) && rejection.code == http.StatusUnauthorized {
-		return &tokenSpentError{
-			reason: "the attach token was already spent — a previous transport attempt reached the server " +
-				"but timed out before it answered",
-			cause: err,
-		}
-	}
-	return &tokenSpentError{reason: err.Error(), cause: err}
-}
-
-// attachVerdict is what a failed SESSION attach means for the ladder. It exists
-// because the answer is never "the transport failed, step down": the attach
-// request carried the single-use token, and the server claims it before it
-// inspects the container or dials SSH. Whether the token survived is therefore
-// the first thing to establish, and only then whether the rung is at fault.
-type attachVerdict int
-
-const (
-	// attachDescend: nothing was spent, the next rung is worth the same token.
-	attachDescend attachVerdict = iota
-	// attachRetireRung: the rung is genuinely out AND the token is spent — the
-	// verdict came after the claim, so the retry must start below this rung.
-	attachRetireRung
-	// attachFinal: the server's answer would not change for a second session.
-	attachFinal
-	// attachSpent: the token is burnt and nothing but a fresh mint follows.
-	attachSpent
-)
-
-// classifyAttachFailure reads a failed session attach. Descending the ladder on
-// a burnt token wastes the two lower rungs and ends on a 401 whose sentence —
-// "invalid, expired or already used tunnel token" — blames the developer for
-// the ladder's own impatience, which is the bug this classification removes.
-func classifyAttachFailure(err error) attachVerdict {
-	var rejection *attachRejection
-	if !errors.As(err, &rejection) {
-		// A transport error or an open that timed out: the request went out, so
-		// the server may well have claimed the token and then spent longer than
-		// we waited resolving the target. Treat it as spent — the one reading
-		// that is wrong costs a mint, the other costs the whole command.
-		return attachSpent
-	}
-	switch rejection.code {
-	case http.StatusUpgradeRequired:
-		// The only answer that PREDATES the claim: the peer does not speak this
-		// protocol at all, and refuses on the header alone.
-		return attachDescend
-	case http.StatusHTTPVersionNotSupported:
-		// Full duplex is unavailable on this rung — a real transport verdict,
-		// but one the server reaches only after claiming the token.
-		return attachRetireRung
-	case http.StatusUnauthorized:
-		return attachSpent
-	default:
-		// A policy or target verdict: an unreachable server, a destroyed
-		// preview, a session cap. A second mint would meet the same answer.
-		return attachFinal
-	}
-}
-
 // forwardOverHTTP runs one port-forward over the best HTTP transport available,
 // serving the local listener until the session ends. It returns
 // errNoHTTPTransport when neither rung could be negotiated, leaving the
 // WebSocket path to take over.
 //
-// state is passed in rather than built here so that a rung's verdict survives
-// the caller's re-mint: a peer that answered "not over this protocol" is no
-// less refused for the token being fresh, and re-learning it would spend the
-// one retry on the same rung.
+// key is the caller's per-mint attach key (ADR-065 §3), not one per rung: it is
+// what tells the server that a lower rung is the same attacher retrying rather
+// than someone replaying the token, and generating it here would make every
+// rung a stranger to the one above it.
 func (c *Client) forwardOverHTTP(
 	ctx context.Context,
-	state *transportState,
-	attachPath, token string,
-	authorizedUntil *time.Time,
+	minted mintedTunnel,
+	key string,
 	localPort, remotePort int,
 ) error {
-	attach, err := egressAttachURL(c.base, attachPath)
+	attach, err := egressAttachURL(c.base, minted.attachPath)
 	if err != nil {
 		return errNoHTTPTransport
 	}
-	// The token is validated once, up front, so that from here on EVERY failure
-	// of openEgressSession is one where the attach request did go out. That is
-	// the fact the classification below rests on, and deriving it from the
-	// error would be guesswork.
-	if _, err := withToken(attach, token); err != nil {
+	// A mint with no token is refused once, up front, rather than three times
+	// over as an attach failure per rung.
+	if _, err := withToken(attach, minted.token); err != nil {
 		return err
 	}
+	state := newTransportState()
 	preference := transportPreference()
 	for _, kind := range preference[:len(preference)-1] {
 		if !state.usable(kind) {
@@ -269,34 +260,26 @@ func (c *Client) forwardOverHTTP(
 			_ = pool.Close()
 			continue
 		}
-		key, err := tun.NewIngressAttachKey()
+		session, err := openEgressSession(ctx, pool, attach, minted, key, kind)
 		if err != nil {
 			_ = pool.Close()
-			return err
-		}
-		session, err := openEgressSession(ctx, pool, attach, token, key, kind)
-		if err != nil {
-			_ = pool.Close()
-			// The token has now been presented. Which of the four things that
-			// means decides everything from here; the ladder itself only ever
-			// keeps going on the first of them.
-			switch classifyAttachFailure(err) {
-			case attachDescend:
-				continue
-			case attachFinal:
-				var rejection *attachRejection
-				_ = errors.As(err, &rejection)
+			// A refused attach is the server's verdict on this session — an
+			// expired token, a container that stopped, a replay from another
+			// attacher — and a lower rung would only collect it again. Anything
+			// else is the ladder's own business and steps down, which since
+			// ADR-065 costs nothing: the next rung presents the SAME token with
+			// the SAME attach key, so it re-takes the session an abandoned attach
+			// may have claimed instead of finding it burnt. That is the exact
+			// shape the terminal ladder has always had, and the reason this path
+			// no longer needs a verdict enum of its own.
+			var rejection *attachRejection
+			if errors.As(err, &rejection) && !rejection.transportRefused() {
 				return fmt.Errorf("cannot open tunnel: %s", rejection.message)
-			case attachRetireRung:
-				// Retired here so the fresh mint lands on the next rung down
-				// rather than re-learning this verdict at the cost of the one
-				// retry it gets.
-				state.disable(kind)
 			}
-			return spentToken(err)
+			continue
 		}
 		fmt.Fprintf(os.Stderr, "tunnel transport: %s\n", kind.label())
-		err = serveForwardSession(ctx, session, authorizedUntil, localPort, remotePort)
+		err = serveForwardSession(ctx, session, minted.authorizedUntil, localPort, remotePort)
 		session.close()
 		_ = pool.Close()
 		return err
@@ -320,13 +303,13 @@ func serveForwardSession(
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	ended := make(chan string, 1)
+	ended := make(chan sessionEnd, 1)
 	go func() {
-		reason, runErr := session.run(ctx)
+		end, runErr := session.run(ctx)
 		if runErr != nil {
-			reason = ""
+			end = sessionEnd{}
 		}
-		ended <- reason
+		ended <- end
 		cancel()
 	}()
 
@@ -336,8 +319,8 @@ func serveForwardSession(
 		local, acceptErr := ln.Accept()
 		if acceptErr != nil {
 			select {
-			case reason := <-ended:
-				if message := forwardCloseMessage(reason); message != "" {
+			case end := <-ended:
+				if message := forwardCloseMessage(end.reason, end.message); message != "" {
 					fmt.Fprintln(os.Stderr, message)
 				}
 				return nil
@@ -365,8 +348,31 @@ func serveForwardSession(
 // forwardCloseMessage phrases the server's end reason as something the
 // developer can act on. A tunnel that dies without a word reads as a platform
 // bug (ADR-045 §5).
-func forwardCloseMessage(reason string) string {
+//
+// message is the sentence the server sent beside the reason, and where it
+// exists it wins: the reasons that carry one are the ones whose cause lives on
+// another machine, so the server knows which machine and this process does not.
+func forwardCloseMessage(reason, message string) string {
 	switch reason {
+	case "target_unreachable":
+		// ADR-066: the target was never reached at all — the agent was not
+		// connected, the container was not running, the SSH handshake failed.
+		// The listener is already open by then, so this is how the developer
+		// learns their psql will not connect, and the server's own sentence
+		// names which of the three it was.
+		if message != "" {
+			return "tunnel closed: " + message
+		}
+		return "tunnel closed: the target could not be reached — check the server, its agent and the target container"
+	case "wake_failed":
+		// ADR-067: the resource was asleep and the wake did not finish. Naming
+		// scale-to-zero matters more here than anywhere else, because the
+		// developer did nothing to stop it and has no reason to suspect it.
+		if message != "" {
+			return "tunnel closed: " + message
+		}
+		return "tunnel closed: the target was asleep (scale-to-zero) and could not be woken — " +
+			"run the command again to retry"
 	case "idle_timeout":
 		return "tunnel closed after its idle timeout — run the command again to reopen it"
 	case "max_duration":

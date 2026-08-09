@@ -13,28 +13,60 @@ INSERT INTO port_forward_sessions (
 RETURNING *;
 
 -- name: ClaimPortForwardSession :one
--- Single-use attach: consumes the token atomically (a replay matches zero rows).
+-- Idempotent within the TTL, bound to the attacher (ADR-065): a first claim
+-- stamps the attacher's key hash, a re-claim must present the same one, and a
+-- different one matches zero rows — which is the replay the rule exists to
+-- stop. What one mint authorizes is one live SESSION, not one HTTP request; the
+-- ladder above this statement (ADR-064) retries, and a rung that gave up must
+-- not have destroyed what it was trying to open.
+--
+-- The right-hand sides read pre-update values, so claimed_at and started_at are
+-- pinned to the FIRST claim: a retry loop must not be able to buy itself extra
+-- duration by restarting the max-duration ceiling.
+--
+-- authorized_until is checked here as well as at mint (ADR-045). A grant revoked
+-- between two rungs already ends the row, so `ended_at IS NULL` catches it; this
+-- is the belt to that brace, because a re-claim is the one path that can arrive
+-- after an authorization changed.
 UPDATE port_forward_sessions
-SET claimed_at = now(), started_at = now(), last_heartbeat_at = now()
+SET claimed_at        = coalesce(claimed_at, now()),
+    started_at        = CASE WHEN attach_seq = 0 THEN now() ELSE started_at END,
+    last_heartbeat_at = now(),
+    attach_key_hash   = $2,
+    attach_seq        = attach_seq + 1
 WHERE token_hash = $1
-  AND claimed_at IS NULL
   AND ended_at IS NULL
   AND token_expires_at > now()
+  AND (attach_key_hash IS NULL OR attach_key_hash = $2)
+  AND (authorized_until IS NULL OR authorized_until > now())
 RETURNING *;
 
 -- name: HeartbeatPortForwardSession :execrows
 -- The WebSocket already pings every 20 s. Persisting one successful beat lets
 -- another replica, or the process that starts after a crash, reject a ghost.
+--
+-- Generation-aware since ADR-065 §5: the bridge already ends itself when this
+-- updates zero rows — "another replica or the scheduler finalized this" — and
+-- "another attach superseded me" is the same sentence. It is how supersession
+-- converges across replicas, within one beat, with no new mechanism.
 UPDATE port_forward_sessions
 SET last_heartbeat_at = now()
 WHERE id = $1
+  AND attach_seq = $2
   AND claimed_at IS NOT NULL
   AND ended_at IS NULL;
 
 -- name: EndPortForwardSession :execrows
+-- The optional generation is ADR-065 §5: an attach finalizes the session only
+-- while it is still THE attach, so a socket that lost a re-claim cannot close
+-- the row its successor is using. Revocation, the operator's close and the
+-- sweep pass NULL, because their verdict is about the session and not about
+-- whichever socket happens to hold it.
 UPDATE port_forward_sessions
 SET ended_at = now(), end_reason = $2
-WHERE id = $1 AND ended_at IS NULL;
+WHERE id = $1
+  AND ended_at IS NULL
+  AND (sqlc.narg(attach_seq)::bigint IS NULL OR attach_seq = sqlc.narg(attach_seq)::bigint);
 
 -- name: CountOpenPortForwardSessions :one
 SELECT count(*) FROM port_forward_sessions

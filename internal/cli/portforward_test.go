@@ -20,6 +20,13 @@ func TestCloseMessageIsActionable(t *testing.T) {
 		// is the case the developer is least likely to guess at, so it names
 		// the mechanism as well as the move.
 		"target_stopped": "scale-to-zero",
+		// ADR-066: the target was never reached at all. The WebSocket rung's
+		// close frame carries a reason and nothing else — no operator sentence
+		// to prefer — so the phrasing here is the whole of what is said.
+		"target_unreachable": "could not be reached",
+		// ADR-067: the wake did not finish. Nobody stopped anything, so the
+		// mechanism has to be named or this reads as the platform misbehaving.
+		"wake_failed": "scale-to-zero",
 	} {
 		got := closeMessage(reason)
 		if got == "" {

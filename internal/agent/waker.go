@@ -26,6 +26,14 @@ import (
 // (→ 502). Both used to surface as "wake timed out", which hid the real cause.
 var errWakeTimeout = errors.New("wake timed out")
 
+// errUnknownResource marks a wake asked for a uuid this waker has no wake set
+// for — a deposit that is missing or stale, not a wake that was attempted and
+// failed. It was a 502 like any other while only proxied requests could wake,
+// but ADR-067 gave the control plane a way to ask directly, and there the
+// distinction is what lets it answer "this server cannot wake that" instead of
+// dressing a bookkeeping gap up as a cold start that timed out.
+var errUnknownResource = errors.New("waker: unknown resource")
+
 // ContainerState is the subset of `docker inspect` the waker needs.
 type ContainerState struct {
 	Running bool
@@ -505,7 +513,14 @@ func (w *Waker) gateFor(uuid string) *sync.Mutex {
 	return g
 }
 
-// ensureAwake wakes the resource's containers along the compose depends_on
+// ensureAwake is the HTTP path's wake: WakeResource without its verdict, which
+// a proxied request has no use for.
+func (w *Waker) ensureAwake(ctx context.Context, uuid string) error {
+	_, err := w.WakeResource(ctx, uuid)
+	return err
+}
+
+// WakeResource wakes the resource's containers along the compose depends_on
 // graph, like `docker compose up`: a container starts as soon as its own
 // dependencies are satisfied, so independent services wake in parallel and a
 // dependency (database, broker) is up and resolvable before the service that
@@ -517,10 +532,22 @@ func (w *Waker) gateFor(uuid string) *sync.Mutex {
 // first-requests share one wake. A failed wake stops the containers this
 // attempt started, so the resource returns to its slept state instead of
 // crash-looping half-awake while the control plane still believes it asleep.
-func (w *Waker) ensureAwake(ctx context.Context, uuid string) error {
+//
+// This is also the whole of ADR-067 §4: the typed WakeResource command runs
+// exactly this, on the very Waker instance the HTTP path serves from, so a
+// browser hit and a session mint racing for the same compose stack meet on the
+// gate below rather than starting it twice in two orders. It is one function
+// and not two by construction — there is no second wake to drift from.
+//
+// On success it returns what this attempt actually started, in start order —
+// empty when the resource was already awake. On failure it returns nothing,
+// because the rollback has already stopped whatever it had started. A uuid with
+// no wake set answers errUnknownResource, which is a different kind of answer
+// from a wake that ran and did not make it.
+func (w *Waker) WakeResource(ctx context.Context, uuid string) ([]string, error) {
 	res, ok := w.resource(uuid)
 	if !ok {
-		return fmt.Errorf("waker: unknown resource %s", uuid)
+		return nil, fmt.Errorf("%w %s", errUnknownResource, uuid)
 	}
 
 	g := w.gateFor(uuid)
@@ -594,11 +621,12 @@ func (w *Waker) ensureAwake(ctx context.Context, uuid string) error {
 	}()
 	if err != nil {
 		w.rollback(uuid, started)
+		return nil, err
 	}
-	if err == nil && len(started) > 0 && w.OnWake != nil {
+	if len(started) > 0 && w.OnWake != nil {
 		w.OnWake(uuid)
 	}
-	return err
+	return started, nil
 }
 
 // depsMet reports whether every depends_on edge of c is satisfied: the

@@ -48,7 +48,7 @@ func TestTunnelPresenceCutsTheRegisteredBridge(t *testing.T) {
 		t.Fatal("a repeated cut blocked")
 	}
 
-	p.unregister(1)
+	p.unregister(1, cancel)
 	if p.Cut(1, tunnel.EndUserClose) {
 		t.Error("a finished bridge must no longer be reachable")
 	}
@@ -85,9 +85,9 @@ func TestTunnelPresenceClosesAndDrainsEveryBridgeOnShutdown(t *testing.T) {
 		t.Fatal("a bridge registered during shutdown remained open")
 	}
 
-	p.unregister(1)
-	p.unregister(2)
-	p.unregister(3)
+	p.unregister(1, first)
+	p.unregister(2, second)
+	p.unregister(3, racing)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if !p.Wait(ctx) {

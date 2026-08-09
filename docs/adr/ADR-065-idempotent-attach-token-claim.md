@@ -30,8 +30,8 @@ on the *attempt* rather than on the *session*.
 
 | Path | Claim | Then, before the response head |
 |---|---|---|
-| Port-forward / bastion | `ClaimPortForwardSession` (`internal/handlers/portforwardattach.go:114`, WebSocket twin `internal/handlers/portforward.go:246`) | `tunnelTarget` — an agent `ContainerInspect` RPC and a full, unpooled `serverdial.Open` (`internal/handlers/portforward.go:307`) |
-| Terminal | `ClaimTerminalSession` (`internal/handlers/terminalattach.go:132`, WebSocket twin `internal/handlers/terminal.go:286`) | `terminalPTY` — the same unpooled `serverdial.Open` for a server shell (`internal/handlers/terminal.go:343`), or an agent exec-create/attach for a container shell |
+| Port-forward / bastion | `ClaimPortForwardSession`, at the top of `tunnelAttachSession` and of its WebSocket twin `TunnelWebSocket` | `tunnelTarget` — an agent `ContainerInspect` RPC and a full, unpooled `serverdial.Open` |
+| Terminal | `ClaimTerminalSession`, at the top of `terminalAttachSession` and of its WebSocket twin `TerminalWebSocket` | `terminalPTY` — the same unpooled `serverdial.Open` for a server shell, or an agent exec-create/attach for a container shell |
 
 Both claims are strict single-use consumes at the very top of the handler:
 
@@ -45,13 +45,13 @@ while it waits.
 
 Meanwhile the client is climbing ADR-064's ladder. When a rung's attach does not answer
 inside the open budget, the CLI classifies it as a transport failure and steps down
-(`internal/cli/egress_transport.go:190`) — correctly, since from the client's side an
-unanswered attach is indistinguishable from a transport that cannot carry the tunnel. But
-the server has already claimed. Every remaining rung, and the WebSocket rung underneath
-them, then fails with `invalid, expired or already used tunnel token`. The terminal is in
-exactly the same position and additionally still passes the generic 5 s
-`transportAttachTimeout` for its session request (`internal/cli/terminal_transport.go:78`),
-so its budget does not even cover the dial it is waiting on.
+(`attachRejection.transportRefused`, in `forwardOverHTTP`) — correctly, since from the
+client's side an unanswered attach is indistinguishable from a transport that cannot carry
+the tunnel. But the server has already claimed. Every remaining rung, and the WebSocket rung
+underneath them, then fails with `invalid, expired or already used tunnel token`. The
+terminal is in exactly the same position and additionally passes the generic 5 s
+`transportAttachTimeout` for its session request (`openTerminalSession`), so its budget does
+not even cover the dial it is waiting on.
 
 This is not a thought experiment: it is what a developer hit on
 `akerdock port-forward … --pr 4865`. The message compounds the damage by being false in all
@@ -61,8 +61,8 @@ robbed.
 
 A tactical fix ships separately: the session attach gets its own timeout derived from what
 the server actually spends, the way `egressDataOpenTimeout` is already derived from
-`tunnel.EgressDialTimeout` (`internal/cli/httptransport.go:71`), plus a bounded client-side
-re-mint when a claim is refused. That narrows the window. It does not close it, and cannot:
+`tunnel.EgressDialTimeout`, plus a bounded client-side re-mint when a claim is refused. That
+narrows the window. It does not close it, and cannot:
 **any** abandonment after the request reached the server burns a token that never served a
 byte — a laptop's wifi handing over, a QUIC path failure, a front that resets the
 connection, an operator restarting an API replica mid-attach. The re-mint hides the symptom
@@ -127,11 +127,11 @@ rather than assumed:
   heartbeat at all — its sweep is keyed on `started_at` against the max-duration ceiling.
   This is the one difference with teeth, and §5 and §6 pay for it explicitly.
 - **Different stream shape**: an egress session has many data streams; a terminal session
-  has exactly one, refused twice by a CAS on the attach (`terminalattach.go:231`). §6 uses
+  has exactly one, a second refused by a CAS in `terminalAttachStream`. §6 uses
   that difference rather than working around it.
 
 **Ingress stays out.** Its claim is an in-memory map lookup inside the agent
-(`internal/agent/ingress.go:273`), not a SQL statement: its atomicity argument is a mutex
+(`internal/agent/ingress.go`), not a SQL statement: its atomicity argument is a mutex
 rather than a row lock, its state is 60 s of agent memory rather than a durable row, and
 its rolling-upgrade story is an agent rollout rather than a migration. Transposing this
 decision there is plausible and is *not* the same change; it would be its own ADR, with its
@@ -142,15 +142,15 @@ thing.
 ### 3. The attach key is minted once per token, and travels every rung
 
 Both paths already generate a per-attempt 256-bit attach key (`tun.NewIngressAttachKey`),
-present it as the path's `AttachKeyHeader`, and hash it on sight (`decodeAttachKey`,
-`internal/handlers/portforwardattach.go:293`) — it is the credential that binds data
-streams to the control request that spent the token. It is exactly the "who is attaching"
-identity this decision needs, and it costs nothing to reuse.
+present it as the path's `AttachKeyHeader`, and hash it on sight (`decodeAttachKey`) — it is
+the credential that binds data streams to the control request that spent the token. It is
+exactly the "who is attaching" identity this decision needs, and it costs nothing to reuse.
 
-One change of scope makes it usable: today the key is generated **inside the rung loop**
-(`internal/cli/egress_transport.go:174`, and its terminal counterpart), so every rung is a
-different attacher. It moves up — **one attach key per mint**, carried unchanged through
-the whole ladder climb, WebSocket rung included. The key stays ephemeral, per-process,
+One change of scope makes it usable: the key was generated **inside the rung loop**
+(`forwardOverHTTP`, and its terminal counterpart), so every rung was a different attacher. It
+moves up to the mint — **one attach key per mint**, generated beside the token in
+`forwardSession` and carried unchanged through the whole ladder climb, WebSocket rung
+included. The key stays ephemeral, per-process,
 never logged, and never stored in plaintext: the row keeps its SHA-256 only, on the same
 footing as the token hash (§23.2).
 
@@ -200,9 +200,8 @@ column on its table (`last_heartbeat_at`, `authorized_until`). Its existing comm
   `CASE WHEN attach_seq = 0` pin `claimed_at` and `started_at` to the **first** claim. A
   re-claim must not restart the ceiling, or a retry loop would buy duration.
 - `authorized_until` is checked at claim time as well as at mint. A grant revoked between
-  two rungs already ends the row (`endSessionsOfGrant`,
-  `internal/handlers/externalendpoints.go:406`), so `ended_at IS NULL` catches it; the
-  explicit clause is the belt to that brace, because a re-claim is the one path that can
+  two rungs already ends the row (`endSessionsOfGrant`), so `ended_at IS NULL` catches it;
+  the explicit clause is the belt to that brace, because a re-claim is the one path that can
   now arrive *after* an authorization changed.
 
 Columns added, all additive and rolling-upgrade safe — an N-1 replica ignores them, and one
@@ -221,13 +220,33 @@ running beside the new one — two live attaches on one session is the exact thi
 forbids, and it would also mean two SSH clients or two PTYs against the target.
 
 - **Same replica** — the common case, since the ladder's rungs reach whatever the front
-  routes them to and that is usually one process. Both paths already overwrite their
-  in-process register (`egressRegister`, `terminalRegister`) and already release by pointer
-  comparison, so a superseded attach cannot delete its successor's entry. The registers are
-  one return value short of an explicit teardown: `egressRegister`/`terminalRegister` return
-  the displaced attach and the handler closes it — reason `superseded`, the egress session
-  cut and the terminal's `finish()` fired, which also releases the data-stream handler
-  parked on `attach.done`. A silent overwrite becomes a deliberate cut.
+  routes them to and that is usually one process. The displaced attach is cut with the
+  wire-only reason `superseded`, gated on `attach_seq > 1`, which is what makes supersession
+  decidable rather than a guess: anything above the first claim is a re-claim.
+
+  The cut travels the register that carries a **reason** and is keyed on the session row
+  rather than on a transport, so it reaches an incumbent on either rung: `TunnelPresence.Cut`
+  on port-forward — the same register a revocation uses, and the only one that reaches a
+  WebSocket incumbent, which the HTTP path's in-process attach map never sees — and, on the
+  terminal, which has no such register, `terminalRegister`/`terminalSupersede` returning the
+  displaced attach so `terminalCut` can fire its `finish()` and its context cancel. One
+  mechanism per path rather than two, and no register is asked to both publish and tear down
+  on the egress side.
+
+  **`superseded` is wire-only and is deliberately not a `terminal_end_reason` value.** It is
+  a fact about a socket, not about the session — the session it names is still open, for the
+  attach that won — so the loser must never finalize the row. Had that reason reached the
+  database, PostgreSQL would have refused the enum cast whatever the generation guard did,
+  which is a crash where a silent no-op was intended.
+
+  One correction to what this ADR originally asserted, kept visible because it is exactly
+  the kind of thing a future reader would re-break: **`TunnelPresence.unregister` did not
+  release by pointer comparison** — it deleted unconditionally by session id. Implemented as
+  first written, a superseded attach leaving would have evicted the *winner's* cancel
+  channel, leaving a live tunnel that ADR-045 revocation could no longer reach and that
+  shutdown no longer waited for. `unregister` now takes the caller's own channel and removes
+  only its own entry. Identity-aware release is a precondition of supersession, not a
+  detail of it.
 - **Another replica, port-forward.** The heartbeat becomes generation-aware:
   `HeartbeatPortForwardSession` matches `attach_seq = $2` in addition to `id`, and the
   bridge already ends itself when the heartbeat updates zero rows — "another replica or the
@@ -274,6 +293,14 @@ policy**.
   client died between the two requests: release the attach, close the PTY or the SSH
   client, and leave the row claimed, un-ended and re-claimable for the remainder of its TTL.
   Nobody is told anything, because nobody is listening.
+
+  **Bounded by `token_expires_at`, and that bound is load-bearing**: "the request context was
+  canceled" also describes a four-hour session ending perfectly normally, and a rule without
+  the bound would leave every such row un-finalized. Past the TTL there is nothing left to
+  rescue — no key can re-claim an expired token — so the attach finalizes as the
+  `disconnect` it was. Port-forward enforces it in the handler
+  (`endAbandonedPortForwardAttach`); the terminal reaches the same instant through the sweep
+  clause below, its abandonment path simply returning.
 - **The attach was refused on its merits** — target no longer exists, container not running,
   agent not connected, full duplex unavailable, grant expired: finalize as today. A re-claim
   would only reproduce the same verdict, and leaving the row open would invite the CLI to
@@ -337,8 +364,8 @@ replay hole this ADR is supposed to keep shut.
 - **ADR-045 grant-bound sessions.** A grant authorizes *minting*; this ADR touches nothing
   there. `authorized_until` is frozen on the row at mint, a re-claim cannot extend it (§4),
   and a revocation between two rungs is refused by both `ended_at` and the explicit clause.
-- **Audit.** `port-forward.open` and its terminal counterpart are emitted at **mint**
-  (`internal/handlers/portforward.go:227`), so the fix is to what the mint count means: one
+- **Audit.** `port-forward.open` and its terminal counterpart are emitted at **mint**, so
+  the fix is to what the mint count means: one
   developer intent produces one mint, one open line and one close line, instead of one open
   line per rung. **A re-claim emits no audit event** — it is not a second open, and recording
   it as one would restate the very confusion this ADR removes. Nothing is lost to forensics:
@@ -358,10 +385,15 @@ subject.
 ## Alternatives considered
 
 - **Only fix the budgets and re-mint on refusal** (the tactical change already in flight).
-  Kept, but insufficient as the whole answer: it shrinks the window rather than closing it,
-  and it pays for every abandonment with an extra row, an extra cap slot and an extra open
-  audit line. It is a good client-side behaviour on top of this decision and a bad substitute
-  for it.
+  It was the right thing to ship first — it was small, it was safe, and it bought back most
+  of the failures while this decision was being written. But it is a stopgap this decision
+  **retires**, not a behaviour it keeps. The re-mint existed to remedy a token burnt by an
+  abandoned attempt; once an abandoned attempt burns nothing, there is nothing left for a
+  second mint to remedy, and keeping it would contradict §8 outright — the cap argument is
+  that **one climb is one row**, and a client that mints again on refusal makes one climb up
+  to four rows again. The budget derivation stays (a client that waits long enough for the
+  server's own work is right for reasons that have nothing to do with claims); the re-mint
+  goes.
 - **Make the token multi-use for its TTL, full stop.** Rejected: it drops the replay property
   entirely. Two laptops could hold two tunnels into a production database from one mint, and
   the audit trail would name one open for two sessions.

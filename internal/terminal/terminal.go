@@ -64,6 +64,13 @@ const (
 	EndMaxDuration EndReason = "max_duration"
 	EndDisconnect  EndReason = "disconnect"
 	EndRevoked     EndReason = "revoked"
+	// EndTargetUnreachable is the shell that never opened (ADR-066): the
+	// attach answers before it dials, so a server that refuses SSH or a
+	// container that is gone is no longer a 409 at redeem — it is reported on
+	// the session that is already open. The two values that used to carry it
+	// were both lies: disconnect blames the developer's own network, and
+	// revoked claims an administrator acted when nobody did.
+	EndTargetUnreachable EndReason = "target_unreachable"
 )
 
 // Options bounds a session (§24.4). Zero values fall back to defaults.
@@ -76,6 +83,31 @@ type Options struct {
 	MaxDuration time.Duration
 	// Heartbeat is the ping interval detecting a silently vanished peer.
 	Heartbeat time.Duration
+	// OnHeartbeat rides that same beat to persist what only the control plane
+	// knows: that this session is still attached — and therefore, since
+	// ADR-067 §1, that its target is not idle. A beat is the only moment an
+	// attached session speaks to the control plane while a developer sits and
+	// reads, which is why the durable liveness stamp and the activity signal
+	// share one hook rather than growing a timer each.
+	//
+	// A storage error is best effort: the caller logs it and returns true,
+	// because the socket is the source of truth while this process lives.
+	// Returning FALSE is reserved for a session that is durably over — another
+	// replica or the sweep finalized the row, or a re-claim superseded this
+	// attach — and it cuts the socket, which must not outlive its own
+	// authorization. That is tunnel.Options.OnHeartbeat's contract, word for
+	// word and on purpose: two bridges, one rule about what a beat means.
+	OnHeartbeat func(context.Context) bool
+	// Cancel ends the session from outside, naming the reason to report. A nil
+	// channel simply never fires, which is why the zero value is inert.
+	//
+	// It carries a reason rather than being a bare signal for the same reason
+	// the tunnel's does: cancelling the session's context also ends it, but it
+	// ends it as EndRevoked — which tells the developer an administrator acted
+	// when nobody did. A target that stopped under a live shell (ADR-067 §2)
+	// and an attach displaced by a re-claim (ADR-065 §5) are both cuts from
+	// outside, and neither is a revocation.
+	Cancel <-chan EndReason
 }
 
 // Defaults for Options; the instance configuration overrides them
@@ -93,10 +125,33 @@ type controlMessage struct {
 	Rows int    `json:"rows"`
 }
 
-// endMessage is the server→client text frame sent before closing.
+// endMessage is the server→client text frame sent before closing. Msg carries
+// the operator sentence beside the machine-readable reason (ADR-066 §3): the
+// egress wire has always had a message field, and without one here a developer
+// whose shell never opened reads `session ended: target_unreachable` where a
+// port-forward prints what actually went wrong.
 type endMessage struct {
 	Type   string    `json:"type"`
 	Reason EndReason `json:"reason"`
+	Msg    string    `json:"msg,omitempty"`
+}
+
+// SendEnd writes the session's final text frame, best effort and on a fresh
+// context: whoever calls it is tearing down, and ctx may already be dead.
+//
+// It is exported because a session can end BEFORE it has a bridge. Since
+// ADR-066 the remote half runs behind the response head, so a resolution that
+// fails has an open session request and no PTY — and this frame is the only
+// channel that failure has, the terminal's data stream carrying no dial and so
+// having nothing to answer 502 about.
+func SendEnd(conn Conn, reason EndReason, msg string) {
+	payload, err := json.Marshal(endMessage{Type: "end", Reason: reason, Msg: msg})
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = conn.Write(ctx, MessageText, payload)
 }
 
 // Bridge pumps bytes between conn and pty until one side ends the session,
@@ -194,6 +249,9 @@ loop:
 			break loop
 		case reason = <-reasons:
 			break loop
+		case reason = <-opts.Cancel:
+			// Cut from outside, with its own word for it.
+			break loop
 		case <-activity:
 			if !idle.Stop() {
 				<-idle.C
@@ -210,6 +268,12 @@ loop:
 				reason = EndDisconnect
 				break loop
 			}
+			if opts.OnHeartbeat != nil && !opts.OnHeartbeat(ctx) {
+				// The durable session is already closed; only the socket is
+				// left, and the reason it ended with is on the row.
+				reason = EndDisconnect
+				break loop
+			}
 		}
 	}
 
@@ -220,14 +284,26 @@ loop:
 	if reason == EndDisconnect && ctx.Err() != nil {
 		reason = EndRevoked
 	}
+	// …and a cut that named its reason wins over that default. A cutter queues
+	// the reason and THEN cancels — it has to cancel, because the same cut must
+	// also reach a session still resolving its PTY, which no bridge is watching
+	// yet — so by the time cancellation surfaces here the value is already
+	// buffered and this receive cannot miss it. Without this arbitration the
+	// container that stopped under a live shell would be reported as `revoked`:
+	// the one word ADR-067 §2 exists to stop the developer reading.
+	if reason == EndRevoked {
+		select {
+		case r := <-opts.Cancel:
+			reason = r
+		default:
+		}
+	}
 
 	// Kill first (§24.4 — the pty must not survive the socket), then tell the
-	// client why, best effort, on a fresh context: ctx may already be dead.
+	// client why. A bridge that ends has no sentence to add: the reason IS the
+	// whole report, and the message field exists for the failures that never
+	// reached a bridge at all.
 	_ = pty.Close()
-	msgCtx, msgCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer msgCancel()
-	if payload, err := json.Marshal(endMessage{Type: "end", Reason: reason}); err == nil {
-		_ = conn.Write(msgCtx, MessageText, payload)
-	}
+	SendEnd(conn, reason, "")
 	return reason
 }

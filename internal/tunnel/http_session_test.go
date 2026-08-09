@@ -249,12 +249,33 @@ func TestHTTPSessionSendsItsTerminalReason(t *testing.T) {
 	agentControl, clientControl := newControlPair(t)
 	session := NewHTTPSession(agentControl, Options{})
 	go func() {
-		_ = session.SendClose(context.Background(), EndMaxDuration)
+		_ = session.SendClose(context.Background(), EndMaxDuration, "")
 		_ = session.Close()
 	}()
 	frame, err := clientControl.Receive()
 	if err != nil || frame.Type != "session_close" || frame.Reason != string(EndMaxDuration) {
 		t.Fatalf("frame = %+v, %v", frame, err)
+	}
+}
+
+// A reason the developer cannot act on is half a report (ADR-066 §3). Now that
+// the attach answers before it dials, "the server's agent is not connected right
+// now" arrives here rather than in a 409 body, so the sentence must ride beside
+// the reason on the same frame.
+func TestHTTPSessionCarriesTheOperatorSentenceBesideTheReason(t *testing.T) {
+	agentControl, clientControl := newControlPair(t)
+	session := NewHTTPSession(agentControl, Options{})
+	const sentence = "the server's agent is not connected right now"
+	go func() {
+		_ = session.SendClose(context.Background(), EndReason("target_unreachable"), sentence)
+		_ = session.Close()
+	}()
+	frame, err := clientControl.Receive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frame.Reason != "target_unreachable" || frame.Msg != sentence {
+		t.Fatalf("frame = %+v — the reason without its sentence names no target", frame)
 	}
 }
 

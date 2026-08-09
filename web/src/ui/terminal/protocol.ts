@@ -49,8 +49,24 @@ export function resizeMessage(geometry: Geometry): string {
   return JSON.stringify({ type: 'resize', cols: geometry.cols, rows: geometry.rows });
 }
 
-/** Why the server says the session ended. */
-export type EndReason = 'user_close' | 'idle_timeout' | 'max_duration' | 'disconnect' | 'revoked';
+/**
+ * Why the server says the session ended.
+ *
+ * The last three arrived with ADR-066 and ADR-067 and are the reasons a shell
+ * stops for something that is not the developer, the clock or an administrator:
+ * the target was never reached, it vanished under the session, or it was asleep
+ * and did not wake. They are exactly the cases where a browser tab that simply
+ * goes quiet reads as a bug in the platform.
+ */
+export type EndReason =
+  | 'user_close'
+  | 'idle_timeout'
+  | 'max_duration'
+  | 'disconnect'
+  | 'revoked'
+  | 'target_unreachable'
+  | 'target_stopped'
+  | 'wake_failed';
 
 /**
  * Reads the server's end frame. Anything else (terminal output arrives as
@@ -79,5 +95,11 @@ export function describeEnd(reason: EndReason): string {
       return 'Session revoked by the server.';
     case 'disconnect':
       return 'Connection lost.';
+    case 'target_unreachable':
+      return 'Session ended: the target could not be reached — check the server, its agent and the container.';
+    case 'target_stopped':
+      return 'Session ended: the container stopped — a redeploy, a manual stop, or a scale-to-zero sleep.';
+    case 'wake_failed':
+      return 'Session ended: the target was asleep and could not be woken. Try again.';
   }
 }

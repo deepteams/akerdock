@@ -14,20 +14,44 @@ import (
 
 const claimTerminalSession = `-- name: ClaimTerminalSession :one
 UPDATE terminal_sessions
-SET claimed_at = now(), started_at = now()
+SET claimed_at        = coalesce(claimed_at, now()),
+    started_at        = CASE WHEN attach_seq = 0 THEN now() ELSE started_at END,
+    last_heartbeat_at = now(),
+    attach_key_hash   = $2,
+    attach_seq        = attach_seq + 1
 WHERE token_hash = $1
-  AND claimed_at IS NULL
   AND ended_at IS NULL
   AND token_expires_at > now()
-RETURNING id, uuid, team_id, user_id, target_kind, server_id, resource_id, target_name, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, target_component, preview_id
+  AND (attach_key_hash IS NULL OR attach_key_hash = $2)
+RETURNING id, uuid, team_id, user_id, target_kind, server_id, resource_id, target_name, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, target_component, preview_id, attach_key_hash, attach_seq, streamed_at, last_heartbeat_at
 `
 
-// Single-use attach: the WHERE consumes the token atomically — a replayed
-// token matches zero rows, whatever the race. started_at is reset at claim
-// time so idle/max-duration windows measure the live session, not the gap
-// between issuance and attach.
-func (q *Queries) ClaimTerminalSession(ctx context.Context, tokenHash string) (TerminalSession, error) {
-	row := q.db.QueryRow(ctx, claimTerminalSession, tokenHash)
+type ClaimTerminalSessionParams struct {
+	TokenHash     string
+	AttachKeyHash []byte
+}
+
+// Idempotent within the TTL, bound to the attacher (ADR-065): a first claim
+// stamps the attacher's key hash, a re-claim must present the same one, a
+// different one matches zero rows — which is the replay the rule exists to
+// stop. The idempotence lives in the WHERE and nowhere else: read-then-write
+// would race two rungs of the same ladder into two attaches that both believe
+// they own the session, the one failure mode strict single-use never had.
+//
+// started_at is reset at claim time so idle/max-duration windows measure the
+// live session, not the gap between issuance and attach — but only on the
+// FIRST claim. The right-hand sides read pre-update values, so coalesce and the
+// attach_seq test pin both stamps to that claim; a retry loop must not buy
+// itself duration. token_expires_at > now() is unchanged and is the whole of
+// the re-claim window: there is no new lifetime here.
+//
+// last_heartbeat_at is stamped here as well as on every beat (ADR-067 §1): the
+// column means "the last moment this session was known alive", and a claim is
+// such a moment. Leaving it NULL until the first beat twenty seconds later
+// would make a shell that attached a second ago indistinguishable from a row
+// written by a release that cannot heartbeat at all.
+func (q *Queries) ClaimTerminalSession(ctx context.Context, arg ClaimTerminalSessionParams) (TerminalSession, error) {
+	row := q.db.QueryRow(ctx, claimTerminalSession, arg.TokenHash, arg.AttachKeyHash)
 	var i TerminalSession
 	err := row.Scan(
 		&i.ID,
@@ -48,6 +72,10 @@ func (q *Queries) ClaimTerminalSession(ctx context.Context, tokenHash string) (T
 		&i.CreatedAt,
 		&i.TargetComponent,
 		&i.PreviewID,
+		&i.AttachKeyHash,
+		&i.AttachSeq,
+		&i.StreamedAt,
+		&i.LastHeartbeatAt,
 	)
 	return i, err
 }
@@ -77,7 +105,7 @@ INSERT INTO terminal_sessions (
     $1, $6, $2, $7, $8, $3,
     $9, $10, $11, $4, $5
 )
-RETURNING id, uuid, team_id, user_id, target_kind, server_id, resource_id, target_name, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, target_component, preview_id
+RETURNING id, uuid, team_id, user_id, target_kind, server_id, resource_id, target_name, client_ip, token_hash, token_expires_at, claimed_at, started_at, ended_at, end_reason, created_at, target_component, preview_id, attach_key_hash, attach_seq, streamed_at, last_heartbeat_at
 `
 
 type CreateTerminalSessionParams struct {
@@ -129,6 +157,10 @@ func (q *Queries) CreateTerminalSession(ctx context.Context, arg CreateTerminalS
 		&i.CreatedAt,
 		&i.TargetComponent,
 		&i.PreviewID,
+		&i.AttachKeyHash,
+		&i.AttachSeq,
+		&i.StreamedAt,
+		&i.LastHeartbeatAt,
 	)
 	return i, err
 }
@@ -136,18 +168,77 @@ func (q *Queries) CreateTerminalSession(ctx context.Context, arg CreateTerminalS
 const endTerminalSession = `-- name: EndTerminalSession :execrows
 UPDATE terminal_sessions
 SET ended_at = now(), end_reason = $2
-WHERE id = $1 AND ended_at IS NULL
+WHERE id = $1
+  AND ended_at IS NULL
+  AND ($3::bigint IS NULL OR attach_seq = $3::bigint)
 `
 
 type EndTerminalSessionParams struct {
 	ID        int64
 	EndReason *TerminalEndReason
+	AttachSeq *int64
 }
 
 // Idempotent: only the first close wins, so end_reason keeps the true cause
 // when the WS teardown and a timeout race each other.
+//
+// attach_seq is the optional generation guard of ADR-065 §5: an attach
+// finalizes the session only while it is still THE attach, so a displaced one
+// updates zero rows and the row stays open for the winner. Revocation, the
+// operator cut and the sweep pass no generation and finalize unconditionally —
+// their verdict is about the session, not about whichever socket holds it.
 func (q *Queries) EndTerminalSession(ctx context.Context, arg EndTerminalSessionParams) (int64, error) {
-	result, err := q.db.Exec(ctx, endTerminalSession, arg.ID, arg.EndReason)
+	result, err := q.db.Exec(ctx, endTerminalSession, arg.ID, arg.EndReason, arg.AttachSeq)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const heartbeatTerminalSession = `-- name: HeartbeatTerminalSession :execrows
+UPDATE terminal_sessions
+SET last_heartbeat_at = now()
+WHERE id = $1
+  AND attach_seq = $2
+  AND claimed_at IS NOT NULL
+  AND ended_at IS NULL
+`
+
+type HeartbeatTerminalSessionParams struct {
+	ID        int64
+	AttachSeq int64
+}
+
+// The bridge already pings its peer every 20 s. Persisting one successful beat
+// is what lets another replica, or the process that starts after a crash, tell
+// a live shell from a ghost — and it is the statement ADR-067 §1 hangs the
+// target's activity signal off, because a beat is the only moment an attached
+// session talks to the control plane while a developer sits and reads.
+//
+// Generation-aware exactly like the tunnel's (ADR-065 §5): zero rows updated is
+// one sentence with three causes — the scheduler or another replica finalized
+// this row, or another attach superseded this one — and one conclusion, that
+// the socket must not outlive its own durable authorization.
+func (q *Queries) HeartbeatTerminalSession(ctx context.Context, arg HeartbeatTerminalSessionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, heartbeatTerminalSession, arg.ID, arg.AttachSeq)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markTerminalSessionStreamed = `-- name: MarkTerminalSessionStreamed :execrows
+UPDATE terminal_sessions
+SET streamed_at = now()
+WHERE id = $1 AND streamed_at IS NULL
+`
+
+// Stamped once, when the session's single data stream joins — affordable only
+// because a terminal has exactly one (ADR-065 §6). Read by the sweep alone: it
+// is what tells an abandoned claim from a live shell, and it is deliberately
+// not a re-claim condition.
+func (q *Queries) MarkTerminalSessionStreamed(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, markTerminalSessionStreamed, id)
 	if err != nil {
 		return 0, err
 	}
@@ -188,12 +279,21 @@ WHERE ended_at IS NULL
   AND (
     (claimed_at IS NULL AND token_expires_at < now())
     OR (claimed_at IS NOT NULL AND started_at < now() - make_interval(secs => $1::int))
+    OR (claimed_at IS NOT NULL AND streamed_at IS NULL AND token_expires_at < now())
   )
 `
 
 // Crash net: sessions live in-process, so a row left open past any possible
 // lifetime is a control-plane restart, not a session. Unclaimed expired
 // tokens are closed as revoked.
+//
+// The third clause is what bounds ADR-065's abandoned attach. A client that
+// vanished between the session request and its data stream now leaves the row
+// claimed and re-claimable instead of ended, and this table has no heartbeat to
+// age it: without this, that row would hold one of the twenty per-team slots
+// until the max-duration ceiling. A claimed row that never carried its PTY is
+// therefore closed once its token dies — the slot is held for at most the TTL
+// plus one sweep interval — and as disconnect, which is what happened.
 func (q *Queries) SweepTerminalSessions(ctx context.Context, maxDurationSeconds int32) (int64, error) {
 	result, err := q.db.Exec(ctx, sweepTerminalSessions, maxDurationSeconds)
 	if err != nil {

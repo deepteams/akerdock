@@ -41,13 +41,42 @@ type Querier interface {
 	// Inserts the key, or returns the existing row when the key was already
 	// used: the caller compares the request hash and replays the response.
 	ClaimIdempotencyKey(ctx context.Context, arg ClaimIdempotencyKeyParams) (ClaimIdempotencyKeyRow, error)
-	// Single-use attach: consumes the token atomically (a replay matches zero rows).
-	ClaimPortForwardSession(ctx context.Context, tokenHash string) (PortForwardSession, error)
-	// Single-use attach: the WHERE consumes the token atomically — a replayed
-	// token matches zero rows, whatever the race. started_at is reset at claim
-	// time so idle/max-duration windows measure the live session, not the gap
-	// between issuance and attach.
-	ClaimTerminalSession(ctx context.Context, tokenHash string) (TerminalSession, error)
+	// Idempotent within the TTL, bound to the attacher (ADR-065): a first claim
+	// stamps the attacher's key hash, a re-claim must present the same one, and a
+	// different one matches zero rows — which is the replay the rule exists to
+	// stop. What one mint authorizes is one live SESSION, not one HTTP request; the
+	// ladder above this statement (ADR-064) retries, and a rung that gave up must
+	// not have destroyed what it was trying to open.
+	//
+	// The right-hand sides read pre-update values, so claimed_at and started_at are
+	// pinned to the FIRST claim: a retry loop must not be able to buy itself extra
+	// duration by restarting the max-duration ceiling.
+	//
+	// authorized_until is checked here as well as at mint (ADR-045). A grant revoked
+	// between two rungs already ends the row, so `ended_at IS NULL` catches it; this
+	// is the belt to that brace, because a re-claim is the one path that can arrive
+	// after an authorization changed.
+	ClaimPortForwardSession(ctx context.Context, arg ClaimPortForwardSessionParams) (PortForwardSession, error)
+	// Idempotent within the TTL, bound to the attacher (ADR-065): a first claim
+	// stamps the attacher's key hash, a re-claim must present the same one, a
+	// different one matches zero rows — which is the replay the rule exists to
+	// stop. The idempotence lives in the WHERE and nowhere else: read-then-write
+	// would race two rungs of the same ladder into two attaches that both believe
+	// they own the session, the one failure mode strict single-use never had.
+	//
+	// started_at is reset at claim time so idle/max-duration windows measure the
+	// live session, not the gap between issuance and attach — but only on the
+	// FIRST claim. The right-hand sides read pre-update values, so coalesce and the
+	// attach_seq test pin both stamps to that claim; a retry loop must not buy
+	// itself duration. token_expires_at > now() is unchanged and is the whole of
+	// the re-claim window: there is no new lifetime here.
+	//
+	// last_heartbeat_at is stamped here as well as on every beat (ADR-067 §1): the
+	// column means "the last moment this session was known alive", and a claim is
+	// such a moment. Leaving it NULL until the first beat twenty seconds later
+	// would make a shell that attached a second ago indistinguishable from a row
+	// written by a release that cannot heartbeat at all.
+	ClaimTerminalSession(ctx context.Context, arg ClaimTerminalSessionParams) (TerminalSession, error)
 	// Outbox publisher (§18.2, §24.2): events are published in commit order.
 	ClaimUnpublishedOutboxEvents(ctx context.Context, limit int32) ([]OutboxEvent, error)
 	ClearFailedLogins(ctx context.Context, id int64) error
@@ -355,9 +384,20 @@ type Querier interface {
 	EncryptionRotationCandidates(ctx context.Context, arg EncryptionRotationCandidatesParams) ([]byte, error)
 	EndIngressSession(ctx context.Context, arg EndIngressSessionParams) (int64, error)
 	EndIngressSessionByUUID(ctx context.Context, arg EndIngressSessionByUUIDParams) (IngressTunnelSession, error)
+	// The optional generation is ADR-065 §5: an attach finalizes the session only
+	// while it is still THE attach, so a socket that lost a re-claim cannot close
+	// the row its successor is using. Revocation, the operator's close and the
+	// sweep pass NULL, because their verdict is about the session and not about
+	// whichever socket happens to hold it.
 	EndPortForwardSession(ctx context.Context, arg EndPortForwardSessionParams) (int64, error)
 	// Idempotent: only the first close wins, so end_reason keeps the true cause
 	// when the WS teardown and a timeout race each other.
+	//
+	// attach_seq is the optional generation guard of ADR-065 §5: an attach
+	// finalizes the session only while it is still THE attach, so a displaced one
+	// updates zero rows and the row stays open for the winner. Revocation, the
+	// operator cut and the sweep pass no generation and finalize unconditionally —
+	// their verdict is about the session, not about whichever socket holds it.
 	EndTerminalSession(ctx context.Context, arg EndTerminalSessionParams) (int64, error)
 	// Durable job queue (ADR-002, §21.3). Dequeue uses FOR UPDATE SKIP LOCKED
 	// on the partial index of eligible jobs; lock_key exclusivity is enforced
@@ -630,7 +670,23 @@ type Querier interface {
 	HeartbeatJob(ctx context.Context, arg HeartbeatJobParams) (int64, error)
 	// The WebSocket already pings every 20 s. Persisting one successful beat lets
 	// another replica, or the process that starts after a crash, reject a ghost.
-	HeartbeatPortForwardSession(ctx context.Context, id int64) (int64, error)
+	//
+	// Generation-aware since ADR-065 §5: the bridge already ends itself when this
+	// updates zero rows — "another replica or the scheduler finalized this" — and
+	// "another attach superseded me" is the same sentence. It is how supersession
+	// converges across replicas, within one beat, with no new mechanism.
+	HeartbeatPortForwardSession(ctx context.Context, arg HeartbeatPortForwardSessionParams) (int64, error)
+	// The bridge already pings its peer every 20 s. Persisting one successful beat
+	// is what lets another replica, or the process that starts after a crash, tell
+	// a live shell from a ghost — and it is the statement ADR-067 §1 hangs the
+	// target's activity signal off, because a beat is the only moment an attached
+	// session talks to the control plane while a developer sits and reads.
+	//
+	// Generation-aware exactly like the tunnel's (ADR-065 §5): zero rows updated is
+	// one sentence with three causes — the scheduler or another replica finalized
+	// this row, or another attach superseded this one — and one conclusion, that
+	// the socket must not outlive its own durable authorization.
+	HeartbeatTerminalSession(ctx context.Context, arg HeartbeatTerminalSessionParams) (int64, error)
 	// Audit log (§23.4): strictly append-only — no UPDATE or single DELETE
 	// query must ever exist against this table.
 	InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) error
@@ -898,6 +954,11 @@ type Querier interface {
 	MarkProxyRevisionApplied(ctx context.Context, id int64) error
 	MarkProxyRevisionFailed(ctx context.Context, arg MarkProxyRevisionFailedParams) error
 	MarkProxyRevisionRolledBack(ctx context.Context, id int64) error
+	// Stamped once, when the session's single data stream joins — affordable only
+	// because a terminal has exactly one (ADR-065 §6). Read by the sweep alone: it
+	// is what tells an abandoned claim from a live shell, and it is deliberately
+	// not a re-claim condition.
+	MarkTerminalSessionStreamed(ctx context.Context, id int64) (int64, error)
 	// The rules that hear this event type, for this team, honouring the
 	// project/environment scoping (NULL = the whole team).
 	MatchNotificationRules(ctx context.Context, arg MatchNotificationRulesParams) ([]MatchNotificationRulesRow, error)
@@ -1172,6 +1233,14 @@ type Querier interface {
 	// Crash net: sessions live in-process, so a row left open past any possible
 	// lifetime is a control-plane restart, not a session. Unclaimed expired
 	// tokens are closed as revoked.
+	//
+	// The third clause is what bounds ADR-065's abandoned attach. A client that
+	// vanished between the session request and its data stream now leaves the row
+	// claimed and re-claimable instead of ended, and this table has no heartbeat to
+	// age it: without this, that row would hold one of the twenty per-team slots
+	// until the max-duration ceiling. A claimed row that never carried its PTY is
+	// therefore closed once its token dies — the slot is held for at most the TTL
+	// plus one sweep interval — and as disconnect, which is what happened.
 	SweepTerminalSessions(ctx context.Context, maxDurationSeconds int32) (int64, error)
 	TagResource(ctx context.Context, arg TagResourceParams) error
 	// Consumes the code: a replay finds nothing (DELETE … RETURNING).

@@ -62,13 +62,11 @@ Both halves revise the same paragraph of ADR-036 — one changes what *counts* a
 the other what may *start* a wake — and both apply verbatim to both access paths. One
 decision per problem, not one per door.
 
-**Implementation status**, because it is uneven and a reader deserves to know which
-sentences describe code. For the **tunnel**, §1 and §2 are built: the heartbeat stamps
-activity and cuts a vanished target, and `createPortForward` stamps at mint time
-(`recordTunnelActivity`) for previews and applications, with databases and external
-endpoints excluded structurally. For the **terminal**, both halves are ahead of their
-implementation and §1/§2 name the hooks that do not yet exist. §3 to §9 are ahead of their
-implementation on both paths.
+**Implementation status**: everything below is built, on both access paths, except what §10
+explicitly defers. That was not true when this was accepted — the clauses naming hooks that
+did not yet exist have been rephrased as those hooks landed, and rephrasing is not deciding:
+no clause below says anything different from what was accepted, and several say it more
+narrowly because building it showed how narrow the gap really was.
 
 ## Decision
 
@@ -183,13 +181,29 @@ Three rules, identical on both paths:
 
 The end reason costs no migration: `terminal_end_reason` is one enum shared by
 `terminal_sessions` and `port_forward_sessions` since the tunnel's own table reused it, and
-`target_stopped` is already a member. What the terminal lacks is the Go constant and,
-more substantially, **a way to be cut from outside at all**: the tunnel has a presence
-registry whose `Cut` a revocation and this clause both use, while the terminal's only
-registry is the HTTP rung's attach-key rendezvous, which exists to pair a data stream with
-its session and cannot end one. That registry is work this ADR obliges — and it closes a gap
-worth naming on its own: today a live terminal cannot be revoked mid-session either, only
-swept as a row.
+`target_stopped` is already a member. Nor does the terminal need a presence registry built
+from nothing — ADR-065's supersession work already left it able to unwind a live attach from
+outside. What this clause obliges is narrower than a registry and easier to get wrong:
+
+- **Every rung must be registrable.** The HTTP rung published its attach so a re-claim could
+  displace it; the WebSocket rung published nothing, so a shell attached over the ladder's
+  bottom rung was reachable by no cut at all. A cut that works on some rungs is not a cut.
+  The WebSocket attach therefore takes a slot like any other — claimed at birth, since it
+  carries its own bytes and hands out no data stream for anyone to wait on.
+- **The cut must carry its reason.** Unwinding a session by cancelling it surfaces through
+  the bridge's cancellation branch as `revoked`, which tells the developer an administrator
+  acted when none did. The reason has to be queued before the teardown and preferred by the
+  bridge over what cancellation would otherwise infer. Without that, this clause ships a lie
+  in place of a silence — "an administrator revoked your session" instead of "your container
+  stopped" — and a lie is worse than the hang it replaces, because the developer acts on it.
+
+**And the client has to be able to phrase it.** "The client prints it" is not a detail; it is
+the half of the mechanism that makes the other half worth building. The reason reaches two
+clients, and only one of them was ready: the CLI already printed close reasons, while the
+browser terminal's end-reason switch returned nothing at all for the reasons this ADR and
+ADR-066 introduce — a session ending on a blank line is the same silence, moved one layer
+out. Both now phrase all of them, and the browser's list is keyed by the union of reasons so
+an unphrased one fails to compile rather than reaching a developer as emptiness.
 
 This clause stands whatever becomes of the wake half. A redeploy, an operator's stop and a
 crash produce the identical failure, and not one of them involves scale-to-zero.
@@ -212,7 +226,7 @@ attach.
 
 The wait is paid **inside the established session**, on the first stream open for a tunnel
 and on the exec attach for a terminal. That matters for ADR-065/066: whichever of them
-lands, a 60 s cold start cannot be paid inside a request the client is timing — not the
+lands, a cold start of up to 75 s cannot be paid inside a request the client is timing — not the
 mint, not the attach, which ADR-066 has answering before it dials at all. Holding the first
 *stream* is the transposition of the waker's own hold-and-forward: the local `accept()` (or
 the terminal's stream open) succeeds at once, the operation behind it is what waits, and the
@@ -233,7 +247,8 @@ Two reasons, and the second is the load-bearing one. First, a control-plane loop
 readiness rule on the far side of a chatty sixty-second poll. Second, and worse, it would
 be a **second starter for one resource with no shared gate**: a browser hit, a tunnel mint
 and a terminal mint arriving together would race, each starting its own half of a compose
-stack in its own order. Going through the module means they join the same in-flight wake.
+stack in its own order. Going through the module means they meet on one gate (§8) instead of
+starting one stack three times in three orders.
 
 This is where the second half of ADR-036 §2 is revised, and only here: an HTTP request is
 no longer the only thing that starts a wake. What that clause also decided — that the waker
@@ -252,12 +267,23 @@ is nothing to lean on: `running` is a fact about a container, not about a listen
 healthcheck may not be declared, and when it is, it says nothing about *this* port. So
 readiness is decided in two gates, each bounding what it can actually observe.
 
-- **Gate 1 — the containers, agent-side, ≤ 60 s.** `WakeResource` returns when every
-  container of the wake set is ready **in the waker's own sense**: healthy where a
-  healthcheck exists, otherwise running-stable for 10 s (ADR-036 §2). The budget is
-  ADR-036 §4's number, unchanged and deliberately not re-litigated. The command is
-  cancellable by the channel's `cancel` frame, so a session the developer abandons does not
-  leave the agent waiting.
+- **Gate 1 — the containers, agent-side.** `WakeResource` returns when every container of
+  the wake set is ready **in the waker's own sense**: healthy where a healthcheck exists,
+  otherwise running-stable for 10 s (ADR-036 §2). Its budget is ADR-036 §4's number,
+  unchanged and deliberately not re-litigated — and that budget is **per progress step, not
+  a wall clock**: the deadline re-arms every time a container is newly released, so a
+  five-service stack is not asked to cold-start inside one container's budget, while a
+  genuinely stuck container still fails within one. A healthy stack may therefore
+  legitimately exceed 60 s of wall clock, and gate 1 on its own bounds nothing a person can
+  feel.
+- **The wall-clock ceiling — the control plane's, 60 s.** What the developer actually
+  experiences is a deadline the control plane sets on the command's context; the agent,
+  cancelled, aborts and rolls back whatever that attempt had started. The ceiling lives here
+  and not in the agent on purpose: a global cap enforced agent-side would be a second
+  readiness rule standing beside the waker's, which is precisely what §4 forbids. The waker
+  decides when a wake has **stalled**; the control plane decides how long a **person** waits.
+  The same deadline is what the channel's `cancel` frame carries when a developer abandons
+  the session, so an abandoned wake does not leave the agent working.
 - **Gate 2 — the real operation, ≤ 15 s after gate 1.** Not a synthetic probe: the session
   retries, with backoff, **the exact thing it exists to do** — the TCP dial of `ip:port`
   over the same SSH path a tunnel will carry bytes on, or the TTY exec attach a terminal
@@ -265,10 +291,12 @@ readiness is decided in two gates, each bounding what it can actually observe.
   connection, and no protocol knowledge is needed — ADR-032's tunnel is protocol-blind and
   stays so.
 
-The two budgets are separate on purpose. They measure different things — a container
-becoming ready, and the thing inside it accepting work — and folding them into one number
-would silently redefine ADR-036's clause. Ceiling for the developer: **75 s**, after which
-the session is refused with a verdict rather than left open.
+The three numbers are separate on purpose, because they measure three different things: a
+wake making progress, a person waiting, and the thing inside a container accepting work.
+Folding any two of them into one would silently redefine ADR-036's clause — which is exactly
+what "gate 1, 60 s" would do if it were read as a wall clock. **Ceiling for the developer:
+75 s** — the control plane's wall clock plus gate 2's grace — after which the session is
+refused with a verdict rather than left open.
 
 The 15 s of gate 2 is **asserted, not derived**: no measurement stands behind it, unlike
 ADR-036's 60 s. It is deliberately left as an invitation — move it with field data on
@@ -300,9 +328,24 @@ started from. Two channels carry the news, and both already exist:
   `target_stopped` already do. `wake_failed` is one `ALTER TYPE ... ADD VALUE` on the enum
   both session tables share.
 
-One end reason, not two: a gate-1 timeout, a gate-2 timeout and an operational wake failure
+One end reason, not two: a stalled wake, a gate-2 timeout and an operational wake failure
 are the same event for the person reading it — the target did not come up — and the message
 already distinguishes them. Splitting the enum would buy analytics nobody asked for.
+
+**A refusal at the mint, however, is not one message.** The command's error vocabulary
+separates three answers that all mean "no session", because one of them is worth retrying
+and the others are not:
+
+- `not_found` — this waker has no such resource. The deposited routing table is missing or
+  stale; nothing at a session's timescale will fix it, so the developer is told the server
+  cannot wake that resource rather than invited to try again.
+- `unavailable` — the agent runs no waker, or has not loaded a routing table yet. **Nothing
+  was started**, and a retry may well succeed: that is what the message says.
+- `unimplemented` — an agent predating this ADR (§4). Same refusal, different remedy: the
+  server needs its agent recreated, which is an operator's job and not the developer's.
+
+Flattening these into "cannot wake" would send someone to reload a browser page that will
+not help either — the workaround this ADR exists to remove.
 
 Per ADR-064 §1 the wire identifiers stay parameterised per access path and are never pooled:
 these frames are added to each family's own control vocabulary, not to a shared one.
@@ -349,9 +392,9 @@ anything a grant did not already reach.
 | Target | Behaviour |
 |---|---|
 | Preview, `preview_scale_to_zero` armed, `sleeping` | Woken, by either door. |
-| Preview already `waking` | Joins the in-flight wake (§4's gate); no second wake. |
+| Preview already `waking` | **Queues behind** the in-flight wake (§4's gate); it never forks a second one. See the note below — "queues" is not "joins". |
 | Application, `scale_to_zero` armed, `scale_slept_at` set, `desired_status = running` | Woken, under §7's permission. |
-| Application or preview with `desired_status ≠ running` | **Never woken.** ADR-037 §3 forbids the scheduler from sleeping a manually stopped application; the symmetric rule is that nothing auto-starts one either. Refused with "this application is stopped — start it, then open the session". |
+| Application or preview with `desired_status ≠ running` | **Never woken, and no command is sent.** ADR-037 §3 forbids the scheduler from sleeping a manually stopped application; the symmetric rule is that nothing auto-starts one either. Refused at the mint with "this application is stopped — start it, then open the session". |
 | Resource with scale-to-zero **off** whose containers are stopped | Not woken. They are stopped for some other reason, and guessing which one is not a session's business. Existing `409`. |
 | Managed database | Never. ADR-037 §2 excludes databases from scale-to-zero by construction; this ADR does not reopen that. A stopped database is refused with a message pointing at its lifecycle action. |
 | Compose *component* of a scale-to-zero application | Wakes **with the application** — the component is inside the wake set — then passes gate 2 on its own container. |
@@ -361,6 +404,25 @@ anything a grant did not already reach.
 
 The same list governs §1's activity signal, minus the wake: only the two kinds that have a
 scale-to-zero clock are given one.
+
+**Every rule in this table is the mint's**, enforced before any command is sent — and the
+agent could not enforce one of them if it wanted to. The routing table the control plane
+deposits carries a uuid, a container list and a dependency graph: no desired state, no
+scale-to-zero flag, no permission. So `desired_status ≠ running` is not a check the agent
+declines to make, it is one it has no state to make. What the agent does guarantee is the
+boundary genuinely its own, and it is worth stating because it is not nothing: it starts the
+containers of a resource **the control plane itself deposited**, and nothing else.
+
+**"Queues behind" is the accurate word, not "joins"**, and the difference is observable. The
+single-flight gate is a mutex, not a shared future: a second caller blocks until the first
+returns, then re-inspects, finds the set already released and does nothing — its wake is a
+no-op that started no container. Two consequences follow, both verified rather than assumed.
+Cancelling one session's wake does **not** abort a browser's concurrent one, which is what
+we want. But a wake that fails rolls back the containers it started — including ones a
+queued caller was about to want — and that caller simply starts them again, paying its own
+cold start. This is ADR-036's existing single-flight behaviour, unchanged here and not
+re-litigated; it is written down because a reader who assumed a shared future would predict
+the opposite in both cases.
 
 ### 9. No opt-out flag: the permission is the knob
 
@@ -398,9 +460,11 @@ boolean**, never an instance-wide one — but we do not add a column against a h
 - Whether an attached session should keep a **non**-scale-to-zero resource from being stopped
   by an operator. It should not: an operator's stop wins, and §2 tells the client so within
   one beat.
-- Whether the terminal should gain **mid-session revocation** now that §2 obliges the
-  registry that would make it possible. The gap is named in §2; closing it is a separate
-  decision about who may cut whose shell.
+- **Who may cut whose shell.** The mechanism is not the open question: §2's cut reaches a
+  live terminal on every rung and carries its reason, and the platform already uses it when a
+  target vanishes. What is undecided is the surface and its authorization — whether an
+  administrator may end another member's session from the dashboard, under which permission,
+  and what the person on the other end is told. Nothing in this ADR waits on that answer.
 
 ## Consequences
 
@@ -421,9 +485,11 @@ boolean**, never an instance-wide one — but we do not add a column against a h
   the tab. No cancel-on-abandon path.
 - **The terminal costs more than the tunnel to bring in line**, and the work is named rather
   than assumed: an `OnHeartbeat` hook on `internal/terminal.Options`, a durable beat for
-  `terminal_sessions` to write to, a presence registry that can cut a live session, and two
-  Go end-reason constants. The database enum is already shared, so `target_stopped` needs no
-  migration and `wake_failed` needs one value for both families.
+  `terminal_sessions` to write to, a WebSocket rung that registers its attach like the HTTP
+  one, a cut that carries its reason instead of letting cancellation infer `revoked`, the Go
+  end-reason constants, and a browser client that phrases every one of them. The database
+  enum is already shared, so `target_stopped` needs no migration and `wake_failed` needs one
+  value for both families.
 - The agent gains one method. The channel gains no frame type; each family's wire gains two
   control-frame types on its own path only.
 - **Older clients keep working**: they ignore a `waking` state they do not model and drop
@@ -508,15 +574,28 @@ unless it names one.
 - An external-endpoint session and a server shell are never inspected for a target state and
   never cut for one.
 - Every rung enforces it: the WebSocket bridge and the HTTP session produce the same end
-  reason for the same target state, on both families.
+  reason for the same target state, on both families. For the terminal this means a shell
+  attached over the bottom rung is reachable by a cut at all — the assertion that would have
+  caught a rung registering nothing.
+- A cut names its own cause: a session ended for a vanished target reports `target_stopped`
+  and **never** `revoked`, which is what cancellation alone would have inferred.
+- Both clients phrase every end reason: the CLI prints it, and the browser's list is keyed by
+  the union so an unphrased reason is a compile error rather than a blank line.
 
 **Wake (§3–§9)**
 
 - A sleeping preview with scale-to-zero armed: the mint issues exactly one `WakeResource`,
   answers `waking`, and the session's own operation — the first stream's dial, or the exec
   attach — is **not** attempted while the wake is in flight, then is, once it returns ready.
-- Two mints against the same sleeping resource, including one of each family, issue **one**
-  wake and both sessions become usable (single-flight through the module's gate).
+- Two mints against the same sleeping resource, including one of each family, start the
+  containers **once**: the second queues on the gate and comes back having started nothing,
+  and both sessions become usable.
+- The wall clock is the control plane's: a wake whose containers keep making progress is not
+  cut at 60 s of agent-side work, and a wake that exceeds the control plane's deadline is
+  cancelled, rolled back and reported as `wake_failed` — the pair of assertions that would
+  catch the per-step budget being mistaken for a ceiling.
+- The three refusal answers are distinguishable at the mint: `not_found`, `unavailable` and
+  `unimplemented` produce three different messages, and only `unavailable` invites a retry.
 - No wake, and no wake command on the channel, when: the flag is off; the kind has none
   (managed database, Compose service resource, server shell); the target is a declared
   external endpoint, whatever its egress server holds.

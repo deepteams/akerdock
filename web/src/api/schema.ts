@@ -4220,6 +4220,11 @@ export interface components {
             idle_timeout_seconds: number;
             /** @description Maximum duration of a session, regardless of activity. */
             max_duration_seconds: number;
+            /**
+             * @description Whether the target was already up when this session was minted, or is being started for it (ADR-067 §3/§6). `waking` means the mint asked the server's waker for a cold start and did **not** wait for it: the shell opens as usual and the wait is paid inside the session, which is why the client is told here — it prints the notice, and sizes its patience, **before** the terminal window appears rather than learning it from a control frame once the session is already open and apparently frozen. Absent means `ready`: an older manager sends nothing, and a session whose target was already running has nothing to announce. A `waking` session can still end with the `wake_failed` reason — this field states what the mint asked for, not how it turned out.
+             * @enum {string}
+             */
+            state?: "ready" | "waking";
         };
         /** @description Request to open a TCP tunnel to a container of the resource (ADR-032). The target (container, port) is **frozen and authorized at creation**; the tunnel itself goes through the WebSocket `websocket_path` (outside OpenAPI). `component` designates the service for a compose stack. */
         PortForwardCreate: {
@@ -4245,6 +4250,11 @@ export interface components {
              * @description Instant the session is actually cut (ADR-045 §5): the grant's expiry on a `sensitive` external endpoint, the ADR-032 maximum duration otherwise. The CLI announces it when the listener comes up and warns before it lands, so a deadline never arrives unannounced.
              */
             authorized_until?: string;
+            /**
+             * @description Whether the target was already up when this session was minted, or is being started for it (ADR-067 §3/§6). `waking` means the mint asked the server's waker for a cold start and did **not** wait for it: the tunnel opens as usual and the wait is paid on the first forwarded connection, which is why the client is told here — it prints the notice, and widens the budget that first connection may spend, **before** the local listener is announced rather than learning it from a control frame afterwards, with a developer already typing `psql` into what looks like a hung tunnel. Absent means `ready`: an older manager sends nothing, and a session whose target was already running has nothing to announce. A `waking` session can still end with the `wake_failed` reason — this field states what the mint asked for, not how it turned out.
+             * @enum {string}
+             */
+            state?: "ready" | "waking";
         };
         /** @description A tunnel session as an operator sees it — who opened it, onto what, from where, and until when. Deliberately NOT the mint response: no token is readable back, so this schema carries none. */
         PortForwardSessionInfo: {
@@ -4277,10 +4287,10 @@ export interface components {
             /** Format: date-time */
             ended_at?: string;
             /**
-             * @description Why it closed. `grant_expired` is an ADR-045 session that reached its authorization's deadline, distinct from the ADR-032 ceiling. `target_stopped` is the target container disappearing under the tunnel — a redeploy, a manual stop, a scale-to-zero sleep — which would otherwise leave the forwarded connection hanging with no RST and no FIN until the idle timeout.
+             * @description Why it closed. `grant_expired` is an ADR-045 session that reached its authorization's deadline, distinct from the ADR-032 ceiling. `target_stopped` is the target container disappearing under the tunnel — a redeploy, a manual stop, a scale-to-zero sleep — which would otherwise leave the forwarded connection hanging with no RST and no FIN until the idle timeout. `target_unreachable` (ADR-066) is a target the session never reached at all: the attach now answers before it dials, so a failure belonging to no particular stream arrives as a session close rather than as an error at open — `disconnect` would have sent the developer to check their own network. `wake_failed` (ADR-067) is a scale-to-zero wake that did not come up inside its budget.
              * @enum {string}
              */
-            end_reason?: "user_close" | "idle_timeout" | "max_duration" | "disconnect" | "revoked" | "grant_expired" | "target_stopped";
+            end_reason?: "user_close" | "idle_timeout" | "max_duration" | "disconnect" | "revoked" | "grant_expired" | "target_stopped" | "target_unreachable" | "wake_failed";
             /**
              * Format: date-time
              * @description Instant the session is cut (ADR-045 §5) — the grant's expiry on a `sensitive` endpoint.
