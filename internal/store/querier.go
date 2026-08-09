@@ -665,6 +665,9 @@ type Querier interface {
 	// scheduler reads each one's waker activity file over SSH and sleeps the ones
 	// idle past their window (ADR-037). A manually stopped app (desired_status !=
 	// running) is never touched.
+	// last_activity_at comes along for the same reason previews carry theirs: a
+	// signal the waker cannot produce (an attached port-forward) has to reach the
+	// sleep decision, and updated_at only moves on a deploy or a config change.
 	ListApplicationsToSleep(ctx context.Context) ([]ListApplicationsToSleepRow, error)
 	// The current expected state of each scope on a server: its last applied
 	// revision (drift reconciliation, §6.2.4).
@@ -946,9 +949,26 @@ type Querier interface {
 	// resume_count bounds it: a job that kills its worker every time is dead-
 	// lettered instead of looping forever.
 	ReapExpiredLeases(ctx context.Context, maxResumes int32) ([]ReapExpiredLeasesRow, error)
+	// An attached port-forward is activity (ADR-032 with ADR-037): the tunnel goes
+	// straight to the container's IP over SSH, so the waker — which only records
+	// what the PROXY serves — never sees it, and the scheduler would stop the
+	// container the developer is connected to. Keyed on the resource id, which is
+	// the application's own id. A database or a compose stack targeted by a tunnel
+	// matches no row here, which is the intended no-op: neither has scale-to-zero.
+	RecordApplicationActivity(ctx context.Context, id int64) error
 	// Counts the failure and locks the account past the threshold. Returns the row
 	// so the caller can tell "locked now" from "still open".
 	RecordFailedLogin(ctx context.Context, arg RecordFailedLoginParams) (RecordFailedLoginRow, error)
+	// A machine signal: an attached port-forward proves somebody is connected to
+	// this preview (ADR-032 with ADR-036), which the waker cannot see — it only
+	// records PROXIED HTTP, and a tunnel bypasses the proxy entirely.
+	//
+	// Deliberately NOT KeepPreviewAlive. That one also clears expiry_warned_at,
+	// which records that a HUMAN asked to keep the preview; a heartbeat must not
+	// forge that consent. updated_at is left alone for a sharper reason: on a
+	// sleeping preview it carries the instant we slept it, and bumping it every
+	// 20 s would push the wake comparison out of reach forever.
+	RecordPreviewActivity(ctx context.Context, id int64) error
 	RecordServerFacts(ctx context.Context, arg RecordServerFactsParams) error
 	RecordUptimeResult(ctx context.Context, arg RecordUptimeResultParams) error
 	// Built-in MCP server (ADR-043): OAuth 2.1 for remote clients. Everything

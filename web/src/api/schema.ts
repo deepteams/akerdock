@@ -4277,10 +4277,10 @@ export interface components {
             /** Format: date-time */
             ended_at?: string;
             /**
-             * @description Why it closed. `grant_expired` is an ADR-045 session that reached its authorization's deadline, distinct from the ADR-032 ceiling.
+             * @description Why it closed. `grant_expired` is an ADR-045 session that reached its authorization's deadline, distinct from the ADR-032 ceiling. `target_stopped` is the target container disappearing under the tunnel — a redeploy, a manual stop, a scale-to-zero sleep — which would otherwise leave the forwarded connection hanging with no RST and no FIN until the idle timeout.
              * @enum {string}
              */
-            end_reason?: "user_close" | "idle_timeout" | "max_duration" | "disconnect" | "revoked" | "grant_expired";
+            end_reason?: "user_close" | "idle_timeout" | "max_duration" | "disconnect" | "revoked" | "grant_expired" | "target_stopped";
             /**
              * Format: date-time
              * @description Instant the session is cut (ADR-045 §5) — the grant's expiry on a `sensitive` endpoint.

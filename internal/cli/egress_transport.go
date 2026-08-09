@@ -57,7 +57,7 @@ func openEgressSession(
 	headers.Set(tun.EgressHTTP.AttachKeyHeader, key)
 	headers.Set(tun.EgressHTTP.TransportHeader, string(kind))
 
-	stream, err := openAttachStream(ctx, pool, 0, sessionURL.String(), headers, kind, transportAttachTimeout)
+	stream, err := openAttachStream(ctx, pool, 0, sessionURL.String(), headers, kind, egressAttachTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -145,12 +145,104 @@ func egressAttachURL(base, path string) (*url.URL, error) {
 // failure.
 var errNoHTTPTransport = errors.New("no HTTP transport available")
 
+// tokenSpentError says the attach request DID reach the server carrying the
+// mint token, and still came back a failure. The token is single-use and the
+// server claims it before it resolves anything (ADR-032's attach handler), so
+// it is burnt whatever the outcome — a lower rung, or the WebSocket underneath,
+// would only present a spent token and collect a 401 that reads as the
+// developer's fault. The only move left is a FRESH mint, which is
+// runPortForward's business and is bounded there to exactly one.
+type tokenSpentError struct {
+	// reason is what the developer is told. It is set at classification time
+	// rather than derived here, because the server's own 401 sentence describes
+	// the symptom and not the cause.
+	reason string
+	// cause is kept for the reader of a wrapped error: it is the only evidence
+	// of what the attempt actually observed.
+	cause error
+}
+
+func (e *tokenSpentError) Error() string { return "cannot open tunnel: " + e.reason }
+func (e *tokenSpentError) Unwrap() error { return e.cause }
+
+// spentToken classifies a failed attach whose request went out. A 401 is the
+// server telling us the token was already claimed — by a previous attempt that
+// reached it and then gave up waiting — and repeating its sentence verbatim
+// sends the developer looking for an expiry that never happened.
+func spentToken(err error) *tokenSpentError {
+	var rejection *attachRejection
+	if errors.As(err, &rejection) && rejection.code == http.StatusUnauthorized {
+		return &tokenSpentError{
+			reason: "the attach token was already spent — a previous transport attempt reached the server " +
+				"but timed out before it answered",
+			cause: err,
+		}
+	}
+	return &tokenSpentError{reason: err.Error(), cause: err}
+}
+
+// attachVerdict is what a failed SESSION attach means for the ladder. It exists
+// because the answer is never "the transport failed, step down": the attach
+// request carried the single-use token, and the server claims it before it
+// inspects the container or dials SSH. Whether the token survived is therefore
+// the first thing to establish, and only then whether the rung is at fault.
+type attachVerdict int
+
+const (
+	// attachDescend: nothing was spent, the next rung is worth the same token.
+	attachDescend attachVerdict = iota
+	// attachRetireRung: the rung is genuinely out AND the token is spent — the
+	// verdict came after the claim, so the retry must start below this rung.
+	attachRetireRung
+	// attachFinal: the server's answer would not change for a second session.
+	attachFinal
+	// attachSpent: the token is burnt and nothing but a fresh mint follows.
+	attachSpent
+)
+
+// classifyAttachFailure reads a failed session attach. Descending the ladder on
+// a burnt token wastes the two lower rungs and ends on a 401 whose sentence —
+// "invalid, expired or already used tunnel token" — blames the developer for
+// the ladder's own impatience, which is the bug this classification removes.
+func classifyAttachFailure(err error) attachVerdict {
+	var rejection *attachRejection
+	if !errors.As(err, &rejection) {
+		// A transport error or an open that timed out: the request went out, so
+		// the server may well have claimed the token and then spent longer than
+		// we waited resolving the target. Treat it as spent — the one reading
+		// that is wrong costs a mint, the other costs the whole command.
+		return attachSpent
+	}
+	switch rejection.code {
+	case http.StatusUpgradeRequired:
+		// The only answer that PREDATES the claim: the peer does not speak this
+		// protocol at all, and refuses on the header alone.
+		return attachDescend
+	case http.StatusHTTPVersionNotSupported:
+		// Full duplex is unavailable on this rung — a real transport verdict,
+		// but one the server reaches only after claiming the token.
+		return attachRetireRung
+	case http.StatusUnauthorized:
+		return attachSpent
+	default:
+		// A policy or target verdict: an unreachable server, a destroyed
+		// preview, a session cap. A second mint would meet the same answer.
+		return attachFinal
+	}
+}
+
 // forwardOverHTTP runs one port-forward over the best HTTP transport available,
 // serving the local listener until the session ends. It returns
 // errNoHTTPTransport when neither rung could be negotiated, leaving the
 // WebSocket path to take over.
+//
+// state is passed in rather than built here so that a rung's verdict survives
+// the caller's re-mint: a peer that answered "not over this protocol" is no
+// less refused for the token being fresh, and re-learning it would spend the
+// one retry on the same rung.
 func (c *Client) forwardOverHTTP(
 	ctx context.Context,
+	state *transportState,
 	attachPath, token string,
 	authorizedUntil *time.Time,
 	localPort, remotePort int,
@@ -159,7 +251,13 @@ func (c *Client) forwardOverHTTP(
 	if err != nil {
 		return errNoHTTPTransport
 	}
-	state := newTransportState()
+	// The token is validated once, up front, so that from here on EVERY failure
+	// of openEgressSession is one where the attach request did go out. That is
+	// the fact the classification below rests on, and deriving it from the
+	// error would be guesswork.
+	if _, err := withToken(attach, token); err != nil {
+		return err
+	}
 	preference := transportPreference()
 	for _, kind := range preference[:len(preference)-1] {
 		if !state.usable(kind) {
@@ -179,15 +277,23 @@ func (c *Client) forwardOverHTTP(
 		session, err := openEgressSession(ctx, pool, attach, token, key, kind)
 		if err != nil {
 			_ = pool.Close()
-			// A refused attach is the server's verdict on this session — an
-			// expired token, a target that moved — and re-dialing it over the
-			// WebSocket would only spend a second one. A transport failure is
-			// the ladder's business, and steps down.
-			var rejection *attachRejection
-			if errors.As(err, &rejection) && !rejection.transportRefused() {
+			// The token has now been presented. Which of the four things that
+			// means decides everything from here; the ladder itself only ever
+			// keeps going on the first of them.
+			switch classifyAttachFailure(err) {
+			case attachDescend:
+				continue
+			case attachFinal:
+				var rejection *attachRejection
+				_ = errors.As(err, &rejection)
 				return fmt.Errorf("cannot open tunnel: %s", rejection.message)
+			case attachRetireRung:
+				// Retired here so the fresh mint lands on the next rung down
+				// rather than re-learning this verdict at the cost of the one
+				// retry it gets.
+				state.disable(kind)
 			}
-			continue
+			return spentToken(err)
 		}
 		fmt.Fprintf(os.Stderr, "tunnel transport: %s\n", kind.label())
 		err = serveForwardSession(ctx, session, authorizedUntil, localPort, remotePort)
@@ -269,6 +375,9 @@ func forwardCloseMessage(reason string) string {
 		return "tunnel closed: the access grant expired — request access again"
 	case "revoked":
 		return "tunnel closed: an administrator revoked it"
+	case "target_stopped":
+		return "tunnel closed: the target container stopped (it may have been put to sleep by scale-to-zero) — " +
+			"run the command again to reopen it"
 	case "", "user_close":
 		return ""
 	default:

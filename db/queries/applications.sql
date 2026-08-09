@@ -237,7 +237,10 @@ WHERE id = $1;
 -- scheduler reads each one's waker activity file over SSH and sleeps the ones
 -- idle past their window (ADR-037). A manually stopped app (desired_status !=
 -- running) is never touched.
-SELECT r.id, r.uuid, r.updated_at, a.scale_to_zero_after_minutes
+-- last_activity_at comes along for the same reason previews carry theirs: a
+-- signal the waker cannot produce (an attached port-forward) has to reach the
+-- sleep decision, and updated_at only moves on a deploy or a config change.
+SELECT r.id, r.uuid, r.updated_at, a.scale_to_zero_after_minutes, a.last_activity_at
 FROM applications a
 JOIN resources r ON r.id = a.id
 WHERE a.scale_to_zero = true AND a.scale_slept_at IS NULL
@@ -250,6 +253,15 @@ SELECT r.id, r.uuid, a.scale_slept_at
 FROM applications a
 JOIN resources r ON r.id = a.id
 WHERE a.scale_slept_at IS NOT NULL AND r.deleted_at IS NULL;
+
+-- name: RecordApplicationActivity :exec
+-- An attached port-forward is activity (ADR-032 with ADR-037): the tunnel goes
+-- straight to the container's IP over SSH, so the waker — which only records
+-- what the PROXY serves — never sees it, and the scheduler would stop the
+-- container the developer is connected to. Keyed on the resource id, which is
+-- the application's own id. A database or a compose stack targeted by a tunnel
+-- matches no row here, which is the intended no-op: neither has scale-to-zero.
+UPDATE applications SET last_activity_at = now() WHERE id = $1;
 
 -- name: SetApplicationSlept :exec
 UPDATE applications SET scale_slept_at = now() WHERE id = $1;

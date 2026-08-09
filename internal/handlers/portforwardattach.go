@@ -25,7 +25,6 @@ import (
 
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/sshexec"
-	"github.com/deepteams/akerdock/internal/store"
 	"github.com/deepteams/akerdock/internal/tunnel"
 )
 
@@ -260,24 +259,6 @@ var egressCopyBuffers = sync.Pool{New: func() any {
 	buf := make([]byte, 64*1024)
 	return &buf
 }}
-
-// portForwardHeartbeat persists liveness on the durable row. The socket
-// remains the source of truth while this process is alive, so a transient
-// database failure is logged and retried on the next beat; zero rows updated
-// means another replica or the scheduler finalized the session, and the actual
-// socket must not outlive its durable authorization.
-func (a *API) portForwardHeartbeat(row store.PortForwardSession) func(context.Context) bool {
-	return func(parent context.Context) bool {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 3*time.Second)
-		defer cancel()
-		n, err := a.Store.HeartbeatPortForwardSession(ctx, row.ID)
-		if err != nil {
-			a.Logger.Warn("port-forward heartbeat failed", "session", uuidString(row.Uuid), "error", err)
-			return true
-		}
-		return n > 0
-	}
-}
 
 // baseContentType drops the parameters: `application/…+json; charset=utf-8`
 // must dispatch like `application/…+json`.

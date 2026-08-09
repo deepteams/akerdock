@@ -9929,10 +9929,14 @@ components:
           format: date-time
         end_reason:
           type: string
-          enum: [user_close, idle_timeout, max_duration, disconnect, revoked, grant_expired]
+          enum: [user_close, idle_timeout, max_duration, disconnect, revoked, grant_expired, target_stopped]
           description: >-
             Why it closed. `grant_expired` is an ADR-045 session that reached
             its authorization's deadline, distinct from the ADR-032 ceiling.
+            `target_stopped` is the target container disappearing under the
+            tunnel — a redeploy, a manual stop, a scale-to-zero sleep — which
+            would otherwise leave the forwarded connection hanging with no RST
+            and no FIN until the idle timeout.
         authorized_until:
           type: string
           format: date-time

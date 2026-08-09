@@ -37,7 +37,13 @@ const (
 	transportH2 transportKind = "h2"
 	transportWS transportKind = "websocket"
 
-	transportProbeTimeout  = 3 * time.Second
+	transportProbeTimeout = 3 * time.Second
+
+	// transportAttachTimeout is the DEFAULT session-attach budget: what a peer
+	// that answers the attach out of its own memory can reasonably take — the
+	// ingress server looking a token up in a map, and nothing more. Access
+	// paths whose server does real work before the response head carry their
+	// own budget instead; see egressAttachTimeout.
 	transportAttachTimeout = 5 * time.Second
 
 	// transportHTTP2Lanes and transportHTTP3Lanes exist for the same reason: a
@@ -69,6 +75,39 @@ const (
 	ingressDataOpenTimeout  = 5 * time.Second
 	terminalDataOpenTimeout = 5 * time.Second
 	egressDataOpenTimeout   = tun.EgressDialTimeout + 5*time.Second
+
+	// The SESSION attach needs the same treatment, and on egress it is the more
+	// expensive of the two: the control plane CLAIMS the single-use mint token
+	// at the very top of the attach handler and only THEN resolves the target —
+	// an agent ContainerInspect round trip, then a full SSH handshake, because
+	// nothing pools SSH connections and every attach pays a fresh one. All of
+	// that is spent before the response head. A client budget shorter than the
+	// server's own dial makes the two deadlines race, and when the client wins
+	// it blames the transport for a slow SSH handshake — while the token is
+	// already burnt, so no lower rung and no WebSocket fallback can redeem it
+	// either. That is the whole failure the developer met as "invalid, expired
+	// or already used tunnel token".
+	//
+	// So the budget is what the server can ACTUALLY spend, plus room for a WAN
+	// round trip. A server configured with a larger ssh_timeout_seconds still
+	// outlasts it; that residue is what the single re-mint in runPortForward
+	// covers.
+	//
+	// egressAttachSSHBudget is the default of servers.ssh_timeout_seconds
+	// (db/migrations/00006_servers.sql). It is a per-server column, so there is
+	// no constant to import — only its default to mirror.
+	egressAttachSSHBudget = 30 * time.Second
+	// egressAttachAgentRound is the container inspect that precedes the dial,
+	// bounded by the agent relay's own dial budget (internal/agentrelay).
+	egressAttachAgentRound = 10 * time.Second
+	egressAttachTimeout    = egressAttachSSHBudget + egressAttachAgentRound + 5*time.Second
+	// TRANSITIONAL (ADR-065/ADR-066). This budget buys correctness with
+	// patience: a genuinely hung transport is now detected in 45 s rather than
+	// 5, because a bigger bet is still a bet. ADR-066 removes the reason to bet
+	// at all — the attach answers before it dials, so the head no longer waits
+	// on someone else's SSH handshake — and ADR-065 makes an abandoned attempt
+	// stop burning the token. When either lands, this collapses back toward
+	// transportAttachTimeout and the re-mint in runPortForward goes with it.
 
 	// transportFailureBudget is how many consecutive lost sessions a transport
 	// gets before the CLI falls back to the next one. A transport whose every

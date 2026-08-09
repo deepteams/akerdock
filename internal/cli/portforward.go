@@ -197,19 +197,66 @@ func (c *Client) runPortForward(ctx context.Context, mintPath, component string,
 		}
 	}
 
-	// ADR-064's ladder first: HTTP/3, then HTTP/2, each carrying one forwarded
-	// connection per independent stream. WebSocket stays underneath, reached
-	// whenever a rung fails or the server predates the ladder.
-	switch err := c.forwardOverHTTP(ctx, sess.WebsocketPath, sess.Token, sess.AuthorizedUntil, localPort, remotePort); {
+	// The ladder's memory outlives the re-mint below, so a rung already known to
+	// refuse this path is not tried a second time on the fresh token.
+	state := newTransportState()
+
+	// The mint token is single-use and the server claims it at the very top of
+	// the attach handler, BEFORE it inspects the container and dials SSH. An
+	// attach that reaches the server and then gives up waiting therefore leaves
+	// a burnt token behind, and every later attempt — any rung, WebSocket
+	// included — answers 401. One fresh session and one retry is the whole
+	// remedy, and it is capped at one on purpose: each mint writes an audit row
+	// and takes one of the team's ten concurrent slots (ADR-032), so a target
+	// that is genuinely broken must not be able to spend them in a loop.
+	//
+	// TRANSITIONAL (ADR-065): a retry is what a single-use token forces on a
+	// client that cannot tell "the server never saw this" from "the server saw
+	// it and is still working". Once a token re-presented by the same attach key
+	// within its TTL is accepted, the attempt stops burning anything and this
+	// loop has nothing left to remedy.
+	for attempt := 0; ; attempt++ {
+		err := c.forwardSession(ctx, state, sess.WebsocketPath, sess.Token, sess.AuthorizedUntil, localPort, remotePort)
+		var spent *tokenSpentError
+		if !errors.As(err, &spent) || attempt > 0 {
+			return err
+		}
+		if err := mint(); err != nil {
+			return err
+		}
+	}
+}
+
+// forwardSession runs one attempt on one minted token: ADR-064's ladder first —
+// HTTP/3, then HTTP/2, each carrying one forwarded connection per independent
+// stream — then the WebSocket underneath, reached whenever no rung could be
+// negotiated or the server predates the ladder.
+func (c *Client) forwardSession(
+	ctx context.Context,
+	state *transportState,
+	attachPath, token string,
+	authorizedUntil *time.Time,
+	localPort, remotePort int,
+) error {
+	switch err := c.forwardOverHTTP(ctx, state, attachPath, token, authorizedUntil, localPort, remotePort); {
 	case err == nil:
 		return nil
 	case !errors.Is(err, errNoHTTPTransport):
 		return err
 	}
 
-	wsURL := toWS(c.base) + sess.WebsocketPath + "?" + url.Values{"token": {sess.Token}}.Encode()
+	wsURL := toWS(c.base) + attachPath + "?" + url.Values{"token": {token}}.Encode()
 	conn, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{Subprotocols: []string{"akerdock-tunnel-v1"}})
 	if err != nil {
+		// The bottom rung burns the token exactly like the others, so a 401 here
+		// is classified rather than reported: it means an earlier attempt got to
+		// the server first, and only a fresh mint can follow it.
+		if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+			return spentToken(&attachRejection{
+				kind: transportWS, status: resp.Status, code: resp.StatusCode,
+				message: handshakeReason(resp),
+			})
+		}
 		// The refusal carries a reason the operator can act on — "the server is
 		// not reachable over SSH right now" beats "expected handshake response
 		// status code 101 but got 409", which describes only our disappointment.
@@ -226,7 +273,7 @@ func (c *Client) runPortForward(ctx context.Context, mintPath, component string,
 	defer cancel()
 	go tun.readLoop(ctx, cancel)
 
-	ln, err := listenAndAnnounce(ctx, localPort, remotePort, sess.AuthorizedUntil)
+	ln, err := listenAndAnnounce(ctx, localPort, remotePort, authorizedUntil)
 	if err != nil {
 		return err
 	}
@@ -512,6 +559,9 @@ func closeMessage(reason string) string {
 		return "tunnel closed: maximum session duration reached — rerun the command to reopen it"
 	case "disconnect":
 		return "tunnel closed: the connection to the manager dropped"
+	case "target_stopped":
+		return "tunnel closed: the target container stopped (it may have been put to sleep by scale-to-zero) — " +
+			"rerun the command to reopen it"
 	case "user_close", "":
 		return ""
 	default:

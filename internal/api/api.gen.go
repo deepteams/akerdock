@@ -1419,12 +1419,13 @@ func (e PersistentStorageCreateKind) Valid() bool {
 
 // Defines values for PortForwardSessionInfoEndReason.
 const (
-	Disconnect   PortForwardSessionInfoEndReason = "disconnect"
-	GrantExpired PortForwardSessionInfoEndReason = "grant_expired"
-	IdleTimeout  PortForwardSessionInfoEndReason = "idle_timeout"
-	MaxDuration  PortForwardSessionInfoEndReason = "max_duration"
-	Revoked      PortForwardSessionInfoEndReason = "revoked"
-	UserClose    PortForwardSessionInfoEndReason = "user_close"
+	Disconnect    PortForwardSessionInfoEndReason = "disconnect"
+	GrantExpired  PortForwardSessionInfoEndReason = "grant_expired"
+	IdleTimeout   PortForwardSessionInfoEndReason = "idle_timeout"
+	MaxDuration   PortForwardSessionInfoEndReason = "max_duration"
+	Revoked       PortForwardSessionInfoEndReason = "revoked"
+	TargetStopped PortForwardSessionInfoEndReason = "target_stopped"
+	UserClose     PortForwardSessionInfoEndReason = "user_close"
 )
 
 // Valid indicates whether the value is a known member of the PortForwardSessionInfoEndReason enum.
@@ -1439,6 +1440,8 @@ func (e PortForwardSessionInfoEndReason) Valid() bool {
 	case MaxDuration:
 		return true
 	case Revoked:
+		return true
+	case TargetStopped:
 		return true
 	case UserClose:
 		return true
@@ -4504,7 +4507,7 @@ type PortForwardSessionInfo struct {
 	ClientIp  *string   `json:"client_ip,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 
-	// EndReason Why it closed. `grant_expired` is an ADR-045 session that reached its authorization's deadline, distinct from the ADR-032 ceiling.
+	// EndReason Why it closed. `grant_expired` is an ADR-045 session that reached its authorization's deadline, distinct from the ADR-032 ceiling. `target_stopped` is the target container disappearing under the tunnel — a redeploy, a manual stop, a scale-to-zero sleep — which would otherwise leave the forwarded connection hanging with no RST and no FIN until the idle timeout.
 	EndReason *PortForwardSessionInfoEndReason `json:"end_reason,omitempty"`
 	EndedAt   *time.Time                       `json:"ended_at,omitempty"`
 
@@ -4529,7 +4532,7 @@ type PortForwardSessionInfo struct {
 	Uuid      string  `json:"uuid"`
 }
 
-// PortForwardSessionInfoEndReason Why it closed. `grant_expired` is an ADR-045 session that reached its authorization's deadline, distinct from the ADR-032 ceiling.
+// PortForwardSessionInfoEndReason Why it closed. `grant_expired` is an ADR-045 session that reached its authorization's deadline, distinct from the ADR-032 ceiling. `target_stopped` is the target container disappearing under the tunnel — a redeploy, a manual stop, a scale-to-zero sleep — which would otherwise leave the forwarded connection hanging with no RST and no FIN until the idle timeout.
 type PortForwardSessionInfoEndReason string
 
 // PortForwardSessionInfoTargetKind What the tunnel points at. `unknown` is a session whose target was deleted after it opened — the row outlives the resource so the audit trail stays complete.

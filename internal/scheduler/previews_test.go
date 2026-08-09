@@ -293,6 +293,57 @@ func TestScaleZeroPreviewsDatabaseActivityWins(t *testing.T) {
 	}
 }
 
+// An attached port-forward is the one activity the waker structurally cannot
+// report: a tunnel dials the container's IP over SSH and never crosses the
+// proxy. The tunnel's heartbeat writes last_activity_at instead, and the sleep
+// decision has to honour it — otherwise the scheduler stops the container the
+// developer is holding a psql session into, and that connection black-holes.
+func TestScaleZeroPreviewsAttachedTunnelKeepsItAwake(t *testing.T) {
+	db := placementStore()
+	db.stzActive = []store.ListPreviewsForScaleToZeroRow{{
+		ID: 25, Uuid: uuidN(0xab), ApplicationID: 3, ScaleToZeroAfterMinutes: 30,
+		// Deployed long ago, so only the tunnel's beat stands between this
+		// preview and a sleep.
+		LastDeployedAt: pgtype.Timestamptz{Time: time.Unix(1_000_000_000, 0), Valid: true},
+		LastActivityAt: pgtype.Timestamptz{Time: time.Now(), Valid: true},
+	}}
+	fixture := newSTZFixture(t, db)
+	fixture.ops.ReadFileFn = activityFile(oldActivity)
+	fixture.s.scaleZeroPreviews(context.Background())
+	if len(db.sleptPreviewIDs) != 0 {
+		t.Fatalf("a preview with an attached tunnel slept: %v", db.sleptPreviewIDs)
+	}
+}
+
+// Same for a production application (ADR-037), which until now had no activity
+// column at all: its sleep decision only ever compared the waker file with
+// resources.updated_at — a timestamp that moves on a deploy, never on somebody
+// connecting.
+func TestScaleZeroApplicationsAttachedTunnelKeepsItAwake(t *testing.T) {
+	db := placementStore()
+	db.appsToSleep = []store.ListApplicationsToSleepRow{{
+		ID: 34, Uuid: uuidN(0xd4), ScaleToZeroAfterMinutes: 30,
+		UpdatedAt:      pgtype.Timestamptz{Time: time.Unix(1_000_000_000, 0), Valid: true},
+		LastActivityAt: pgtype.Timestamptz{Time: time.Now(), Valid: true},
+	}}
+	fixture := newSTZFixture(t, db)
+	fixture.ops.ReadFileFn = activityFile(oldActivity)
+	fixture.rt.ContainerListFn = emptyContainerList
+	fixture.s.scaleZeroApplications(context.Background())
+	if len(db.sleptAppIDs) != 0 {
+		t.Fatalf("an application with an attached tunnel slept: %v", db.sleptAppIDs)
+	}
+	// And the signal must not be sticky: an old beat leaves the app idle.
+	db.appsToSleep[0].LastActivityAt = pgtype.Timestamptz{Time: time.Unix(1_000_000_100, 0), Valid: true}
+	stale := newSTZFixture(t, db)
+	stale.ops.ReadFileFn = activityFile(oldActivity)
+	stale.rt.ContainerListFn = emptyContainerList
+	stale.s.scaleZeroApplications(context.Background())
+	if !reflect.DeepEqual(db.sleptAppIDs, []int64{34}) {
+		t.Fatalf("slept = %v, want the application asleep once its last beat aged out", db.sleptAppIDs)
+	}
+}
+
 func TestScaleZeroPreviewsSkipsAndFailures(t *testing.T) {
 	activeRows := func(n int) []store.ListPreviewsForScaleToZeroRow {
 		rows := make([]store.ListPreviewsForScaleToZeroRow, n)

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -223,6 +224,48 @@ func TestPortForwardEndpointPicksLocalPort(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "the endpoint's declared target") {
 		t.Fatalf("stderr = %q", errOut)
+	}
+}
+
+// The bug as the developer met it: the attach reached the server, the server
+// claimed the single-use token and then spent longer than the CLI's patience
+// resolving the target, so every attempt afterwards — lower rung, WebSocket,
+// next run — collected "invalid, expired or already used tunnel token". A spent
+// token is worth exactly ONE fresh session: each mint writes an audit row and
+// takes one of the team's ten concurrent slots (ADR-032), so a target that is
+// genuinely broken must not be able to spend them in a loop.
+func TestPortForwardRemintsOnceOnASpentToken(t *testing.T) {
+	var mints, attaches atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/databases", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"uuid":"db-1","name":"pg"}]}`))
+	})
+	mux.HandleFunc("/api/v1/databases/db-1/port-forwards", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"websocket_path":"/spent","token":"tk%d"}`, mints.Add(1))
+	})
+	mux.HandleFunc("/spent", func(w http.ResponseWriter, _ *http.Request) {
+		attaches.Add(1)
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"invalid, expired or already used tunnel token"}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	setupContext(t, srv.URL)
+
+	var err error
+	_, _ = captureOutput(t, func() {
+		err = runCmd(portForwardCmd(), "db/pg", "15432:5432")
+	})
+	if got := mints.Load(); got != 2 {
+		t.Fatalf("mints = %d, want exactly one retry (2)", got)
+	}
+	if got := attaches.Load(); got != 2 {
+		t.Fatalf("attaches = %d, want the retry to attach once with the fresh token", got)
+	}
+	// And what the developer is left with says who burnt the token, not the
+	// server's sentence about an expiry that never happened.
+	if err == nil || !strings.Contains(err.Error(), "already spent") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

@@ -802,6 +802,24 @@ func (q *Queries) MarkPreviewDeployRequested(ctx context.Context, id int64) erro
 	return err
 }
 
+const recordPreviewActivity = `-- name: RecordPreviewActivity :exec
+UPDATE previews SET last_activity_at = now() WHERE id = $1
+`
+
+// A machine signal: an attached port-forward proves somebody is connected to
+// this preview (ADR-032 with ADR-036), which the waker cannot see — it only
+// records PROXIED HTTP, and a tunnel bypasses the proxy entirely.
+//
+// Deliberately NOT KeepPreviewAlive. That one also clears expiry_warned_at,
+// which records that a HUMAN asked to keep the preview; a heartbeat must not
+// forge that consent. updated_at is left alone for a sharper reason: on a
+// sleeping preview it carries the instant we slept it, and bumping it every
+// 20 s would push the wake comparison out of reach forever.
+func (q *Queries) RecordPreviewActivity(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, recordPreviewActivity, id)
+	return err
+}
+
 const setPreviewAwake = `-- name: SetPreviewAwake :exec
 UPDATE previews SET status = 'active', expiry_warned_at = NULL, updated_at = now() WHERE id = $1
 `

@@ -16,6 +16,10 @@ func TestCloseMessageIsActionable(t *testing.T) {
 		"revoked":       "administrator",
 		"max_duration":  "rerun",
 		"disconnect":    "dropped",
+		// A container the platform itself stopped — scale-to-zero, a redeploy —
+		// is the case the developer is least likely to guess at, so it names
+		// the mechanism as well as the move.
+		"target_stopped": "scale-to-zero",
 	} {
 		got := closeMessage(reason)
 		if got == "" {
@@ -25,6 +29,9 @@ func TestCloseMessageIsActionable(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("closeMessage(%q) = %q, want it to mention %q", reason, got, want)
 		}
+	}
+	if got := closeMessage("target_stopped"); !strings.Contains(got, "rerun") {
+		t.Errorf("a stopped target must say what to do next, got %q", got)
 	}
 	// Ctrl-C is not an incident: the developer already knows why it stopped.
 	if got := closeMessage("user_close"); got != "" {

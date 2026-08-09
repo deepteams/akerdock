@@ -188,6 +188,9 @@ func (s *Scheduler) scaleZeroPreviews(ctx context.Context) {
 		// requests, so a preview relaunched after it slept would otherwise
 		// read as idle since its stale file and be re-slept — and shown
 		// sleeping — right after deploying. Take the latest of every signal.
+		// last_activity_at has a second writer for the same reason: an
+		// attached port-forward beats into it (ADR-032), and a tunnel dials
+		// the container's IP over SSH without ever crossing the proxy.
 		if dbLast := latestOf(p.LastActivityAt, p.LastDeployedAt); dbLast.After(last) {
 			last = dbLast
 		}
@@ -291,11 +294,14 @@ func (s *Scheduler) scaleZeroApplications(ctx context.Context) {
 			s.Logger.Warn("scale-to-zero activity unreadable — decision skipped", "application", uuid, "error", err)
 			continue
 		}
-		// Same rule as previews: a fresh deploy/update counts as activity, or
-		// a stale waker file would put a just-redeployed app straight back to
-		// sleep.
-		if a.UpdatedAt.Valid && a.UpdatedAt.Time.After(last) {
-			last = a.UpdatedAt.Time
+		// Same rule as previews, and now the same signals: a fresh
+		// deploy/update counts as activity (or a stale waker file would put a
+		// just-redeployed app straight back to sleep), and so does an attached
+		// port-forward — which the waker cannot see at all, since a tunnel
+		// dials the container's IP over SSH and never crosses the proxy that
+		// writes the activity file. Take the latest of every signal.
+		if dbLast := latestOf(a.UpdatedAt, a.LastActivityAt); dbLast.After(last) {
+			last = dbLast
 		}
 		if last.IsZero() || !idlePastWindow(last, a.ScaleToZeroAfterMinutes, now) {
 			continue

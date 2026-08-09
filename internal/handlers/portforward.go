@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/adoption"
@@ -69,6 +71,20 @@ type portForwardSpec struct {
 	name       string
 	component  *string
 	port       int
+	// application marks a resourceID that names an APPLICATION row, the only
+	// resource kind with a scale-to-zero clock to stamp (ADR-037). The
+	// database mint leaves it false rather than have the mint re-read the
+	// resource it just resolved to learn its own kind.
+	application bool
+}
+
+// applicationID is the resource whose application row carries the scale-to-zero
+// clock, or nil when the target has none — a database, a Compose stack.
+func (s portForwardSpec) applicationID() *int64 {
+	if !s.application {
+		return nil
+	}
+	return s.resourceID
 }
 
 // CreateApplicationPortForward implements POST /applications/{uuid}/port-forwards.
@@ -85,7 +101,10 @@ func (a *API) CreateApplicationPortForward(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	spec := portForwardSpec{serverID: row.ServerRowID, resourceID: &row.Resource.ID, name: row.Resource.Name, port: body.Port}
+	spec := portForwardSpec{
+		serverID: row.ServerRowID, resourceID: &row.Resource.ID, name: row.Resource.Name,
+		port: body.Port, application: true,
+	}
 	if params.Component != nil && *params.Component != "" {
 		if !a.componentExists(w, r, row.Resource.ID, *params.Component) {
 			return
@@ -147,6 +166,7 @@ func (a *API) CreatePreviewPortForward(w http.ResponseWriter, r *http.Request, a
 	spec := portForwardSpec{
 		serverID: row.ServerRowID, resourceID: &row.Resource.ID, previewID: &preview.ID,
 		name: fmt.Sprintf("%s · PR #%d", row.Resource.Name, preview.PrID), port: body.Port,
+		application: true,
 	}
 	if params.Component != nil && *params.Component != "" {
 		if !a.componentExists(w, r, row.Resource.ID, *params.Component) {
@@ -225,6 +245,16 @@ func (a *API) createPortForward(w http.ResponseWriter, r *http.Request, id *auth
 		return
 	}
 	a.recordAudit(r, id, "port-forward.open", "port_forward_session", row.Uuid)
+	// Stamp the target's activity clock HERE, not at the first heartbeat
+	// twenty seconds from now (ADR-067 §1). A tunnel is typically opened
+	// precisely because nothing has touched the resource in a while, so the
+	// sleep decision it races is the one at 29:50 of a 30-minute window: lose
+	// that race and the scheduler stops the containers between the mint and the
+	// attach, which then fails with "the target container is not running" — or
+	// the session dies one beat later with target_stopped. It self-corrects on
+	// a retry, and it still makes the tunnel the one door that appears to
+	// break, which is the complaint this whole change answers.
+	a.recordTunnelActivity(r.Context(), spec.previewID, spec.applicationID(), uuidString(row.Uuid))
 	httpapi.WriteJSON(w, http.StatusCreated, api.PortForwardSession{
 		Uuid:           uuidString(row.Uuid),
 		Port:           spec.port,
@@ -272,24 +302,11 @@ func (a *API) TunnelWebSocket(w http.ResponseWriter, r *http.Request) {
 	// operator's close reaches this socket, rather than only the row that
 	// records it (ADR-045 §5).
 	bounds := sessionBounds(row)
+	// Registered BEFORE the heartbeat is installed: the beat cuts the session
+	// through this same channel when the target is gone, and a beat that fired
+	// against an unregistered bridge would have nowhere to report it.
 	bounds.Cancel = a.Tunnels.register(row.ID)
-	bounds.OnHeartbeat = func(parent context.Context) bool {
-		// The socket remains the source of truth while this process is alive.
-		// Persistence is only the crash/restart net, so a transient database
-		// failure is logged and retried on the next 20-second heartbeat.
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 3*time.Second)
-		defer cancel()
-		n, err := a.Store.HeartbeatPortForwardSession(ctx, row.ID)
-		if err != nil {
-			a.Logger.Warn("port-forward heartbeat failed",
-				"session", uuidString(row.Uuid), "error", err)
-			return true
-		}
-		// Zero means another replica or the scheduler has finalized the row.
-		// Do not leave the actual socket alive after its durable authorization
-		// is gone.
-		return n > 0
-	}
+	bounds.OnHeartbeat = a.portForwardHeartbeat(row)
 	defer a.Tunnels.unregister(row.ID)
 	reason := tunnel.Bridge(r.Context(), tunnelConn{conn}, dial, bounds)
 	// A session cut by its grant running out is neither an idle timeout nor a
@@ -327,33 +344,15 @@ func (a *API) tunnelTarget(ctx context.Context, row store.PortForwardSession) (*
 		return client, net.JoinHostPort(endpoint.Host, strconv.Itoa(int(endpoint.Port))), ""
 	}
 
-	if row.ResourceID == nil {
-		return nil, "", "the target no longer exists"
-	}
-	res, err := a.Store.GetResourceByID(ctx, *row.ResourceID)
-	if err != nil {
-		return nil, "", "the target resource no longer exists"
-	}
-	// A preview instance names its containers after the PREVIEW uuid, not the
-	// resource's (INV-011); a destroyed preview has nothing to dial.
-	base := uuidString(res.Uuid)
-	container := adoption.ContainerName(res.Adoption, base)
-	if row.PreviewID != nil {
-		preview, err := a.Store.GetPreviewByID(ctx, *row.PreviewID)
-		if err != nil || preview.Status == store.PreviewStatusDestroyed {
-			return nil, "", "the preview no longer exists — it may have been destroyed"
-		}
-		base = uuidString(preview.Uuid)
-		container = base
-	}
-	if row.TargetComponent != nil && *row.TargetComponent != "" {
-		container = base + "-" + *row.TargetComponent
+	ref, _, msg := a.resolveTunnelTargetRef(ctx, row)
+	if msg != "" {
+		return nil, "", msg
 	}
 
 	// The container's IP on its Docker network — reachable host→container even
 	// without a published port. First network wins (INV-011 naming); read
 	// through the agent channel (ADR-052) before paying the SSH dial.
-	ip, err := a.containerIP(ctx, server.ID, container)
+	ip, err := a.containerIP(ctx, server.ID, ref.container)
 	if err != nil {
 		if dockerruntime.IsUnavailable(err) {
 			return nil, "", "the server's agent is not connected right now"
@@ -366,6 +365,68 @@ func (a *API) tunnelTarget(ctx context.Context, row store.PortForwardSession) (*
 	}
 	return client, fmt.Sprintf("%s:%d", ip, row.TargetPort), ""
 }
+
+// tunnelTargetRef is what a resource-backed session points at: the resource
+// row and the container name that carries it. The attach path and the
+// per-heartbeat liveness probe both go through it so the two can never
+// disagree about WHICH container a session is about (INV-011 naming) — a
+// divergence there would either dial one container and watch another, or
+// declare a healthy tunnel dead.
+type tunnelTargetRef struct {
+	resource  store.Resource
+	container string
+}
+
+// resolveTunnelTargetRef resolves a session's target container.
+//
+// The `gone` return is the whole point of the shape: a failure to resolve is
+// not the same fact as an absence. A destroyed preview or a deleted row means
+// the container is DEFINITELY not there; a database that timed out means
+// nothing at all. The attach path answers a 409 either way and only reads the
+// message; the heartbeat cuts a live tunnel on it, and must only ever do so on
+// a definite absence.
+func (a *API) resolveTunnelTargetRef(ctx context.Context, row store.PortForwardSession) (tunnelTargetRef, bool, string) {
+	if row.ResourceID == nil {
+		return tunnelTargetRef{}, true, "the target no longer exists"
+	}
+	res, err := a.Store.GetResourceByID(ctx, *row.ResourceID)
+	if err != nil {
+		return tunnelTargetRef{}, errors.Is(err, pgx.ErrNoRows), "the target resource no longer exists"
+	}
+	// A preview instance names its containers after the PREVIEW uuid, not the
+	// resource's (INV-011); a destroyed preview has nothing to dial.
+	base := uuidString(res.Uuid)
+	name := adoption.ContainerName(res.Adoption, base)
+	if row.PreviewID != nil {
+		preview, err := a.Store.GetPreviewByID(ctx, *row.PreviewID)
+		if err != nil {
+			return tunnelTargetRef{}, errors.Is(err, pgx.ErrNoRows),
+				"the preview no longer exists — it may have been destroyed"
+		}
+		if preview.Status == store.PreviewStatusDestroyed {
+			return tunnelTargetRef{}, true, "the preview no longer exists — it may have been destroyed"
+		}
+		base = uuidString(preview.Uuid)
+		name = base
+	}
+	if row.TargetComponent != nil && *row.TargetComponent != "" {
+		name = base + "-" + *row.TargetComponent
+	}
+	return tunnelTargetRef{resource: res, container: name}, false, ""
+}
+
+// endReasonTargetStopped is what a tunnel whose target vanished under it
+// reports. It is not a disconnect: nothing about the client's connection
+// failed, the container it pointed at stopped existing (a redeploy, a manual
+// stop, a crash, a scale-to-zero sleep decided just before the first beat).
+//
+// The distinction is what makes the failure visible at all. A forwarded TCP
+// connection whose container's netns has been destroyed gets no RST and no FIN
+// — psql sits on "sending keepalive" until the tunnel's own 30-minute idle
+// timer fires, and only if nothing keeps the tunnel busy. Ending the session
+// with a reason the CLI can print turns that silence into an error within one
+// beat.
+const endReasonTargetStopped tunnel.EndReason = "target_stopped"
 
 // endReasonGrantExpired is the ADR-045 close reason: the tunnel outlived
 // nothing — its authorization ran out. It mirrors the enum value added to
@@ -392,7 +453,12 @@ func sessionBounds(row store.PortForwardSession) tunnel.Options {
 	return tunnel.Options{MaxDuration: remaining}
 }
 
-// dialSessionServer opens the pooled SSH connection a tunnel dials through.
+// dialSessionServer opens the SSH connection a tunnel dials through. NOT a
+// pooled one, whatever ADR-032's text and this comment used to claim:
+// serverdial.Open performs a full handshake per attach, which is why the attach
+// spends seconds before it can answer anything at all (ADR-066 records the
+// discrepancy; pooling is its own decision, not made here).
+//
 // Returns a user-facing message (not an error) on failure: it is written
 // straight into the 409 the redeem answers with.
 func (a *API) dialSessionServer(ctx context.Context, server store.Server) (*sshexec.Client, string) {
@@ -422,6 +488,149 @@ func (a *API) containerIP(ctx context.Context, serverID int64, container string)
 		}
 	}
 	return "", fmt.Errorf("no IP for %s", container)
+}
+
+// portForwardBeatBudget bounds each step of a heartbeat. A beat is
+// bookkeeping: it must never be the thing that stalls a tunnel, so the two
+// steps that can touch the network get one bounded budget each — worst case
+// well inside the 20-second cadence they run at.
+const portForwardBeatBudget = 3 * time.Second
+
+// portForwardHeartbeat is the beat BOTH transports run (ADR-064 put the HTTP
+// session and the WebSocket bridge on the same bounds, and they share this
+// closure so a session cannot behave differently for having landed on one
+// rather than the other). Three duties: persist liveness, tell scale-to-zero
+// somebody is connected, and notice a target that vanished.
+//
+// The socket remains the source of truth while this process is alive.
+// Persistence is only the crash/restart net, so a transient database failure is
+// logged and retried on the next beat; returning false is reserved for a
+// session that is durably over.
+func (a *API) portForwardHeartbeat(row store.PortForwardSession) func(context.Context) bool {
+	return func(parent context.Context) bool {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), portForwardBeatBudget)
+		defer cancel()
+		n, err := a.Store.HeartbeatPortForwardSession(ctx, row.ID)
+		if err != nil {
+			a.Logger.Warn("port-forward heartbeat failed", "session", uuidString(row.Uuid), "error", err)
+			return true
+		}
+		// Zero means another replica or the scheduler has finalized the row.
+		// Do not leave the actual socket alive after its durable authorization
+		// is gone.
+		if n == 0 {
+			return false
+		}
+		a.watchPortForwardTarget(parent, row)
+		return true
+	}
+}
+
+// watchPortForwardTarget is what a beat owes the target it is holding open:
+// record that somebody is connected to it, and end the session when it is
+// definitely gone.
+//
+// The consequence a reviewer will ask about, stated plainly: an attached but
+// SILENT tunnel now keeps a scale-to-zero resource awake. That is the intended
+// reading of "someone is connected" — a developer with a psql session open and
+// idle is still working — and it is bounded by the tunnel's own limits rather
+// than the resource's window: the 30-minute idle timeout and the 4-hour
+// ceiling (§24.4) both end the session, and the resource sleeps one window
+// later.
+func (a *API) watchPortForwardTarget(parent context.Context, row store.PortForwardSession) {
+	// An external endpoint (ADR-045) has no container: its address was frozen
+	// at declaration and the far side is not ours to inspect — nor does it have
+	// a scale-to-zero clock to reset.
+	if row.ExternalEndpointID != nil || row.ServerID == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), portForwardBeatBudget)
+	defer cancel()
+
+	ref, gone, msg := a.resolveTunnelTargetRef(ctx, row)
+	if msg != "" {
+		if gone {
+			a.cutOnStoppedTarget(row, msg)
+		}
+		return
+	}
+	a.recordPortForwardActivity(ctx, row, ref)
+	if a.targetContainerStopped(ctx, *row.ServerID, ref.container) {
+		a.cutOnStoppedTarget(row, "the target container is no longer running")
+	}
+}
+
+// cutOnStoppedTarget ends the session through the same channel a revocation
+// uses, so the bridge returns endReasonTargetStopped and the durable row, the
+// audit entry and the message the developer reads all come from that one
+// value. The row itself is finalized by the transport as it leaves — cutting
+// here and ending there is exactly what ClosePortForwardSession does.
+func (a *API) cutOnStoppedTarget(row store.PortForwardSession, why string) {
+	if a.Tunnels.Cut(row.ID, endReasonTargetStopped) {
+		a.Logger.Info("port-forward target vanished, session cut",
+			"session", uuidString(row.Uuid), "target", row.TargetName, "reason", why)
+	}
+}
+
+// recordTunnelActivity feeds scale-to-zero the one signal it structurally
+// cannot see. Its only source is the waker's per-resource activity file, which
+// moves when the waker serves a PROXIED HTTP request (ADR-036/037); a tunnel
+// goes control plane → SSH → container IP and never crosses the proxy, so a
+// tunnelled session reads as perfect idleness — and the scheduler stops the
+// very container the developer is connected to.
+//
+// A preview instance carries its own row and wins over the application it
+// belongs to; both nil is a target with no clock at all — a database, a
+// Compose stack, a declared external endpoint — and writes nothing rather than
+// inventing a signal for it.
+//
+// A failure is logged and dropped, at the mint as at every beat: this is a
+// timestamp, and no tunnel should ever fail to open, or be dropped, because one
+// did not land.
+func (a *API) recordTunnelActivity(ctx context.Context, previewID, applicationID *int64, session string) {
+	var err error
+	switch {
+	case previewID != nil:
+		err = a.Store.RecordPreviewActivity(ctx, *previewID)
+	case applicationID != nil:
+		err = a.Store.RecordApplicationActivity(ctx, *applicationID)
+	default:
+		return
+	}
+	if err != nil {
+		a.Logger.Warn("port-forward activity not recorded", "session", session, "error", err)
+	}
+}
+
+// recordPortForwardActivity is the beat's call into the above, with the target
+// kind read off the resource the beat just resolved anyway.
+func (a *API) recordPortForwardActivity(ctx context.Context, row store.PortForwardSession, ref tunnelTargetRef) {
+	var applicationID *int64
+	if ref.resource.ResourceType == store.ResourceTypeApplication {
+		applicationID = &ref.resource.ID
+	}
+	a.recordTunnelActivity(ctx, row.PreviewID, applicationID, uuidString(row.Uuid))
+}
+
+// targetContainerStopped reports a container the agent DEFINITELY says is not
+// running. Everything else answers false: an agent channel that is momentarily
+// unavailable (a helper restart, a relay reconnect) says nothing about the
+// container, and reading that silence as absence would tear down healthy
+// tunnels every time an agent blinks — trading a rare hang for a routine one.
+func (a *API) targetContainerStopped(ctx context.Context, serverID int64, container string) bool {
+	rt, err := a.AgentRPC.Runtime(ctx, serverID)
+	if err != nil {
+		return false
+	}
+	resp, err := rt.ContainerInspect(ctx, container)
+	if err != nil {
+		// A removed container is a definite answer; unavailable — and anything
+		// else the channel reports — is not.
+		return dockerruntime.IsNotFound(err)
+	}
+	// A nil State is an answer we cannot read: only an explicit "not running"
+	// counts.
+	return resp.State != nil && !resp.State.Running
 }
 
 func (a *API) endPortForwardSession(row store.PortForwardSession, reason tunnel.EndReason) {

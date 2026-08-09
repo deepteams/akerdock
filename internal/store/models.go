@@ -1837,12 +1837,13 @@ func (ns NullTeamRole) Value() (driver.Value, error) {
 type TerminalEndReason string
 
 const (
-	TerminalEndReasonUserClose    TerminalEndReason = "user_close"
-	TerminalEndReasonIdleTimeout  TerminalEndReason = "idle_timeout"
-	TerminalEndReasonMaxDuration  TerminalEndReason = "max_duration"
-	TerminalEndReasonDisconnect   TerminalEndReason = "disconnect"
-	TerminalEndReasonRevoked      TerminalEndReason = "revoked"
-	TerminalEndReasonGrantExpired TerminalEndReason = "grant_expired"
+	TerminalEndReasonUserClose     TerminalEndReason = "user_close"
+	TerminalEndReasonIdleTimeout   TerminalEndReason = "idle_timeout"
+	TerminalEndReasonMaxDuration   TerminalEndReason = "max_duration"
+	TerminalEndReasonDisconnect    TerminalEndReason = "disconnect"
+	TerminalEndReasonRevoked       TerminalEndReason = "revoked"
+	TerminalEndReasonGrantExpired  TerminalEndReason = "grant_expired"
+	TerminalEndReasonTargetStopped TerminalEndReason = "target_stopped"
 )
 
 func (e *TerminalEndReason) Scan(src interface{}) error {
@@ -2175,6 +2176,7 @@ type Application struct {
 	AccessProtection               PreviewProtection
 	AccessBasicAuthEnc             []byte
 	AccessPublicRoutes             []byte
+	LastActivityAt                 pgtype.Timestamptz
 }
 
 type AuditEvent struct {
