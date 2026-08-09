@@ -52,8 +52,15 @@ commit that changes one without the other is internally inconsistent, and
 nothing local says so; CI says so twenty minutes later.
 
 ```sh
-git config core.hooksPath .githooks
+make hooks          # or just run `make generate` / `make web` once
 ```
+
+Git cannot ship the *activation* of a hook, only the hook itself: a clone that
+armed its repository's hooks would be arbitrary code execution on `git clone`,
+so `core.hooksPath` is deliberately a local act. `make hooks` is therefore a
+prerequisite of `generate` and `web` — the two targets whose output the hook
+guards — so it arms itself the first time you regenerate anything. It is
+idempotent, silent once set, and skipped under `CI`.
 
 The hook **checks**, it does not regenerate into your commit: the build reads
 the working tree while the commit carries the index, so regenerating and

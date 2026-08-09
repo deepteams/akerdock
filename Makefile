@@ -6,7 +6,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # empty (scale-to-zero then needs AKERDOCK_IMAGE, or stays inert).
 IMAGE   ?=
 
-.PHONY: all build test test-docker vet-docker test-db unit-coverage go-unit-coverage web-unit-coverage lint generate api-gen sqlc-gen openapi-validate migrate-status e2e clean web
+.PHONY: all build test test-docker vet-docker test-db unit-coverage go-unit-coverage web-unit-coverage lint generate api-gen sqlc-gen openapi-validate migrate-status e2e clean web hooks
 
 all: generate build test
 
@@ -71,7 +71,23 @@ lint:
 ## Code generation (ADR-025: server handlers and DB layer are generated,
 ## never edited by hand). Run after changing the OpenAPI spec, a migration
 ## or a query file, and commit the result.
-generate: api-gen sqlc-gen ts-gen
+# Git cannot ship the ACTIVATION of a hook, only the hook itself: a clone that
+# armed its repository's hooks would be arbitrary code execution on `git clone`,
+# so `core.hooksPath` is deliberately a local act. The closest thing to sharing
+# it is to make it a side effect of a command everyone already runs — which is
+# what husky does through npm's `prepare`, and what this does through the two
+# targets whose output the hook guards.
+#
+# Idempotent, silent once set, and skipped in CI: a throwaway checkout has
+# nothing to protect, and CI enforces the same two invariants itself.
+hooks:
+	@if [ -z "$${CI:-}" ] && [ "$$(git rev-parse --is-inside-work-tree 2>/dev/null)" = "true" ] && \
+	   [ "$$(git config --get core.hooksPath 2>/dev/null)" != ".githooks" ]; then \
+	  git config core.hooksPath .githooks && \
+	  echo "pre-commit hooks enabled (core.hooksPath=.githooks) — see CONTRIBUTING.md"; \
+	fi
+
+generate: hooks api-gen sqlc-gen ts-gen
 
 api-gen:
 	$(GO) tool oapi-codegen -config oapi-codegen.yaml docs/specs/openapi-v1.yaml
@@ -79,7 +95,7 @@ api-gen:
 # The TypeScript client comes from the same contract as the Go server (ADR-025).
 # Skipped when node is absent: a Go-only checkout must still build.
 # Builds the dashboard into the Go embed directory. Requires node.
-web:
+web: hooks
 	npm --prefix web ci --silent || npm --prefix web install --silent
 	npm --prefix web run build
 	rm -rf internal/web/dist && mkdir -p internal/web/dist
