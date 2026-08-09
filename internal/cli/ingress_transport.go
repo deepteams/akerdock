@@ -71,7 +71,7 @@ func openIngressHTTPControl(
 		message, _ := io.ReadAll(io.LimitReader(stream.resp.Body, 4*1024))
 		stream.cancel()
 		_ = stream.writer.Close()
-		return nil, &attachRejection{
+		return nil, &rejectedAttachError{
 			kind: kind, status: stream.resp.Status, code: stream.resp.StatusCode,
 			message: "the peer did not echo " + tun.IngressHTTP.Name + ": " + string(message),
 		}

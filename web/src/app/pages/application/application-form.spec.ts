@@ -10,6 +10,9 @@ import {
 } from './application-form';
 
 type Application = components['schemas']['Application'];
+type ApplicationUpdate = components['schemas']['ApplicationUpdate'];
+type AccessPublicRoute = components['schemas']['AccessPublicRoute'];
+type SourceType = Application['source_type'];
 
 function anApplication(overrides: Partial<Application> = {}): Application {
   return {
@@ -368,6 +371,206 @@ describe('settingsToUpdate — build-pack specifics', () => {
     const update = settingsToUpdate(form, 'git');
     expect(update.compose_file_location).toBe('/stack/docker-compose.yml');
     expect(update.raw_compose).toBeTrue();
+  });
+});
+
+describe('settingsToUpdate — one payload shape per source type', () => {
+  /** A settings form carrying the fields of EVERY source type at once, which
+   * is what the settings tab holds after `settingsFromApplication` seeds the
+   * shared ConfigForm: the payload builder is the only thing that keeps a
+   * git field out of a docker_image PATCH. */
+  function everySourceFilled() {
+    return settingsFromApplication(
+      anApplication({
+        docker_image: 'ghcr.io/acme/shop',
+        docker_image_tag: 'v2',
+        registry_credential_uuid: 'rc-1',
+        dockerfile: 'FROM nginx',
+        git_repository: 'https://github.com/acme/shop',
+        git_branch: 'main',
+        private_key_uuid: 'pk-1',
+        build_pack: 'nixpacks',
+        use_build_server: true,
+        push_registry_credential_uuid: 'rc-2',
+      }),
+    );
+  }
+
+  // Keyed by the contract's discriminator rather than listed by hand: a fourth
+  // source_type stops COMPILING here until someone states what its PATCH
+  // carries. The switch in settingsToUpdate has no default arm — a source type
+  // nobody handled sends the common fields only, which the API accepts, so the
+  // operator sees "saved" and the source configuration is silently dropped.
+  const SHAPES: Record<
+    SourceType,
+    { sends: (keyof ApplicationUpdate)[]; withholds: (keyof ApplicationUpdate)[] }
+  > = {
+    docker_image: {
+      sends: ['docker_image', 'docker_image_tag', 'registry_credential_uuid'],
+      // Nothing is built from a prebuilt image: use_build_server included.
+      withholds: ['dockerfile', 'git_repository', 'build_pack', 'use_build_server', 'auto_deploy'],
+    },
+    dockerfile: {
+      sends: ['dockerfile', 'use_build_server', 'push_registry_credential_uuid'],
+      withholds: ['docker_image', 'registry_credential_uuid', 'git_repository', 'build_pack'],
+    },
+    git: {
+      sends: [
+        'git_repository',
+        'git_branch',
+        'private_key_uuid',
+        'build_pack',
+        'auto_deploy',
+        'use_build_server',
+        'push_registry_credential_uuid',
+      ],
+      withholds: ['docker_image', 'docker_image_tag', 'dockerfile', 'registry_credential_uuid'],
+    },
+  };
+
+  it('sends the fields of that source type and no other', () => {
+    for (const sourceType of Object.keys(SHAPES) as SourceType[]) {
+      const update = settingsToUpdate(everySourceFilled(), sourceType);
+      for (const field of SHAPES[sourceType].sends) {
+        expect(update[field]).withContext(`${sourceType} must send ${field}`).not.toBeUndefined();
+      }
+      for (const field of SHAPES[sourceType].withholds) {
+        expect(update[field]).withContext(`${sourceType} must withhold ${field}`).toBeUndefined();
+      }
+    }
+  });
+
+  it('never patches a blank dockerfile over the stored one', () => {
+    const form = settingsFromApplication(anApplication({ dockerfile: 'FROM nginx' }));
+    form.dockerfile = '   ';
+
+    expect(settingsToUpdate(form, 'dockerfile').dockerfile).toBeUndefined();
+  });
+
+  it('keeps the dockerfile verbatim — whitespace is syntax there', () => {
+    const form = settingsFromApplication(anApplication({ dockerfile: 'FROM nginx' }));
+    form.dockerfile = 'FROM nginx\n  COPY . /srv\n';
+
+    expect(settingsToUpdate(form, 'dockerfile').dockerfile).toBe('FROM nginx\n  COPY . /srv\n');
+  });
+});
+
+describe('settingsToUpdate — an emptied field means "the default", never ""', () => {
+  it('restores the health check path and method', () => {
+    const form = settingsFromApplication(anApplication({ docker_image: 'nginx' }));
+    form.hcPath = '   ';
+    form.hcMethod = '';
+
+    const hc = settingsToUpdate(form, 'docker_image').health_check!;
+    expect(hc.path).toBe('/');
+    expect(hc.method).toBe('GET');
+  });
+
+  it('restores the compose file location', () => {
+    const form = settingsFromApplication(
+      anApplication({ source_type: 'git', build_pack: 'compose' }),
+    );
+    form.composeFileLocation = '  ';
+
+    expect(settingsToUpdate(form, 'git').compose_file_location).toBe('/docker-compose.yml');
+  });
+
+  it('restores the preview URL template', () => {
+    // A blank template would name every preview the same host and they would
+    // fight over the route.
+    const form = settingsFromApplication(anApplication({ source_type: 'git' }));
+    form.previewUrlTemplate = '  ';
+
+    expect(settingsToUpdate(form, 'git').preview_url_template).toBe('{{pr_id}}.{{domain}}');
+  });
+});
+
+describe('settingsToUpdate — scale-to-zero idle windows', () => {
+  it('falls back to 30 minutes for an emptied window and floors a negative one at 1', () => {
+    const form = settingsFromApplication(
+      anApplication({ source_type: 'git', scale_to_zero: true, preview_scale_to_zero: true }),
+    );
+
+    // An emptied number input reaches the form as NaN/null, not as a number:
+    // sending 0 would mean "sleep immediately", i.e. an app that never runs.
+    form.scaleToZeroAfterMinutes = Number.NaN;
+    form.previewScaleToZeroAfterMinutes = Number.NaN;
+    const emptied = settingsToUpdate(form, 'git');
+    expect(emptied.scale_to_zero_after_minutes).toBe(30);
+    expect(emptied.preview_scale_to_zero_after_minutes).toBe(30);
+
+    form.scaleToZeroAfterMinutes = -5;
+    form.previewScaleToZeroAfterMinutes = -5;
+    const negative = settingsToUpdate(form, 'git');
+    expect(negative.scale_to_zero_after_minutes).toBe(1);
+    expect(negative.preview_scale_to_zero_after_minutes).toBe(1);
+  });
+});
+
+describe('settingsToUpdate — the access wall (ADR-042)', () => {
+  it('sends typed basic-auth credentials and keeps the stored ones when blank', () => {
+    const form = settingsFromApplication(
+      anApplication({ docker_image: 'nginx', access_protection: 'basic_auth' }),
+    );
+
+    // The credentials are write-only and never read back: a blank field is
+    // "keep what the backend generated", not "wipe them".
+    expect(settingsToUpdate(form, 'docker_image').access_basic_auth).toBeUndefined();
+
+    form.accessBasicAuth = ' ops:placeholder-not-a-secret ';
+    expect(settingsToUpdate(form, 'docker_image').access_basic_auth).toBe(
+      'ops:placeholder-not-a-secret',
+    );
+  });
+
+  it('normalizes methods and omits the parameters key when the route has none', () => {
+    const app = anApplication({
+      access_protection: 'basic_auth',
+      access_public_routes: [{ path: '/healthz', match: 'exact', methods: ['get', 'head'] }],
+    });
+
+    const route = settingsToUpdate(settingsFromApplication(app), 'docker_image')
+      .access_public_routes![0];
+
+    expect(route.methods).toEqual(['GET', 'HEAD']);
+    // Absent, not `{}`: an empty allow-list object would read as "this segment
+    // accepts no value at all" and shut the exception it is meant to open.
+    expect('parameters' in route).toBeFalse();
+  });
+
+  it('reads a route whose match the server left to its default as exact', () => {
+    // `match` is absent from AccessPublicRoute's `required` list, so a response
+    // without it is contract-legal; openapi-typescript only types it as
+    // present because the schema declares a default. Dropping the `?? 'exact'`
+    // would turn such a route into `match: undefined` and widen the wall's
+    // exception to whatever the proxy makes of it.
+    const app = anApplication({
+      access_public_routes: [{ path: '/healthz', methods: ['GET'] } as AccessPublicRoute],
+    });
+
+    expect(settingsFromApplication(app).accessPublicRoutes[0].match).toBe('exact');
+  });
+});
+
+describe('settingsToUpdate — preview quotas', () => {
+  it('round-trips the concurrency and TTL limits through their text inputs', () => {
+    const form = settingsFromApplication(
+      anApplication({ source_type: 'git', preview_max_concurrent: 3, preview_ttl_minutes: 120 }),
+    );
+    expect(form.previewMaxConcurrent).toBe('3');
+    expect(form.previewTtlMinutes).toBe('120');
+
+    const update = settingsToUpdate(form, 'git');
+    expect(update.preview_max_concurrent).toBe(3);
+    expect(update.preview_ttl_minutes).toBe(120);
+
+    // Emptying a quota means "no limit" — null, never 0, which would forbid
+    // every preview.
+    form.previewMaxConcurrent = '';
+    form.previewTtlMinutes = '  ';
+    const unlimited = settingsToUpdate(form, 'git');
+    expect(unlimited.preview_max_concurrent).toBeNull();
+    expect(unlimited.preview_ttl_minutes).toBeNull();
   });
 });
 

@@ -127,6 +127,27 @@ describe('credential serialization', () => {
     expect(out.response.transports).toEqual(['internal']);
   });
 
+  // getTransports() is optional in the spec and absent on several engines
+  // (older Safari among them). The server parses `transports` as a JSON array:
+  // `undefined` would drop the key and cost the credential its transport hints
+  // — the browser then stops offering the right authenticator at login.
+  it('reports an empty transport list when the browser cannot enumerate them', () => {
+    const credential = {
+      id: 'registration',
+      rawId: bytes(1),
+      type: 'public-key',
+      authenticatorAttachment: 'cross-platform',
+      getClientExtensionResults: () => ({}),
+      response: {
+        clientDataJSON: bytes(2),
+        attestationObject: bytes(3),
+      },
+    } as unknown as PublicKeyCredential;
+
+    const out = credentialToJSON(credential) as { response: { transports: string[] } };
+    expect(out.response.transports).toEqual([]);
+  });
+
   it('serializes an assertion response and its optional user handle', () => {
     const credential = {
       id: 'login',
@@ -147,6 +168,29 @@ describe('credential serialization', () => {
     };
     expect(out.response.signature).toBe(bufferToBase64Url(bytes(4)));
     expect(out.response.userHandle).toBe(bufferToBase64Url(bytes(5)));
+  });
+
+  // A non-discoverable login (the credential was named by allowCredentials)
+  // carries no user handle. go-webauthn reads an explicit null there; the
+  // encoder must not be handed the undefined ArrayBuffer instead — it would
+  // serialize the empty buffer as "" and the assertion would never verify.
+  it('sends an explicit null when the assertion carries no user handle', () => {
+    const credential = {
+      id: 'login',
+      rawId: bytes(1),
+      type: 'public-key',
+      authenticatorAttachment: 'platform',
+      getClientExtensionResults: () => ({}),
+      response: {
+        clientDataJSON: bytes(2),
+        authenticatorData: bytes(3),
+        signature: bytes(4),
+        userHandle: null,
+      },
+    } as unknown as PublicKeyCredential;
+
+    const out = credentialToJSON(credential) as { response: { userHandle: string | null } };
+    expect(out.response.userHandle).toBeNull();
   });
 
   it('reports WebAuthn support in the headless browser', () => {

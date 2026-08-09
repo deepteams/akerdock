@@ -86,7 +86,7 @@ func openTerminalSession(
 	}
 	if control.resp.Header.Get(tun.TerminalHTTP.ProtocolHeader) != tun.TerminalHTTP.Name {
 		closeControl()
-		return nil, &attachRejection{
+		return nil, &rejectedAttachError{
 			kind: kind, status: control.resp.Status, code: control.resp.StatusCode,
 			message: "the server did not echo " + tun.TerminalHTTP.Name,
 		}
@@ -147,7 +147,7 @@ func (c *Client) shellOverHTTP(ctx context.Context, attachPath, token, key strin
 			// expired token, a container that stopped — and re-dialing it over
 			// the WebSocket would only spend a second one. A transport failure
 			// is the ladder's business, and steps down.
-			var rejection *attachRejection
+			var rejection *rejectedAttachError
 			if errors.As(err, &rejection) && !rejection.transportRefused() {
 				return fmt.Errorf("cannot open terminal: %s", rejection.message)
 			}

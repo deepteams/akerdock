@@ -245,7 +245,7 @@ func TestOpenTerminalSessionRefusalsBeforeTheFirstByte(t *testing.T) {
 	}
 
 	_, err = openTerminalSession(ctx, pool, attach, "tk", "key", transportH2, 80, 24)
-	var rejection *attachRejection
+	var rejection *rejectedAttachError
 	if !errors.As(err, &rejection) || !strings.Contains(rejection.message, "did not echo") {
 		t.Fatalf("err = %v — a server that does not echo the wire is not speaking it", err)
 	}
@@ -286,7 +286,7 @@ func TestTerminalHTTPPolicyRefusalDoesNotStepDown(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	_, err = openTerminalSession(ctx, pool, attach, "tk", "not-a-key", transportH2, 80, 24)
-	var rejection *attachRejection
+	var rejection *rejectedAttachError
 	if !errors.As(err, &rejection) {
 		t.Fatalf("err = %v, want an attach rejection", err)
 	}

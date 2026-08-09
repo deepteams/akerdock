@@ -201,7 +201,7 @@ func (c *Client) attachIngress(
 				// endpoint still occupied by the session being replaced — says
 				// nothing about the transport: retiring it there would silently
 				// downgrade the tunnel for the rest of the process.
-				var rejection *attachRejection
+				var rejection *rejectedAttachError
 				switch {
 				case errors.As(err, &rejection) && rejection.transportRefused():
 					state.disable(kind)

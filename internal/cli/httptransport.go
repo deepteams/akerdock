@@ -190,32 +190,32 @@ func (s *transportState) noteFailure(kind transportKind, lifetime time.Duration)
 // count from an outage half a day ago.
 func (s *transportState) noteSuccess(kind transportKind) { delete(s.failures, kind) }
 
-// attachRejection is an attach the server refused with an HTTP status. It is a
-// policy or authentication verdict — an expired mint, a session already
+// rejectedAttachError is an attach the server refused with an HTTP status. It
+// is a policy or authentication verdict — an expired mint, a session already
 // occupied — and says nothing about the transport, except for the two statuses
 // that do.
-type attachRejection struct {
+type rejectedAttachError struct {
 	kind    transportKind
 	status  string
 	code    int
 	message string
 }
 
-func (e *attachRejection) Error() string {
+func (e *rejectedAttachError) Error() string {
 	return fmt.Sprintf("%s attach returned %s: %s", e.kind.label(), e.status, e.message)
 }
 
 // transportRefused reports whether the peer answered "not over this protocol",
 // which is the only rejection worth retiring the transport for.
-func (e *attachRejection) transportRefused() bool {
+func (e *rejectedAttachError) transportRefused() bool {
 	return e.code == http.StatusUpgradeRequired || e.code == http.StatusHTTPVersionNotSupported
 }
 
-// sessionEnd is the mirror of attachRejection: not why a session never opened,
-// but why one that did has stopped. It is shared by the egress and terminal
-// paths because their end reasons are one enum on the server, and since ADR-066
-// they also share the reason a session can now end for something that would
-// once have been refused at open — a target that was never reached.
+// sessionEnd is the mirror of rejectedAttachError: not why a session never
+// opened, but why one that did has stopped. It is shared by the egress and
+// terminal paths because their end reasons are one enum on the server, and
+// since ADR-066 they also share the reason a session can now end for something
+// that would once have been refused at open — a target that was never reached.
 //
 // The reason is the persisted value; the message is the operator-facing sentence
 // the server sends beside it when it has one. It carries what the reason cannot:
@@ -495,7 +495,7 @@ func openAttachStream(
 		message, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
 		cancel()
 		_ = bodyWriter.Close()
-		return nil, &attachRejection{
+		return nil, &rejectedAttachError{
 			kind:    kind,
 			status:  resp.Status,
 			code:    resp.StatusCode,

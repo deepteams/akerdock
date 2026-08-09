@@ -102,7 +102,7 @@ func openEgressSession(
 		stream.cancel()
 		_ = stream.writer.Close()
 		_ = stream.resp.Body.Close()
-		return nil, &attachRejection{
+		return nil, &rejectedAttachError{
 			kind: kind, status: stream.resp.Status, code: stream.resp.StatusCode,
 			message: "the server did not echo " + tun.EgressHTTP.Name,
 		}
@@ -178,7 +178,12 @@ func (s *egressSession) run(ctx context.Context) (sessionEnd, error) {
 	for {
 		frame, err := s.control.Receive()
 		if err != nil {
+			// A read that fails once our own context is done failed BECAUSE of
+			// it: Ctrl-C, or the caller giving up, tears the control stream down
+			// under us. That is the session ending the way it was asked to, so
+			// it ends on the reason that prints nothing, not on the read error.
 			if ctx.Err() != nil {
+				//nolint:nilerr // the read failed because we cancelled it, not the reverse.
 				return sessionEnd{reason: "user_close"}, nil
 			}
 			return sessionEnd{}, err
@@ -272,7 +277,7 @@ func (c *Client) forwardOverHTTP(
 			// may have claimed instead of finding it burnt. That is the exact
 			// shape the terminal ladder has always had, and the reason this path
 			// no longer needs a verdict enum of its own.
-			var rejection *attachRejection
+			var rejection *rejectedAttachError
 			if errors.As(err, &rejection) && !rejection.transportRefused() {
 				return fmt.Errorf("cannot open tunnel: %s", rejection.message)
 			}

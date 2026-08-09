@@ -120,14 +120,14 @@ func TestIngressAttachRejectionOnlyRetiresProtocolRefusals(t *testing.T) {
 		{http.StatusUpgradeRequired, true},
 		{http.StatusHTTPVersionNotSupported, true},
 	} {
-		rejection := &attachRejection{kind: transportH2, code: tc.code, status: "x"}
+		rejection := &rejectedAttachError{kind: transportH2, code: tc.code, status: "x"}
 		if got := rejection.transportRefused(); got != tc.want {
 			t.Fatalf("status %d: transportRefused = %v, want %v", tc.code, got, tc.want)
 		}
 	}
 	// The refusal is what the developer reads on stderr: it must carry the
 	// agent's own words, not just a status line.
-	rejection := &attachRejection{
+	rejection := &rejectedAttachError{
 		kind: transportH2, code: 409, status: "409 Conflict",
 		message: "endpoint occupied — one laptop per endpoint",
 	}
@@ -170,7 +170,7 @@ func TestIngressDataStreamErrorNamesTheRealTransport(t *testing.T) {
 			defer cancel()
 
 			_, err := openIngressHTTPData(ctx, pool, attach, "session-1", "key-1", 7, kind)
-			var rejection *attachRejection
+			var rejection *rejectedAttachError
 			if !errors.As(err, &rejection) {
 				t.Fatalf("want the peer's verdict, got: %v", err)
 			}

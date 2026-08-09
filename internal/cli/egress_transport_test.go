@@ -69,30 +69,34 @@ func TestOnlyATransportRefusalStepsDownTheLadder(t *testing.T) {
 	}{
 		{
 			"the peer does not speak the protocol",
-			&attachRejection{kind: transportH3, code: http.StatusUpgradeRequired},
+			&rejectedAttachError{kind: transportH3, code: http.StatusUpgradeRequired},
 			true,
 		},
 		{
 			"the rung cannot do full duplex",
-			&attachRejection{kind: transportH2, code: http.StatusHTTPVersionNotSupported},
+			&rejectedAttachError{kind: transportH2, code: http.StatusHTTPVersionNotSupported},
 			true,
 		},
 		{
 			"the token is refused",
-			&attachRejection{kind: transportH3, code: http.StatusUnauthorized,
-				message: "invalid, expired or already used tunnel token"},
+			&rejectedAttachError{
+				kind: transportH3, code: http.StatusUnauthorized,
+				message: "invalid, expired or already used tunnel token",
+			},
 			false,
 		},
 		{
 			"the target is unreachable",
-			&attachRejection{kind: transportH2, code: http.StatusConflict,
-				message: "the server is not reachable over SSH right now"},
+			&rejectedAttachError{
+				kind: transportH2, code: http.StatusConflict,
+				message: "the server is not reachable over SSH right now",
+			},
 			false,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var rejection *attachRejection
+			var rejection *rejectedAttachError
 			if !errors.As(tc.err, &rejection) {
 				t.Fatal("the fixture is not a rejection")
 			}
@@ -104,7 +108,7 @@ func TestOnlyATransportRefusalStepsDownTheLadder(t *testing.T) {
 	// And an open that simply never answered is not a rejection at all, so it
 	// steps down instead of ending the command — the step-down ADR-064 always
 	// intended and could not have while it burnt the token.
-	var rejection *attachRejection
+	var rejection *rejectedAttachError
 	if errors.As(errors.New("HTTP/2 attach: the peer sent no response headers within 5s"), &rejection) {
 		t.Fatal("a silent peer must not be read as the server's verdict on the session")
 	}
@@ -227,7 +231,7 @@ func TestEgressStreamSurfacesTheServersDiagnosis(t *testing.T) {
 				_ = conn.Close()
 				t.Fatal("an unreachable target must not yield a usable stream")
 			}
-			var rejection *attachRejection
+			var rejection *rejectedAttachError
 			if !errors.As(err, &rejection) {
 				t.Fatalf("want the server's verdict, got a bare transport error: %v", err)
 			}

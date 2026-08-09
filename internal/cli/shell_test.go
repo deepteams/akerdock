@@ -274,8 +274,10 @@ func TestDrainTerminalEndPicksUpAReasonStillInFlight(t *testing.T) {
 	// The operator sentence travels beside the reason (ADR-066 §3) and must
 	// survive the drain too — it is the half that names the machine.
 	spoken := &fakeTerminalConn{in: make(chan fakeTerminalMessage, 1)}
-	spoken.in <- fakeTerminalMessage{typ: terminal.MessageText,
-		data: []byte(`{"type":"end","reason":"target_unreachable","msg":"the container is not running"}`)}
+	spoken.in <- fakeTerminalMessage{
+		typ:  terminal.MessageText,
+		data: []byte(`{"type":"end","reason":"target_unreachable","msg":"the container is not running"}`),
+	}
 	got := drainTerminalEnd(spoken)
 	if got.reason != "target_unreachable" || got.message != "the container is not running" {
 		t.Fatalf("end = %+v", got)
