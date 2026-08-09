@@ -1,6 +1,8 @@
 # ADR-018 — Deployment from the workstation: `akerdock up` with local context
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-070](ADR-070-cli-typed-command-groups.md) (2026-08-09) — the
+  decision below was never implemented and `akerdock up` leaves the product. The text is kept
+  verbatim, as the record of what was decided and why it was withdrawn
 - **Date**: 2026-07-11
 - **Related PRD sections**: §27.18, §12, §5.1, §26.2
 
