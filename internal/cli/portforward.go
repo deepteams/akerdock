@@ -197,6 +197,16 @@ func (c *Client) runPortForward(ctx context.Context, mintPath, component string,
 		}
 	}
 
+	// ADR-064's ladder first: HTTP/3, then HTTP/2, each carrying one forwarded
+	// connection per independent stream. WebSocket stays underneath, reached
+	// whenever a rung fails or the server predates the ladder.
+	switch err := c.forwardOverHTTP(ctx, sess.WebsocketPath, sess.Token, sess.AuthorizedUntil, localPort, remotePort); {
+	case err == nil:
+		return nil
+	case !errors.Is(err, errNoHTTPTransport):
+		return err
+	}
+
 	wsURL := toWS(c.base) + sess.WebsocketPath + "?" + url.Values{"token": {sess.Token}}.Encode()
 	conn, resp, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{Subprotocols: []string{"akerdock-tunnel-v1"}})
 	if err != nil {
@@ -216,31 +226,11 @@ func (c *Client) runPortForward(ctx context.Context, mintPath, component string,
 	defer cancel()
 	go tun.readLoop(ctx, cancel)
 
-	// Port 0 lets the OS pick a free one — the case of an endpoint forward with
-	// no ports argument. The chosen port is read back from the listener and
-	// announced, because a port nobody told you about is a tunnel you cannot use.
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", localPort))
+	ln, err := listenAndAnnounce(ctx, localPort, remotePort, sess.AuthorizedUntil)
 	if err != nil {
-		return fmt.Errorf("cannot listen on 127.0.0.1:%d: %w", localPort, err)
+		return err
 	}
 	defer func() { _ = ln.Close() }()
-	if addr, ok := ln.Addr().(*net.TCPAddr); ok {
-		localPort = addr.Port
-	}
-	// Announced at open, not only when it ends: the developer plans a long
-	// transfer around this instant, and a deadline that arrives unannounced
-	// reads as a bug in the platform (ADR-045 §5).
-	target := fmt.Sprintf("remote :%d", remotePort)
-	if remotePort == 0 {
-		target = "the endpoint's declared target" // frozen server-side (ADR-045 §2)
-	}
-	fmt.Fprintf(os.Stderr, "forwarding 127.0.0.1:%d -> %s%s (Ctrl-C to stop)\n",
-		localPort, target, authorizedSuffix(sess.AuthorizedUntil))
-	if sess.AuthorizedUntil != nil {
-		go warnBeforeExpiry(ctx, *sess.AuthorizedUntil)
-	}
-
-	go func() { <-ctx.Done(); _ = ln.Close() }()
 	var nextID uint32
 	for {
 		local, err := ln.Accept()
@@ -255,6 +245,35 @@ func (c *Client) runPortForward(ctx context.Context, mintPath, component string,
 		nextID++
 		tun.open(ctx, nextID, local)
 	}
+}
+
+// listenAndAnnounce opens the local listener both transports serve from, and
+// tells the developer where it is. Port 0 lets the OS pick a free one — the
+// case of an endpoint forward with no ports argument — and the chosen port is
+// read back, because a port nobody told you about is a tunnel you cannot use.
+//
+// The deadline is announced at open, not only when it ends: the developer plans
+// a long transfer around this instant, and a deadline that arrives unannounced
+// reads as a bug in the platform (ADR-045 §5).
+func listenAndAnnounce(ctx context.Context, localPort, remotePort int, authorizedUntil *time.Time) (net.Listener, error) {
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", localPort))
+	if err != nil {
+		return nil, fmt.Errorf("cannot listen on 127.0.0.1:%d: %w", localPort, err)
+	}
+	if addr, ok := ln.Addr().(*net.TCPAddr); ok {
+		localPort = addr.Port
+	}
+	target := fmt.Sprintf("remote :%d", remotePort)
+	if remotePort == 0 {
+		target = "the endpoint's declared target" // frozen server-side (ADR-045 §2)
+	}
+	fmt.Fprintf(os.Stderr, "forwarding 127.0.0.1:%d -> %s%s (Ctrl-C to stop)\n",
+		localPort, target, authorizedSuffix(authorizedUntil))
+	if authorizedUntil != nil {
+		go warnBeforeExpiry(ctx, *authorizedUntil)
+	}
+	go func() { <-ctx.Done(); _ = ln.Close() }()
+	return ln, nil
 }
 
 // tunnel multiplexes TCP streams over one WebSocket (akerdock-tunnel-v1).

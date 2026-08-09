@@ -130,8 +130,12 @@ func (a *API) tunnelAttachSession(w http.ResponseWriter, r *http.Request) {
 			"full-duplex HTTP streaming is unavailable on this connection")
 		return
 	}
+	sessionUUID := uuidString(row.Uuid)
 	w.Header().Set("Content-Type", tunnel.EgressHTTP.ControlContentType)
 	w.Header().Set(tunnel.EgressHTTP.ProtocolHeader, tunnel.EgressHTTP.Name)
+	// The CLI binds its data streams to this: the mint token was spent here,
+	// and a stream presents the session and the attach key instead.
+	w.Header().Set(tunnel.EgressHTTP.SessionHeader, sessionUUID)
 	w.WriteHeader(http.StatusOK)
 	controller := http.NewResponseController(w)
 	if err := controller.Flush(); err != nil {
@@ -151,7 +155,6 @@ func (a *API) tunnelAttachSession(w http.ResponseWriter, r *http.Request) {
 		dial:    func(context.Context) (net.Conn, error) { return client.DialTCP(addr) },
 		session: session,
 	}
-	sessionUUID := uuidString(row.Uuid)
 	a.egressRegister(sessionUUID, attach)
 
 	reason := session.Run(r.Context(), bounds)

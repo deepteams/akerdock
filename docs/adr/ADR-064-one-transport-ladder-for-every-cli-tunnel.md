@@ -85,6 +85,15 @@ the ladder's bottom rung *is* WebSocket, reached automatically wherever the rung
 fail. What the terminal gains is QUIC connection migration — an interactive session that
 outlives a move from wifi to a phone hotspot instead of dying with its TCP connection.
 
+One thing does not survive the change of transport: **message types**. The WebSocket
+carries the PTY's bytes as binary frames and a window resize as a text frame, and an HTTP
+stream has no frames to type. The terminal therefore takes the same shape as every other
+path here — the session request carries the control wire (resize, liveness, terminal
+reason) and one data stream carries the PTY's bytes. It is not a special case of the
+ladder; it is the ladder with exactly one data stream. Re-framing a single stream with a
+length-and-type prefix would rebuild, inside the transport, the framing this ladder exists
+to stop hand-rolling.
+
 ### 4. Choreography stays per path
 
 A shared transport is not a shared protocol. Ingress needs a control stream because the
