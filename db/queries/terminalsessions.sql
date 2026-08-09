@@ -69,6 +69,20 @@ WHERE id = $1
   AND claimed_at IS NOT NULL
   AND ended_at IS NULL;
 
+-- name: GetTerminalSessionEndReason :one
+-- The second half of the beat above, and the ONLY caller: read once, when the
+-- heartbeat matched zero rows, so the socket can report the word its session
+-- actually ended with instead of guessing one. It is never on the beat's common
+-- path — a session reaches this statement at most once, on the beat that
+-- discovers it is over — which is why the liveness update stays a single
+-- statement rather than growing a RETURNING and a join for the case that
+-- happens once.
+--
+-- NULL is a real answer and not an error: the row is still open, which is the
+-- generation case (another attach superseded this one) rather than the
+-- finalized one. The caller falls back to `disconnect` there, deliberately.
+SELECT end_reason FROM terminal_sessions WHERE id = $1;
+
 -- name: EndTerminalSession :execrows
 -- Idempotent: only the first close wins, so end_reason keeps the true cause
 -- when the WS teardown and a timeout race each other.

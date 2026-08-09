@@ -257,12 +257,12 @@ func TestBridgePersistsSuccessfulHeartbeats(t *testing.T) {
 	go func() {
 		done <- Bridge(ctx, fc, nil, Options{
 			Heartbeat: 5 * time.Millisecond,
-			OnHeartbeat: func(context.Context) bool {
+			OnHeartbeat: func(context.Context) EndReason {
 				select {
 				case heartbeat <- struct{}{}:
 				default:
 				}
-				return true
+				return ""
 			},
 		})
 	}()
@@ -454,22 +454,31 @@ func TestBridgeStreamTeardownWhenTheSocketDies(t *testing.T) {
 	<-done
 }
 
-func TestBridgeStopsWhenTheDurableSessionWasClosed(t *testing.T) {
-	fc := newFakeConn()
-	done := make(chan EndReason, 1)
-	go func() {
-		done <- Bridge(context.Background(), fc, nil, Options{
-			Heartbeat:   5 * time.Millisecond,
-			OnHeartbeat: func(context.Context) bool { return false },
-		})
-	}()
+// The bridge reports whatever the beat hands it, verbatim. Only the beat can
+// read the row it just failed to update, so a session finalized on another
+// replica as `target_stopped` or `grant_expired` must arrive at the developer
+// with that word — `disconnect` is a network glitch and sends them to inspect
+// their own laptop.
+func TestBridgeStopsWithTheReasonTheBeatReports(t *testing.T) {
+	for _, want := range []EndReason{EndDisconnect, "target_stopped", "grant_expired", "wake_failed"} {
+		t.Run(string(want), func(t *testing.T) {
+			fc := newFakeConn()
+			done := make(chan EndReason, 1)
+			go func() {
+				done <- Bridge(context.Background(), fc, nil, Options{
+					Heartbeat:   5 * time.Millisecond,
+					OnHeartbeat: func(context.Context) EndReason { return want },
+				})
+			}()
 
-	select {
-	case got := <-done:
-		if got != EndDisconnect {
-			t.Fatalf("end reason = %q, want disconnect for an already-finalized row", got)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("bridge remained open after its durable session was finalized")
+			select {
+			case got := <-done:
+				if got != want {
+					t.Fatalf("end reason = %q, want %q for a row finalized elsewhere", got, want)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("bridge remained open after its durable session was finalized")
+			}
+		})
 	}
 }

@@ -90,14 +90,25 @@ type Options struct {
 	// reads, which is why the durable liveness stamp and the activity signal
 	// share one hook rather than growing a timer each.
 	//
-	// A storage error is best effort: the caller logs it and returns true,
-	// because the socket is the source of truth while this process lives.
-	// Returning FALSE is reserved for a session that is durably over — another
-	// replica or the sweep finalized the row, or a re-claim superseded this
-	// attach — and it cuts the socket, which must not outlive its own
-	// authorization. That is tunnel.Options.OnHeartbeat's contract, word for
-	// word and on purpose: two bridges, one rule about what a beat means.
-	OnHeartbeat func(context.Context) bool
+	// The EMPTY reason means "still attached", and it is also what a storage
+	// error must answer: the socket is the source of truth while this process
+	// lives, so the caller logs the failure and keeps the session. Any other
+	// value is reserved for a session that is durably over — another replica or
+	// the sweep finalized the row, or a re-claim superseded this attach — and it
+	// cuts the socket, which must not outlive its own authorization.
+	//
+	// It answers a REASON rather than a bool because the beat is where a close
+	// decided on another replica arrives, and the bridge is the one party that
+	// cannot know what that close was: the row was finalized elsewhere, this
+	// beat's update matched nothing, and the word it ended with is on the row
+	// the caller just failed to update. A bool could only say "it is over", and
+	// the bridge would then have to invent a word for it — `disconnect`, which
+	// blames the developer's own network for a container somebody stopped, a
+	// grant that expired or a wake that never came up. Only the caller can read
+	// that row, so only the caller may name it; the bridge reports what it is
+	// handed. That is tunnel.Options.OnHeartbeat's contract, word for word and
+	// on purpose: two bridges, one rule about what a beat means.
+	OnHeartbeat func(context.Context) EndReason
 	// Cancel ends the session from outside, naming the reason to report. A nil
 	// channel simply never fires, which is why the zero value is inert.
 	//
@@ -268,11 +279,16 @@ loop:
 				reason = EndDisconnect
 				break loop
 			}
-			if opts.OnHeartbeat != nil && !opts.OnHeartbeat(ctx) {
-				// The durable session is already closed; only the socket is
-				// left, and the reason it ended with is on the row.
-				reason = EndDisconnect
-				break loop
+			if opts.OnHeartbeat != nil {
+				if ended := opts.OnHeartbeat(ctx); ended != "" {
+					// The durable session is already closed; only the socket is
+					// left. The reason it ended with was on the row, and the
+					// beat has just been to read it — so this arm reports what
+					// actually happened rather than the `disconnect` it used to
+					// substitute for it.
+					reason = ended
+					break loop
+				}
 			}
 		}
 	}

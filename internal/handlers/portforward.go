@@ -715,10 +715,10 @@ const portForwardBeatBudget = 3 * time.Second
 //
 // The socket remains the source of truth while this process is alive.
 // Persistence is only the crash/restart net, so a transient database failure is
-// logged and retried on the next beat; returning false is reserved for a
+// logged and retried on the next beat; a non-empty reason is reserved for a
 // session that is durably over.
-func (a *API) portForwardHeartbeat(row store.PortForwardSession) func(context.Context) bool {
-	return func(parent context.Context) bool {
+func (a *API) portForwardHeartbeat(row store.PortForwardSession) func(context.Context) tunnel.EndReason {
+	return func(parent context.Context) tunnel.EndReason {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), portForwardBeatBudget)
 		defer cancel()
 		n, err := a.Store.HeartbeatPortForwardSession(ctx, store.HeartbeatPortForwardSessionParams{
@@ -726,18 +726,44 @@ func (a *API) portForwardHeartbeat(row store.PortForwardSession) func(context.Co
 		})
 		if err != nil {
 			a.Logger.Warn("port-forward heartbeat failed", "session", uuidString(row.Uuid), "error", err)
-			return true
+			return ""
 		}
 		// Zero means another replica or the scheduler has finalized the row — or,
 		// since ADR-065 §5, that another attach superseded this one, which is the
 		// same sentence and the same conclusion. Do not leave the actual socket
 		// alive after its durable authorization is gone.
 		if n == 0 {
-			return false
+			return a.finalizedPortForwardEndReason(parent, row)
 		}
 		a.watchPortForwardTarget(parent, row)
-		return true
+		return ""
 	}
+}
+
+// finalizedPortForwardEndReason is the terminal's twin
+// (finalizedTerminalEndReason), and the long form of the rationale lives there:
+// the replica that decides a session is over writes the reason and never holds
+// the socket, so the replica that does holds it learns of the decision as a beat
+// that matched zero rows — and must go and read the word, or report a network
+// glitch for a grant that expired, a target that stopped, or a wake that never
+// came up.
+//
+// One indexed read, at most once per session, on the beat the bridge leaves on.
+// `disconnect` remains the answer for a row that says nothing or cannot be read,
+// which is the same word this branch reported for every case before it.
+func (a *API) finalizedPortForwardEndReason(parent context.Context, row store.PortForwardSession) tunnel.EndReason {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), portForwardBeatBudget)
+	defer cancel()
+	persisted, err := a.Store.GetPortForwardSessionEndReason(ctx, row.ID)
+	if err != nil {
+		a.Logger.Warn("port-forward session ended elsewhere, reason unreadable",
+			"session", uuidString(row.Uuid), "error", err)
+		return tunnel.EndDisconnect
+	}
+	if persisted == nil || *persisted == "" {
+		return tunnel.EndDisconnect
+	}
+	return tunnel.EndReason(*persisted)
 }
 
 // watchPortForwardTarget is what a beat owes the target it is holding open:

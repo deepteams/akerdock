@@ -488,23 +488,31 @@ func TestOriginEndsWhenPingFails(t *testing.T) {
 	}
 }
 
-func TestOriginStopsWhenTheDurableSessionWasClosed(t *testing.T) {
-	fc := newFakeConn()
-	origin := NewOrigin(fc)
-	done := make(chan EndReason, 1)
-	go func() {
-		done <- origin.Run(context.Background(), Options{
-			Heartbeat:   5 * time.Millisecond,
-			OnHeartbeat: func(context.Context) bool { return false },
+// Every rung reports the beat's word rather than substituting one of its own,
+// this one included: ADR-064 §2 forbids a session behaving differently for
+// having landed on one transport rather than another, and the reason a developer
+// reads is exactly the kind of difference that would go unnoticed.
+func TestOriginStopsWithTheReasonTheBeatReports(t *testing.T) {
+	for _, want := range []EndReason{EndDisconnect, "target_stopped", "revoked"} {
+		t.Run(string(want), func(t *testing.T) {
+			fc := newFakeConn()
+			origin := NewOrigin(fc)
+			done := make(chan EndReason, 1)
+			go func() {
+				done <- origin.Run(context.Background(), Options{
+					Heartbeat:   5 * time.Millisecond,
+					OnHeartbeat: func(context.Context) EndReason { return want },
+				})
+			}()
+			select {
+			case r := <-done:
+				if r != want {
+					t.Fatalf("end reason = %q, want %q for a row finalized elsewhere", r, want)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("Run remained open after its durable session was finalized")
+			}
 		})
-	}()
-	select {
-	case r := <-done:
-		if r != EndDisconnect {
-			t.Fatalf("end reason = %q, want disconnect for an already-finalized row", r)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("Run remained open after its durable session was finalized")
 	}
 }
 

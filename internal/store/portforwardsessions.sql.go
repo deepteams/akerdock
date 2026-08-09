@@ -244,6 +244,29 @@ func (q *Queries) GetPortForwardSessionByUUID(ctx context.Context, arg GetPortFo
 	return i, err
 }
 
+const getPortForwardSessionEndReason = `-- name: GetPortForwardSessionEndReason :one
+SELECT end_reason FROM port_forward_sessions WHERE id = $1
+`
+
+// The terminal's twin (GetTerminalSessionEndReason), and for the same one
+// caller: the beat above matched zero rows, so the reason this session ended
+// with was written by somebody else — the sweep, a revocation, a grant that
+// expired, a target that stopped — and it is on the row. Reading it is what
+// keeps a cross-replica close from reaching the developer as `disconnect`.
+//
+// Read at most once per session, on the beat that discovers the row is gone,
+// which is why the liveness statement above is left alone: paying for this on
+// every beat would buy nothing.
+//
+// NULL means the row is still open — the supersession case of ADR-065 §5, not a
+// finalized session — and the caller treats it as the `disconnect` fallback.
+func (q *Queries) GetPortForwardSessionEndReason(ctx context.Context, id int64) (*TerminalEndReason, error) {
+	row := q.db.QueryRow(ctx, getPortForwardSessionEndReason, id)
+	var end_reason *TerminalEndReason
+	err := row.Scan(&end_reason)
+	return end_reason, err
+}
+
 const heartbeatPortForwardSession = `-- name: HeartbeatPortForwardSession :execrows
 UPDATE port_forward_sessions
 SET last_heartbeat_at = now()

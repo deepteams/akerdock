@@ -105,8 +105,12 @@ func (s *HTTPSession) Run(ctx context.Context, opts Options) EndReason {
 			if err := s.control.Send(ctx, HTTPControlFrame{Type: "ping"}); err != nil {
 				return EndDisconnect
 			}
-			if opts.OnHeartbeat != nil && !opts.OnHeartbeat(ctx) {
-				return EndDisconnect
+			// The reason travels on out through SendClose, which is the only
+			// channel this rung has for a close that belongs to no stream — and
+			// the whole point of reading it: `disconnect` on the session request
+			// reads to the developer as their own laptop dropping.
+			if ended := sessionBeat(ctx, opts); ended != "" {
+				return ended
 			}
 		}
 	}

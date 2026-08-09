@@ -152,8 +152,10 @@ func (o *Origin) Run(ctx context.Context, opts Options) EndReason {
 			if err := o.conn.Ping(ctx); err != nil {
 				return EndDisconnect
 			}
-			if opts.OnHeartbeat != nil && !opts.OnHeartbeat(ctx) {
-				return EndDisconnect
+			// A close decided on another replica reaches this rung as a beat that
+			// matched no row, and the reason is the one the row carries.
+			if ended := sessionBeat(ctx, opts); ended != "" {
+				return ended
 			}
 		}
 	}

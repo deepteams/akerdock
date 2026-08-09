@@ -127,20 +127,23 @@ func tbeatInspect(t *testing.T, a *API, body string, failure *agentwire.Error) {
 	})
 }
 
-// tbeatRun beats once and reports the reason the session was cut with, if any.
-// The cut travels the attach register a re-claim uses, so what is asserted here
-// is exactly what the bridge would return and the developer would read.
-func tbeatRun(t *testing.T, a *API, row store.TerminalSession) (bool, terminal.EndReason) {
+// tbeatRun beats once and reports both of the beat's outputs: the reason it
+// ENDED the session with, empty while the session lives, and the reason it CUT
+// the session with through the attach register a re-claim uses. Two channels on
+// purpose — a container that vanished is cut here and now, while a row finalized
+// on another replica is already over and the beat carries its word back to the
+// bridge directly.
+func tbeatRun(t *testing.T, a *API, row store.TerminalSession) (ended, cut terminal.EndReason) {
 	t.Helper()
 	attach := newTerminalAttach([32]byte{}, nil)
 	a.terminalRegister(uuidString(row.Uuid), attach)
 	defer a.terminalRelease(uuidString(row.Uuid), attach)
-	alive := a.terminalHeartbeat(row)(context.Background())
+	ended = a.terminalHeartbeat(row)(context.Background())
 	select {
 	case reason := <-attach.cut:
-		return alive, reason
+		return ended, reason
 	default:
-		return alive, ""
+		return ended, ""
 	}
 }
 
@@ -195,9 +198,9 @@ func TestTbeatHeartbeatRecordsActivityForItsTarget(t *testing.T) {
 			if tc.arrange != nil {
 				tc.arrange(db)
 			}
-			alive, reason := tbeatRun(t, a, tc.row)
-			if !alive || reason != "" {
-				t.Fatalf("beat ended the session (alive=%v reason=%q) — nothing here is a reason to", alive, reason)
+			ended, reason := tbeatRun(t, a, tc.row)
+			if ended != "" || reason != "" {
+				t.Fatalf("beat ended the session (ended=%q cut=%q) — nothing here is a reason to", ended, reason)
 			}
 			if got := db.ran("RecordPreviewActivity"); got != tc.preview {
 				t.Errorf("preview activity recorded = %v, want %v", got, tc.preview)
@@ -218,8 +221,8 @@ func TestTbeatComponentBeatStampsTheApplication(t *testing.T) {
 	a, db := tbeatAPI(t)
 	row := tbeatSession()
 	row.TargetComponent = ptr("worker")
-	if alive, reason := tbeatRun(t, a, row); !alive || reason != "" {
-		t.Fatalf("alive=%v reason=%q", alive, reason)
+	if ended, reason := tbeatRun(t, a, row); ended != "" || reason != "" {
+		t.Fatalf("ended=%q cut=%q", ended, reason)
 	}
 	if !db.ran("RecordApplicationActivity") {
 		t.Fatal("a component shell did not stamp the application's clock")
@@ -295,29 +298,145 @@ func TestTbeatHeartbeatSurvivesADatabaseFailure(t *testing.T) {
 	t.Run("liveness update fails", func(t *testing.T) {
 		a, db := tbeatAPI(t)
 		db.rule(netcovRule{match: "-- name: HeartbeatTerminalSession ", err: errors.New("connection reset")})
-		alive, reason := tbeatRun(t, a, tbeatPreviewSession())
-		if !alive || reason != "" {
-			t.Fatalf("alive=%v reason=%q — a transient database error killed the session", alive, reason)
+		ended, reason := tbeatRun(t, a, tbeatPreviewSession())
+		if ended != "" || reason != "" {
+			t.Fatalf("ended=%q cut=%q — a transient database error killed the session", ended, reason)
 		}
 	})
 	t.Run("activity write fails", func(t *testing.T) {
 		a, db := tbeatAPI(t)
 		db.rule(netcovRule{match: "-- name: RecordPreviewActivity ", err: errors.New("connection reset")})
-		alive, reason := tbeatRun(t, a, tbeatPreviewSession())
-		if !alive || reason != "" {
-			t.Fatalf("alive=%v reason=%q — a lost activity beat is imprecision, not a close", alive, reason)
+		ended, reason := tbeatRun(t, a, tbeatPreviewSession())
+		if ended != "" || reason != "" {
+			t.Fatalf("ended=%q cut=%q — a lost activity beat is imprecision, not a close", ended, reason)
 		}
 	})
 	// Zero rows updated is the one durable answer that DOES end the socket:
 	// another replica, the sweep or a re-claim has finalized the row, and the
-	// PTY must not outlive its own authorization.
+	// PTY must not outlive its own authorization — with the word that row
+	// carries, which TestTbeatFinalizedElsewhereReportsThePersistedReason owns.
 	t.Run("row already finalized", func(t *testing.T) {
 		a, db := tbeatAPI(t)
 		db.rule(netcovRule{match: "-- name: HeartbeatTerminalSession ", tag: "UPDATE 0"})
-		if alive, _ := tbeatRun(t, a, tbeatSession()); alive {
-			t.Fatal("a session finalized in the database must not keep its socket")
+		db.rule(netcovRule{
+			match: "-- name: GetTerminalSessionEndReason ",
+			typed: []any{ptr(store.TerminalEndReasonRevoked)},
+		})
+		if ended, _ := tbeatRun(t, a, tbeatSession()); ended != terminal.EndRevoked {
+			t.Fatalf("ended = %q, want %q — a finalized session keeps neither its socket nor its silence",
+				ended, terminal.EndRevoked)
 		}
 	})
+}
+
+// The cross-replica repair, at the beat's own level. The replica that decides a
+// shell is over writes the reason and never holds the socket; the replica that
+// does learns of it only by its liveness update matching nothing. Until now
+// every one of these reached the developer as `disconnect` — the word that sends
+// somebody to inspect their own laptop for a container an administrator stopped.
+//
+// The fallback arms are the deliberate half of the design: a row that says
+// nothing, and a row that cannot be read, both keep today's `disconnect`,
+// because it is the honest word when the control plane does not know.
+func TestTbeatFinalizedElsewhereReportsThePersistedReason(t *testing.T) {
+	cases := map[string]struct {
+		arrange func(db *tbeatDB)
+		want    terminal.EndReason
+	}{
+		"container stopped under the shell (ADR-067 §2)": {
+			arrange: func(db *tbeatDB) {
+				db.rule(netcovRule{
+					match: "-- name: GetTerminalSessionEndReason ",
+					typed: []any{ptr(store.TerminalEndReasonTargetStopped)},
+				})
+			},
+			want: terminalEndReasonTargetStopped,
+		},
+		"wake never came up (ADR-067)": {
+			arrange: func(db *tbeatDB) {
+				db.rule(netcovRule{
+					match: "-- name: GetTerminalSessionEndReason ",
+					typed: []any{ptr(store.TerminalEndReasonWakeFailed)},
+				})
+			},
+			want: terminal.EndReason(store.TerminalEndReasonWakeFailed),
+		},
+		"revoked": {
+			arrange: func(db *tbeatDB) {
+				db.rule(netcovRule{
+					match: "-- name: GetTerminalSessionEndReason ",
+					typed: []any{ptr(store.TerminalEndReasonRevoked)},
+				})
+			},
+			want: terminal.EndRevoked,
+		},
+		"the sweep called it a disconnect": {
+			arrange: func(db *tbeatDB) {
+				db.rule(netcovRule{
+					match: "-- name: GetTerminalSessionEndReason ",
+					typed: []any{ptr(store.TerminalEndReasonDisconnect)},
+				})
+			},
+			want: terminal.EndDisconnect,
+		},
+		// The row is still open: this attach lost a re-claim (ADR-065 §5) rather
+		// than the session ending, so there is no persisted word to report.
+		"row still open — superseded attach": {
+			arrange: func(db *tbeatDB) {
+				db.rule(netcovRule{
+					match: "-- name: GetTerminalSessionEndReason ",
+					typed: []any{(*store.TerminalEndReason)(nil)},
+				})
+			},
+			want: terminal.EndDisconnect,
+		},
+		"row purged before it could be read": {
+			arrange: func(db *tbeatDB) {
+				db.rule(netcovRule{match: "-- name: GetTerminalSessionEndReason ", noRows: true})
+			},
+			want: terminal.EndDisconnect,
+		},
+		"database unreachable": {
+			arrange: func(db *tbeatDB) {
+				db.rule(netcovRule{
+					match: "-- name: GetTerminalSessionEndReason ",
+					err:   errors.New("connection reset"),
+				})
+			},
+			want: terminal.EndDisconnect,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			a, db := tbeatAPI(t)
+			db.rule(netcovRule{match: "-- name: HeartbeatTerminalSession ", tag: "UPDATE 0"})
+			tc.arrange(db)
+			ended, cut := tbeatRun(t, a, tbeatSession())
+			if ended != tc.want {
+				t.Fatalf("ended = %q, want %q", ended, tc.want)
+			}
+			if cut != "" {
+				t.Fatalf("cut = %q — a session already over is not cut again", cut)
+			}
+			if db.ran("GetResourceByID") {
+				t.Error("a finalized session resolved its target anyway: the beat must leave, not probe")
+			}
+		})
+	}
+}
+
+// The cost bound the design turns on: the extra read is paid ONLY by the beat
+// that discovers the row is gone. A healthy 20-second beat stays one statement
+// against its own table, or the repair becomes a per-session query storm.
+func TestTbeatHealthyBeatNeverReadsTheEndReason(t *testing.T) {
+	a, db := tbeatAPI(t)
+	tbeatInspect(t, a, `{"State":{"Running":true}}`, nil)
+	if ended, cut := tbeatRun(t, a, tbeatSession()); ended != "" || cut != "" {
+		t.Fatalf("ended=%q cut=%q — a healthy shell was ended", ended, cut)
+	}
+	if db.ran("GetTerminalSessionEndReason") {
+		t.Fatal("the common path read the end reason: the beat must stay one statement while the row lives")
+	}
 }
 
 // §2: a target that is definitely gone ends the session within one beat, and
@@ -329,15 +448,15 @@ func TestTbeatHeartbeatEndsTheSessionWhenTheTargetIsGone(t *testing.T) {
 	t.Run("container removed", func(t *testing.T) {
 		a, _ := tbeatAPI(t)
 		tbeatInspect(t, a, "", &agentwire.Error{Code: agentwire.CodeNotFound, Message: "no such container"})
-		alive, reason := tbeatRun(t, a, tbeatSession())
+		ended, reason := tbeatRun(t, a, tbeatSession())
 		if reason != terminalEndReasonTargetStopped {
-			t.Fatalf("reason = %q, want target_stopped — the value the client prints", reason)
+			t.Fatalf("cut = %q, want target_stopped — the value the client prints", reason)
 		}
-		// The beat itself stays truthful: the session ends through the cut,
-		// which carries the reason, not through a bare false that would report
-		// `disconnect` and read as a network glitch.
-		if !alive {
-			t.Error("the reason must reach the bridge through the cut, not a bare stop")
+		// The beat itself stays silent: this session ends through the cut, which
+		// carries the reason. The beat's own return is reserved for a row
+		// somebody ELSE finalized.
+		if ended != "" {
+			t.Errorf("ended = %q — the reason must reach the bridge through the cut", ended)
 		}
 	})
 	t.Run("container stopped but still present", func(t *testing.T) {
@@ -407,9 +526,9 @@ func TestTbeatHeartbeatKeepsTheSessionWhenTheAgentIsMerelyUnavailable(t *testing
 			if strings.Contains(name, "preview") {
 				row = tbeatPreviewSession()
 			}
-			alive, reason := tbeatRun(t, a, row)
-			if !alive || reason != "" {
-				t.Fatalf("alive=%v reason=%q — an unreadable target is not an absent one", alive, reason)
+			ended, reason := tbeatRun(t, a, row)
+			if ended != "" || reason != "" {
+				t.Fatalf("ended=%q cut=%q — an unreadable target is not an absent one", ended, reason)
 			}
 		})
 	}
@@ -422,9 +541,9 @@ func TestTbeatHeartbeatNeverProbesAServerShell(t *testing.T) {
 	a, db := tbeatAPI(t)
 	tbeatInspect(t, a, "", &agentwire.Error{Code: agentwire.CodeNotFound, Message: "no such container"})
 
-	alive, reason := tbeatRun(t, a, tbeatServerShell())
-	if !alive || reason != "" {
-		t.Fatalf("alive=%v reason=%q — a server shell has no container to lose", alive, reason)
+	ended, reason := tbeatRun(t, a, tbeatServerShell())
+	if ended != "" || reason != "" {
+		t.Fatalf("ended=%q cut=%q — a server shell has no container to lose", ended, reason)
 	}
 	if db.ran("GetResourceByID") {
 		t.Error("a server shell must not resolve a resource: it has none")
@@ -439,8 +558,8 @@ func TestTbeatHeartbeatIsBoundedAndOutlivesItsCaller(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	start := time.Now()
-	if !a.terminalHeartbeat(tbeatSession())(ctx) {
-		t.Fatal("a cancelled caller context must not close the session")
+	if ended := a.terminalHeartbeat(tbeatSession())(ctx); ended != "" {
+		t.Fatalf("a cancelled caller context closed the session as %q", ended)
 	}
 	if elapsed := time.Since(start); elapsed > 2*terminalBeatBudget {
 		t.Fatalf("beat took %s, longer than its own budget", elapsed)
@@ -458,8 +577,8 @@ func TestTbeatHeartbeatIsBoundedAndOutlivesItsCaller(t *testing.T) {
 // produces the same set of writes on both.
 func TestTbeatBothBridgesWriteTheSameSignals(t *testing.T) {
 	terminalAPI, terminalDB := tbeatAPI(t)
-	if alive, reason := tbeatRun(t, terminalAPI, tbeatSession()); !alive || reason != "" {
-		t.Fatalf("terminal beat: alive=%v reason=%q", alive, reason)
+	if ended, reason := tbeatRun(t, terminalAPI, tbeatSession()); ended != "" || reason != "" {
+		t.Fatalf("terminal beat: ended=%q cut=%q", ended, reason)
 	}
 
 	tunnelAPI, tunnelDB := tbeatAPI(t)
@@ -470,8 +589,8 @@ func TestTbeatBothBridgesWriteTheSameSignals(t *testing.T) {
 	}
 	cancel := tunnelAPI.Tunnels.register(tunnelRow.ID)
 	defer tunnelAPI.Tunnels.unregister(tunnelRow.ID, cancel)
-	if !tunnelAPI.portForwardHeartbeat(tunnelRow)(context.Background()) {
-		t.Fatal("port-forward beat ended a healthy session")
+	if ended := tunnelAPI.portForwardHeartbeat(tunnelRow)(context.Background()); ended != "" {
+		t.Fatalf("port-forward beat ended a healthy session as %q", ended)
 	}
 
 	// Everything except the statement that names the family's own table.

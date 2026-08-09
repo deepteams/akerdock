@@ -195,6 +195,28 @@ func (q *Queries) EndTerminalSession(ctx context.Context, arg EndTerminalSession
 	return result.RowsAffected(), nil
 }
 
+const getTerminalSessionEndReason = `-- name: GetTerminalSessionEndReason :one
+SELECT end_reason FROM terminal_sessions WHERE id = $1
+`
+
+// The second half of the beat above, and the ONLY caller: read once, when the
+// heartbeat matched zero rows, so the socket can report the word its session
+// actually ended with instead of guessing one. It is never on the beat's common
+// path — a session reaches this statement at most once, on the beat that
+// discovers it is over — which is why the liveness update stays a single
+// statement rather than growing a RETURNING and a join for the case that
+// happens once.
+//
+// NULL is a real answer and not an error: the row is still open, which is the
+// generation case (another attach superseded this one) rather than the
+// finalized one. The caller falls back to `disconnect` there, deliberately.
+func (q *Queries) GetTerminalSessionEndReason(ctx context.Context, id int64) (*TerminalEndReason, error) {
+	row := q.db.QueryRow(ctx, getTerminalSessionEndReason, id)
+	var end_reason *TerminalEndReason
+	err := row.Scan(&end_reason)
+	return end_reason, err
+}
+
 const heartbeatTerminalSession = `-- name: HeartbeatTerminalSession :execrows
 UPDATE terminal_sessions
 SET last_heartbeat_at = now()

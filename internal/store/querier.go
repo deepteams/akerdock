@@ -564,6 +564,19 @@ type Querier interface {
 	// invitation. Nothing here is reachable without it.
 	GetPendingInvitationByTokenHash(ctx context.Context, tokenHash string) (GetPendingInvitationByTokenHashRow, error)
 	GetPortForwardSessionByUUID(ctx context.Context, arg GetPortForwardSessionByUUIDParams) (PortForwardSession, error)
+	// The terminal's twin (GetTerminalSessionEndReason), and for the same one
+	// caller: the beat above matched zero rows, so the reason this session ended
+	// with was written by somebody else — the sweep, a revocation, a grant that
+	// expired, a target that stopped — and it is on the row. Reading it is what
+	// keeps a cross-replica close from reaching the developer as `disconnect`.
+	//
+	// Read at most once per session, on the beat that discovers the row is gone,
+	// which is why the liveness statement above is left alone: paying for this on
+	// every beat would buy nothing.
+	//
+	// NULL means the row is still open — the supersession case of ADR-065 §5, not a
+	// finalized session — and the caller treats it as the `disconnect` fallback.
+	GetPortForwardSessionEndReason(ctx context.Context, id int64) (*TerminalEndReason, error)
 	GetPreviewAccessTokenByHash(ctx context.Context, tokenHash string) (PreviewAccessToken, error)
 	// Resolves the browser's Host to a preview (ADR-030): the preview's own fqdn,
 	// or a compose service's derived `<service>-<fqdn>` (§20.4.1).
@@ -646,6 +659,18 @@ type Querier interface {
 	// Soft-deleted teams are excluded: a deleted team must stop being a place one
 	// can act in, whatever a stale session row still points at.
 	GetTeamMembershipForUser(ctx context.Context, arg GetTeamMembershipForUserParams) (GetTeamMembershipForUserRow, error)
+	// The second half of the beat above, and the ONLY caller: read once, when the
+	// heartbeat matched zero rows, so the socket can report the word its session
+	// actually ended with instead of guessing one. It is never on the beat's common
+	// path — a session reaches this statement at most once, on the beat that
+	// discovers it is over — which is why the liveness update stays a single
+	// statement rather than growing a RETURNING and a join for the case that
+	// happens once.
+	//
+	// NULL is a real answer and not an error: the row is still open, which is the
+	// generation case (another attach superseded this one) rather than the
+	// finalized one. The caller falls back to `disconnect` there, deliberately.
+	GetTerminalSessionEndReason(ctx context.Context, id int64) (*TerminalEndReason, error)
 	// What a token's creator holds in the token's team, re-read on every request
 	// (rbac-matrix §4.2). A token never grants more than its creator, so this is
 	// the ceiling its own scopes are intersected with — and it is why a demoted

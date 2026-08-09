@@ -690,10 +690,10 @@ const terminalBeatBudget = 3 * time.Second
 //
 // The socket remains the source of truth while this process is alive.
 // Persistence is only the crash/restart net, so a transient database failure is
-// logged and retried on the next beat; returning false is reserved for a
+// logged and retried on the next beat; a non-empty reason is reserved for a
 // session that is durably over.
-func (a *API) terminalHeartbeat(row store.TerminalSession) func(context.Context) bool {
-	return func(parent context.Context) bool {
+func (a *API) terminalHeartbeat(row store.TerminalSession) func(context.Context) terminal.EndReason {
+	return func(parent context.Context) terminal.EndReason {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), terminalBeatBudget)
 		defer cancel()
 		n, err := a.Store.HeartbeatTerminalSession(ctx, store.HeartbeatTerminalSessionParams{
@@ -701,18 +701,55 @@ func (a *API) terminalHeartbeat(row store.TerminalSession) func(context.Context)
 		})
 		if err != nil {
 			a.Logger.Warn("terminal heartbeat failed", "session", uuidString(row.Uuid), "error", err)
-			return true
+			return ""
 		}
 		// Zero means another replica or the sweep has finalized the row — or
 		// that another attach superseded this one (ADR-065 §5), which is the
 		// same sentence and the same conclusion. Do not leave the actual PTY
 		// alive after its durable authorization is gone.
 		if n == 0 {
-			return false
+			return a.finalizedTerminalEndReason(parent, row)
 		}
 		a.watchTerminalTarget(parent, row)
-		return true
+		return ""
 	}
+}
+
+// finalizedTerminalEndReason answers the beat that just discovered its session
+// is over: WHY it is over, read off the row somebody else finalized.
+//
+// This is the cross-replica half of every cut. The replica that decides — the
+// sweep, a revocation, an administrator, the §2 liveness cut — writes the reason
+// and never touches the socket, which some other replica holds; that replica
+// learns of the decision only by its beat matching zero rows. Reporting
+// `disconnect` there told a developer whose container had stopped that their own
+// network dropped, which is the one sentence ADR-067 §2 exists to stop them
+// reading. On a single-replica instance the cut reaches the socket directly and
+// this path never runs, which is exactly why the defect survived.
+//
+// It costs one indexed read, and it runs at most ONCE per session — on the beat
+// that finds the row gone, after which the bridge leaves. The 20-second beat
+// itself is untouched and stays a single statement.
+//
+// The fallback is a decision, not a leftover: a row that says nothing (still
+// open, so this attach was superseded rather than the session ended) and a row
+// that cannot be read at all (purged, or a database that just went away) both
+// end the socket as `disconnect`. It is the honest word when the control plane
+// genuinely does not know, and it is what this branch reported for every case
+// before — so the fallback is a narrowing of the lie, never a widening.
+func (a *API) finalizedTerminalEndReason(parent context.Context, row store.TerminalSession) terminal.EndReason {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), terminalBeatBudget)
+	defer cancel()
+	persisted, err := a.Store.GetTerminalSessionEndReason(ctx, row.ID)
+	if err != nil {
+		a.Logger.Warn("terminal session ended elsewhere, reason unreadable",
+			"session", uuidString(row.Uuid), "error", err)
+		return terminal.EndDisconnect
+	}
+	if persisted == nil || *persisted == "" {
+		return terminal.EndDisconnect
+	}
+	return terminal.EndReason(*persisted)
 }
 
 // watchTerminalTarget is what a beat owes the target it is holding open: record

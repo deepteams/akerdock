@@ -72,7 +72,16 @@ func TestHTTPOriginEnforcesItsSessionBounds(t *testing.T) {
 				IdleTimeout: time.Minute,
 				MaxDuration: time.Minute,
 				Heartbeat:   5 * time.Millisecond,
-				OnHeartbeat: func(context.Context) bool { return beats.Add(1) < 2 },
+				// The second beat is the one that finds the row finalized —
+				// and it names what finalized it. The rung must carry that
+				// word out rather than substituting `disconnect`, which reads
+				// as the developer's own connection dropping.
+				OnHeartbeat: func(context.Context) EndReason {
+					if beats.Add(1) < 2 {
+						return ""
+					}
+					return EndReason("target_stopped")
+				},
 			})
 		}()
 		if frame, ok := <-pings; !ok || frame.Type != "ping" {
@@ -80,8 +89,8 @@ func TestHTTPOriginEnforcesItsSessionBounds(t *testing.T) {
 		}
 		select {
 		case reason := <-ended:
-			if reason != EndDisconnect {
-				t.Fatalf("reason = %q, want %q once the durable session is gone", reason, EndDisconnect)
+			if reason != EndReason("target_stopped") {
+				t.Fatalf("reason = %q, want the beat's own word once the durable session is gone", reason)
 			}
 		case <-time.After(2 * time.Second):
 			t.Fatal("a refused heartbeat must end the session")

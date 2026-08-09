@@ -56,6 +56,21 @@ WHERE id = $1
   AND claimed_at IS NOT NULL
   AND ended_at IS NULL;
 
+-- name: GetPortForwardSessionEndReason :one
+-- The terminal's twin (GetTerminalSessionEndReason), and for the same one
+-- caller: the beat above matched zero rows, so the reason this session ended
+-- with was written by somebody else — the sweep, a revocation, a grant that
+-- expired, a target that stopped — and it is on the row. Reading it is what
+-- keeps a cross-replica close from reaching the developer as `disconnect`.
+--
+-- Read at most once per session, on the beat that discovers the row is gone,
+-- which is why the liveness statement above is left alone: paying for this on
+-- every beat would buy nothing.
+--
+-- NULL means the row is still open — the supersession case of ADR-065 §5, not a
+-- finalized session — and the caller treats it as the `disconnect` fallback.
+SELECT end_reason FROM port_forward_sessions WHERE id = $1;
+
 -- name: EndPortForwardSession :execrows
 -- The optional generation is ADR-065 §5: an attach finalizes the session only
 -- while it is still THE attach, so a socket that lost a re-claim cannot close

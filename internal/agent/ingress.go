@@ -353,9 +353,12 @@ func (ig *Ingress) attachWebSocket(w http.ResponseWriter, r *http.Request, endpo
 			ig.metrics.recordQueueWait(r.Context(), transport, wait, err)
 		},
 		Cancel: placeholder.cancel,
-		OnHeartbeat: func(context.Context) bool {
+		// The agent holds no session row, so it has nothing to discover and
+		// nothing to name: the empty reason is "still attached", and this beat
+		// only ever reports that the endpoint is alive.
+		OnHeartbeat: func(context.Context) tunnel.EndReason {
 			ig.notify(Observation{Type: "ingress_alive", At: time.Now(), ResourceUUID: expect.sessionUUID})
-			return true
+			return ""
 		},
 	}
 	origin := tunnel.NewOriginWithOptions(tunnelConn, streamOpts)
@@ -485,9 +488,12 @@ func (ig *Ingress) attachHTTPControl(w http.ResponseWriter, r *http.Request, end
 			ig.metrics.recordQueueWait(r.Context(), transport, wait, err)
 		},
 		Cancel: cancelCh,
-		OnHeartbeat: func(context.Context) bool {
+		// The agent holds no session row, so it has nothing to discover and
+		// nothing to name: the empty reason is "still attached", and this beat
+		// only ever reports that the endpoint is alive.
+		OnHeartbeat: func(context.Context) tunnel.EndReason {
 			ig.notify(Observation{Type: "ingress_alive", At: time.Now(), ResourceUUID: expect.sessionUUID})
-			return true
+			return ""
 		},
 	}
 	origin := tunnel.NewHTTPOrigin(control, streamOpts)

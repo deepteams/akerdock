@@ -611,10 +611,10 @@ func TestBridgeHeartbeatPersistsLivenessAfterEachPing(t *testing.T) {
 	}()
 	reason := run(context.Background(), t, conn, pty, Options{
 		IdleTimeout: generous, MaxDuration: generous, Heartbeat: time.Millisecond,
-		OnHeartbeat: func(context.Context) bool { beats.Add(1); return true },
+		OnHeartbeat: func(context.Context) EndReason { beats.Add(1); return "" },
 	})
 	if reason != EndUserClose {
-		t.Fatalf("reason = %q, want %q — a beat that answers true changes nothing", reason, EndUserClose)
+		t.Fatalf("reason = %q, want %q — a beat that answers the empty reason changes nothing", reason, EndUserClose)
 	}
 	if got := beats.Load(); got < 3 {
 		t.Fatalf("beats = %d — the hook must ride the ping ticker, not fire once", got)
@@ -631,17 +631,34 @@ func TestBridgeHeartbeatPersistsLivenessAfterEachPing(t *testing.T) {
 // The only durable answer that ends a socket: the row is already finalized —
 // another replica, the sweep, or a re-claim that superseded this attach — and a
 // PTY must not outlive its own authorization.
-func TestBridgeHeartbeatEndsTheSessionWhenTheRowIsGone(t *testing.T) {
-	conn, pty := newFakeConn(), newFakePTY()
-	reason := run(context.Background(), t, conn, pty, Options{
-		IdleTimeout: generous, MaxDuration: generous, Heartbeat: time.Millisecond,
-		OnHeartbeat: func(context.Context) bool { return false },
-	})
-	if reason != EndDisconnect {
-		t.Fatalf("reason = %q, want %q", reason, EndDisconnect)
-	}
-	if !pty.isClosed() {
-		t.Fatal("pty must be closed when the durable session is gone")
+//
+// What the bridge reports is whatever the beat hands it, verbatim. The beat is
+// the only party that can read the row it just failed to update, so the bridge
+// classifies nothing here: a session finalized on another replica as
+// `target_stopped` must not reach the developer as `disconnect`, which is a
+// network glitch and sends them to inspect their own laptop.
+func TestBridgeHeartbeatEndsTheSessionWithTheReasonTheBeatReports(t *testing.T) {
+	for _, want := range []EndReason{EndDisconnect, EndRevoked, "target_stopped", "wake_failed"} {
+		t.Run(string(want), func(t *testing.T) {
+			conn, pty := newFakeConn(), newFakePTY()
+			reason := run(context.Background(), t, conn, pty, Options{
+				IdleTimeout: generous, MaxDuration: generous, Heartbeat: time.Millisecond,
+				OnHeartbeat: func(context.Context) EndReason { return want },
+			})
+			if reason != want {
+				t.Fatalf("reason = %q, want %q", reason, want)
+			}
+			if !pty.isClosed() {
+				t.Fatal("pty must be closed when the durable session is gone")
+			}
+			// The end frame is where the developer meets it, and it is the whole
+			// of the report: a reason the bridge returned but never wrote would
+			// reach the row and the audit trail and nobody else.
+			got, ok := conn.endMessage(t)
+			if !ok || got != want {
+				t.Fatalf("end frame reason = %q (present=%v), want %q", got, ok, want)
+			}
+		})
 	}
 }
 
@@ -654,7 +671,7 @@ func TestBridgeHeartbeatIsNotRunAfterAFailedPing(t *testing.T) {
 
 	reason := run(context.Background(), t, conn, pty, Options{
 		IdleTimeout: generous, MaxDuration: generous, Heartbeat: time.Millisecond,
-		OnHeartbeat: func(context.Context) bool { beats.Add(1); return true },
+		OnHeartbeat: func(context.Context) EndReason { beats.Add(1); return "" },
 	})
 	if reason != EndDisconnect {
 		t.Fatalf("reason = %q, want %q", reason, EndDisconnect)

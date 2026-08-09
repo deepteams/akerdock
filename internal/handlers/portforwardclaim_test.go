@@ -859,8 +859,8 @@ func TestPfclaimHeartbeatCarriesTheAttachGeneration(t *testing.T) {
 	row.AttachSeq = 7
 	cancel := a.Tunnels.register(row.ID)
 	defer a.Tunnels.unregister(row.ID, cancel)
-	if !a.portForwardHeartbeat(row)(context.Background()) {
-		t.Fatal("a healthy beat must not end the session")
+	if ended := a.portForwardHeartbeat(row)(context.Background()); ended != "" {
+		t.Fatalf("a healthy beat ended the session as %q", ended)
 	}
 	call := db.only(t, "HeartbeatPortForwardSession")
 	if len(call.args) != 2 || call.args[1] != int64(7) {

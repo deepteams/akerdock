@@ -107,8 +107,10 @@ func (o *HTTPOrigin) Run(ctx context.Context, opts Options) EndReason {
 			if err := o.control.Send(ctx, HTTPControlFrame{Type: "ping"}); err != nil {
 				return EndDisconnect
 			}
-			if opts.OnHeartbeat != nil && !opts.OnHeartbeat(ctx) {
-				return EndDisconnect
+			// Same rule as the WebSocket rung's: the durable session ended
+			// elsewhere, and the beat brings back the word it ended with.
+			if ended := sessionBeat(ctx, opts); ended != "" {
+				return ended
 			}
 		}
 	}

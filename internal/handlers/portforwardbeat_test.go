@@ -109,19 +109,22 @@ func pfbeatInspect(t *testing.T, a *API, body string, failure *agentwire.Error) 
 	})
 }
 
-// pfbeatRun beats once and reports the reason the session was cut with, if any.
-// The cut travels the registry channel a revocation uses, so what is asserted
-// here is exactly what the bridge would return and the CLI would print.
-func pfbeatRun(t *testing.T, a *API, row store.PortForwardSession) (bool, tunnel.EndReason) {
+// pfbeatRun beats once and reports both of the beat's outputs: the reason it
+// ENDED the session with, empty while the session lives, and the reason it CUT
+// the session with through the registry a revocation uses. They are different
+// channels on purpose — a target that vanished is cut, so the reason travels the
+// same path an operator's close does, while a row finalized on another replica
+// is already over and the beat carries its word straight back to the bridge.
+func pfbeatRun(t *testing.T, a *API, row store.PortForwardSession) (ended, cut tunnel.EndReason) {
 	t.Helper()
 	cancel := a.Tunnels.register(row.ID)
 	defer a.Tunnels.unregister(row.ID, cancel)
-	alive := a.portForwardHeartbeat(row)(context.Background())
+	ended = a.portForwardHeartbeat(row)(context.Background())
 	select {
 	case reason := <-cancel:
-		return alive, reason
+		return ended, reason
 	default:
-		return alive, ""
+		return ended, ""
 	}
 }
 
@@ -165,9 +168,9 @@ func TestPfbeatHeartbeatRecordsActivityForItsTarget(t *testing.T) {
 			if tc.arrange != nil {
 				tc.arrange(db)
 			}
-			alive, reason := pfbeatRun(t, a, tc.row)
-			if !alive || reason != "" {
-				t.Fatalf("beat ended the session (alive=%v reason=%q) — nothing here is a reason to", alive, reason)
+			ended, reason := pfbeatRun(t, a, tc.row)
+			if ended != "" || reason != "" {
+				t.Fatalf("beat ended the session (ended=%q cut=%q) — nothing here is a reason to", ended, reason)
 			}
 			if got := db.ran("RecordPreviewActivity"); got != tc.preview {
 				t.Errorf("preview activity recorded = %v, want %v", got, tc.preview)
@@ -265,29 +268,149 @@ func TestPfbeatHeartbeatSurvivesADatabaseFailure(t *testing.T) {
 	t.Run("liveness update fails", func(t *testing.T) {
 		a, db := pfbeatAPI(t)
 		db.rule(netcovRule{match: "-- name: HeartbeatPortForwardSession ", err: errors.New("connection reset")})
-		alive, reason := pfbeatRun(t, a, pfbeatPreviewSession())
-		if !alive || reason != "" {
-			t.Fatalf("alive=%v reason=%q — a transient database error killed the session", alive, reason)
+		ended, reason := pfbeatRun(t, a, pfbeatPreviewSession())
+		if ended != "" || reason != "" {
+			t.Fatalf("ended=%q cut=%q — a transient database error killed the session", ended, reason)
 		}
 	})
 	t.Run("activity write fails", func(t *testing.T) {
 		a, db := pfbeatAPI(t)
 		db.rule(netcovRule{match: "-- name: RecordPreviewActivity ", err: errors.New("connection reset")})
-		alive, reason := pfbeatRun(t, a, pfbeatPreviewSession())
-		if !alive || reason != "" {
-			t.Fatalf("alive=%v reason=%q — a lost activity beat is imprecision, not a close", alive, reason)
+		ended, reason := pfbeatRun(t, a, pfbeatPreviewSession())
+		if ended != "" || reason != "" {
+			t.Fatalf("ended=%q cut=%q — a lost activity beat is imprecision, not a close", ended, reason)
 		}
 	})
 	// Zero rows updated is the one durable answer that DOES end the socket:
 	// another replica or the scheduler has finalized the row, and the session
-	// must not outlive its own authorization.
+	// must not outlive its own authorization. It must also end it with the word
+	// that row carries — see TestPfbeatFinalizedElsewhereReportsThePersistedReason.
 	t.Run("row already finalized", func(t *testing.T) {
 		a, db := pfbeatAPI(t)
 		db.rule(netcovRule{match: "-- name: HeartbeatPortForwardSession ", tag: "UPDATE 0"})
-		if alive, _ := pfbeatRun(t, a, pfbeatSession()); alive {
-			t.Fatal("a session finalized in the database must not keep its socket")
+		db.rule(netcovRule{
+			match: "-- name: GetPortForwardSessionEndReason ",
+			typed: []any{ptr(store.TerminalEndReasonGrantExpired)},
+		})
+		if ended, _ := pfbeatRun(t, a, pfbeatSession()); ended != endReasonGrantExpired {
+			t.Fatalf("ended = %q, want %q — a finalized session keeps neither its socket nor its silence",
+				ended, endReasonGrantExpired)
 		}
 	})
+}
+
+// The cross-replica repair, at the beat's own level: the replica that decides a
+// session is over writes the reason and never touches the socket, so the replica
+// that HOLDS the socket only ever sees its liveness update match nothing. Before
+// this, every one of these arrived at the developer as `disconnect` — a network
+// glitch, for a grant that expired or a container somebody stopped.
+//
+// The fallback arms are the deliberate half: a row that says nothing and a row
+// that cannot be read both keep today's `disconnect`, because that is the honest
+// word when the control plane does not know.
+func TestPfbeatFinalizedElsewhereReportsThePersistedReason(t *testing.T) {
+	cases := map[string]struct {
+		arrange func(db *pfbeatDB)
+		want    tunnel.EndReason
+	}{
+		"target stopped under the tunnel": {
+			arrange: func(db *pfbeatDB) {
+				db.rule(netcovRule{
+					match: "-- name: GetPortForwardSessionEndReason ",
+					typed: []any{ptr(store.TerminalEndReasonTargetStopped)},
+				})
+			},
+			want: endReasonTargetStopped,
+		},
+		"grant ran out (ADR-045 §5)": {
+			arrange: func(db *pfbeatDB) {
+				db.rule(netcovRule{
+					match: "-- name: GetPortForwardSessionEndReason ",
+					typed: []any{ptr(store.TerminalEndReasonGrantExpired)},
+				})
+			},
+			want: endReasonGrantExpired,
+		},
+		"wake never came up (ADR-067)": {
+			arrange: func(db *pfbeatDB) {
+				db.rule(netcovRule{
+					match: "-- name: GetPortForwardSessionEndReason ",
+					typed: []any{ptr(store.TerminalEndReasonWakeFailed)},
+				})
+			},
+			want: endReasonWakeFailed,
+		},
+		"grant revoked": {
+			arrange: func(db *pfbeatDB) {
+				db.rule(netcovRule{
+					match: "-- name: GetPortForwardSessionEndReason ",
+					typed: []any{ptr(store.TerminalEndReasonRevoked)},
+				})
+			},
+			want: tunnel.EndReason(store.TerminalEndReasonRevoked),
+		},
+		// The row is still open: this attach lost a re-claim (ADR-065 §5) rather
+		// than the session ending, so there is no persisted word to report.
+		"row still open — superseded attach": {
+			arrange: func(db *pfbeatDB) {
+				db.rule(netcovRule{
+					match: "-- name: GetPortForwardSessionEndReason ",
+					typed: []any{(*store.TerminalEndReason)(nil)},
+				})
+			},
+			want: tunnel.EndDisconnect,
+		},
+		"row purged before it could be read": {
+			arrange: func(db *pfbeatDB) {
+				db.rule(netcovRule{match: "-- name: GetPortForwardSessionEndReason ", noRows: true})
+			},
+			want: tunnel.EndDisconnect,
+		},
+		"database unreachable": {
+			arrange: func(db *pfbeatDB) {
+				db.rule(netcovRule{
+					match: "-- name: GetPortForwardSessionEndReason ",
+					err:   errors.New("connection reset"),
+				})
+			},
+			want: tunnel.EndDisconnect,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			a, db := pfbeatAPI(t)
+			db.rule(netcovRule{match: "-- name: HeartbeatPortForwardSession ", tag: "UPDATE 0"})
+			tc.arrange(db)
+			ended, cut := pfbeatRun(t, a, pfbeatSession())
+			if ended != tc.want {
+				t.Fatalf("ended = %q, want %q", ended, tc.want)
+			}
+			if cut != "" {
+				t.Fatalf("cut = %q — a session already over is not cut again", cut)
+			}
+			// A row that is gone is not probed: the target's state cannot change
+			// what already happened, and the beat leaves rather than spending its
+			// budget on the agent channel.
+			if db.ran("GetResourceByID") {
+				t.Error("a finalized session resolved its target anyway")
+			}
+		})
+	}
+}
+
+// The cost bound the design turns on: the extra read is paid ONLY by the beat
+// that discovers the row is gone. A healthy 20-second beat must stay one
+// statement against its own table, or the repair becomes a per-session query
+// storm on the largest deployments.
+func TestPfbeatHealthyBeatNeverReadsTheEndReason(t *testing.T) {
+	a, db := pfbeatAPI(t)
+	pfbeatInspect(t, a, `{"State":{"Running":true}}`, nil)
+	if ended, cut := pfbeatRun(t, a, pfbeatSession()); ended != "" || cut != "" {
+		t.Fatalf("ended=%q cut=%q — a healthy tunnel was ended", ended, cut)
+	}
+	if db.ran("GetPortForwardSessionEndReason") {
+		t.Fatal("the common path read the end reason: the beat must stay one statement while the row lives")
+	}
 }
 
 // The hang this exists to fix: when the target container is gone, the forwarded
@@ -297,15 +420,15 @@ func TestPfbeatHeartbeatEndsTheSessionWhenTheTargetIsGone(t *testing.T) {
 	t.Run("container removed", func(t *testing.T) {
 		a, _ := pfbeatAPI(t)
 		pfbeatInspect(t, a, "", &agentwire.Error{Code: agentwire.CodeNotFound, Message: "no such container"})
-		alive, reason := pfbeatRun(t, a, pfbeatSession())
+		ended, reason := pfbeatRun(t, a, pfbeatSession())
 		if reason != endReasonTargetStopped {
-			t.Fatalf("reason = %q, want target_stopped — the value the CLI turns into an error", reason)
+			t.Fatalf("cut = %q, want target_stopped — the value the CLI turns into an error", reason)
 		}
-		// The beat itself stays truthful: the session ends through the cut,
-		// which carries the reason, not through a bare false that would report
-		// `disconnect` and read as a network glitch.
-		if !alive {
-			t.Error("the reason must reach the bridge through the cut, not a bare stop")
+		// The beat itself stays silent: the session ends through the cut, which
+		// carries the reason, not through the beat's own return — that one is
+		// reserved for a row somebody ELSE finalized.
+		if ended != "" {
+			t.Errorf("ended = %q — the reason must reach the bridge through the cut", ended)
 		}
 	})
 	t.Run("container stopped but still present", func(t *testing.T) {
@@ -373,9 +496,9 @@ func TestPfbeatHeartbeatKeepsTheSessionWhenTheAgentIsMerelyUnavailable(t *testin
 			if strings.Contains(name, "preview") {
 				row = pfbeatPreviewSession()
 			}
-			alive, reason := pfbeatRun(t, a, row)
-			if !alive || reason != "" {
-				t.Fatalf("alive=%v reason=%q — an unreadable target is not an absent one", alive, reason)
+			ended, reason := pfbeatRun(t, a, row)
+			if ended != "" || reason != "" {
+				t.Fatalf("ended=%q cut=%q — an unreadable target is not an absent one", ended, reason)
 			}
 		})
 	}
@@ -392,9 +515,9 @@ func TestPfbeatHeartbeatNeverProbesAnExternalEndpoint(t *testing.T) {
 	row.ExternalEndpointID = &endpoint
 	row.ResourceID = nil
 
-	alive, reason := pfbeatRun(t, a, row)
-	if !alive || reason != "" {
-		t.Fatalf("alive=%v reason=%q — an endpoint session has no container to lose", alive, reason)
+	ended, reason := pfbeatRun(t, a, row)
+	if ended != "" || reason != "" {
+		t.Fatalf("ended=%q cut=%q — an endpoint session has no container to lose", ended, reason)
 	}
 	if db.ran("GetResourceByID") {
 		t.Error("an endpoint session must not resolve a resource: it has none")
@@ -409,8 +532,8 @@ func TestPfbeatHeartbeatIsBoundedAndOutlivesItsCaller(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	start := time.Now()
-	if !a.portForwardHeartbeat(pfbeatSession())(ctx) {
-		t.Fatal("a cancelled caller context must not close the session")
+	if ended := a.portForwardHeartbeat(pfbeatSession())(ctx); ended != "" {
+		t.Fatalf("a cancelled caller context closed the session as %q", ended)
 	}
 	if elapsed := time.Since(start); elapsed > 2*portForwardBeatBudget {
 		t.Fatalf("beat took %s, longer than its own budget", elapsed)

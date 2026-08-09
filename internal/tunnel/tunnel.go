@@ -70,11 +70,22 @@ type Options struct {
 	// once for every OpenStream attempt, including immediate admission and
 	// queue refusal, so callers can distinguish throughput from hidden waits.
 	OnStreamWait func(time.Duration, error)
-	// OnHeartbeat persists liveness after a successful WebSocket ping. It is
-	// best-effort on storage errors (the caller returns true), but returning
-	// false means the durable session has already been closed and cuts the
-	// socket too.
-	OnHeartbeat func(context.Context) bool
+	// OnHeartbeat persists liveness after a successful ping — on every rung of
+	// the ladder, since ADR-064 put them all on these bounds. The EMPTY reason
+	// means "still attached", and it is also the answer to a storage error: the
+	// socket is the source of truth while this process lives, so the caller logs
+	// the failure and keeps the session. Any other value means the durable
+	// session has already been closed, and cuts the socket with that word.
+	//
+	// It answers a REASON rather than a bool for the reason terminal's twin
+	// states at length: the beat is where a close decided on ANOTHER replica
+	// arrives — a revocation, the sweep, a grant that ran out, a target that
+	// stopped (ADR-067 §2) — and the word it ended with is on the row the beat
+	// just failed to update. The bridge cannot read that row; the caller just
+	// did. A bool would force the bridge to invent a word, and the only one
+	// available is `disconnect`, which tells a developer whose container vanished
+	// that their own network dropped.
+	OnHeartbeat func(context.Context) EndReason
 	// Cancel ends the session from outside, with the reason to report — a
 	// revoked grant, an operator closing the tunnel from the dashboard. A nil
 	// channel simply never fires, which is why the zero value is inert.
@@ -107,6 +118,20 @@ const (
 	// happens to land on silently becomes its concurrency ceiling (ADR-064 §5).
 	DefaultMaxStreams = 32
 )
+
+// sessionBeat runs the liveness hook and answers the reason the session is
+// over, or the empty reason while it is still attached. All four session loops
+// of this package go through it — Bridge, Origin.Run, HTTPOrigin.Run and
+// HTTPSession.Run — because a beat that meant something different depending on
+// which rung a session landed on is precisely the drift ADR-064 §2 forbids, and
+// the loops are far enough apart that they would drift by being edited three
+// times out of four.
+func sessionBeat(ctx context.Context, opts Options) EndReason {
+	if opts.OnHeartbeat == nil {
+		return ""
+	}
+	return opts.OnHeartbeat(ctx)
+}
 
 type ctrl struct {
 	T    string `json:"t"`
@@ -185,8 +210,11 @@ func Bridge(ctx context.Context, conn Conn, dial Dialer, opts Options) EndReason
 			if err := conn.Ping(ctx); err != nil {
 				return EndDisconnect
 			}
-			if opts.OnHeartbeat != nil && !opts.OnHeartbeat(ctx) {
-				return EndDisconnect
+			// The row was finalized elsewhere and the beat has read the word it
+			// ended with off it: report that, rather than the `disconnect` this
+			// arm used to substitute for every cross-replica close.
+			if ended := sessionBeat(ctx, opts); ended != "" {
+				return ended
 			}
 		}
 	}
