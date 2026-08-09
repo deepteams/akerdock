@@ -399,8 +399,22 @@ func TestIngressWebSocketV2AttachesFourAuthenticatedLanes(t *testing.T) {
 			_ = conn.CloseNow()
 		}
 	}()
-	if got := lanes.LaneCount(); got != 4 {
-		t.Fatalf("attached lanes = %d, want 4", got)
+	// Wait for the count rather than reading it once. websocket.Dial returns
+	// when the CLIENT has the handshake response; the lane is registered by the
+	// server's handler afterwards, on its own goroutine. Asserting immediately
+	// races that registration and fails as "attached lanes = 3, want 4" on a
+	// loaded machine — which is exactly how it failed in CI while passing
+	// everywhere else. The primary's publication a few lines up is already
+	// awaited this way, for the same reason.
+	var attached int
+	for deadline = time.Now().Add(time.Second); time.Now().Before(deadline); {
+		if attached = lanes.LaneCount(); attached == 4 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if attached != 4 {
+		t.Fatalf("attached lanes = %d, want 4", attached)
 	}
 
 	// Let every server-side graceful close complete instead of waiting on a

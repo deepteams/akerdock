@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Pre-commit guard for the two artefacts CI regenerates and compares byte for
+# byte: the embedded dashboard (internal/web/dist) and the generated code
+# (internal/api, internal/store, web/src/api/schema.ts).
+#
+# Both fail the same way and for the same reason: they are BUILT from sources
+# that live elsewhere in the tree, so a commit that changes the source and not
+# the artefact is internally inconsistent — and nothing local says so. CI says
+# so, twenty minutes later, on a branch you have already moved on from.
+#
+# It CHECKS; it does not regenerate into your commit. Regenerating and staging
+# would be the obvious design and it is a trap: the build reads the WORKING
+# TREE, while the commit carries the INDEX. Stage half of a change — `git add
+# -p`, or one file while its neighbours are still dirty — and the artefact
+# would be built from sources this commit does not contain, then added to it.
+# That is worse than the staleness it fixes: silently wrong rather than
+# visibly behind, and CI still fails, now for a reason nobody can read.
+#
+# Cost: nothing at all on a commit that touches neither source set. Around 12 s
+# on one that touches web/, a couple of seconds on one that touches the spec,
+# the queries or the migrations.
+#
+# Install: git config core.hooksPath .githooks
+# Bypass:  git commit --no-verify   (or AKERDOCK_SKIP_PRECOMMIT=1)
+
+set -uo pipefail
+
+if [ "${AKERDOCK_SKIP_PRECOMMIT:-0}" = "1" ]; then
+	exit 0
+fi
+
+repo_root=$(git rev-parse --show-toplevel) || exit 1
+cd "$repo_root" || exit 1
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+# matches reports whether any staged path matches the extended regex.
+matches() { printf '%s\n' "$staged" | grep -Eq "$1"; }
+
+# unstaged_in reports whether the working tree differs from the index under the
+# given paths. When it does, the check below cannot speak: the build would read
+# content this commit does not carry, so a verdict either way would be a guess.
+unstaged_in() { ! git diff --quiet -- "$@"; }
+
+# dirty_after reports whether the build produced something the commit does not
+# carry. The comparison is working tree against INDEX, never against HEAD: the
+# artefact is expected to differ from HEAD — that is the whole point of the
+# commit — and what must not differ is the freshly built bundle from the one
+# being committed. Untracked files count, because a fresh Angular build renames
+# its content-hashed chunks: the new bundle arrives untracked while the old one
+# shows up as deletions.
+dirty_after() {
+	if ! git diff --quiet -- "$@"; then
+		return 0
+	fi
+	[ -n "$(git ls-files --others --exclude-standard -- "$@")" ]
+}
+
+fail() {
+	echo
+	echo "pre-commit: $1"
+	echo
+	echo "  $2"
+	echo
+	echo "Then stage the result and commit again. To skip this check:"
+	echo "  git commit --no-verify"
+	exit 1
+}
+
+# The embedded dashboard. The binary serves internal/web/dist, never web/src,
+# so a UI change that stops at the sources ships nothing (.gitignore documents
+# that contract, and CI enforces it with `make web && git diff --exit-code`).
+if matches '^web/' && ! matches '^web/dist/'; then
+	if unstaged_in web ':(exclude)web/dist'; then
+		fail "web sources are only partly staged, so the embedded dashboard cannot be verified." \
+			"git add -A web   # or commit the web change on its own"
+	fi
+	echo "pre-commit: rebuilding the embedded dashboard (web sources staged)…"
+	if ! make web >/dev/null 2>&1; then
+		fail "\`make web\` failed — the embedded dashboard cannot be rebuilt." "make web"
+	fi
+	if dirty_after internal/web/dist; then
+		fail "internal/web/dist is stale: the staged web sources produce a different bundle." \
+			"git add -A internal/web/dist"
+	fi
+fi
+
+# Generated code. ADR-025: handlers, the store and the TypeScript client are
+# generated from the spec, the queries and the migrations — never written by
+# hand and documented afterwards.
+if matches '^(docs/specs/|db/queries/|db/migrations/)'; then
+	if unstaged_in docs/specs db/queries db/migrations; then
+		fail "the spec, queries or migrations are only partly staged, so generated code cannot be verified." \
+			"git add -A docs/specs db/queries db/migrations"
+	fi
+	echo "pre-commit: regenerating code (spec, queries or migrations staged)…"
+	if ! make generate >/dev/null 2>&1; then
+		fail "\`make generate\` failed — generated code cannot be refreshed." "make generate"
+	fi
+	if dirty_after internal/api internal/store web/src/api; then
+		fail "generated code is stale: the staged spec, queries or migrations produce different output." \
+			"git add -A internal/api internal/store web/src/api"
+	fi
+fi
+
+exit 0

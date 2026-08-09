@@ -43,6 +43,26 @@ it, never written by hand and then documented afterwards.
 4. Commit the spec, the generated code, and the handlers together. CI fails if
    generated code is out of date (`make generate && git diff --exit-code`).
 
+### The pre-commit hook
+
+Two artefacts are built from sources that live elsewhere in the tree and are
+compared byte for byte in CI: the generated code above, and the embedded
+dashboard (`internal/web/dist`, which the binary serves — never `web/src`). A
+commit that changes one without the other is internally inconsistent, and
+nothing local says so; CI says so twenty minutes later.
+
+```sh
+git config core.hooksPath .githooks
+```
+
+The hook **checks**, it does not regenerate into your commit: the build reads
+the working tree while the commit carries the index, so regenerating and
+staging would let a partly staged change ship an artefact built from sources
+that commit does not contain. It costs nothing on a commit that touches
+neither source set, around 12 s on one that touches `web/`, and a couple of
+seconds on one that touches the spec, the queries or the migrations. Bypass
+with `git commit --no-verify` or `AKERDOCK_SKIP_PRECOMMIT=1`.
+
 ## Database (ADR-002, ADR-025)
 
 - PostgreSQL is the only external dependency: application state **and** the
