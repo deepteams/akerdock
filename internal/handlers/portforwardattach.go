@@ -15,6 +15,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -23,9 +24,15 @@ import (
 	"time"
 
 	"github.com/deepteams/akerdock/internal/httpapi"
+	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 	"github.com/deepteams/akerdock/internal/tunnel"
 )
+
+// egressDialTimeout bounds the SSH channel open plus the TCP connect to the
+// target. It stays under the CLI's data-stream open budget so a target that
+// never answers produces an answer, not a stall.
+const egressDialTimeout = 5 * time.Second
 
 // egressAttach is one live HTTP-attached port-forward. It lives in this
 // process only, like the WebSocket bridge it replaces: the durable row records
@@ -152,7 +159,7 @@ func (a *API) tunnelAttachSession(w http.ResponseWriter, r *http.Request) {
 	session := tunnel.NewHTTPSession(control, bounds)
 	attach := &egressAttach{
 		key:     key,
-		dial:    func(context.Context) (net.Conn, error) { return client.DialTCP(addr) },
+		dial:    func(ctx context.Context) (net.Conn, error) { return dialTCPContext(ctx, client, addr) },
 		session: session,
 	}
 	a.egressRegister(sessionUUID, attach)
@@ -186,10 +193,17 @@ func (a *API) tunnelAttachStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target, err := attach.dial(r.Context())
+	// Bounded, and bounded SHORTER than the CLI's own open budget: this dial
+	// happens BEFORE the response head, so an unbounded one — ssh.Client.Dial
+	// takes no context — spends the client's patience and surfaces there as a
+	// transport timeout, blaming the tunnel for a target that never answered.
+	// A 502 carrying the dial's own words is what makes it diagnosable.
+	dialCtx, cancelDial := context.WithTimeout(r.Context(), egressDialTimeout)
+	target, err := attach.dial(dialCtx)
+	cancelDial()
 	if err != nil {
 		httpapi.WriteError(w, r, http.StatusBadGateway, "target_unreachable",
-			"the target refused the connection")
+			"the target did not accept the connection: "+strings.SplitN(err.Error(), "\n", 2)[0])
 		return
 	}
 	// Admitted before the response head is written, so a refusal is an answer
@@ -304,3 +318,30 @@ func enableFullDuplex(w http.ResponseWriter, r *http.Request) error {
 type responseWriter struct{ io.Writer }
 
 func (responseWriter) Close() error { return nil }
+
+// dialTCPContext gives ssh.Client.Dial the context it does not take. A hung
+// dial is abandoned by the caller, and the goroutine closes whatever arrives
+// late so a slow target cannot leak one channel per attempt.
+func dialTCPContext(ctx context.Context, client *sshexec.Client, addr string) (net.Conn, error) {
+	type result struct {
+		conn net.Conn
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		conn, err := client.DialTCP(addr)
+		select {
+		case done <- result{conn: conn, err: err}:
+		default:
+			if conn != nil {
+				_ = conn.Close()
+			}
+		}
+	}()
+	select {
+	case got := <-done:
+		return got.conn, got.err
+	case <-ctx.Done():
+		return nil, fmt.Errorf("dial %s: %w", addr, ctx.Err())
+	}
+}

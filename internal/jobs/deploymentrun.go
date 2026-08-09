@@ -1466,9 +1466,27 @@ func (r *deploymentRun) previewFetchRef() string {
 	}
 }
 
+// deployEnvVars is the ONE place that decides which variable set a deployment
+// sees. Both renderers go through it, and that is the point: the preview
+// boundary of INV-010 was enforced in the runtime renderer alone, so the build
+// renderer handed the production set to fork-authored Dockerfiles — an `ARG` or
+// a `RUN --mount=type=secret` reads whatever the build was given. The guard was
+// never wrong, it was only in one of the two places that needed it. A single
+// selector cannot be forgotten by a third caller.
+func (r *deploymentRun) deployEnvVars(ctx context.Context) ([]store.EnvironmentVariable, error) {
+	if r.preview != nil {
+		// The DEDICATED preview set: production secrets are never copied
+		// implicitly into a PR instance, at build time as at runtime.
+		return r.h.Store.ListPreviewEnvVars(ctx, store.ListPreviewEnvVarsParams{
+			ResourceID: r.app.Resource.ID, PreviewID: &r.preview.ID,
+		})
+	}
+	return r.h.Store.ListEnvVarsForDeploy(ctx, r.app.Resource.ID)
+}
+
 // renderBuildEnv renders build.env with the build-time variables (§5.2).
 func (r *deploymentRun) renderBuildEnv(ctx context.Context) (string, buildInputs, error) {
-	vars, err := r.h.Store.ListEnvVarsForDeploy(ctx, r.app.Resource.ID)
+	vars, err := r.deployEnvVars(ctx)
 	if err != nil {
 		return "", buildInputs{}, err
 	}
@@ -1808,15 +1826,7 @@ func (r *deploymentRun) mergeDeploymentRefs(shared *sharedEnv, dep map[string]st
 // entries of the typed create body (§5.2, ADR-051): no shell, no quoting —
 // multiline secrets survive verbatim.
 func (r *deploymentRun) renderRuntimeEnv(ctx context.Context) ([]string, error) {
-	var vars []store.EnvironmentVariable
-	var err error
-	if r.preview != nil {
-		// The DEDICATED preview set (INV-010): production secrets are never
-		// copied implicitly into a PR instance.
-		vars, err = r.h.Store.ListPreviewEnvVars(ctx, store.ListPreviewEnvVarsParams{ResourceID: r.app.Resource.ID, PreviewID: &r.preview.ID})
-	} else {
-		vars, err = r.h.Store.ListEnvVarsForDeploy(ctx, r.app.Resource.ID)
-	}
+	vars, err := r.deployEnvVars(ctx)
 	if err != nil {
 		return nil, err
 	}
