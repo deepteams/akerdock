@@ -64,6 +64,11 @@ type API struct {
 	// revoked grant or a closed session cuts the socket instead of merely
 	// recording that it should be gone. Zero value ready.
 	Tunnels TunnelPresence
+	// egressLive tracks the HTTP-attached port-forward sessions this process
+	// serves (ADR-064), the way the WebSocket bridge is tracked by its own
+	// goroutine: the durable row records the session, this records the socket.
+	egressMu   sync.Mutex
+	egressLive map[string]*egressAttach
 	// MCP is the built-in Model Context Protocol server (ADR-043). Nil
 	// disables the surface entirely, whatever the instance setting.
 	MCP *mcp.Server
@@ -338,9 +343,16 @@ func NewRouter(a *API, mw *auth.Middleware) http.Handler {
 		r.Patch("/scim/v2/Groups/{id}", a.ScimPatchGroup)
 
 		r.Get("/terminal/ws", a.TerminalWebSocket)
-		// The CLI TCP tunnel WebSocket (ADR-032), same contract as the
-		// terminal: single-use attach token minted by POST .../port-forwards.
-		r.Get("/tunnel/ws", a.TunnelWebSocket)
+		// The CLI TCP tunnel (ADR-032), same contract as the terminal:
+		// single-use attach token minted by POST .../port-forwards. One path,
+		// three protocols since ADR-064 — OPTIONS probes what this server can
+		// carry, POST attaches over HTTP/2 or HTTP/3, GET keeps the WebSocket
+		// that remains the ladder's bottom rung.
+		for _, path := range []string{tunnelAttachPath, tunnelLegacyWebsocketPath} {
+			r.Options(path, a.TunnelAttachOptions)
+			r.Post(path, a.TunnelAttach)
+			r.Get(path, a.TunnelWebSocket)
+		}
 	})
 
 	return api.HandlerWithOptions(a, api.ChiServerOptions{

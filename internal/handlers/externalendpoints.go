@@ -831,7 +831,7 @@ func (a *API) CreateExternalEndpointPortForward(w http.ResponseWriter, r *http.R
 	out := api.PortForwardSession{
 		Uuid:           uuidString(row.Uuid),
 		Port:           int(endpoint.Port),
-		WebsocketPath:  tunnelWebsocketPath,
+		WebsocketPath:  tunnelAttachPath,
 		Token:          token,
 		TokenExpiresAt: row.TokenExpiresAt.Time,
 	}

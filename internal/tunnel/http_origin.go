@@ -41,7 +41,7 @@ type HTTPOrigin struct {
 // NewHTTPOrigin configures admission before the first HTTP data stream opens.
 func NewHTTPOrigin(control *LineControl, opts Options) *HTTPOrigin {
 	if opts.MaxStreams <= 0 {
-		opts.MaxStreams = defaultMaxStreams
+		opts.MaxStreams = DefaultMaxStreams
 	}
 	if opts.StreamQueueTimeout <= 0 {
 		opts.StreamQueueTimeout = defaultStreamQueueTimeout

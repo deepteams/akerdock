@@ -98,10 +98,14 @@ const (
 	DefaultMaxDuration = 4 * time.Hour
 	// IngressMaxStreams is shared by the ingress origin and WebSocket bridge so
 	// one side cannot silently become the lower concurrency ceiling. Generic
-	// port-forward tunnels keep the smaller defaultMaxStreams bound.
+	// port-forward tunnels keep the smaller DefaultMaxStreams bound.
 	IngressMaxStreams = 128
 	defaultHeartbeat  = 20 * time.Second
-	defaultMaxStreams = 32
+	// DefaultMaxStreams is the egress family's admission bound. Exported for
+	// the same reason IngressMaxStreams is: the WebSocket bridge and the HTTP
+	// session must admit exactly the same number, or the transport a session
+	// happens to land on silently becomes its concurrency ceiling (ADR-064 §5).
+	DefaultMaxStreams = 32
 )
 
 type ctrl struct {
@@ -125,7 +129,7 @@ func Bridge(ctx context.Context, conn Conn, dial Dialer, opts Options) EndReason
 		opts.Heartbeat = defaultHeartbeat
 	}
 	if opts.MaxStreams <= 0 {
-		opts.MaxStreams = defaultMaxStreams
+		opts.MaxStreams = DefaultMaxStreams
 	}
 
 	// Keep the WebSocket reader on the caller's context. Cancelling the work

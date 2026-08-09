@@ -62,6 +62,67 @@ var IngressHTTP = HTTPAttachProtocol{
 	StreamContentType:  IngressStreamContentType,
 }
 
+// Egress access path (port-forward and bastion — ADR-032/045 are the same
+// machinery) on the ADR-064 ladder. Not one identifier is shared with the
+// ingress path: a token minted for a laptop's public URL must not open a TCP
+// tunnel into a production database, and the endpoints tell the two apart on
+// the content type alone.
+const (
+	EgressHTTPProtocol       = "akerdock-egress-http-v1"
+	EgressCapabilitiesHeader = "Akerdock-Egress-Transports"
+	EgressProtocolHeader     = "Akerdock-Egress-Protocol"
+	EgressAttachKeyHeader    = "Akerdock-Egress-Key"
+	EgressSessionHeader      = "Akerdock-Egress-Session"
+	EgressStreamHeader       = "Akerdock-Egress-Stream"
+	EgressTransportHeader    = "Akerdock-Egress-Transport"
+
+	EgressControlContentType = "application/vnd.akerdock.egress-control.v1+json"
+	EgressStreamContentType  = "application/vnd.akerdock.egress-stream.v1"
+)
+
+// EgressHTTP is the egress access path's wire: a CLI attaching to the control
+// plane, which brokers the SSH channel to the target.
+var EgressHTTP = HTTPAttachProtocol{
+	Name:               EgressHTTPProtocol,
+	CapabilitiesHeader: EgressCapabilitiesHeader,
+	ProtocolHeader:     EgressProtocolHeader,
+	AttachKeyHeader:    EgressAttachKeyHeader,
+	SessionHeader:      EgressSessionHeader,
+	StreamHeader:       EgressStreamHeader,
+	TransportHeader:    EgressTransportHeader,
+	ControlContentType: EgressControlContentType,
+	StreamContentType:  EgressStreamContentType,
+}
+
+// Terminal access path (ADR-024, put on the ladder by ADR-064). The session is
+// exactly one stream — the PTY's — so the control content type names that one
+// request and there is no separate control wire.
+const (
+	TerminalHTTPProtocol       = "akerdock-terminal-http-v1"
+	TerminalCapabilitiesHeader = "Akerdock-Terminal-Transports"
+	TerminalProtocolHeader     = "Akerdock-Terminal-Protocol"
+	TerminalAttachKeyHeader    = "Akerdock-Terminal-Key"
+	TerminalSessionHeader      = "Akerdock-Terminal-Session"
+	TerminalStreamHeader       = "Akerdock-Terminal-Stream"
+	TerminalTransportHeader    = "Akerdock-Terminal-Transport"
+
+	TerminalControlContentType = "application/vnd.akerdock.terminal-control.v1+json"
+	TerminalStreamContentType  = "application/vnd.akerdock.terminal-stream.v1"
+)
+
+// TerminalHTTP is the terminal access path's wire.
+var TerminalHTTP = HTTPAttachProtocol{
+	Name:               TerminalHTTPProtocol,
+	CapabilitiesHeader: TerminalCapabilitiesHeader,
+	ProtocolHeader:     TerminalProtocolHeader,
+	AttachKeyHeader:    TerminalAttachKeyHeader,
+	SessionHeader:      TerminalSessionHeader,
+	StreamHeader:       TerminalStreamHeader,
+	TransportHeader:    TerminalTransportHeader,
+	ControlContentType: TerminalControlContentType,
+	StreamContentType:  TerminalStreamContentType,
+}
+
 // HTTPControlFrame is one newline-delimited control message on an HTTP v2
 // ingress session. Data never uses this framing; every data flow has its own
 // HTTP stream.

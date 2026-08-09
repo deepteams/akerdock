@@ -65,7 +65,7 @@ func NewOrigin(conn Conn) *Origin {
 // MaxPendingStreams bounds callers waiting for one of those slots.
 func NewOriginWithOptions(conn Conn, opts Options) *Origin {
 	if opts.MaxStreams <= 0 {
-		opts.MaxStreams = defaultMaxStreams
+		opts.MaxStreams = DefaultMaxStreams
 	}
 	if opts.StreamQueueTimeout <= 0 {
 		opts.StreamQueueTimeout = defaultStreamQueueTimeout

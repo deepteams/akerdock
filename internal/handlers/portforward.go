@@ -1,6 +1,6 @@
 // CLI TCP port-forward (ADR-032): a two-step mint/redeem like the terminal.
 // POST .../port-forwards mints a single-use attach token bound to a fixed
-// container:port; GET /tunnel/ws redeems it and multiplexes TCP streams to
+// container:port; the attach path redeems it and multiplexes TCP streams to
 // that target over one WebSocket, dialed server-side over SSH.
 package handlers
 
@@ -36,7 +36,16 @@ const portForwardTeamCap = 10
 // portForwardTokenTTL is how long an attach token stays redeemable.
 const portForwardTokenTTL = 60 * time.Second
 
-const tunnelWebsocketPath = "/tunnel/ws"
+// tunnelAttachPath is where an attach token is redeemed. It stopped naming a
+// protocol when ADR-064 put three of them on it: OPTIONS probes, POST attaches
+// over HTTP/2 or HTTP/3, GET upgrades to the WebSocket that remains the
+// ladder's bottom rung. The mint response hands this value to the CLI, so the
+// rename needs no flag day — and tunnelLegacyWebsocketPath keeps answering for
+// tokens minted by an older release and clients that pinned the old spelling.
+const (
+	tunnelAttachPath          = "/tunnel/attach"
+	tunnelLegacyWebsocketPath = "/tunnel/ws"
+)
 
 func newPortForwardToken() (string, error) {
 	raw := make([]byte, 32)
@@ -219,13 +228,13 @@ func (a *API) createPortForward(w http.ResponseWriter, r *http.Request, id *auth
 	httpapi.WriteJSON(w, http.StatusCreated, api.PortForwardSession{
 		Uuid:           uuidString(row.Uuid),
 		Port:           spec.port,
-		WebsocketPath:  tunnelWebsocketPath,
+		WebsocketPath:  tunnelAttachPath,
 		Token:          token,
 		TokenExpiresAt: row.TokenExpiresAt.Time,
 	})
 }
 
-// TunnelWebSocket implements GET /tunnel/ws?token=… — outside the contract
+// TunnelWebSocket implements GET on the attach path (?token=…) — outside the contract
 // (ADR-032, like /terminal/ws), mounted next to /auth. The one-time token is
 // the sole credential; the SQL claim consumes it atomically.
 func (a *API) TunnelWebSocket(w http.ResponseWriter, r *http.Request) {
