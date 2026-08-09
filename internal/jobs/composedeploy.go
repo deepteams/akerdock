@@ -514,7 +514,7 @@ func (r *deploymentRun) plainEnvVars(ctx context.Context) (map[string]string, er
 		// variables like production; fork previews never do, approval
 		// included, and only their own identity ({{deployment.*}}) resolves
 		// (ADR-057, INV-010).
-		rows, err := r.h.Store.ListPreviewEnvVars(ctx, store.ListPreviewEnvVarsParams{ResourceID: r.app.Resource.ID, PreviewID: &r.preview.ID})
+		rows, err := r.deployEnvVars(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -547,7 +547,7 @@ func (r *deploymentRun) plainEnvVars(ctx context.Context) (map[string]string, er
 		}
 		return vars, nil
 	}
-	rows, err := r.h.Store.ListEnvVarsForDeploy(ctx, r.app.Resource.ID)
+	rows, err := r.deployEnvVars(ctx)
 	if err != nil {
 		return nil, err
 	}

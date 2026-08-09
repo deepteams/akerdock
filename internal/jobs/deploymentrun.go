@@ -1421,7 +1421,18 @@ func (r *deploymentRun) buildFromGit(ctx context.Context, appUUID, appDir, label
 		if r.d.ForceRebuild {
 			noCache = " --no-cache"
 		}
-		if res, err := r.bc().RunInput(ctx, fmt.Sprintf("umask 077 && cat > %s/env/build.env", appDir), buildEnv); err != nil || res.ExitCode != 0 {
+		buildEnvPath := fmt.Sprintf("%s/env/build.env", appDir)
+		// The file holds the build-time variables in PLAINTEXT, secrets
+		// included. umask 077 keeps it from other users of the machine, but it
+		// has no reason to outlive the build that sources it — and every
+		// deployment overwrote it and left it there. Deferred BEFORE the write,
+		// so a write that fails halfway leaves no partial file either, and with
+		// a context of its own: a cancelled deployment is exactly the case
+		// where the secrets must not stay behind (as for the deploy key above).
+		defer func() {
+			_, _ = r.bc().Run(context.WithoutCancel(ctx), "rm -f "+buildEnvPath)
+		}()
+		if res, err := r.bc().RunInput(ctx, fmt.Sprintf("umask 077 && cat > %s", buildEnvPath), buildEnv); err != nil || res.ExitCode != 0 {
 			return "", fmt.Errorf("uploading build.env failed")
 		}
 		if err := r.buildWithNixpacks(ctx, srcDir, baseDir, appDir, imageRef, labels, sha, noCache); err != nil {
