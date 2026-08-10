@@ -25,16 +25,17 @@ func (q *Queries) CountRunningTaskExecutions(ctx context.Context, scheduledTaskI
 
 const createScheduledTask = `-- name: CreateScheduledTask :one
 
-INSERT INTO scheduled_tasks (team_id, resource_id, name, command, container, cron_expression, timezone, enabled, overlap_policy, missed_run_policy, timeout_seconds, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-RETURNING id, uuid, team_id, resource_id, container, name, command, cron_expression, timezone, enabled, overlap_policy, missed_run_policy, timeout_seconds, next_run_at, last_run_at, created_by, updated_by, created_at, updated_at, deleted_at, version
+INSERT INTO scheduled_tasks (team_id, resource_id, kind, name, command, container, cron_expression, timezone, enabled, overlap_policy, missed_run_policy, timeout_seconds, workflow_file, workflow_ref, workflow_inputs, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+RETURNING id, uuid, team_id, resource_id, container, name, command, cron_expression, timezone, enabled, overlap_policy, missed_run_policy, timeout_seconds, next_run_at, last_run_at, created_by, updated_by, created_at, updated_at, deleted_at, version, kind, workflow_file, workflow_ref, workflow_inputs
 `
 
 type CreateScheduledTaskParams struct {
 	TeamID          int64
 	ResourceID      int64
+	Kind            TaskKind
 	Name            string
-	Command         string
+	Command         *string
 	Container       *string
 	CronExpression  string
 	Timezone        string
@@ -42,6 +43,9 @@ type CreateScheduledTaskParams struct {
 	OverlapPolicy   TaskOverlapPolicy
 	MissedRunPolicy TaskMissedRunPolicy
 	TimeoutSeconds  int32
+	WorkflowFile    *string
+	WorkflowRef     *string
+	WorkflowInputs  []byte
 	CreatedBy       *int64
 }
 
@@ -52,6 +56,7 @@ func (q *Queries) CreateScheduledTask(ctx context.Context, arg CreateScheduledTa
 	row := q.db.QueryRow(ctx, createScheduledTask,
 		arg.TeamID,
 		arg.ResourceID,
+		arg.Kind,
 		arg.Name,
 		arg.Command,
 		arg.Container,
@@ -61,6 +66,9 @@ func (q *Queries) CreateScheduledTask(ctx context.Context, arg CreateScheduledTa
 		arg.OverlapPolicy,
 		arg.MissedRunPolicy,
 		arg.TimeoutSeconds,
+		arg.WorkflowFile,
+		arg.WorkflowRef,
+		arg.WorkflowInputs,
 		arg.CreatedBy,
 	)
 	var i ScheduledTask
@@ -86,6 +94,10 @@ func (q *Queries) CreateScheduledTask(ctx context.Context, arg CreateScheduledTa
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.Version,
+		&i.Kind,
+		&i.WorkflowFile,
+		&i.WorkflowRef,
+		&i.WorkflowInputs,
 	)
 	return i, err
 }
@@ -149,7 +161,7 @@ func (q *Queries) FinishTaskExecution(ctx context.Context, arg FinishTaskExecuti
 }
 
 const getScheduledTaskByID = `-- name: GetScheduledTaskByID :one
-SELECT t.id, t.uuid, t.team_id, t.resource_id, t.container, t.name, t.command, t.cron_expression, t.timezone, t.enabled, t.overlap_policy, t.missed_run_policy, t.timeout_seconds, t.next_run_at, t.last_run_at, t.created_by, t.updated_by, t.created_at, t.updated_at, t.deleted_at, t.version, r.uuid AS application_uuid
+SELECT t.id, t.uuid, t.team_id, t.resource_id, t.container, t.name, t.command, t.cron_expression, t.timezone, t.enabled, t.overlap_policy, t.missed_run_policy, t.timeout_seconds, t.next_run_at, t.last_run_at, t.created_by, t.updated_by, t.created_at, t.updated_at, t.deleted_at, t.version, t.kind, t.workflow_file, t.workflow_ref, t.workflow_inputs, r.uuid AS application_uuid
 FROM scheduled_tasks t
 JOIN resources r ON r.id = t.resource_id
 WHERE t.id = $1 AND t.deleted_at IS NULL
@@ -185,13 +197,17 @@ func (q *Queries) GetScheduledTaskByID(ctx context.Context, id int64) (GetSchedu
 		&i.ScheduledTask.UpdatedAt,
 		&i.ScheduledTask.DeletedAt,
 		&i.ScheduledTask.Version,
+		&i.ScheduledTask.Kind,
+		&i.ScheduledTask.WorkflowFile,
+		&i.ScheduledTask.WorkflowRef,
+		&i.ScheduledTask.WorkflowInputs,
 		&i.ApplicationUuid,
 	)
 	return i, err
 }
 
 const getScheduledTaskByUUID = `-- name: GetScheduledTaskByUUID :one
-SELECT t.id, t.uuid, t.team_id, t.resource_id, t.container, t.name, t.command, t.cron_expression, t.timezone, t.enabled, t.overlap_policy, t.missed_run_policy, t.timeout_seconds, t.next_run_at, t.last_run_at, t.created_by, t.updated_by, t.created_at, t.updated_at, t.deleted_at, t.version, r.uuid AS application_uuid
+SELECT t.id, t.uuid, t.team_id, t.resource_id, t.container, t.name, t.command, t.cron_expression, t.timezone, t.enabled, t.overlap_policy, t.missed_run_policy, t.timeout_seconds, t.next_run_at, t.last_run_at, t.created_by, t.updated_by, t.created_at, t.updated_at, t.deleted_at, t.version, t.kind, t.workflow_file, t.workflow_ref, t.workflow_inputs, r.uuid AS application_uuid
 FROM scheduled_tasks t
 JOIN resources r ON r.id = t.resource_id
 WHERE t.uuid = $1 AND t.team_id = $2 AND t.deleted_at IS NULL
@@ -232,13 +248,17 @@ func (q *Queries) GetScheduledTaskByUUID(ctx context.Context, arg GetScheduledTa
 		&i.ScheduledTask.UpdatedAt,
 		&i.ScheduledTask.DeletedAt,
 		&i.ScheduledTask.Version,
+		&i.ScheduledTask.Kind,
+		&i.ScheduledTask.WorkflowFile,
+		&i.ScheduledTask.WorkflowRef,
+		&i.ScheduledTask.WorkflowInputs,
 		&i.ApplicationUuid,
 	)
 	return i, err
 }
 
 const listSchedulableTasks = `-- name: ListSchedulableTasks :many
-SELECT t.id, t.uuid, t.team_id, t.resource_id, t.container, t.name, t.command, t.cron_expression, t.timezone, t.enabled, t.overlap_policy, t.missed_run_policy, t.timeout_seconds, t.next_run_at, t.last_run_at, t.created_by, t.updated_by, t.created_at, t.updated_at, t.deleted_at, t.version, r.uuid AS application_uuid
+SELECT t.id, t.uuid, t.team_id, t.resource_id, t.container, t.name, t.command, t.cron_expression, t.timezone, t.enabled, t.overlap_policy, t.missed_run_policy, t.timeout_seconds, t.next_run_at, t.last_run_at, t.created_by, t.updated_by, t.created_at, t.updated_at, t.deleted_at, t.version, t.kind, t.workflow_file, t.workflow_ref, t.workflow_inputs, r.uuid AS application_uuid
 FROM scheduled_tasks t
 JOIN resources r ON r.id = t.resource_id
 WHERE t.enabled AND t.deleted_at IS NULL AND r.deleted_at IS NULL
@@ -283,6 +303,10 @@ func (q *Queries) ListSchedulableTasks(ctx context.Context) ([]ListSchedulableTa
 			&i.ScheduledTask.UpdatedAt,
 			&i.ScheduledTask.DeletedAt,
 			&i.ScheduledTask.Version,
+			&i.ScheduledTask.Kind,
+			&i.ScheduledTask.WorkflowFile,
+			&i.ScheduledTask.WorkflowRef,
+			&i.ScheduledTask.WorkflowInputs,
 			&i.ApplicationUuid,
 		); err != nil {
 			return nil, err
@@ -296,7 +320,7 @@ func (q *Queries) ListSchedulableTasks(ctx context.Context) ([]ListSchedulableTa
 }
 
 const listScheduledTasksPage = `-- name: ListScheduledTasksPage :many
-SELECT t.id, t.uuid, t.team_id, t.resource_id, t.container, t.name, t.command, t.cron_expression, t.timezone, t.enabled, t.overlap_policy, t.missed_run_policy, t.timeout_seconds, t.next_run_at, t.last_run_at, t.created_by, t.updated_by, t.created_at, t.updated_at, t.deleted_at, t.version, r.uuid AS application_uuid
+SELECT t.id, t.uuid, t.team_id, t.resource_id, t.container, t.name, t.command, t.cron_expression, t.timezone, t.enabled, t.overlap_policy, t.missed_run_policy, t.timeout_seconds, t.next_run_at, t.last_run_at, t.created_by, t.updated_by, t.created_at, t.updated_at, t.deleted_at, t.version, t.kind, t.workflow_file, t.workflow_ref, t.workflow_inputs, r.uuid AS application_uuid
 FROM scheduled_tasks t
 JOIN resources r ON r.id = t.resource_id
 WHERE t.resource_id = $1 AND t.deleted_at IS NULL
@@ -347,6 +371,10 @@ func (q *Queries) ListScheduledTasksPage(ctx context.Context, arg ListScheduledT
 			&i.ScheduledTask.UpdatedAt,
 			&i.ScheduledTask.DeletedAt,
 			&i.ScheduledTask.Version,
+			&i.ScheduledTask.Kind,
+			&i.ScheduledTask.WorkflowFile,
+			&i.ScheduledTask.WorkflowRef,
+			&i.ScheduledTask.WorkflowInputs,
 			&i.ApplicationUuid,
 		); err != nil {
 			return nil, err
@@ -447,29 +475,39 @@ SET name = COALESCE($1, name),
     overlap_policy = COALESCE($8, overlap_policy),
     missed_run_policy = COALESCE($9, missed_run_policy),
     timeout_seconds = COALESCE($10, timeout_seconds),
+    workflow_file = COALESCE($11, workflow_file),
+    -- Like ` + "`" + `container` + "`" + `, an explicit ` + "`" + `workflow_ref: null` + "`" + ` means "fall back to
+    -- the branch chain" and must be distinguishable from absence.
+    workflow_ref = CASE WHEN $12::boolean THEN $13 ELSE workflow_ref END,
+    workflow_inputs = CASE WHEN $14::boolean THEN $15 ELSE workflow_inputs END,
     -- A changed cron means the old window is meaningless: dropping next_run_at
     -- forces the scheduler to recompute it from the new expression.
     next_run_at = CASE WHEN $5 IS NOT NULL OR $6 IS NOT NULL THEN NULL ELSE next_run_at END,
     updated_at = now(),
-    updated_by = $11,
+    updated_by = $16,
     version = version + 1
-WHERE id = $12 AND version = $13 AND deleted_at IS NULL
+WHERE id = $17 AND version = $18 AND deleted_at IS NULL
 `
 
 type UpdateScheduledTaskParams struct {
-	Name            *string
-	Command         *string
-	SetContainer    bool
-	Container       *string
-	CronExpression  *string
-	Timezone        *string
-	Enabled         *bool
-	OverlapPolicy   *TaskOverlapPolicy
-	MissedRunPolicy *TaskMissedRunPolicy
-	TimeoutSeconds  *int32
-	UpdatedBy       *int64
-	ID              int64
-	Version         int32
+	Name              *string
+	Command           *string
+	SetContainer      bool
+	Container         *string
+	CronExpression    *string
+	Timezone          *string
+	Enabled           *bool
+	OverlapPolicy     *TaskOverlapPolicy
+	MissedRunPolicy   *TaskMissedRunPolicy
+	TimeoutSeconds    *int32
+	WorkflowFile      *string
+	SetWorkflowRef    bool
+	WorkflowRef       *string
+	SetWorkflowInputs bool
+	WorkflowInputs    []byte
+	UpdatedBy         *int64
+	ID                int64
+	Version           int32
 }
 
 func (q *Queries) UpdateScheduledTask(ctx context.Context, arg UpdateScheduledTaskParams) (int64, error) {
@@ -484,6 +522,11 @@ func (q *Queries) UpdateScheduledTask(ctx context.Context, arg UpdateScheduledTa
 		arg.OverlapPolicy,
 		arg.MissedRunPolicy,
 		arg.TimeoutSeconds,
+		arg.WorkflowFile,
+		arg.SetWorkflowRef,
+		arg.WorkflowRef,
+		arg.SetWorkflowInputs,
+		arg.WorkflowInputs,
 		arg.UpdatedBy,
 		arg.ID,
 		arg.Version,

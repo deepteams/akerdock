@@ -11,6 +11,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
+	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/store"
@@ -32,12 +33,17 @@ type ScheduledTaskPayload struct {
 	ExecutionID int64 `json:"execution_id"`
 }
 
-// ScheduledTaskRun executes a task's command inside the resource's container.
+// ScheduledTaskRun executes one occurrence of a scheduled task: the command
+// inside the resource's container (`container_command`), or a GitHub Actions
+// workflow dispatch on its repository (`github_workflow`, ADR-071).
 type ScheduledTaskRun struct {
 	Store  *store.Queries
 	Docker dockerruntime.Source
-	Audit  *audit.Recorder
-	Logger *slog.Logger
+	// Keyring decrypts the GitHub App's private key for the workflow kind; the
+	// container kind never touches it.
+	Keyring *envelope.Keyring
+	Audit   *audit.Recorder
+	Logger  *slog.Logger
 }
 
 // Execute runs one occurrence. A command that FAILS is a result, not a job to
@@ -59,6 +65,11 @@ func (h *ScheduledTaskRun) Execute(ctx context.Context, job store.Job, rec *queu
 	if err != nil {
 		return nil, fmt.Errorf("resource vanished: %w", err)
 	}
+
+	if task.Kind == store.TaskKindGithubWorkflow {
+		return h.dispatchWorkflow(ctx, payload, task, app, rec)
+	}
+
 	// A task targets a container by the resource's UUID (INV-011). A compose
 	// stack (P2) will name a service in `container` instead.
 	container := pguuid.String(app.Resource.Uuid)
@@ -78,7 +89,7 @@ func (h *ScheduledTaskRun) Execute(ctx context.Context, job store.Job, rec *queu
 	rec.Start(ctx, "exec")
 	rt, err := h.Docker.Runtime(ctx, server.ID)
 	if err != nil {
-		h.fail(ctx, payload.ExecutionID, nil, "the server's agent is not connected")
+		h.fail(ctx, payload.ExecutionID, "the server's agent is not connected")
 		rec.Fail(ctx, "the server's agent is not connected")
 		return nil, err
 	}
@@ -86,10 +97,15 @@ func (h *ScheduledTaskRun) Execute(ctx context.Context, job store.Job, rec *queu
 	// The command is the operator's shell, deliberately: it is handed whole to
 	// the container's shell, never inspected or sanitised (INV-012 is about
 	// the boundary, not about second-guessing the command) — and as exec argv,
-	// it no longer transits any host shell at all.
+	// it no longer transits any host shell at all. Nil is unrepresentable for
+	// this kind (CHECK constraint); the empty fallback guards a hand-edited row.
+	command := ""
+	if task.Command != nil {
+		command = *task.Command
+	}
 	runCtx, cancel := context.WithTimeout(ctx, time.Duration(task.TimeoutSeconds)*time.Second)
 	defer cancel()
-	rawOutput, exitCode, err := execCapture(runCtx, rt, container, []string{"sh", "-c", task.Command})
+	rawOutput, exitCode, err := execCapture(runCtx, rt, container, []string{"sh", "-c", command})
 	if err != nil {
 		// A timeout is a failure of the TASK, not of the job: retrying a command
 		// that hangs would just hang again, and the history must say what
@@ -98,7 +114,7 @@ func (h *ScheduledTaskRun) Execute(ctx context.Context, job store.Job, rec *queu
 		if runCtx.Err() != nil {
 			reason = fmt.Sprintf("the command exceeded its timeout of %ds", task.TimeoutSeconds)
 		}
-		h.fail(ctx, payload.ExecutionID, nil, reason)
+		h.fail(ctx, payload.ExecutionID, reason)
 		rec.Fail(ctx, reason)
 		return map[string]any{"status": "failed", "reason": reason}, nil
 	}
@@ -130,14 +146,15 @@ func (h *ScheduledTaskRun) Execute(ctx context.Context, job store.Job, rec *queu
 	return map[string]any{"status": "succeeded", "exit_code": 0}, nil
 }
 
-// fail closes the execution row. It never returns an error to the queue for a
-// task-level failure: the command failing is a RESULT, not a job that must be
-// retried — retrying it would run the command again, which is exactly what a
-// cron must not do behind the operator's back.
-func (h *ScheduledTaskRun) fail(ctx context.Context, executionID int64, exit *int32, reason string) {
+// fail closes the execution row, with no exit code — the failures that land
+// here never got one (transport, timeout, refused dispatch). It never returns
+// an error to the queue for a task-level failure: the command failing is a
+// RESULT, not a job that must be retried — retrying it would run the command
+// again, which is exactly what a cron must not do behind the operator's back.
+func (h *ScheduledTaskRun) fail(ctx context.Context, executionID int64, reason string) {
 	output, truncated := clampOutput(reason)
 	if err := h.Store.FinishTaskExecution(ctx, store.FinishTaskExecutionParams{
-		ID: executionID, Status: store.TaskExecutionStatusFailed, ExitCode: exit,
+		ID: executionID, Status: store.TaskExecutionStatusFailed,
 		Output: &output, OutputTruncated: truncated,
 	}); err != nil {
 		h.Logger.Warn("cannot close the task execution", "execution_id", executionID, "error", err)

@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -103,6 +104,10 @@ func Manifest(instanceURL, appUUID, name string) map[string]any {
 			"checks":        "write",
 			"deployments":   "write",
 			"issues":        "read",
+			// workflow_dispatch (ADR-071) needs actions:write. An App created
+			// before this line gained it must have the added permission
+			// approved by its installer on GitHub.
+			"actions": "write",
 		},
 	}
 }
@@ -342,6 +347,18 @@ func (c *Client) CreateCheckRun(ctx context.Context, token, fullName string, in 
 // UpdateCheckRun patches an existing check run (its status, conclusion or output).
 func (c *Client) UpdateCheckRun(ctx context.Context, token, fullName string, id int64, in CheckRunInput) error {
 	return c.do(ctx, http.MethodPatch, fmt.Sprintf("/repos/%s/check-runs/%d", fullName, id), token, in, nil)
+}
+
+// DispatchWorkflow fires a workflow_dispatch event (ADR-071). `workflow` is
+// the file name under .github/workflows/ or a numeric workflow id — GitHub's
+// endpoint accepts both spellings. GitHub answers 204 and reveals no run id:
+// success means "dispatch accepted", nothing more.
+func (c *Client) DispatchWorkflow(ctx context.Context, token, fullName, workflow, ref string, inputs map[string]string) error {
+	body := map[string]any{"ref": ref}
+	if len(inputs) > 0 {
+		body["inputs"] = inputs
+	}
+	return c.do(ctx, http.MethodPost, "/repos/"+fullName+"/actions/workflows/"+url.PathEscape(workflow)+"/dispatches", token, body, nil)
 }
 
 // CreateDeployment materializes "View deployment" on the PR (§2.7b).

@@ -150,7 +150,8 @@ The manifest flow avoids any manual entry (app ID, private key, secret): the ins
     "pull_requests": "write",
     "checks": "write",
     "deployments": "write",
-    "issues": "read"
+    "issues": "read",
+    "actions": "write"
   }
 }
 ```
@@ -184,8 +185,9 @@ Two levels, conforming to the GitHub Apps model:
 | `checks` | write | Checks API (`POST/PATCH /repos/{o}/{r}/check-runs`) — reserved for Apps; preview status usable as a merge condition (§20.4.6). |
 | `deployments` | write | Deployments API (`POST /repos/{o}/{r}/deployments` + statuses) — "View deployment" button on the PR. |
 | `issues` | read | Only to receive the `issue_comment` event (`/deploy`, `/destroy` commands); subscribing to this event requires the Issues or Pull requests permission **(to be verified — if Pull requests suffices, remove `issues` from the manifest)**. |
+| `actions` | write | `workflow_dispatch` for scheduled tasks of the `github_workflow` kind (ADR-071): `POST /repos/{o}/{r}/actions/workflows/{file}/dispatches`. Added after the initial manifest — installations created before it must approve the elevation (see below); until then the dispatch answers `403` and the task's execution history says so. |
 
-No organization permission, no `secrets`, `actions`, `administration` access. Any later elevation goes through `new_permissions_accepted` (`installation` event) and an explicit action by the GitHub user.
+No organization permission, no `secrets`, `administration` access. Any later elevation goes through `new_permissions_accepted` (`installation` event) and an explicit action by the GitHub user.
 
 ### 2.4 Consumed webhook events
 

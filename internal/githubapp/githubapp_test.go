@@ -139,6 +139,11 @@ func TestManifest(t *testing.T) {
 	if perms["contents"] != "read" || perms["checks"] != "write" {
 		t.Fatalf("permissions drifted from §2.3: %v", perms)
 	}
+	// workflow_dispatch (ADR-071) is signed by the App: without actions:write
+	// every dispatch answers 403.
+	if perms["actions"] != "write" {
+		t.Fatalf("the manifest must ask for actions:write: %v", perms)
+	}
 	if m["public"] != false {
 		t.Fatalf("the app must be private")
 	}
@@ -599,5 +604,65 @@ func TestBuildDefaultHTTP(t *testing.T) {
 	t.Setenv("AKERDOCK_GITHUB_CA_FILE", valid)
 	if got := buildDefaultHTTP(); got == http.DefaultClient || got.Transport == nil {
 		t.Fatal("valid private CA was not installed")
+	}
+}
+
+// DispatchWorkflow hits the documented endpoint with {ref, inputs} and treats
+// GitHub's 204 as success (ADR-071). The workflow segment is path-escaped: a
+// file name is user input, not URL syntax.
+func TestDispatchWorkflow(t *testing.T) {
+	var path string
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.EscapedPath()
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	client := &Client{APIURL: srv.URL}
+
+	if err := client.DispatchWorkflow(context.Background(), "tok", "acme/site", "build.yml", "main",
+		map[string]string{"reason": "nightly"}); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/repos/acme/site/actions/workflows/build.yml/dispatches" {
+		t.Fatalf("path = %q", path)
+	}
+	if body["ref"] != "main" || body["inputs"].(map[string]any)["reason"] != "nightly" {
+		t.Fatalf("body = %v", body)
+	}
+
+	// No inputs means no inputs key at all — GitHub rejects inputs on a
+	// workflow that declares none.
+	body = nil
+	if err := client.DispatchWorkflow(context.Background(), "tok", "acme/site", "deploy yml", "main", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := body["inputs"]; present {
+		t.Fatalf("empty inputs must be omitted: %v", body)
+	}
+	if path != "/repos/acme/site/actions/workflows/deploy%20yml/dispatches" {
+		t.Fatalf("escaped path = %q", path)
+	}
+}
+
+// A refusal surfaces as an APIError whose body GitHub wrote — it lands
+// verbatim in the task's execution history.
+func TestDispatchWorkflowRefused(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
+	}))
+	defer srv.Close()
+	client := &Client{APIURL: srv.URL}
+
+	err := client.DispatchWorkflow(context.Background(), "tok", "acme/site", "build.yml", "main", nil)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusForbidden ||
+		!strings.Contains(apiErr.Body, "not accessible") {
+		t.Fatalf("err = %v", err)
 	}
 }

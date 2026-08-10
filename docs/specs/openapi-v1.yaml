@@ -6085,11 +6085,14 @@ paths:
       operationId: createScheduledTask
       summary: Create a scheduled task
       description: >-
-        The command is executed inside the resource's container
-        (`docker exec`). The cron expression accepts the same aliases as the
-        backup plans (`@daily`, `@hourly`, …) and is validated here: an
-        invalid expression is refused with `422`, never accepted then
-        silently never triggered.
+        Two kinds (ADR-071): `container_command` executes the command inside
+        the resource's container (`docker exec`); `github_workflow` dispatches
+        a GitHub Actions workflow on the application's repository, signed by
+        its GitHub App — the latter requires the application's git source to
+        be a GitHub App, and the App to hold the `actions: write` permission.
+        The cron expression accepts the same aliases as the backup plans
+        (`@daily`, `@hourly`, …) and is validated here: an invalid expression
+        is refused with `422`, never accepted then silently never triggered.
       x-required-permission: applications:exec
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -13416,7 +13419,17 @@ components:
         message:
           type: string
 
-    # --- Scheduled tasks (amendment #15) -------------------------------------
+    # --- Scheduled tasks (amendment #15; kinds per ADR-071) ------------------
+    TaskKind:
+      type: string
+      enum: [container_command, github_workflow]
+      default: container_command
+      description: >-
+        What firing an occurrence does. `container_command` (default) execs
+        `command` inside the resource's container; `github_workflow` asks
+        GitHub to dispatch `workflow_file` on the application's repository,
+        signed by its GitHub App — no container needs to exist, and no
+        credential enters the runtime. Immutable after creation.
     TaskOverlapPolicy:
       type: string
       enum: [skip, queue]
@@ -13442,8 +13455,10 @@ components:
       enum: [running, succeeded, failed, skipped]
     ScheduledTask:
       type: object
-      description: Cron running a command inside a resource's container (§192).
-      required: [uuid, name, command, cron_expression]
+      description: >-
+        Cron firing on a resource (§192): a command in its container, or a
+        GitHub Actions workflow dispatch on its repository (ADR-071).
+      required: [uuid, kind, name, cron_expression]
       properties:
         uuid:
           type: string
@@ -13451,15 +13466,39 @@ components:
         application_uuid:
           type: string
           readOnly: true
+        kind:
+          $ref: "#/components/schemas/TaskKind"
         name:
           type: string
         command:
           type: string
-          description: Command passed to the container's shell — never sanitized (it is intended shell), always quoted (INV-012).
+          nullable: true
+          description: >-
+            Command passed to the container's shell — never sanitized (it is
+            intended shell), always quoted (INV-012). Required for
+            `container_command`, absent for `github_workflow`.
         container:
           type: string
           nullable: true
-          description: Target container within a stack; `null` = the resource's container.
+          description: Target container within a stack; `null` = the resource's container. `container_command` only.
+        workflow_file:
+          type: string
+          nullable: true
+          description: >-
+            Workflow file name under `.github/workflows/` (e.g. `build.yml`) or
+            its numeric id. Required for `github_workflow`, absent otherwise.
+        workflow_ref:
+          type: string
+          nullable: true
+          description: >-
+            Git ref to dispatch on. `null` falls back at fire time to the
+            application's branch, then the repository's default branch.
+        workflow_inputs:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: string
+          description: Inputs handed to `workflow_dispatch` (GitHub caps them at 10, string values).
         cron_expression:
           type: string
         timezone:
@@ -13495,17 +13534,35 @@ components:
           readOnly: true
     ScheduledTaskCreate:
       type: object
-      required: [name, command, cron_expression]
+      required: [name, cron_expression]
       properties:
+        kind:
+          $ref: "#/components/schemas/TaskKind"
         name:
           type: string
           minLength: 1
         command:
           type: string
           minLength: 1
+          description: Required when `kind` is `container_command`; refused otherwise.
         container:
           type: string
           nullable: true
+          description: "`container_command` only."
+        workflow_file:
+          type: string
+          minLength: 1
+          description: Required when `kind` is `github_workflow`; refused otherwise.
+        workflow_ref:
+          type: string
+          nullable: true
+          description: "`github_workflow` only; `null` = the application's branch, then the repository's default branch."
+        workflow_inputs:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: string
+          description: "`github_workflow` only."
         cron_expression:
           type: string
           minLength: 1
@@ -13525,6 +13582,9 @@ components:
           default: 300
     ScheduledTaskUpdate:
       type: object
+      description: >-
+        Fields of the other kind are refused with `422`; `kind` itself is
+        immutable (ADR-071).
       properties:
         name:
           type: string
@@ -13533,6 +13593,16 @@ components:
         container:
           type: string
           nullable: true
+        workflow_file:
+          type: string
+        workflow_ref:
+          type: string
+          nullable: true
+        workflow_inputs:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: string
         cron_expression:
           type: string
         timezone:

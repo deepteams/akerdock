@@ -311,6 +311,7 @@ var jobEnumValues = map[string]string{
 	"SharedVariableScope":        "team",
 	"StorageKind":                "volume",
 	"TaskExecutionStatus":        "succeeded",
+	"TaskKind":                   "container_command",
 	"TaskMissedRunPolicy":        "skip",
 	"TaskOverlapPolicy":          "forbid",
 	"TeamRole":                   "owner",

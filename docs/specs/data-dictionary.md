@@ -1197,15 +1197,19 @@ Artifact produced by a deployment: local image or pushed to a registry, rollback
 
 ### 10.4 `scheduled_tasks`
 
-Cron per application/service (§5.7): command executed via `docker exec` in the target container. Deletion: **CASCADE** with the resource (history purged per retention).
+Cron per application/service (§5.7), one of two kinds (ADR-071): `container_command` executes the command via `docker exec` in the target container; `github_workflow` dispatches a GitHub Actions workflow on the application's repository, signed by its GitHub App. Deletion: **CASCADE** with the resource (history purged per retention).
 
 | Column | PostgreSQL type | Null | Default | Constraints | Sensitive | Description |
 |---|---|---|---|---|---|---|
 | `id` | `bigint` | no | identity | PK | no | — |
 | `uuid` | `uuid` | no | `gen_random_uuid()` | UNIQUE | no | — |
 | `resource_id` | `bigint` | no | — | FK `resources(id)` ON DELETE CASCADE ; UNIQUE `(resource_id, name)` | no | — |
+| `kind` | `task_kind` | no | `'container_command'` | CHECKs tie each field family to its kind (ADR-071) | no | `container_command` / `github_workflow`; immutable in the API. |
 | `name` | `text` | no | — | (see above) | no | — |
-| `command` | `text` | no | — | — | no | Command passed as typed/escaped arguments (INV-012). |
+| `command` | `text` | yes | — | CHECK: non-NULL iff `kind = 'container_command'` | no | Command passed as typed/escaped arguments (INV-012). |
+| `workflow_file` | `text` | yes | — | CHECK: non-NULL iff `kind = 'github_workflow'` | no | Workflow file under `.github/workflows/`, or its numeric id. |
+| `workflow_ref` | `text` | yes | — | CHECK: `github_workflow` only | no | Pinned ref; NULL = app branch, then repo default branch, resolved at fire time. |
+| `workflow_inputs` | `jsonb` | yes | — | CHECK: `github_workflow` only | no | String map handed to `workflow_dispatch` (GitHub caps at 10). |
 | `cron_expression` | `text` | no | — | CHECK cron validation | no | Expression or alias `daily`/`hourly`/… (§5.7). |
 | `timezone` | `text` | no | `'UTC'` | — | no | Explicit timezone, next run previewed (§24.3). |
 | `container_name` | `text` | yes | — | — | no | Target container within a stack (§5.7). |

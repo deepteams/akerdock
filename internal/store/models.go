@@ -1705,6 +1705,48 @@ func (ns NullTaskExecutionStatus) Value() (driver.Value, error) {
 	return string(ns.TaskExecutionStatus), nil
 }
 
+type TaskKind string
+
+const (
+	TaskKindContainerCommand TaskKind = "container_command"
+	TaskKindGithubWorkflow   TaskKind = "github_workflow"
+)
+
+func (e *TaskKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TaskKind(s)
+	case string:
+		*e = TaskKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TaskKind: %T", src)
+	}
+	return nil
+}
+
+type NullTaskKind struct {
+	TaskKind TaskKind
+	Valid    bool // Valid is true if TaskKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTaskKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.TaskKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TaskKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTaskKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TaskKind), nil
+}
+
 type TaskMissedRunPolicy string
 
 const (
@@ -3153,7 +3195,7 @@ type ScheduledTask struct {
 	ResourceID      int64
 	Container       *string
 	Name            string
-	Command         string
+	Command         *string
 	CronExpression  string
 	Timezone        string
 	Enabled         bool
@@ -3168,6 +3210,10 @@ type ScheduledTask struct {
 	UpdatedAt       pgtype.Timestamptz
 	DeletedAt       pgtype.Timestamptz
 	Version         int32
+	Kind            TaskKind
+	WorkflowFile    *string
+	WorkflowRef     *string
+	WorkflowInputs  []byte
 }
 
 type ScimToken struct {

@@ -3,8 +3,8 @@
 -- has already fired.
 
 -- name: CreateScheduledTask :one
-INSERT INTO scheduled_tasks (team_id, resource_id, name, command, container, cron_expression, timezone, enabled, overlap_policy, missed_run_policy, timeout_seconds, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+INSERT INTO scheduled_tasks (team_id, resource_id, kind, name, command, container, cron_expression, timezone, enabled, overlap_policy, missed_run_policy, timeout_seconds, workflow_file, workflow_ref, workflow_inputs, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING *;
 
 -- name: GetScheduledTaskByUUID :one
@@ -54,6 +54,11 @@ SET name = COALESCE(sqlc.narg(name), name),
     overlap_policy = COALESCE(sqlc.narg(overlap_policy), overlap_policy),
     missed_run_policy = COALESCE(sqlc.narg(missed_run_policy), missed_run_policy),
     timeout_seconds = COALESCE(sqlc.narg(timeout_seconds), timeout_seconds),
+    workflow_file = COALESCE(sqlc.narg(workflow_file), workflow_file),
+    -- Like `container`, an explicit `workflow_ref: null` means "fall back to
+    -- the branch chain" and must be distinguishable from absence.
+    workflow_ref = CASE WHEN sqlc.arg(set_workflow_ref)::boolean THEN sqlc.narg(workflow_ref) ELSE workflow_ref END,
+    workflow_inputs = CASE WHEN sqlc.arg(set_workflow_inputs)::boolean THEN sqlc.narg(workflow_inputs) ELSE workflow_inputs END,
     -- A changed cron means the old window is meaningless: dropping next_run_at
     -- forces the scheduler to recompute it from the new expression.
     next_run_at = CASE WHEN sqlc.narg(cron_expression) IS NOT NULL OR sqlc.narg(timezone) IS NOT NULL THEN NULL ELSE next_run_at END,

@@ -2672,7 +2672,7 @@ export interface paths {
         put?: never;
         /**
          * Create a scheduled task
-         * @description The command is executed inside the resource's container (`docker exec`). The cron expression accepts the same aliases as the backup plans (`@daily`, `@hourly`, …) and is validated here: an invalid expression is refused with `422`, never accepted then silently never triggered.
+         * @description Two kinds (ADR-071): `container_command` executes the command inside the resource's container (`docker exec`); `github_workflow` dispatches a GitHub Actions workflow on the application's repository, signed by its GitHub App — the latter requires the application's git source to be a GitHub App, and the App to hold the `actions: write` permission. The cron expression accepts the same aliases as the backup plans (`@daily`, `@hourly`, …) and is validated here: an invalid expression is refused with `422`, never accepted then silently never triggered.
          */
         post: operations["createScheduledTask"];
         delete?: never;
@@ -5927,6 +5927,12 @@ export interface components {
             message: string;
         };
         /**
+         * @description What firing an occurrence does. `container_command` (default) execs `command` inside the resource's container; `github_workflow` asks GitHub to dispatch `workflow_file` on the application's repository, signed by its GitHub App — no container needs to exist, and no credential enters the runtime. Immutable after creation.
+         * @default container_command
+         * @enum {string}
+         */
+        TaskKind: "container_command" | "github_workflow";
+        /**
          * @description What to do when an occurrence fires while the previous execution is still running. `skip` (default) drops the occurrence — a cron that fires faster than it finishes must not pile up executions on the server; `queue` queues it behind the previous one.
          * @default skip
          * @enum {string}
@@ -5940,15 +5946,24 @@ export interface components {
         TaskMissedRunPolicy: "run" | "skip";
         /** @enum {string} */
         TaskExecutionStatus: "running" | "succeeded" | "failed" | "skipped";
-        /** @description Cron running a command inside a resource's container (§192). */
+        /** @description Cron firing on a resource (§192): a command in its container, or a GitHub Actions workflow dispatch on its repository (ADR-071). */
         ScheduledTask: {
             readonly uuid: string;
             readonly application_uuid?: string;
+            kind: components["schemas"]["TaskKind"];
             name: string;
-            /** @description Command passed to the container's shell — never sanitized (it is intended shell), always quoted (INV-012). */
-            command: string;
-            /** @description Target container within a stack; `null` = the resource's container. */
+            /** @description Command passed to the container's shell — never sanitized (it is intended shell), always quoted (INV-012). Required for `container_command`, absent for `github_workflow`. */
+            command?: string | null;
+            /** @description Target container within a stack; `null` = the resource's container. `container_command` only. */
             container?: string | null;
+            /** @description Workflow file name under `.github/workflows/` (e.g. `build.yml`) or its numeric id. Required for `github_workflow`, absent otherwise. */
+            workflow_file?: string | null;
+            /** @description Git ref to dispatch on. `null` falls back at fire time to the application's branch, then the repository's default branch. */
+            workflow_ref?: string | null;
+            /** @description Inputs handed to `workflow_dispatch` (GitHub caps them at 10, string values). */
+            workflow_inputs?: {
+                [key: string]: string;
+            } | null;
             cron_expression: string;
             timezone?: string;
             enabled?: boolean;
@@ -5966,9 +5981,20 @@ export interface components {
             readonly updated_at?: string;
         };
         ScheduledTaskCreate: {
+            kind?: components["schemas"]["TaskKind"];
             name: string;
-            command: string;
+            /** @description Required when `kind` is `container_command`; refused otherwise. */
+            command?: string;
+            /** @description `container_command` only. */
             container?: string | null;
+            /** @description Required when `kind` is `github_workflow`; refused otherwise. */
+            workflow_file?: string;
+            /** @description `github_workflow` only; `null` = the application's branch, then the repository's default branch. */
+            workflow_ref?: string | null;
+            /** @description `github_workflow` only. */
+            workflow_inputs?: {
+                [key: string]: string;
+            } | null;
             cron_expression: string;
             /** @default UTC */
             timezone: string;
@@ -5979,10 +6005,16 @@ export interface components {
             /** @default 300 */
             timeout_seconds: number;
         };
+        /** @description Fields of the other kind are refused with `422`; `kind` itself is immutable (ADR-071). */
         ScheduledTaskUpdate: {
             name?: string;
             command?: string;
             container?: string | null;
+            workflow_file?: string;
+            workflow_ref?: string | null;
+            workflow_inputs?: {
+                [key: string]: string;
+            } | null;
             cron_expression?: string;
             timezone?: string;
             enabled?: boolean;

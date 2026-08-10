@@ -239,7 +239,7 @@ export const DOC_TOPICS: readonly DocTopic[] = [
               ['Settings', 'General, Source, Build, Routing, Deployment hooks, Health check, Resource limits, Deploys, PR previews'],
               ['Environment variables', 'Two sets — production and previews — in a table or as a raw `.env`'],
               ['Storages', 'Volumes, bind mounts and file mounts declared for the container'],
-              ['Scheduled tasks', 'Crons executed inside the container, with their run history'],
+              ['Scheduled tasks', 'Crons in the container or GitHub workflow dispatches, with their run history'],
               ['Deployments', 'History, live build logs, cancel, rollback'],
               ['Logs', 'Runtime logs of the container, streamed'],
               ['Previews', 'One instance per open pull request'],
@@ -798,7 +798,7 @@ akerdock svc env list shop       # …and env get | set | unset, with --apply`,
     title: 'Scheduled tasks',
     icon: 'clock',
     group: 'Ship code',
-    summary: 'Crons that run a command inside your container, with a history.',
+    summary: 'Crons that run a command in your container or dispatch a GitHub workflow.',
     permission: 'applications:update',
     sections: [
       {
@@ -807,11 +807,11 @@ akerdock svc env list shop       # …and env get | set | unset, with --apply`,
         blocks: [
           {
             kind: 'p',
-            text: 'A task is a name, a command and a schedule — a cron expression or an alias such as `hourly` or `daily`. It runs inside the resource’s container (a specific component for a stack), so it sees the same environment and the same code as the app.',
+            text: 'A task is a name, an action and a schedule — a cron expression or an alias such as `hourly` or `daily`. The action is one of two kinds: **run a command** inside the resource’s container (a specific component for a stack), so it sees the same environment and the same code as the app; or **dispatch a GitHub Actions workflow** on the application’s repository.',
           },
           {
             kind: 'code',
-            caption: 'Typical entries',
+            caption: 'Typical command entries',
             code: `0 3 * * *     php artisan backup:clean
 */15 * * * *  node scripts/sync.js
 daily         rails db:sessions:trim`,
@@ -821,7 +821,7 @@ daily         rails db:sessions:trim`,
             items: [
               '**Run now** triggers an execution outside the schedule.',
               'The execution history keeps status and output; failures can raise a notification.',
-              'A task does not run while the container is stopped — a scale-to-zero app is not a scheduler.',
+              'A command task does not run while the container is stopped — a scale-to-zero app is not a scheduler. A workflow task needs no container at all.',
             ],
           },
           {
@@ -829,6 +829,25 @@ daily         rails db:sessions:trim`,
             caption: 'Run one on demand from your shell — the fastest way to find out why it fails',
             code: `akerdock app tasks list api
 akerdock app tasks run backup-clean api`,
+          },
+        ],
+      },
+      {
+        id: 'workflow-dispatch',
+        title: 'Dispatching a GitHub workflow',
+        blocks: [
+          {
+            kind: 'p',
+            text: 'GitHub documents its own `on: schedule` as best-effort: runs are delayed at busy hours, dropped under load, and silently disabled after 60 days without repository activity — the workflow’s own runs do not count. A workflow task moves the clock here instead: at each occurrence, AkerDock asks GitHub to dispatch the workflow, signed by the application’s GitHub App.',
+          },
+          {
+            kind: 'ul',
+            items: [
+              'Give the workflow file name (`build.yml`) — the workflow must declare `on: workflow_dispatch`.',
+              'The Git ref is optional: empty falls back to the application’s branch, then the repository’s default branch.',
+              'The GitHub App needs the **actions: write** permission. Apps created before this feature must have the added permission approved on GitHub — until then the run history shows GitHub’s `403`.',
+              'A green run means GitHub **accepted the dispatch**; the build’s own outcome stays on GitHub’s Actions page.',
+            ],
           },
         ],
       },

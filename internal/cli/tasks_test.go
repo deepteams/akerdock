@@ -202,3 +202,17 @@ func TestElide(t *testing.T) {
 		t.Fatalf("elide = %q", got)
 	}
 }
+
+// The ACTION column names what firing does: the command, or the workflow and
+// its pinned ref for a dispatch task (ADR-071).
+func TestTaskAction(t *testing.T) {
+	if got := taskAction(scheduledTask{Command: "bin/run"}); got != "bin/run" {
+		t.Fatalf("command task = %q", got)
+	}
+	if got := taskAction(scheduledTask{Kind: "github_workflow", WorkflowFile: "build.yml"}); got != "workflow: build.yml" {
+		t.Fatalf("workflow task = %q", got)
+	}
+	if got := taskAction(scheduledTask{Kind: "github_workflow", WorkflowFile: "build.yml", WorkflowRef: "v2"}); got != "workflow: build.yml @ v2" {
+		t.Fatalf("pinned workflow task = %q", got)
+	}
+}

@@ -814,7 +814,7 @@ func TestMiscjobsScheduledTaskFailAndPublishHelpers(t *testing.T) {
 	// must never retry an operator's command because bookkeeping failed.
 	db.execErr = miscjobsFailOn(errors.New("history down"), "FinishTaskExecution")
 	h := &ScheduledTaskRun{Store: q, Logger: logger}
-	h.fail(ctx, 1, nil, "reason")
+	h.fail(ctx, 1, "reason")
 
 	// Without an audit recorder, publish is a silent no-op.
 	h.publish(ctx, store.ScheduledTask{}, mustUUID(t, jobFixtureUUID), "scheduled_task.failed.v1", map[string]any{})

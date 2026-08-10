@@ -36,9 +36,12 @@ func tasksCmd() *cobra.Command {
 type scheduledTask struct {
 	Uuid            string     `json:"uuid"`
 	ApplicationUuid string     `json:"application_uuid,omitempty"`
+	Kind            string     `json:"kind,omitempty"`
 	Name            string     `json:"name"`
-	Command         string     `json:"command"`
+	Command         string     `json:"command,omitempty"`
 	Container       string     `json:"container,omitempty"`
+	WorkflowFile    string     `json:"workflow_file,omitempty"`
+	WorkflowRef     string     `json:"workflow_ref,omitempty"`
 	CronExpression  string     `json:"cron_expression"`
 	Timezone        string     `json:"timezone,omitempty"`
 	Enabled         bool       `json:"enabled"`
@@ -79,10 +82,10 @@ func tasksListCmd() *cobra.Command {
 				rows = append(rows, []string{
 					t.Name, taskSchedule(t), taskState(t),
 					whenOrDash(t.LastRunAt), whenOrDash(t.NextRunAt),
-					elide(t.Command, 48), t.Uuid,
+					elide(taskAction(t), 48), t.Uuid,
 				})
 			}
-			table([]string{"NAME", "SCHEDULE", "STATE", "LAST RUN", "NEXT RUN", "COMMAND", "UUID"}, rows)
+			table([]string{"NAME", "SCHEDULE", "STATE", "LAST RUN", "NEXT RUN", "ACTION", "UUID"}, rows)
 			return nil
 		},
 	}
@@ -121,6 +124,19 @@ func taskSchedule(t scheduledTask) string {
 		return t.CronExpression + " (" + t.Timezone + ")"
 	}
 	return t.CronExpression
+}
+
+// taskAction names what firing the task does: the command for the exec kind,
+// the workflow (and its pinned ref, when one is set) for a dispatch (ADR-071).
+func taskAction(t scheduledTask) string {
+	if t.Kind == "github_workflow" {
+		action := "workflow: " + t.WorkflowFile
+		if t.WorkflowRef != "" {
+			action += " @ " + t.WorkflowRef
+		}
+		return action
+	}
+	return t.Command
 }
 
 // taskState is the one word that explains an empty NEXT RUN.

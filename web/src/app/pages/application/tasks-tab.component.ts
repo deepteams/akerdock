@@ -58,7 +58,7 @@ type TaskExecution = components['schemas']['TaskExecution'];
           <thead>
             <tr>
               <th scope="col">Name</th>
-              <th scope="col">Command</th>
+              <th scope="col">Action</th>
               <th scope="col">Schedule</th>
               <th scope="col">Next run</th>
               <th scope="col" class="right"><span class="sr-only">Actions</span></th>
@@ -68,7 +68,17 @@ type TaskExecution = components['schemas']['TaskExecution'];
             @for (task of tasks(); track task.uuid) {
               <tr>
                 <td>{{ task.name }}</td>
-                <td class="akd-mono">{{ task.command }}</td>
+                <td class="akd-mono">
+                  @if (task.kind === 'github_workflow') {
+                    <span class="akd-badge">workflow</span>
+                    {{ task.workflow_file }}
+                    @if (task.workflow_ref) {
+                      <span class="akd-muted">&#64; {{ task.workflow_ref }}</span>
+                    }
+                  } @else {
+                    {{ task.command }}
+                  }
+                </td>
                 <td>
                   <span class="akd-badge akd-badge--mono">{{ task.cron_expression }}</span>
                 </td>
@@ -126,18 +136,45 @@ type TaskExecution = components['schemas']['TaskExecution'];
                           [disabled]="busy()"
                         />
                       </div>
-                      <div class="akd-field">
-                        <label class="akd-field__label" [for]="'te-command-' + task.uuid">
-                          Command
-                        </label>
-                        <input
-                          [id]="'te-command-' + task.uuid"
-                          name="editCommand"
-                          class="akd-input akd-input--mono"
-                          [(ngModel)]="editCommand"
-                          [disabled]="busy()"
-                        />
-                      </div>
+                      @if (task.kind === 'github_workflow') {
+                        <div class="akd-field">
+                          <label class="akd-field__label" [for]="'te-wf-' + task.uuid">
+                            Workflow file
+                          </label>
+                          <input
+                            [id]="'te-wf-' + task.uuid"
+                            name="editWorkflowFile"
+                            class="akd-input akd-input--mono"
+                            [(ngModel)]="editWorkflowFile"
+                            [disabled]="busy()"
+                          />
+                        </div>
+                        <div class="akd-field">
+                          <label class="akd-field__label" [for]="'te-ref-' + task.uuid">
+                            Git ref (empty = the application's branch)
+                          </label>
+                          <input
+                            [id]="'te-ref-' + task.uuid"
+                            name="editWorkflowRef"
+                            class="akd-input akd-input--mono"
+                            [(ngModel)]="editWorkflowRef"
+                            [disabled]="busy()"
+                          />
+                        </div>
+                      } @else {
+                        <div class="akd-field">
+                          <label class="akd-field__label" [for]="'te-command-' + task.uuid">
+                            Command
+                          </label>
+                          <input
+                            [id]="'te-command-' + task.uuid"
+                            name="editCommand"
+                            class="akd-input akd-input--mono"
+                            [(ngModel)]="editCommand"
+                            [disabled]="busy()"
+                          />
+                        </div>
+                      }
                       <div class="akd-field">
                         <label class="akd-field__label" [for]="'te-cron-' + task.uuid">
                           Cron expression
@@ -243,17 +280,60 @@ type TaskExecution = components['schemas']['TaskExecution'];
           />
         </div>
         <div class="akd-field">
-          <label class="akd-field__label" for="tk-command">Command (run in the container)</label>
-          <input
-            id="tk-command"
-            name="command"
-            class="akd-input akd-input--mono"
-            placeholder="php artisan schedule:run"
-            required
-            [(ngModel)]="command"
-            [disabled]="busy()"
-          />
+          <label class="akd-field__label" for="tk-kind">What the task does</label>
+          <select id="tk-kind" name="kind" class="akd-input" [(ngModel)]="kind" [disabled]="busy()">
+            <option value="container_command">Run a command in the container</option>
+            <option value="github_workflow">Dispatch a GitHub Actions workflow</option>
+          </select>
+          @if (kind === 'github_workflow') {
+            <span class="akd-field__hint">
+              Fired by the application's GitHub App — a reliable replacement for the workflow's
+              own <code>on: schedule</code>. The App needs the <code>actions: write</code>
+              permission.
+            </span>
+          }
         </div>
+        @if (kind === 'github_workflow') {
+          <div class="akd-field">
+            <label class="akd-field__label" for="tk-workflow">Workflow file</label>
+            <input
+              id="tk-workflow"
+              name="workflowFile"
+              class="akd-input akd-input--mono"
+              placeholder="build.yml"
+              required
+              [(ngModel)]="workflowFile"
+              [disabled]="busy()"
+            />
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="tk-ref">Git ref (optional)</label>
+            <input
+              id="tk-ref"
+              name="workflowRef"
+              class="akd-input akd-input--mono"
+              placeholder="main"
+              [(ngModel)]="workflowRef"
+              [disabled]="busy()"
+            />
+            <span class="akd-field__hint">
+              Empty = the application's branch, then the repository's default branch.
+            </span>
+          </div>
+        } @else {
+          <div class="akd-field">
+            <label class="akd-field__label" for="tk-command">Command (run in the container)</label>
+            <input
+              id="tk-command"
+              name="command"
+              class="akd-input akd-input--mono"
+              placeholder="php artisan schedule:run"
+              required
+              [(ngModel)]="command"
+              [disabled]="busy()"
+            />
+          </div>
+        }
         <div class="akd-field">
           <label class="akd-field__label" for="tk-cron">Cron expression</label>
           <input
@@ -335,12 +415,18 @@ export class ApplicationTasksTabComponent {
   protected readonly showAdd = signal(false);
 
   protected name = '';
+  protected kind: components['schemas']['TaskKind'] = 'container_command';
   protected command = '';
+  protected workflowFile = '';
+  protected workflowRef = '';
   protected cron = '';
 
   protected openAdd(): void {
     this.name = '';
+    this.kind = 'container_command';
     this.command = '';
+    this.workflowFile = '';
+    this.workflowRef = '';
     this.cron = '';
     this.error.set(null);
     this.showAdd.set(true);
@@ -352,6 +438,8 @@ export class ApplicationTasksTabComponent {
   }
   protected editName = '';
   protected editCommand = '';
+  protected editWorkflowFile = '';
+  protected editWorkflowRef = '';
   protected editCron = '';
 
   constructor() {
@@ -362,7 +450,9 @@ export class ApplicationTasksTabComponent {
   }
 
   protected valid(): boolean {
-    return !!(this.name.trim() && this.command.trim() && this.cron.trim());
+    if (!this.name.trim() || !this.cron.trim()) return false;
+    if (this.kind === 'github_workflow') return !!this.workflowFile.trim();
+    return !!this.command.trim();
   }
 
   private async load(uuid: string): Promise<void> {
@@ -384,16 +474,30 @@ export class ApplicationTasksTabComponent {
     this.busy.set(true);
     this.error.set(null);
     try {
-      await this.api.client().createScheduledTask(this.uuid(), {
+      // The two kinds have disjoint fields (ADR-071): the API refuses a
+      // command on a workflow task, so the body only carries the chosen side.
+      const base = {
+        kind: this.kind,
         name: this.name.trim(),
-        command: this.command.trim(),
         cron_expression: this.cron.trim(),
         timezone: 'UTC',
         enabled: true,
         timeout_seconds: 300,
-      });
+      };
+      await this.api.client().createScheduledTask(
+        this.uuid(),
+        this.kind === 'github_workflow'
+          ? {
+              ...base,
+              workflow_file: this.workflowFile.trim(),
+              workflow_ref: this.workflowRef.trim() || null,
+            }
+          : { ...base, command: this.command.trim() },
+      );
       this.name = '';
       this.command = '';
+      this.workflowFile = '';
+      this.workflowRef = '';
       this.cron = '';
       this.showAdd.set(false);
       await this.load(this.uuid());
@@ -407,7 +511,9 @@ export class ApplicationTasksTabComponent {
   protected startEdit(task: ScheduledTask): void {
     this.editing.set(task.uuid);
     this.editName = task.name;
-    this.editCommand = task.command;
+    this.editCommand = task.command ?? '';
+    this.editWorkflowFile = task.workflow_file ?? '';
+    this.editWorkflowRef = task.workflow_ref ?? '';
     this.editCron = task.cron_expression;
   }
 
@@ -417,12 +523,24 @@ export class ApplicationTasksTabComponent {
     this.error.set(null);
     try {
       // If-Match carries the task's version: a concurrent edit gets a 409
-      // instead of being silently overwritten (§24.1).
-      await this.api.client().updateScheduledTask(task.uuid, task.version ?? 0, {
-        name: this.editName.trim(),
-        command: this.editCommand.trim(),
-        cron_expression: this.editCron.trim(),
-      });
+      // instead of being silently overwritten (§24.1). The patch only carries
+      // the fields of the task's own kind — the API refuses the others.
+      await this.api.client().updateScheduledTask(
+        task.uuid,
+        task.version ?? 0,
+        task.kind === 'github_workflow'
+          ? {
+              name: this.editName.trim(),
+              workflow_file: this.editWorkflowFile.trim(),
+              workflow_ref: this.editWorkflowRef.trim() || null,
+              cron_expression: this.editCron.trim(),
+            }
+          : {
+              name: this.editName.trim(),
+              command: this.editCommand.trim(),
+              cron_expression: this.editCron.trim(),
+            },
+      );
       this.editing.set(null);
       await this.load(this.uuid());
     } catch (err) {

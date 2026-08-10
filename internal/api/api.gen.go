@@ -1981,6 +1981,24 @@ func (e TaskExecutionStatus) Valid() bool {
 	}
 }
 
+// Defines values for TaskKind.
+const (
+	ContainerCommand TaskKind = "container_command"
+	GithubWorkflow   TaskKind = "github_workflow"
+)
+
+// Valid indicates whether the value is a known member of the TaskKind enum.
+func (e TaskKind) Valid() bool {
+	switch e {
+	case ContainerCommand:
+		return true
+	case GithubWorkflow:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TaskMissedRunPolicy.
 const (
 	TaskMissedRunPolicyRun  TaskMissedRunPolicy = "run"
@@ -4871,19 +4889,22 @@ type S3StorageUpdate struct {
 // S3StorageUpdateServerSideEncryption SSE-S3 encryption at rest of uploads (`null`/absent = none).
 type S3StorageUpdateServerSideEncryption string
 
-// ScheduledTask Cron running a command inside a resource's container (§192).
+// ScheduledTask Cron firing on a resource (§192): a command in its container, or a GitHub Actions workflow dispatch on its repository (ADR-071).
 type ScheduledTask struct {
 	ApplicationUuid *string `json:"application_uuid,omitempty"`
 
-	// Command Command passed to the container's shell — never sanitized (it is intended shell), always quoted (INV-012).
-	Command string `json:"command"`
+	// Command Command passed to the container's shell — never sanitized (it is intended shell), always quoted (INV-012). Required for `container_command`, absent for `github_workflow`.
+	Command *string `json:"command,omitempty"`
 
-	// Container Target container within a stack; `null` = the resource's container.
+	// Container Target container within a stack; `null` = the resource's container. `container_command` only.
 	Container      *string    `json:"container,omitempty"`
 	CreatedAt      *time.Time `json:"created_at,omitempty"`
 	CronExpression string     `json:"cron_expression"`
 	Enabled        *bool      `json:"enabled,omitempty"`
-	LastRunAt      *time.Time `json:"last_run_at,omitempty"`
+
+	// Kind What firing an occurrence does. `container_command` (default) execs `command` inside the resource's container; `github_workflow` asks GitHub to dispatch `workflow_file` on the application's repository, signed by its GitHub App — no container needs to exist, and no credential enters the runtime. Immutable after creation.
+	Kind      TaskKind   `json:"kind"`
+	LastRunAt *time.Time `json:"last_run_at,omitempty"`
 
 	// MissedRunPolicy What to do with an occurrence the scheduler did not see in time (instance stopped). `run` (default) triggers it once at restart — a missed nightly cleanup is still useful; `skip` drops it — a "9 a.m. digest" sent at 3 p.m. is noise. In both cases, the missed occurrence is **traced** (`skipped` + reason), never silently forgotten.
 	MissedRunPolicy *TaskMissedRunPolicy `json:"missed_run_policy,omitempty"`
@@ -4897,14 +4918,29 @@ type ScheduledTask struct {
 	UpdatedAt      *time.Time         `json:"updated_at,omitempty"`
 	Uuid           *string            `json:"uuid,omitempty"`
 	Version        *int               `json:"version,omitempty"`
+
+	// WorkflowFile Workflow file name under `.github/workflows/` (e.g. `build.yml`) or its numeric id. Required for `github_workflow`, absent otherwise.
+	WorkflowFile *string `json:"workflow_file,omitempty"`
+
+	// WorkflowInputs Inputs handed to `workflow_dispatch` (GitHub caps them at 10, string values).
+	WorkflowInputs *map[string]string `json:"workflow_inputs,omitempty"`
+
+	// WorkflowRef Git ref to dispatch on. `null` falls back at fire time to the application's branch, then the repository's default branch.
+	WorkflowRef *string `json:"workflow_ref,omitempty"`
 }
 
 // ScheduledTaskCreate defines model for ScheduledTaskCreate.
 type ScheduledTaskCreate struct {
-	Command        string  `json:"command"`
+	// Command Required when `kind` is `container_command`; refused otherwise.
+	Command *string `json:"command,omitempty"`
+
+	// Container `container_command` only.
 	Container      *string `json:"container,omitempty"`
 	CronExpression string  `json:"cron_expression"`
 	Enabled        *bool   `json:"enabled,omitempty"`
+
+	// Kind What firing an occurrence does. `container_command` (default) execs `command` inside the resource's container; `github_workflow` asks GitHub to dispatch `workflow_file` on the application's repository, signed by its GitHub App — no container needs to exist, and no credential enters the runtime. Immutable after creation.
+	Kind *TaskKind `json:"kind,omitempty"`
 
 	// MissedRunPolicy What to do with an occurrence the scheduler did not see in time (instance stopped). `run` (default) triggers it once at restart — a missed nightly cleanup is still useful; `skip` drops it — a "9 a.m. digest" sent at 3 p.m. is noise. In both cases, the missed occurrence is **traced** (`skipped` + reason), never silently forgotten.
 	MissedRunPolicy *TaskMissedRunPolicy `json:"missed_run_policy,omitempty"`
@@ -4914,9 +4950,18 @@ type ScheduledTaskCreate struct {
 	OverlapPolicy  *TaskOverlapPolicy `json:"overlap_policy,omitempty"`
 	TimeoutSeconds *int               `json:"timeout_seconds,omitempty"`
 	Timezone       *string            `json:"timezone,omitempty"`
+
+	// WorkflowFile Required when `kind` is `github_workflow`; refused otherwise.
+	WorkflowFile *string `json:"workflow_file,omitempty"`
+
+	// WorkflowInputs `github_workflow` only.
+	WorkflowInputs *map[string]string `json:"workflow_inputs,omitempty"`
+
+	// WorkflowRef `github_workflow` only; `null` = the application's branch, then the repository's default branch.
+	WorkflowRef *string `json:"workflow_ref,omitempty"`
 }
 
-// ScheduledTaskUpdate defines model for ScheduledTaskUpdate.
+// ScheduledTaskUpdate Fields of the other kind are refused with `422`; `kind` itself is immutable (ADR-071).
 type ScheduledTaskUpdate struct {
 	Command        *string `json:"command,omitempty"`
 	Container      *string `json:"container,omitempty"`
@@ -4931,6 +4976,9 @@ type ScheduledTaskUpdate struct {
 	OverlapPolicy  *TaskOverlapPolicy `json:"overlap_policy,omitempty"`
 	TimeoutSeconds *int               `json:"timeout_seconds,omitempty"`
 	Timezone       *string            `json:"timezone,omitempty"`
+	WorkflowFile   *string            `json:"workflow_file,omitempty"`
+	WorkflowInputs *map[string]string `json:"workflow_inputs,omitempty"`
+	WorkflowRef    *string            `json:"workflow_ref,omitempty"`
 }
 
 // ScimToken defines model for ScimToken.
@@ -5326,6 +5374,9 @@ type TaskExecution struct {
 
 // TaskExecutionStatus defines model for TaskExecutionStatus.
 type TaskExecutionStatus string
+
+// TaskKind What firing an occurrence does. `container_command` (default) execs `command` inside the resource's container; `github_workflow` asks GitHub to dispatch `workflow_file` on the application's repository, signed by its GitHub App — no container needs to exist, and no credential enters the runtime. Immutable after creation.
+type TaskKind string
 
 // TaskMissedRunPolicy What to do with an occurrence the scheduler did not see in time (instance stopped). `run` (default) triggers it once at restart — a missed nightly cleanup is still useful; `skip` drops it — a "9 a.m. digest" sent at 3 p.m. is noise. In both cases, the missed occurrence is **traced** (`skipped` + reason), never silently forgotten.
 type TaskMissedRunPolicy string

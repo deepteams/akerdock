@@ -574,7 +574,8 @@ export class PreviewDetailComponent {
   }
 
   protected readonly preview = signal<Preview | null>(null);
-  /** Name of the parent application — the CLI ref is `app/<name>`. */
+  /** Name of the parent application — what the CLI's `app` verbs take as their
+   *  trailing argument (ADR-070 §1). */
   protected readonly appName = signal<string>('');
   /** Build pack of the parent app — single-container unless 'compose'. */
   protected readonly appBuildPack = signal<string | null>(null);

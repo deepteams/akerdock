@@ -25,9 +25,12 @@ func scheduledTaskToAPI(t store.ScheduledTask, appUUID pgtype.UUID) api.Schedule
 	out := api.ScheduledTask{
 		Uuid:            ptr(uuidString(t.Uuid)),
 		ApplicationUuid: ptr(uuidString(appUUID)),
+		Kind:            api.TaskKind(t.Kind),
 		Name:            t.Name,
 		Command:         t.Command,
 		Container:       t.Container,
+		WorkflowFile:    t.WorkflowFile,
+		WorkflowRef:     t.WorkflowRef,
 		CronExpression:  t.CronExpression,
 		Timezone:        ptr(t.Timezone),
 		Enabled:         ptr(t.Enabled),
@@ -37,6 +40,12 @@ func scheduledTaskToAPI(t store.ScheduledTask, appUUID pgtype.UUID) api.Schedule
 		Version:         ptr(int(t.Version)),
 		CreatedAt:       timePtr(t.CreatedAt),
 		UpdatedAt:       timePtr(t.UpdatedAt),
+	}
+	if len(t.WorkflowInputs) > 0 {
+		var inputs map[string]string
+		if json.Unmarshal(t.WorkflowInputs, &inputs) == nil {
+			out.WorkflowInputs = &inputs
+		}
 	}
 	// next_run_at is owned by the scheduler: until it has seen the task, the
 	// field is absent rather than guessed.
@@ -134,12 +143,44 @@ func (a *API) CreateScheduledTask(w http.ResponseWriter, r *http.Request, applic
 		return
 	}
 
+	kind := store.TaskKindContainerCommand
+	if body.Kind != nil {
+		kind = store.TaskKind(*body.Kind)
+	}
 	var details []api.ErrorDetail
+	if body.Kind != nil && !body.Kind.Valid() {
+		details = append(details, api.ErrorDetail{Field: ptr("kind"), Code: ptr("invalid"), Message: "kind must be container_command or github_workflow"})
+	}
 	if strings.TrimSpace(body.Name) == "" {
 		details = append(details, api.ErrorDetail{Field: ptr("name"), Code: ptr("required"), Message: "name must not be empty"})
 	}
-	if strings.TrimSpace(body.Command) == "" {
-		details = append(details, api.ErrorDetail{Field: ptr("command"), Code: ptr("required"), Message: "command must not be empty"})
+	// The two kinds have disjoint required fields (ADR-071): what one requires,
+	// the other refuses — a field that would be silently ignored teaches the
+	// operator a knob that does not exist.
+	switch kind {
+	case store.TaskKindGithubWorkflow:
+		if body.WorkflowFile == nil || strings.TrimSpace(*body.WorkflowFile) == "" {
+			details = append(details, api.ErrorDetail{Field: ptr("workflow_file"), Code: ptr("required"), Message: "workflow_file must not be empty"})
+		}
+		if body.Command != nil {
+			details = append(details, api.ErrorDetail{Field: ptr("command"), Code: ptr("invalid"), Message: "a github_workflow task has no command"})
+		}
+		if body.Container != nil {
+			details = append(details, api.ErrorDetail{Field: ptr("container"), Code: ptr("invalid"), Message: "a github_workflow task has no container"})
+		}
+		if body.WorkflowInputs != nil && len(*body.WorkflowInputs) > 10 {
+			details = append(details, api.ErrorDetail{Field: ptr("workflow_inputs"), Code: ptr("invalid"), Message: "GitHub caps workflow_dispatch inputs at 10"})
+		}
+		if detail, ok := a.checkGithubWorkflowSource(r, app); !ok {
+			details = append(details, detail)
+		}
+	default:
+		if body.Command == nil || strings.TrimSpace(*body.Command) == "" {
+			details = append(details, api.ErrorDetail{Field: ptr("command"), Code: ptr("required"), Message: "command must not be empty"})
+		}
+		if body.WorkflowFile != nil || body.WorkflowRef != nil || body.WorkflowInputs != nil {
+			details = append(details, api.ErrorDetail{Field: ptr("workflow_file"), Code: ptr("invalid"), Message: "workflow fields only apply to a github_workflow task"})
+		}
 	}
 	cron, valid := normalizeCron(body.CronExpression)
 	if !valid {
@@ -184,12 +225,28 @@ func (a *API) CreateScheduledTask(w http.ResponseWriter, r *http.Request, applic
 		missed = store.TaskMissedRunPolicy(*body.MissedRunPolicy)
 	}
 
-	task, err := a.Store.CreateScheduledTask(r.Context(), store.CreateScheduledTaskParams{
-		TeamID: id.TeamID, ResourceID: app.Resource.ID,
-		Name: body.Name, Command: body.Command, Container: body.Container,
+	create := store.CreateScheduledTaskParams{
+		TeamID: id.TeamID, ResourceID: app.Resource.ID, Kind: kind,
+		Name:           body.Name,
 		CronExpression: cron, Timezone: timezone, Enabled: enabled,
 		OverlapPolicy: overlap, MissedRunPolicy: missed, TimeoutSeconds: timeout,
-	})
+	}
+	if kind == store.TaskKindGithubWorkflow {
+		create.WorkflowFile = ptr(strings.TrimSpace(*body.WorkflowFile))
+		create.WorkflowRef = body.WorkflowRef
+		if body.WorkflowInputs != nil && len(*body.WorkflowInputs) > 0 {
+			raw, err := json.Marshal(*body.WorkflowInputs)
+			if err != nil {
+				a.internalError(w, r, "create scheduled task", err)
+				return
+			}
+			create.WorkflowInputs = raw
+		}
+	} else {
+		create.Command = body.Command
+		create.Container = body.Container
+	}
+	task, err := a.Store.CreateScheduledTask(r.Context(), create)
 	if err != nil {
 		if isUniqueViolation(err) {
 			httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "a scheduled task with this name already exists on this application")
@@ -201,6 +258,25 @@ func (a *API) CreateScheduledTask(w http.ResponseWriter, r *http.Request, applic
 	a.recordAudit(r, id, "scheduled_task.create", "application", app.Resource.Uuid)
 	w.Header().Set("ETag", etagFor(task.Version))
 	httpapi.WriteJSON(w, http.StatusCreated, scheduledTaskToAPI(task, app.Resource.Uuid))
+}
+
+// checkGithubWorkflowSource verifies at creation what the dispatch job will
+// need at fire time: an application whose git source is a GitHub App. Fire
+// time re-checks (sources change under a task); creation refuses what can
+// never work, with a message naming the fix.
+func (a *API) checkGithubWorkflowSource(r *http.Request, app store.GetApplicationByUUIDRow) (api.ErrorDetail, bool) {
+	detail := api.ErrorDetail{
+		Field: ptr("kind"), Code: ptr("invalid"),
+		Message: "a github_workflow task needs an application whose git source is a GitHub App",
+	}
+	if app.Application.GitSourceID == nil || app.Application.RepositoryID == nil {
+		return detail, false
+	}
+	source, err := a.Store.GetGitSourceByID(r.Context(), *app.Application.GitSourceID)
+	if err != nil || source.GithubAppID == nil {
+		return detail, false
+	}
+	return api.ErrorDetail{}, true
 }
 
 // GetScheduledTask implements GET /scheduled-tasks/{task_uuid}.
@@ -238,6 +314,25 @@ func (a *API) UpdateScheduledTask(w http.ResponseWriter, r *http.Request, taskUu
 		return
 	}
 
+	// A field of the other kind is refused, not ignored (ADR-071): silently
+	// accepting `command` on a workflow task would teach a knob that does not
+	// exist. `kind` itself is not in the schema — it is immutable.
+	if row.ScheduledTask.Kind == store.TaskKindGithubWorkflow {
+		if fields.Has("command") || fields.Has("container") {
+			httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+				Field: ptr("command"), Code: ptr("invalid"),
+				Message: "a github_workflow task has no command or container",
+			}})
+			return
+		}
+	} else if fields.Has("workflow_file") || fields.Has("workflow_ref") || fields.Has("workflow_inputs") {
+		httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+			Field: ptr("workflow_file"), Code: ptr("invalid"),
+			Message: "workflow fields only apply to a github_workflow task",
+		}})
+		return
+	}
+
 	update := store.UpdateScheduledTaskParams{
 		ID: row.ScheduledTask.ID, Version: int32(expected),
 		Name: body.Name, Command: body.Command,
@@ -249,6 +344,38 @@ func (a *API) UpdateScheduledTask(w http.ResponseWriter, r *http.Request, taskUu
 	if fields.Has("container") {
 		update.SetContainer = true
 		update.Container = body.Container
+	}
+	if body.WorkflowFile != nil {
+		if strings.TrimSpace(*body.WorkflowFile) == "" {
+			httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+				Field: ptr("workflow_file"), Code: ptr("required"), Message: "workflow_file must not be empty",
+			}})
+			return
+		}
+		update.WorkflowFile = ptr(strings.TrimSpace(*body.WorkflowFile))
+	}
+	// Like `container`, an explicit `workflow_ref: null` (fall back to the
+	// branch chain) must be distinguished from absence.
+	if fields.Has("workflow_ref") {
+		update.SetWorkflowRef = true
+		update.WorkflowRef = body.WorkflowRef
+	}
+	if fields.Has("workflow_inputs") {
+		update.SetWorkflowInputs = true
+		if body.WorkflowInputs != nil && len(*body.WorkflowInputs) > 0 {
+			if len(*body.WorkflowInputs) > 10 {
+				httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+					Field: ptr("workflow_inputs"), Code: ptr("invalid"), Message: "GitHub caps workflow_dispatch inputs at 10",
+				}})
+				return
+			}
+			raw, err := json.Marshal(*body.WorkflowInputs)
+			if err != nil {
+				a.internalError(w, r, "update scheduled task", err)
+				return
+			}
+			update.WorkflowInputs = raw
+		}
 	}
 	if body.CronExpression != nil {
 		cron, valid := normalizeCron(*body.CronExpression)
