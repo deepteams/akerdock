@@ -16,6 +16,7 @@ gates:
 A plan is a schedule, a destination and a retention policy, attached to a database (or to the internal database of a compose stack).
 
 - **Schedule** — a cron expression or an alias (`hourly`, `daily`, `weekly`…), plus a **Backup now** button.
+- **Timezone** — the cron is read in the zone attached to the plan. A nightly backup written as `0 2 * * *` in `UTC` drifts by an hour across daylight saving where you live; pick the zone you reason in and it stays where you put it.
 - **Destination** — local on the server, an S3 storage, or both; "S3 only" deletes the local file after upload.
 - **Retention** — max count, max age and max total size, applied separately to local and S3.
 - Each run is recorded with its status, size and upload result, and can be downloaded or deleted.

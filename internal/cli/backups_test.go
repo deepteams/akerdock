@@ -309,3 +309,22 @@ func TestBackupSizeAndDestination(t *testing.T) {
 		}
 	}
 }
+
+// A plan's timezone belongs on the line that says when it runs: "0 2 * * *"
+// alone does not say which 2am, and that is where a nightly backup silently
+// moves by an hour twice a year. UTC stays implicit, being the default.
+func TestPlanScheduleFoldsTheTimezone(t *testing.T) {
+	cases := []struct {
+		plan backupPlan
+		want string
+	}{
+		{backupPlan{Frequency: "0 2 * * *", Timezone: "Europe/Paris"}, "0 2 * * * (Europe/Paris)"},
+		{backupPlan{Frequency: "daily", Timezone: "UTC"}, "daily"},
+		{backupPlan{Frequency: "daily"}, "daily"},
+	}
+	for _, tc := range cases {
+		if got := planSchedule(tc.plan); got != tc.want {
+			t.Errorf("planSchedule(%+v) = %q, want %q", tc.plan, got, tc.want)
+		}
+	}
+}

@@ -20,6 +20,7 @@ Typical command entries:
 daily         rails db:sessions:trim
 ```
 
+- **Timezone** — the cron is read in the zone you pick, not the server's. `0 3 * * *` in `Europe/Paris` fires at 3am Paris time all year, which is 2am UTC in winter and 1am in summer; the same expression in `UTC` fires an hour later in Paris from March to October. New tasks default to your browser's zone, and the next run is shown in the task's own zone.
 - **Run now** triggers an execution outside the schedule.
 - The execution history keeps status and output; failures can raise a notification.
 - A command task does not run while the container is stopped — a scale-to-zero app is not a scheduler. A workflow task needs no container at all.

@@ -115,7 +115,7 @@ token's**, not a per-command choice — see the note under the global flags.
 | `akerdock db shell [NAME]` | Interactive shell in the database container (§6). |
 | `akerdock db port-forward [LOCAL:]REMOTE [NAME]` | TCP tunnel to the database port (§7). |
 | `akerdock db restart\|start\|stop [NAME]` | Lifecycle (§10). |
-| `akerdock db backups list [NAME]` / `akerdock db backups run [NAME] [--plan P]` | Backup plans and their executions; triggers one now. **No `restore`** (a production overwrite does not belong behind a one-line terminal confirmation) and no `download` (no endpoint serves the file). |
+| `akerdock db backups list [NAME]` / `akerdock db backups run [NAME] [--plan P]` | Backup plans and their executions, each plan's schedule carrying its timezone when it is not UTC; triggers one now. **No `restore`** (a production overwrite does not belong behind a one-line terminal confirmation) and no `download` (no endpoint serves the file). |
 
 #### The `svc` group (compose stacks)
 

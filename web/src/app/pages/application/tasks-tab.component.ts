@@ -13,9 +13,19 @@ import { CardComponent } from '../../../ui/card/card.component';
 import { DrawerComponent } from '../../../ui/drawer/drawer.component';
 import { EmptyStateComponent } from '../../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../../ui/icon/icon.component';
+import { TimezoneSelectComponent } from '../../../ui/timezone-select/timezone-select.component';
+import { browserTimeZone, formatOccurrence } from '../../../ui/timezone-select/timezone';
 import { ApiService } from '../../core/api.service';
 import { fetchAll } from '../../core/pagination';
 import { ConfirmService } from '../../../ui/confirm/confirm.service';
+import {
+  emptyTaskForm,
+  taskCreateBody,
+  taskFormFromTask,
+  taskFormValid,
+  taskUpdateBody,
+  type TaskForm,
+} from './task-form';
 import type { components } from '../../../api/schema';
 
 type ScheduledTask = components['schemas']['ScheduledTask'];
@@ -31,6 +41,7 @@ type TaskExecution = components['schemas']['TaskExecution'];
     DrawerComponent,
     EmptyStateComponent,
     IconComponent,
+    TimezoneSelectComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -81,8 +92,18 @@ type TaskExecution = components['schemas']['TaskExecution'];
                 </td>
                 <td>
                   <span class="akd-badge akd-badge--mono">{{ task.cron_expression }}</span>
+                  <span class="zone">{{ task.timezone || 'UTC' }}</span>
                 </td>
-                <td class="akd-muted">{{ task.next_run_at ?? '—' }}</td>
+                <td>
+                  @if (nextRun(task); as when) {
+                    <span class="when">{{ when.primary }}</span>
+                    @if (when.secondary) {
+                      <span class="when__local">{{ when.secondary }}</span>
+                    }
+                  } @else {
+                    <span class="akd-muted">—</span>
+                  }
+                </td>
                 <td class="right">
                   <div class="row-actions">
                     <button
@@ -132,7 +153,7 @@ type TaskExecution = components['schemas']['TaskExecution'];
                           [id]="'te-name-' + task.uuid"
                           name="editName"
                           class="akd-input"
-                          [(ngModel)]="editName"
+                          [(ngModel)]="editForm.name"
                           [disabled]="busy()"
                         />
                       </div>
@@ -145,7 +166,7 @@ type TaskExecution = components['schemas']['TaskExecution'];
                             [id]="'te-wf-' + task.uuid"
                             name="editWorkflowFile"
                             class="akd-input akd-input--mono"
-                            [(ngModel)]="editWorkflowFile"
+                            [(ngModel)]="editForm.workflowFile"
                             [disabled]="busy()"
                           />
                         </div>
@@ -157,7 +178,7 @@ type TaskExecution = components['schemas']['TaskExecution'];
                             [id]="'te-ref-' + task.uuid"
                             name="editWorkflowRef"
                             class="akd-input akd-input--mono"
-                            [(ngModel)]="editWorkflowRef"
+                            [(ngModel)]="editForm.workflowRef"
                             [disabled]="busy()"
                           />
                         </div>
@@ -170,7 +191,7 @@ type TaskExecution = components['schemas']['TaskExecution'];
                             [id]="'te-command-' + task.uuid"
                             name="editCommand"
                             class="akd-input akd-input--mono"
-                            [(ngModel)]="editCommand"
+                            [(ngModel)]="editForm.command"
                             [disabled]="busy()"
                           />
                         </div>
@@ -183,9 +204,22 @@ type TaskExecution = components['schemas']['TaskExecution'];
                           [id]="'te-cron-' + task.uuid"
                           name="editCron"
                           class="akd-input akd-input--mono"
-                          [(ngModel)]="editCron"
+                          [(ngModel)]="editForm.cron"
                           [disabled]="busy()"
                         />
+                      </div>
+                      <div class="akd-field">
+                        <label class="akd-field__label" [for]="'te-tz-' + task.uuid">
+                          Timezone
+                        </label>
+                        <akd-timezone-select
+                          [inputId]="'te-tz-' + task.uuid"
+                          [(value)]="editForm.timezone"
+                          [disabled]="busy()"
+                        />
+                        <span class="akd-field__hint">
+                          The cron is evaluated in this zone, daylight saving included.
+                        </span>
                       </div>
                       <div class="edit-actions">
                         <button
@@ -275,17 +309,23 @@ type TaskExecution = components['schemas']['TaskExecution'];
             name="name"
             class="akd-input"
             required
-            [(ngModel)]="name"
+            [(ngModel)]="form.name"
             [disabled]="busy()"
           />
         </div>
         <div class="akd-field">
           <label class="akd-field__label" for="tk-kind">What the task does</label>
-          <select id="tk-kind" name="kind" class="akd-input" [(ngModel)]="kind" [disabled]="busy()">
+          <select
+            id="tk-kind"
+            name="kind"
+            class="akd-input"
+            [(ngModel)]="form.kind"
+            [disabled]="busy()"
+          >
             <option value="container_command">Run a command in the container</option>
             <option value="github_workflow">Dispatch a GitHub Actions workflow</option>
           </select>
-          @if (kind === 'github_workflow') {
+          @if (form.kind === 'github_workflow') {
             <span class="akd-field__hint">
               Fired by the application's GitHub App — a reliable replacement for the workflow's
               own <code>on: schedule</code>. The App needs the <code>actions: write</code>
@@ -293,7 +333,7 @@ type TaskExecution = components['schemas']['TaskExecution'];
             </span>
           }
         </div>
-        @if (kind === 'github_workflow') {
+        @if (form.kind === 'github_workflow') {
           <div class="akd-field">
             <label class="akd-field__label" for="tk-workflow">Workflow file</label>
             <input
@@ -302,7 +342,7 @@ type TaskExecution = components['schemas']['TaskExecution'];
               class="akd-input akd-input--mono"
               placeholder="build.yml"
               required
-              [(ngModel)]="workflowFile"
+              [(ngModel)]="form.workflowFile"
               [disabled]="busy()"
             />
           </div>
@@ -313,7 +353,7 @@ type TaskExecution = components['schemas']['TaskExecution'];
               name="workflowRef"
               class="akd-input akd-input--mono"
               placeholder="main"
-              [(ngModel)]="workflowRef"
+              [(ngModel)]="form.workflowRef"
               [disabled]="busy()"
             />
             <span class="akd-field__hint">
@@ -329,7 +369,7 @@ type TaskExecution = components['schemas']['TaskExecution'];
               class="akd-input akd-input--mono"
               placeholder="php artisan schedule:run"
               required
-              [(ngModel)]="command"
+              [(ngModel)]="form.command"
               [disabled]="busy()"
             />
           </div>
@@ -342,10 +382,18 @@ type TaskExecution = components['schemas']['TaskExecution'];
             class="akd-input akd-input--mono"
             placeholder="0 3 * * *"
             required
-            [(ngModel)]="cron"
+            [(ngModel)]="form.cron"
             [disabled]="busy()"
           />
-          <span class="akd-field__hint">Standard 5-field cron, evaluated in UTC.</span>
+          <span class="akd-field__hint">Standard 5-field cron.</span>
+        </div>
+        <div class="akd-field">
+          <label class="akd-field__label" for="tk-tz">Timezone</label>
+          <akd-timezone-select inputId="tk-tz" [(value)]="form.timezone" [disabled]="busy()" />
+          <span class="akd-field__hint">
+            The zone the cron is read in — daylight saving included, so "0 3 * * *" stays 3am all
+            year. Defaults to this browser's zone.
+          </span>
         </div>
       </form>
       <div drawer-footer>
@@ -389,6 +437,17 @@ type TaskExecution = components['schemas']['TaskExecution'];
       .row-actions {
         justify-content: flex-end;
       }
+      .zone,
+      .when__local {
+        display: block;
+        margin-top: 2px;
+        font-size: var(--text-2xs);
+        color: var(--text-3);
+      }
+      .when {
+        display: block;
+        font-variant-numeric: tabular-nums;
+      }
       .output {
         margin: 0;
         max-height: 12rem;
@@ -414,20 +473,12 @@ export class ApplicationTasksTabComponent {
   protected readonly executions = signal<TaskExecution[]>([]);
   protected readonly showAdd = signal(false);
 
-  protected name = '';
-  protected kind: components['schemas']['TaskKind'] = 'container_command';
-  protected command = '';
-  protected workflowFile = '';
-  protected workflowRef = '';
-  protected cron = '';
+  /** A new task starts in the operator's own zone (§24.3), never a silent UTC. */
+  protected form: TaskForm = emptyTaskForm(browserTimeZone());
+  protected editForm: TaskForm = emptyTaskForm('UTC');
 
   protected openAdd(): void {
-    this.name = '';
-    this.kind = 'container_command';
-    this.command = '';
-    this.workflowFile = '';
-    this.workflowRef = '';
-    this.cron = '';
+    this.form = emptyTaskForm(browserTimeZone());
     this.error.set(null);
     this.showAdd.set(true);
   }
@@ -436,11 +487,15 @@ export class ApplicationTasksTabComponent {
     if (this.busy()) return;
     this.showAdd.set(false);
   }
-  protected editName = '';
-  protected editCommand = '';
-  protected editWorkflowFile = '';
-  protected editWorkflowRef = '';
-  protected editCron = '';
+
+  /**
+   * The next occurrence in the task's own zone, plus the viewer's local time
+   * when the two differ — the raw ISO string answered "when" in a timezone
+   * nobody asked about.
+   */
+  protected nextRun(task: ScheduledTask) {
+    return formatOccurrence(task.next_run_at, task.timezone);
+  }
 
   constructor() {
     effect(() => {
@@ -450,9 +505,7 @@ export class ApplicationTasksTabComponent {
   }
 
   protected valid(): boolean {
-    if (!this.name.trim() || !this.cron.trim()) return false;
-    if (this.kind === 'github_workflow') return !!this.workflowFile.trim();
-    return !!this.command.trim();
+    return taskFormValid(this.form);
   }
 
   private async load(uuid: string): Promise<void> {
@@ -474,31 +527,8 @@ export class ApplicationTasksTabComponent {
     this.busy.set(true);
     this.error.set(null);
     try {
-      // The two kinds have disjoint fields (ADR-071): the API refuses a
-      // command on a workflow task, so the body only carries the chosen side.
-      const base = {
-        kind: this.kind,
-        name: this.name.trim(),
-        cron_expression: this.cron.trim(),
-        timezone: 'UTC',
-        enabled: true,
-        timeout_seconds: 300,
-      };
-      await this.api.client().createScheduledTask(
-        this.uuid(),
-        this.kind === 'github_workflow'
-          ? {
-              ...base,
-              workflow_file: this.workflowFile.trim(),
-              workflow_ref: this.workflowRef.trim() || null,
-            }
-          : { ...base, command: this.command.trim() },
-      );
-      this.name = '';
-      this.command = '';
-      this.workflowFile = '';
-      this.workflowRef = '';
-      this.cron = '';
+      await this.api.client().createScheduledTask(this.uuid(), taskCreateBody(this.form));
+      this.form = emptyTaskForm(browserTimeZone());
       this.showAdd.set(false);
       await this.load(this.uuid());
     } catch (err) {
@@ -510,11 +540,9 @@ export class ApplicationTasksTabComponent {
 
   protected startEdit(task: ScheduledTask): void {
     this.editing.set(task.uuid);
-    this.editName = task.name;
-    this.editCommand = task.command ?? '';
-    this.editWorkflowFile = task.workflow_file ?? '';
-    this.editWorkflowRef = task.workflow_ref ?? '';
-    this.editCron = task.cron_expression;
+    // Opens on the STORED zone: re-saving a task must never move it to the
+    // editor's own timezone.
+    this.editForm = taskFormFromTask(task);
   }
 
   protected async saveEdit(task: ScheduledTask): Promise<void> {
@@ -525,22 +553,9 @@ export class ApplicationTasksTabComponent {
       // If-Match carries the task's version: a concurrent edit gets a 409
       // instead of being silently overwritten (§24.1). The patch only carries
       // the fields of the task's own kind — the API refuses the others.
-      await this.api.client().updateScheduledTask(
-        task.uuid,
-        task.version ?? 0,
-        task.kind === 'github_workflow'
-          ? {
-              name: this.editName.trim(),
-              workflow_file: this.editWorkflowFile.trim(),
-              workflow_ref: this.editWorkflowRef.trim() || null,
-              cron_expression: this.editCron.trim(),
-            }
-          : {
-              name: this.editName.trim(),
-              command: this.editCommand.trim(),
-              cron_expression: this.editCron.trim(),
-            },
-      );
+      await this.api
+        .client()
+        .updateScheduledTask(task.uuid, task.version ?? 0, taskUpdateBody(this.editForm));
       this.editing.set(null);
       await this.load(this.uuid());
     } catch (err) {

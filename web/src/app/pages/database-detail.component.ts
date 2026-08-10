@@ -17,9 +17,19 @@ import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
 import { TerminalComponent } from '../../ui/terminal/terminal.component';
 import type { TerminalSessionInfo } from '../../ui/terminal/protocol';
+import { TimezoneSelectComponent } from '../../ui/timezone-select/timezone-select.component';
+import { browserTimeZone, formatOccurrence } from '../../ui/timezone-select/timezone';
 import { ApiService } from '../core/api.service';
 import { fetchAll } from '../core/pagination';
 import { ConfirmService } from '../../ui/confirm/confirm.service';
+import {
+  backupPlanCreateBody,
+  backupPlanEditForm,
+  backupPlanUpdateBody,
+  emptyBackupPlanForm,
+  type BackupPlanEditForm,
+  type BackupPlanForm,
+} from './backup-plan-form';
 import { ApiError } from '../../api/client';
 import type { components } from '../../api/schema';
 
@@ -40,6 +50,7 @@ type S3Storage = components['schemas']['S3Storage'];
     IconComponent,
     StatusBadgeComponent,
     TerminalComponent,
+    TimezoneSelectComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -269,7 +280,15 @@ type S3Storage = components['schemas']['S3Storage'];
                 name="frequency"
                 class="akd-input akd-input--mono"
                 placeholder="daily"
-                [(ngModel)]="planFrequency"
+                [(ngModel)]="planForm.frequency"
+                [disabled]="busy()"
+              />
+            </div>
+            <div class="akd-field grow-field">
+              <label class="akd-field__label" for="bp-timezone">Timezone</label>
+              <akd-timezone-select
+                inputId="bp-timezone"
+                [(value)]="planForm.timezone"
                 [disabled]="busy()"
               />
             </div>
@@ -283,7 +302,7 @@ type S3Storage = components['schemas']['S3Storage'];
                 class="akd-input"
                 type="number"
                 min="0"
-                [(ngModel)]="planRetentionCount"
+                [(ngModel)]="planForm.retentionCount"
                 [disabled]="busy()"
               />
             </div>
@@ -297,7 +316,7 @@ type S3Storage = components['schemas']['S3Storage'];
                 class="akd-input"
                 type="number"
                 min="0"
-                [(ngModel)]="planRetentionDays"
+                [(ngModel)]="planForm.retentionDays"
                 [disabled]="busy()"
               />
             </div>
@@ -308,7 +327,7 @@ type S3Storage = components['schemas']['S3Storage'];
                   id="bp-s3"
                   name="s3"
                   class="akd-input"
-                  [(ngModel)]="planS3Uuid"
+                  [(ngModel)]="planForm.s3Uuid"
                   [disabled]="busy()"
                 >
                   <option value="">Local only</option>
@@ -321,7 +340,7 @@ type S3Storage = components['schemas']['S3Storage'];
             <button
               class="akd-btn akd-btn--primary"
               type="submit"
-              [disabled]="busy() || !planFrequency.trim()"
+              [disabled]="busy() || !planForm.frequency.trim()"
             >
               <akd-icon name="plus" [size]="15" />
               Add plan
@@ -353,7 +372,10 @@ type S3Storage = components['schemas']['S3Storage'];
               <tbody>
                 @for (plan of plans(); track plan.uuid) {
                   <tr>
-                    <td class="akd-mono">{{ plan.frequency }}</td>
+                    <td class="akd-mono">
+                      {{ plan.frequency }}
+                      <span class="zone">{{ plan.timezone || 'UTC' }}</span>
+                    </td>
                     <td>
                       @if (plan.enabled) {
                         <span class="akd-badge akd-badge--ok">enabled</span>
@@ -368,7 +390,16 @@ type S3Storage = components['schemas']['S3Storage'];
                         <span class="akd-muted">never</span>
                       }
                     </td>
-                    <td class="akd-muted akd-mono">{{ plan.next_run_at ?? '—' }}</td>
+                    <td>
+                      @if (nextRun(plan); as when) {
+                        <span class="when">{{ when.primary }}</span>
+                        @if (when.secondary) {
+                          <span class="when__local">{{ when.secondary }}</span>
+                        }
+                      } @else {
+                        <span class="akd-muted">—</span>
+                      }
+                    </td>
                     <td class="right">
                       <button
                         class="akd-btn akd-btn--ghost akd-btn--sm"
@@ -426,7 +457,17 @@ type S3Storage = components['schemas']['S3Storage'];
                               [id]="'bpe-frequency-' + plan.uuid"
                               name="editFrequency"
                               class="akd-input akd-input--mono"
-                              [(ngModel)]="editFrequency"
+                              [(ngModel)]="editPlan.frequency"
+                              [disabled]="busy()"
+                            />
+                          </div>
+                          <div class="akd-field grow-field">
+                            <label class="akd-field__label" [for]="'bpe-tz-' + plan.uuid">
+                              Timezone
+                            </label>
+                            <akd-timezone-select
+                              [inputId]="'bpe-tz-' + plan.uuid"
+                              [(value)]="editPlan.timezone"
                               [disabled]="busy()"
                             />
                           </div>
@@ -434,7 +475,7 @@ type S3Storage = components['schemas']['S3Storage'];
                             <input
                               type="checkbox"
                               name="editEnabled"
-                              [(ngModel)]="editEnabled"
+                              [(ngModel)]="editPlan.enabled"
                               [disabled]="busy()"
                             />
                             Enabled
@@ -671,6 +712,17 @@ type S3Storage = components['schemas']['S3Storage'];
       .edit-row {
         padding: var(--space-3) 0;
       }
+      .zone,
+      .when__local {
+        display: block;
+        margin-top: 2px;
+        font-size: var(--text-2xs);
+        color: var(--text-3);
+      }
+      .when {
+        display: block;
+        font-variant-numeric: tabular-nums;
+      }
       .file {
         max-width: 16rem;
         overflow: hidden;
@@ -729,12 +781,9 @@ export class DatabaseDetailComponent {
   protected publicPort: number | null = null;
   protected deleteVolumes = false;
 
-  protected planFrequency = 'daily';
-  protected planRetentionCount = 7;
-  protected planRetentionDays = 0;
-  protected planS3Uuid = '';
-  protected editFrequency = '';
-  protected editEnabled = true;
+  /** A new plan starts in the operator's own zone (§24.3), never a silent UTC. */
+  protected planForm: BackupPlanForm = emptyBackupPlanForm(browserTimeZone());
+  protected editPlan: BackupPlanEditForm = { frequency: '', timezone: 'UTC', enabled: true };
 
   constructor() {
     effect(() => {
@@ -865,30 +914,20 @@ export class DatabaseDetailComponent {
     }
   }
 
+  /**
+   * The next backup in the plan's own zone, with the viewer's local time
+   * beside it when they differ (§24.3).
+   */
+  protected nextRun(plan: BackupPlan) {
+    return formatOccurrence(plan.next_run_at, plan.timezone);
+  }
+
   protected async createPlan(): Promise<void> {
-    if (this.busy() || !this.planFrequency.trim()) return;
+    if (this.busy() || !this.planForm.frequency.trim()) return;
     this.busy.set(true);
     this.error.set(null);
     try {
-      await this.api.client().createBackupPlan(this.uuid(), {
-        frequency: this.planFrequency.trim(),
-        timezone: 'UTC',
-        enabled: true,
-        dump_all: false,
-        databases_to_include: [],
-        save_local: true,
-        save_s3: !!this.planS3Uuid,
-        s3_storage_uuid: this.planS3Uuid || null,
-        s3_only: false,
-        local_retention: {
-          max_count: this.planRetentionCount,
-          max_age_days: this.planRetentionDays,
-          max_size_gb: 0,
-        },
-        timeout_seconds: 3600,
-        drill_enabled: false,
-        drill_interval_days: 7,
-      });
+      await this.api.client().createBackupPlan(this.uuid(), backupPlanCreateBody(this.planForm));
       await this.reloadPlans();
     } catch (err) {
       this.error.set(ApiService.describe(err));
@@ -904,8 +943,9 @@ export class DatabaseDetailComponent {
 
   protected startEditPlan(plan: BackupPlan): void {
     this.editingPlan.set(plan.uuid);
-    this.editFrequency = plan.frequency;
-    this.editEnabled = plan.enabled;
+    // Opens on the STORED zone — saving again must not move the plan into the
+    // editor's own timezone.
+    this.editPlan = backupPlanEditForm(plan);
   }
 
   protected async saveEditPlan(plan: BackupPlan): Promise<void> {
@@ -913,10 +953,8 @@ export class DatabaseDetailComponent {
     this.busy.set(true);
     this.error.set(null);
     try {
-      await this.api.client().updateBackupPlan(this.uuid(), plan.uuid, plan.version, {
-        frequency: this.editFrequency.trim(),
-        enabled: this.editEnabled,
-      });
+      const body = backupPlanUpdateBody(this.editPlan);
+      await this.api.client().updateBackupPlan(this.uuid(), plan.uuid, plan.version, body);
       this.editingPlan.set(null);
       await this.reloadPlans();
     } catch (err) {

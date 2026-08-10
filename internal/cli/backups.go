@@ -139,7 +139,7 @@ func backupsListCmd() *cobra.Command {
 					return err
 				}
 				planRows = append(planRows, []string{
-					p.Frequency, backupEnabled(p), backupDestination(p),
+					planSchedule(p), backupEnabled(p), backupDestination(p),
 					backupTime(p.NextRunAt), backupOrDash(p.LastExecutionStatus), p.Uuid,
 				})
 				for _, raw := range h.Executions {
@@ -267,7 +267,7 @@ func choosePlan(dbName string, plans []backupPlan, want string) (backupPlan, err
 func planChoices(plans []backupPlan) string {
 	out := ""
 	for _, p := range plans {
-		out += fmt.Sprintf("  --plan %s  (%s, %s, %s)\n", p.Uuid, p.Frequency, backupDestination(p), backupEnabled(p))
+		out += fmt.Sprintf("  --plan %s  (%s, %s, %s)\n", p.Uuid, planSchedule(p), backupDestination(p), backupEnabled(p))
 	}
 	return out
 }
@@ -392,4 +392,16 @@ func backupOrDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// planSchedule folds the timezone into the frequency, the way `app tasks list`
+// does: "0 2 * * *" alone does not say which 2am, and a plan whose zone is not
+// the reader's is exactly where a nightly backup quietly moves by an hour twice
+// a year. UTC stays implicit — it is the default and naming it adds noise to
+// every row.
+func planSchedule(p backupPlan) string {
+	if p.Timezone != "" && p.Timezone != "UTC" {
+		return p.Frequency + " (" + p.Timezone + ")"
+	}
+	return p.Frequency
 }
