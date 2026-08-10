@@ -204,6 +204,56 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /docs:
+    get:
+      tags: [System]
+      operationId: getManual
+      summary: The in-app manual, filtered to the caller
+      description: >-
+        The dashboard's manual (§25.4, ADR-072): Markdown authored in
+        `internal/docs/manual/`, embedded in the binary and parsed at boot, rendered to
+        HTML here.
+
+
+        **Filtered server-side.** A topic or section whose gate the caller does
+        not hold is not in the response at all — the manual used to be compiled
+        into the bundle, so every reader downloaded chapters their role could
+        never open. `all=true` returns the whole manual instead, each gated
+        topic and section carrying `beyond_role: true` so the dashboard can mark
+        it rather than mix it in.
+
+
+        Requires authentication and nothing more: gating the manual itself would
+        hide from a reader the explanation of why they cannot do something.
+      x-required-permission: read
+      parameters:
+        - name: all
+          in: query
+          required: false
+          description: >-
+            Return the whole manual, marking what the caller's role does not
+            reach (`beyond_role`), instead of omitting it.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: The manual.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [topics]
+                properties:
+                  topics:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ManualTopic"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /permissions:
     get:
       tags: [Teams]
@@ -9077,6 +9127,91 @@ components:
           type: string
           enum: [ok]
           description: Always `ok` if the control plane responds.
+
+    ManualTopic:
+      type: object
+      required: [id, title, group, summary, sections]
+      description: >-
+        One chapter of the manual. `intro_html` is the prose before the first
+        heading; `sections` are its `##` headings, in document order.
+      properties:
+        id:
+          type: string
+          description: Slug, stable — it is the route (`/docs/:topic`) and the anchor.
+        title:
+          type: string
+        icon:
+          type: string
+          description: Name of a dashboard icon; validated at parse time against the ones that ship.
+        group:
+          type: string
+          description: Task grouping shown in the manual's sidebar (§25.4).
+        summary:
+          type: string
+        permission:
+          type: string
+          description: Granular permission the topic is gated on, when it has one.
+        root:
+          type: boolean
+          description: Instance-root-only chapter.
+        beyond_role:
+          type: boolean
+          description: >-
+            Only ever `true`, and only under `all=true`: this topic is past the
+            caller's role and is being returned to be marked as such.
+        links:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManualLink"
+        intro_html:
+          type: string
+          description: Rendered prose before the first section.
+        intro_text:
+          type: string
+          description: The same prose as plain text, for search.
+        sections:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManualSection"
+
+    ManualSection:
+      type: object
+      required: [id, title, html, text]
+      properties:
+        id:
+          type: string
+          description: Slug of the title, and the section's anchor.
+        title:
+          type: string
+        permission:
+          type: string
+          description: Permission this section carries on top of its topic's.
+        root:
+          type: boolean
+        beyond_role:
+          type: boolean
+        html:
+          type: string
+          description: >-
+            HTML produced by the Markdown parser itself. Raw HTML written in a
+            source file is dropped rather than passed through (ADR-072 §3).
+        text:
+          type: string
+          description: The section's prose as plain text, for client-side search.
+
+    ManualLink:
+      type: object
+      required: [label]
+      description: A link out of the manual — a dashboard route, or an absolute URL.
+      properties:
+        label:
+          type: string
+        route:
+          type: string
+          description: Dashboard route; validated at parse time against the declared routes.
+        href:
+          type: string
+          description: Absolute https URL.
 
     VersionInfo:
       type: object

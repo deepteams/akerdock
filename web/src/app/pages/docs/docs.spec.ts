@@ -1,306 +1,274 @@
-import { ICONS } from '../../../ui/icon/icons';
-import { DOC_TOPICS } from './docs.content';
-import { groupTopics, inlineRuns, narrowTopics, searchTopics, type DocTopic } from './docs.model';
+import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 
-/** The granular permission catalogue (rbac-matrix §1.2 / internal/auth). A gate
- *  naming anything else would silently hide a page from everybody, since
- *  `can()` answers false for an unknown permission. */
-const CATALOGUE = new Set([
-  'applications:create', 'applications:delete', 'applications:deploy', 'applications:exec',
-  'applications:lifecycle', 'applications:read', 'applications:update', 'audit:read',
-  'backups:manage', 'backups:read', 'backups:restore', 'certificates:read', 'certificates:renew',
-  'cloud:manage', 'cloud:read', 'config:apply', 'config:export', 'databases:create',
-  'databases:credentials', 'databases:delete', 'databases:lifecycle', 'databases:read',
-  'databases:update', 'deployments:cancel', 'deployments:read', 'environments:deploy',
-  'environments:manage', 'environments:read', 'external-endpoints:manage',
-  'external-endpoints:read', 'ingress-endpoints:manage', 'ingress-endpoints:read',
-  'ingress-tunnels:open', 'instance:audit', 'instance:encryption', 'instance:manage',
-  'invitations:manage', 'jobs:manage', 'keys:manage', 'keys:read', 'keys:reveal', 'logs:manage',
-  'logs:read', 'members:manage', 'members:read', 'metrics:read', 'notifications:manage',
-  'notifications:read', 'port-forwards:open', 'previews:manage', 'previews:read',
-  'projects:manage', 'projects:read', 'registries:manage', 'resources:adopt', 'resources:read',
-  'roles:manage', 'roles:read', 'secrets:read', 'secrets:reveal', 'secrets:write',
-  'servers:maintain', 'servers:manage', 'servers:proxy', 'servers:read', 'services:deploy',
-  'services:manage', 'services:read', 'sources:manage', 'sources:read', 'storages:manage',
-  'team:manage', 'team:read', 'templates:manage', 'terminal:open', 'terminal:root',
-  'tokens:create', 'tokens:read', 'tokens:revoke', 'uptime:manage', 'uptime:read',
-]);
+import { DocsArticleComponent } from './docs-article.component';
+import {
+  groupTopics,
+  isBeyondRole,
+  searchTopics,
+  sectionAnchor,
+  type DocSection,
+  type DocTopic,
+} from './docs.model';
 
-/** The `member` role — the reader this manual is written for (internal/auth/roles.go). */
-const MEMBER = new Set([
-  'team:read', 'members:read', 'projects:read', 'projects:manage', 'environments:read',
-  'environments:manage', 'resources:read', 'resources:adopt', 'applications:read',
-  'applications:create', 'applications:update', 'applications:delete', 'applications:deploy',
-  'applications:lifecycle', 'applications:exec', 'databases:read', 'databases:create',
-  'databases:update', 'databases:delete', 'databases:lifecycle', 'services:read',
-  'services:manage', 'services:deploy', 'secrets:read', 'secrets:write', 'servers:read',
-  'certificates:read', 'keys:read', 'sources:read', 'sources:manage', 'registries:manage',
-  'storages:manage', 'backups:read', 'backups:manage', 'backups:restore', 'deployments:read',
-  'deployments:cancel', 'previews:read', 'previews:manage', 'terminal:open',
-  'port-forwards:open', 'external-endpoints:read', 'ingress-endpoints:read',
-  'ingress-tunnels:open', 'logs:read', 'metrics:read', 'notifications:read',
-  'notifications:manage', 'uptime:read', 'uptime:manage', 'audit:read',
-]);
+// The manual itself is no longer here to be tested: the corpus is Markdown
+// under internal/docs/manual/, and its invariants — unique ids, icons that
+// exist, links that resolve, permissions in the catalogue, a manual that still
+// covers a plain member's day — are Go tests beside it (ADR-072). What is left
+// on this side is what this side owns: search, grouping, and the rendering of
+// the HTML the API returns.
 
-/** First URL segment of every route declared under the shell (app.routes.ts).
- *  Written out rather than imported: pulling app.routes in drags the router
- *  guard, the API service and half the app into this unit test. */
-const ROUTE_SEGMENTS = new Set([
-  'projects', 'applications', 'services', 'databases', 'servers', 'jobs', 'events',
-  'notifications', 'sources', 'github-apps', 'private-keys', 'registries', 'dns-credentials',
-  's3-storages', 'external-endpoints', 'ingress', 'docs', 'team', 'settings', 'system',
-  'security',
-]);
+function section(over: Partial<DocSection> = {}): DocSection {
+  return { id: 's', title: 'S', html: '<p>body</p>', text: 'body', ...over };
+}
 
-const can = (granted: Set<string>) => (permission: string) => granted.has(permission);
-const nobody = () => false;
-const everybody = () => true;
-
-describe('inlineRuns', () => {
-  it('splits code and strong spans out of plain text', () => {
-    expect(inlineRuns('run `akerdock logs` now')).toEqual([
-      { text: 'run ' },
-      { text: 'akerdock logs', code: true },
-      { text: ' now' },
-    ]);
-    expect(inlineRuns('**Restart** does not')).toEqual([
-      { text: 'Restart', strong: true },
-      { text: ' does not' },
-    ]);
-  });
-
-  it('leaves an unclosed delimiter as literal text', () => {
-    expect(inlineRuns('a lone ` backtick')).toEqual([{ text: 'a lone ` backtick' }]);
-    expect(inlineRuns('2 ** 8')).toEqual([{ text: '2 ** 8' }]);
-  });
-
-  it('never drops characters, whatever the markup', () => {
-    for (const text of ['`a`b**c**', 'plain', '**a** and `b`', '`` empty', '****']) {
-      expect(inlineRuns(text).map((r) => r.text).join('').length).toBeLessThanOrEqual(text.length);
-    }
-    expect(inlineRuns('`a`b**c**').map((r) => r.text).join('')).toBe('abc');
-  });
-});
-
-describe('narrowTopics', () => {
-  const topics: DocTopic[] = [
-    {
-      id: 'open',
-      title: 'Open',
-      icon: 'circle',
-      group: 'G',
-      summary: 's',
-      sections: [
-        {
-          id: 'a',
-          title: 'A',
-          blocks: [
-            { kind: 'p', text: 'everyone' },
-            { kind: 'p', text: 'writers only', permission: 'secrets:write' },
-          ],
-        },
-        { id: 'b', title: 'B', permission: 'servers:manage', blocks: [{ kind: 'p', text: 'x' }] },
-      ],
-    },
-    {
-      id: 'gated',
-      title: 'Gated',
-      icon: 'circle',
-      group: 'G',
-      summary: 's',
-      permission: 'instance:manage',
-      sections: [{ id: 'a', title: 'A', blocks: [{ kind: 'p', text: 'x' }] }],
-    },
-    {
-      id: 'root-only',
-      title: 'Root',
-      icon: 'circle',
-      group: 'G',
-      summary: 's',
-      root: true,
-      sections: [{ id: 'a', title: 'A', blocks: [{ kind: 'p', text: 'x' }] }],
-    },
-  ];
-
-  it('drops a topic whose gate the session fails', () => {
-    const visible = narrowTopics(topics, nobody, false);
-    expect(visible.map((t) => t.id)).toEqual(['open']);
-  });
-
-  it('drops gated sections and blocks inside a visible topic', () => {
-    const [open] = narrowTopics(topics, nobody, false);
-    expect(open.sections.map((s) => s.id)).toEqual(['a']);
-    expect(open.sections[0].blocks.length).toBe(1);
-  });
-
-  it('keeps a section once its permission is held', () => {
-    const [open] = narrowTopics(topics, can(new Set(['servers:manage'])), false);
-    expect(open.sections.map((s) => s.id)).toEqual(['a', 'b']);
-  });
-
-  it('gates root-only topics on the instance root flag, not on a permission', () => {
-    expect(narrowTopics(topics, everybody, false).map((t) => t.id)).not.toContain('root-only');
-    expect(narrowTopics(topics, everybody, true).map((t) => t.id)).toContain('root-only');
-  });
-
-  it('shows everything when asked to, gates included', () => {
-    const visible = narrowTopics(topics, nobody, false, true);
-    expect(visible.map((t) => t.id)).toEqual(['open', 'gated', 'root-only']);
-    expect(visible[0].sections.length).toBe(2);
-  });
-
-  it('drops a topic left with no content rather than showing an empty page', () => {
-    const emptied: DocTopic[] = [
-      {
-        id: 'hollow',
-        title: 'Hollow',
-        icon: 'circle',
-        group: 'G',
-        summary: 's',
-        sections: [
-          { id: 'a', title: 'A', blocks: [{ kind: 'p', text: 'x', permission: 'keys:reveal' }] },
-        ],
-      },
-    ];
-    expect(narrowTopics(emptied, nobody, false)).toEqual([]);
-  });
-
-  it('does not mutate the source content', () => {
-    narrowTopics(topics, nobody, false);
-    expect(topics[0].sections.length).toBe(2);
-    expect(topics[0].sections[0].blocks.length).toBe(2);
-  });
-});
+function topic(over: Partial<DocTopic> = {}): DocTopic {
+  return {
+    id: 't',
+    title: 'T',
+    group: 'G',
+    summary: 'a summary long enough to read',
+    icon: 'rocket',
+    sections: [section()],
+    ...over,
+  };
+}
 
 describe('searchTopics', () => {
-  it('requires every term, and looks inside the blocks', () => {
-    const found = searchTopics(DOC_TOPICS, 'fork preview');
-    expect(found.map((t) => t.id)).toContain('previews');
-    expect(searchTopics(DOC_TOPICS, 'port-forward').length).toBeGreaterThan(0);
-    expect(searchTopics(DOC_TOPICS, 'zzz nothing')).toEqual([]);
+  const corpus: DocTopic[] = [
+    topic({
+      id: 'previews',
+      title: 'Pull request previews',
+      summary: 'One live instance per PR.',
+      sections: [
+        section({ id: 'forks', title: 'From a fork', text: 'A fork PR is not deployed', html: '' }),
+      ],
+    }),
+    topic({
+      id: 'logs',
+      title: 'Logs',
+      summary: 'Reading what a container printed.',
+      group: 'Run and debug',
+      sections: [section({ text: 'the log stream resumes where it stopped' })],
+    }),
+  ];
+
+  it('requires every term, and looks inside the sections', () => {
+    expect(searchTopics(corpus, 'fork previews').map((t) => t.id)).toEqual(['previews']);
+    expect(searchTopics(corpus, 'resumes').map((t) => t.id)).toEqual(['logs']);
+    expect(searchTopics(corpus, 'fork resumes')).toEqual([]);
   });
 
-  it('returns everything on an empty query', () => {
-    expect(searchTopics(DOC_TOPICS, '   ').length).toBe(DOC_TOPICS.length);
+  it('matches titles, summaries and group names as well as the prose', () => {
+    expect(searchTopics(corpus, 'container').map((t) => t.id)).toEqual(['logs']);
+    expect(searchTopics(corpus, 'debug').map((t) => t.id)).toEqual(['logs']);
+    expect(searchTopics(corpus, 'PULL Request').map((t) => t.id)).toEqual(['previews']);
+  });
+
+  // The API hands the searchable prose beside the markup precisely so a query
+  // never has to be matched against tags: "code" must find a paragraph about
+  // code, not every topic whose HTML happens to contain a <code> element.
+  it('searches the plain text, never the markup', () => {
+    const marked = [
+      topic({ id: 'marked', sections: [section({ html: '<p><code>x</code></p>', text: 'x' })] }),
+    ];
+    expect(searchTopics(marked, 'code')).toEqual([]);
+  });
+
+  it('reads the intro prose the topic may carry before its first section', () => {
+    const withIntro = [
+      topic({ id: 'intro', intro_html: '<p>before</p>', intro_text: 'ambient prologue' }),
+    ];
+    expect(searchTopics(withIntro, 'prologue').map((t) => t.id)).toEqual(['intro']);
+  });
+
+  it('returns everything on an empty query, in the order it was given', () => {
+    expect(searchTopics(corpus, '   ').map((t) => t.id)).toEqual(['previews', 'logs']);
+  });
+
+  it('does not mutate the topics it filters', () => {
+    searchTopics(corpus, 'fork');
+    expect(corpus.length).toBe(2);
+    expect(corpus[0].sections.length).toBe(1);
   });
 });
 
 describe('groupTopics', () => {
-  it('keeps each group in order of first appearance', () => {
-    const groups = groupTopics(DOC_TOPICS);
-    expect(groups[0].title).toBe('Start here');
-    expect(groups.map((g) => g.title)).toEqual([...new Set(DOC_TOPICS.map((t) => t.group))]);
-    expect(groups.reduce((n, g) => n + g.topics.length, 0)).toBe(DOC_TOPICS.length);
+  // The API returns the manual in READING order — group by group, and in the
+  // author's order inside each group. Sorting anything here would silently
+  // reshuffle the manual, so the grouping only ever preserves.
+  it('keeps each group in order of first appearance, and each topic in its own', () => {
+    const topics = [
+      topic({ id: 'a', group: 'Start here' }),
+      topic({ id: 'b', group: 'Ship code' }),
+      topic({ id: 'c', group: 'Start here' }),
+      topic({ id: 'd', group: 'Ship code' }),
+    ];
+    const groups = groupTopics(topics);
+    expect(groups.map((g) => g.title)).toEqual(['Start here', 'Ship code']);
+    expect(groups[0].topics.map((t) => t.id)).toEqual(['a', 'c']);
+    expect(groups[1].topics.map((t) => t.id)).toEqual(['b', 'd']);
+  });
+
+  it('loses no topic', () => {
+    const topics = [topic({ id: 'a' }), topic({ id: 'b', group: 'H' }), topic({ id: 'c' })];
+    expect(groupTopics(topics).reduce((n, g) => n + g.topics.length, 0)).toBe(3);
+  });
+
+  it('groups an empty manual into no groups at all', () => {
+    expect(groupTopics([])).toEqual([]);
   });
 });
 
-describe('the manual itself', () => {
-  it('has unique topic ids, and unique section ids inside a topic', () => {
-    const ids = DOC_TOPICS.map((t) => t.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    for (const topic of DOC_TOPICS) {
-      const sections = topic.sections.map((s) => s.id);
-      expect(new Set(sections).size)
-        .withContext(`duplicate section id in ${topic.id}`)
-        .toBe(sections.length);
-      expect(sections.length).toBeGreaterThan(0);
-    }
+describe('isBeyondRole', () => {
+  // The flag is the SERVER's verdict (ADR-072 §4): without ?all=true a topic
+  // past the reader's role is simply absent, and the client never recomputes
+  // the predicate — it only marks what came back marked.
+  it('is true only for what the server flagged', () => {
+    expect(isBeyondRole(topic({ beyond_role: true }))).toBeTrue();
+    expect(isBeyondRole(topic())).toBeFalse();
+    expect(isBeyondRole(topic({ permission: 'instance:manage', root: true }))).toBeFalse();
+  });
+});
+
+describe('sectionAnchor', () => {
+  it('namespaces the anchor with its topic — a section id is unique inside one', () => {
+    expect(sectionAnchor('previews', 'day-to-day')).toBe('previews--day-to-day');
+    expect(sectionAnchor('logs', 'day-to-day')).not.toBe(sectionAnchor('previews', 'day-to-day'));
+  });
+});
+
+describe('the article renderer', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: [provideRouter([])] });
   });
 
-  it('only names icons that ship', () => {
-    for (const topic of DOC_TOPICS) {
-      expect(ICONS[topic.icon]).withContext(`unknown icon "${topic.icon}"`).toBeDefined();
-    }
+  function render(t: DocTopic): HTMLElement {
+    const fixture = TestBed.createComponent(DocsArticleComponent);
+    fixture.componentRef.setInput('topic', t);
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  it('renders the HTML the API returned, as HTML', () => {
+    const el = render(
+      topic({
+        sections: [
+          section({
+            html: '<h3>Deeper</h3><p>A <code>flag</code> and a <strong>word</strong>.</p><ul><li>one</li></ul>',
+            text: 'Deeper A flag and a word. one',
+          }),
+        ],
+      }),
+    );
+    const prose = el.querySelector('.akd-prose')!;
+    expect(prose.querySelector('h3')?.textContent).toBe('Deeper');
+    expect(prose.querySelector('code')?.textContent).toBe('flag');
+    expect(prose.querySelector('strong')?.textContent).toBe('word');
+    expect(prose.querySelectorAll('li').length).toBe(1);
   });
 
-  it('only gates on permissions the catalogue knows', () => {
-    for (const topic of DOC_TOPICS) {
-      const gates = [
-        topic.permission,
-        ...topic.sections.map((s) => s.permission),
-        ...topic.sections.flatMap((s) => s.blocks.map((b) => b.permission)),
-      ].filter((p): p is string => !!p);
-      for (const gate of gates) {
-        expect(CATALOGUE.has(gate)).withContext(`unknown permission "${gate}"`).toBeTrue();
-      }
-    }
+  // THE test of ADR-072 §3's second half. The server's markup comes from a
+  // Markdown parser with raw HTML disabled, and [innerHTML] runs Angular's
+  // DomSanitizer over it anyway. Bind it any other way — through one of
+  // DomSanitizer's trust-me escape hatches, or by assigning innerHTML by hand
+  // — and this script survives.
+  it('sanitises what it binds: a script never reaches the document', () => {
+    const el = render(
+      topic({
+        sections: [
+          section({
+            html: '<p>before</p><script>window.__docsPwned = true;</script><img src="data:," onerror="window.__docsPwned = true">',
+            text: 'before',
+          }),
+        ],
+      }),
+    );
+    const prose = el.querySelector('.akd-prose')!;
+    expect(prose.querySelector('script')).toBeNull();
+    expect(prose.innerHTML).not.toContain('onerror');
+    expect(prose.textContent).toContain('before');
+    expect((globalThis as Record<string, unknown>)['__docsPwned']).toBeUndefined();
   });
 
-  it('only links to routes the dashboard declares', () => {
-    for (const topic of DOC_TOPICS) {
-      for (const link of topic.links ?? []) {
-        if (!link.route) continue;
-        const segment = link.route.replace(/^\//, '').split('/')[0];
-        expect(ROUTE_SEGMENTS.has(segment)).withContext(`dead link ${link.route}`).toBeTrue();
-      }
-    }
+  it('sanitises the intro prose on the same terms', () => {
+    const el = render(topic({ intro_html: '<p>lede</p><script>void 0;</script>' }));
+    const intro = el.querySelector('.intro')!;
+    expect(intro.textContent).toContain('lede');
+    expect(intro.querySelector('script')).toBeNull();
   });
 
-  it('gives every topic a summary and at least one block per section', () => {
-    for (const topic of DOC_TOPICS) {
-      expect(topic.summary.length).toBeGreaterThan(10);
-      for (const section of topic.sections) {
-        expect(section.blocks.length).withContext(`${topic.id}/${section.id}`).toBeGreaterThan(0);
-      }
-    }
+  // A grep over the sources is what a reviewer runs; from inside the browser
+  // the reachable equivalent is the compiled component itself. The weaker of
+  // the two nets — the one above is the strong one, because it fails on the
+  // BEHAVIOUR rather than on the spelling. The name is assembled rather than
+  // written so that the repository-wide grep finds no occurrence at all, not
+  // even the one that guards against it.
+  it('names none of DomSanitizer’s trust-me escape hatches', () => {
+    const forbidden = ['bypass', 'Security', 'Trust'].join('');
+    const compiled = DocsArticleComponent as unknown as { ɵcmp?: { template?: unknown } };
+    const source = [String(DocsArticleComponent), String(compiled.ɵcmp?.template ?? '')].join('\n');
+    expect(source).not.toContain(forbidden);
   });
 
-  it('keeps tables rectangular', () => {
-    for (const topic of DOC_TOPICS) {
-      for (const section of topic.sections) {
-        for (const block of section.blocks) {
-          if (block.kind !== 'table') continue;
-          for (const row of block.rows) {
-            expect(row.length).withContext(`${topic.id}/${section.id}`).toBe(block.head.length);
-          }
-        }
-      }
-    }
+  it('lists a table of contents only when there is more than one section', () => {
+    const one = render(topic());
+    expect(one.querySelector('.toc')).toBeNull();
+
+    const many = render(
+      topic({ sections: [section({ id: 'a', title: 'A' }), section({ id: 'b', title: 'B' })] }),
+    );
+    const links = Array.from(many.querySelectorAll('.toc a'));
+    expect(links.map((a) => a.textContent?.trim())).toEqual(['A', 'B']);
+    // Anchors are namespaced by topic, and match the section elements' ids.
+    const ids = Array.from(many.querySelectorAll('section.section')).map((s) => s.id);
+    expect(ids).toEqual(['t--a', 't--b']);
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(ids.map((id) => `#${id}`));
   });
 
-  it('still reads as a manual for a plain member — the reader it is written for', () => {
-    const visible = narrowTopics(DOC_TOPICS, can(MEMBER), false);
-    const ids = visible.map((t) => t.id);
-    // The daily surface must survive the filter…
-    for (const expected of [
-      'first-deploy',
-      'applications',
-      'env-vars',
-      'deployments',
-      'previews',
-      'logs',
-      'terminal',
-      'port-forward',
-      'databases',
-      'cli',
-      'account',
-    ]) {
-      expect(ids).withContext(`${expected} hidden from a member`).toContain(expected);
-    }
-    // …and instance administration must not.
-    expect(ids).not.toContain('servers');
-    expect(ids).not.toContain('instance');
+  it('marks a topic the reader only sees because they asked for the whole manual', () => {
+    expect(render(topic()).querySelector('.beyond')).toBeNull();
+    expect(render(topic({ beyond_role: true })).querySelector('.beyond')).not.toBeNull();
   });
 
-  it('shows a reviewer the previews page and does not pretend they can deploy', () => {
-    const reviewer = new Set([
-      'projects:read',
-      'environments:read',
-      'applications:read',
-      'previews:read',
+  it('marks a section that is beyond the role inside a topic that is not', () => {
+    const el = render(
+      topic({
+        sections: [
+          section({ id: 'a', title: 'A' }),
+          section({ id: 'b', title: 'B', beyond_role: true }),
+        ],
+      }),
+    );
+    const badges = Array.from(el.querySelectorAll('section.section .akd-badge'));
+    expect(badges.length).toBe(1);
+    expect(badges[0].closest('section')?.id).toBe('t--b');
+  });
+
+  it('renders the links out of the manual — a route inside, a URL out', () => {
+    const el = render(
+      topic({
+        links: [
+          { label: 'Applications', route: '/applications' },
+          { label: 'The CLI', href: 'https://example.com/cli' },
+        ],
+      }),
+    );
+    const anchors = Array.from(el.querySelectorAll('.links a'));
+    expect(anchors.map((a) => a.getAttribute('href'))).toEqual([
+      '/applications',
+      'https://example.com/cli',
     ]);
-    const visible = narrowTopics(DOC_TOPICS, can(reviewer), false);
-    const ids = visible.map((t) => t.id);
-    expect(ids).toContain('previews');
-    expect(ids).not.toContain('env-vars');
-    expect(ids).not.toContain('deployments');
+    expect(anchors[1].getAttribute('rel')).toBe('noopener noreferrer');
+  });
 
-    const previews = visible.find((t) => t.id === 'previews');
-    expect(previews?.sections.map((s) => s.id)).not.toContain('forks');
+  it('falls back to a generic icon for a topic whose front-matter names none', () => {
+    const el = render(topic({ icon: undefined }));
+    expect(el.querySelector('h1 akd-icon svg')).not.toBeNull();
+  });
 
-    // A read-only role must not be taught which button to press to deploy.
-    const applications = visible.find((t) => t.id === 'applications');
-    expect(applications?.sections.map((s) => s.id)).not.toContain('lifecycle');
-    expect(applications?.sections.map((s) => s.id)).not.toContain('settings');
+  it('says so rather than drawing a blank page when every section was filtered out', () => {
+    const el = render(topic({ sections: [] }));
+    expect(el.querySelector('.akd-muted')?.textContent).toContain('no content');
   });
 });

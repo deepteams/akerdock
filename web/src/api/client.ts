@@ -789,6 +789,18 @@ export class AkerDockClient {
     return this.request<Response>('GET', '/permissions');
   }
 
+  /**
+   * The in-app manual, already filtered to what the caller may read (ADR-072
+   * §4). `all` asks for the whole thing instead, each chapter the caller's role
+   * does not reach carrying `beyond_role` so the dashboard can mark it.
+   */
+  getManual(query?: { all?: boolean }) {
+    type Response = paths['/docs']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', '/docs', {
+      query: query?.all ? { all: 'true' } : undefined,
+    });
+  }
+
   listTeamAudit(
     uuid: string,
     query?: paths['/teams/{team_uuid}/audit']['get']['parameters']['query'],

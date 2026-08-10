@@ -31,6 +31,7 @@ import (
 	"github.com/deepteams/akerdock/internal/cli"
 	"github.com/deepteams/akerdock/internal/config"
 	"github.com/deepteams/akerdock/internal/dockerruntime"
+	"github.com/deepteams/akerdock/internal/docs"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/events"
 	"github.com/deepteams/akerdock/internal/handlers"
@@ -460,9 +461,22 @@ func serveRun(mode string) int {
 			baseURL = fmt.Sprintf("http://localhost:%d", cfg.Port)
 		}
 
+		// The in-app manual (ADR-072): Markdown embedded in this binary, parsed
+		// once here. A corpus that does not parse stops the boot rather than
+		// serving a manual with a hole in it — the bytes shipped with the
+		// binary, so this cannot fail on one instance and pass on another.
+		manual, err := docs.Load(docs.Validator{
+			KnownPermission: func(p string) bool { _, ok := auth.Catalog[p]; return ok },
+		})
+		if err != nil {
+			logger.Error("the embedded manual does not parse", "error", err)
+			return 1
+		}
+
 		mcpServer := mcp.New(version)
 		mcp.RegisterTools(mcpServer, q)
 		apiServer = &handlers.API{
+			Manual:   manual,
 			MCP:      mcpServer,
 			Sessions: sessions,
 			Passkeys: passkeys,

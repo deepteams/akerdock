@@ -20,6 +20,7 @@ import (
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/auth"
+	"github.com/deepteams/akerdock/internal/docs"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/events"
 	"github.com/deepteams/akerdock/internal/httpapi"
@@ -46,6 +47,11 @@ type API struct {
 	// OAuth is the federated login engine behind /auth/oauth/* (§10.2).
 	// Nil in API-only deployments, like Sessions.
 	OAuth *session.OAuth
+	// Manual is the in-app documentation, parsed once at boot from the
+	// Markdown embedded in the binary (ADR-072). Nil only in an assembly that
+	// never loaded one — GET /docs then answers an empty manual rather than
+	// failing, since a missing manual is not a reason to break the dashboard.
+	Manual *docs.Manual
 	// Agents tracks the live agent channels (ADR-041): presence is the
 	// connection. Zero value ready.
 	Agents AgentPresence

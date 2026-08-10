@@ -1,23 +1,31 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  untracked,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { IconComponent } from '../../../ui/icon/icon.component';
-import { DOC_TOPICS } from './docs.content';
 import { DocsArticleComponent } from './docs-article.component';
-import { groupTopics, narrowTopics, searchTopics, type DocTopic } from './docs.model';
+import { groupTopics, isBeyondRole, searchTopics, type DocTopic } from './docs.model';
 
 /**
  * The in-app manual: one page naming everything the platform can do, filtered
  * to what THIS session may actually do.
  *
- * The filtering is the point, not a detail. The reader is a developer in the
- * middle of shipping something, and a manual that documents the buttons their
- * role does not have is a manual they have to mentally diff against their own
- * dashboard. So `can()` — the same predicate the sidebar uses — prunes topics,
- * sections and individual blocks. The escape hatch is a switch: someone who
- * wants to know what they are missing (to ask for it) can see the whole thing,
- * marked as beyond their permissions rather than silently mixed in.
+ * The filtering is still the point, but it is no longer done here (ADR-072
+ * §4). `GET /docs` returns the chapters the caller may read and nothing else —
+ * the manual used to be compiled into the bundle, so a reviewer downloaded the
+ * instance-administration chapters they would never be shown. Re-filtering the
+ * answer client-side would be a control in appearance only; the toggle below
+ * asks the server for the whole manual instead, and what comes back marked
+ * `beyond_role` is marked in the UI.
  */
 @Component({
   selector: 'app-docs',
@@ -51,7 +59,7 @@ import { groupTopics, narrowTopics, searchTopics, type DocTopic } from './docs.m
                 [class.akd-sidenav__item--active]="t.id === current()?.id"
                 [title]="t.title"
               >
-                <akd-icon [name]="t.icon" [size]="14" />
+                <akd-icon [name]="t.icon || 'book-open'" [size]="14" />
                 <span class="rail-label">{{ t.title }}</span>
                 @if (beyond(t)) {
                   <akd-icon name="lock" [size]="12" />
@@ -59,7 +67,9 @@ import { groupTopics, narrowTopics, searchTopics, type DocTopic } from './docs.m
               </a>
             }
           } @empty {
-            <p class="akd-muted sm none">Nothing matches “{{ query() }}”.</p>
+            @if (!loading() && query()) {
+              <p class="akd-muted sm none">Nothing matches “{{ query() }}”.</p>
+            }
           }
         </nav>
 
@@ -72,8 +82,24 @@ import { groupTopics, narrowTopics, searchTopics, type DocTopic } from './docs.m
       </aside>
 
       <div class="body">
-        @if (current(); as topic) {
-          <app-docs-article [topic]="topic" [beyond]="beyond(topic)" />
+        @if (error(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        }
+
+        @if (loading()) {
+          <p class="akd-muted">Loading the manual…</p>
+        } @else if (topics().length === 0) {
+          @if (!error()) {
+            <div class="akd-empty">
+              <akd-icon class="akd-empty__icon" name="book-open" [size]="22" />
+              <p class="akd-empty__title">The manual is empty</p>
+              <p class="akd-empty__msg">
+                This instance ships no documentation pages your role can open.
+              </p>
+            </div>
+          }
+        } @else if (current(); as topic) {
+          <app-docs-article [topic]="topic" />
         } @else if (topicId()) {
           <div class="akd-empty">
             <akd-icon class="akd-empty__icon" name="square-dashed" [size]="22" />
@@ -99,7 +125,7 @@ import { groupTopics, narrowTopics, searchTopics, type DocTopic } from './docs.m
                 @for (t of group.topics; track t.id) {
                   <a class="card" [routerLink]="['/docs', t.id]">
                     <span class="card-head">
-                      <akd-icon [name]="t.icon" [size]="15" />
+                      <akd-icon [name]="t.icon || 'book-open'" [size]="15" />
                       <span class="card-title">{{ t.title }}</span>
                       @if (beyond(t)) {
                         <span class="akd-badge">beyond your role</span>
@@ -247,41 +273,76 @@ export class DocsComponent {
   /** Persisted: someone who turned the full manual on meant it. */
   protected readonly showAll = signal(localStorage.getItem('akd.docs.all') === '1');
 
+  protected readonly topics = signal<DocTopic[]>([]);
+  protected readonly loading = signal(true);
+  protected readonly error = signal<string | null>(null);
+
   protected readonly topicId = computed(() => this.topic());
 
-  private readonly can = (permission: string) => this.api.can(permission);
-  private readonly isRoot = computed(() => this.api.currentUser()?.instanceRoot === true);
-
-  /** The manual as this session may read it — the whole point of the page. */
-  private readonly visible = computed(() =>
-    narrowTopics(DOC_TOPICS, this.can, this.isRoot(), this.showAll()),
-  );
+  constructor() {
+    // One fetch per state of the toggle: "show everything" is a different
+    // request, not a different filter — the server is the one that decides
+    // what this reader may see.
+    effect(() => {
+      const all = this.showAll();
+      // untracked: the request itself reads other signals on its way out (the
+      // API client is a computed over the CSRF token), and a fetch that
+      // subscribed to them would re-run on things that have nothing to do with
+      // the manual.
+      untracked(() => void this.load(all));
+    });
+  }
 
   /** Search applies to the navigation, never to the article being read: a
    *  filter that could yank the page out from under the reader is a trap. */
   protected readonly groups = computed(() =>
-    groupTopics(searchTopics(this.visible(), this.query())),
+    groupTopics(searchTopics(this.topics(), this.query())),
   );
 
   protected readonly current = computed(() => {
     const id = this.topicId();
     if (!id) return null;
-    return this.visible().find((t) => t.id === id) ?? null;
+    return this.topics().find((t) => t.id === id) ?? null;
   });
 
-  /** True when the topic only shows because "include what I cannot do" is on. */
+  /** The server's verdict, never recomputed here. */
   protected beyond(topic: DocTopic): boolean {
-    if (!this.showAll()) return false;
-    return narrowTopics([topic], this.can, this.isRoot(), false).length === 0;
+    return isBeyondRole(topic);
   }
 
   protected counted(): string {
-    const total = this.visible().length;
+    const total = this.topics().length;
     return total === 1 ? '1 page.' : `${total} pages.`;
   }
 
   protected toggleShowAll(): void {
     this.showAll.update((on) => !on);
     localStorage.setItem('akd.docs.all', this.showAll() ? '1' : '0');
+  }
+
+  private async load(all: boolean): Promise<void> {
+    this.loading.set(true);
+    this.error.set(null);
+    try {
+      const manual = await this.api.client().getManual(all ? { all: true } : undefined);
+      this.topics.set(manual.topics);
+      this.scrollToFragment();
+    } catch (err) {
+      this.topics.set([]);
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  /**
+   * A deep link carries the section anchor, and the manual now arrives after
+   * the page does: by the time the browser looked for `#…`, the article was
+   * still a spinner. So the scroll is redone once the content exists.
+   */
+  private scrollToFragment(): void {
+    const id = decodeURIComponent(globalThis.location.hash.replace(/^#/, ''));
+    if (!id) return;
+    setTimeout(() => document.getElementById(id)?.scrollIntoView({ block: 'start' }), 0);
   }
 }

@@ -41,6 +41,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/docs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The in-app manual, filtered to the caller
+         * @description The dashboard's manual (§25.4, ADR-072): Markdown authored in `internal/docs/manual/`, embedded in the binary and parsed at boot, rendered to HTML here.
+         *
+         *     **Filtered server-side.** A topic or section whose gate the caller does not hold is not in the response at all — the manual used to be compiled into the bundle, so every reader downloaded chapters their role could never open. `all=true` returns the whole manual instead, each gated topic and section carrying `beyond_role: true` so the dashboard can mark it rather than mix it in.
+         *
+         *     Requires authentication and nothing more: gating the manual itself would hide from a reader the explanation of why they cannot do something.
+         */
+        get: operations["getManual"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/permissions": {
         parameters: {
             query?: never;
@@ -3864,6 +3888,50 @@ export interface components {
              */
             status: "ok";
         };
+        /** @description One chapter of the manual. `intro_html` is the prose before the first heading; `sections` are its `##` headings, in document order. */
+        ManualTopic: {
+            /** @description Slug, stable — it is the route (`/docs/:topic`) and the anchor. */
+            id: string;
+            title: string;
+            /** @description Name of a dashboard icon; validated at parse time against the ones that ship. */
+            icon?: string;
+            /** @description Task grouping shown in the manual's sidebar (§25.4). */
+            group: string;
+            summary: string;
+            /** @description Granular permission the topic is gated on, when it has one. */
+            permission?: string;
+            /** @description Instance-root-only chapter. */
+            root?: boolean;
+            /** @description Only ever `true`, and only under `all=true`: this topic is past the caller's role and is being returned to be marked as such. */
+            beyond_role?: boolean;
+            links?: components["schemas"]["ManualLink"][];
+            /** @description Rendered prose before the first section. */
+            intro_html?: string;
+            /** @description The same prose as plain text, for search. */
+            intro_text?: string;
+            sections: components["schemas"]["ManualSection"][];
+        };
+        ManualSection: {
+            /** @description Slug of the title, and the section's anchor. */
+            id: string;
+            title: string;
+            /** @description Permission this section carries on top of its topic's. */
+            permission?: string;
+            root?: boolean;
+            beyond_role?: boolean;
+            /** @description HTML produced by the Markdown parser itself. Raw HTML written in a source file is dropped rather than passed through (ADR-072 §3). */
+            html: string;
+            /** @description The section's prose as plain text, for client-side search. */
+            text: string;
+        };
+        /** @description A link out of the manual — a dashboard route, or an absolute URL. */
+        ManualLink: {
+            label: string;
+            /** @description Dashboard route; validated at parse time against the declared routes. */
+            route?: string;
+            /** @description Absolute https URL. */
+            href?: string;
+        };
         VersionInfo: {
             /**
              * @description Semantic version of the AkerDock instance.
@@ -6759,6 +6827,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VersionInfo"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getManual: {
+        parameters: {
+            query?: {
+                /** @description Return the whole manual, marking what the caller's role does not reach (`beyond_role`), instead of omitting it. */
+                all?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The manual. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        topics: components["schemas"]["ManualTopic"][];
+                    };
                 };
             };
             401: components["responses"]["Unauthorized"];

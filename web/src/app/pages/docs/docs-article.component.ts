@@ -1,20 +1,31 @@
-import { ChangeDetectionStrategy, Component, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { IconComponent } from '../../../ui/icon/icon.component';
-import { DocTextComponent } from './doc-text.component';
-import type { DocTopic } from './docs.model';
+import { isBeyondRole, sectionAnchor, type DocTopic } from './docs.model';
 
 /**
- * Renders one documentation topic: its blocks, in order, each bound as text.
+ * Renders one chapter of the manual: its sections, in order, each as the HTML
+ * the server produced from the Markdown source (ADR-072 §3).
  *
- * The content file holds data, not markup, and this renderer is the reason it
- * can stay that way — every string goes through <app-doc-text>, which parses
- * the inline vocabulary into runs. Nothing here writes HTML.
+ * The `html` is bound with `[innerHTML]`, which runs Angular's DomSanitizer.
+ * That is the second half of the safety argument, the first being that the
+ * markup was produced by goldmark itself with raw HTML disabled — a tag
+ * written inside a `.md` is dropped by the parser, never forwarded. Nothing
+ * here may reach for DomSanitizer's trust-me escape hatches: the day it does,
+ * the sanitiser stops being a control and the whole argument is one call deep.
+ * A spec asserts their absence — by name, which is why the name is not spelled
+ * out here — and another asserts that hostile markup bound in this template
+ * really does come out inert.
+ *
+ * Typography lives in `.akd-prose` (styles.css) rather than in this
+ * component's styles: emulated encapsulation stamps its attribute on the
+ * template's own elements, and content inserted through `[innerHTML]` never
+ * carries it — a scoped rule would simply not match the manual's paragraphs.
  */
 @Component({
   selector: 'app-docs-article',
   standalone: true,
-  imports: [RouterLink, IconComponent, DocTextComponent],
+  imports: [RouterLink, IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <article class="article">
@@ -24,7 +35,7 @@ import type { DocTopic } from './docs.model';
           All pages
         </a>
         <h1>
-          <akd-icon [name]="topic().icon" [size]="19" />
+          <akd-icon [name]="topic().icon || 'book-open'" [size]="19" />
           {{ topic().title }}
         </h1>
         <p class="summary">{{ topic().summary }}</p>
@@ -63,6 +74,10 @@ import type { DocTopic } from './docs.model';
         }
       </header>
 
+      @if (topic().intro_html; as intro) {
+        <div class="akd-prose intro" [innerHTML]="intro"></div>
+      }
+
       @if (topic().sections.length > 1) {
         <nav class="toc" aria-label="On this page">
           @for (section of topic().sections; track section.id) {
@@ -73,80 +88,16 @@ import type { DocTopic } from './docs.model';
 
       @for (section of topic().sections; track section.id) {
         <section class="section" [id]="anchor(section.id)">
-          <h2>{{ section.title }}</h2>
-
-          @for (block of section.blocks; track $index) {
-            @switch (block.kind) {
-              @case ('p') {
-                <p class="txt"><app-doc-text [text]="block.text" /></p>
-              }
-              @case ('note') {
-                <aside class="callout note">
-                  <akd-icon name="info" [size]="14" />
-                  <p><app-doc-text [text]="block.text" /></p>
-                </aside>
-              }
-              @case ('warn') {
-                <aside class="callout warn">
-                  <akd-icon name="triangle-alert" [size]="14" />
-                  <p><app-doc-text [text]="block.text" /></p>
-                </aside>
-              }
-              @case ('ul') {
-                <ul class="list">
-                  @for (item of block.items; track $index) {
-                    <li><app-doc-text [text]="item" /></li>
-                  }
-                </ul>
-              }
-              @case ('steps') {
-                <ol class="list steps">
-                  @for (item of block.items; track $index) {
-                    <li><app-doc-text [text]="item" /></li>
-                  }
-                </ol>
-              }
-              @case ('code') {
-                <figure class="snippet">
-                  @if (block.caption) {
-                    <figcaption>{{ block.caption }}</figcaption>
-                  }
-                  <button
-                    type="button"
-                    class="akd-iconbtn copy"
-                    aria-label="Copy this snippet"
-                    (click)="copy(block.code)"
-                  >
-                    <akd-icon [name]="copied() === block.code ? 'check' : 'copy'" [size]="13" />
-                  </button>
-                  <pre><code>{{ block.code }}</code></pre>
-                </figure>
-              }
-              @case ('table') {
-                <div class="table-wrap">
-                  <table class="akd-table">
-                    <thead>
-                      <tr>
-                        @for (cell of block.head; track $index) {
-                          <th scope="col">{{ cell }}</th>
-                        }
-                      </tr>
-                    </thead>
-                    <tbody>
-                      @for (row of block.rows; track $index) {
-                        <tr>
-                          @for (cell of row; track $index) {
-                            <td><app-doc-text [text]="cell" /></td>
-                          }
-                        </tr>
-                      }
-                    </tbody>
-                  </table>
-                </div>
-              }
+          <h2>
+            {{ section.title }}
+            @if (sectionBeyond(section.beyond_role)) {
+              <span class="akd-badge">beyond your role</span>
             }
-          }
+          </h2>
+          <div class="akd-prose" [innerHTML]="section.html"></div>
         </section>
+      } @empty {
+        <p class="akd-muted">This page has no content yet.</p>
       }
     </article>
   `,
@@ -197,6 +148,10 @@ import type { DocTopic } from './docs.model';
         text-decoration: none;
       }
 
+      .intro {
+        margin-top: var(--space-5);
+      }
+
       .toc {
         display: flex;
         flex-wrap: wrap;
@@ -220,125 +175,27 @@ import type { DocTopic } from './docs.model';
         scroll-margin-top: var(--space-4);
       }
       .section h2 {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
         margin: 0 0 var(--space-3);
         font: var(--weight-semibold) var(--text-lg) var(--font-display);
         color: var(--text-1);
-      }
-      .txt,
-      .list li {
-        color: var(--text-2);
-        font-size: var(--text-sm);
-        line-height: 1.65;
-      }
-      .txt {
-        margin: 0 0 var(--space-3);
-      }
-      .list {
-        margin: 0 0 var(--space-3);
-        padding-left: var(--space-5);
-      }
-      .list li {
-        margin-bottom: 6px;
-      }
-      .steps li::marker {
-        color: var(--accent);
-        font-family: var(--font-mono);
-      }
-
-      .callout {
-        display: flex;
-        align-items: flex-start;
-        gap: 9px;
-        margin: 0 0 var(--space-3);
-        padding: var(--space-3);
-        border: 1px solid var(--border-1);
-        border-left-width: 3px;
-        border-radius: var(--radius-2);
-        background: var(--bg-1);
-      }
-      .callout p {
-        margin: 0;
-        font-size: var(--text-sm);
-        line-height: 1.6;
-        color: var(--text-2);
-      }
-      .callout.note {
-        border-left-color: var(--accent);
-      }
-      .callout.note akd-icon {
-        color: var(--accent);
-      }
-      .callout.warn {
-        border-left-color: var(--warn);
-      }
-      .callout.warn akd-icon {
-        color: var(--warn);
-      }
-
-      .snippet {
-        position: relative;
-        margin: 0 0 var(--space-4);
-      }
-      .snippet figcaption {
-        margin-bottom: 6px;
-        font-size: var(--text-2xs);
-        color: var(--text-3);
-      }
-      .snippet pre {
-        margin: 0;
-        padding: var(--space-3);
-        overflow-x: auto;
-        background: var(--bg-0);
-        border: 1px solid var(--border-1);
-        border-radius: var(--radius-2);
-      }
-      .snippet pre code {
-        font-family: var(--font-mono);
-        font-size: var(--text-sm);
-        line-height: 1.6;
-        color: var(--text-2);
-      }
-      .copy {
-        position: absolute;
-        top: var(--space-1);
-        right: var(--space-1);
-        opacity: 0.6;
-      }
-      .copy:hover {
-        opacity: 1;
-      }
-
-      .table-wrap {
-        overflow-x: auto;
-        margin: 0 0 var(--space-4);
-      }
-      .table-wrap td {
-        font-size: var(--text-sm);
-        line-height: 1.55;
-        vertical-align: top;
       }
     `,
   ],
 })
 export class DocsArticleComponent {
   readonly topic = input.required<DocTopic>();
-  /** The topic is only visible because "show everything" is on. */
-  readonly beyond = input<boolean>(false);
 
-  protected readonly copied = signal<string | null>(null);
+  /** The chapter is only in the response because "show everything" is on. */
+  protected readonly beyond = computed(() => isBeyondRole(this.topic()));
 
-  /** Anchors are namespaced: a section id is unique inside its topic only. */
   protected anchor(sectionId: string): string {
-    return `${this.topic().id}--${sectionId}`;
+    return sectionAnchor(this.topic().id, sectionId);
   }
 
-  protected async copy(code: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(code);
-      this.copied.set(code);
-      setTimeout(() => this.copied.set(null), 1500);
-    } catch {
-      /* a browser that refuses the clipboard leaves the snippet selectable */
-    }
+  protected sectionBeyond(flag: boolean | undefined): boolean {
+    return flag === true;
   }
 }

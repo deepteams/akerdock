@@ -4339,6 +4339,66 @@ type LogLine struct {
 // LogLineChannel Origin of the line (`system` = deployment engine steps).
 type LogLineChannel string
 
+// ManualLink A link out of the manual — a dashboard route, or an absolute URL.
+type ManualLink struct {
+	// Href Absolute https URL.
+	Href  *string `json:"href,omitempty"`
+	Label string  `json:"label"`
+
+	// Route Dashboard route; validated at parse time against the declared routes.
+	Route *string `json:"route,omitempty"`
+}
+
+// ManualSection defines model for ManualSection.
+type ManualSection struct {
+	BeyondRole *bool `json:"beyond_role,omitempty"`
+
+	// Html HTML produced by the Markdown parser itself. Raw HTML written in a source file is dropped rather than passed through (ADR-072 §3).
+	Html string `json:"html"`
+
+	// Id Slug of the title, and the section's anchor.
+	Id string `json:"id"`
+
+	// Permission Permission this section carries on top of its topic's.
+	Permission *string `json:"permission,omitempty"`
+	Root       *bool   `json:"root,omitempty"`
+
+	// Text The section's prose as plain text, for client-side search.
+	Text  string `json:"text"`
+	Title string `json:"title"`
+}
+
+// ManualTopic One chapter of the manual. `intro_html` is the prose before the first heading; `sections` are its `##` headings, in document order.
+type ManualTopic struct {
+	// BeyondRole Only ever `true`, and only under `all=true`: this topic is past the caller's role and is being returned to be marked as such.
+	BeyondRole *bool `json:"beyond_role,omitempty"`
+
+	// Group Task grouping shown in the manual's sidebar (§25.4).
+	Group string `json:"group"`
+
+	// Icon Name of a dashboard icon; validated at parse time against the ones that ship.
+	Icon *string `json:"icon,omitempty"`
+
+	// Id Slug, stable — it is the route (`/docs/:topic`) and the anchor.
+	Id string `json:"id"`
+
+	// IntroHtml Rendered prose before the first section.
+	IntroHtml *string `json:"intro_html,omitempty"`
+
+	// IntroText The same prose as plain text, for search.
+	IntroText *string       `json:"intro_text,omitempty"`
+	Links     *[]ManualLink `json:"links,omitempty"`
+
+	// Permission Granular permission the topic is gated on, when it has one.
+	Permission *string `json:"permission,omitempty"`
+
+	// Root Instance-root-only chapter.
+	Root     *bool           `json:"root,omitempty"`
+	Sections []ManualSection `json:"sections"`
+	Summary  string          `json:"summary"`
+	Title    string          `json:"title"`
+}
+
 // MemberRoleUpdate Changes a member's role (ADR-038). Either a system role (`role`), or a custom role (`role: custom` + `custom_role_uuid`).
 type MemberRoleUpdate struct {
 	// CustomRoleUuid Required (and only read) when `role` is `custom`.
@@ -6167,6 +6227,12 @@ type CreateDnsCredentialParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// GetManualParams defines parameters for GetManual.
+type GetManualParams struct {
+	// All Return the whole manual, marking what the caller's role does not reach (`beyond_role`), instead of omitting it.
+	All *bool `form:"all,omitempty" json:"all,omitempty"`
+}
+
 // StreamEventsParams defines parameters for StreamEvents.
 type StreamEventsParams struct {
 	// LastEventID Resume an SSE stream — sequence of the last event received (only with `Accept: text/event-stream`).
@@ -7324,6 +7390,9 @@ type ServerInterface interface {
 	// DNS-01 credential details
 	// (GET /dns-credentials/{dns_credential_uuid})
 	GetDnsCredential(w http.ResponseWriter, r *http.Request, dnsCredentialUuid string)
+	// The in-app manual, filtered to the caller
+	// (GET /docs)
+	GetManual(w http.ResponseWriter, r *http.Request, params GetManualParams)
 	// SSE stream of team events (statuses, jobs, deployments)
 	// (GET /events)
 	StreamEvents(w http.ResponseWriter, r *http.Request, params StreamEventsParams)
@@ -8263,6 +8332,12 @@ func (_ Unimplemented) DeleteDnsCredential(w http.ResponseWriter, r *http.Reques
 // DNS-01 credential details
 // (GET /dns-credentials/{dns_credential_uuid})
 func (_ Unimplemented) GetDnsCredential(w http.ResponseWriter, r *http.Request, dnsCredentialUuid string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The in-app manual, filtered to the caller
+// (GET /docs)
+func (_ Unimplemented) GetManual(w http.ResponseWriter, r *http.Request, params GetManualParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -12979,6 +13054,45 @@ func (siw *ServerInterfaceWrapper) GetDnsCredential(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetDnsCredential(w, r, dnsCredentialUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetManual operation middleware
+func (siw *ServerInterfaceWrapper) GetManual(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetManualParams
+
+	// ------------- Optional query parameter "all" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "all", r.URL.Query(), &params.All, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "all"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "all", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetManual(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -20371,6 +20485,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/dns-credentials/{dns_credential_uuid}", wrapper.GetDnsCredential)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/docs", wrapper.GetManual)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/events", wrapper.StreamEvents)
@@ -28492,6 +28609,61 @@ func (response GetDnsCredential404JSONResponse) VisitGetDnsCredentialResponse(w 
 type GetDnsCredential429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response GetDnsCredential429JSONResponse) VisitGetDnsCredentialResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetManualRequestObject struct {
+	Params GetManualParams
+}
+
+type GetManualResponseObject interface {
+	VisitGetManualResponse(w http.ResponseWriter) error
+}
+
+type GetManual200JSONResponse struct {
+	Topics []ManualTopic `json:"topics"`
+}
+
+func (response GetManual200JSONResponse) VisitGetManualResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetManual401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetManual401JSONResponse) VisitGetManualResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetManual429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetManual429JSONResponse) VisitGetManualResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -43242,6 +43414,9 @@ type StrictServerInterface interface {
 	// DNS-01 credential details
 	// (GET /dns-credentials/{dns_credential_uuid})
 	GetDnsCredential(ctx context.Context, request GetDnsCredentialRequestObject) (GetDnsCredentialResponseObject, error)
+	// The in-app manual, filtered to the caller
+	// (GET /docs)
+	GetManual(ctx context.Context, request GetManualRequestObject) (GetManualResponseObject, error)
 	// SSE stream of team events (statuses, jobs, deployments)
 	// (GET /events)
 	StreamEvents(ctx context.Context, request StreamEventsRequestObject) (StreamEventsResponseObject, error)
@@ -45947,6 +46122,32 @@ func (sh *strictHandler) GetDnsCredential(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetDnsCredentialResponseObject); ok {
 		if err := validResponse.VisitGetDnsCredentialResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetManual operation middleware
+func (sh *strictHandler) GetManual(w http.ResponseWriter, r *http.Request, params GetManualParams) {
+	var request GetManualRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetManual(ctx, request.(GetManualRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetManual")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetManualResponseObject); ok {
+		if err := validResponse.VisitGetManualResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -125,10 +125,7 @@ describe('AkerDockClient', () => {
 
     for (const name of shortcutNames) {
       const before = calls.length;
-      const value = prototype[name].apply(
-        client,
-        ['unit', 'unit', 1, {}, {}, {}],
-      );
+      const value = prototype[name].apply(client, ['unit', 'unit', 1, {}, {}, {}]);
       await value;
       expect(calls.length)
         .withContext(`${name} must delegate exactly once to request()`)
@@ -136,6 +133,24 @@ describe('AkerDockClient', () => {
     }
 
     expect(shortcutNames.length).toBeGreaterThan(150);
+  });
+
+  // The manual is filtered SERVER-side (ADR-072 §4): asking for the whole of
+  // it is a different request, not a different filter, so the parameter has to
+  // reach the wire — and has to be absent when nobody asked.
+  it('asks for the whole manual only when told to', async () => {
+    const { calls, fetchImpl } = capturingFetch();
+    const client = new AkerDockClient({ baseUrl: '/api/v1', fetch: fetchImpl });
+
+    await client.getManual();
+    expect(calls[0].pathname).toBe('/api/v1/docs');
+    expect(calls[0].search).toBe('');
+
+    await client.getManual({ all: true });
+    expect(calls[1].searchParams.get('all')).toBe('true');
+
+    await client.getManual({ all: false });
+    expect(calls[2].search).toBe('');
   });
 
   it('covers shortcut defaults and the native fetch fallback', async () => {
