@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/deepteams/akerdock/internal/audit"
+	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/store"
 )
@@ -164,6 +165,195 @@ func TestScheduledWorkflowDispatch(t *testing.T) {
 		j := workflowTaskJob()
 		if _, err := h.Execute(ctx, j, queue.NewStepRecorder(q, j)); err == nil {
 			t.Fatal("a vanished task is a job failure, not a task result")
+		}
+	})
+}
+
+// workflowTask builds a dispatchable task; the mutation shapes the row the
+// CHECK constraint cannot be asked to produce (a NULL workflow_file, a zero
+// timeout), which is exactly what these refusals defend against.
+func workflowTask(mut func(*store.ScheduledTask)) store.ScheduledTask {
+	task := store.ScheduledTask{
+		ID: 1, TeamID: 1, ResourceID: 1, Name: "nightly",
+		Kind: store.TaskKindGithubWorkflow, TimeoutSeconds: 30,
+		WorkflowFile: ptr("build.yml"),
+	}
+	_ = task.Uuid.Scan(jobFixtureUUID)
+	if mut != nil {
+		mut(&task)
+	}
+	return task
+}
+
+// workflowApp is an application whose resolution chain reaches a GitHub App:
+// both foreign keys are set, so the refusals below come from the rows the fake
+// returns rather than from the application itself.
+func workflowApp() store.GetApplicationByIDRow {
+	return prevjobsApp(func(a *store.GetApplicationByIDRow) {
+		a.Application.GitSourceID = ptr(int64(1))
+		a.Application.RepositoryID = ptr(int64(1))
+	})
+}
+
+// The refusals dispatchWorkflow reports itself, driven at the function rather
+// than through Execute: the fake shapes a whole row at a time, and these cases
+// need one column at a time. Every one of them asserts the ADR's invariant —
+// nil error, failure in the result.
+func TestScheduledWorkflowDispatchRefusals(t *testing.T) {
+	ctx := context.Background()
+	payload := ScheduledTaskPayload{TaskID: 1, ExecutionID: 1}
+	dispatch := func(t *testing.T, h *ScheduledTaskRun, q *store.Queries, task store.ScheduledTask) map[string]any {
+		t.Helper()
+		j := workflowTaskJob()
+		out, err := h.dispatchWorkflow(ctx, payload, task, workflowApp(), queue.NewStepRecorder(q, j))
+		if err != nil {
+			t.Fatalf("a dispatch-level failure must never reach the queue: %v", err)
+		}
+		result, _ := out.(map[string]any)
+		if result == nil {
+			t.Fatalf("result = %#v", out)
+		}
+		return result
+	}
+	refused := func(t *testing.T, result map[string]any, want string) {
+		t.Helper()
+		reason, _ := result["reason"].(string)
+		if result["status"] != "failed" || !strings.Contains(reason, want) {
+			t.Fatalf("result = %#v, want a failure mentioning %q", result, want)
+		}
+	}
+
+	t.Run("a hand-edited row without workflow_file is refused, not dereferenced", func(t *testing.T) {
+		h, q, _ := workflowDeps(t, "http://unused.invalid")
+		result := dispatch(t, h, q, workflowTask(func(task *store.ScheduledTask) { task.WorkflowFile = nil }))
+		refused(t, result, "no workflow_file")
+	})
+
+	t.Run("no ref anywhere is refused, never a guessed main", func(t *testing.T) {
+		srv, captured := workflowGithubServer(t, http.StatusNoContent)
+		h, q, _ := workflowDeps(t, srv.URL)
+		// Nothing pinned on the task, no branch on the application, and the
+		// repository's default_branch stays NULL: the chain runs dry.
+		result := dispatch(t, h, q, workflowTask(nil))
+		refused(t, result, "no ref to dispatch on")
+		if captured.Path != "" {
+			t.Fatal("a task with no ref must not dispatch anything")
+		}
+	})
+
+	t.Run("the repository default branch closes the fallback chain", func(t *testing.T) {
+		srv, captured := workflowGithubServer(t, http.StatusNoContent)
+		h, q, db := workflowDeps(t, srv.URL)
+		db.fillPtr["GetRepositoryByID"] = true // default_branch is no longer NULL
+		result := dispatch(t, h, q, workflowTask(nil))
+		if result["status"] != "succeeded" {
+			t.Fatalf("result = %#v", result)
+		}
+		// The fake gives every string column of a row the same value, so the
+		// default branch reads as the repository's full name here.
+		if captured.Body["ref"] != "acme/site" {
+			t.Fatalf("dispatch ref = %v, want the repository default branch", captured.Body["ref"])
+		}
+	})
+
+	t.Run("a dispatch that outruns its timeout says so", func(t *testing.T) {
+		srv, _ := workflowGithubServer(t, http.StatusNoContent)
+		h, q, _ := workflowDeps(t, srv.URL)
+		result := dispatch(t, h, q, workflowTask(func(task *store.ScheduledTask) {
+			task.WorkflowRef = ptr("main")
+			task.TimeoutSeconds = 0 // the dispatch context is over before it starts
+		}))
+		refused(t, result, "exceeded its timeout of 0s")
+	})
+
+	t.Run("a bookkeeping failure after an accepted dispatch stays a success", func(t *testing.T) {
+		srv, captured := workflowGithubServer(t, http.StatusNoContent)
+		h, q, db := workflowDeps(t, srv.URL)
+		db.errs["FinishTaskExecution"] = fmt.Errorf("db gone")
+		result := dispatch(t, h, q, workflowTask(func(task *store.ScheduledTask) {
+			task.WorkflowRef = ptr("main")
+		}))
+		// GitHub already started a build: reporting a failure here would have
+		// the queue dispatch a second one.
+		if result["status"] != "succeeded" || captured.Path == "" {
+			t.Fatalf("result = %#v, dispatch path = %q", result, captured.Path)
+		}
+	})
+}
+
+// Every refusal of the resolution chain application → git source → GitHub App
+// → repository → installation token. The error strings are what the operator
+// reads in the execution history, so each case asserts the fix it names.
+func TestScheduledWorkflowGithubResolution(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name  string
+		setup func(t *testing.T, h *ScheduledTaskRun, db *prevjobsDB, keyring *envelope.Keyring)
+		want  string
+	}{
+		{
+			name: "a git source that is not a GitHub App",
+			setup: func(_ *testing.T, _ *ScheduledTaskRun, db *prevjobsDB, _ *envelope.Keyring) {
+				db.fillPtr["GetGitSourceByID"] = false
+			},
+			want: "not a GitHub App",
+		},
+		{
+			name: "the App row vanished",
+			setup: func(_ *testing.T, _ *ScheduledTaskRun, db *prevjobsDB, _ *envelope.Keyring) {
+				db.errs["GetGithubAppByID"] = fmt.Errorf("no rows")
+			},
+			want: "no longer exists",
+		},
+		{
+			name: "the repository is not known yet",
+			setup: func(_ *testing.T, _ *ScheduledTaskRun, db *prevjobsDB, _ *envelope.Keyring) {
+				db.errs["GetRepositoryByID"] = fmt.Errorf("no rows")
+			},
+			want: "redeploy once to resync",
+		},
+		{
+			name:  "no keyring is configured",
+			setup: func(_ *testing.T, h *ScheduledTaskRun, _ *prevjobsDB, _ *envelope.Keyring) { h.Keyring = nil },
+			want:  "no keyring",
+		},
+		{
+			name: "the stored private key does not decrypt",
+			setup: func(_ *testing.T, _ *ScheduledTaskRun, db *prevjobsDB, _ *envelope.Keyring) {
+				db.blobs["GetGithubAppByID"] = []byte("not ciphertext")
+			},
+			want: "envelope:",
+		},
+		{
+			name: "the decrypted key is not a key",
+			setup: func(t *testing.T, _ *ScheduledTaskRun, db *prevjobsDB, keyring *envelope.Keyring) {
+				db.blobs["GetGithubAppByID"] = prevjobsEncrypt(t, keyring,
+					"github_apps", "app_private_key_enc", []byte("not a PEM block"))
+			},
+			want: "not PEM",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, q, db := workflowDeps(t, "http://unused.invalid")
+			tc.setup(t, h, db, h.Keyring)
+			j := workflowTaskJob()
+			result, err := h.Execute(ctx, j, queue.NewStepRecorder(q, j))
+			reason, _ := result.(map[string]any)["reason"].(string)
+			if err != nil || !strings.Contains(reason, tc.want) {
+				t.Fatalf("result = %#v, err = %v, want a failure mentioning %q", result, err, tc.want)
+			}
+		})
+	}
+
+	t.Run("github refuses to mint the installation token", func(t *testing.T) {
+		srv := prevjobsGithubServer(t, map[string]int{"access_tokens": http.StatusInternalServerError})
+		h, q, _ := workflowDeps(t, srv.URL)
+		j := workflowTaskJob()
+		result, err := h.Execute(ctx, j, queue.NewStepRecorder(q, j))
+		reason, _ := result.(map[string]any)["reason"].(string)
+		if err != nil || !strings.Contains(reason, "github installation token") {
+			t.Fatalf("result = %#v, err = %v", result, err)
 		}
 	})
 }
