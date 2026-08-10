@@ -109,10 +109,14 @@ func (r Resource) wakeSet() []WakeContainer {
 // Ingress is retained for backward-compatible reads; new control planes write
 // dev ingress hosts to ingress-routes.json so independent job streams cannot
 // overwrite one another.
+// Pending carries the previews whose route exists but whose container does not
+// yet (ADR-073): the agent answers those hosts with their state instead of the
+// 404 the proxy used to return between the PR opening and the first deploy.
 type Config struct {
 	Routes    []Route        `json:"routes"`
 	Resources []Resource     `json:"resources"`
 	Ingress   []IngressRoute `json:"ingress,omitempty"`
+	Pending   []PendingRoute `json:"pending,omitempty"`
 }
 
 // DefaultListenAddr is the port the waker listens on. It MUST match
@@ -163,6 +167,10 @@ type Waker struct {
 	mu        sync.Mutex
 	byHost    map[string]Route
 	resources map[string]Resource
+	// pending holds the hosts of previews reserved but not yet deployed
+	// (ADR-073). Like byHost it is built once by New and never mutated: a
+	// routing reload rebuilds the whole Waker.
+	pending map[string]PendingRoute
 	// gate serialises the wake of one resource so N concurrent first-requests
 	// trigger a single docker start (single-flight).
 	gate map[string]*sync.Mutex
@@ -196,6 +204,7 @@ func New(cfg Config, docker Docker, activity Activity, now func() time.Time) *Wa
 		StableFor:   defaultStableFor,
 		byHost:      make(map[string]Route, len(cfg.Routes)),
 		resources:   make(map[string]Resource, len(cfg.Resources)),
+		pending:     make(map[string]PendingRoute, len(cfg.Pending)),
 		gate:        make(map[string]*sync.Mutex),
 		wakes:       make(map[string]*wakeState),
 	}
@@ -205,6 +214,9 @@ func New(cfg Config, docker Docker, activity Activity, now func() time.Time) *Wa
 	for _, res := range cfg.Resources {
 		w.resources[res.UUID] = res
 		w.gate[res.UUID] = &sync.Mutex{}
+	}
+	for _, p := range cfg.Pending {
+		w.pending[p.Host] = p
 	}
 	w.newProxy = func(target *url.URL) http.Handler {
 		return httputil.NewSingleHostReverseProxy(target)
@@ -227,6 +239,22 @@ func (w *Waker) log() *slog.Logger {
 func (w *Waker) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	route, ok := w.byHost[hostname(req.Host)]
 	if !ok {
+		// A preview reserved but not deployed yet (ADR-073): its route exists
+		// and points here, so answer with its state rather than the 404 the
+		// proxy used to give between the PR opening and the first deploy.
+		//
+		// The check sits BELOW the route lookup on purpose. Per ADR-073 §3 a
+		// host is never both pending and routed — the control plane removes the
+		// pending entry when it switches the route to the container — so the
+		// order is unobservable in normal operation. It only decides the case
+		// that should not happen, and there the real route must win: serving a
+		// live container is never wrong, while parking a holding page in front
+		// of a working preview would be a worse defect than the 404 this
+		// replaces.
+		if pending, isPending := w.pendingRoute(hostname(req.Host)); isPending {
+			w.servePendingPage(rw, req, pending)
+			return
+		}
 		http.Error(rw, "unknown host", http.StatusNotFound)
 		return
 	}

@@ -95,7 +95,8 @@ func ServeWithTelemetry(ctx context.Context, dir, addr string, rt dockerruntime.
 			logger.Warn("agent: ingress routing config unreadable", "error", ingressErr)
 		}
 		logger.Info("waker: routing config loaded", "routes", len(cfg.Routes),
-			"resources", len(cfg.Resources), "ingress", len(ingressRoutes))
+			"resources", len(cfg.Resources), "ingress", len(ingressRoutes),
+			"pending", len(cfg.Pending))
 	}
 	load()
 
