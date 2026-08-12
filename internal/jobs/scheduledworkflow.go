@@ -3,7 +3,9 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -52,6 +54,12 @@ func (h *ScheduledTaskRun) dispatchWorkflow(ctx context.Context, payload Schedul
 		reason := firstLine(err.Error())
 		if runCtx.Err() != nil {
 			reason = fmt.Sprintf("the dispatch exceeded its timeout of %ds", task.TimeoutSeconds)
+		} else if hint := dispatchPermissionHint(err); hint != "" {
+			// Appended, never substituted: the operator needs GitHub's own
+			// answer (the status and its words) AND what to do about it. A
+			// diagnosis that hides the response it was derived from is one
+			// more thing to distrust.
+			reason += " — " + hint
 		}
 		return h.failWorkflow(ctx, payload, task, app, rec, reason), nil
 	}
@@ -150,4 +158,27 @@ func (h *ScheduledTaskRun) githubForTask(ctx context.Context, app store.GetAppli
 		defaultBranch = *repo.DefaultBranch
 	}
 	return client, minted.Token, repo.FullName, defaultBranch, nil
+}
+
+// dispatchPermissionHint is the sentence appended to GitHub's "Resource not
+// accessible by integration" to make it actionable. GitHub answers that 403
+// whenever the INSTALLATION lacks a permission, and it never names which one —
+// so an App installed before ADR-071 added `actions: write` to the manifest
+// fails here forever, with a message that reads like a bug in AkerDock.
+//
+// The manifest only governs Apps at creation: an existing installation keeps
+// the permission set it was approved with until its owner accepts the new
+// request on GitHub. That approval is the fix, and it is the one thing the raw
+// error does not say.
+func dispatchPermissionHint(err error) string {
+	var apiErr *githubapp.APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusForbidden {
+		return ""
+	}
+	if !strings.Contains(apiErr.Body, "not accessible by integration") {
+		return ""
+	}
+	return "the App installation lacks the Actions (write) permission: add it to the GitHub App, " +
+		"then approve the request on the installation — an App installed before this feature existed " +
+		"keeps the permissions it was approved with until its owner accepts the new ones"
 }

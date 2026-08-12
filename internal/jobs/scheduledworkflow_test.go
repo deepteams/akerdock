@@ -8,12 +8,15 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/deepteams/akerdock/internal/githubapp"
 
 	"github.com/deepteams/akerdock/internal/audit"
 	"github.com/deepteams/akerdock/internal/envelope"
@@ -119,6 +122,25 @@ func TestScheduledWorkflowDispatch(t *testing.T) {
 		reason, _ := result.(map[string]any)["reason"].(string)
 		if result.(map[string]any)["status"] != "failed" || !strings.Contains(reason, "403") {
 			t.Fatalf("result = %#v", result)
+		}
+	})
+
+	// The 403 GitHub sends for a missing installation permission names no
+	// permission at all. The recorded reason must keep GitHub's answer and add
+	// the action, or the operator reads it as a defect of the platform.
+	t.Run("a permission refusal carries both the answer and the fix", func(t *testing.T) {
+		srv, _ := workflowGithubServer(t, http.StatusForbidden)
+		h, q, _ := workflowDeps(t, srv.URL)
+		j := workflowTaskJob()
+		result, err := h.Execute(ctx, j, queue.NewStepRecorder(q, j))
+		if err != nil {
+			t.Fatalf("a 403 must not reach the queue: %v", err)
+		}
+		reason, _ := result.(map[string]any)["reason"].(string)
+		for _, want := range []string{"403", "Actions (write)", "approve the request"} {
+			if !strings.Contains(reason, want) {
+				t.Errorf("reason = %q, want it to mention %q", reason, want)
+			}
 		}
 	})
 
@@ -387,5 +409,35 @@ func TestResolveDispatchRef(t *testing.T) {
 				t.Fatalf("ref = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// GitHub answers "Resource not accessible by integration" for any missing
+// installation permission and never names the permission. Left raw, the message
+// reads like an AkerDock defect; the hint is what turns it into an action.
+func TestDispatchPermissionHint(t *testing.T) {
+	forbidden := &githubapp.APIError{
+		Status: http.StatusForbidden,
+		Path:   "/repos/acme/app/actions/workflows/tag.yml/dispatches",
+		Body:   `{"message":"Resource not accessible by integration","status":"403"}`,
+	}
+	hint := dispatchPermissionHint(forbidden)
+	for _, want := range []string{"Actions (write)", "approve the request"} {
+		if !strings.Contains(hint, want) {
+			t.Errorf("hint = %q, want it to mention %q", hint, want)
+		}
+	}
+
+	// Every other failure keeps GitHub's own words: inventing a permission
+	// problem where there is none would send the reader to the wrong screen.
+	for name, err := range map[string]error{
+		"another 403":       &githubapp.APIError{Status: http.StatusForbidden, Body: `{"message":"Repository was archived"}`},
+		"a 404":             &githubapp.APIError{Status: http.StatusNotFound, Body: `{"message":"Not Found"}`},
+		"a 422":             &githubapp.APIError{Status: http.StatusUnprocessableEntity, Body: `{"message":"Workflow does not have workflow_dispatch trigger"}`},
+		"a transport error": errors.New("dial tcp: connection refused"),
+	} {
+		if got := dispatchPermissionHint(err); got != "" {
+			t.Errorf("%s must not produce a permission hint, got %q", name, got)
+		}
 	}
 }
