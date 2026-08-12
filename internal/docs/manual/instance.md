@@ -22,4 +22,6 @@ links:
 - **Encryption** — state of encryption at rest and master key rotation.
 - **Audit** — the instance-wide log, across every team.
 
-> **Note** — The control plane is never indexable: it serves `robots.txt` with `Disallow: /` and answers `X-Robots-Tag: noindex, nofollow`. That is not a setting.
+> **Note** — The control plane is never indexable: every response carries `X-Robots-Tag: noindex, nofollow`, and that is not a setting. Its `robots.txt` allows crawling on purpose — a crawler has to fetch the page to read that header, so banning the fetch would leave the dashboard listed instead of removing it.
+
+An FQDN indexed before that header shipped drops out at the next crawl, which can take weeks on a URL a crawler has learned never changes. To force it, ask for a removal in the search engine's webmaster console (Google Search Console → *Removals*). Such a removal expires after about six months; by then the header has been read and the entry is gone for good.

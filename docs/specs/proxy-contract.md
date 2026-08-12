@@ -344,8 +344,12 @@ The flag is set:
   file without a deployment, like `domains`.
 
 The control plane's own FQDN (§5.7) is out of scope here: it answers
-`X-Robots-Tag: noindex, nofollow` and a `Disallow: /` robots.txt from the
-control-plane process itself, so a direct-port instance is covered too.
+`X-Robots-Tag: noindex, nofollow` from the control-plane process itself, so a
+direct-port instance is covered too. Its `robots.txt`, served by the same
+process, deliberately allows the crawl (ADR-074) — the header is only read by a
+crawler allowed to fetch the page, so banning the fetch would disarm it. This is
+also why a routed resource's `noindex` is a header and nothing else: the
+platform serves no `robots.txt` on a tenant's domain.
 
 ### 4.8 Extensibility
 

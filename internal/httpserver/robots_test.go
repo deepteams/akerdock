@@ -16,7 +16,7 @@ func robotsHandler(t *testing.T) http.Handler {
 	}))
 }
 
-func TestRobotsDisallowsEverything(t *testing.T) {
+func TestRobotsIsServedAsPlainText(t *testing.T) {
 	rec := httptest.NewRecorder()
 	robotsHandler(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/robots.txt", nil))
 
@@ -27,11 +27,43 @@ func TestRobotsDisallowsEverything(t *testing.T) {
 	if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
 		t.Errorf("Content-Type = %q: a crawler ignores a robots.txt served as HTML", ct)
 	}
-	body := rec.Body.String()
-	for _, line := range []string{"User-agent: *", "Disallow: /"} {
-		if !strings.Contains(body, line) {
-			t.Errorf("robots.txt misses %q:\n%s", line, body)
+	if body := rec.Body.String(); !strings.Contains(body, "User-agent: *") {
+		t.Errorf("robots.txt misses %q:\n%s", "User-agent: *", body)
+	}
+}
+
+func TestRobotsDoesNotBlockTheCrawl(t *testing.T) {
+	// ADR-074, and the regression that produced it: `Disallow: /` forbids the
+	// fetch that reads `X-Robots-Tag: noindex, nofollow`, so a URL indexed
+	// before the header shipped can never be recrawled and dropped. The rule
+	// is stated as an invariant rather than an exact body so the explanatory
+	// comment in the file can be reworded without failing here.
+	rec := httptest.NewRecorder()
+	robotsHandler(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/robots.txt", nil))
+
+	for line := range strings.Lines(rec.Body.String()) {
+		directive := strings.TrimSpace(line)
+		if strings.HasPrefix(directive, "#") {
+			continue // the comment quotes the ban precisely to explain its absence
 		}
+		if !strings.HasPrefix(strings.ToLower(directive), "disallow:") {
+			continue
+		}
+		if strings.TrimSpace(directive[len("disallow:"):]) != "" {
+			t.Errorf("robots.txt forbids a crawl the noindex header needs: %q", directive)
+		}
+	}
+}
+
+func TestRobotsIsItselfNoindexed(t *testing.T) {
+	// With the crawl allowed, the header is the whole mechanism — including on
+	// the one path a crawler is guaranteed to fetch first.
+	h := SecurityHeaders(false)(Robots(http.NotFoundHandler()))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/robots.txt", nil))
+
+	if got := rec.Result().Header.Get("X-Robots-Tag"); got != "noindex, nofollow" {
+		t.Errorf("X-Robots-Tag on /robots.txt = %q, want %q", got, "noindex, nofollow")
 	}
 }
 
@@ -96,14 +128,14 @@ func TestRobotsMatchesTrailingSlash(t *testing.T) {
 	if strings.Contains(rec.Body.String(), "<html>") {
 		t.Fatalf("/robots.txt/ reached the SPA: %s", rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "Disallow: /") {
+	if !strings.Contains(rec.Body.String(), "User-agent: *") {
 		t.Errorf("/robots.txt/ did not get the robots body:\n%s", rec.Body.String())
 	}
 }
 
 func TestControlPlaneIsNeverIndexable(t *testing.T) {
-	// robots.txt only asks crawlers not to FETCH; a dashboard URL linked from
-	// anywhere else still gets indexed without this header.
+	// robots.txt cannot keep anything out of an index — it only governs the
+	// fetch. This header is what does it, on every response (ADR-074).
 	if got := serveWithHeaders(t, false).Get("X-Robots-Tag"); !strings.Contains(got, "noindex") {
 		t.Fatalf("X-Robots-Tag = %q, want noindex", got)
 	}

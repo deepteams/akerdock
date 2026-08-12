@@ -58,11 +58,12 @@ func SecurityHeaders(hsts bool) func(http.Handler) http.Handler {
 			h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
 			// A control plane is never search-engine content: an indexed
 			// dashboard hands crawlers — and everyone reading their results —
-			// the login URL of every AkerDock instance on the internet. The
-			// header covers what robots.txt cannot: a page linked from
-			// elsewhere is crawlable even when the path is disallowed, and only
-			// X-Robots-Tag keeps it out of the index. Not an operator setting:
-			// no instance benefits from being listed.
+			// the login URL of every AkerDock instance on the internet. This
+			// header is the entire mechanism (ADR-074), which is why robots.txt
+			// invites the crawl rather than refusing it: a refused crawler
+			// never reads this line, and indexes the URL anyway the moment it
+			// finds a link to it. Not an operator setting: no instance benefits
+			// from being listed.
 			h.Set("X-Robots-Tag", "noindex, nofollow")
 			if hsts {
 				// Two years, no includeSubDomains: the instance FQDN may share
