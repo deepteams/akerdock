@@ -35,6 +35,23 @@ Which PRs are live, and where — without opening the dashboard:
 akerdock app preview list api
 ```
 
+## Its data
+
+A preview never mounts the data of the instance it hangs off (INV-010): its volumes are created empty, and they are removed with it. A stack whose review needs a real dataset opts in per volume, in the compose file of the repository:
+
+```
+volumes:
+  pgdata:
+    x-akerdock:
+      preview_seed: clone
+```
+
+The preview's volume is then filled by copying the parent stack's volume, just before the first start of the service that mounts it, with the source mounted read-only — the instance you copy from is never written to. What you get is a file-level copy of a live database: PostgreSQL replays its journal at start, which is what review needs and not a consistency guarantee. The seed is refused on an `external:` volume and in raw compose mode, and it is skipped when the parent volume does not exist yet.
+
+**The copy happens once, on an empty volume, and never again.** *Redeploy*, *Rebuild (no cache)* and *Recreate (apply config)* all keep the data already there — that is what protects the accounts and fixtures you created on the preview while reviewing it. A preview whose database is empty, stale, or was created before the dataset existed therefore does **not** catch up by redeploying, whatever the build does: **destroy it, then deploy it again**. The new instance starts on an empty volume and seeds from the current state of the parent stack.
+
+Destroying one is in its **Danger zone**, with `previews:manage` — the containers, volumes, networks and routing go, the pull request stays open. From the pull request itself, when comment commands are enabled on the application, the first line of a comment does the same: `/destroy`, then `/deploy` to bring the preview back, plus `/rebuild` and `/keep`. The author needs write access on the repository, and a fork still waits for its approval. The CLI has `preview list`, `redeploy` and `keep` — destroying is not one of its verbs.
+
 ## Acting on a preview
 
 Driving one — `--pr` carries the PR number everywhere:
