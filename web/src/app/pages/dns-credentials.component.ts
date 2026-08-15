@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
+import { ModalComponent } from '../../ui/modal/modal.component';
 import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { ApiService } from '../core/api.service';
 import { fetchAll } from '../core/pagination';
@@ -14,49 +15,61 @@ type DnsCredential = components['schemas']['DnsCredential'];
 @Component({
   selector: 'app-dns-credentials',
   standalone: true,
-  imports: [FormsModule, SlicePipe, CardComponent, EmptyStateComponent, IconComponent],
+  imports: [
+    FormsModule,
+    SlicePipe,
+    CardComponent,
+    EmptyStateComponent,
+    IconComponent,
+    ModalComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
         <h2>DNS credentials</h2>
+        <button class="akd-btn akd-btn--primary" type="button" (click)="openCreate()">
+          <akd-icon name="plus" [size]="15" />
+          Add credential
+        </button>
       </header>
 
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      <akd-card title="Add a credential" class="create">
-        <form class="fields" (ngSubmit)="create()">
+      <akd-modal [open]="formOpen()" title="Add a credential" (closed)="closeForm()">
+        @if (error(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        }
+        <form id="dns-form" class="modal-stack" (ngSubmit)="create()">
           <p class="intro">
             Used for DNS-01 challenges (wildcard certificates). The provider is a Lego provider id —
             cloudflare, route53, ovh…
           </p>
-          <div class="row">
-            <div class="akd-field">
-              <label class="akd-field__label" for="dns-name">Name</label>
-              <input
-                id="dns-name"
-                name="name"
-                class="akd-input akd-input--mono"
-                placeholder="e.g. cloudflare-prod"
-                [(ngModel)]="name"
-                [disabled]="busy()"
-                required
-              />
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="dns-provider">Provider</label>
-              <input
-                id="dns-provider"
-                name="provider"
-                class="akd-input akd-input--mono"
-                placeholder="e.g. cloudflare"
-                [(ngModel)]="provider"
-                [disabled]="busy()"
-                required
-              />
-            </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="dns-name">Name</label>
+            <input
+              id="dns-name"
+              name="name"
+              class="akd-input akd-input--mono"
+              placeholder="e.g. cloudflare-prod"
+              [(ngModel)]="name"
+              [disabled]="busy()"
+              required
+            />
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="dns-provider">Provider</label>
+            <input
+              id="dns-provider"
+              name="provider"
+              class="akd-input akd-input--mono"
+              placeholder="e.g. cloudflare"
+              [(ngModel)]="provider"
+              [disabled]="busy()"
+              required
+            />
           </div>
           <div class="akd-field">
             <label class="akd-field__label" for="dns-config">
@@ -77,14 +90,27 @@ type DnsCredential = components['schemas']['DnsCredential'];
               and never returned by the API.
             </span>
           </div>
-          <div>
-            <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
-              <akd-icon name="plus" [size]="15" />
-              Add credential
-            </button>
-          </div>
         </form>
-      </akd-card>
+        <div modal-footer>
+          <button
+            class="akd-btn akd-btn--ghost"
+            type="button"
+            (click)="closeForm()"
+            [disabled]="busy()"
+          >
+            Cancel
+          </button>
+          <button
+            class="akd-btn akd-btn--primary"
+            type="submit"
+            form="dns-form"
+            [disabled]="busy()"
+          >
+            <akd-icon name="plus" [size]="15" />
+            {{ busy() ? 'Adding…' : 'Add credential' }}
+          </button>
+        </div>
+      </akd-modal>
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
@@ -147,11 +173,7 @@ type DnsCredential = components['schemas']['DnsCredential'];
   `,
   styles: [
     `
-      .create {
-        margin-bottom: var(--space-5);
-        max-width: 640px;
-      }
-      .fields {
+      .modal-stack {
         display: grid;
         gap: var(--space-4);
       }
@@ -159,11 +181,6 @@ type DnsCredential = components['schemas']['DnsCredential'];
         margin: 0;
         font-size: var(--text-sm);
         color: var(--text-2);
-      }
-      .row {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: var(--space-4);
       }
     `,
   ],
@@ -176,6 +193,7 @@ export class DnsCredentialsComponent {
   protected readonly loading = signal(true);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
+  protected readonly formOpen = signal(false);
 
   protected name = '';
   protected provider = '';
@@ -183,6 +201,18 @@ export class DnsCredentialsComponent {
 
   constructor() {
     void this.load();
+  }
+
+  protected openCreate(): void {
+    this.name = '';
+    this.provider = '';
+    this.config = '';
+    this.error.set(null);
+    this.formOpen.set(true);
+  }
+
+  protected closeForm(): void {
+    this.formOpen.set(false);
   }
 
   private async load(): Promise<void> {
@@ -226,6 +256,7 @@ export class DnsCredentialsComponent {
       this.name = '';
       this.provider = '';
       this.config = '';
+      this.formOpen.set(false);
       await this.load();
     } catch (err) {
       this.error.set(ApiService.describe(err));

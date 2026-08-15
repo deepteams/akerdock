@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
+import { ModalComponent } from '../../ui/modal/modal.component';
 import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { ApiService } from '../core/api.service';
 import { fetchAll } from '../core/pagination';
@@ -13,86 +14,98 @@ type RegistryCredential = components['schemas']['RegistryCredential'];
 @Component({
   selector: 'app-registries',
   standalone: true,
-  imports: [FormsModule, CardComponent, EmptyStateComponent, IconComponent],
+  imports: [FormsModule, CardComponent, EmptyStateComponent, IconComponent, ModalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
         <h2>Registry credentials</h2>
+        <button class="akd-btn akd-btn--primary" type="button" (click)="openCreate()">
+          <akd-icon name="plus" [size]="15" />
+          Add credential
+        </button>
       </header>
 
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      <akd-card [title]="editing() ? 'Edit credential' : 'Add a credential'" class="create">
-        <form class="fields" (ngSubmit)="save()">
-          <div class="row">
-            <div class="akd-field">
-              <label class="akd-field__label" for="rc-name">Name</label>
-              <input
-                id="rc-name"
-                name="name"
-                class="akd-input akd-input--mono"
-                placeholder="e.g. ghcr-company"
-                [(ngModel)]="name"
-                [disabled]="busy()"
-                required
-              />
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="rc-url">Registry host</label>
-              <input
-                id="rc-url"
-                name="registry_url"
-                class="akd-input akd-input--mono"
-                placeholder="e.g. ghcr.io"
-                [(ngModel)]="registryUrl"
-                [disabled]="busy()"
-                required
-              />
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="rc-user">Username</label>
-              <input
-                id="rc-user"
-                name="username"
-                class="akd-input akd-input--mono"
-                [(ngModel)]="username"
-                [disabled]="busy()"
-                required
-              />
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="rc-pass">Password or token</label>
-              <input
-                id="rc-pass"
-                name="password"
-                type="password"
-                class="akd-input"
-                autocomplete="new-password"
-                [placeholder]="editing() ? 'leave blank to keep' : ''"
-                [(ngModel)]="password"
-                [disabled]="busy()"
-              />
-            </div>
+      <akd-modal
+        [open]="formOpen()"
+        [title]="editing() ? 'Edit credential' : 'Add a credential'"
+        (closed)="closeForm()"
+      >
+        @if (error(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        }
+        <form id="rc-form" class="modal-stack" (ngSubmit)="save()">
+          <div class="akd-field">
+            <label class="akd-field__label" for="rc-name">Name</label>
+            <input
+              id="rc-name"
+              name="name"
+              class="akd-input akd-input--mono"
+              placeholder="e.g. ghcr-company"
+              [(ngModel)]="name"
+              [disabled]="busy()"
+              required
+            />
           </div>
-          <p class="form-hint">
-            The password is write-only: it is encrypted at rest and never returned by the API — it
-            only exists again at docker login time on the server.
-          </p>
-          <div class="actions">
-            <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
-              {{ editing() ? 'Save changes' : 'Add credential' }}
-            </button>
-            @if (editing()) {
-              <button class="akd-btn akd-btn--ghost" type="button" (click)="cancelEdit()">
-                Cancel
-              </button>
-            }
+          <div class="akd-field">
+            <label class="akd-field__label" for="rc-url">Registry host</label>
+            <input
+              id="rc-url"
+              name="registry_url"
+              class="akd-input akd-input--mono"
+              placeholder="e.g. ghcr.io"
+              [(ngModel)]="registryUrl"
+              [disabled]="busy()"
+              required
+            />
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="rc-user">Username</label>
+            <input
+              id="rc-user"
+              name="username"
+              class="akd-input akd-input--mono"
+              [(ngModel)]="username"
+              [disabled]="busy()"
+              required
+            />
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="rc-pass">Password or token</label>
+            <input
+              id="rc-pass"
+              name="password"
+              type="password"
+              class="akd-input"
+              autocomplete="new-password"
+              [placeholder]="editing() ? 'leave blank to keep' : ''"
+              [(ngModel)]="password"
+              [disabled]="busy()"
+            />
+            <span class="akd-field__hint">
+              Write-only: encrypted at rest and never returned by the API — it only exists again at
+              docker login time on the server.
+            </span>
           </div>
         </form>
-      </akd-card>
+        <div modal-footer>
+          <button
+            class="akd-btn akd-btn--ghost"
+            type="button"
+            (click)="closeForm()"
+            [disabled]="busy()"
+          >
+            Cancel
+          </button>
+          <button class="akd-btn akd-btn--primary" type="submit" form="rc-form" [disabled]="busy()">
+            {{ busy() ? 'Saving…' : editing() ? 'Save changes' : 'Add credential' }}
+          </button>
+        </div>
+      </akd-modal>
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
@@ -164,26 +177,9 @@ type RegistryCredential = components['schemas']['RegistryCredential'];
   `,
   styles: [
     `
-      .create {
-        margin-bottom: var(--space-5);
-      }
-      .fields {
+      .modal-stack {
         display: grid;
         gap: var(--space-4);
-      }
-      .row {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: var(--space-4);
-      }
-      .form-hint {
-        margin: 0;
-        font-size: var(--text-xs);
-        color: var(--text-3);
-      }
-      .actions {
-        display: flex;
-        gap: var(--space-2);
       }
       .row-actions {
         display: inline-flex;
@@ -203,6 +199,7 @@ export class RegistriesComponent {
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly editing = signal<RegistryCredential | null>(null);
+  protected readonly formOpen = signal(false);
 
   protected name = '';
   protected registryUrl = '';
@@ -211,6 +208,16 @@ export class RegistriesComponent {
 
   constructor() {
     void this.load();
+  }
+
+  protected openCreate(): void {
+    this.cancelEdit();
+    this.formOpen.set(true);
+  }
+
+  protected closeForm(): void {
+    this.formOpen.set(false);
+    this.cancelEdit();
   }
 
   private async load(): Promise<void> {
@@ -232,6 +239,7 @@ export class RegistriesComponent {
     this.registryUrl = cred.registry_url;
     this.username = cred.username;
     this.password = '';
+    this.formOpen.set(true);
   }
 
   protected cancelEdit(): void {
@@ -266,7 +274,7 @@ export class RegistriesComponent {
           password: this.password,
         });
       }
-      this.cancelEdit();
+      this.closeForm();
       await this.load();
     } catch (err) {
       this.error.set(ApiService.describe(err));

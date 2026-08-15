@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
+import { ModalComponent } from '../../ui/modal/modal.component';
 import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { ApiService } from '../core/api.service';
 import { fetchAll } from '../core/pagination';
@@ -19,15 +20,15 @@ type GithubApp = components['schemas']['GithubApp'];
 @Component({
   selector: 'app-github-apps',
   standalone: true,
-  imports: [FormsModule, CardComponent, EmptyStateComponent, IconComponent],
+  imports: [FormsModule, CardComponent, EmptyStateComponent, IconComponent, ModalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
         <h2>GitHub Apps</h2>
-        <button class="akd-btn akd-btn--primary" type="button" (click)="creating.set(!creating())">
-          <akd-icon [name]="creating() ? 'x' : 'plus'" [size]="15" />
-          {{ creating() ? 'Cancel' : 'New GitHub App' }}
+        <button class="akd-btn akd-btn--primary" type="button" (click)="creating.set(true)">
+          <akd-icon name="plus" [size]="15" />
+          New GitHub App
         </button>
       </header>
 
@@ -35,47 +36,56 @@ type GithubApp = components['schemas']['GithubApp'];
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      @if (creating()) {
-        <akd-card class="create">
-          <form class="fields" (ngSubmit)="create()">
-            <p class="intro">
-              AkerDock generates the app on GitHub for you (manifest flow): you will be redirected
-              to GitHub to confirm, then to install it. No key or secret to paste — GitHub sends
-              them straight to this instance, encrypted at rest.
-            </p>
-            <div class="akd-field">
-              <label class="akd-field__label" for="gh-org">GitHub organization</label>
-              <input
-                id="gh-org"
-                name="organization"
-                class="akd-input akd-input--mono"
-                placeholder="my-org"
-                [(ngModel)]="organization"
-                [disabled]="busy()"
-              />
-              <span class="akd-field__hint">Empty = your personal account.</span>
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="gh-api">GitHub Enterprise API URL</label>
-              <input
-                id="gh-api"
-                name="apiUrl"
-                class="akd-input akd-input--mono"
-                placeholder="https://ghe.example.com/api/v3"
-                [(ngModel)]="apiUrl"
-                [disabled]="busy()"
-              />
-              <span class="akd-field__hint">Empty = github.com.</span>
-            </div>
-            <div>
-              <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
-                <akd-icon name="external-link" [size]="15" />
-                {{ busy() ? 'Preparing…' : 'Create on GitHub' }}
-              </button>
-            </div>
-          </form>
-        </akd-card>
-      }
+      <akd-modal [open]="creating()" title="New GitHub App" (closed)="creating.set(false)">
+        @if (error(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        }
+        <form id="gh-form" class="modal-stack" (ngSubmit)="create()">
+          <p class="intro">
+            AkerDock generates the app on GitHub for you (manifest flow): you will be redirected to
+            GitHub to confirm, then to install it. No key or secret to paste — GitHub sends them
+            straight to this instance, encrypted at rest.
+          </p>
+          <div class="akd-field">
+            <label class="akd-field__label" for="gh-org">GitHub organization</label>
+            <input
+              id="gh-org"
+              name="organization"
+              class="akd-input akd-input--mono"
+              placeholder="my-org"
+              [(ngModel)]="organization"
+              [disabled]="busy()"
+            />
+            <span class="akd-field__hint">Empty = your personal account.</span>
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="gh-api">GitHub Enterprise API URL</label>
+            <input
+              id="gh-api"
+              name="apiUrl"
+              class="akd-input akd-input--mono"
+              placeholder="https://ghe.example.com/api/v3"
+              [(ngModel)]="apiUrl"
+              [disabled]="busy()"
+            />
+            <span class="akd-field__hint">Empty = github.com.</span>
+          </div>
+        </form>
+        <div modal-footer>
+          <button
+            class="akd-btn akd-btn--ghost"
+            type="button"
+            (click)="creating.set(false)"
+            [disabled]="busy()"
+          >
+            Cancel
+          </button>
+          <button class="akd-btn akd-btn--primary" type="submit" form="gh-form" [disabled]="busy()">
+            <akd-icon name="external-link" [size]="15" />
+            {{ busy() ? 'Preparing…' : 'Create on GitHub' }}
+          </button>
+        </div>
+      </akd-modal>
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
@@ -142,11 +152,7 @@ type GithubApp = components['schemas']['GithubApp'];
   `,
   styles: [
     `
-      .create {
-        margin-bottom: var(--space-5);
-        max-width: 640px;
-      }
-      .fields {
+      .modal-stack {
         display: grid;
         gap: var(--space-4);
       }

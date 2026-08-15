@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
+import { ModalComponent } from '../../ui/modal/modal.component';
 import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { ApiService } from '../core/api.service';
 import { fetchAll } from '../core/pagination';
@@ -14,20 +15,40 @@ type PrivateKey = components['schemas']['PrivateKey'];
 @Component({
   selector: 'app-private-keys',
   standalone: true,
-  imports: [FormsModule, SlicePipe, CardComponent, EmptyStateComponent, IconComponent],
+  imports: [
+    FormsModule,
+    SlicePipe,
+    CardComponent,
+    EmptyStateComponent,
+    IconComponent,
+    ModalComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
         <h2>Private keys</h2>
+        <span class="bar-actions">
+          <button class="akd-btn akd-btn--secondary" type="button" (click)="openImport()">
+            <akd-icon name="plus" [size]="15" />
+            Import key
+          </button>
+          <button class="akd-btn akd-btn--primary" type="button" (click)="openGenerate()">
+            <akd-icon name="sparkles" [size]="15" />
+            Generate
+          </button>
+        </span>
       </header>
 
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      <akd-card title="Add a key" class="create">
-        <form class="fields" (ngSubmit)="create()">
+      <akd-modal [open]="importOpen()" title="Import a key" (closed)="importOpen.set(false)">
+        @if (error(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        }
+        <form id="pk-import-form" class="modal-stack" (ngSubmit)="create()">
           <div class="akd-field">
             <label class="akd-field__label" for="pk-name">Name</label>
             <input
@@ -55,63 +76,99 @@ type PrivateKey = components['schemas']['PrivateKey'];
               required
             ></textarea>
             <span class="akd-field__hint">
-              Stored encrypted. Once a key enters AkerDock its private material can never be
-              read back — only the public key is served.
+              Stored encrypted. Once a key enters AkerDock its private material can never be read
+              back — only the public key is served.
             </span>
           </div>
-          <div>
-            <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
-              <akd-icon name="plus" [size]="15" />
-              Add key
-            </button>
-          </div>
         </form>
-      </akd-card>
+        <div modal-footer>
+          <button
+            class="akd-btn akd-btn--ghost"
+            type="button"
+            (click)="importOpen.set(false)"
+            [disabled]="busy()"
+          >
+            Cancel
+          </button>
+          <button
+            class="akd-btn akd-btn--primary"
+            type="submit"
+            form="pk-import-form"
+            [disabled]="busy()"
+          >
+            <akd-icon name="plus" [size]="15" />
+            {{ busy() ? 'Adding…' : 'Import key' }}
+          </button>
+        </div>
+      </akd-modal>
 
-      <akd-card title="Generate a key" class="create">
-        <form class="fields" (ngSubmit)="generate()">
-          <div class="akd-field">
-            <label class="akd-field__label" for="pk-gen-name">Name</label>
-            <input
-              id="pk-gen-name"
-              name="genName"
-              class="akd-input akd-input--mono"
-              placeholder="e.g. prod-cluster"
-              [(ngModel)]="genName"
-              [disabled]="busy()"
-              required
-            />
-            <span class="akd-field__hint">
-              The keypair (ed25519) is created inside AkerDock and stored encrypted — the
-              private half never exists anywhere else. Only the public key is shown, to be
-              added to the server's authorized_keys.
-            </span>
-          </div>
-          <div>
-            <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
-              <akd-icon name="sparkles" [size]="15" />
-              Generate
+      <akd-modal [open]="generateOpen()" title="Generate a key" (closed)="closeGenerate()">
+        @if (error(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        }
+        @if (generated(); as pk) {
+          <div class="generated" role="status">
+            <p class="generated__title">
+              Key "{{ pk.name }}" generated — add this public key to
+              <code>~/.ssh/authorized_keys</code> on the server:
+            </p>
+            <pre class="akd-secret">{{ pk.public_key }}</pre>
+            <button
+              class="akd-btn akd-btn--secondary akd-btn--sm"
+              type="button"
+              (click)="copy(pk.public_key ?? '')"
+            >
+              <akd-icon name="copy" [size]="14" />
+              Copy public key
             </button>
           </div>
-          @if (generated(); as pk) {
-            <div class="generated" role="status">
-              <p class="generated__title">
-                Key "{{ pk.name }}" generated — add this public key to
-                <code>~/.ssh/authorized_keys</code> on the server:
-              </p>
-              <pre class="akd-secret">{{ pk.public_key }}</pre>
-              <button
-                class="akd-btn akd-btn--secondary akd-btn--sm"
-                type="button"
-                (click)="copy(pk.public_key ?? '')"
-              >
-                <akd-icon name="copy" [size]="14" />
-                Copy public key
-              </button>
+        } @else {
+          <form id="pk-generate-form" class="modal-stack" (ngSubmit)="generate()">
+            <div class="akd-field">
+              <label class="akd-field__label" for="pk-gen-name">Name</label>
+              <input
+                id="pk-gen-name"
+                name="genName"
+                class="akd-input akd-input--mono"
+                placeholder="e.g. prod-cluster"
+                [(ngModel)]="genName"
+                [disabled]="busy()"
+                required
+              />
+              <span class="akd-field__hint">
+                The keypair (ed25519) is created inside AkerDock and stored encrypted — the private
+                half never exists anywhere else. Only the public key is shown, to be added to the
+                server's authorized_keys.
+              </span>
             </div>
+          </form>
+        }
+        <div modal-footer>
+          @if (generated()) {
+            <button class="akd-btn akd-btn--ghost" type="button" (click)="closeGenerate()">
+              Close
+            </button>
+          } @else {
+            <button
+              class="akd-btn akd-btn--ghost"
+              type="button"
+              (click)="closeGenerate()"
+              [disabled]="busy()"
+            >
+              Cancel
+            </button>
+            <button
+              class="akd-btn akd-btn--primary"
+              type="submit"
+              form="pk-generate-form"
+              [disabled]="busy()"
+            >
+              <akd-icon name="sparkles" [size]="15" />
+              {{ busy() ? 'Generating…' : 'Generate' }}
+            </button>
           }
-        </form>
-      </akd-card>
+        </div>
+      </akd-modal>
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
@@ -199,11 +256,11 @@ type PrivateKey = components['schemas']['PrivateKey'];
   `,
   styles: [
     `
-      .create {
-        margin-bottom: var(--space-5);
-        max-width: 640px;
+      .bar-actions {
+        display: inline-flex;
+        gap: var(--space-2);
       }
-      .fields {
+      .modal-stack {
         display: grid;
         gap: var(--space-4);
       }
@@ -211,10 +268,6 @@ type PrivateKey = components['schemas']['PrivateKey'];
         margin: var(--space-2) 0;
         white-space: pre-wrap;
         word-break: break-all;
-      }
-      .generated {
-        border-top: 1px solid var(--border-1);
-        padding-top: var(--space-3);
       }
       .generated__title {
         margin: 0 0 var(--space-2);
@@ -242,6 +295,8 @@ export class PrivateKeysComponent {
   protected readonly shownPublic = signal<Record<string, boolean>>({});
   /** The last server-generated key, shown with its authorized_keys line. */
   protected readonly generated = signal<PrivateKey | null>(null);
+  protected readonly importOpen = signal(false);
+  protected readonly generateOpen = signal(false);
 
   protected name = '';
   protected material = '';
@@ -249,6 +304,25 @@ export class PrivateKeysComponent {
 
   constructor() {
     void this.load();
+  }
+
+  protected openImport(): void {
+    this.name = '';
+    this.material = '';
+    this.error.set(null);
+    this.importOpen.set(true);
+  }
+
+  protected openGenerate(): void {
+    this.genName = '';
+    this.generated.set(null);
+    this.error.set(null);
+    this.generateOpen.set(true);
+  }
+
+  protected closeGenerate(): void {
+    this.generateOpen.set(false);
+    this.generated.set(null);
   }
 
   private async load(): Promise<void> {
@@ -275,6 +349,7 @@ export class PrivateKeysComponent {
       });
       this.name = '';
       this.material = '';
+      this.importOpen.set(false);
       await this.load();
     } catch (err) {
       this.error.set(ApiService.describe(err));

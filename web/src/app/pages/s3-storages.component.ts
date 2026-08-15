@@ -4,6 +4,7 @@ import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
+import { ModalComponent } from '../../ui/modal/modal.component';
 import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { ApiService } from '../core/api.service';
 import { fetchAll } from '../core/pagination';
@@ -14,20 +15,38 @@ type S3Storage = components['schemas']['S3Storage'];
 @Component({
   selector: 'app-s3-storages',
   standalone: true,
-  imports: [FormsModule, CardComponent, EmptyStateComponent, IconComponent, StatusBadgeComponent],
+  imports: [
+    FormsModule,
+    CardComponent,
+    EmptyStateComponent,
+    IconComponent,
+    StatusBadgeComponent,
+    ModalComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
       <header class="akd-bar">
         <h2>S3 storages</h2>
+        <button class="akd-btn akd-btn--primary" type="button" (click)="openCreate()">
+          <akd-icon name="plus" [size]="15" />
+          Add storage
+        </button>
       </header>
 
       @if (error(); as message) {
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      <akd-card [title]="editing() ? 'Edit storage' : 'Add a storage'" class="create">
-        <form class="fields" (ngSubmit)="save()">
+      <akd-modal
+        [open]="formOpen()"
+        [title]="editing() ? 'Edit storage' : 'Add a storage'"
+        (closed)="closeForm()"
+      >
+        @if (error(); as message) {
+          <p class="akd-error" role="alert">{{ message }}</p>
+        }
+        <form id="s3-form" class="modal-stack" (ngSubmit)="save()">
           <div class="row">
             <div class="akd-field">
               <label class="akd-field__label" for="s3-name">Name</label>
@@ -108,25 +127,28 @@ type S3Storage = components['schemas']['S3Storage'];
               Encrypt backups at rest (SSE-S3)
             </label>
             <span class="akd-field__hint">
-              Requests server-side encryption (AES256) on upload. Leave off for stores without
-              SSE support (e.g. MinIO without KMS).
+              Requests server-side encryption (AES256) on upload. Leave off for stores without SSE
+              support (e.g. MinIO without KMS).
             </span>
           </div>
           <p class="form-hint">
             The keys are write-only: encrypted at rest and never returned by the API.
           </p>
-          <div class="actions">
-            <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
-              {{ editing() ? 'Save changes' : 'Add storage' }}
-            </button>
-            @if (editing()) {
-              <button class="akd-btn akd-btn--ghost" type="button" (click)="cancelEdit()">
-                Cancel
-              </button>
-            }
-          </div>
         </form>
-      </akd-card>
+        <div modal-footer>
+          <button
+            class="akd-btn akd-btn--ghost"
+            type="button"
+            (click)="closeForm()"
+            [disabled]="busy()"
+          >
+            Cancel
+          </button>
+          <button class="akd-btn akd-btn--primary" type="submit" form="s3-form" [disabled]="busy()">
+            {{ busy() ? 'Saving…' : editing() ? 'Save changes' : 'Add storage' }}
+          </button>
+        </div>
+      </akd-modal>
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
@@ -225,10 +247,7 @@ type S3Storage = components['schemas']['S3Storage'];
   `,
   styles: [
     `
-      .create {
-        margin-bottom: var(--space-5);
-      }
-      .fields {
+      .modal-stack {
         display: grid;
         gap: var(--space-4);
       }
@@ -241,10 +260,6 @@ type S3Storage = components['schemas']['S3Storage'];
         margin: 0;
         font-size: var(--text-xs);
         color: var(--text-3);
-      }
-      .actions {
-        display: flex;
-        gap: var(--space-2);
       }
       .row-actions {
         display: inline-flex;
@@ -270,6 +285,7 @@ export class S3StoragesComponent {
   protected readonly validating = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly editing = signal<S3Storage | null>(null);
+  protected readonly formOpen = signal(false);
 
   protected name = '';
   protected endpoint = '';
@@ -296,6 +312,17 @@ export class S3StoragesComponent {
     }
   }
 
+  protected openCreate(): void {
+    this.cancelEdit();
+    this.error.set(null);
+    this.formOpen.set(true);
+  }
+
+  protected closeForm(): void {
+    this.formOpen.set(false);
+    this.cancelEdit();
+  }
+
   protected edit(storage: S3Storage): void {
     this.editing.set(storage);
     this.name = storage.name;
@@ -305,6 +332,7 @@ export class S3StoragesComponent {
     this.accessKey = '';
     this.secretKey = '';
     this.encryptAtRest = storage.server_side_encryption === 'AES256';
+    this.formOpen.set(true);
   }
 
   protected cancelEdit(): void {
@@ -351,7 +379,7 @@ export class S3StoragesComponent {
           secret_key: this.secretKey,
         });
       }
-      this.cancelEdit();
+      this.closeForm();
       await this.load();
     } catch (err) {
       this.error.set(ApiService.describe(err));
