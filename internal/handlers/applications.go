@@ -170,8 +170,21 @@ func (a *API) ListApplications(w http.ResponseWriter, r *http.Request, params ap
 	if !ok {
 		return
 	}
+	projectUUID, ok := uuidFilter(w, r, params.ProjectUuid, "project_uuid")
+	if !ok {
+		return
+	}
+	environmentUUID, ok := uuidFilter(w, r, params.EnvironmentUuid, "environment_uuid")
+	if !ok {
+		return
+	}
+	serverUUID, ok := uuidFilter(w, r, params.ServerUuid, "server_uuid")
+	if !ok {
+		return
+	}
 	rows, err := a.Store.ListApplicationsPage(r.Context(), store.ListApplicationsPageParams{
 		TeamID: id.TeamID, AfterID: after, PageLimit: limit + 1,
+		ProjectUuid: projectUUID, EnvironmentUuid: environmentUUID, ServerUuid: serverUUID,
 	})
 	if err != nil {
 		a.internalError(w, r, "list applications", err)

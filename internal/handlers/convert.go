@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/httpapi"
 )
 
@@ -28,6 +29,24 @@ func pageLimit(w http.ResponseWriter, r *http.Request, limit *int) (int32, bool)
 		return 0, false
 	}
 	return int32(*limit), true
+}
+
+// uuidFilter parses an optional UUID query filter (?project_uuid=…). Absent or
+// empty means "no filter" (NULL UUID); a malformed value is a validation error
+// — ignoring it would silently return the unfiltered, team-wide list, which is
+// exactly the leak the filter exists to prevent.
+func uuidFilter(w http.ResponseWriter, r *http.Request, raw *string, field string) (pgtype.UUID, bool) {
+	var u pgtype.UUID
+	if raw == nil || *raw == "" {
+		return u, true
+	}
+	if err := u.Scan(*raw); err != nil {
+		httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+			Field: ptr(field), Code: ptr("invalid"), Message: field + " must be a UUID",
+		}})
+		return u, false
+	}
+	return u, true
 }
 
 // Cursors are opaque (OpenAPI preamble): base64url of "v1:<last internal id>".

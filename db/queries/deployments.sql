@@ -36,6 +36,7 @@ WHERE d.uuid = $1 AND r.team_id = $2;
 SELECT sqlc.embed(d), p.pr_id FROM deployments d
 LEFT JOIN previews p ON p.id = d.preview_id
 WHERE d.resource_id = sqlc.arg(resource_id)
+  AND (sqlc.narg(status)::deployment_status IS NULL OR d.status = sqlc.narg(status))
   AND (sqlc.arg(after_id)::bigint = 0 OR d.id < sqlc.arg(after_id))
 ORDER BY d.id DESC
 LIMIT sqlc.arg(page_limit);

@@ -921,15 +921,21 @@ JOIN projects p ON p.id = e.project_id
 JOIN destinations dst ON dst.id = r.destination_id
 JOIN servers srv ON srv.id = dst.server_id
 WHERE r.team_id = $1 AND r.deleted_at IS NULL AND r.resource_type = 'application'
-  AND ($2::bigint = 0 OR r.id < $2)
+  AND ($2::uuid IS NULL OR p.uuid = $2)
+  AND ($3::uuid IS NULL OR e.uuid = $3)
+  AND ($4::uuid IS NULL OR srv.uuid = $4)
+  AND ($5::bigint = 0 OR r.id < $5)
 ORDER BY r.id DESC
-LIMIT $3
+LIMIT $6
 `
 
 type ListApplicationsPageParams struct {
-	TeamID    int64
-	AfterID   int64
-	PageLimit int32
+	TeamID          int64
+	ProjectUuid     pgtype.UUID
+	EnvironmentUuid pgtype.UUID
+	ServerUuid      pgtype.UUID
+	AfterID         int64
+	PageLimit       int32
 }
 
 type ListApplicationsPageRow struct {
@@ -951,7 +957,14 @@ type ListApplicationsPageRow struct {
 }
 
 func (q *Queries) ListApplicationsPage(ctx context.Context, arg ListApplicationsPageParams) ([]ListApplicationsPageRow, error) {
-	rows, err := q.db.Query(ctx, listApplicationsPage, arg.TeamID, arg.AfterID, arg.PageLimit)
+	rows, err := q.db.Query(ctx, listApplicationsPage,
+		arg.TeamID,
+		arg.ProjectUuid,
+		arg.EnvironmentUuid,
+		arg.ServerUuid,
+		arg.AfterID,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

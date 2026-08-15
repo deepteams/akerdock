@@ -819,6 +819,24 @@ func TestRescovListDatabasesParamErrors(t *testing.T) {
 	rescovWant(t, rec, http.StatusOK)
 }
 
+func TestRescovListDatabasesUUIDFilters(t *testing.T) {
+	a, _ := rescovAPI(t)
+
+	rec := httptest.NewRecorder()
+	a.ListDatabases(rec, rescovReq(http.MethodGet, "/databases", ""), api.ListDatabasesParams{EnvironmentUuid: ptr("not-a-uuid")})
+	rescovWant(t, rec, http.StatusUnprocessableEntity)
+
+	rec = httptest.NewRecorder()
+	a.ListDatabases(rec, rescovReq(http.MethodGet, "/databases", ""), api.ListDatabasesParams{ServerUuid: ptr("not-a-uuid")})
+	rescovWant(t, rec, http.StatusUnprocessableEntity)
+
+	rec = httptest.NewRecorder()
+	a.ListDatabases(rec, rescovReq(http.MethodGet, "/databases", ""), api.ListDatabasesParams{
+		EnvironmentUuid: ptr(fixtureUUID), ServerUuid: ptr(""),
+	})
+	rescovWant(t, rec, http.StatusOK)
+}
+
 func rescovDatabaseCreateBody(extra string) string {
 	return `{"name":"db","project_uuid":"` + fixtureUUID + `","environment_uuid":"` + fixtureUUID + `",` +
 		`"server_uuid":"` + fixtureUUID + `"` + extra + `}`

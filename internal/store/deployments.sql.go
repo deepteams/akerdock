@@ -845,13 +845,15 @@ const listDeploymentsForResource = `-- name: ListDeploymentsForResource :many
 SELECT d.id, d.uuid, d.resource_id, d.status, d.attempt, d.retry_of_id, d.superseded_by_id, d.is_rollback, d.trigger, d.triggered_by, d.api_token_id, d.git_branch, d.commit_sha, d.is_local_source, d.context_digest, d.force_rebuild, d.image_name, d.image_tag, d.image_digest, d.config_snapshot, d.config_diff, d.error_message, d.server_id, d.build_server_id, d.queued_at, d.started_at, d.finished_at, d.created_at, d.updated_at, d.preview_id, d.commit_author, d.commit_message, d.skip_build, p.pr_id FROM deployments d
 LEFT JOIN previews p ON p.id = d.preview_id
 WHERE d.resource_id = $1
-  AND ($2::bigint = 0 OR d.id < $2)
+  AND ($2::deployment_status IS NULL OR d.status = $2)
+  AND ($3::bigint = 0 OR d.id < $3)
 ORDER BY d.id DESC
-LIMIT $3
+LIMIT $4
 `
 
 type ListDeploymentsForResourceParams struct {
 	ResourceID int64
+	Status     *DeploymentStatus
 	AfterID    int64
 	PageLimit  int32
 }
@@ -864,7 +866,12 @@ type ListDeploymentsForResourceRow struct {
 // The preview's PR number (NULL for a production deployment) rides along so the
 // UI can say "preview #N" instead of a bare "preview".
 func (q *Queries) ListDeploymentsForResource(ctx context.Context, arg ListDeploymentsForResourceParams) ([]ListDeploymentsForResourceRow, error) {
-	rows, err := q.db.Query(ctx, listDeploymentsForResource, arg.ResourceID, arg.AfterID, arg.PageLimit)
+	rows, err := q.db.Query(ctx, listDeploymentsForResource,
+		arg.ResourceID,
+		arg.Status,
+		arg.AfterID,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

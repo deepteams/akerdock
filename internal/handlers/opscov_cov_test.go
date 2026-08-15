@@ -880,6 +880,20 @@ func TestOpscovListApplicationDeployments(t *testing.T) {
 		t.Errorf("bad cursor = %d, want 400", rec.Code)
 	}
 
+	rec = httptest.NewRecorder()
+	a.ListApplicationDeployments(rec, opscovRequest(http.MethodGet, "/x", ""), fixtureUUID,
+		api.ListApplicationDeploymentsParams{Status: ptr(api.DeploymentStatus("definitely-not-a-status"))})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("unknown status = %d, want 422", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	a.ListApplicationDeployments(rec, opscovRequest(http.MethodGet, "/x", ""), fixtureUUID,
+		api.ListApplicationDeploymentsParams{Status: ptr(api.DeploymentStatus("failed"))})
+	if rec.Code != http.StatusOK {
+		t.Errorf("valid status = %d, want 200", rec.Code)
+	}
+
 	db.on("ListDeploymentsForResource").err = opscovBoom()
 	rec = httptest.NewRecorder()
 	a.ListApplicationDeployments(rec, opscovRequest(http.MethodGet, "/x", ""), fixtureUUID,

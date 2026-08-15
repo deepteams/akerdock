@@ -249,15 +249,19 @@ JOIN environments e ON e.id = r.environment_id
 JOIN projects p ON p.id = e.project_id
 JOIN servers srv ON srv.id = d.server_id
 WHERE r.team_id = $1 AND r.deleted_at IS NULL AND r.resource_type = 'database'
-  AND ($2::bigint = 0 OR r.id < $2)
+  AND ($2::uuid IS NULL OR e.uuid = $2)
+  AND ($3::uuid IS NULL OR srv.uuid = $3)
+  AND ($4::bigint = 0 OR r.id < $4)
 ORDER BY r.id DESC
-LIMIT $3
+LIMIT $5
 `
 
 type ListDatabasesPageParams struct {
-	TeamID    int64
-	AfterID   int64
-	PageLimit int32
+	TeamID          int64
+	EnvironmentUuid pgtype.UUID
+	ServerUuid      pgtype.UUID
+	AfterID         int64
+	PageLimit       int32
 }
 
 type ListDatabasesPageRow struct {
@@ -271,7 +275,13 @@ type ListDatabasesPageRow struct {
 }
 
 func (q *Queries) ListDatabasesPage(ctx context.Context, arg ListDatabasesPageParams) ([]ListDatabasesPageRow, error) {
-	rows, err := q.db.Query(ctx, listDatabasesPage, arg.TeamID, arg.AfterID, arg.PageLimit)
+	rows, err := q.db.Query(ctx, listDatabasesPage,
+		arg.TeamID,
+		arg.EnvironmentUuid,
+		arg.ServerUuid,
+		arg.AfterID,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

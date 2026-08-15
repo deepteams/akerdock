@@ -166,8 +166,27 @@ func (a *API) ListApplicationDeployments(w http.ResponseWriter, r *http.Request,
 	if !ok {
 		return
 	}
+	var statusFilter *store.DeploymentStatus
+	if params.Status != nil {
+		s := store.DeploymentStatus(*params.Status)
+		switch s {
+		case store.DeploymentStatusQueued, store.DeploymentStatusPreparing, store.DeploymentStatusCloning,
+			store.DeploymentStatusBuilding, store.DeploymentStatusPushing, store.DeploymentStatusStarting,
+			store.DeploymentStatusHealthchecking, store.DeploymentStatusSwitching, store.DeploymentStatusFinishing,
+			store.DeploymentStatusSucceeded, store.DeploymentStatusFailed, store.DeploymentStatusCancelled,
+			store.DeploymentStatusRetrying, store.DeploymentStatusSuperseded:
+			statusFilter = &s
+		default:
+			// An unknown value must not reach the enum cast: Postgres would
+			// refuse it and the operator would read a 500 for a typo.
+			httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+				Field: ptr("status"), Code: ptr("invalid"), Message: "status is not a deployment status",
+			}})
+			return
+		}
+	}
 	rows, err := a.Store.ListDeploymentsForResource(r.Context(), store.ListDeploymentsForResourceParams{
-		ResourceID: row.Resource.ID, AfterID: after, PageLimit: limit + 1,
+		ResourceID: row.Resource.ID, Status: statusFilter, AfterID: after, PageLimit: limit + 1,
 	})
 	if err != nil {
 		a.internalError(w, r, "list deployments", err)

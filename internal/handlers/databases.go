@@ -120,8 +120,17 @@ func (a *API) ListDatabases(w http.ResponseWriter, r *http.Request, params api.L
 	if !ok {
 		return
 	}
+	environmentUUID, ok := uuidFilter(w, r, params.EnvironmentUuid, "environment_uuid")
+	if !ok {
+		return
+	}
+	serverUUID, ok := uuidFilter(w, r, params.ServerUuid, "server_uuid")
+	if !ok {
+		return
+	}
 	rows, err := a.Store.ListDatabasesPage(r.Context(), store.ListDatabasesPageParams{
 		TeamID: id.TeamID, AfterID: after, PageLimit: limit + 1,
+		EnvironmentUuid: environmentUUID, ServerUuid: serverUUID,
 	})
 	if err != nil {
 		a.internalError(w, r, "list databases", err)

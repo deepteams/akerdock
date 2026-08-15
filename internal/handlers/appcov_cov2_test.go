@@ -324,6 +324,39 @@ func TestAppcovListApplicationsParameterValidation(t *testing.T) {
 	}
 }
 
+func TestAppcovListApplicationsRejectsMalformedUUIDFilters(t *testing.T) {
+	a, _ := appcovAPI(t)
+	cases := []struct {
+		name   string
+		params api.ListApplicationsParams
+	}{
+		{"project_uuid", api.ListApplicationsParams{ProjectUuid: ptr("not-a-uuid")}},
+		{"environment_uuid", api.ListApplicationsParams{EnvironmentUuid: ptr("not-a-uuid")}},
+		{"server_uuid", api.ListApplicationsParams{ServerUuid: ptr("not-a-uuid")}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			a.ListApplications(rec, appcovReq(http.MethodGet, "/x", ""), tc.params)
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d body = %s, want 422", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestAppcovListApplicationsAcceptsUUIDFilters(t *testing.T) {
+	a, _ := appcovAPI(t)
+	rec := httptest.NewRecorder()
+	// A valid filter and an explicit empty one (= no filter) must both pass.
+	a.ListApplications(rec, appcovReq(http.MethodGet, "/x", ""), api.ListApplicationsParams{
+		ProjectUuid: ptr(fixtureUUID), EnvironmentUuid: ptr(fixtureUUID), ServerUuid: ptr(""),
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s, want 200", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAppcovListApplicationsStoreFailure(t *testing.T) {
 	a, db := appcovAPI(t)
 	db.failOn("ListApplicationsPage", appcovDBErr())

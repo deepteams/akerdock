@@ -40,6 +40,8 @@ JOIN environments e ON e.id = r.environment_id
 JOIN projects p ON p.id = e.project_id
 JOIN servers srv ON srv.id = d.server_id
 WHERE r.team_id = sqlc.arg(team_id) AND r.deleted_at IS NULL AND r.resource_type = 'database'
+  AND (sqlc.narg(environment_uuid)::uuid IS NULL OR e.uuid = sqlc.narg(environment_uuid))
+  AND (sqlc.narg(server_uuid)::uuid IS NULL OR srv.uuid = sqlc.narg(server_uuid))
   AND (sqlc.arg(after_id)::bigint = 0 OR r.id < sqlc.arg(after_id))
 ORDER BY r.id DESC
 LIMIT sqlc.arg(page_limit);
